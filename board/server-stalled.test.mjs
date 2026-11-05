@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { until } from '../shared/test-helpers.mjs';
+import { until, boardListening } from '../shared/test-helpers.mjs';
 
 // Writes a file the running server may be reading the way the board does (write aside, then rename), so the server
 // never reads it half-written.
@@ -33,7 +33,7 @@ function launchingBoard(dir, siteDir) {
 }
 
 // docs/adr/2026-11-05-0200-a-stale-review-and-a-silent-builder-join-the-orchestrator-list.md
-test('a silent builder wakes the session once per silent spell through the orchestrator list, across a restart, and stops on done', async () => {
+test('a silent builder wakes the session once per silent spell through the orchestrator list, across a restart, and stops on done', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'builder-stalled-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -72,54 +72,47 @@ test('a silent builder wakes the session once per silent spell through the orche
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile },
     });
-    let errors = '';
-    worker.stderr.on('data', (chunk) => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-      worker.stdout.once('data', resolve);
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
-    });
+    await boardListening(worker);
   };
   const stop = async () => {
-    if (!worker || worker.exitCode !== null) return;
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
     const exited = new Promise((resolve) => worker.once('exit', resolve));
     worker.kill();
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 120));
   const advance = (minutes) => { now += minutes * 60000; put(clockFile, String(now)); };
-  try {
-    await start();
-    await tick();
-    assert.equal(wakes().length, 0);
-    advance(2);
-    await until(() => wakes().length === 1, 'the silent builder wakes the session');
-    assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since]), [['t/A1', 'stalled', started]]);
-    await stop();
-    await start();
-    await tick();
-    await tick();
-    assert.equal(wakes().length, 1, 'once across a restart');
-
-    const progress = new Date(now).toISOString();
-    put(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: progress, kind: 'status', text: 'Running tests' }) + '\n');
-    await until(() => waits().length === 0, 'progress ends the wait');
-    advance(31);
-    await until(() => wakes().length === 2, 'the next silent spell wakes it again');
-    assert.equal(waits()[0].since, progress);
-
-    put(agentFile, JSON.stringify({ kind: 'codex', started, done: new Date(now).toISOString() }));
-    await until(() => waits().every((w) => w.kind !== 'stalled'), 'finishing the builder ends the wait');
-    advance(60);
-    await tick();
-    assert.ok(waits().every((w) => w.kind !== 'stalled'), 'no silent-builder wait after done');
-  } finally {
+  t.after(async () => {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  await start();
+  await tick();
+  assert.equal(wakes().length, 0);
+  advance(2);
+  await until(() => wakes().length === 1, 'the silent builder wakes the session');
+  assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since]), [['t/A1', 'stalled', started]]);
+  await stop();
+  await start();
+  await tick();
+  await tick();
+  assert.equal(wakes().length, 1, 'once across a restart');
+
+  const progress = new Date(now).toISOString();
+  put(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: progress, kind: 'status', text: 'Running tests' }) + '\n');
+  await until(() => waits().length === 0, 'progress ends the wait');
+  advance(31);
+  await until(() => wakes().length === 2, 'the next silent spell wakes it again');
+  assert.equal(waits()[0].since, progress);
+
+  put(agentFile, JSON.stringify({ kind: 'codex', started, done: new Date(now).toISOString() }));
+  await until(() => waits().every((w) => w.kind !== 'stalled'), 'finishing the builder ends the wait');
+  advance(60);
+  await tick();
+  assert.ok(waits().every((w) => w.kind !== 'stalled'), 'no silent-builder wait after done');
 });
 
-test('a held card resumes itself within a minute of its pick-up time, once per time across a restart, announcing card-unblocked unless a dep is unfinished', async () => {
+test('a held card resumes itself within a minute of its pick-up time, once per time across a restart, announcing card-unblocked unless a dep is unfinished', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pick-up-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -166,49 +159,42 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile },
     });
-    let errors = '';
-    worker.stderr.on('data', (chunk) => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-      worker.stdout.once('data', resolve);
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
-    });
+    await boardListening(worker);
   };
   const stop = async () => {
-    if (!worker || worker.exitCode !== null) return;
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
     const exited = new Promise((resolve) => worker.once('exit', resolve));
     worker.kill();
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
-  try {
-    await start();
-    await tick();
-    assert.deepEqual(unblocked(), []);
-    assert.equal(items().A1.held, true);
-    await stop();
-
-    fs.appendFileSync(eventsFile, JSON.stringify({ id: 'e2', ts: iso(now), kind: 'card-unblocked', data: { key: 't/A5', until: at } }) + '\n');
-    now += 31 * 60000;
-    fs.writeFileSync(clockFile, String(now));
-    await start();
-    await until(() => !items().A1.held && !items().A2.held && !items().A5.held && items().A3.held_at, 'the due holds resume');
-    assert.deepEqual(unblocked().map((d) => [d.key, d.until]).sort(), [['t/A1', at], ['t/A3', at], ['t/A5', at]]);
-    assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
-    assert.deepEqual([items().A1.pick_up_at, items().A4.held], [undefined, true]);
-    await stop();
-    await start();
-    await tick();
-    assert.equal(unblocked().length, 3);
-    assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
-  } finally {
+  t.after(async () => {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  await start();
+  await tick();
+  assert.deepEqual(unblocked(), []);
+  assert.equal(items().A1.held, true);
+  await stop();
+
+  fs.appendFileSync(eventsFile, JSON.stringify({ id: 'e2', ts: iso(now), kind: 'card-unblocked', data: { key: 't/A5', until: at } }) + '\n');
+  now += 31 * 60000;
+  fs.writeFileSync(clockFile, String(now));
+  await start();
+  await until(() => !items().A1.held && !items().A2.held && !items().A5.held && items().A3.held_at, 'the due holds resume');
+  assert.deepEqual(unblocked().map((d) => [d.key, d.until]).sort(), [['t/A1', at], ['t/A3', at], ['t/A5', at]]);
+  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
+  assert.deepEqual([items().A1.pick_up_at, items().A4.held], [undefined, true]);
+  await stop();
+  await start();
+  await tick();
+  assert.equal(unblocked().length, 3);
+  assert.deepEqual(['A1', 'A2', 'A3', 'A5'].map(threadLines), [1, 1, 1, 0]);
 });
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-test('with auto implement on the board starts and launches the build of the top pullable Todo cards at start and on each change, filling free slots up to Maximum parallel implementers, once each across a restart, and never while paused', async () => {
+test('with auto implement on the board starts and launches the build of the top pullable Todo cards at start and on each change, filling free slots up to Maximum parallel implementers, once each across a restart, and never while paused', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-pull-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -270,79 +256,72 @@ test('with auto implement on the board starts and launches the build of the top 
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
     });
-    let errors = '';
-    worker.stderr.on('data', (chunk) => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-      worker.stdout.once('data', resolve);
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
-    });
+    await boardListening(worker);
   };
   const stop = async () => {
-    if (!worker || worker.exitCode !== null) return;
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
     const exited = new Promise((resolve) => worker.once('exit', resolve));
     worker.kill();
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
-  try {
-    // At start the running build takes one of the two slots; the top pullable card takes the other.
-    await start();
-    await until(() => pulls().length === 1 && thread('A5').length >= 2, 'the board pulls in a card at start');
-    assert.deepEqual(pulls(), ['t/A5']);
-    // The fake builder exits at once, so the minute check may relaunch it after these two lines.
-    assert.deepEqual(thread('A5').slice(0, 2).map((t) => t.replace(/ in .*/, '')), ['Pulled in: an implementer slot was free.', 'Builder launched on Claude Opus']);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'A5.json'), 'utf8')).dispatched, 'hub');
-    assert.ok(!fs.readFileSync(eventsFile, 'utf8').includes('card-pull'), 'no event wakes the session');
-    // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pull and
-    // the pick it started on are in the board's audit log, with what each read.
-    const logged = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    const pull = logged.find((e) => e.call === 'pull');
-    assert.deepEqual([pull.key, pull.result, pull.reason, pull.inputs.cap, pull.inputs.pullable.includes('t/A5')], ['t/A5', 'started', 'An implementer slot was free and it was the top ready card in Todo.', 2, true]);
-    const pick = logged.find((e) => e.call === 'builder-pick');
-    assert.deepEqual([pick.key, pick.result, pick.inputs.dispatch, pick.inputs.codex], ['t/A5', 'claude opus', 'hub', 'not logged in']);
-    assert.ok(logged.indexOf(pick) < logged.indexOf(pull), 'the pick is logged as the start makes it, the pull once the start returns');
-    await stop();
-    fs.rmSync(pulledFile, { force: true });
-    await start();
-    await tick();
-    assert.deepEqual(pulls(), ['t/A5'], 'a started build holds its slot without the marker');
-
-    // The running build finishing frees its slot at once.
-    put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
-    await until(() => pulls().length === 2, 'a freed slot is filled on the change');
-    assert.deepEqual(pulls(), ['t/A5', 't/A7']);
-
-    // Changed while the server is down: Orchestrator review takes A0's slot back, so A5 finishing frees none.
-    await stop();
-    setStatus('A0', 'checking');
-    finish('A5');
-    await start();
-    await tick();
-    assert.deepEqual(pulls(), ['t/A5', 't/A7']);
-    setStatus('A0', 'done');
-    await until(() => pulls().length === 3, 'the review ending frees a slot');
-    assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
-
-    put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
-    finish('A7');
-    await tick();
-    await tick();
-    assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
-    fs.rmSync(usageFile);
-    await until(() => pulls().length === 4, 'the pull waits for the pause to end');
-    assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6', 't/A4']);
-    assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
-    // The follow-up, filed with no state, is no pull but arrived in Todo, so it got its grill.
-    assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
-  } finally {
+  t.after(async () => {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  // At start the running build takes one of the two slots; the top pullable card takes the other.
+  await start();
+  await until(() => pulls().length === 1 && thread('A5').length >= 2, 'the board pulls in a card at start');
+  assert.deepEqual(pulls(), ['t/A5']);
+  // The fake builder exits at once, so the minute check may relaunch it after these two lines.
+  assert.deepEqual(thread('A5').slice(0, 2).map((t) => t.replace(/ in .*/, '')), ['Pulled in: an implementer slot was free.', 'Builder launched on Claude Opus']);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'A5.json'), 'utf8')).dispatched, 'hub');
+  assert.ok(!fs.readFileSync(eventsFile, 'utf8').includes('card-pull'), 'no event wakes the session');
+  // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pull and
+  // the pick it started on are in the board's audit log, with what each read.
+  const logged = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const pull = logged.find((e) => e.call === 'pull');
+  assert.deepEqual([pull.key, pull.result, pull.reason, pull.inputs.cap, pull.inputs.pullable.includes('t/A5')], ['t/A5', 'started', 'An implementer slot was free and it was the top ready card in Todo.', 2, true]);
+  const pick = logged.find((e) => e.call === 'builder-pick');
+  assert.deepEqual([pick.key, pick.result, pick.inputs.dispatch, pick.inputs.codex], ['t/A5', 'claude opus', 'hub', 'not logged in']);
+  assert.ok(logged.indexOf(pick) < logged.indexOf(pull), 'the pick is logged as the start makes it, the pull once the start returns');
+  await stop();
+  fs.rmSync(pulledFile, { force: true });
+  await start();
+  await tick();
+  assert.deepEqual(pulls(), ['t/A5'], 'a started build holds its slot without the marker');
+
+  // The running build finishing frees its slot at once.
+  put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
+  await until(() => pulls().length === 2, 'a freed slot is filled on the change');
+  assert.deepEqual(pulls(), ['t/A5', 't/A7']);
+
+  // Changed while the server is down: Orchestrator review takes A0's slot back, so A5 finishing frees none.
+  await stop();
+  setStatus('A0', 'checking');
+  finish('A5');
+  await start();
+  await tick();
+  assert.deepEqual(pulls(), ['t/A5', 't/A7']);
+  setStatus('A0', 'done');
+  await until(() => pulls().length === 3, 'the review ending frees a slot');
+  assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
+
+  put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
+  finish('A7');
+  await tick();
+  await tick();
+  assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
+  fs.rmSync(usageFile);
+  await until(() => pulls().length === 4, 'the pull waits for the pause to end');
+  assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6', 't/A4']);
+  assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
+  // The follow-up, filed with no state, is no pull but arrived in Todo, so it got its grill.
+  assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
 });
 
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md
-test('a card an Implement message released starts at once though In Progress is at Maximum parallel implementers', async () => {
+test('a card an Implement message released starts at once though In Progress is at Maximum parallel implementers', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queue-cap-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -362,22 +341,20 @@ test('a card an Implement message released starts at once though In Progress is 
   ] }));
   put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
   fs.writeFileSync(setup, "import http from 'node:http'; http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };");
-  
   const { claude, launched } = launchingBoard(dir, siteDir);
-  try {
-    worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], { env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, KICKFLIP_CLAUDE: claude } });
-    await new Promise((resolve, reject) => { worker.stdout.once('data', resolve); worker.once('exit', (code) => reject(new Error(`Server exited ${code}`))); });
-    await until(() => launched('build').length === 1, 'the released card starts past the cap');
-    assert.deepEqual(launched('build'), ['t/Q1']);
-    assert.equal(JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1').implement_at, undefined);
-  } finally {
-    if (worker?.exitCode === null) { const exited = new Promise((resolve) => worker.once('exit', resolve)); worker.kill(); await exited; }
+  t.after(async () => {
+    if (worker?.exitCode === null && worker.signalCode === null) { const exited = new Promise((resolve) => worker.once('exit', resolve)); worker.kill(); await exited; }
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], { env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, KICKFLIP_CLAUDE: claude } });
+  await boardListening(worker);
+  await until(() => launched('build').length === 1, 'the released card starts past the cap');
+  assert.deepEqual(launched('build'), ['t/Q1']);
+  assert.equal(JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1').implement_at, undefined);
 });
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
-test('with auto-triage on, a board sends overnight-triage once a night from the middle of quiet hours, when two cards wait on your answers and nothing builds', async () => {
+test('with auto-triage on, a board sends overnight-triage once a night from the middle of quiet hours, when two cards wait on your answers and nothing builds', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-triage-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -433,101 +410,94 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, TZ: 'UTC', BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
     });
-    let errors = '';
-    worker.stderr.on('data', (chunk) => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-      worker.stdout.once('data', resolve);
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
-    });
+    await boardListening(worker);
   };
   const stop = async () => {
-    if (!worker || worker.exitCode !== null) return;
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
     const exited = new Promise((resolve) => worker.once('exit', resolve));
     worker.kill();
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
-  try {
-    await start();
-    setClock(Date.parse('2026-11-03T03:00:00Z'));
-    ask('q2', 't/A3');
-    await tick();
-    assert.deepEqual(triages(), [], 'off by default');
-
-    setClock(Date.parse('2026-11-02T16:00:00Z'));
-    boardJSON(true);
-    await until(() => pulls().length === 1, 'the day\'s pull');
-    await tick();
-    assert.deepEqual(triages(), [], 'never in the day');
-    // The pulled build goes back to Todo unstarted, held so it isn't pulled again.
-    fs.rmSync(path.join(dataDir, 'agents', 'A1.json'));
-    wave.items[1].held = true;
-    writeWave();
-
-    agent(false);
-    setClock(Date.parse('2026-11-03T02:59:00Z'));
-    await tick();
-    assert.deepEqual(triages(), [], 'never before the middle of quiet hours');
-    setClock(Date.parse('2026-11-03T03:00:00Z'));
-    await tick();
-    await tick();
-    assert.deepEqual(triages(), [], 'a running builder holds it');
-
-    agent(true);
-    await until(() => triages().length === 1, 'the idle board triages overnight');
-    const [first] = triages();
-    assert.deepEqual({ ...first.data, cards: first.data.cards.sort() }, { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['t/A2', 't/A3'] });
-    assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).topics, [{ id: 'overnight-triage-2026-11-03', title: 'Overnight triage 2026-11-03' }]);
-    // The triage's own changes wait for its reply.
-    wave.items[2].title = 'Two, merged with a duplicate';
-    writeWave();
-    const markerFile = path.join(dataDir, 'triaged.json');
-    await until(() => fs.existsSync(markerFile) && fs.readFileSync(markerFile, 'utf8').includes('merged with a duplicate'), 'the server saw the triage\'s own change');
-    reply(first.id);
-    await tick();
-    await stop();
-    await start();
-    await tick();
-    assert.equal(triages().length, 1, 'once a night, across a restart');
-
-    setClock(Date.parse('2026-11-04T03:00:00Z'));
-    await tick();
-    await tick();
-    assert.equal(triages().length, 1, 'a night with nothing changed since the triage sends none');
-
-    setClock(Date.parse('2026-11-04T12:00:00Z'));
-    ask('q3', 't/A1');
-    await tick();
-    await tick();
-    setClock(Date.parse('2026-11-04T08:00:00Z'));
-    await tick();
-    await tick();
-    assert.equal(triages().length, 1, 'never once quiet hours end');
-    setClock(Date.parse('2026-11-05T03:00:00Z'));
-    await until(() => triages().length === 2, 'the minute check sends a changed board\'s triage the next night');
-    const second = triages()[1].data;
-    assert.deepEqual({ ...second, cards: second.cards.sort() }, { date: '2026-11-05', topic: 'overnight-triage-2026-11-05', cards: ['t/A1', 't/A2', 't/A3'] });
-    reply(triages()[1].id);
-
-    wave.items[1].title = 'One, renamed';
-    put(usageFile, JSON.stringify({ claude: { at: '2026-11-06T03:00:00.000Z', five_hour: { used_percentage: 95, resets_at: '2026-11-06T09:00:00.000Z' }, seven_day: { used_percentage: 40, resets_at: '2026-11-09T00:00:00.000Z' } } }));
-    setClock(Date.parse('2026-11-06T03:00:00Z'));
-    writeWave();
-    await tick();
-    await tick();
-    assert.equal(triages().length, 2, 'nothing while paused');
-    fs.rmSync(usageFile);
-    await until(() => triages().length === 3, 'the triage goes once the pause lifts');
-    assert.equal(triages()[2].data.date, '2026-11-06');
-  } finally {
+  t.after(async () => {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  await start();
+  setClock(Date.parse('2026-11-03T03:00:00Z'));
+  ask('q2', 't/A3');
+  await tick();
+  assert.deepEqual(triages(), [], 'off by default');
+
+  setClock(Date.parse('2026-11-02T16:00:00Z'));
+  boardJSON(true);
+  await until(() => pulls().length === 1, 'the day\'s pull');
+  await tick();
+  assert.deepEqual(triages(), [], 'never in the day');
+  // A0's builder starts before the pulled build goes back to Todo unstarted, held so it isn't pulled again: the server
+  // reads these files as they change, and between the two it would see an idle board.
+  agent(false);
+  fs.rmSync(path.join(dataDir, 'agents', 'A1.json'));
+  wave.items[1].held = true;
+  writeWave();
+  setClock(Date.parse('2026-11-03T02:59:00Z'));
+  await tick();
+  assert.deepEqual(triages(), [], 'never before the middle of quiet hours');
+  setClock(Date.parse('2026-11-03T03:00:00Z'));
+  await tick();
+  await tick();
+  assert.deepEqual(triages(), [], 'a running builder holds it');
+
+  agent(true);
+  await until(() => triages().length === 1, 'the idle board triages overnight');
+  const [first] = triages();
+  assert.deepEqual({ ...first.data, cards: first.data.cards.sort() }, { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['t/A2', 't/A3'] });
+  assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).topics, [{ id: 'overnight-triage-2026-11-03', title: 'Overnight triage 2026-11-03' }]);
+  // The triage's own changes wait for its reply.
+  wave.items[2].title = 'Two, merged with a duplicate';
+  writeWave();
+  const markerFile = path.join(dataDir, 'triaged.json');
+  await until(() => fs.existsSync(markerFile) && fs.readFileSync(markerFile, 'utf8').includes('merged with a duplicate'), 'the server saw the triage\'s own change');
+  reply(first.id);
+  await tick();
+  await stop();
+  await start();
+  await tick();
+  assert.equal(triages().length, 1, 'once a night, across a restart');
+
+  setClock(Date.parse('2026-11-04T03:00:00Z'));
+  await tick();
+  await tick();
+  assert.equal(triages().length, 1, 'a night with nothing changed since the triage sends none');
+
+  setClock(Date.parse('2026-11-04T12:00:00Z'));
+  ask('q3', 't/A1');
+  await tick();
+  await tick();
+  setClock(Date.parse('2026-11-04T08:00:00Z'));
+  await tick();
+  await tick();
+  assert.equal(triages().length, 1, 'never once quiet hours end');
+  setClock(Date.parse('2026-11-05T03:00:00Z'));
+  await until(() => triages().length === 2, 'the minute check sends a changed board\'s triage the next night');
+  const second = triages()[1].data;
+  assert.deepEqual({ ...second, cards: second.cards.sort() }, { date: '2026-11-05', topic: 'overnight-triage-2026-11-05', cards: ['t/A1', 't/A2', 't/A3'] });
+  reply(triages()[1].id);
+
+  wave.items[1].title = 'One, renamed';
+  put(usageFile, JSON.stringify({ claude: { at: '2026-11-06T03:00:00.000Z', five_hour: { used_percentage: 95, resets_at: '2026-11-06T09:00:00.000Z' }, seven_day: { used_percentage: 40, resets_at: '2026-11-09T00:00:00.000Z' } } }));
+  setClock(Date.parse('2026-11-06T03:00:00Z'));
+  writeWave();
+  await tick();
+  await tick();
+  assert.equal(triages().length, 2, 'nothing while paused');
+  fs.rmSync(usageFile);
+  await until(() => triages().length === 3, 'the triage goes once the pause lifts');
+  assert.equal(triages()[2].data.date, '2026-11-06');
 });
 
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-test('with auto-pull on, each card arriving in Todo gets a grill up to the planner cap, busy board or not, the rest in board order, once each, never while paused', async () => {
+test('with auto-pull on, each card arriving in Todo gets a grill up to the planner cap, busy board or not, the rest in board order, once each, never while paused', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-plan-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -578,71 +548,64 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
     });
-    let errors = '';
-    worker.stderr.on('data', (chunk) => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-      worker.stdout.once('data', resolve);
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
-    });
+    await boardListening(worker);
   };
   const stop = async () => {
-    if (!worker || worker.exitCode !== null) return;
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
     const exited = new Promise((resolve) => worker.once('exit', resolve));
     worker.kill();
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
-  try {
-    await start();
-    await tick();
-    const grills = () => fs.readFileSync(path.join(dir, 'launches.log'), 'utf8').split('\n').filter((l) => l.endsWith(' grill')).length;
-    assert.deepEqual(launched('grill', 'prototype', 'build'), [], 'nothing launches while usage is paused');
-    fs.rmSync(usageFile);
-    await until(() => launched('grill').length === 2 && launched('build').length === 1 && thread('B3').length === 2, 'the arrivals get their grills');
-    assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being newest first');
-    assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
-    assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
-    assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
-    const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
-    assert.deepEqual([record.kind, record.dispatched], ['grill', 'hub']);
-    await stop();
-    await start();
-    await tick();
-    await tick();
-    assert.equal(grills(), 2, 'an open grill is not launched again, and B2 waits for a slot');
-
-    // B4's grill posts a question and finishes: its slot goes to B2, the next arrival, which was filed prototyping, so
-    // it gets a prototype planner, not a grill.
-    put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B4')] }));
-    put(agentFile('B4'), JSON.stringify({ ...record, done: iso(now) }));
-    await until(() => launched('prototype').length === 1, 'the next arrival gets the free slot');
-    assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
-    assert.deepEqual(launched('prototype'), ['t/B2']);
-    assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);
-    assert.deepEqual(thread('B2')[0], 'Landed in Todo, so the board started its prototype.');
-    // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
-    const arrivals = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.call === 'arrival-planner');
-    assert.deepEqual(arrivals.map((e) => [e.key, e.result, e.reason, e.inputs.state]).sort(), [
-      ['t/B2', 'prototype', 'It landed in Todo filed prototyping.', 'prototyping'],
-      ['t/B3', 'grill', 'It landed in Todo, not filed prototyping.', 'grilling'],
-      ['t/B4', 'grill', 'It landed in Todo, not filed prototyping.', null],
-    ]);
-    // B3's grill finishes with no questions: one grill per arrival, so it isn't grilled again.
-    put(agentFile('B3'), JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile('B3'), 'utf8')), done: iso(now) }));
-    await tick();
-    await tick();
-    assert.equal(grills(), 2);
-    assert.deepEqual(logged('card-plan'), [], 'no event wakes the session');
-    assert.deepEqual(thread('B1'), [], 'a card with questions has had its grill');
-  } finally {
+  t.after(async () => {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  await start();
+  await tick();
+  const grills = () => fs.readFileSync(path.join(dir, 'launches.log'), 'utf8').split('\n').filter((l) => l.endsWith(' grill')).length;
+  assert.deepEqual(launched('grill', 'prototype', 'build'), [], 'nothing launches while usage is paused');
+  fs.rmSync(usageFile);
+  await until(() => launched('grill').length === 2 && launched('build').length === 1 && thread('B3').length === 2, 'the arrivals get their grills');
+  assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being newest first');
+  assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
+  assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
+  assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
+  const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
+  assert.deepEqual([record.kind, record.dispatched], ['grill', 'hub']);
+  await stop();
+  await start();
+  await tick();
+  await tick();
+  assert.equal(grills(), 2, 'an open grill is not launched again, and B2 waits for a slot');
+
+  // B4's grill posts a question and finishes: its slot goes to B2, the next arrival, which was filed prototyping, so
+  // it gets a prototype planner, not a grill.
+  put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B4')] }));
+  put(agentFile('B4'), JSON.stringify({ ...record, done: iso(now) }));
+  await until(() => launched('prototype').length === 1, 'the next arrival gets the free slot');
+  assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
+  assert.deepEqual(launched('prototype'), ['t/B2']);
+  assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);
+  assert.deepEqual(thread('B2')[0], 'Landed in Todo, so the board started its prototype.');
+  // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+  const arrivals = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.call === 'arrival-planner');
+  assert.deepEqual(arrivals.map((e) => [e.key, e.result, e.reason, e.inputs.state]).sort(), [
+    ['t/B2', 'prototype', 'It landed in Todo filed prototyping.', 'prototyping'],
+    ['t/B3', 'grill', 'It landed in Todo, not filed prototyping.', 'grilling'],
+    ['t/B4', 'grill', 'It landed in Todo, not filed prototyping.', null],
+  ]);
+  // B3's grill finishes with no questions: one grill per arrival, so it isn't grilled again.
+  put(agentFile('B3'), JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile('B3'), 'utf8')), done: iso(now) }));
+  await tick();
+  await tick();
+  assert.equal(grills(), 2);
+  assert.deepEqual(logged('card-plan'), [], 'no event wakes the session');
+  assert.deepEqual(thread('B1'), [], 'a card with questions has had its grill');
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
-test('an idle board with auto review on sends pr-review for one incoming PR at a time, asked first, never while a builder runs or usage is paused', async () => {
+test('an idle board with auto review on sends pr-review for one incoming PR at a time, asked first, never while a builder runs or usage is paused', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-review-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -683,55 +646,48 @@ test('an idle board with auto review on sends pr-review for one incoming PR at a
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile },
     });
-    let errors = '';
-    worker.stderr.on('data', (chunk) => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-      worker.stdout.once('data', resolve);
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
-    });
+    await boardListening(worker);
   };
   const stop = async () => {
-    if (!worker || worker.exitCode !== null) return;
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
     const exited = new Promise((resolve) => worker.once('exit', resolve));
     worker.kill();
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
-  try {
-    await start();
-    await tick();
-    fs.rmSync(usageFile);
-    await tick();
-    assert.deepEqual(sent(), [], 'off by default');
-    boardJSON(true);
-    await tick();
-    await tick();
-    assert.deepEqual(sent(), [], 'a running builder keeps the board from being idle');
-    put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
-    put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
-    await tick();
-    await tick();
-    assert.deepEqual(sent(), [], 'nothing while paused');
-    fs.rmSync(usageFile);
-    await until(() => sent().length === 1, 'the idle board asks for a review');
-    assert.deepEqual(sent()[0], { pr: 442, head: 'h442', repo: 'o/r', title: 'PR 442', author: 'quinn', url: 'https://github.com/o/r/pull/442', touches: ['t/A1'], asked: true });
-    await stop();
-    await start();
-    await tick();
-    await tick();
-    assert.equal(sent().length, 1, 'one at a time, across a restart');
-    put(path.join(dataDir, 'reviews.json'), JSON.stringify({ 442: { ...pr(442, true), state: 'posted', text: 'Fine.', at: iso(now + 1000) } }));
-    await until(() => sent().length === 2, 'the next PR follows the recorded review');
-    assert.equal(sent()[1].pr, 440);
-  } finally {
+  t.after(async () => {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  await start();
+  await tick();
+  fs.rmSync(usageFile);
+  await tick();
+  assert.deepEqual(sent(), [], 'off by default');
+  boardJSON(true);
+  await tick();
+  await tick();
+  assert.deepEqual(sent(), [], 'a running builder keeps the board from being idle');
+  put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
+  put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
+  await tick();
+  await tick();
+  assert.deepEqual(sent(), [], 'nothing while paused');
+  fs.rmSync(usageFile);
+  await until(() => sent().length === 1, 'the idle board asks for a review');
+  assert.deepEqual(sent()[0], { pr: 442, head: 'h442', repo: 'o/r', title: 'PR 442', author: 'quinn', url: 'https://github.com/o/r/pull/442', touches: ['t/A1'], asked: true });
+  await stop();
+  await start();
+  await tick();
+  await tick();
+  assert.equal(sent().length, 1, 'one at a time, across a restart');
+  put(path.join(dataDir, 'reviews.json'), JSON.stringify({ 442: { ...pr(442, true), state: 'posted', text: 'Fine.', at: iso(now + 1000) } }));
+  await until(() => sent().length === 2, 'the next PR follows the recorded review');
+  assert.equal(sent()[1].pr, 440);
 });
 
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
-test("a question's prototype request still waiting 30 minutes on with no prototype agent running is raised as prototype-overdue, once across a restart", async () => {
+test("a question's prototype request still waiting 30 minutes on with no prototype agent running is raised as prototype-overdue, once across a restart", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prototype-overdue-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -765,41 +721,34 @@ test("a question's prototype request still waiting 30 minutes on with no prototy
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile },
     });
-    let errors = '';
-    worker.stderr.on('data', (chunk) => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-      worker.stdout.once('data', resolve);
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
-    });
+    await boardListening(worker);
   };
   const stop = async () => {
-    if (!worker || worker.exitCode !== null) return;
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
     const exited = new Promise((resolve) => worker.once('exit', resolve));
     worker.kill();
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 120));
-  try {
-    await start();
-    await tick();
-    assert.deepEqual(overdue(), [], 'twenty minutes in, it still waits quietly');
-    now += 11 * 60000;
-    put(clockFile, String(now));
-    await until(() => overdue().length === 1, 'the request is raised past 30 minutes');
-    assert.deepEqual(overdue(), [{ key: 't/A1', request: 'r1', question: 'q0', since }]);
-    await stop();
-    await start();
-    await tick();
-    assert.equal(overdue().length, 1);
-  } finally {
+  t.after(async () => {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  await start();
+  await tick();
+  assert.deepEqual(overdue(), [], 'twenty minutes in, it still waits quietly');
+  now += 11 * 60000;
+  put(clockFile, String(now));
+  await until(() => overdue().length === 1, 'the request is raised past 30 minutes');
+  assert.deepEqual(overdue(), [{ key: 't/A1', request: 'r1', question: 'q0', since }]);
+  await stop();
+  await start();
+  await tick();
+  assert.equal(overdue().length, 1);
 });
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-test('a card that comes to wait on the orchestrator wakes the session once, and pushes the owner once 30 minutes on, across a restart', async () => {
+test('a card that comes to wait on the orchestrator wakes the session once, and pushes the owner once 30 minutes on, across a restart', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestrator-waits-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -842,53 +791,46 @@ test('a card that comes to wait on the orchestrator wakes the session once, and 
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls },
     });
-    let errors = '';
-    worker.stderr.on('data', (chunk) => { errors += chunk; });
-    await new Promise((resolve, reject) => {
-      worker.stdout.once('data', resolve);
-      worker.once('error', reject);
-      worker.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
-    });
+    await boardListening(worker);
   };
   const stop = async () => {
-    if (!worker || worker.exitCode !== null) return;
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
     const exited = new Promise((resolve) => worker.once('exit', resolve));
     worker.kill();
     await exited;
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 120));
-  try {
-    await start();
-    await until(() => waits() !== null, 'the first wait check');
-    assert.deepEqual(waits(), [], 'a live builder owns the card');
-    // builder done hands it back with its calls: no event of its own, yet the list wakes the session.
-    put(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'checking', status_at: handedAt, next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two' }] }));
-    await until(() => wakes().length === 1, 'the hand-back wakes the session');
-    assert.deepEqual(wakes(), [{ added: ['t/A1'] }]);
-    assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since, w.picked]), [['t/A1', 'calls', handedAt, null]]);
-    assert.equal(pushes().length, 0, 'five minutes in, no push');
-    await tick();
-    assert.equal(wakes().length, 1, 'once');
-    now += 26 * 60000;
-    put(clockFile, String(now));
-    await until(() => pushes().length === 1, 'pushed 30 minutes on');
-    assert.equal(flag(pushes()[0], 'title'), 'A1 waits on the orchestrator');
-    assert.equal(flag(pushes()[0], 'body'), "One: Verify the builder's judgment calls");
-    assert.equal(flag(pushes()[0], 'tag'), 'wait-t/A1');
-    await until(() => waits()[0].pushed === true, 'the push is kept');
-    await stop();
-    await start();
-    await tick();
-    await tick();
-    assert.equal(wakes().length, 1, 'no second wake after a restart');
-    assert.equal(pushes().length, 1, 'no second push after a restart');
-    // The session's thread line picks it up: it stays on the list, picked, and wakes nothing.
-    const picked = new Date(now).toISOString();
-    put(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: picked, who: 'claude', text: 'Checking the calls.' }) + '\n');
-    await until(() => waits()[0].picked === picked, 'picked up');
-    assert.equal(wakes().length, 1);
-  } finally {
+  t.after(async () => {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
+  await start();
+  await until(() => waits() !== null, 'the first wait check');
+  assert.deepEqual(waits(), [], 'a live builder owns the card');
+  // builder done hands it back with its calls: no event of its own, yet the list wakes the session.
+  put(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'checking', status_at: handedAt, next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two' }] }));
+  await until(() => wakes().length === 1, 'the hand-back wakes the session');
+  assert.deepEqual(wakes(), [{ added: ['t/A1'] }]);
+  assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since, w.picked]), [['t/A1', 'calls', handedAt, null]]);
+  assert.equal(pushes().length, 0, 'five minutes in, no push');
+  await tick();
+  assert.equal(wakes().length, 1, 'once');
+  now += 26 * 60000;
+  put(clockFile, String(now));
+  await until(() => pushes().length === 1, 'pushed 30 minutes on');
+  assert.equal(flag(pushes()[0], 'title'), 'A1 waits on the orchestrator');
+  assert.equal(flag(pushes()[0], 'body'), "One: Verify the builder's judgment calls");
+  assert.equal(flag(pushes()[0], 'tag'), 'wait-t/A1');
+  await until(() => waits()[0].pushed === true, 'the push is kept');
+  await stop();
+  await start();
+  await tick();
+  await tick();
+  assert.equal(wakes().length, 1, 'no second wake after a restart');
+  assert.equal(pushes().length, 1, 'no second push after a restart');
+  // The session's thread line picks it up: it stays on the list, picked, and wakes nothing.
+  const picked = new Date(now).toISOString();
+  put(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: picked, who: 'claude', text: 'Checking the calls.' }) + '\n');
+  await until(() => waits()[0].picked === picked, 'picked up');
+  assert.equal(wakes().length, 1);
 });

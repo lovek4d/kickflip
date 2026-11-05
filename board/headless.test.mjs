@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until } from '../shared/test-helpers.mjs';
+import { freePorts, until, boardListening } from '../shared/test-helpers.mjs';
 import { builderBrief, landerBrief, plannerBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts } from './store.mjs';
 
@@ -156,7 +156,7 @@ test("the server launches the builder for a tap and a pull instead of waking the
   const base = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
   try {
-    await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+    await boardListening(child);
     // The verified card with no open question gets one lander; the one whose deferred ask waits on the owner gets none yet.
     await until(() => runs().length === 1, 'the lander launches');
     const [landing] = runs();
@@ -234,7 +234,7 @@ test('a lander whose process is gone while its card reads building (the usage pa
   const [port] = await freePorts();
   const serve = async () => {
     const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
-    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    await boardListening(server);
     return server;
   };
   let child = await serve();
@@ -343,7 +343,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   const [port] = await freePorts();
   const child = spawn(process.execPath, ['--import', setup, path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
   try {
-    await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+    await boardListening(child);
     // Until the fake builder has written its whole first line, not just created the file.
     await until(() => fs.existsSync(seen) && fs.readFileSync(seen, 'utf8').includes('\n'), 'the dead builder is relaunched');
     assert.match(JSON.parse(fs.readFileSync(seen, 'utf8').trim().split('\n')[0]).argv[1], /builder start t\/R1 --kind build/);
@@ -396,7 +396,7 @@ function oneLaunchBoard(items, bin) {
   async function start() {
     const [port] = await freePorts();
     const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
-    await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+    await boardListening(child);
     const send = (kind, body) => fetch(`http://127.0.0.1:${port}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...body }) }).then((r) => r.json());
     return { child, send };
   }

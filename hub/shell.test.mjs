@@ -159,12 +159,17 @@ test("a watcher file written or removed in a board's data folder sends the sideb
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stream-watch-'));
   fs.mkdirSync(path.join(dir, 'data'));
   let listening = false;
-  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], sidebar: async () => ({ listening }), retryMs: 30, settleMs: 10, sidebarMs: 60_000 });
+  let reads = 0;
+  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], sidebar: async () => { reads++; return { listening }; }, retryMs: 30, settleMs: 10, sidebarMs: 60_000 });
   const hub = http.createServer((req, res) => relay.handle(req, res));
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const page = listen(hub.address().port);
   try {
     await until(() => page.events.length === 1, 'the initial sidebar');
+    // A Mac's file watch goes live a moment after fs.watch returns, and under load misses a write made before then. So the
+    // test writes the watcher file, the sidebar unchanged, until the hub reads the sidebar for it.
+    const before = reads;
+    await until(() => { fs.writeFileSync(path.join(dir, 'data', 'watcher.json'), '{}'); return reads > before; }, 'the hub watching the data folder');
     listening = true;
     fs.writeFileSync(path.join(dir, 'data', 'watcher.json'), '{"pid":1}');
     await until(() => page.events.some((e) => e.data.listening), 'the sidebar after the watcher starts');

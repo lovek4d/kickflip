@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardSees, freePorts, until, ownSession } from '../shared/test-helpers.mjs';
+import { boardSees, freePorts, until, ownSession, boardListening } from '../shared/test-helpers.mjs';
 
 let home, site, child, base;
 const uploads = () => path.join(site, 'data', 'uploads');
@@ -26,7 +26,7 @@ before(async () => {
   fs.writeFileSync(path.join(home, 'merge-stub.mjs'), `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(path.join(home, 'merges.jsonl'))}, JSON.stringify(process.argv.slice(2)) + '\\n');`);
   const mergeEnv = { KICKFLIP_MERGE_CMD: JSON.stringify([process.execPath, path.join(home, 'merge-stub.mjs')]) };
   child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv } });
-  await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+  await boardListening(child);
   await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
 });
 
@@ -305,7 +305,7 @@ test('a copied starter refuses cross-site writes and accepts same-origin JSON an
   const url = `http://127.0.0.1:${port}`;
   const server = spawn(process.execPath, [path.join(root, 'server.mjs')], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '/plain' } });
   try {
-    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    await boardListening(server);
     const post = (headers, body = '{"kind":"message","text":"Hello"}') => fetch(`${url}/plain/_claude/events`, { method: 'POST', headers, body });
     for (const headers of [
       { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
@@ -902,7 +902,7 @@ test('with thousands of folders and lock folders coming and going, the board ans
   const exited = new Promise((resolve) => server.once('exit', resolve));
   let req, churn;
   try {
-    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    await boardListening(server);
     req = http.get(`http://127.0.0.1:${port}/api/stream`);
     const res = await new Promise((resolve, reject) => req.once('response', resolve).once('error', reject));
     res.setEncoding('utf8');
@@ -1088,7 +1088,7 @@ test('try forwards only the board route and key over loopback, returning hub sta
   });
   const exited = new Promise((resolve) => server.once('exit', resolve));
   try {
-    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    await boardListening(server);
     const post = (body) => fetch(`http://127.0.0.1:${boardPort}/api/try`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-host': 'mac.example' }, body: JSON.stringify(body) });
     assert.equal((await post({ key: 't/A1' })).status, 202);
     assert.deepEqual(seen[0].slice(0, 2), ['/_hub/build', { route: 'own-route', key: 't/A1' }]);

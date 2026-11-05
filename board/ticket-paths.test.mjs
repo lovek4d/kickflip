@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { fakeLinear, freePorts, linearWorld } from '../shared/test-helpers.mjs';
+import { fakeLinear, freePorts, linearWorld, boardListening } from '../shared/test-helpers.mjs';
 import { fakeGh } from '../shared/fake-gh.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 
@@ -135,7 +135,7 @@ test("the board server's Run review route and arch file give their cards tickets
   const [port] = await freePorts();
   const child = spawn(process.execPath, [path.join(here, 'server.mjs'), b.site], { env: { ...env, PORT: String(port) } });
   t.after(async () => { child.kill(); await served.close(); });
-  await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+  await boardListening(child);
   const post = async (p, body) => { const r = await fetch(`http://127.0.0.1:${port}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
 
   assert.equal((await post('/api/settings', { tickets: { source: 'github' } })).status, 200);

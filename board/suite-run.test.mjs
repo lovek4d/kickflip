@@ -71,3 +71,22 @@ test('a suite that passes resolves with its counts and saves no log', async (t) 
   assert.deepEqual(await nodeTests(tree), { ok: true, pass: 2, fail: 0 });
   assert.equal(fs.existsSync(path.join(dir, '.claude', 'kickflip', 'logs')), false);
 });
+
+test('a child a passing test left running is killed as the run exits', async (t) => {
+  const dir = home(t);
+  const tree = path.join(dir, 'tree');
+  fs.mkdirSync(tree);
+  const pidFile = path.join(dir, 'child.pid');
+  fs.writeFileSync(path.join(tree, 'leaves.test.mjs'), `import test from 'node:test';
+import fs from 'node:fs';
+import { spawn } from 'node:child_process';
+test('leaves a child running', () => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  child.unref();
+  fs.writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
+});
+`);
+  assert.deepEqual(await nodeTests(tree), { ok: true, pass: 1, fail: 0 });
+  const child = Number(fs.readFileSync(pidFile, 'utf8'));
+  await until(() => !alive(child), 'the child the test left never died');
+});

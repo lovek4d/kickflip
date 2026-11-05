@@ -21,6 +21,24 @@ export async function freePorts(count = 1) {
   }
 }
 
+// Resolves once the board server child prints its listening line. A line it logs before that, such as a startup
+// migration's, comes while it still writes its files under lock, so a test that stopped it there would leave the lock
+// behind. Rejects with its stderr if it exits first.
+export function boardListening(child) {
+  return new Promise((resolve, reject) => {
+    let out = '';
+    let errors = '';
+    const read = (chunk) => {
+      out += chunk;
+      if (/^site on /m.test(out)) { child.stdout.off('data', read); resolve(); }
+    };
+    child.stdout.on('data', read);
+    child.stderr?.on('data', (chunk) => { errors += chunk; });
+    child.once('error', reject);
+    child.once('exit', (code) => reject(new Error(`Server exited ${code}: ${errors}`)));
+  });
+}
+
 export async function until(predicate, message, timeout = 30000) {
   const deadline = Date.now() + timeout;
   while (!await predicate()) {

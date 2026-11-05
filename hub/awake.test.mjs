@@ -50,7 +50,13 @@ test('the hub runs caffeinate -ims while Keep awake is on, stops it when turned 
     hub.kill('SIGTERM');
     await exited;
   };
-  t.after(async () => { await stopHub(); fs.rmSync(home, { recursive: true, force: true }); });
+  // Each caffeinate writes its last log line in home as it exits, so home is removed once they all have.
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  t.after(async () => {
+    await stopHub();
+    await until(() => lines().filter((l) => l.startsWith('start ')).every((l) => !alive(Number(l.split(' ')[1]))), 'every caffeinate exited');
+    fs.rmSync(home, { recursive: true, force: true });
+  });
   const post = async (keepAwake) => {
     const r = await fetch(`${base}/_hub/settings/keep-awake`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ keep_awake: keepAwake }) });
     return [r.status, await r.json()];

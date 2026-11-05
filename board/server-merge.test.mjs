@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fakeGh, prView, writePR, writeReviews, calls } from '../shared/fake-gh.mjs';
-import { freePorts } from '../shared/test-helpers.mjs';
+import { freePorts, boardListening } from '../shared/test-helpers.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'server-merge-'));
 let child;
@@ -26,7 +26,7 @@ test("the Merge tap merges the card in the board server, and a refusal answers t
   const [port] = await freePorts();
   const base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '', PATH: `${fakeGh(home)}:${process.env.PATH}` } });
-  await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+  await boardListening(child);
   const tap = (key) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-merge', key }) });
   const items = () => JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items;
   const thread = (key) => fs.readFileSync(path.join(data, 'threads', `${key.replace('/', '__')}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse).map((l) => l.text);

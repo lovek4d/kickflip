@@ -357,6 +357,9 @@ async function appendEvents(list) {
   const lines = list.map(([kind, data]) => ({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), ts, kind, data }));
   await fs.mkdir(replies, { recursive: true });
   await fs.appendFile(events, lines.map((e) => JSON.stringify(e) + '\n').join(''));
+  // A check that runs again before the watcher reports this write would otherwise read the board without it and send
+  // the same event twice.
+  dataVersion++;
   return lines.map((e) => e.id);
 }
 
@@ -604,9 +607,10 @@ async function archivedCards(entries) {
 const route = prefix.slice(1) || path.basename(here);
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
-// The version of the board's data: it steps on each write the watcher sees (changed); in a request that may write as
-// it starts, so it reads the files as they are, before each read after its writes (pageBoard, recordAnswers) and as it
-// answers (send); each minute, since the board reads the clock; and each time gh brings back a changed PR state.
+// The version of the board's data: it steps on each write the watcher sees (changed) and on each event the server
+// appends itself (appendEvents); in a request that may write as it starts, so it reads the files as they are, before
+// each read after its writes (pageBoard, recordAnswers) and as it answers (send); each minute, since the board reads
+// the clock; and each time gh brings back a changed PR state.
 // sharedBoard builds the board once per data version and outsideData, read on each call, and every reader of
 // that pair shares the one build, which none of them changes. The hub's side, the session's prompts and whether it
 // listens, is board()'s to add (withHub).

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardSees, freePorts } from '../shared/test-helpers.mjs';
+import { boardSees, freePorts, boardListening } from '../shared/test-helpers.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 
 const serverFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
@@ -35,7 +35,7 @@ async function boardServer({ items = 'data/wave.json', site: entry = {}, skills 
   const [port] = await freePorts();
   const child = spawn(process.execPath, [serverFile, site], { env: { ...process.env, HOME: home, PORT: String(port) } });
   children.push(child);
-  await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
+  await boardListening(child);
   const base = `http://127.0.0.1:${port}`;
   return {
     home, site, base,

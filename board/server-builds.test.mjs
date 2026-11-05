@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until } from '../shared/test-helpers.mjs';
+import { freePorts, until, boardListening } from '../shared/test-helpers.mjs';
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
 // Each board build reads the wave file once, so the server's reads of it count its builds.
@@ -37,7 +37,7 @@ test('each change signal builds the board once for every check and the page that
   const worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PORT: String(port) } });
   let page;
   try {
-    await new Promise((resolve, reject) => { worker.stdout.once('data', resolve); worker.once('exit', reject); });
+    await boardListening(worker);
     await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
     let signals = 0;
     let loads = 0;
