@@ -216,7 +216,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const refusal = lane === 'todo' && newest?.kind === BUILD_REFUSED ? newest.text : null;
   // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
   // When the card last came into In Progress: its reopening, else its latest build agent's start, else its status change.
-  const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop() || it.queued_at || it.implement_at
+  const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop() || it.implement_at
     || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
   const approved = pr?.reviewDecision === 'APPROVED';
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
@@ -233,7 +233,6 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     ownerStep: awaitsDone ? ownerStep : null,
     // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
-    queuedAt: lane !== 'done' ? it.queued_at || null : null, queued: false,
     // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
     implementAt: lane !== 'done' ? it.implement_at || null : null,
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
@@ -337,8 +336,8 @@ function actionButtonOf(it) {
 
 // docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md
 // The open card's Build: on a work card still unstarted in Todo, held or not, that waits on nothing from the owner and
-// has a take picked on its prototypes (noTakePicked). On a card an unfinished dep blocks, the tap queues the build
-// (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
+// has a take picked on its prototypes (noTakePicked). On a card an unfinished dep blocks, the tap bumps it
+// (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.action && !it.unpicked;
 
 // docs/adr/2026-11-03-0504-a-prototype-pick-is-the-builds-go.md
@@ -396,10 +395,9 @@ function placeOwnerWait(it, questionById, autoMerge) {
 // docs/adr/2026-10-29-1639-a-started-card-never-returns-to-todo.md
 // docs/adr/2026-11-03-0202-a-card-moves-to-in-progress-only-once-building-starts.md
 // A work card has started once building has: a build agent's record, running or finished, or a building or fixing
-// status. A PR, a pushed branch and checking place it on their own (laneOf). A build the owner queued on a blocked card
-// counts too (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md), and so does an Implement message waiting on
-// the orchestrator (docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
-const started = (it) => it.queuedAt || it.implementAt || it.agents.some(builds) || ['building', 'fixing'].includes(String(it.status || '').toLowerCase());
+// status. A PR, a pushed branch and checking place it on their own (laneOf). An Implement message's card counts too, until
+// its build starts (docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
+const started = (it) => it.implementAt || it.agents.some(builds) || ['building', 'fixing'].includes(String(it.status || '').toLowerCase());
 
 // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md
 // An In Progress card shows its builder line while a builder record is open, else its Next. buildBoard gives one with
@@ -407,10 +405,10 @@ const started = (it) => it.queuedAt || it.implementAt || it.agents.some(builds) 
 export const NO_NEXT = 'none set yet';
 // Whether a work item's wave entry and builder records leave its card started with no open record and no Next, where
 // nothing else gives it a line or places it: a PR or pushed branch (GitHub or the owner's merge words most of those,
-// and buildBoard's gap the rest), checking, a hold, a queued build, whose blockers fill the place, or a finished status.
+// and buildBoard's gap the rest), checking, a hold, an Implement message's wait, or a finished status.
 export function owesNext(item, records) {
   const status = String(item.status || '').toLowerCase();
-  if (item.next || hasPR(item) || item.pushed || item.held || item.queued_at || item.implement_at || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
+  if (item.next || hasPR(item) || item.pushed || item.held || item.implement_at || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
   const agents = records.filter((r) => r?.started);
   return !agents.some((r) => !r.done) && started({ status, agents });
 }
@@ -676,13 +674,12 @@ const ANSWERS_SUBMITTED = 'answers submitted';
 const QUICK_BUILD = 'quick build: no grill';
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
 // A Todo card's thread box sends with Reply (intent: 'reply') or Implement (intent: 'build'), and its message's footer
-// names that button; Implement adds queued while its card waits on the orchestrator from that message on (implementAt).
-// A bare Implement is a request line. A one-button box's message carries no intent and has no footer.
+// names that button. A bare Implement is a request line. A one-button box's message carries no intent and has no footer.
 const INTENT_LABELS = { reply: 'Reply', build: 'Implement' };
-const intentLabel = (e, implementAt) => [INTENT_LABELS[e.data.intent], e.data.intent === 'build' && implementAt && String(e.ts) >= String(implementAt) && 'queued'].filter(Boolean).join(' · ');
+const intentLabel = (e) => INTENT_LABELS[e.data.intent];
 const bareMessage = (e) => e.kind === 'item-message' && !String(e.data.text || '').trim() && !e.data.files?.length;
-const actionText = (e, asked, implementAt) => {
-  if (bareMessage(e) && e.data.intent === 'build') return intentLabel(e, implementAt);
+const actionText = (e, asked) => {
+  if (bareMessage(e) && e.data.intent === 'build') return intentLabel(e);
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || (e.data.files?.length ? '' : routeRecord(ACTION_LABELS, e.kind)) || '';
   const q = asked.get(e.data.question);
   const o = (q.options || []).find((x) => x.id === e.data.choice);
@@ -690,8 +687,8 @@ const actionText = (e, asked, implementAt) => {
 };
 // A Grill or Prototype request: bare (the request line) or carrying the owner's text, files or question (a message with
 // its status); a thread message has its button's label as its status (intentLabel).
-const requestOf = (e, asked, implementAt) => {
-  if (e.kind === 'item-message') return bareMessage(e) && e.data.intent === 'build' ? { request: true } : INTENT_LABELS[e.data.intent] ? { status: intentLabel(e, implementAt) } : {};
+const requestOf = (e, asked) => {
+  if (e.kind === 'item-message') return bareMessage(e) && e.data.intent === 'build' ? { request: true } : INTENT_LABELS[e.data.intent] ? { status: intentLabel(e) } : {};
   if (e.kind !== 'grill-more' && e.kind !== 'prototype-request') return e.kind === 'reask-request' ? { request: true } : {};
   return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : { request: true };
 };
@@ -732,8 +729,7 @@ const withLog = (m) => {
   const legacy = !m.log && typeof m.text === 'string' ? LEGACY_LOG.exec(m.text) : null;
   return legacy ? { ...m, text: `${m.text.slice(0, legacy.index)}.`, log: legacy[1] } : m;
 };
-// implementAt is the card's implement_at: an Implement message from then on reads queued.
-export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], implementAt = null, index = threadIndex(events, owner) }) {
+export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
   const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
@@ -757,8 +753,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
-      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked, implementAt), files: e.data.files || [], eventId: e.id, reply: e.reply,
-        ...requestOf(e, asked, implementAt) })),
+      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
+        ...requestOf(e, asked) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, status: ANSWERS_SUBMITTED };
@@ -858,7 +854,6 @@ export const lineupPhases = (lineup) => lineup.phases || lineup.items.map((id) =
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   skipDraft: board.json's skip_draft (true leaves a draft to the hub's poll, which marks it ready once CI passes, so
 //   no draft gets the owner's review),
-//   autoPull: board.json's auto_pull (true puts every card ready to build in In Progress's Queued section),
 //   autoBuild: board.json's auto_build (true leaves card runs to the hub, so no card gets the owner's Serve / Build),
 //   threads also holds each ask's lines under ask:<event id>; github: the board's owner/name, or remote: its git link
 //   on another host, and branch: the board's branch;
@@ -1048,15 +1043,10 @@ export function buildBoard(snapshot) {
   };
   const workingOn = events.filter((e) => routeRecord(working, e.id) && unanswered(e))
     .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
-  // docs/adr/2026-11-04-0150-queued-sits-at-the-top-of-todo.md: Todo's Queued section holds the cards the owner
-  // tapped Implement on that wait to start, and while Auto implement is on every card ready to build (queueable). A queued
-  // card sorts by when it was asked for: its tap, else when it was made.
-  const autoPull = snapshot.autoPull === true;
   for (const it of items) {
     it.working = workingOn.some((w) => w.key === it.key);
-    if (it.kind === 'work' && ((it.lane === 'progress' && it.queuedAt) || (autoPull && it.lane === 'todo' && queueable(it)))) Object.assign(it, { lane: 'todo', queued: true });
-    if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working && !it.queued && !it.implementAt) it.next = NO_NEXT;
-    it.sortAt = (it.queued ? it.queuedAt || it.created : SORT_AT[it.lane](it)) || (['review', 'stale'].includes(it.lane) ? null : it.updatedAt) || null;
+    if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working && !it.implementAt) it.next = NO_NEXT;
+    it.sortAt = SORT_AT[it.lane](it) || (['review', 'stale'].includes(it.lane) ? null : it.updatedAt) || null;
   }
   for (const it of items) {
     if (it.kind !== 'work') continue;
@@ -1204,8 +1194,8 @@ export function needsAnswer(b) {
 }
 
 // A card ready to build: an unstarted work card that isn't held, with state ready, nothing blocking it, no question
-// open or waiting on Claude and no grill under way (docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
-const queueable = (i) => i.buildable && i.state === 'ready' && !i.held && !i.unsorted && !i.blockedBy.length && !i.questions?.open && !i.questions?.answered && !i.grilling && !i.prototyping;
+// open or waiting on Claude and no grill under way.
+const pullableCard = (i) => i.buildable && i.state === 'ready' && !i.held && !i.unsorted && !i.blockedBy.length && !i.questions?.open && !i.questions?.answered && !i.grilling && !i.prototyping;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum parallel implementers when board.json sets none.
@@ -1216,23 +1206,21 @@ export const MAX_IMPLEMENTERS = 10;
 // builds on: implementers counts the open cards with a running build or waiting in Orchestrator review, a running
 // planner and a card waiting on the owner counting as no work
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md); idle while there are none.
-// pullable lists the queueable cards no message a session is working on, in board order
-// (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
+// pullable lists the cards ready to build no message a session is working on, in board order, so bumped first and the
+// rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
 // waiting lists the pulled cards not yet started that still hold a slot: pullable, or still in Todo with a session
-// working on them. The free slots, the cap less the implementers and waiting, take the queue from its top in board
-// order, queued cards holding none: starts lists the tapped cards nothing blocks any more, which the board server
-// starts as a tap, and pulls the pullable cards not pulled
-// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
+// working on them. starts lists the cards an Implement message asked for that are now ready and blocked by nothing,
+// which the board server starts at once, past the cap, since the owner asked for them. pulls lists the pullable cards
+// not pulled that fit the free slots: the cap less the implementers, waiting and starts
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const running = (i) => (i.agents || []).filter((a) => !a.done);
   const implementers = open.filter((i) => i.waitsOn === 'checking' || running(i).some(builds)).length;
-  const pullable = open.filter((i) => queueable(i) && !i.working).map((i) => i.key);
+  const pullable = open.filter((i) => pullableCard(i) && !i.working).map((i) => i.key);
   const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
-  const tapped = (i) => i.queued && i.queuedAt && !i.blockedBy.length;
-  const next = open.filter((i) => tapped(i) || (pullable.includes(i.key) && !waiting.includes(i.key))).slice(0, Math.max(0, cap - implementers - waiting.length));
-  const starts = next.filter(tapped).map((i) => i.key);
-  const pulls = next.filter((i) => !tapped(i)).map((i) => i.key);
+  const starts = open.filter((i) => i.implementAt && i.state === 'ready' && !i.blockedBy.length).map((i) => i.key);
+  const pulls = pullable.filter((k) => !waiting.includes(k)).slice(0, Math.max(0, cap - implementers - waiting.length - starts.length));
   return { idle: !implementers, pullable, waiting, starts, pulls };
 }
 
@@ -1240,25 +1228,24 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
 // How many grills and prototypes a board runs at once, unless its max_planners setting says otherwise.
 export const MAX_PLANNERS = 3;
 // For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
-// card in Todo nothing has picked up: buildable, not ready, filed (not New), blocked by no unfinished dep, held, queued by a Build tap or worked on by a session, with
+// card in Todo nothing has picked up: buildable, not ready, filed (not New), blocked by no unfinished dep, held or worked on by a session, with
 // no planner record ever, no grill or prototype requested and no question topic. However it was filed (an ask, item add,
 // the +, an import) it counts the same. The cap, less the planners running, takes them from the top; the rest wait.
 export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
-  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.unsorted && !i.blockedBy.length && !i.held && !i.queuedAt && !i.working && !i.grilling && !i.prototyping
+  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.unsorted && !i.blockedBy.length && !i.held && !i.working && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some(plans));
   return arrived.slice(0, Math.max(0, cap - planners)).map((i) => i.key);
 }
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
-// For built items: the Todo a triage looks at, one line per Todo card, and per ready card in In Progress's Queued
-// section, with its key, title and deps, sorted, so a card
+// For built items: the Todo a triage looks at, one line per Todo card, with its key, title and deps, sorted, so a card
 // added, dropped, renamed or relinked changes it. '' when Todo is empty.
 // A triage also reads the Stale cards; Done cards leave the board by archivedOf, never by a triage
 // (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md).
 export function todoOf(items) {
-  return items.filter((i) => (i.lane === 'todo' && (!i.queued || i.buildable)) || i.lane === 'stale').map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
+  return items.filter((i) => i.lane === 'todo' || i.lane === 'stale').map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
 }
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
@@ -1352,7 +1339,7 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
   const wait = facts.ask ? { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` }
     : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
-    : it.implementAt ? { kind: 'implement', since: it.implementAt, next: IMPLEMENT_NEXT }
+    : it.implementAt ? (it.state === 'ready' ? null : { kind: 'implement', since: it.implementAt, next: IMPLEMENT_NEXT })
     : ASKING.has(it.action?.kind) ? null
     : it.builder?.stalled ? { kind: 'stalled', since: it.builder.silentSince, next: 'Find out why the builder went silent or stopped, then restart or finish its run' }
     : it.lane === 'stale' && it.inReviewSince ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), next: 'Find out why the review went stale and fix what you can: rebase, CI, comments, a silent reviewer' }

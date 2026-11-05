@@ -56,10 +56,12 @@
     const external = it.action.kind === ACTION_KIND.ready ? Object.entries(EXTERNAL).map(([k, v]) => ` ${k}="${esc(v)}"`).join('') : '';
     return `<a class="card-action" href="${esc(it.action.url)}" title="${esc(it.action.label)}" aria-label="${esc(`Action needed: ${it.action.label}`)}"${external}>Action needed</a>`;
   }
-  // Each unfinished dep, linking to its card: "blocked by #53, #54".
+  // Each unfinished dep, linking to its card: "blocked by #53, #54", or "waits on #53" on a bumped card not held, which
+  // the pull takes once nothing blocks it (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
   function blockedWords(it) {
     const deps = it.blockedBy || [];
-    return deps.map((d, i) => `<a class="card-blocked" href="#item=${encodeURIComponent(d.key)}">${i ? '' : 'blocked by '}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
+    const lead = it.bumpedAt && !it.held ? 'waits on ' : 'blocked by ';
+    return deps.map((d, i) => `<a class="card-blocked" href="#item=${encodeURIComponent(d.key)}">${i ? '' : lead}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
   }
   const tryWords = (kind) => kind === 'app' ? {
     go: 'Serve', going: 'serving…', done: 'Install', failed: 'serve failed',
@@ -201,11 +203,10 @@
   const tone = (it) => (it.lane === 'progress' ? ' in-progress' : it.lane === 'todo' ? ' in-todo' : '');
   const DOT = '<span class="working-dot" aria-hidden="true"></span>';
   // A card idle on the orchestrator (domain.mjs orchestratorWaitOf) reads waiting for orchestrator, then orchestrator
-  // review with its dot once the session picks it up, each with how long ago. A card an Implement message queued leads
-  // with queued (docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
+  // review with its dot once the session picks it up, each with how long ago.
   function orchestratorStatus(it) {
-    const { since, picked, kind } = it.orchestrator;
-    return `<div class="line3 sub agent${tone(it)}">${picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `${kind === 'implement' ? 'queued · ' : ''}waiting for orchestrator · ${esc(lasted(since))}`}</div>`;
+    const { since, picked } = it.orchestrator;
+    return `<div class="line3 sub agent${tone(it)}">${picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`}</div>`;
   }
   // A stale or stopped build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
   // A quiet one is grey, with no dot.
@@ -226,7 +227,7 @@
     if (it.waitsOn === 'checking') return 'Orchestrator review';
     if (it.lane === 'done') return 'done';
     if (it.grilling || it.prototyping) return 'preheating';
-    if (it.lane === 'todo') return it.queued ? 'queued' : it.ready ? 'ready' : 'to do';
+    if (it.lane === 'todo') return it.ready ? 'ready' : 'to do';
     if (it.lane === 'progress') return it.reachedPhase ? `stopped at ${it.reachedPhase}` : 'in progress';
     return 'in review';
   }
@@ -299,7 +300,7 @@
       : it.grilling || it.prototyping ? '<div class="line3 sub asked">preheating</div>'
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
       : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
-      : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held || it.queued ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
+      : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${esc(`Check can't run: ${it.ownerCheck.broken}`)}</div>`

@@ -1,8 +1,10 @@
 ---
-status: superseded in part by 2026-11-04-0121-in-progress-has-a-queued-section
+status: superseded in part by 2026-11-04-0121-in-progress-has-a-queued-section and 2026-11-05-0802-todo-has-no-queue
 ---
 
 # Build on a blocked card queues it, and blocked, bumped and Action needed leave the badges
+
+Superseded in part by [Todo has no queue](2026-11-05-0802-todo-has-no-queue.md): Implement on a blocked card bumps it, with no queued build. The orange words on the time line and the bump icon stand.
 
 Superseded in part by [In Progress has a Queued section, and the pull takes its top under the cap](2026-11-04-0121-in-progress-has-a-queued-section.md): a queued build waits in the Queued section and starts from its top once an implementer slot is free.
 

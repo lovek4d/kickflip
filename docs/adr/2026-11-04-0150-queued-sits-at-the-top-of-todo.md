@@ -1,4 +1,10 @@
+---
+status: superseded by 2026-11-05-0802-todo-has-no-queue
+---
+
 # Queued sits at the top of Todo, not the bottom of In Progress
+
+Superseded by [Todo has no queue](2026-11-05-0802-todo-has-no-queue.md): Todo has no Queued section.
 
 The owner asked on #212 (11/04): "Queued should live at the top of to-do, not at the bottom of in-progress." A queued card hasn't started, so Todo is where it belongs; In Progress now holds only cards a build has started.
 

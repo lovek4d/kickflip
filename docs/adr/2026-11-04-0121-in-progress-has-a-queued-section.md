@@ -1,4 +1,10 @@
+---
+status: superseded by 2026-11-05-0802-todo-has-no-queue
+---
+
 # In Progress has a Queued section, and the pull takes its top under the cap
+
+Superseded by [Todo has no queue](2026-11-05-0802-todo-has-no-queue.md): there is no Queued section; the pull takes Todo's top ready card under the cap. Its pullable rule stands.
 
 The owner asked on #36 (11/03): "I kind of want there to be a proper cued to build, maybe a section in progress called queued … bump means if auto build is on build this as soon as possible … bumping and unbumping cards can just be where they are placed in the queue. And then there can be a getter for the top of the cue to be pulled in. This shouldn't have to come through the agent at all." The #102 grill settled the rest: one queue, which the pull takes from the top whenever In Progress is under the cap (gh102-fit); queued cards don't count toward the cap (gh102-count); it holds tapped blocked cards and bumped ready cards (gh102-members); bump puts a card at the top and unbump returns it to its place by time (gh102-bump).
 

@@ -1,4 +1,4 @@
-// The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Todo's Queued section, Done's and Asks' Show more,
+// The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Done's and Asks' Show more,
 // Done's finished-wave folds, and Todo's wave bands with their Implement, triage and card order.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
@@ -153,17 +153,9 @@ BoardView.part((B) => {
   const LANE_WORDS = { progress: 'in progress', review: 'in review', stale: 'stale' };
   const DOTS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
-  // docs/adr/2026-11-04-0150-queued-sits-at-the-top-of-todo.md
-  // Todo's Queued section, which holds the cards waiting for an implementer slot, the next to build on top, as they
-  // arrive (domain.mjs laneOrder), then its wave bands and loose cards.
-  function todoRows(d, shown, all) {
-    const queued = all.filter((i) => i.queued);
-    const head = queued.length ? `<div class="wb-loose lane-queue"><div class="wb-head wb-loosehead"><span class="lane-name">Queued</span><span class="count">${queued.length}</span></div>${queued.map((it) => B.card(it)).join('')}</div>` : '';
-    return head + bandRows(d, shown, all.filter((i) => !i.queued));
-  }
-
-  function bandRows(d, shown, todo) {
-    const byKey = new Map(shown.filter((i) => !i.queued).map((i) => [i.key, i]));
+  // Todo's wave bands and loose cards, in the order they arrive (domain.mjs laneOrder).
+  function todoRows(d, shown, todo) {
+    const byKey = new Map(shown.map((i) => [i.key, i]));
     const bands = (d.waveBands || []).filter((b) => b.keys.some((k) => byKey.get(k)?.lane === 'todo'));
     const banded = new Set((d.waveBands || []).flatMap((b) => b.keys));
     const loose = todo.filter((i) => !banded.has(i.key));
@@ -176,7 +168,7 @@ BoardView.part((B) => {
   function bandHtml(band, cards, open) {
     const todo = cards.filter((i) => i.lane === 'todo');
     const done = cards.filter((i) => i.lane === 'done');
-    const now = cards.filter((i) => LANE_WORDS[i.lane]).map((i) => `${esc(i.ref)} ${i.queued ? 'queued' : LANE_WORDS[i.lane]}`);
+    const now = cards.filter((i) => LANE_WORDS[i.lane]).map((i) => `${esc(i.ref)} ${LANE_WORDS[i.lane]}`);
     const progress = [`${band.merged} of ${band.total} merged`, ...now].join(' · ');
     const name = `<span class="lane-name wb-name"${band.goal ? ` title="${esc(band.goal)}" data-goal="${esc(band.slug)}"` : ''}>${esc(band.title)}</span>`;
     const notes = band.kind === 'lineup' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';

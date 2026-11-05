@@ -2902,34 +2902,35 @@ test('item set takes checking as a hand-back that unblocks nothing, and done fro
   assert.deepEqual(unblocked(board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch', '--text', 'Done.')), ['unblocked: d/A2']);
 });
 
-// docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
-test("a dep finishing names a queued build as the board's to start and wakes no session for it; starting or closing a card ends its queued build", () => {
-  const queuedAt = '2026-11-03T10:26:00.000Z';
-  write(at('waves', 'd', 'wave.json'), { items: [
-    { id: 'A1', title: 'One', status: 'building' },
-    { id: 'A2', title: 'Two', deps: ['A1'], queued_at: queuedAt },
-    { id: 'A3', title: 'Three', deps: ['A1'] },
-    { id: 'A4', title: 'Four', queued_at: queuedAt },
-  ] });
-  const done = board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch', '--text', 'Done.');
-  assert.equal(done.code, 0);
-  assert.deepEqual(done.out.split('\n').filter((l) => /^(unblocked|queued)/.test(l)), ['queued build starts: d/A2', 'unblocked: d/A3']);
-  assert.deepEqual(lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked').map((e) => e.data.key), ['d/A3']);
-  assert.equal(board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch').code, 0);
-  assert.equal(board('item', 'set', 'd/A4', '--status', 'dropped', '--site', 'orch', '--text', 'Not needed.').code, 0);
-  assert.deepEqual(read(at('waves', 'd', 'wave.json')).items.map((it) => it.queued_at), [undefined, undefined, undefined, undefined]);
+// docs/adr/2026-11-05-0802-todo-has-no-queue.md
+test("starting or closing a card ends the wait of an Implement message's card", () => {
+  const askedAt = '2026-11-03T10:26:00.000Z';
+  write(at('waves', 'd', 'wave.json'), { items: [{ id: 'A1', title: 'One', implement_at: askedAt }, { id: 'A2', title: 'Two', implement_at: askedAt }] });
+  assert.equal(board('item', 'set', 'd/A1', '--status', 'building', '--site', 'orch').code, 0);
+  assert.equal(board('item', 'set', 'd/A2', '--status', 'dropped', '--site', 'orch', '--text', 'Not needed.').code, 0);
+  assert.deepEqual(read(at('waves', 'd', 'wave.json')).items.map((it) => it.implement_at), [undefined, undefined]);
 });
 
-// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("ready releases a card an Implement message queued: its ask becomes a queued build from the message's time, which the board server starts", () => {
+// docs/adr/2026-11-05-0802-todo-has-no-queue.md
+test("ready releases a card an Implement message asked for, which the board server starts at once; one a dep still blocks is bumped instead and stays in Todo", () => {
   const askedAt = '2026-11-05T10:00:00.000Z';
-  write(at('waves', 'd', 'wave.json'), { items: [{ id: 'A1', title: 'One', implement_at: askedAt }] });
+  write(at('waves', 'd', 'wave.json'), { items: [
+    { id: 'A1', title: 'One', implement_at: askedAt },
+    { id: 'A0', title: 'Blocker', status: 'building' },
+    { id: 'A2', title: 'Two', deps: ['A0'], implement_at: askedAt },
+  ] });
   write(at('waves', 'd', 'a1.md'), '# A1\n\nUse the blue.\n');
+  write(at('waves', 'd', 'a2.md'), '# A2\n\nUse the red.\n');
   const r = board('item', 'set', 'd/A1', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md');
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /^released: d\/A1 starts building from the queue$/m);
-  const item = read(at('waves', 'd', 'wave.json')).items[0];
-  assert.deepEqual([item.state, item.implement_at, item.queued_at], ['ready', undefined, askedAt]);
+  assert.match(r.out, /^released: d\/A1 starts building now$/m);
+  const blocked = board('item', 'set', 'd/A2', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a2.md');
+  assert.equal(blocked.code, 0, blocked.err);
+  assert.match(blocked.out, /^bumped: d\/A2 waits on A0, so it stays in Todo, bumped to the top$/m);
+  const [one, , two] = read(at('waves', 'd', 'wave.json')).items;
+  assert.deepEqual([one.state, one.implement_at, two.state, two.implement_at, 'queued_at' in one], ['ready', askedAt, 'ready', undefined, false]);
+  assert.deepEqual(lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-bump').map((e) => e.data.key), ['d/A2']);
+  assert.match(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).at(-1).text, /^Can’t start yet: waits on A0\. Bumped to the top of Todo\.$/);
 });
 
 test('a held item emits its unblocking but never starts until --unheld resumes it', () => {

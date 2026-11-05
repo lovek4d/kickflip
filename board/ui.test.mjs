@@ -1078,7 +1078,6 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     [{ lane: 'todo', builder: { progress: 'Grilling · x', planner: true, kind: 'grill' } }, 'grilling'],
     [{ lane: 'todo', grilling: true }, 'preheating'],
     [{ lane: 'todo', ready: true }, 'ready'],
-    [{ lane: 'todo', queued: true }, 'queued'],
     [{ lane: 'review' }, 'in review'],
     [{ lane: 'done' }, 'done'],
   ]) assert.deepEqual(rows({ ...bare, ...extra }), [['Wave', 'W'], ['Status', want]], JSON.stringify(extra));
@@ -1276,7 +1275,7 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
   for (const off of [{ lane: 'todo', builder: testing }, { lane: 'done', reopened: false }, { lane: 'review' }, { builder: { ...testing, planner: true } }]) {
     assert.doesNotMatch(ui.workLines({ ...card, ...off }), /phase-bars/, JSON.stringify(off));
   }
-  assert.match(ui.workLines({ ...card, queued: true }, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><span class="card-unread"><span class="sep"> · <\/span>1 new message<\/span><\/div>/);
+  assert.match(ui.workLines(card, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><span class="card-unread"><span class="sep"> · <\/span>1 new message<\/span><\/div>/);
 });
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
@@ -1310,8 +1309,8 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
     ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review · 3m']);
   assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo', 'waiting for orchestrator · 14m']);
-  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: an Implement message's card reads queued.
-  assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress', 'queued · waiting for orchestrator · 14m']);
+  // docs/adr/2026-11-05-0802-todo-has-no-queue.md: an Implement message's card waits like any other.
+  assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress', 'waiting for orchestrator · 14m']);
   // A running builder keeps its own line while its ask waits.
   assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Testing · x', phase: 'testing', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
     ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Testing · x · 2m']);
@@ -1382,6 +1381,8 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(ui.workLines(blocked), /<div class="line6 sub card-time"><a class="card-blocked" href="#item=site%2FS2">blocked by INT-2<\/a><\/div>/);
   assert.match(ui.workLines({ ...blocked, blockedBy: [{ key: 'site/S1', ref: 'INT-1' }, { key: 'site/S2', ref: 'INT-2' }] }), />blocked by INT-1<\/a><span class="sep">, <\/span><a class="card-blocked" href="#item=site%2FS2">INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five']);
+  // docs/adr/2026-11-05-0802-todo-has-no-queue.md: a bumped blocked card waits for the pull; held, it is blocked as before (below).
+  assert.match(ui.workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#item=site%2FS2">waits on INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.

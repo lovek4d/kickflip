@@ -371,7 +371,7 @@ test('a card with a message marked working or a prototype recorded for it stays 
   }
 });
 
-test("a Build tap starts the build in the board server, moving the card to In Progress reading starting and launching its builder with no event, and a refusal leaves it in Todo with the reason; on a blocked card it queues the build, which the server starts once the blocker is done", async () => {
+test("a Build tap starts the build in the board server, moving the card to In Progress reading starting and launching its builder with no event, and a refusal leaves it in Todo with the reason; a blocked card it bumps instead, leaving it in Todo", async () => {
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const origin = path.join(home, 'origin');
   fs.mkdirSync(origin);
@@ -428,40 +428,28 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     // Grill leaves the hold alone.
     assert.equal((await post({ kind: 'grill-more', key: 't/B10' })).status, 200);
     assert.equal((await card('B10')).held, true);
-    // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
-    const queuedAnswer = await (await post({ kind: 'card-build', key: 't/B3' })).json();
-    assert.equal(queuedAnswer.id, null);
-    assert.equal(queuedAnswer.board.items.find((i) => i.id === 'B3').queued, true);
-    const queued = await card('B3');
-    assert.deepEqual([queued.lane, queued.queued, queued.status, queued.builder, queued.next, queued.buildable, queued.blockedBy.map((d) => d.ref)], ['todo', true, null, null, null, false, ['B4']]);
-    assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Implement queued: it starts once B4 is done.']]);
+    // docs/adr/2026-11-05-0802-todo-has-no-queue.md
+    const bumpedAnswer = await (await post({ kind: 'card-build', key: 't/B3' })).json();
+    assert.equal(bumpedAnswer.id, null);
+    assert.ok(bumpedAnswer.board.items.find((i) => i.id === 'B3').bumpedAt);
+    const bumped = await card('B3');
+    assert.deepEqual([bumped.lane, 'queued' in bumped, bumped.status, bumped.builder, bumped.next, bumped.buildable, bumped.blockedBy.map((d) => d.ref)], ['todo', false, null, null, null, true, ['B4']]);
+    assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Can’t start yet: waits on B4. Bumped to the top of Todo.']]);
     assert.equal(fs.existsSync(path.join(site, 'data', 'agents', 'B3.json')), false);
     assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B3')), false);
     assert.equal((await post({ kind: 'card-build', key: 't/B5' })).status, 200);
-    const unheldQueued = await card('B5');
-    assert.deepEqual([unheldQueued.held, unheldQueued.lane, unheldQueued.queued], [false, 'todo', true]);
-    assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Implement queued: it starts once B4 is done.']);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more'].includes(k)), []);
+    const unheldBumped = await card('B5');
+    assert.deepEqual([unheldBumped.held, unheldBumped.lane, Boolean(unheldBumped.bumpedAt)], [false, 'todo', true]);
+    assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Can’t start yet: waits on B4. Bumped to the top of Todo.']);
+    assert.deepEqual(log().slice(before).filter((e) => e.kind === 'card-bump').map((e) => e.data.key), ['t/B3', 't/B5']);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more', 'card-bump'].includes(k)), []);
 
     const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
     fs.mkdirSync(taken, { recursive: true });
     assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
     const leftover = await card('B4');
     assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${taken} already exists; land or remove it first`]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more'].includes(k)), []);
-
-    // The blocker finishing starts both queued builds in the server, each launching its builder, with no card-unblocked.
-    const done = wave();
-    done.items.find((i) => i.id === 'B4').status = 'done';
-    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify(done));
-    await until(() => ['B3', 'B5'].every((id) => thread(id).at(-1).text.startsWith('Builder launched on ')), 'the queued builds start');
-    for (const id of ['B3', 'B5']) {
-      const startedQueued = await card(id);
-      assert.deepEqual([startedQueued.lane, startedQueued.status, startedQueued.queued, startedQueued.builder.progress], ['progress', 'building', false, null]);
-      assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', `${id}.json`), 'utf8')).worktree.path, path.join(home, '.claude', 'kickflip', 'worktrees', id));
-      assert.equal(wave().items.find((i) => i.id === id).queued_at, undefined);
-    }
-    assert.equal(log().slice(before).some((e) => e.kind === 'card-unblocked'), false);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more', 'card-bump'].includes(k)), []);
 
     // A leftover worktree holding no work is remade from the board's fetched main; one holding work still refuses.
     git(clone, 'fetch', '--quiet', 'origin');
@@ -498,7 +486,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
 });
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("an Implement message on a Todo card moves it to In Progress, queued for the orchestrator, and wakes the session with the message; a Reply leaves the card where it is", async () => {
+test("an Implement message on a Todo card moves it to In Progress, waiting on the orchestrator, and wakes the session with the message; a Reply leaves the card where it is", async () => {
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Implement', held: true }, { id: 'IR1', title: 'Reply' }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
@@ -511,7 +499,7 @@ test("an Implement message on a Todo card moves it to In Progress, queued for th
   assert.deepEqual(log().filter((e) => e.kind === 'item-message').at(-1).data, { key: 't/I1', text: 'Use the blue', intent: 'build' });
   assert.equal(log().find((e) => e.id === sent.id).ts >= asked, true);
   const footer = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).filter((m) => m.eventId).map((m) => [m.text, m.status]);
-  assert.deepEqual(await footer('t/I1'), [['Use the blue', 'Implement · queued']]);
+  assert.deepEqual(await footer('t/I1'), [['Use the blue', 'Implement']]);
   // A second Implement while it waits keeps the first ask's time.
   await post({ kind: 'item-message', key: 't/I1', text: 'And the red', intent: 'build' });
   assert.equal(wave().items[0].implement_at, asked);

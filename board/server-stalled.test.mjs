@@ -333,8 +333,8 @@ test('with auto implement on the board starts and launches the build of the top 
   }
 });
 
-// docs/adr/2026-11-04-0150-queued-sits-at-the-top-of-todo.md
-test('a tapped card whose blockers are done waits in Queued while In Progress is at Maximum parallel implementers, and the server starts it once a slot frees', async () => {
+// docs/adr/2026-11-05-0802-todo-has-no-queue.md
+test('a card an Implement message released starts at once though In Progress is at Maximum parallel implementers', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queue-cap-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -350,22 +350,18 @@ test('a tapped card whose blockers are done waits in Queued while In Progress is
   put(waveFile, JSON.stringify({ items: [
     { id: 'A0', title: 'Running', status: 'building' },
     { id: 'A9', title: 'Blocker', status: 'done' },
-    { id: 'Q1', title: 'Tapped', deps: ['A9'], queued_at: iso(now - 60000) },
+    { id: 'Q1', title: 'Released', state: 'ready', deps: ['A9'], implement_at: iso(now - 60000) },
   ] }));
   put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
   fs.writeFileSync(setup, "import http from 'node:http'; http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };");
-  const queuedAt = () => JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1').queued_at;
+  
   const { claude, launched } = launchingBoard(dir, siteDir);
   try {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], { env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, KICKFLIP_CLAUDE: claude } });
     await new Promise((resolve, reject) => { worker.stdout.once('data', resolve); worker.once('exit', (code) => reject(new Error(`Server exited ${code}`))); });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(queuedAt(), iso(now - 60000), 'the running build holds the only slot');
-    assert.deepEqual(launched('build'), []);
-    // The start is tried once the build finishes, which clears the queue and launches its builder.
-    put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
-    await until(() => queuedAt() === undefined && launched('build').length === 1, 'the queued card starts once a slot frees');
+    await until(() => launched('build').length === 1, 'the released card starts past the cap');
     assert.deepEqual(launched('build'), ['t/Q1']);
+    assert.equal(JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1').implement_at, undefined);
   } finally {
     if (worker?.exitCode === null) { const exited = new Promise((resolve) => worker.once('exit', resolve)); worker.kill(); await exited; }
     fs.rmSync(dir, { recursive: true, force: true });

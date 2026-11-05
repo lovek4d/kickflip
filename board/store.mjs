@@ -1356,14 +1356,14 @@ async function unfinishedDeps(site, slug, item) {
   const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
   return keys.filter((k, i) => deps[i] && !FINISHED.includes(deps[i].status));
 }
-// → [{key, queued}]: queued is a build the owner queued, which the board server starts (startQueuedBuild).
+// → the keys of the waiting cards whose last unfinished dep was key.
 async function unblockedBy(site, key) {
   const out = [];
   for (const s of await itemSources(site)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
       if (![undefined, 'waiting', 'held'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
-      if (!(await unfinishedDeps(site, s.slug, it)).length) out.push({ key: `${s.slug}/${it.id}`, queued: Boolean(it.queued_at) });
+      if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
     }
   }
   return out;
@@ -1456,8 +1456,7 @@ function closingLine(site, key, item, status, text, repo) {
   return text ?? null;
 }
 
-// → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines, or `queued build starts:
-// <key>` for one whose build the owner queued, which the board server starts; closing
+// → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
 // (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
@@ -1524,8 +1523,9 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
   }
-  // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: a build that starts, or a card that closes, ends its queued build.
-  if (status === 'building' || FINISHED.includes(status)) { delete item.queued_at; delete item.implement_at; }
+  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: a build that starts, or a card
+  // that closes, ends an Implement message's wait.
+  if (status === 'building' || FINISHED.includes(status)) delete item.implement_at;
   const unpicked = status === 'building' && site ? await unpickedPrototype(site, key) : null;
   if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
@@ -1576,10 +1576,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (state !== undefined) { item.state = state; delete item.unfiled; }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the state the card is in.
   if (item.state === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the state it is already in; pass --next with what happens next, or --clear-next`);
-  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: ready releases an Implement
-  // message's card to the queue from the message's time, which the board server starts as a tapped build.
-  const released = state === 'ready' && item.implement_at;
-  if (released) { item.queued_at = item.implement_at; delete item.implement_at; }
+  // docs/adr/2026-11-05-0802-todo-has-no-queue.md: ready releases an Implement message's card, keeping implement_at, so
+  // the board server starts its build at once (domain.mjs pullOf starts). One an unfinished dep still blocks drops
+  // implement_at and is bumped instead (bumpBlocked), back in Todo for the pull. released: the blockers' names, or null.
+  const released = state === 'ready' && site && item.implement_at ? await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k))) : null;
+  if (released?.length) delete item.implement_at;
   if (built) item.install = built;
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
@@ -1592,7 +1593,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
   if (notesFile !== undefined || (state === 'ready' && site)) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
-  if (released) resolved.push(`released: ${key} starts building from the queue`);
+  if (released) resolved.push(released.length ? (await bumpBlocked(site, key, released)).line : `released: ${key} starts building now`);
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
   // The ticket stays open while the card waits on its owner step.
@@ -1608,12 +1609,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
   const ts = new Date().toISOString();
-  for (const { key: k, queued } of unblocked) {
+  for (const k of unblocked) {
     await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${await cardName(site, key)} is ${status}.` });
-    // A queued build starts in the board server, so the session isn't woken to start it a second time.
-    if (!queued) await appendEvent({ dir: site }, 'card-unblocked', { key: k });
+    await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
-  return { file: source.file, lines: [...unblocked.map(({ key: k, queued }) => (queued ? `queued build starts: ${k}` : `unblocked: ${k}`)), ...resolved] };
+  return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
 }
 
 // --size and --model, which builder pick reads while the hub's Claude model is Auto: a small card gets Sonnet, and a
@@ -1664,7 +1664,7 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   if (announce) {
     const at = new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Resumed: its hold until ${at} ended.` });
-    if (!item.queued_at && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
+    if (!(await unfinishedDeps(site, parseKey(key).wave, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
   }
   setHold(item, null);
   await writeJSON(source.file, wave);
@@ -2458,15 +2458,14 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
 // of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
 // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
-// A card an unfinished dep blocks is queued instead: no record and no worktree, its wave entry's queued_at the tap's
-// time, and a thread line; the board server starts it once nothing blocks it and an implementer slot is free (startQueuedBuild). → {key, ref, queued:
-// [blocker names]} (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
+// A card an unfinished dep blocks is bumped instead, with no record and no worktree (bumpBlocked). → {key, ref, bumped:
+// [blocker names], line} (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 // dispatch 'hub' is a pull the board server starts itself.
 export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
   try {
     const { held, blockers } = await tapRefusals(site, key);
     if (held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
-    if (blockers.length) return await queueBuild(site, key, blockers);
+    if (blockers.length) return await bumpBlocked(site, key, blockers);
     try {
       const started = await startBuilder(site, key, { kind: 'build', worktree, dispatch });
       return { key, ref: await cardName(site, key), kind: started.kind, ...(started.model ? { model: started.model } : {}), reason: started.reason, worktree: started.worktree };
@@ -2483,7 +2482,7 @@ export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
 
 // The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
 // A held card that hasn't started is no refusal: the tap unholds it (docs/adr/2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md),
-// and nor is a blocked one: the tap queues it (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
+// and nor is a blocked one: the tap bumps it (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 // → {held: its hold or null, blockers: the names of its unfinished deps}.
 async function tapRefusals(site, key) {
   const gate = readUsageGate();
@@ -2499,7 +2498,7 @@ async function tapRefusals(site, key) {
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
 // An Implement message on a Todo card, in the board server before its event: the card's wave entry records implement_at,
 // so it is In Progress waiting on the orchestrator to fold the message into its notes, until item set --state ready
-// releases it to the queue. A held card is resumed, as the Build tap does. A second message while it waits keeps the
+// releases it to the board server, which starts its build. A held card is resumed, as the Build tap does. A second message while it waits keeps the
 // first's time.
 export async function askImplement(site, key) {
   const { item } = await loadItem(site, key);
@@ -2510,19 +2509,20 @@ export async function askImplement(site, key) {
   await writeJSON(source.file, wave);
 }
 
-async function queueBuild(site, key, blockers) {
-  const { source, wave, item } = await loadItem(site, key);
-  if (!item.queued_at) {
-    item.queued_at = new Date().toISOString();
-    await writeJSON(source.file, wave);
-    await appendLine(threadFile(site, key), { ts: item.queued_at, who: 'claude', text: `Implement queued: it starts once ${blockers.join(', ')} ${blockers.length === 1 ? 'is' : 'are'} done.` });
-  }
-  return { key, ref: await cardName(site, key), queued: blockers };
+// docs/adr/2026-11-05-0802-todo-has-no-queue.md
+// An Implement on a card that can't start while blockers (their names) are unfinished: the card is bumped to the top of
+// Todo (card-bump), where the pull takes it once nothing blocks it, and its thread says so. → {key, ref, bumped, line}.
+async function bumpBlocked(site, key, blockers) {
+  const names = blockers.join(', ');
+  await appendEvent({ dir: site }, 'card-bump', { key });
+  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Can’t start yet: waits on ${names}. Bumped to the top of Todo.` });
+  return { key, ref: await cardName(site, key), bumped: blockers, line: `bumped: ${key} waits on ${names}, so it stays in Todo, bumped to the top` };
 }
 
-// A queued build whose last blocker finished starts as the owner's Build tap does. One the start refuses, or that
-// fails, goes back to Todo with the reason, so it isn't tried again on every check. → startTappedBuild's result.
-export async function startQueuedBuild(site, key, worktree) {
+// A build ready released (an Implement message's card) starts as the owner's Build tap does. One the start refuses, or
+// that fails, loses implement_at and goes back to Todo with the reason, so it isn't tried again on every check.
+// → startTappedBuild's result.
+export async function startReleasedBuild(site, key, worktree) {
   let started;
   try { started = await startTappedBuild(site, key, worktree); } catch (e) {
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${e.message}` });
@@ -2530,7 +2530,7 @@ export async function startQueuedBuild(site, key, worktree) {
   }
   if (!started) {
     const { source, wave, item } = await loadItem(site, key);
-    delete item.queued_at;
+    delete item.implement_at;
     await writeJSON(source.file, wave);
   }
   return started;

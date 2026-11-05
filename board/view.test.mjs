@@ -4322,25 +4322,16 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   assert.deepEqual(page.left(), baseline);
 });
 
-// docs/adr/2026-11-04-0150-queued-sits-at-the-top-of-todo.md
-test("Todo lists its Queued cards in one Queued section above its other cards, in the server's order, each with its bump icon, counted in Todo", async () => {
-  const queued = (id, extra) => workCard(id, { queued: true, bumpable: true, ...extra });
-  const cards = [workCard('P1', { lane: 'progress', bumpable: true }), queued('Q2', { bumpedAt: '2026-11-04T10:00:00.000Z' }), queued('Q1'), workCard('T1')];
+// docs/adr/2026-11-05-0802-todo-has-no-queue.md
+test("Todo has no Queued section: its cards show in the server's order, a bumped one first, each with its bump icon", async () => {
+  const cards = [workCard('P1', { lane: 'progress', bumpable: true }), workCard('T2', { bumpable: true, bumpedAt: '2026-11-04T10:00:00.000Z', ready: true }), workCard('T1', { bumpable: true })];
   const b = boardOnDom({ board: boardOf(cards), threads: {} });
   await b.settle();
-  const list = b.root.querySelector('details.lane[data-lane="todo"] > .list');
-  assert.deepEqual(list.children.map((el) => el.dataset.key || el.getAttribute('class')).slice(0, 2), ['wb-loose lane-queue', 'w/T1']);
-  const section = list.querySelector('.lane-queue');
-  assert.deepEqual([section.querySelector('.lane-name').textContent, section.querySelector('.count').textContent], ['Queued', '2']);
-  assert.deepEqual(section.querySelectorAll('details.item').map((el) => el.dataset.key), ['w/Q2', 'w/Q1']);
-  assert.deepEqual(['w/Q2', 'w/Q1'].map((key) => section.querySelector(`details.item[data-key="${key}"] button[data-card-bump]`).getAttribute('aria-label')), ['Unbump', 'Bump to top']);
-  assert.equal(section.querySelector('button.build'), null);
-  assert.equal(b.root.querySelector('details.lane[data-lane="todo"] > summary .count').textContent, '3');
-  assert.equal(b.root.querySelector('details.lane[data-lane="progress"] > summary .count').textContent, '1');
-
-  const none = boardOnDom({ board: boardOf([workCard('P1', { lane: 'progress' })]), threads: {} });
-  await none.settle();
-  assert.equal(none.root.querySelector('.lane-queue'), null);
+  assert.equal(b.root.querySelector('.lane-queue'), null);
+  const todo = b.root.querySelector('details.lane[data-lane="todo"]');
+  assert.deepEqual(todo.querySelectorAll('details.item').map((el) => el.dataset.key), ['w/T2', 'w/T1']);
+  assert.deepEqual(['w/T2', 'w/T1'].map((key) => todo.querySelector(`details.item[data-key="${key}"] button[data-card-bump]`).getAttribute('aria-label')), ['Unbump', 'Bump to top']);
+  assert.equal(todo.querySelector('summary .count').textContent, '2');
 });
 
 // docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md

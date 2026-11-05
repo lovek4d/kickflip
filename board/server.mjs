@@ -95,7 +95,7 @@
 //                                Implement with no text or files on a ready card starts the build as card-build does,
 //                                with no event; any other on a Todo card records implement_at on the card (store.mjs
 //                                askImplement), which is In Progress waiting on the orchestrator until item set
-//                                --state ready queues its build, and appends the message
+//                                --state ready has the server start its build at once, and appends the message
 //                                (docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md)
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
@@ -141,11 +141,9 @@
 //                                or Codex, headless in its worktree (headless.mjs launchBuilder), appending no event; a
 //                                refusal leaves its reason in the card's thread, and a launch that fails puts the card
 //                                back in Todo with the reason (store.mjs abandonLaunch).
-//                                On a card an unfinished dep blocks, the tap queues the build instead (queued_at, no
-//                                event), and once nothing blocks it and an implementer slot is free the server starts
-//                                it the same way, from the top of In Progress's Queued section (checkAuto, store.mjs
-//                                startQueuedBuild; docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md,
-//                                docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
+//                                On a card an unfinished dep blocks, the tap bumps the card instead (card-bump, a
+//                                thread line), leaving it in Todo for the pull (store.mjs bumpBlocked;
+//                                docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 //                                A
 //                                checking card whose calls are all verified and that has no open question gets one
 //                                headless lander per verification, tracked in data/landers.json (store.mjs landable;
@@ -253,7 +251,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -525,7 +523,7 @@ async function itemSnapshot({ cfg, github, local, remote, branch }, waves) {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { github, remote, branch, reviewers: opensPRs({ github, local }, settingsOf(cfg)) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoPull: settingsOf(cfg).auto_pull, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
+  return { github, remote, branch, reviewers: opensPRs({ github, local }, settingsOf(cfg)) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
     working: await readWorking(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
     reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
@@ -781,7 +779,7 @@ async function thread(key) {
     || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
   const lines = (await Promise.all([...keys].map((k) => readLines(threadFile(k))))).flat();
   return threadOf(key, { lines, events: await Promise.all(mine.map(withReply)), owner, working: await readWorking(here), fromAsk: askId,
-    links: own ? await askLinksOf(askId) : [], agents, moved, implementAt: item?.implement_at || null });
+    links: own ? await askLinksOf(askId) : [], agents, moved });
 }
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1256,10 +1254,10 @@ async function checkPickUps() {
 }
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-// The Auto jobs, run on every board change and once at start: the queued starts, the arrivals' grills, triage, then
-// the pull, then a review. The queue's top fills the free implementer slots (domain.mjs pullOf): a tapped card nothing blocks
-// any more starts as the owner's Build tap would, launching its builder, whether Auto implement is on or
-// not (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md, docs/adr/2026-11-04-0121-in-progress-has-a-queued-section.md).
+// The Auto jobs, run on every board change and once at start: the released starts, the arrivals' grills, triage, then
+// the pull, then a review. A card an Implement message asked for that ready released starts at once as the owner's
+// Build tap would, launching its builder, past the cap and whether Auto implement is on or not; the pull fills the
+// free implementer slots with Todo's top ready cards (domain.mjs pullOf, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 // With Auto implement on, each card that arrived in Todo gets its grill, up to max_planners at once (launchArrivals).
 // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
 // board. A triage sent or under way holds the pull until its reply, and a card pulled and not yet started holds the
@@ -1286,7 +1284,7 @@ async function runAuto() {
   heldByPause = readUsageGate().state === 'paused';
   const ready = idle && !heldByPause;
   for (const key of heldByPause ? [] : starts) {
-    await handOff(await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts)));
+    await handOff(await startReleasedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts)));
   }
   if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'));
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
@@ -1305,7 +1303,7 @@ async function runAuto() {
 // building, and the next pull would fill its slot again. → null, the tap's event id, since no event wakes the session.
 async function handOff(started) {
   dataVersion++;
-  if (!started || started.queued) return null;
+  if (!started || started.bumped) return null;
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
     // A pause on its kind that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.

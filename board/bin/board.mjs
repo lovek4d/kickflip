@@ -119,9 +119,10 @@ command fails and changes nothing.
                                                          a card without --size, a notes file, or the id of each
                                                          answered question in that file, since a builder starts
                                                          from it; it resolves those answered questions. On a card
-                                                         an Implement message queued for you, it releases the
-                                                         build: the board server starts it from the queue, and
-                                                         prints "released: <key> starts building from the queue"
+                                                         an Implement message waits on you for, it releases the
+                                                         build: the board server starts it at once, and it prints
+                                                         "released: <key> starts building now"; one a dep still
+                                                         blocks is bumped to the top of Todo instead ("bumped: …")
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board
                                                          server records the owner's own Hold and Resume taps. A later
                                                          --held/--unheld overrides a tap; --unheld also clears a held status.
@@ -333,13 +334,15 @@ command fails and changes nothing.
                                                          ready Todo cards nothing blocks, holds or asks about, one
                                                          per free implementer slot (see max-implementers), each
                                                          once, and launches a grill on each card that arrives in
-                                                         Todo, up to max-planners at a time (an arrival: not ready,
-                                                         held or queued, with no planner record and no questions
+                                                         Todo, up to max-planners at a time (an arrival: not ready
+                                                         or held, with no planner record and no questions
                                                          yet). Off by default.
                                                          Only on the owner's word
   settings set max-implementers <1..99>                  Maximum parallel implementers, 10 by default: the cards
                                                          building or waiting in Orchestrator review the pull fills
                                                          up to. Planners and cards waiting on the owner don't count.
+                                                         It limits the pull only: an Implement the owner asks for
+                                                         starts past it.
                                                          Only on the owner's word
   settings set max-planners <1..99>                      Maximum parallel planners, 3 by default: the grills and
                                                          prototypes running at once; arrivals past it wait in board
