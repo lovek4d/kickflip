@@ -14,7 +14,8 @@ raw status ("implementing" on a card that had landed).
   (`PLANNER_WORD.grill = 'grilling'`).
 - **Liveness comes from the process.** The board server's snapshot reads each card's headless process from
   `data/headless-builders.json`, else `data/landers.json`, as `alive {key: bool}`. A build whose process lives is blue
-  while it moves, and turns grey (no word) once 5 minutes pass with no status line and no transcript movement; it is
+  while it moves, and turns grey (no word) once 5 minutes pass with no status line, no transcript movement and no command running
+  (2026-11-05-1403); it is
   never stalled. One whose process is gone without done reads **stopped**, the needs-you red with the nudge, and
   raises `builder-stalled`, once the board has stopped relaunching it: a build handed back after its second exit stays
   tracked, marked `handedBack`, so its card reads stopped from then on. A first exit, or a lander's, relaunches within

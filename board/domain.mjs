@@ -532,7 +532,7 @@ function reachedPhaseOf(agents, lines = []) {
 }
 
 // A run's silence is the time since its newest progress line or movement in its worktree's Claude transcript (moved
-// {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone. alive is
+// {<worktree path>: ms}, server.mjs snapshot; a command still running counts as movement now); a run with no readable transcript has its progress lines alone. alive is
 // whether the card's headless process lives (server.mjs snapshot alive), null when the board tracks none for it.
 // A live one reads quiet after BUILDER_QUIET_AFTER of silence and is never stalled; a gone one is stalled at once; an
 // untracked one is stalled after BUILDER_STALLED_AFTER of silence
