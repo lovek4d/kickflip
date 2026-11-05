@@ -446,6 +446,13 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 /* Each lane's sort icon and its menu, grey (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md) */
 /* INT-35: offline header */
 .view-board.offline #compose { display: none; }
+/* A board shared with someone else, view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md):
+   shell.js marks the page .shared-view, which hides the +, every composer, Board settings, the architecture review and
+   a card's buttons, keeping its links (Visit, Notes, Open questions). */
+.shared-view #compose, .shared-view [data-composer], .shared-view #settingsLink, .shared-view #archBulb,
+.shared-view .actions button, .shared-view button[data-confirm] { display: none !important; }
+.view-only-strip { margin: 8px 0; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 13px; }
+.view-only-strip b { color: var(--accent); }
 .view-board.offline main > * { opacity: .72; }
 .view-board.offline main, .view-board.offline > .top > :not(.nav), .view-board.offline > .top .nav > :not(.refresh) { pointer-events: none; }
 /* INT-28: answer banner */
@@ -557,6 +564,11 @@ main > * { transition: opacity .25s ease; }
 .view-settings .add { display: flex; gap: 6px; margin-top: 8px; }
 .view-settings .add input { flex: 1; min-width: 0; }
 .view-settings .add.pick { flex-wrap: wrap; }
+.view-settings .share-now { color: var(--ok); font-weight: 600; }
+.view-settings .share-now::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
+.view-settings .share-reach { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
+.view-settings .share-reach p { flex: 1 1 220px; margin: 0; }
+.view-settings .share-reach button { flex: none; }
 .view-settings .pick-col { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .view-settings .pick-list { max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .view-settings .pick-list button { text-align: left; }

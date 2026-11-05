@@ -69,7 +69,7 @@
     const sites = data?.sites || [];
     const site = (rank) => (s) => ({ href: siteHref(s), title: String(s.title ?? s.route), board: rank === 0, rank, joined: Date.parse(s.created) });
     const rows = [...sites.filter((s) => s.board).map(site(0)), ...sites.filter((s) => !s.board).map(site(1)),
-      ...UTILITY.map((f, i) => ({ href: f.href, title: f.title, board: false, rank: 2, joined: i }))];
+      ...(data?.shared ? [] : UTILITY).map((f, i) => ({ href: f.href, title: f.title, board: false, rank: 2, joined: i }))];
     rows.filter((r) => r.board).slice(0, 9).forEach((r, i) => { r.num = String(i + 1); });
     const when = (r) => (Number.isFinite(r.joined) ? r.joined : Infinity);
     const taken = new Set();
@@ -196,7 +196,8 @@
   // subscription as sidebar.js finds it, 'on' | 'off' | 'blocked' | 'install' (iOS outside the Home Screen app), or
   // null while unknown or unsupported. switching: switch mode shows, each row with its key and the hint on the Boards label.
   // update: null | 'ready' | 'reloading'.
-  // now: the time a starting board's seconds count to.
+  // now: the time a starting board's seconds count to. A shared person's data (data.shared; hub/share.mjs sharedSidebar)
+  // draws their boards alone: no Hub row, update or notification rows, and no New board.
   function sidebar(data, { here = '', device = null, switching = false, update = null, now = Date.now() } = {}) {
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
@@ -233,13 +234,16 @@
     const selected = here.startsWith('_hub') ? '/_hub' : `/${here.replace(/\/$/, '')}`;
     const hint = switching ? '<span class="ks-label-hint" role="status">– press a key to switch<i class="ks-bar"></i></span>' : '';
     const close = `<div class="nav"><button type="button" class="sb-close" data-sidebar-close aria-label="Close boards">${svg(ICONS.close, 20)}</button></div>`;
-    return header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
-      leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } })
+    const top = header({ lead: 'logo', title: 'Kickflip', level: 2, controls: false, trail: close, logoSrc: '/_hub/kickflip.png',
+      leadAttrs: { 'aria-label': 'Hide boards', title: 'Hide boards', 'data-sidebar-close': '' } });
+    const boardsLabel = `<div class="sb-label ks-label"><span class="ks-label-text">Boards</span>${hint}</div>`;
+    if (data?.shared) return `${top}<div class="sb-scroll"><section class="sb-boards" aria-label="Boards">${boardsLabel}<div class="sb-group">${boards.map(siteRow).join('')}</div></section></div>`;
+    return top
       + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update, data?.upgrade)}</div><div class="sb-group">`
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')
-      + `<section class="sb-boards" aria-label="Boards"><div class="sb-label ks-label"><span class="ks-label-text">Boards</span>${hint}</div>`
+      + `<section class="sb-boards" aria-label="Boards">${boardsLabel}`
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 

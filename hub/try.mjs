@@ -15,6 +15,7 @@ import { appendThread, recordedWorktree, setItem } from '../board/store.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
+import { shareOf } from './share.mjs';
 
 export class BuildError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -159,6 +160,14 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     try { await tailscale(['serve', `--https=${port}`, 'off']); }
     catch (e) { log(`try port ${port}: could not close port: ${(e.stderr || e.message).trim()}`); }
   }
+  // The relay's verdict: the gate's, except that a login the run's board shares with passes by GET or HEAD, and any other
+  // method of theirs is view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md).
+  async function relayVerdict(req, board) {
+    const verdict = await gate(req);
+    const login = req.headers['tailscale-user-login'];
+    if (verdict !== 'other' || !login || !shareOf(readJSON(path.join(board.dir, 'board.json'), {})).includes(login)) return verdict;
+    return req.method === 'GET' || req.method === 'HEAD' ? 'owner' : 'view-only';
+  }
   async function openPort(run) {
     run.https = publicPort(run);
     const sockets = run.sockets = new Set();
@@ -168,9 +177,10 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       socket.on('data', visit);
       socket.on('close', () => sockets.delete(socket));
     };
-    // tailscale serve proxies the port as HTTP, so the relay reads each request's login and lets only the owner through.
+    // tailscale serve proxies the port as HTTP, so the relay reads each request's login and lets only the owner and the
+    // board's shared logins through.
     run.relay = http.createServer(async (req, res) => {
-      const verdict = await gate(req);
+      const verdict = await relayVerdict(req, run.board);
       if (verdict !== 'owner') { refuse(req, res, verdict); return; }
       const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers: req.headers }, (answer) => {
         res.writeHead(answer.statusCode, answer.headers);
@@ -184,7 +194,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     });
     run.relay.on('connection', (socket) => { visit(); track(socket); });
     run.relay.on('upgrade', async (req, socket, head) => {
-      const verdict = await gate(req);
+      const verdict = await relayVerdict(req, run.board);
       if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
       track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url }));
     });

@@ -1,4 +1,5 @@
 // docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md
+// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,15 +12,16 @@ import { freePorts } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
-const STATUS = { BackendState: 'Running', Self: { UserID: 7, TailscaleIPs: ['100.81.98.101'] }, User: { 7: { LoginName: 'lovek4d@github' } } };
+const STATUS = { BackendState: 'Running', Self: { UserID: 7, TailscaleIPs: ['100.81.98.101'], DNSName: 'studio.tail1234.ts.net.' }, User: { 7: { LoginName: 'lovek4d@github', DisplayName: 'Love' } } };
 const phone = { 'x-forwarded-for': '100.70.1.2', 'tailscale-user-login': 'lovek4d@github' };
 const friend = { 'x-forwarded-for': '100.70.1.3', 'tailscale-user-login': 'friend@github' };
 const tagged = { 'x-forwarded-for': '100.70.1.4' };
 const html = { accept: 'text/html,application/xhtml+xml' };
 
 // A hub on a temp HOME whose tailscale answers `status --json` from <home>/tailscale.status (failing while it's
-// missing) and logs each call, beside a site whose server answers requests and upgrades with their path.
-async function startHub(t, { status }) {
+// missing) and logs each call, beside a site whose server answers requests and upgrades with their path. board: a
+// board.json for a board site /orch, whose stand-in server (a board/server.mjs under the temp HOME) answers the same way.
+async function startHub(t, { status, board }) {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-')));
   const [port] = await freePorts(1);
   for (const tool of ['gh', 'launchctl', 'systemctl', 'codex', 'caffeinate', 'claude', 'tmux']) { write(path.join(home, 'bin', tool), '#!/bin/sh\nexit 1\n'); fs.chmodSync(path.join(home, 'bin', tool), 0o755); }
@@ -37,7 +39,19 @@ console.log(fs.readFileSync(file, 'utf8'));
   const app = http.createServer((req, res) => res.end('app ' + req.url));
   app.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: test\r\n\r\n' + req.url));
   await new Promise((resolve) => app.listen(0, '127.0.0.1', resolve));
-  write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { version: 1, migrated: ['hub-flag'], sites: { app: { port: app.address().port, title: 'App' } } });
+  const sites = { app: { port: app.address().port, title: 'App' } };
+  if (board) {
+    const dir = path.join(home, 'orch');
+    write(path.join(dir, 'board.json'), board);
+    write(path.join(home, 'stand-in', 'board', 'server.mjs'), `import http from 'node:http';
+const server = http.createServer((req, res) => res.end('orch ' + req.method + ' ' + req.url));
+server.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\\r\\nConnection: Upgrade\\r\\nUpgrade: test\\r\\n\\r\\n' + req.url));
+server.listen(Number(process.env.PORT), '127.0.0.1');
+`);
+    const [boardPort] = await freePorts(1);
+    sites.orch = { port: boardPort, title: 'Orch', dir, cmd: [process.execPath, path.join(home, 'stand-in', 'board', 'server.mjs')] };
+  }
+  write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { version: 1, migrated: ['hub-flag'], sites });
   const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), PATH: `${path.join(home, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin` } });
   t.after(async () => {
     hub.kill();
@@ -126,4 +140,53 @@ test("while tailscale can't name the owner, signed-in devices get a page saying 
   let status;
   while ((status = (await fetch(`${base}/_hub/api/hub`, { headers: phone })).status) !== 200 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250));
   assert.equal(status, 200, 'once tailscale answers, the owner gets in');
+});
+
+test('a board shared with a login lets that person read the shell and the board, view only, and Board settings sees them and who was refused', async (t) => {
+  const { base, home } = await startHub(t, { status: STATUS, board: { title: 'Orch', share: ['friend@github'] } });
+  const shared = { ...friend, 'tailscale-user-name': 'Friend Person' };
+  const deadline = Date.now() + 15_000;
+  while ((await fetch(`${base}/orch/x`).then((r) => r.text(), () => '')) !== 'orch GET /x' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+
+  // Their board's pages and reads reach it; the shell's files come from the hub.
+  assert.equal(await (await fetch(`${base}/orch/api/board`, { headers: shared })).text(), 'orch GET /api/board');
+  for (const p of ['/_hub/app/app.js', '/_hub/colors.css', '/sw.js', '/manifest.webmanifest']) assert.equal((await fetch(base + p, { headers: shared })).status, 200, p);
+  const shell = await fetch(`${base}/orch/`, { headers: { ...shared, ...html, 'sec-fetch-dest': 'document' } });
+  assert.equal(shell.status, 200);
+  const page = await shell.text();
+  const data = JSON.parse(/<script id="sidebarData" type="application\/json">(.*?)<\/script>/s.exec(page)[1]);
+  assert.deepEqual([data.sites.map((s) => s.route), data.shared, data.start, data.usage, data.hub], [['orch'], { by: 'Love' }, 'orch', undefined, undefined]);
+  assert.doesNotMatch(page, /href="\/app\/"/, 'the sidebar drawn in lists only their board');
+  const sidebar = await (await fetch(`${base}/_hub/sidebar.json`, { headers: shared })).json();
+  assert.deepEqual(sidebar.sites.map((s) => s.route), ['orch']);
+  // The hub's own pages send them to their board.
+  const hub = await fetch(`${base}/_hub/`, { headers: { ...shared, ...html }, redirect: 'manual' });
+  assert.deepEqual([hub.status, hub.headers.get('location')], [302, '/']);
+
+  // A write, or a read the owner keeps, is refused as view only; other boards and the hub's data as someone else's.
+  for (const [method, p] of [['POST', '/orch/api/read'], ['POST', '/orch/_claude/events'], ['GET', '/orch/api/settings'], ['GET', '/orch/api/log?file=hub.log']]) {
+    const r = await fetch(base + p, { method, headers: { ...shared, 'content-type': 'application/json' }, body: method === 'POST' ? '{}' : undefined });
+    assert.deepEqual([r.status, await r.json()], [403, { error: 'This board is shared with you to look at only.' }], `${method} ${p}`);
+  }
+  const viewOnly = await fetch(`${base}/orch/settings.html`, { headers: { ...shared, ...html } });
+  assert.equal(viewOnly.status, 403);
+  assert.match(await viewOnly.text(), /<p class="rf-line">You can look at this board, not change it\.<\/p>/);
+  for (const [method, p] of [['GET', '/app/x'], ['GET', '/_hub/api/hub'], ['GET', '/_hub/share/orch'], ['POST', '/_hub/presence'], ['POST', '/_hub/push/subscribe']]) {
+    const r = await fetch(base + p, { method, headers: { ...shared, 'content-type': 'application/json' }, body: method === 'POST' ? '{}' : undefined });
+    assert.deepEqual([r.status, await r.text()], [403, '{}'], `${method} ${p}`);
+  }
+  assert.deepEqual(await upgrade(base, '/orch/socket', shared), { status: 101, body: '/socket' });
+  assert.deepEqual(await upgrade(base, '/app/socket', shared), { status: 403, body: '{}' });
+
+  // Someone not shared is refused, and Board settings offers them; the shared person reads as seen.
+  assert.equal((await fetch(`${base}/orch/`, { headers: { 'x-forwarded-for': '100.70.1.9', 'tailscale-user-login': 'jo@github', 'tailscale-user-name': 'Jo Park', ...html } })).status, 403);
+  const sharing = await (await fetch(`${base}/_hub/share/orch`, { headers: phone })).json();
+  assert.equal(sharing.link, 'https://studio.tail1234.ts.net/orch/');
+  assert.deepEqual(sharing.people.map(({ login, name, now }) => ({ login, name, now })), [{ login: 'friend@github', name: 'Friend Person', now: false }]);
+  assert.match(sharing.people[0].at, /^\d{4}-/);
+  assert.deepEqual(sharing.refused.map(({ login, name }) => ({ login, name })), [{ login: 'jo@github', name: 'Jo Park' }]);
+  assert.ok(fs.existsSync(path.join(home, '.claude', 'kickflip', 'share-seen.json')));
+  // A login the board no longer lists is someone else again.
+  write(path.join(home, 'orch', 'board.json'), { title: 'Orch', share: [] });
+  assert.equal((await fetch(`${base}/orch/api/board`, { headers: shared })).status, 403);
 });

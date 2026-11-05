@@ -9,8 +9,11 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// verdict 'other' or 'unread' → {status, line, hint, json}
+// verdict 'other', 'unread' or 'view-only' (a shared person's write, or a board path the owner keeps; hub/share.mjs)
+// → {status, line, hint, json}
 const REFUSALS = {
+  'view-only': { status: 403, line: 'You can look at this board, not change it.', hint: 'Its owner shared it with you view only.',
+    json: { error: 'This board is shared with you to look at only.' } },
   other: { status: 403, line: 'This kickflip belongs to someone else.', hint: 'Ask its owner to share it with you.', json: {} },
   unread: { status: 503, line: 'Tailscale didn’t answer, so this kickflip can’t tell who you are.', hint: 'Open it on the Mac itself, or try again in a moment.',
     json: { error: 'Tailscale didn’t answer, so the hub can’t tell who you are.' } },

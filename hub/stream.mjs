@@ -5,24 +5,31 @@
 // since it may have changed while its stream was down. `event: sidebar` carries what /_hub/sidebar.json would answer
 // whenever that differs from the last one sent: after a board's change, and on a timer for what no stream reports,
 // such as a site going down or a page's waiting count; and when a board's data/watcher.json is written or removed, since
-// a session's watcher starting or exiting is what the sidebar's listening word follows (boards.mjs listenState).
+// a session's watcher starting or exiting is what the sidebar's listening word follows (boards.mjs listenState). A
+// shared person's page (hub/share.mjs) gets only their boards' changes and their own view of each sidebar.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
 // targets() → [{route, port}], the boards to hold; sidebar({fresh}) → the sidebar data, fresh naming the routes whose
-// waiting counts to refetch; watched() → [{route, dir}], the boards whose data/watcher.json to watch. → {handle(req, res), close(), changed(route), refresh()}
+// waiting counts to refetch; watched() → [{route, dir}], the boards whose data/watcher.json to watch.
+// → {handle(req, res, viewer), close(), changed(route), refresh()}; viewer is null for the owner, or {routes: Set, view(sidebar data) → data}
 export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000, sidebarMs = 15_000, pingMs = 25_000, settleMs = 300, log = () => {} }) {
-  const clients = new Set();
+  const clients = new Map(); // res → viewer
   const upstreams = new Map(); // route → {port, req}
   const watchers = new Map(); // dir → fs.FSWatcher on dir/data
   const opened = new Set(); // routes whose stream has opened since the first page started listening
   let lastSidebar = null;
+  let lastData = null;
   let timers = [];
   let pendingFresh = new Set();
   let sidebarTimer = null;
 
-  const write = (text, to = clients) => { for (const res of to) res.write(text); };
+  const write = (text) => { for (const res of clients.keys()) res.write(text); };
+  const sidebarTo = (res, data, json) => {
+    const viewer = clients.get(res);
+    res.write(`event: sidebar\ndata: ${viewer ? JSON.stringify(viewer.view(data)) : json}\n\n`);
+  };
   const event = (type, data) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
   async function refreshSidebar(fresh = []) {
@@ -31,7 +38,8 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
     const json = JSON.stringify(data);
     if (json === lastSidebar) return;
     lastSidebar = json;
-    write(`event: sidebar\ndata: ${json}\n\n`);
+    lastData = data;
+    for (const res of clients.keys()) sidebarTo(res, data, json);
   }
   function sidebarSoon(route) {
     if (route) pendingFresh.add(route);
@@ -45,7 +53,8 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
   }
 
   function changed(route) {
-    write(event('change', { route }));
+    const text = event('change', { route });
+    for (const [res, viewer] of clients) if (!viewer || viewer.routes.has(route)) res.write(text);
     sidebarSoon(route);
   }
 
@@ -117,15 +126,16 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
     watchers.clear();
     opened.clear();
     lastSidebar = null;
+    lastData = null;
   }
 
   // Written straight to the socket, unbuffered and never gzipped, like each board's own stream.
-  function handle(req, res) {
+  function handle(req, res, viewer = null) {
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write('retry: 3000\n\n');
-    clients.add(res);
+    clients.set(res, viewer);
     if (clients.size === 1) startHolding();
-    if (lastSidebar) write(`event: sidebar\ndata: ${lastSidebar}\n\n`, [res]);
+    if (lastSidebar) sidebarTo(res, lastData, lastSidebar);
     else refreshSidebar();
     req.on('close', () => {
       clients.delete(res);
@@ -134,7 +144,7 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
   }
 
   function close() {
-    for (const res of clients) res.end();
+    for (const res of clients.keys()) res.end();
     clients.clear();
     stopHolding();
   }

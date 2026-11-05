@@ -88,6 +88,10 @@
 //                     and user, or 400 {error}, 502 {error} when Slack can't be reached (slack.mjs)
 //   /_hub/settings/quiet POST start=HH:MM, end=HH:MM, or set=hold with value=on (absent for off), one schedule.mjs editQuiet change → /_hub/api/settings's
 //                     JSON, or 400 {error}
+//   /_hub/share/<route> GET a board's Sharing for Board settings → {people: [{login, name, now, at}], refused:
+//                     [{login, name, at}], link}: who the board's board.json share lists, whether each is viewing it now
+//                     and when last seen there, who was refused at its paths in the last hour, and the board's tailnet
+//                     URL (share.mjs shareTracker)
 //   /_hub/presence    POST {} from a shell page's tap, key or scroll, at most once a minute: the owner is present
 //                     (presence.mjs ownerTracker); coming back from away runs a check at once → 204
 //   /_hub/push/flush  POST sends the queued pushes now → {sent, count, ok, message}
@@ -115,7 +119,10 @@
 //                     PermissionRequest for such a command notes it the same way
 // Every request and upgrade first passes the owner gate (board/on-host.mjs ownerGate): anyone but the host, a direct
 // loopback caller or a device signed in to Tailscale as the host's user gets front-door.mjs's refusal, the same on
-// every path (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md).
+// every path (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). A login a board's board.json share
+// lists is that board's shared person instead: they reach the shell, their boards and those boards' reads by GET or HEAD
+// alone, the sidebar and stream filtered to their boards, and a hub page sends them to `/`
+// (share.mjs; docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md).
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
 // /_hub/build and /_hub/pull also require loopback and refuse Origin and forwarded headers.
@@ -144,7 +151,7 @@
 // It runs caffeinate while Keep awake is on, and starts it again as it starts while time is left (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
 // Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs) that passes the same
-// owner gate; its build script gets HOST=127.0.0.1 to listen on.
+// owner gate, and admits its board's shared people by GET or HEAD; its build script gets HOST=127.0.0.1 to listen on.
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches and
 // record each fetch in repo-fetch.json for the board's repo-fetch link. A poll that records a card merged fetches that
 // card's board first and refreshes its Main at once (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
@@ -193,6 +200,7 @@ import { fallBackFromLinear, openBoardBuilders } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
+import { shareOf, sharedRoutes, shareReach, routeOfPath, sharedSidebar, shareTracker } from './share.mjs';
 import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -716,8 +724,8 @@ function sendText(req, res, code, headers, body) {
 // The app shell with the sidebar drawn in (board/public/ui-sidebar.js, run here in a vm context) and its data beside
 // it, so the first paint has both. here is a site's route or a hub page's path without its leading slash. "<" is
 // escaped in the data so no site's title can close its script.
-async function shellPage(here) {
-  const { data } = await sidebarState();
+async function shellPage(here, viewer = null) {
+  const data = viewer ? viewer.sidebar((await sidebarState()).data) : (await sidebarState()).data;
   const context = vm.createContext({});
   for (const file of ['ui-phase-bars.js', 'ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
   return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
@@ -816,7 +824,7 @@ const settingsData = async () => {
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
 
-async function hubRoute(req, res, url) {
+async function hubRoute(req, res, url, viewer = null) {
   const send = (code, type, body, extra = {}) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store', ...extra }); res.end(body); };
   const sendJSON = (code, v) => {
     const hash = runningHubCode();
@@ -982,8 +990,23 @@ async function hubRoute(req, res, url) {
     catch { res.writeHead(404).end(); return; }
   }
   if (p === '/_hub/hub.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, 'hub.css')));
-  if (p === '/_hub/sidebar.json') return sendJSON(200, (await sidebarState({ fresh: url.searchParams.get('fresh') === '1' })).data);
-  if (p === '/_hub/stream' && req.method === 'GET') { stream.handle(req, res); return; }
+  if (p === '/_hub/sidebar.json') {
+    const { data } = await sidebarState({ fresh: url.searchParams.get('fresh') === '1' });
+    return sendJSON(200, viewer ? viewer.sidebar(data) : data);
+  }
+  if (p === '/_hub/stream' && req.method === 'GET') {
+    if (viewer) req.on('close', shares.watching(viewer.login));
+    stream.handle(req, res, viewer && { routes: viewer.routes, view: viewer.sidebar });
+    return;
+  }
+  const sharing = /^\/_hub\/share\/([a-z0-9-]+)$/.exec(p);
+  if (sharing && req.method === 'GET') {
+    const site = routeRecord(loadManifest().sites, sharing[1]);
+    if (!isBoardSite(site)) return sendJSON(404, { error: 'That board is not open.' });
+    const logins = shareOf(readJSON(path.join(site.dir, 'board.json'), {}));
+    const host = (await hubGate.node())?.dnsName || req.headers['x-forwarded-host'];
+    return sendJSON(200, { people: shares.people(sharing[1], logins), refused: shares.refusals(sharing[1], logins), link: host ? `https://${host}/${sharing[1]}/` : null });
+  }
   if (p.startsWith('/_hub/app/')) {
     const f = appFile(p.slice('/_hub/app/'.length));
     if (!f) { res.writeHead(404).end(); return; }
@@ -1256,12 +1279,42 @@ function downPage(route, site) {
 // A path starting with // parses as a host, and "//" alone throws and takes the hub down.
 const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 
-// Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs).
+// Shared boards (share.mjs): when each shared person was last seen, and who was just refused.
+const shares = shareTracker({ file: path.join(HOME, 'share-seen.json') });
+
+// Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs). A login the gate
+// calls someone else that a board's board.json shares with reaches what share.mjs shareReach allows.
+// → {verdict: 'owner' | 'shared' | 'home' | 'view-only' | 'other' | 'unread', viewer}; viewer, for 'shared', is
+// {login, routes, sidebar(data)}, the person and their view of the sidebar
+async function access(req) {
+  const verdict = await hubGate(req);
+  const login = req.headers['tailscale-user-login'];
+  if (verdict !== 'other' || !login) return { verdict };
+  const name = req.headers['tailscale-user-name'] || null;
+  const { pathname } = requestURL(req);
+  const routes = sharedRoutes(login, loadManifest().sites);
+  const reach = routes.size ? shareReach({ method: req.method, pathname, routes }) : 'other';
+  const route = routeOfPath(pathname);
+  if (reach === 'other') {
+    if (!routes.size || route) shares.refuse(login, name, route);
+    return { verdict: 'other' };
+  }
+  if (reach !== 'pass') return { verdict: reach };
+  shares.visit(login, name, route);
+  const node = await hubGate.node();
+  return { verdict: 'shared', viewer: { login, routes, sidebar: (data) => sharedSidebar(data, routes, node?.name || node?.login) } };
+}
+
 const server = http.createServer((req, res) => {
-  hubGate(req).then((verdict) => verdict === 'owner' ? serve(req, res) : refuse(req, res, verdict));
+  access(req).then(({ verdict, viewer }) => {
+    if (verdict === 'owner' || verdict === 'shared') serve(req, res, viewer);
+    else if (verdict === 'home') { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }).end(); req.resume(); }
+    else refuse(req, res, verdict);
+  });
 });
 
-function serve(req, res) {
+// viewer: null for the owner, else access's shared person, whom access lets through only to their boards and the shell.
+function serve(req, res, viewer = null) {
   const url = requestURL(req);
   if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req.headers)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
@@ -1271,7 +1324,7 @@ function serve(req, res) {
   const sites = new Set(Object.keys(loadManifest().sites));
   if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
     const here = url.pathname === '/' ? '' : url.pathname.startsWith('/_hub/') ? url.pathname.slice(1) : decodeURIComponent(url.pathname.split('/')[1]);
-    shellPage(here).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
+    shellPage(here, viewer).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
     return;
   }
@@ -1287,7 +1340,7 @@ function serve(req, res) {
   }
   if (url.pathname === '/favicon.ico') { res.writeHead(301, { location: '/_hub/kickflip.png' }).end(); return; }
   if (url.pathname === '/sw.js' || url.pathname === '/manifest.webmanifest' || url.pathname.startsWith('/_hub/')) {
-    hubRoute(req, res, url).then((handled) => { if (handled === false) res.writeHead(404).end(); })
+    hubRoute(req, res, url, viewer).then((handled) => { if (handled === false) res.writeHead(404).end(); })
       .catch((e) => { if (!res.headersSent) res.writeHead(e.status || 500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
     return;
   }
@@ -1329,8 +1382,8 @@ function serve(req, res) {
 
 // WebSockets and other upgrades: pipe the raw sockets through.
 server.on('upgrade', async (req, socket, head) => {
-  const verdict = await hubGate(req);
-  if (verdict !== 'owner') { refuseUpgrade(socket, verdict); return; }
+  const { verdict } = await access(req);
+  if (verdict !== 'owner' && verdict !== 'shared') { refuseUpgrade(socket, verdict === 'home' ? 'other' : verdict); return; }
   const route = requestURL(req).pathname.split('/')[1];
   const site = routeRecord(loadManifest().sites, route);
   if (!site?.port) { socket.destroy(); return; }

@@ -387,11 +387,13 @@ window.BoardView = (function () {
     B.every(30000, () => { if (!document.hidden) { loadBoard(); } });
   }
 
-  function markup({ title = '' } = {}) {
+  // shared: the shell's data.shared for someone the board is shared with, view only, whose board opens with a strip saying so.
+  function markup({ title = '', shared = null } = {}) {
+    const strip = shared ? `<p class="view-only-strip"><b>View only.</b> Shared with you${shared.by ? ` by ${BoardUI.esc(shared.by)}` : ''}. You can look and open Visit links.</p>\n` : '';
     return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', bulb: true, moon: true })}
 <div class="split">
 <main>
-  <section id="setup" class="setup" aria-live="polite" hidden></section>
+${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
   <section id="needsDeck" class="needs-deck" aria-label="Needs you" hidden></section>
   <div id="tryMain"></div>

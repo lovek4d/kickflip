@@ -101,9 +101,10 @@ function fakeBoard(port = 0) {
   })));
 }
 
-function listen(port) {
+const listen = (port) => listenAt(port, '/_hub/stream');
+function listenAt(port, pathname) {
   const events = [];
-  const req = http.get({ host: '127.0.0.1', port, path: '/_hub/stream' }, (res) => {
+  const req = http.get({ host: '127.0.0.1', port, path: pathname }, (res) => {
     res.setEncoding('utf8');
     let buf = '';
     res.on('data', (chunk) => {
@@ -181,5 +182,36 @@ test("a watcher file written or removed in a board's data folder sends the sideb
     relay.close();
     await new Promise((r) => hub.close(r));
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
+test("a shared person's stream carries only their boards' changes and their view of the sidebar", async () => {
+  const ios = await fakeBoard();
+  const web = await fakeBoard();
+  let waiting = 0;
+  const relay = hubStream({ targets: () => [{ route: 'ios', port: ios.port }, { route: 'web', port: web.port }], sidebar: async () => ({ waiting, routes: ['ios', 'web'] }), retryMs: 30, settleMs: 10 });
+  const hub = http.createServer((req, res) => relay.handle(req, res, req.url.endsWith('?shared') ? { routes: new Set(['web']), view: (data) => ({ routes: data.routes.filter((r) => r === 'web') }) } : null));
+  await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const owner = listen(hub.address().port);
+  try {
+    await until(() => owner.events.length === 1 && ios.listening() === 1 && web.listening() === 1, 'the owner stream holds both boards');
+    const shared = listenAt(hub.address().port, '/_hub/stream?shared');
+    await until(() => shared.events.length === 1, "the shared person's first sidebar");
+    assert.deepEqual(shared.events, [{ type: 'sidebar', data: { routes: ['web'] } }]);
+    waiting = 1;
+    ios.change();
+    web.change();
+    await until(() => owner.events.filter((e) => e.type === 'change').length === 2 && shared.events.length >= 2, 'both changes');
+    await new Promise((r) => setTimeout(r, 100));
+    assert.deepEqual(shared.events.filter((e) => e.type === 'change').map((e) => e.data), [{ route: 'web' }]);
+    assert.ok(shared.events.filter((e) => e.type === 'sidebar').every((e) => JSON.stringify(e.data) === '{"routes":["web"]}'));
+    shared.close();
+  } finally {
+    owner.close();
+    relay.close();
+    await ios.stop();
+    await web.stop();
+    await new Promise((r) => hub.close(r));
   }
 });

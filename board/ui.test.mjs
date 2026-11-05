@@ -2198,3 +2198,12 @@ test('pending.within settles with its work, and past 60 seconds runs onLate and 
   assert.equal(late, 1);
   Object.assign(context, { setTimeout, clearTimeout });
 });
+
+// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
+test("a shared person's sidebar lists only their boards: no Hub row, no New board, no update or notification rows", () => {
+  const data = { shared: { by: 'Love' }, sites: [{ route: 'orch', title: 'Orch', board: true, icon: '<span class="icon"></span>', sub: 'idle' }], starting: [], upgrade: { state: 'available' } };
+  const html = ui.sidebar(data, { here: 'orch', device: 'off', update: 'ready' });
+  assert.match(html, /<a class="sb-row on" href="\/orch\/" aria-current="page">/);
+  assert.doesNotMatch(html, /sb-row[^"]*" href="\/_hub\/"|data-new-board|sb-utility|data-app-reload|Turn on notifications/);
+  assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/orch/']);
+});

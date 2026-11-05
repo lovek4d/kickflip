@@ -397,7 +397,7 @@ take();`);
   assert.match(thread()[0].text, /^Build failed \(exit 1\)\nBuild script must be executable/);
 });
 
-test('a web script serves root paths and upgrades through the relay to the owner alone, and keeps its port across a new commit and Retry', async () => {
+test("a web script serves root paths and upgrades through the relay to the owner and the board's shared logins alone, and keeps its port across a new commit and Retry", async () => {
   const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }) });
   manager = createTryManager({ now: () => clock, log() {}, gate });
   const server = http.createServer();
@@ -442,6 +442,13 @@ test('a web script serves root paths and upgrades through the relay to the owner
     request.end();
   });
   assert.equal(refused, 403);
+  // A login the board shares with opens its Visit links, view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md).
+  config({ share: ['friend@github'] });
+  assert.equal(await (await fetch(relayOf(8500) + '/nested', { headers: friend })).text(), 'served /nested');
+  const write = await fetch(relayOf(8500) + '/api', { method: 'POST', headers: friend, body: 'x' });
+  assert.deepEqual([write.status, await write.json()], [403, { error: 'This board is shared with you to look at only.' }]);
+  config();
+  assert.equal((await fetch(relayOf(8500) + '/nested', { headers: friend })).status, 403);
   commit(worktree, 'new head');
   for (let n = 0; n < 2; n++) {
     await start();

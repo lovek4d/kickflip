@@ -29,6 +29,7 @@ import { storedPath } from '../bin/install.mjs';
 import { readPermissions } from './permissions.mjs';
 import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
+import { shareOf, validLogin } from '../hub/share.mjs';
 
 export class BoardError extends Error {}
 const fail = (msg) => { throw new BoardError(msg); };
@@ -867,6 +868,20 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
   const result = ruleCall(() => change(rulesOf(cfg)));
   return { set: { rules: result.rules }, ...result };
 });
+
+// Board settings' Sharing (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md): change is
+// {add: login} or {remove: login}, a login as Tailscale-User-Login sends it, trimmed. → {share: [login]}, board.json's list
+export function saveBoardShare(site, change) {
+  const keys = Object.keys(change || {});
+  const [key] = keys;
+  const login = typeof change?.[key] === 'string' ? change[key].trim() : null;
+  if (keys.length !== 1 || !['add', 'remove'].includes(key) || !validLogin(login)) fail('Send add or remove with one login, like name@github.');
+  return writeBoardJSON(site, (cfg) => {
+    const listed = shareOf(cfg);
+    const share = key === 'remove' ? listed.filter((l) => l !== login) : listed.includes(login) ? listed : [...listed, login];
+    return { set: { share }, share };
+  }).then(({ share }) => ({ share }));
+}
 
 const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
 const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };

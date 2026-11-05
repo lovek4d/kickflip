@@ -148,8 +148,12 @@ _Avoid_: overnight window, wake times
 The six summary rows below the **hub page**’s health and status: Notifications, Quiet hours, Keep awake, Linear, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area. Snooze and Keep awake share one duration picker: 1h, 3h, 6h, 1d, Forever and Custom. Keep awake has the hub run `caffeinate -ims` until its end, and is disabled on hosts other than macOS ([snooze and Keep awake share one duration picker](docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md)). Old Hub Settings links open the matching modal over Hub ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)).
 _Avoid_: Hub Settings page, preferences, hub config
 
+**Shared person**:
+Someone else signed in to Tailscale whose login a board's Sharing lists: they see that board, view only, in a shell whose sidebar lists only the boards shared with them, and open its Visit links; the rest of the hub refuses them ([a board is shared view only with a Tailscale login](docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md)).
+_Avoid_: guest, viewer, collaborator
+
 **Board Settings**:
-The centred modal opened from a board header’s gear, at every width, which scrolls inside on a phone. It contains only that board’s settings: repo and branch (Change uses the same list and GitHub link search as New board), ticket source, auto-merge, auto-build, auto-pull (Auto implement Todo cards) with Maximum parallel implementers and planners, auto-triage, reviewers, rules and Close board with typed-name confirmation. Closing returns to the same board and open card without another history entry ([hub settings expand in place and board settings open in a modal](docs/adr/2026-10-31-1721-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
+The centred modal opened from a board header’s gear, at every width, which scrolls inside on a phone. It contains only that board’s settings: repo and branch (Change uses the same list and GitHub link search as New board), ticket source, auto-merge, auto-build, auto-pull (Auto implement Todo cards) with Maximum parallel implementers and planners, auto-triage, reviewers, sharing, rules and Close board with typed-name confirmation. Closing returns to the same board and open card without another history entry ([hub settings expand in place and board settings open in a modal](docs/adr/2026-10-31-1721-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
 _Avoid_: Settings page
 
 **Codex setting**:

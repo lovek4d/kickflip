@@ -1630,3 +1630,29 @@ test("read marks live on the board: a card new to it is read up to then, POST /a
     assert.equal(marks()['t/R1'], '2099-01-01T00:00:00.000Z');
   } finally { if (before) fs.writeFileSync(waveFile, before); else fs.rmSync(waveFile); }
 });
+
+// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
+test("Board settings' Sharing adds and removes a login in board.json share, keeping its other keys and waking no session", async () => {
+  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] }));
+  const share = (body) => fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const events = async () => (await (await fetch(`${base}/_claude/events`)).json()).length;
+  const before = await events();
+  try {
+    assert.deepEqual(await (await share({ add: 'maya@github' })).json(), { share: ['maya@github'] });
+    assert.deepEqual(await (await share({ add: ' sam.lee@example.com ' })).json(), { share: ['maya@github', 'sam.lee@example.com'] });
+    assert.deepEqual(await (await share({ add: 'maya@github' })).json(), { share: ['maya@github', 'sam.lee@example.com'] });
+    assert.deepEqual(await (await share({ remove: 'maya@github' })).json(), { share: ['sam.lee@example.com'] });
+    const saved = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
+    assert.deepEqual([saved.share, saved.title, saved.rules.length], [['sam.lee@example.com'], 'T', 1]);
+    for (const bad of [{}, { add: 'maya' }, { add: 'a b@github' }, { remove: 7 }, { add: 'x@y', remove: 'x@y' }, { add: 'x@y', other: 1 }]) {
+      const r = await share(bad);
+      assert.equal(r.status, 400, JSON.stringify(bad));
+      assert.match((await r.json()).error, /login/);
+    }
+    assert.equal((await fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })).status, 403);
+    assert.equal(await events(), before);
+  } finally {
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+  }
+});

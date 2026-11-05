@@ -3,7 +3,9 @@
 // itself and the list redraws from its answer. Add picks a Slack member and a GitHub login from lists the server fetches
 // (GET api/reviewer-people), or a typed login, and stays off until both are chosen. Tickets save on each change, and Done, ✕,
 // Escape and the backdrop wait for that save to land before closing. An unsaved edit marks [data-dirty], and the shell
-// asks before closing the modal then.
+// asks before closing the modal then. Sharing (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md)
+// lists the hub's GET /_hub/share/<route>, who can look and who was just refused, and saves each Add and ✕ at once
+// through POST api/share.
 (globalThis.AppViews ||= {}).settings = {
   className: 'view-settings',
   title: () => 'Board Settings',
@@ -74,6 +76,13 @@
   <p class="muted small" id="pickStatus" role="status"></p>
   <div class="row" style="margin-top:12px"><span class="muted small" id="saveStatus"></span><button class="primary" id="save" disabled>Save</button></div>
   </div>
+  <h2>Sharing</h2>
+  <p class="muted small">People listed here can look at this board, view only. Nothing else on the host opens for them.</p>
+  <div id="shareList"><p class="muted small">Loading…</p></div>
+  <div id="shareRefused"></div>
+  <form class="add" id="shareAdd"><input id="shareLogin" placeholder="Add by login, like name@github" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="submit">Add</button></form>
+  <div class="share-reach"><p class="muted small">They also need the host shared to them in Tailscale (<a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener">Tailscale’s Machines page ↗</a>). Then send them this link.</p><button type="button" id="shareCopy">Copy link</button></div>
+  <p class="muted small" id="shareStatus" role="status"></p>
   <h2>Rules</h2>
   <p class="muted small">Standing instructions for this board's Claude session. It sees them each time it wakes, and says what changes when you save.</p>
   <div id="rules"><p class="muted small">Loading…</p></div>
@@ -517,6 +526,52 @@
     // api/permissions (docs/adr/2026-11-03-1921-board-settings-grant-a-boards-session-permissions.md); the hub lets only
     // the owner reach the board (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). A tap waits on the server with the
     // switch as it was and a spinner beside it, then draws the server's answer.
+    // Sharing: each row is the person's name, then their login and when; a login Tailscale sent no name with is its own.
+    let sharing = null;
+    const shareRow = (title, sub, button) => `<div class="who"><span>${esc(title)}<span class="muted small sub">${sub}</span></span>${button}</div>`;
+    const shareWhen = (p) => (p.now ? '<span class="share-now">viewing now</span>' : esc(p.at ? BoardUI.since(p.at) : 'not seen yet'));
+    const shareSub = (p, when) => (p.name ? `${esc(p.login)} · ${when}` : when);
+    function drawSharing() {
+      $('#shareList').innerHTML = sharing.people.length ? sharing.people.map((p) => shareRow(p.name || p.login, shareSub(p, shareWhen(p)),
+        `<button type="button" class="ghost" data-share-remove="${esc(p.login)}" aria-label="Remove ${esc(p.name || p.login)}">✕</button>`)).join('') : '<p class="muted small">Nobody yet.</p>';
+      $('#shareRefused').innerHTML = sharing.refused.length ? `<p class="muted small">Just refused. Tap to share with them:</p>${sharing.refused.map((r) => shareRow(r.name || r.login, shareSub(r, esc(BoardUI.since(r.at))),
+        `<button type="button" data-share-add="${esc(r.login)}">Add</button>`)).join('')}` : '';
+    }
+    const loadSharing = () => get(`/_hub/share/${encodeURIComponent(route)}`).then(({ ok, body }) => {
+      if (!B.alive()) return;
+      if (!ok) { $('#shareList').innerHTML = `<p class="muted small">${esc(body.error || 'Could not load sharing.')}</p>`; return; }
+      sharing = body;
+      drawSharing();
+    }).catch(() => { if (B.alive()) $('#shareList').innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
+    async function saveShare(change) {
+      $('#shareStatus').textContent = '';
+      try {
+        const r = await fetch(site.url('api/share'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(change) });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error);
+        await loadSharing();
+        return true;
+      } catch (error) {
+        if (B.alive()) $('#shareStatus').textContent = error.message || 'Could not save. Is the host awake?';
+        return false;
+      }
+    }
+    loadSharing();
+    B.on($('#shareList'), 'click', (e) => { const b = e.target.closest?.('[data-share-remove]'); if (b) saveShare({ remove: b.dataset.shareRemove }); });
+    B.on($('#shareRefused'), 'click', (e) => { const b = e.target.closest?.('[data-share-add]'); if (b) saveShare({ add: b.dataset.shareAdd }); });
+    B.on($('#shareAdd'), 'submit', async (e) => {
+      e.preventDefault?.();
+      const input = $('#shareLogin');
+      const login = input.value.trim();
+      if (!login) { $('#shareStatus').textContent = 'Type a login first, like name@github.'; return; }
+      if (await saveShare({ add: login }) && B.alive()) input.value = '';
+    });
+    B.on($('#shareCopy'), 'click', async () => {
+      const link = sharing?.link || new URL(`/${encodeURIComponent(route)}/`, location.href).href;
+      try { await navigator.clipboard.writeText(link); $('#shareStatus').textContent = `Copied ${link}`; }
+      catch { $('#shareStatus').textContent = link; }
+    });
+
     const permissions = $('#permissions');
     const REFUSED = {
       denied: (command) => `Auto mode still refused this once: ${command}. Approve it under /permissions, Recently blocked.`,

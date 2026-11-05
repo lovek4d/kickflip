@@ -77,7 +77,8 @@ BoardView.part((B) => {
     } catch (e) { toast(`Couldn't wake this board's session: ${e.message}`); }
     finally { state.waking = false; if (B.alive()) renderStatus(); }
   }
-  const wakeOnTap = () => { if (state.board?.checks?.watcher === 'asleep' && !state.waking && state.link === 'online') wake(); };
+  // A shared person's tap never wakes the owner's session (shell.js .shared-view).
+  const wakeOnTap = () => { if (state.board?.checks?.watcher === 'asleep' && !state.waking && state.link === 'online' && !document.documentElement.classList.contains('shared-view')) wake(); };
   B.on(B.root, 'click', wakeOnTap, true);
   B.on(B.root, 'submit', wakeOnTap, true);
 

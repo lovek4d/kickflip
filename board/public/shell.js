@@ -57,6 +57,10 @@ window.AppShell = (function () {
     // A stored sidebar's code says nothing about the shell that booted, so it adopts the next live hash.
     bootCode = data?.code || null;
     data ||= read(DATA_KEY);
+    // A board shared with someone else, view only (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md):
+    // the hub sends them data.shared, and style.css hides what writes under .shared-view.
+    const shared = data?.shared || null;
+    document.documentElement.classList.toggle('shared-view', Boolean(shared));
     sidebar = Sidebar.mount({ data, poll: false, reload, open: (href) => { if (!open(href)) location.assign(href); } });
     const boards = () => new Set((data?.sites || []).filter((s) => s.board).map((s) => s.route));
     const titleOf = (route) => data?.sites?.find((s) => s.route === route)?.title || route;
@@ -116,7 +120,9 @@ window.AppShell = (function () {
     // minute while present. While away the first one goes at once and the moon goes from this page at the same moment
     // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md).
     let beatAt = 0;
+    // A shared person's taps are never the owner's.
     const beat = () => {
+      if (shared) return;
       const away = Boolean(data?.away);
       if (!away && Date.now() - beatAt < 60_000) return;
       beatAt = Date.now();
@@ -182,7 +188,7 @@ window.AppShell = (function () {
       const page = board ? null : AppViews[view.kind];
       const root = document.createElement('div');
       root.className = board ? 'view-board' : page.className;
-      root.innerHTML = board ? BoardView.markup({ title: siteTitle }) : page.markup(view, { siteTitle });
+      root.innerHTML = board ? BoardView.markup({ title: siteTitle, shared }) : page.markup(view, { siteTitle });
       if (current) current.root.replaceWith(root); else scrim.after(root);
       const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;
@@ -201,7 +207,7 @@ window.AppShell = (function () {
       sidebar.setHere(hub ? new URL(AppRouter.urlOf(view), location.href).pathname.slice(1) : route);
       scrollTo(0, 0);
       // Every other page of a board has the board's + and its sheet too; the hub's own pages aren't a board's.
-      const plus = !board && boards().has(route);
+      const plus = !board && !shared && boards().has(route);
       if (plus) root.insertAdjacentHTML('beforeend', BoardNewTask.markup());
       v.mount();
       if (plus) BoardNewTask.wire(v.B);

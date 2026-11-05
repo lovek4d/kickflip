@@ -19,14 +19,16 @@ const bare = (address) => String(address || '').trim().replace(/^::ffff:/, '');
 
 const interfaceAddresses = () => Object.values(os.networkInterfaces()).flat().map((a) => a.address);
 
-// → {login, addresses} of the host's own tailnet node, or null when tailscale isn't installed or doesn't answer
+// → {login, name, dnsName, addresses} of the host's own tailnet node, name being its user's display name and dnsName its
+// MagicDNS name, or null when tailscale isn't installed or doesn't answer
 async function tailnetNode() {
   const tailscale = tailscaleBin();
   if (!tailscale) return null;
   try {
     const { stdout } = await run(tailscale, ['status', '--json'], { timeout: 5000 });
     const { Self, User } = JSON.parse(stdout);
-    return { login: User?.[Self.UserID]?.LoginName, addresses: Self.TailscaleIPs || [] };
+    const user = User?.[Self.UserID];
+    return { login: user?.LoginName, name: user?.DisplayName || null, dnsName: String(Self.DNSName || '').replace(/\.$/, '') || null, addresses: Self.TailscaleIPs || [] };
   } catch { return null; }
 }
 
@@ -51,27 +53,30 @@ export async function fromHost(req, host = { addresses: interfaceAddresses, node
 // host: as fromHost; now, retryMs: when tailscale is asked again after it didn't name the host's user
 // → async (req) => 'owner' for the host, a direct loopback caller or a device whose Tailscale-User-Login is the host
 // node's user; 'other' for any other login or none (a shared-in user, a tagged node, Funnel); 'unread' for a login
-// while tailscale hasn't named the host's user yet. The user is read once and kept for the gate's lifetime.
+// while tailscale hasn't named the host's user yet. The user is read once and kept for the gate's lifetime. gate.node()
+// → that host node, read now if no request has needed it, or null while tailscale doesn't answer.
 export function ownerGate(host = { addresses: interfaceAddresses, node: tailnetNode }, { now = Date.now, retryMs = 5000 } = {}) {
   let owner = null;
   let asking = null;
   let failedAt = -Infinity;
-  const ownerLogin = () => {
+  const ownerNode = () => {
     if (owner || now() - failedAt < retryMs) return owner;
     asking ||= host.node().then((node) => {
       asking = null;
-      if (node?.login) owner = node.login; else failedAt = now();
+      if (node?.login) owner = node; else failedAt = now();
       return owner;
     });
     return asking;
   };
-  return async (req) => {
+  const gate = async (req) => {
     if (host.addresses().includes(clientOf(req))) return 'owner';
     const login = req.headers['tailscale-user-login'];
     if (!login) return 'other';
-    const found = await ownerLogin();
-    return !found ? 'unread' : found === login ? 'owner' : 'other';
+    const found = await ownerNode();
+    return !found ? 'unread' : found.login === login ? 'owner' : 'other';
   };
+  gate.node = async () => ownerNode();
+  return gate;
 }
 
 // The hub process's one gate, shared by its own server and its try relays.

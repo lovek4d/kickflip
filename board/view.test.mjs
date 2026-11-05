@@ -5262,3 +5262,75 @@ test("a topic or question arriving on Waiting on you inserts its pill or card in
   assert.deepEqual(v.root.querySelector('#qform').children.map((c) => c.dataset.q || c.getAttribute('class')), ['q1', 'q1b', 'bar'], 'the new card goes after the last open one');
   v.unmount();
 });
+
+// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
+test("Board settings' Sharing lists who can look and who was just refused, adds by a tap or a typed login, removes, and copies the board's link", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+  let sharing = { link: 'https://studio.tail1234.ts.net/orch/', people: [{ login: 'maya@github', name: 'Maya Ortiz', now: true, at: ago(1000) }, { login: 'sam@example.com', name: null, now: false, at: ago(2 * 86_400_000) }, { login: 'kim@github', name: 'Kim', now: false, at: null }],
+    refused: [{ login: 'jo@github', name: 'Jo Park', at: ago(4 * 60_000) }, { login: 'lee@example.com', name: null, at: ago(10_000) }] };
+  const posts = [];
+  const copied = [];
+  page.win.navigator.clipboard = { writeText: async (text) => { copied.push(text); } };
+  page.win.fetch = async (url, opts = {}) => {
+    let body = {};
+    if (url === '/_hub/share/orch') body = sharing;
+    if (url.endsWith('/api/share')) { posts.push(JSON.parse(opts.body)); body = { share: [] }; }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick();
+  const list = root.querySelector('#shareList');
+  assert.match(list.innerHTML, /Maya Ortiz<span class="muted small sub">maya@github · <span class="share-now">viewing now<\/span><\/span>/);
+  assert.match(list.innerHTML, /sam@example\.com<span class="muted small sub">2 d ago<\/span>/);
+  assert.match(list.innerHTML, /Kim<span class="muted small sub">kim@github · not seen yet<\/span>/);
+  assert.match(list.innerHTML, /data-share-remove="maya@github"[^>]*aria-label="Remove Maya Ortiz"/);
+  const refused = root.querySelector('#shareRefused');
+  assert.match(refused.innerHTML, /Jo Park<span class="muted small sub">jo@github · 4 min ago<\/span>[^]*data-share-add="jo@github"/);
+  assert.match(refused.innerHTML, /lee@example\.com<span class="muted small sub">just now<\/span>/);
+
+  const tap = async (id, attr, login) => { page.fire(root.querySelector(id), 'click', { target: { closest: (sel) => (sel.includes(attr) ? { dataset: { [attr === 'data-share-add' ? 'shareAdd' : 'shareRemove']: login } } : null) } }); await tick(); await tick(); };
+  sharing = { ...sharing, people: [...sharing.people, { login: 'jo@github', name: 'Jo Park', now: false, at: null }], refused: sharing.refused.slice(1) };
+  await tap('#shareRefused', 'data-share-add', 'jo@github');
+  assert.deepEqual(posts.at(-1), { add: 'jo@github' });
+  assert.match(list.innerHTML, /Jo Park/);
+  assert.doesNotMatch(refused.innerHTML, /Jo Park/);
+  await tap('#shareList', 'data-share-remove', 'kim@github');
+  assert.deepEqual(posts.at(-1), { remove: 'kim@github' });
+  root.querySelector('#shareLogin').value = '  new@github ';
+  page.fire(root.querySelector('#shareAdd'), 'submit');
+  await tick(); await tick();
+  assert.deepEqual(posts.at(-1), { add: 'new@github' });
+  assert.equal(root.querySelector('#shareLogin').value, '');
+  page.fire(root.querySelector('#shareCopy'), 'click');
+  await tick();
+  assert.deepEqual([copied, root.querySelector('#shareStatus').textContent], [['https://studio.tail1234.ts.net/orch/'], 'Copied https://studio.tail1234.ts.net/orch/']);
+  view.unmount();
+});
+
+test("Board settings' Sharing sits under Reviewers with one line to reach the host and Tailscale's Machines page", () => {
+  const html = fakePage(memoryStorage().localStorage).win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
+  assert.ok(html.indexOf('<h2>Reviewers</h2>') < html.indexOf('<h2>Sharing</h2>') && html.indexOf('<h2>Sharing</h2>') < html.indexOf('<h2>Rules</h2>'));
+  assert.match(html, /People listed here can look at this board, view only\. Nothing else on the host opens for them\./);
+  assert.match(html, /They also need the host shared to them in Tailscale \(<a href="https:\/\/login\.tailscale\.com\/admin\/machines" target="_blank" rel="noopener">Tailscale’s Machines page ↗<\/a>\)\. Then send them this link\./);
+  assert.match(html, /<button type="button" id="shareCopy">Copy link<\/button>/);
+});
+
+test("a shared person's board opens with a View only strip naming who shared it", () => {
+  const { BoardView } = fakePage(memoryStorage().localStorage).win;
+  assert.match(BoardView.markup({ title: 'Orch', shared: { by: 'Love <K>' } }), /<main>\s*<p class="view-only-strip"><b>View only\.<\/b> Shared with you by Love &lt;K&gt;\. You can look and open Visit links\.<\/p>/);
+  assert.match(BoardView.markup({ title: 'Orch', shared: { by: null } }), /<b>View only\.<\/b> Shared with you\. You can look and open Visit links\./);
+  assert.doesNotMatch(BoardView.markup({ title: 'Orch' }), /view-only-strip/);
+});
+
+test("a shared person's tap on an asleep board never asks the hub to wake the owner's session", async () => {
+  const checks = { at: '2026-10-30T10:00:00.000Z', every: 30, late: false, watcher: 'asleep', claudeAt: null };
+  const b = boardOnDom({ board: { ...boardOf([workCard('A1')]), checks }, threads: {} });
+  await b.settle();
+  b.page.win.document.documentElement.classList.add('shared-view');
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('.lane') });
+  assert.deepEqual(b.posts.filter(([p]) => p === '/_hub/wake'), []);
+  b.view.unmount();
+});
