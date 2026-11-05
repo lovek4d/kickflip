@@ -3947,6 +3947,6 @@ test('question move puts a merged question on one card, resolves the duplicates 
   assert.equal(q1.resolved, "Duplicate of A1's question q2");
   const items = read(at('waves', 'w', 'wave.json')).items;
   const card = (id) => items.find((it) => it.id === id);
-  assert.deepEqual([card('B2').deps, card('C3').deps], [['A1'], ['A1', 'B2']]);
-  assert.deepEqual([card('B2').related, card('C3').related], [['A1'], ['A1']]);
+  assert.deepEqual([card('B2').deps, card('C3').deps], [['w/A1'], ['w/B2']]);
+  assert.deepEqual([card('B2').related, card('C3').related], [['w/A1'], ['w/A1']]);
 });
