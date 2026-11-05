@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { installLinks, installClaudeSettings, nodeBin } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
-import { stallingPs, until } from '../shared/test-helpers.mjs';
+import { stallingPs, until, untilTestEnds } from '../shared/test-helpers.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
@@ -89,7 +89,7 @@ const calls = () => { try { return fs.readFileSync(fakeLog, 'utf8').trim().split
 
 const sleepers = [];
 const liveRecord = (sessionId, cwd) => {
-  const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const c = spawn(process.execPath, ['-e', untilTestEnds()], { stdio: 'ignore' });
   sleepers.push(c);
   write(path.join(home, '.claude', 'sessions', `${c.pid}.json`), { pid: c.pid, sessionId, cwd, procStart: START, kind: 'interactive' });
   return c;
@@ -743,7 +743,7 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
   assert.deepEqual(read(web('deaf-state.json')), {});
   assert.deepEqual(await compactFullContexts({ manifest: m, running: null, tmux: () => assert.fail('ran tmux') }), { compacted: [], failed: [] });
   assert.equal(listenState(board, { running: null, wakes: {} }), 'asleep', 'with no watcher, an unknown session reads asleep, which pushes nothing');
-  const watcher = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'wait-events.mjs'], { stdio: 'ignore' });
+  const watcher = spawn(process.execPath, ['-e', untilTestEnds(), 'wait-events.mjs'], { stdio: 'ignore' });
   sleepers.push(watcher);
   write(path.join(dir, 'data', 'watcher.json'), { pid: watcher.pid, since: new Date().toISOString() });
   await until(() => listenState(board, { running: null, wakes: {} }) === 'listening', 'a running watcher vouches for its session');

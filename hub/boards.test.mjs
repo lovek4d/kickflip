@@ -10,13 +10,18 @@ import { reposDir } from '../shared/repos.mjs';
 import { startFakeDevice } from './fake-device.mjs';
 import { withFileLock } from './locks.mjs';
 import { fakeGh, prView, writePR, writeUser, queried } from '../shared/fake-gh.mjs';
-import { freePorts, until, ownSession } from '../shared/test-helpers.mjs';
+import { freePorts, until, ownSession, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HUB_DIR, '..');
 // Real, as a home is: the clone home sits under it, and repoPath refuses a clone home whose ancestors go through a symlink.
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-')));
 process.env.HOME = home;
+// ps is the stand-in for the whole file, here and in the hub and board servers it spawns: each live record's process
+// started at START, so a loaded Mac's slow ps can't leave a session's liveness unknown.
+const START = 'Thu Nov  5 00:00:00 2026';
+const ps = stallingPs(home, { lstart: START, ppid: process.pid });
+process.env.PATH = `${ps.bin}:${process.env.PATH}`;
 const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, HUB_CODE, listenState, checkListening, withManifestLock, saveJSON } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
@@ -26,11 +31,10 @@ const writeManifestFile = (m) => withManifestLock(() => saveJSON(claude('kickfli
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const events = (route, kind) => { try { return fs.readFileSync(site(route, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === kind); } catch { return []; } };
 const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
-const sleeper = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'wait-events.mjs'], { stdio: 'ignore' });
+const sleeper = () => spawn(process.execPath, ['-e', untilTestEnds(), 'wait-events.mjs'], { stdio: 'ignore' });
 const liveSession = (sessionId) => {
-  const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-  const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(c.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
-  write(claude('sessions', `${c.pid}.json`), { pid: c.pid, sessionId, cwd: home, procStart, kind: 'bg' });
+  const c = spawn(process.execPath, ['-e', untilTestEnds()], { stdio: 'ignore' });
+  write(claude('sessions', `${c.pid}.json`), { pid: c.pid, sessionId, cwd: home, procStart: START, kind: 'bg' });
   return c;
 };
 
@@ -76,14 +80,38 @@ test("an event for a board that is down is appended directly, and one a board to
   const [downPort] = await freePorts(1);
   const id = await appendEvent({ dir, port: downPort }, 'ping', { title: 'Down' });
   assert.deepEqual(lines().map((e) => [e.id, e.kind, e.data]), [[id, 'ping', { title: 'Down' }]]);
+  // Port 1 is one fetch refuses to connect to at all, so it is as unreachable as a refused one.
+  await appendEvent({ dir, port: 1 }, 'ping', { title: 'Bad port' });
+  assert.deepEqual(lines().map((e) => e.data.title), ['Down', 'Bad port']);
   // A board that reads the request and never answers may well have written the line: the hub can't tell, so it says so.
   const slow = http.createServer(() => {});
   await new Promise((resolve) => slow.listen(0, '127.0.0.1', resolve));
   try {
     await assert.rejects(appendEvent({ dir, port: slow.address().port, route: 'slow' }, 'ping', { title: 'Slow' }, { timeout: 300 }),
       /^Error: \/slow didn't answer within 0\.3 s, so it may already have the ping event$/);
-    assert.equal(lines().length, 1);
+    assert.equal(lines().length, 2);
   } finally { slow.closeAllConnections(); slow.close(); }
+  // A board that wrote the line and then failed its answer, or dropped the connection, has the event already: the hub
+  // says what the board answered and writes nothing. It asks for no board in the answer, only the event's id.
+  const asked = [];
+  const failing = http.createServer((req, res) => {
+    asked.push(req.url);
+    req.resume();
+    req.on('end', () => {
+      if (asked.length === 1) { res.writeHead(500, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'board build failed' })); }
+      else if (asked.length === 2) req.socket.destroy();
+      else { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: 'e-taken' })); }
+    });
+  });
+  await new Promise((resolve) => failing.listen(0, '127.0.0.1', resolve));
+  try {
+    const board = { dir, port: failing.address().port, route: 'failing' };
+    await assert.rejects(appendEvent(board, 'ping', { title: 'Failing' }), /^Error: \/failing answered 500 \(board build failed\), so it may already have the ping event$/);
+    await assert.rejects(appendEvent(board, 'ping', { title: 'Failing' }), /^Error: \/failing dropped the ping event's request \(.+\), so it may already have it$/);
+    assert.equal(await appendEvent(board, 'ping', { title: 'Failing' }), 'e-taken');
+    assert.equal(lines().length, 2);
+    assert.deepEqual(asked, Array(3).fill('/_claude/events?board=0'));
+  } finally { failing.closeAllConnections(); failing.close(); }
 });
 
 test('linksOf names each hub link that reaches a board and each that does not', () => {
@@ -305,25 +333,38 @@ test('closing a board through the hub requires JSON, same-origin access and its 
 test('the proxy preserves browser origin, fetch metadata and the external host for board writes', async () => {
   const post = (headers) => new Promise((resolve, reject) => {
     const req = http.request(`${base}/orch/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (res) => {
-      res.resume();
-      res.on('end', () => resolve({ status: res.statusCode }));
+      let body = '';
+      res.on('data', (d) => { body += d; });
+      res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], body }));
     });
     req.on('error', reject);
     req.end(JSON.stringify({ kind: 'proxy-guard' }));
   });
+  // A status other than the one expected says who answered: the hub's own 404 reads "No site at /orch", and the
+  // process listening on orch's port names a server that isn't orch's, such as another suite's that took the port.
+  const expect = async (status, headers) => {
+    const r = await post(headers);
+    if (r.status === status) return;
+    let listener;
+    try {
+      const pid = execFileSync('lsof', ['-nP', `-iTCP:${orchPort}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).trim().split('\n')[0];
+      listener = `pid ${pid}: ${execFileSync('/bin/ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).trim()}`;
+    } catch (e) { listener = `unknown (${e.message.split('\n')[0]})`; }
+    assert.fail(`${JSON.stringify(headers)}: ${r.status}, not ${status}, ${r.type}: ${r.body.slice(0, 200)}\non orch's port ${orchPort}, ${listener}`);
+  };
   const host = 'mac.example.ts.net';
   for (const headers of [
     { host, origin: `https://${host}` },
     { 'x-forwarded-host': host, origin: `https://${host}` },
     { host, origin: `https://${host}`, 'sec-fetch-site': 'same-origin' },
     {},
-  ]) assert.equal((await post(headers)).status, 200, JSON.stringify(headers));
+  ]) await expect(200, headers);
   const before = events('orch', 'proxy-guard').length;
   for (const headers of [
     { host, origin: 'https://other.example' },
     { 'x-forwarded-host': host, origin: base },
     { host, origin: `https://${host}`, 'sec-fetch-site': 'same-site' },
-  ]) assert.equal((await post(headers)).status, 403, JSON.stringify(headers));
+  ]) await expect(403, headers);
   assert.equal(events('orch', 'proxy-guard').length, before);
 });
 
@@ -540,7 +581,13 @@ test('listening again ends the outage, a watcher whose session is not running do
     assert.deepEqual((await poll()).deaf.pushed, []);
     assert.ok(read(claude('kickflip', 'deaf-state.json')).shop);
     const s = liveSession('s-shop');
-    try { assert.deepEqual((await poll()).deaf.pushed, []); } finally { s.kill(); }
+    try {
+      // While ps gives the hub no answer, which sessions run is unknown, and the outage stays until a check can tell.
+      ps.stall(true);
+      try { assert.deepEqual((await poll()).deaf.pushed, []); } finally { ps.stall(false); }
+      assert.ok(read(claude('kickflip', 'deaf-state.json')).shop, 'a check ps gave no answer for keeps the outage');
+      assert.deepEqual((await poll()).deaf.pushed, []);
+    } finally { s.kill(); }
   } finally { w.kill(); }
   assert.deepEqual(read(claude('kickflip', 'deaf-state.json')), {});
   write(site('shop', 'data', 'watcher.json'), { pid: w.pid, since: ago(20), exited_at: ago(10) });
@@ -941,12 +988,12 @@ test('stopping the hub stops every site it started, one that ignores SIGTERM and
   const siteProcs = () => execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(sitesDir)).map((l) => Number(l.trim().split(' ')[0]));
   const node = (route, script) => [process.execPath, '-e', script, site(route)];
   const manifest = read(claude('kickflip', 'manifest.json'));
-  manifest.sites.stubborn = { dir: home, port: stubbornPort, cmd: node('stubborn', "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)") };
+  manifest.sites.stubborn = { dir: home, port: stubbornPort, cmd: node('stubborn', `process.on('SIGTERM', () => {}); console.log('ready'); ${untilTestEnds()}`) };
   await writeManifestFile(manifest);
   const log = claude('kickflip', 'logs', 'stubborn.log');
   await until(() => fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes('ready'), 'the stubborn server logs ready');
   assert.match(fs.readFileSync(log, 'utf8'), /ready/);
-  manifest.sites.late = { dir: home, port: latePort, cmd: node('late', 'setInterval(() => {}, 1000)') };
+  manifest.sites.late = { dir: home, port: latePort, cmd: node('late', untilTestEnds()) };
   await writeManifestFile(manifest);
   const exited = new Promise((resolve) => hub.once('exit', resolve));
   hub.kill('SIGTERM');

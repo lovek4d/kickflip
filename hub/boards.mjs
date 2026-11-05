@@ -160,18 +160,27 @@ export function boardAt(dir, manifest = readManifest()) {
 }
 
 // One event on a board, through its server's own append path, so the line has the server's id scheme and wakes its
-// watcher. A board whose server can't be reached gets the same line appended directly. A server that took the request and
-// gave no answer within `timeout` may already have the line, so that throws rather than write it twice
-// (docs/adr/2026-11-05-0820-a-hub-event-a-board-took-is-never-written-twice.md). → the event id
+// watcher; it asks for no board in the answer (?board=0), only the id. A board with no port, nothing listening on it, or a
+// port fetch won't connect to gets the same line appended directly. A server that took the request may already have the line, so any other failure
+// throws rather than write it twice: no answer within `timeout`, an answer that isn't ok, or a dropped connection
+// (docs/adr/2026-11-05-0820-a-hub-event-a-board-took-is-never-written-twice.md,
+// docs/adr/2026-11-05-2159-a-land-waits-on-one-file-and-a-hub-event-is-written-once.md). → the event id
 export async function appendEvent(board, kind, data, { timeout = 30000 } = {}) {
   if (board.port) {
+    let r;
     try {
-      const r = await fetch(`http://127.0.0.1:${board.port}/_claude/events`, {
+      r = await fetch(`http://127.0.0.1:${board.port}/_claude/events?board=0`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...data }), signal: AbortSignal.timeout(timeout),
       });
-      if (r.ok) return (await r.json()).id;
     } catch (e) {
       if (e.name === 'TimeoutError') throw new Error(`/${board.route} didn't answer within ${timeout / 1000} s, so it may already have the ${kind} event`);
+      // Refused, or a port fetch won't connect to at all (such as 1): the request never reached a board.
+      if (e.cause?.code !== 'ECONNREFUSED' && e.cause?.message !== 'bad port') throw new Error(`/${board.route} dropped the ${kind} event's request (${e.cause?.code || e.cause?.message || e.message}), so it may already have it`);
+    }
+    if (r) {
+      if (r.ok) return (await r.json()).id;
+      const said = await r.json().then((b) => b.error, () => null);
+      throw new Error(`/${board.route} answered ${r.status}${said ? ` (${said})` : ''}, so it may already have the ${kind} event`);
     }
   }
   const e = { id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ts: new Date().toISOString(), kind, data };

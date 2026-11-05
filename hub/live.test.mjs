@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { liveOf, liveSessions, parentOf, processStarts, sessionGone } from './live.mjs';
-import { stallingPs } from '../shared/test-helpers.mjs';
+import { stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
 // ps is the stand-in for the whole file: each sleeper, a child of this process, started at START.
@@ -14,7 +14,7 @@ const ps = stallingPs(dir, { lstart: START, ppid: process.pid });
 process.env.PATH = `${ps.bin}:${process.env.PATH}`;
 const sleepers = [];
 const sleeper = async () => {
-  const c = spawn(process.execPath, ['-e', "process.send('ready'); setInterval(() => {}, 1000)"], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  const c = spawn(process.execPath, ['-e', `process.send('ready'); ${untilTestEnds()}`], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
   sleepers.push(c);
   await new Promise((resolve, reject) => { c.once('message', resolve); c.once('error', reject); c.once('exit', (code) => reject(new Error(`sleeper exited ${code}`))); });
   return c;

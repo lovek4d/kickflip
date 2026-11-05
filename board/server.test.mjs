@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardSees, freePorts, until, ownSession, boardListening, fakeSlack, slackWorld } from '../shared/test-helpers.mjs';
+import { boardSees, freePorts, until, ownSession, boardListening, fakeSlack, slackWorld, untilTestEnds } from '../shared/test-helpers.mjs';
 import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
 
 let home, site, child, base, slackWorldOf, slackServer, ghDir;
@@ -550,7 +550,9 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'ask', text: 'Settings prototype' });
   const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${id}`);
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'ask-progress.json'), JSON.stringify({ asks: { [id]: { state: 'progress', at: new Date(Date.now() - 1000).toISOString(), next: 'Pick a take' } } })));
+  // Waits for the card itself, not any new version: the server marking the new ask read moves the version too.
+  fs.writeFileSync(path.join(site, 'data', 'ask-progress.json'), JSON.stringify({ asks: { [id]: { state: 'progress', at: new Date(Date.now() - 1000).toISOString(), next: 'Pick a take' } } }));
+  await until(async () => (await card()).next === 'Pick a take', "the board sees the ask's progress");
   assert.deepEqual(await card().then((c) => [c.lane, c.next, c.finishable]), ['review', 'Pick a take', true]);
   await post('/_claude/events', { kind: 'ask-done', id });
   assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['asks', null, false]);
@@ -653,7 +655,7 @@ test("deleting a New card is one events POST that records ask-withdrawn and hide
 });
 
 test('a watcher that just exited on an event still counts as listening, until its session stops', async () => {
-  const session = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const session = spawn(process.execPath, ['-e', untilTestEnds()], { stdio: 'ignore' });
   const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(session.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
   fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'sessions', `${session.pid}.json`), JSON.stringify({ pid: session.pid, sessionId: 's1', cwd: home, procStart, kind: 'bg' }));
@@ -1207,8 +1209,9 @@ test("a wave's triage runs from its wave-triage event until Claude replies, and 
   assert.deepEqual((await row()).triage, { running: false, questions: 0 });
   const { id } = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'wave-triage', lineup: 'mon' }) })).json();
   assert.equal((await row()).triage.running, true);
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'replies', `${id}.html`), 'No changes.'));
-  assert.equal((await row()).triage.running, false);
+  // Waits for the triage itself, not any new version: the server marking the new cards read moves the version too.
+  fs.writeFileSync(path.join(site, 'data', 'replies', `${id}.html`), 'No changes.');
+  await until(async () => (await row()).triage.running === false, "the board sees Claude's reply");
   const notes = await fetch(`${base}/api/notes?wave=mon`);
   assert.deepEqual(await notes.json(), { title: 'Monitor', markdown: '**Goal** Runs in kickflip.\n\n**Order** INT-1 → INT-2\n\nWhy: one PR each.\n' });
   assert.equal((await fetch(`${base}/api/notes?wave=nope`)).status, 404);
@@ -1429,6 +1432,14 @@ test("a reload naming its version since gets a patch of the cards that changed, 
   const unknown = await get('?since=nothing-kept');
   assert.equal(unknown.since, undefined);
   assert.ok(Array.isArray(unknown.items));
+});
+
+test('an event posted with board=0, as the hub posts, is answered with its id alone, building no board', async () => {
+  const r = await fetch(`${base}/_claude/events?board=0`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ping', title: 'Hub' }) });
+  const answer = await r.json();
+  assert.deepEqual(Object.keys(answer), ['id']);
+  const event = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).findLast((e) => e.kind === 'ping');
+  assert.deepEqual([event.id, event.data], [answer.id, { title: 'Hub' }]);
 });
 
 test("a card's question topic in the page's board carries no title of its own: the page names it from its card", async () => {

@@ -6,14 +6,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts } from '../../shared/test-helpers.mjs';
+import { freePorts, untilTestEnds } from '../../shared/test-helpers.mjs';
 
 const hook = fileURLToPath(new URL('./watcher-stop.mjs', import.meta.url));
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 
 test('the Stop hook blocks once while a board the session owns has no live watcher, with the command that relaunches it', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-stop-'));
-  const sleeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'wait-events.mjs'], { stdio: 'ignore' });
+  const sleeper = spawn(process.execPath, ['-e', untilTestEnds(), 'wait-events.mjs'], { stdio: 'ignore' });
   t.after(() => { sleeper.kill(); fs.rmSync(home, { recursive: true, force: true }); });
   const dir = (route) => path.join(home, '.claude', 'kickflip', 'sites', route);
   const board = (route, session) => ({ dir: dir(route), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', dir(route)], owner: { session } });

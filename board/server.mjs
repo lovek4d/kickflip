@@ -89,7 +89,8 @@
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
 //                                event's id and /api/board's answer as the tap left it, version included, so the page draws the tap from
 //                                the one round trip (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md);
-//                                with since: <version>, which isn't recorded, that board is a patch from it as ?since= gives
+//                                with since: <version>, which isn't recorded, that board is a patch from it as ?since= gives;
+//                                ?board=0, as the hub posts, answers with no board, so the answer builds nothing after the line is written
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
 //                                Implement with no text or files on a ready card starts the build as card-build does,
@@ -773,7 +774,9 @@ function countAnswer(kind) {
   sinceCounts[kind]++;
   sinceWrite ??= setTimeout(() => { sinceWrite = null; saveSinceCounts(); }, SINCE_COUNTS_EVERY).unref();
 }
+// → undefined for a POST /_claude/events?board=0, so its answer carries no board key.
 async function answerBoard(req, since) {
+  if (new URL(req.url, 'http://site').searchParams.get('board') === '0') return undefined;
   const from = since && kept.get(since);
   countAnswer(from ? 'patch' : since ? 'missed' : 'none');
   const b = await pageBoard(req);

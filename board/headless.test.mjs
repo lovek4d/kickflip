@@ -5,9 +5,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until, boardListening } from '../shared/test-helpers.mjs';
+import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
 import { builderBrief, landerBrief, plannerBrief, rebaseBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts } from './store.mjs';
+
+// Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
+// server and outlives it.
+function stopFakeBuilders(seen) {
+  let runs = [];
+  try { runs = fs.readFileSync(seen, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch {}
+  for (const { pid } of runs) try { process.kill(pid, 'SIGKILL'); } catch {}
+}
 
 const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
 
@@ -428,7 +436,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   const fake = path.join(home, 'claude');
   // The relaunched builder stays alive a while, so the 50ms check leaves its entry at relaunched instead of handing it back.
   // It names its session as Claude's init event does, which the launch records on the card's builder record and thread line.
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-R1' }));\nsetTimeout(() => {}, 5000);\n`);
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), pid: process.pid }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-R1' }));\nsetTimeout(() => {}, 5000);\n${untilTestEnds()}.unref();\n`);
   fs.chmodSync(fake, 0o755);
   const setup = path.join(home, 'setup.mjs');
   fs.writeFileSync(setup, `
@@ -452,6 +460,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
     assert.deepEqual({ ...logged, at: undefined }, { at: undefined, call: 'relaunch', key: 't/R1', result: 'relaunched', reason: 'Its builder exited with its record open, for the first time.', inputs: { model: 'opus', pid: dead.pid, relaunched: false } });
   } finally {
     child.kill();
+    stopFakeBuilders(seen);
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -478,7 +487,7 @@ test("a restarted server launches the builder of a building card whose record is
   fs.writeFileSync(path.join(data, 'headless-builders.json'), JSON.stringify({ 't/C3': { model: 'opus', pid: process.pid, relaunched: false } }));
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');\nsetTimeout(() => {}, 5000);\n`);
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), pid: process.pid }) + '\\n');\nsetTimeout(() => {}, 5000);\n${untilTestEnds()}.unref();\n`);
   fs.chmodSync(fake, 0o755);
   const [port] = await freePorts();
   const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
@@ -491,6 +500,7 @@ test("a restarted server launches the builder of a building card whose record is
     assert.match(runs[0].argv[1], /builder start t\/C1 --kind build/);
   } finally {
     child.kill();
+    stopFakeBuilders(seen);
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -614,14 +624,15 @@ test('stopAgents signals only the agents whose process started when their sessio
 test("the owner's Hold kills the card's running builder, closes its record and says so in the thread", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-fake-'));
   const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\nsetInterval(() => {}, 1000);\n`);
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\n${untilTestEnds()};\n`);
   fs.chmodSync(fake, 0o755);
   const b = oneLaunchBoard([{ id: 'H1', title: 'Hold me', state: 'ready', size: 'large' }], fake);
   const { child, send } = await b.start();
+  let pid;
   try {
     await send('card-build', { key: 't/H1' });
     await until(() => b.record('H1').session?.pid, 'the launch records the agent pid');
-    const { pid } = b.record('H1').session;
+    ({ pid } = b.record('H1').session);
     assert.doesNotThrow(() => process.kill(pid, 0), 'the agent runs');
     await send('card-hold', { key: 't/H1', hold: true });
     await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'the hold stops the agent');
@@ -629,6 +640,7 @@ test("the owner's Hold kills the card's running builder, closes its record and s
     assert.deepEqual(b.thread('H1').slice(-2).map((t) => t.text), ['Held.', 'Stopped its builder.']);
   } finally {
     child.kill();
+    if (pid) try { process.kill(pid, 'SIGKILL'); } catch {}
     fs.rmSync(b.home, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   }

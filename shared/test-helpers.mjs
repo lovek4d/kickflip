@@ -135,6 +135,11 @@ export const linearWorld = () => ({
   issues: {},
 });
 
+// A stand-in process's keep-alive, as script text: an interval that exits the stand-in once the test process that wrote
+// it (pid) is gone, so a test file that is killed or times out leaves no stand-in running. It replaces
+// setInterval(() => {}, 1000); a stand-in that ends on its own sooner adds it with .unref().
+export const untilTestEnds = (pid = process.pid) => `setInterval(() => { try { process.kill(${pid}, 0); } catch { process.exit(0); } }, 1000)`;
+
 // Records the test process as Claude Code session `session` under home, so a bin/wait-events.mjs it spawns there
 // has a live owning session (hub/live.mjs sessionGone).
 export function ownSession(home, session, pid = process.pid) {

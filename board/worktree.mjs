@@ -238,26 +238,32 @@ export function restartRunner(what, route) {
 // {card, pid, at} names the card landing. A land that finds it held waits its turn, first in first out across every
 // process (a file per ask in ~/.claude/kickflip/land.queue, named <asked ms>-<count>-<pid>), calling onWait(card) with
 // the card it waits for. asked is when the land was asked for, so a land that lets go of the lock to test again keeps
-// its place. A waiter wakes when the lock or the queue changes; a lock or ask whose process is gone is taken over, found
-// by a slow recheck since a process that dies changes neither.
+// its place. A waiter wakes when the one file it waits on goes: the lock, or the nearest ask ahead of it. A lock or ask
+// whose process is gone is taken over, found by a slow recheck since a process that dies removes neither.
 const kickflipDir = () => path.join(os.homedir(), '.claude', 'kickflip');
 const landing = () => path.join(kickflipDir(), 'landing');
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const RECHECK_MS = 5000;
-// → {next(): a promise that resolves on the next change in dirs, or after RECHECK_MS, close()}
-function watching(dirs) {
-  let changed = false;
-  let wake = null;
-  const poke = () => { changed = true; wake?.(); };
-  const watchers = dirs.map((d) => fs.watch(d, poke));
-  return {
-    next: () => new Promise((resolve) => {
-      if (changed) { changed = false; resolve(); return; }
-      const timer = setTimeout(() => { wake = null; resolve(); }, RECHECK_MS);
-      wake = () => { clearTimeout(timer); wake = null; changed = false; resolve(); };
-    }),
-    close: () => { for (const w of watchers) w.close(); },
-  };
+// Resolves once file is removed or replaced, or after RECHECK_MS; at once if it's already gone. On macOS a file's watch
+// is a kqueue note the event loop registers on its next poll, so the file is checked again once a poll has run (two
+// immediates on, since one can fall in the check phase right after the poll that ran this): a file removed before the
+// note was live is caught there (docs/adr/2026-11-05-2159-a-land-waits-on-one-file-and-a-hub-event-is-written-once.md).
+async function untilGone(file) {
+  let ino;
+  let watcher;
+  try { ino = fs.statSync(file).ino; watcher = fs.watch(file); } catch { return; }
+  let timer;
+  try {
+    await new Promise((resolve) => {
+      watcher.on('change', resolve).on('error', resolve);
+      timer = setTimeout(resolve, RECHECK_MS);
+      setImmediate(() => setImmediate(() => {
+        let now = null;
+        try { now = fs.statSync(file).ino; } catch {}
+        if (now !== ino) resolve();
+      }));
+    });
+  } finally { clearTimeout(timer); watcher.close(); }
 }
 let asks = 0;
 // The lock named name (<name>.lock, queue in <name>.queue) held while fn runs; onWait(card) names who it waits for.
@@ -266,7 +272,6 @@ async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now() } 
   const queue = path.join(kickflipDir(), `${name}.queue`);
   fs.mkdirSync(queue, { recursive: true });
   const ticket = `${String(asked).padStart(15, '0')}-${String(asks++).padStart(6, '0')}-${process.pid}`;
-  const changes = watching([kickflipDir(), queue]);
   fs.writeFileSync(path.join(queue, ticket), '');
   let waitingFor = null;
   try {
@@ -283,10 +288,9 @@ async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now() } 
       }
       const who = held?.card ?? (ahead.length ? `the ${name} ahead` : null);
       if (who && who !== waitingFor) { waitingFor = who; await onWait?.(who); }
-      await changes.next();
+      await untilGone(ahead.length ? path.join(queue, ahead.at(-1)) : file);
     }
   } finally {
-    changes.close();
     fs.rmSync(path.join(queue, ticket), { force: true });
   }
   try { return await fn(); } finally {
@@ -302,22 +306,19 @@ export async function joiningLand(card, fn) {
   const dir = landing();
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, encodeURIComponent(card));
-  const changes = watching([dir]);
   let joined = false;
-  try {
-    for (;;) {
-      if (joined && !fs.existsSync(file)) return { joined: true };
-      try { fs.writeFileSync(file, JSON.stringify({ pid: process.pid }), { flag: 'wx' }); break; }
-      catch (e) {
-        if (e.code !== 'EEXIST') throw e;
-        let held = null;
-        try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
-        if (!(Number.isInteger(held?.pid) && alive(held.pid))) { fs.rmSync(file, { force: true }); continue; }
-        joined = true;
-        await changes.next();
-      }
+  for (;;) {
+    if (joined && !fs.existsSync(file)) return { joined: true };
+    try { fs.writeFileSync(file, JSON.stringify({ pid: process.pid }), { flag: 'wx' }); break; }
+    catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      let held = null;
+      try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+      if (!(Number.isInteger(held?.pid) && alive(held.pid))) { fs.rmSync(file, { force: true }); continue; }
+      joined = true;
+      await untilGone(file);
     }
-  } finally { changes.close(); }
+  }
   try { return await fn(); } finally { fs.rmSync(file, { force: true }); }
 }
 

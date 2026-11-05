@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardSees, freePorts, boardListening } from '../shared/test-helpers.mjs';
+import { freePorts, boardListening, until } from '../shared/test-helpers.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 
 const serverFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
@@ -68,16 +68,17 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
 
   const owner = { items: [{ id: 'f1', topic: 'item:app/INT-1', question: 'Split the store?', options: [{ id: 'A', label: 'Split' }, { id: 'skip', label: 'Skip' }] },
     { id: 'f2', topic: 'item:app/INT-1', question: 'Merge the readers?', options: [{ id: 'A', label: 'Merge' }, { id: 'skip', label: 'Skip' }] }] };
-  await boardSees(b.base, () => fs.writeFileSync(path.join(b.site, 'data', 'owner.json'), JSON.stringify(owner)));
-  ({ last } = await b.arch());
+  // Each wait is for the review itself, not any new version: the server marking new cards read moves the version too.
+  fs.writeFileSync(path.join(b.site, 'data', 'owner.json'), JSON.stringify(owner));
+  await until(async () => ({ last } = await b.arch()).last.findings === 2, "the board sees the review's findings");
   assert.deepEqual([last.open, last.running, last.findings], [true, false, 2]);
 
   const done = readJSON(path.join(b.site, 'data', 'wave.json'));
   done.items.find((it) => it.id === 'INT-1').status = 'done';
   done.items.push({ id: 'INT-9', title: 'Split the store', status: 'done' }, { id: 'INT-10', title: 'Merge the readers', status: 'dropped' });
   done.lineups[0].phases.push(['INT-9'], ['INT-10']);
-  await boardSees(b.base, () => fs.writeFileSync(path.join(b.site, 'data', 'wave.json'), JSON.stringify(done)));
-  ({ last } = await b.arch());
+  fs.writeFileSync(path.join(b.site, 'data', 'wave.json'), JSON.stringify(done));
+  await until(async () => ({ last } = await b.arch()).last.open === false, 'the board sees the review closed');
   assert.deepEqual([last.open, last.running, last.findings, last.built], [false, false, 2, 1]);
 
   const next = await b.run();

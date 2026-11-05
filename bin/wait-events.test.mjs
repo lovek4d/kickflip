@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { until, ownSession, stallingPs } from '../shared/test-helpers.mjs';
+import { until, ownSession, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
 
 const write = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data)); };
 
@@ -94,7 +94,7 @@ function shop(t) {
   const env = { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' };
   // A process whose command line reads like a watcher's, which only sleeps.
   const lookalike = (...args) => {
-    const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'wait-events.mjs', ...args], { stdio: 'ignore' });
+    const c = spawn(process.execPath, ['-e', untilTestEnds(), 'wait-events.mjs', ...args], { stdio: 'ignore' });
     pids.push(c.pid);
     return c;
   };
@@ -113,8 +113,8 @@ test("a watcher whose session dies exits without taking the next event, so the r
   const { home, dir, pids, env, add, watcherRecord, watch } = shop(t);
   // A stand-in Claude session runs a stand-in shell, which runs the watcher, as Claude Code runs a background task.
   const out = path.join(home, 'watcher.out');
-  const shell = `const c = require('node:child_process').spawn(process.execPath, ${JSON.stringify([WATCHER, 'shop', 's1'])}, { stdio: ['ignore', require('node:fs').openSync(${JSON.stringify(out)}, 'w'), 'inherit'] }); setInterval(() => {}, 1000);`;
-  const claude = spawn(process.execPath, ['-e', `const s = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(shell)}], { stdio: 'ignore' }); process.send(s.pid); setInterval(() => {}, 1000);`], { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  const shell = `const c = require('node:child_process').spawn(process.execPath, ${JSON.stringify([WATCHER, 'shop', 's1'])}, { stdio: ['ignore', require('node:fs').openSync(${JSON.stringify(out)}, 'w'), 'inherit'] }); ${untilTestEnds()};`;
+  const claude = spawn(process.execPath, ['-e', `const s = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(shell)}], { stdio: 'ignore' }); process.send(s.pid); ${untilTestEnds()};`], { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
   pids.push(claude.pid);
   pids.push(await new Promise((resolve) => claude.once('message', resolve)));
   ownSession(home, 's1', claude.pid);
