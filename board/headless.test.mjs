@@ -130,7 +130,8 @@ test("on a board whose builders launch headless, the server launches the builder
     assert.match(await fetch(`${base}/log.html`).then((r) => r.text()), /api\/log\?file=/);
     assert.deepEqual(log().filter((e) => e.kind === 'card-build'), []);
 
-    boardJSON({ auto_pull: true });
+    // As the owner's switch does, so the settings event wakes the server's Auto check (board.json itself isn't watched).
+    assert.equal((await fetch(`${base}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_pull: true }) })).status, 200);
     await until(() => runs().length === 3, 'the pulled builder launches');
     assert.match(runs()[2].argv[1], /builder start t\/H2 --kind build/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H2.json'), 'utf8')).dispatched, 'hub');
@@ -251,7 +252,8 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   fs.writeFileSync(path.join(data, 'headless-builders.json'), JSON.stringify({ 't/R1': { model: 'opus', pid: dead.pid, relaunched: false } }));
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');\n`);
+  // The relaunched builder stays alive a while, so the 50ms check leaves its entry at relaunched instead of handing it back.
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');\nsetTimeout(() => {}, 5000);\n`);
   fs.chmodSync(fake, 0o755);
   const setup = path.join(home, 'setup.mjs');
   fs.writeFileSync(setup, `
