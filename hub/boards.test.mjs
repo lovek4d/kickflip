@@ -240,13 +240,23 @@ exit 1
   write(site('orch', 'data', 'watcher.json'), { pid: orchWatcher.pid, since: ago(1) });
 
   hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: `${path.join(home, 'bin')}:${process.env.PATH}` } });
-  await new Promise((resolve, reject) => {
-    let out = '';
-    hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-    hub.once('exit', reject);
-  });
-  for (const route of ['orch', 'shop']) {
-    await until(() => fetch(`${base}/${route}/_claude/health`).then((r) => r.ok, () => false), `${route} server becomes healthy`);
+  // The hub's own output rides on whatever fails here: node:test reports a failed hook with no message of its own.
+  let out = '';
+  hub.stdout.on('data', (d) => { out += d; });
+  hub.stderr.on('data', (d) => { out += d; });
+  try {
+    await new Promise((resolve, reject) => {
+      hub.stdout.on('data', () => { if (out.includes('hub on')) resolve(); });
+      hub.once('exit', (code, signal) => reject(new Error(`the hub exited (${code ?? signal}) before it listened`)));
+    });
+    for (const route of ['orch', 'shop']) {
+      await until(() => fetch(`${base}/${route}/_claude/health`).then((r) => r.ok, () => false), `${route} server becomes healthy`);
+    }
+  } catch (e) {
+    const logs = path.join(claude('kickflip'), 'logs');
+    const boardLogs = fs.existsSync(logs) ? fs.readdirSync(logs).map((f) => `--- ${f}\n${fs.readFileSync(path.join(logs, f), 'utf8')}`).join('\n') : '';
+    e.message += `\nhub output:\n${out}\nboard server logs:\n${boardLogs}`;
+    throw e;
   }
 });
 
@@ -260,7 +270,8 @@ after(async () => {
   }
   await device?.close();
   await new Promise((r) => setTimeout(r, 200));
-  fs.rmSync(home, { recursive: true, force: true });
+  // A board server the hub started may still be flushing a write as its tree goes; rmSync retries ENOTEMPTY.
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
 
 test('hub writes refuse cross-site requests before handling forms, JSON or deletes', async () => {
