@@ -32,13 +32,14 @@ function launchingBoard(dir, siteDir) {
   return { claude, launched };
 }
 
-test('automatic builder check-ins run without a browser, once per silent spell across a restart, and stop on done', async () => {
+// docs/adr/2026-11-05-0200-a-stale-review-and-a-silent-builder-join-the-orchestrator-list.md
+test('a silent builder wakes the session once per silent spell through the orchestrator list, across a restart, and stops on done', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'builder-stalled-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
   const clockFile = path.join(dir, 'clock');
   const setup = path.join(dir, 'setup.mjs');
-  const stateFile = path.join(dataDir, 'builder-stalled.json');
+  const waitsFile = path.join(dataDir, 'orchestrator-waits.json');
   const agentFile = path.join(dataDir, 'agents', 'A1.json');
   let now = Date.parse('2026-10-30T10:00:00Z');
   let worker;
@@ -62,10 +63,10 @@ test('automatic builder check-ins run without a browser, once per silent spell a
     globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 20 : ms, ...args);
     http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
   `);
-  const read = (file, fallback) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; } };
-  const stalledEvents = () => {
+  const waits = () => { try { return JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits; } catch { return null; } };
+  const wakes = () => {
     const text = fs.existsSync(path.join(dataDir, 'events.jsonl')) ? fs.readFileSync(path.join(dataDir, 'events.jsonl'), 'utf8') : '';
-    return text.trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'builder-stalled');
+    return text.trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'orchestrator-waits').map((e) => e.data);
   };
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
@@ -85,37 +86,33 @@ test('automatic builder check-ins run without a browser, once per silent spell a
     worker.kill();
     await exited;
   };
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 80));
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 120));
   const advance = (minutes) => { now += minutes * 60000; put(clockFile, String(now)); };
   try {
     await start();
     await tick();
-    assert.equal(stalledEvents().length, 0);
+    assert.equal(wakes().length, 0);
     advance(2);
-    await until(() => read(stateFile, {})['t/A1'] === started, 'the initial silent spell is recorded');
-    assert.deepEqual(stalledEvents().map((e) => e.data), [{ key: 't/A1', silentSince: started }]);
+    await until(() => wakes().length === 1, 'the silent builder wakes the session');
+    assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since]), [['t/A1', 'stalled', started]]);
     await stop();
     await start();
     await tick();
-    assert.equal(stalledEvents().length, 1);
-    await stop();
-    fs.rmSync(stateFile);
-    await start();
-    await until(() => read(stateFile, {})['t/A1'] === started, 'the silent spell is restored after restart');
-    assert.equal(stalledEvents().length, 1);
+    await tick();
+    assert.equal(wakes().length, 1, 'once across a restart');
 
     const progress = new Date(now).toISOString();
     put(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: progress, kind: 'status', text: 'Running tests' }) + '\n');
-    await until(() => !read(stateFile, {})['t/A1'], 'progress clears the silent spell');
+    await until(() => waits().length === 0, 'progress ends the wait');
     advance(31);
-    await until(() => read(stateFile, {})['t/A1'] === progress, 'the next silent spell is recorded');
-    assert.deepEqual(stalledEvents().map((e) => e.data), [{ key: 't/A1', silentSince: started }, { key: 't/A1', silentSince: progress }]);
+    await until(() => wakes().length === 2, 'the next silent spell wakes it again');
+    assert.equal(waits()[0].since, progress);
 
     put(agentFile, JSON.stringify({ kind: 'codex', started, done: new Date(now).toISOString() }));
-    await until(() => !read(stateFile, {})['t/A1'], 'finishing the builder clears the silent spell');
+    await until(() => waits().every((w) => w.kind !== 'stalled'), 'finishing the builder ends the wait');
     advance(60);
     await tick();
-    assert.equal(stalledEvents().length, 2);
+    assert.ok(waits().every((w) => w.kind !== 'stalled'), 'no silent-builder wait after done');
   } finally {
     await stop();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -808,6 +805,7 @@ test('a card that comes to wait on the orchestrator wakes the session once, and 
   const handedAt = new Date(now - 5 * 60000).toISOString();
   fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'building', status_at: handedAt }, { id: 'A2', title: 'Two' }] }));
   fs.writeFileSync(path.join(dataDir, 'agents', 'A1.json'), JSON.stringify({ kind: 'claude', started: new Date(now - 60 * 60000).toISOString(), calls: [{ at: handedAt, text: 'Kept the old name' }] }));
+  fs.writeFileSync(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: new Date(now - 60000).toISOString(), kind: 'status', text: 'Building' }) + '\n');
   fs.writeFileSync(eventsFile, '');
   fs.writeFileSync(clockFile, String(now));
   fs.writeFileSync(path.join(dir, 'push-stub.mjs'), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(3)) + '\\n'); console.log('sent');");

@@ -1049,7 +1049,7 @@ export function buildBoard(snapshot) {
     if (it.kind !== 'work') continue;
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered').map((q) => q.answers.at(-1).ts).sort().pop();
     const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
-    it.orchestrator = ['progress', 'todo'].includes(it.lane) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
+    it.orchestrator = ['progress', 'todo', 'stale'].includes(it.lane) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
   // Items arrive in the order the page shows them (public/ui-order.js).
@@ -1328,7 +1328,8 @@ export function strictlyIdle(built, { pulled = [] } = {}) {
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 // What an open work card waits on the orchestrator for, or null: an open builder ask; an owner answer not acted on;
 // unless the owner owes it an answer, a hand-back with judgment calls not verified (calls) or a checked card with none left
-// (checking); a grill or prototype asked for with no planner of that kind running; a refusal by the pull; or a started
+// (checking); a builder silent past the stall limit (stalled); a review in the Stale lane, from when it crossed seven
+// days (stale); a grill or prototype asked for with no planner of that kind running; a refusal by the pull; or a started
 // card with no live builder and nothing else placing it (unowned). since is when it began to wait, and picked when the
 // session first wrote on the card after that (waitFactsOf), or the watcher marked one of its events working, which the
 // card reads as Orchestrator review. → {kind, since, picked, next}, next saying what it waits for.
@@ -1338,6 +1339,8 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const wait = facts.ask ? { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` }
     : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
     : ASKING.has(it.action?.kind) ? null
+    : it.builder?.stalled ? { kind: 'stalled', since: it.builder.silentSince, next: 'Find out why the builder went silent or stopped, then restart or finish its run' }
+    : it.lane === 'stale' && it.inReviewSince ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), next: 'Find out why the review went stale and fix what you can: rebase, CI, comments, a silent reviewer' }
     : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.statusAt, next: facts.next || "Verify the builder's judgment calls" }
       : { kind: 'checking', since: facts.statusAt, next: facts.next || 'Land the checked build' }
     : it.grilling && facts.grillAt && !running('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }

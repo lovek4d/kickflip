@@ -112,8 +112,7 @@
 //                                reask-request {key?, question} asks the session to ask a resolved question again from the
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
-//                                builder-nudge {key} asks the session to check a builder. The server also appends
-//                                builder-stalled {key, silentSince} once per silent spell, tracked in data/builder-stalled.json
+//                                builder-nudge {key} asks the session to check a builder
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
 //                                including held cards, so the owning session hears it whoever ran the command.
 //                                reviewers {add?: [name], remove?: [name]} is Board settings' reviewers Save: the server
@@ -615,38 +614,6 @@ async function sharedBoard() {
   return shared.built;
 }
 
-let checkingStalled = false;
-async function checkStalled() {
-  if (checkingStalled) return;
-  checkingStalled = true;
-  try {
-    const file = path.join(data, 'builder-stalled.json');
-    const previous = await readJSON(file, {});
-    const current = Object.create(null);
-    let sent;
-    for (const { key, lane, builder } of (await sharedBoard()).items) {
-      if (lane === 'done' || !builder?.stalled) continue;
-      current[key] = builder.silentSince;
-      if (routeRecord(previous, key) !== builder.silentSince) {
-        // The event log covers a restart between appending an event and saving its marker.
-        sent ||= await readLines(events);
-        if (!sent.some((e) => e.kind === 'builder-stalled' && e.data?.key === key && e.data?.silentSince === builder.silentSince)) {
-          await appendEvent('builder-stalled', { key, silentSince: builder.silentSince });
-        }
-      }
-    }
-    if (JSON.stringify(current) !== JSON.stringify(previous)) {
-      await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify(current) + '\n');
-      await fs.rename(file + '.tmp', file);
-    }
-  } catch (err) {
-    console.error('Builder check failed:', err.message);
-  } finally {
-    checkingStalled = false;
-  }
-}
-
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
 // Raises each prototype request left waiting PROTOTYPE_WAIT with no prototype agent running to the session, once per
 // request: the event log says which went out.
@@ -885,7 +852,6 @@ function changed() {
     changeTimer = null;
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
     checkArchive();
-    checkStalled();
     checkActions();
     checkWaits();
     checkAuto();
@@ -1634,7 +1600,6 @@ await checkArchive();
 await watchBoard();
 setInterval(() => {
   dataVersion++;
-  checkStalled();
   checkPrototypeWaits();
   reviveHeadless();
   checkPickUps();
@@ -1644,7 +1609,6 @@ setInterval(() => {
   checkWaits();
   checkIdle();
 }, 60000).unref();
-await checkStalled();
 await checkPrototypeWaits();
 await checkPickUps();
 await checkAuto();
