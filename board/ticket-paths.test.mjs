@@ -257,12 +257,14 @@ const KNOWN = {
   'hub/push.mjs deliver': 'the push queue',
   'hub/push.mjs flushQueue': 'the push queue',
 };
+// The shipped modules: test files, and the test-only modules package.json leaves out of the package, are skipped.
 function sources() {
+  const testOnly = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).files.filter((f) => f.startsWith('!') && !f.includes('*')).map((f) => f.slice(1));
   const files = [];
   const walk = (dir) => {
     for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
       const rel = path.join(dir, e.name);
-      if (e.isDirectory()) { if (!['public', 'node_modules'].includes(e.name)) walk(rel); } else if (e.name.endsWith('.mjs') && !e.name.endsWith('.test.mjs')) files.push(rel);
+      if (e.isDirectory()) { if (!['public', 'node_modules'].includes(e.name)) walk(rel); } else if (e.name.endsWith('.mjs') && !e.name.endsWith('.test.mjs') && !testOnly.includes(rel)) files.push(rel);
     }
   };
   SOURCE_DIRS.filter((d) => fs.existsSync(path.join(root, d))).forEach(walk);
