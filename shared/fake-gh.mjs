@@ -16,6 +16,8 @@ export const writeReviews = (dir, n, value) => write(dir, 'reviews', n, value);
 export const writeMerge = (dir, n, value) => write(dir, 'merge', n, value);
 // {error}: gh pr ready <n> fails, printing error.
 export const writeReady = (dir, n, value) => write(dir, 'ready', n, value);
+// [{number, headRefName, isCrossRepository}]: the open PRs the GraphQL query lists for repo (owner/name).
+export const writeOpen = (dir, repo, value) => write(dir, 'open', repo, value);
 export const writeUser = (dir, value) => write(dir, '', 'user', value);
 // {login: token}: the accounts gh auth token -u answers for.
 export const writeAccounts = (dir, value) => write(dir, '', 'accounts', value);
@@ -25,7 +27,8 @@ const jsonl = (dir, name) => {
 export const calls = (dir) => jsonl(dir, 'calls.jsonl');
 // {remaining, resetAt}: the rate limit the GraphQL query answers, or {fail: true} to fail the whole query.
 export const writeRate = (dir, value) => write(dir, '', 'rate', value);
-// One entry per GraphQL query: the owner/repo#n of each PR it asked for, in order.
+// One entry per GraphQL query: the owner/repo#n of each PR it asked for, in order
+// (not the repos it listed open PRs of).
 export const queried = (dir) => calls(dir).filter((a) => a[0] === 'api' && a[1] === 'graphql')
   .map((a) => [...a[3].matchAll(/repository\(owner: "([^"]+)", name: "([^"]+)"\) \{ pullRequest\(number: (\d+)\)/g)].map(([, o, n, pr]) => `${o}/${n}#${pr}`));
 // [{args, token}]: each call with the GH_TOKEN it ran with, or null.
@@ -101,6 +104,9 @@ if (args.length === 4 && args[0] === 'api' && args[1] === 'graphql' && args[2] =
   const list = (folder, repo, n) => { const v = read(fixture(folder, repo, n), []); return Array.isArray(v) ? v : []; };
   const data = { viewer: user ? { login: user.login } : null, rateLimit: rate };
   const errors = [];
+  for (const [, alias, owner, name] of args[3].matchAll(/(open\\d+): repository\\(owner: "([^"]+)", name: "([^"]+)"\\) \\{ pullRequests\\(/g)) {
+    data[alias] = { pullRequests: { nodes: read(path.join(dir, 'open', owner + '__' + name + '.json'), []) } };
+  }
   for (const [, alias, owner, name, n] of args[3].matchAll(/(\\w+): repository\\(owner: "([^"]+)", name: "([^"]+)"\\) \\{ pullRequest\\(number: (\\d+)\\)/g)) {
     const repo = owner + '/' + name;
     const view = read(fixture('pr', repo, n), null);

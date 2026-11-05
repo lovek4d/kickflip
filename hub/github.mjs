@@ -10,7 +10,9 @@
 // docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). A landed card waiting on an owner step runs the
 // step's code check, closing when it passes (owner-checks.mjs). Each board gets data/checked.json after a
 // check that reached GitHub for every PR it shows, in the idle form when it shows none. sendWakes sends the daily wake,
-// at the end of quiet hours, to every board, changed or not.
+// at the end of quiet hours, to every board, changed or not. The same query lists each board repo's open PRs, and one
+// opened by hand on a card's branch is linked to the card (linkHandPRs,
+// docs/adr/2026-11-05-1000-the-poll-links-a-pr-opened-by-hand-on-a-cards-branch.md).
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -19,10 +21,10 @@ import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendThread, setItem, mergedLine, mergeCard } from '../board/store.mjs';
-import { allLanded, leastReady } from '../shared/card-prs.mjs';
+import { allLanded, cardPRs, leastReady } from '../shared/card-prs.mjs';
 import { runOwnerChecks } from './owner-checks.mjs';
 
-export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft'];
+export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'linked'];
 
 const known = (v) => (v && v !== 'UNKNOWN' ? v : null);
 
@@ -90,10 +92,13 @@ export async function checkGitHub({ every, manifest }) {
   const boards = listBoards(manifest);
   const failed = [];
   const distinct = [...new Map(boards.flatMap((b) => b.prs).map((p) => [prKey(p), { repo: p.repo, pr: p.pr }])).values()];
+  const repos = [...new Set(boards.flatMap(repoList))];
   let query = null;
-  if (distinct.length) {
-    try { query = await fetchPRs(distinct); } catch (e) { failed.push(e.message); }
+  if (distinct.length || repos.length) {
+    try { query = await fetchPRs(distinct, repos); } catch (e) { failed.push(e.message); }
   }
+  const linked = new Map(boards.map((board) => [board.route, []]));
+  if (query) for (const board of boards) linked.set(board.route, await linkHandPRs(board, query.open, failed));
   const raw = new Map(distinct.map((p, i) => [prKey(p), query ? query.results[i] : null]));
   const fallback = query?.login ?? null;
   const fetchKey = (p, me) => JSON.stringify([prKey(p), me]);
@@ -158,9 +163,10 @@ export async function checkGitHub({ every, manifest }) {
     const changed = cards.filter((c) => c.changes.length);
     let reached = cards.every((c) => c.next);
     let accepted = true;
-    if (changed.length) {
+    if (changed.length || linked.get(board.route).length) {
       try {
-        events.push({ route: board.route, id: await appendEvent(board, 'github-change', { prs: changed.map(({ p, changes }) => ({ wave: p.wave, id: p.id, pr: p.pr, changes })) }) });
+        const prs = [...changed.map(({ p, changes }) => ({ wave: p.wave, id: p.id, pr: p.pr, changes })), ...linked.get(board.route)];
+        events.push({ route: board.route, id: await appendEvent(board, 'github-change', { prs }) });
       } catch (e) {
         failed.push(`${board.route}: could not add the github-change event (${e.message})`);
         for (const { key } of changed) undelivered.add(key);
@@ -198,6 +204,30 @@ export async function checkGitHub({ every, manifest }) {
   try { await advanceLinear(boards, fetched, fetchKey, linear); }
   catch (e) { linear.failed.push(`linear: ${e.message}`); }
   return { at, watched: prs.size, failed, changes, events, checked, merged: [...mergedRoutes], linear, rate: query?.rate ?? null };
+}
+
+const repoList = (board) => (board.github ? [board.github] : [...new Set(board.waves.map((w) => w.wave.repo).filter(Boolean))]);
+
+// A card's branch is its card id (board/worktree.mjs makeWorktree), so an open PR in the card's repo whose head is that
+// branch in the same repo, and which the card doesn't hold yet, was opened by hand: it is recorded as `item set --pr` does,
+// with no --clear-status. → [{wave, id, pr, changes: ['linked']}] for the github-change event.
+async function linkHandPRs(board, open, failed) {
+  const out = [];
+  for (const { slug, wave } of board.waves) {
+    const repo = board.github || wave.repo;
+    const heads = new Map((open[repo] || []).filter((p) => !p.isCrossRepository).map((p) => [p.headRefName, p.number]));
+    for (const item of wave.items) {
+      if (!heads.has(item.id) || ['done', 'merged', 'dropped'].includes(item.status) || cardPRs(item, repo).some((p) => p.repo === repo)) continue;
+      const card = `${slug}/${item.id}`;
+      const pr = heads.get(item.id);
+      try {
+        await setItem(board.dir, card, { pr });
+        await appendThread(board.dir, card, { text: `Found PR #${pr} on branch ${item.id}.` });
+        out.push({ wave: slug, id: item.id, pr, changes: ['linked'] });
+      } catch (err) { failed.push(`${board.route}: could not link PR #${pr} to ${card} (${err.message})`); }
+    }
+  }
+  return out;
 }
 
 // '' for an empty plain review: its inline comments arrive as their own events.

@@ -136,8 +136,10 @@ test('unconfigured boards take the login from the one query, and an empty manife
   fs.unlinkSync(path.join(dir, 'calls.jsonl'));
   assert.equal((await checkGitHub({ every: 5, manifest: {} })).rate, null);
   assert.deepEqual(calls(dir), []);
+  // A board with a repo and no PR still asks for its repo's open PRs (hub/github.mjs linkHandPRs).
   await checkGitHub({ every: 5, manifest: manifestOf([{ route: 'idle', prs: [] }]) });
-  assert.deepEqual(calls(dir), []);
+  assert.deepEqual(queried(dir), [[]]);
+  assert.equal(calls(dir).length, 1);
 });
 
 test('a failed query is reported once and reaches no board; a PR GitHub can\'t resolve leaves only its boards unreached', async () => {

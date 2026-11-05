@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { fakeGh, prView, writePR, writeReady, writeUser, writeIssueComments, writeReviewComments, writeReviews, writeMerge, calls, queried } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeReady, writeUser, writeIssueComments, writeReviewComments, writeReviews, writeMerge, writeOpen, calls, queried } from '../shared/fake-gh.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
+import { storedPRs } from '../shared/card-prs.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
 process.env.HOME = home;
@@ -216,11 +217,11 @@ test('a merged PR closes its card as merged, frees the card waiting on it and st
   assert.deepEqual(board.events().map((e) => [e.kind, e.data]), [
     ['card-unblocked', { key: 'm/A2' }], ['github-change', { prs: [{ wave: 'm', id: 'A1', pr: 51, changes: ['merged'] }] }],
   ]);
-  const fetches = calls(home).length;
+  const fetches = queried(home).length;
   const second = await board.poll();
   assert.equal(second.watched, 0);
   assert.deepEqual(second.merged, []);
-  assert.equal(calls(home).length, fetches);
+  assert.deepEqual(queried(home).slice(fetches), [[]]);
   assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
 });
 
@@ -529,4 +530,47 @@ test("an owner-step check that can't run three times in a row is marked broken, 
   assert.match(board.thread('b/B1').at(-1).text, /^The check for "Deploy it" can't run \(fetch failed\), so it stopped; Claude is asked to fix it\. Done still closes the card\.$/);
   await board.poll();
   assert.equal(board.events().length, 1);
+});
+
+// docs/adr/2026-11-05-1000-the-poll-links-a-pr-opened-by-hand-on-a-cards-branch.md
+test("the poll links an open same-repo PR whose head is a card's branch, once, and wakes the session with linked", async () => {
+  const board = fileBoard('hand', { slug: 'h' }, [
+    { id: 'H1', status: 'building' }, { id: 'H2', status: 'held' }, { id: 'H3', pr: 70 }, { id: 'H4', status: 'done' }, { id: 'H5' }, { id: 'H6' },
+  ]);
+  writeOpen(home, 'o/r', [
+    { number: 12, headRefName: 'H1', isCrossRepository: false },
+    { number: 13, headRefName: 'H2', isCrossRepository: false },
+    { number: 14, headRefName: 'H3', isCrossRepository: false },
+    { number: 15, headRefName: 'H4', isCrossRepository: false },
+    { number: 16, headRefName: 'H5', isCrossRepository: true },
+    { number: 17, headRefName: 'unrelated', isCrossRepository: false },
+  ]);
+  writePR(home, 70, prView());
+  writePR(home, 12, prView({ isDraft: true }));
+  writePR(home, 13, prView());
+  const first = await board.poll();
+  assert.deepEqual(first.failed, []);
+  const items = board.wave().items;
+  assert.deepEqual(items.map((i) => storedPRs(i).map((p) => p.number)), [[12], [13], [70], [], [], []]);
+  assert.equal(items[0].status, undefined);
+  assert.equal(items[1].status, 'held');
+  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Found PR #12 on branch H1.']);
+  assert.deepEqual(board.thread('h/H5'), []);
+  assert.deepEqual(board.events().map((e) => e.data.prs), [[
+    { wave: 'h', id: 'H1', pr: 12, changes: ['linked'] }, { wave: 'h', id: 'H2', pr: 13, changes: ['linked'] },
+  ]]);
+  assert.deepEqual(queried(home).at(-1), ['o/r#70']);
+  await board.poll();
+  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Found PR #12 on branch H1.']);
+  assert.equal(board.events().length, 1);
+  assert.deepEqual(queried(home).at(-1), ['o/r#12', 'o/r#13', 'o/r#70']);
+});
+
+test("a board whose cards have no PR still lists the repo's open PRs", async () => {
+  const board = fileBoard('hand-idle', { slug: 'i' }, [{ id: 'I1' }]);
+  writeOpen(home, 'o/r', []);
+  const before = queried(home).length;
+  assert.deepEqual((await board.poll()).failed, []);
+  assert.deepEqual(queried(home).slice(before), [[]]);
+  assert.ok(calls(home).some((a) => a[1] === 'graphql' && /pullRequests\(states: OPEN/.test(a[3])));
 });
