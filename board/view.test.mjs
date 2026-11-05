@@ -5109,16 +5109,21 @@ test("the phone's deck keeps the thing it shows when another arrives, adding onl
   assert.equal(deck().querySelector('.deck-card'), shown, 'the card on screen is the same node');
 });
 
-test("on a desktop the board's Needs you sits in a pane beside the lanes, with the open questions under it, and a phone mounts no pane", async () => {
+test("on a desktop the board's Needs you sits in a pane beside the lanes, with the open questions under it and no orange line for them, and a phone mounts no pane", async () => {
   const wide = boardOnDom({ board: deckBoard([deckQuestion('q1', 't1')], [topicNeed('t1', 1)]), threads: {}, width: 1280 });
   await wide.settle();
   const pane = wide.root.querySelector('#needsPane');
   assert.ok(pane.querySelector('#waiting'));
   assert.deepEqual(pane.querySelectorAll('.needs-questions section.q').map((s) => s.dataset.q), ['q1']);
   assert.equal(pane.querySelector('.needs-questions header'), null, 'the pane has no header of its own');
+  assert.equal(pane.querySelector('#waiting').hidden, true, 'a line that only asks questions is left to Waiting on you, so the orange section is gone');
+  const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#item=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#item=w%2FGH-9' } };
+  await wide.change({ board: deckBoard([deckQuestion('q1', 't1')], [topicNeed('t1', 1), action]) });
+  assert.deepEqual([pane.querySelector('#waiting').hidden, pane.querySelectorAll('#waiting li').map((li) => li.querySelector('a').textContent)], [false, ['GH-9: Merge it']]);
   const narrow = boardOnDom({ board: deckBoard([deckQuestion('q1', 't1')], [topicNeed('t1', 1)]), threads: {} });
   await narrow.settle();
   assert.equal(narrow.root.querySelector('#needsPane .needs-questions'), null, 'a phone mounts no pane');
+  assert.equal(narrow.root.querySelector('#needsDeck').hidden, false, 'a phone keeps Needs you at the top');
 });
 
 test("a topic or question arriving on Waiting on you inserts its pill or card in place, leaving the open topic's cards and the note being typed as they were", async () => {

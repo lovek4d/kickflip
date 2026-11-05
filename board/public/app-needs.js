@@ -4,7 +4,8 @@
 // - on a phone, #needsDeck at the top of the board: one thing at a time, a question's options drafting its answer on the tap
 //   (the draft Send on the questions page sends) and a prompt's buttons answering it, Skip to the next, a dot for each thing waiting, and All open questions at its foot;
 // - from 900px, #waiting, one line each, in the pane beside the lanes, over Waiting on you mounted there
-//   (view-questions.js, embedded) while the width lasts.
+//   (view-questions.js, embedded) while the width lasts. Waiting on you shows the questions there, so #waiting leaves out
+//   a line that only asks questions, and with nothing else left the orange section is gone.
 // Needs app-core.js.
 BoardView.part((B) => {
   const { $, plural, state, toast } = B;
@@ -17,9 +18,12 @@ BoardView.part((B) => {
     after: () => B.loadBoard(),
   });
 
+  // From 900px, the pane beside the lanes, the same width the stylesheet splits the board at.
+  const wide = matchMedia('(min-width: 900px)');
+
   function renderNeeds(d) {
     const needs = (d.needs || []).filter((line) => !line.prompt || prompts.shows(line.prompt));
-    renderList(needs);
+    renderList(wide.matches ? needs.filter((line) => !line.questions || line.ready || line.action) : needs);
     renderDeck(d, needs);
   }
 
@@ -106,10 +110,10 @@ BoardView.part((B) => {
   });
 
   // From 900px, Waiting on you in the pane under the Needs you lines, mounted while the width lasts.
-  const wide = matchMedia('(min-width: 900px)');
   let questions = null;
   function fitPane() {
     if (wide.matches === Boolean(questions)) return;
+    if (state.board) renderNeeds(state.board);
     if (questions) { questions.unmount(); questions.slot.remove(); questions = null; return; }
     $('#needsPane').insertAdjacentHTML('beforeend', `<div class="view-questions needs-questions">${AppViews.questions.markup({ embedded: true })}</div>`);
     const slot = $('#needsPane .needs-questions');

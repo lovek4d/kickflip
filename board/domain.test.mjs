@@ -453,6 +453,9 @@ test('needs lists the line that has waited longest first: its oldest open questi
   assert.deepEqual(board({ owner }).needs.map((l) => [l.text.split(' · ')[0], l.since]), [['A1: One', '2026-10-23T08:00:00Z'], ['Site', '2026-10-23T12:00:00Z']]);
   const earlier = { ...owner, items: owner.items.map((q) => (q.id === 'q1' ? { ...q, asked_at: '2026-10-23T07:00:00Z' } : q)) };
   assert.deepEqual(board({ owner: earlier }).needs.map((l) => l.text.split(' · ')[0]), ['Site', 'A1: One']);
+  const pills = (b) => b.ownerTopics.filter((t) => t.open > 0).map((t) => t.id);
+  assert.deepEqual(pills(board({ owner })), ['item:w/A1', 'site'], "Waiting on you's topics follow Needs you");
+  assert.deepEqual(pills(board({ owner: earlier })), ['site', 'item:w/A1']);
 });
 
 test("the board session's pending prompts lead Needs you, each a Prompt line carrying its details, and the summary and the hub's needs count them", () => {

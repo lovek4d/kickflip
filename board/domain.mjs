@@ -1064,6 +1064,11 @@ export function buildBoard(snapshot) {
   const reviews = reviewsOf({ on: snapshot.autoReview, incoming: snapshot.incoming, records: snapshot.reviewRecords, events, now,
     refs: new Map(items.filter((i) => i.kind === 'work').map((i) => [i.key, i.ref])) });
   const needs = [...needsOf(items, topicList, questions), ...reviewNeeds(reviews)];
+  // Waiting on you's pills follow Needs you: a topic with open questions takes its Needs you line's place, the rest keep
+  // their order after (docs/adr/2026-11-05-2130-needs-you-feeds-oldest-first.md).
+  const needRank = new Map(needs.filter((line) => line.questions).map((line, i) => [line.topic || `item:${line.key}`, i]));
+  const rankOf = (t) => needRank.get(t.id) ?? needRank.size;
+  topicList.sort((a, b) => rankOf(a) - rankOf(b));
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/2026-10-29-1639-every-ask-is-a-card.md).
   const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
     .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
