@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { launchAgent } from './agents.mjs';
+import { until } from '../shared/test-helpers.mjs';
 
 // A fake agent that records how it ran, prints what it's given, and stays alive for stay ms.
 function fakeAgent(dir, name, { stdout = '', stderr = '', stay = 0 } = {}) {
@@ -70,4 +71,21 @@ test('launchAgent gives no session id for an agent that exits without one, and r
     assert.equal(launched.sessionId, null);
     await assert.rejects(launchAgent({ kind: 'claude', bin: path.join(dir, 'missing'), model: 'opus', cwd: dir, site: dir, prompt: 'x', log: path.join(dir, 'A2.log') }), /ENOENT/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('launchAgent stops watching the log once it has the session id, so the agent exiting after its log is gone throws nothing', async () => {
+  const dir = tmp('agent-gone-');
+  const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-gone', model: 'claude-sonnet', cwd: dir });
+  const fake = fakeAgent(dir, 'claude', { stdout: `${init}\n`, stay: 500 });
+  const launched = await launchAgent({ kind: 'claude', bin: fake.bin, model: 'sonnet', cwd: dir, site: dir, prompt: 'x', log: path.join(dir, 'logs', 'A1.log') });
+  assert.equal(launched.sessionId, 'sess-gone');
+  fs.rmSync(dir, { recursive: true, force: true });
+  const thrown = [];
+  const caught = (e) => thrown.push(e);
+  process.on('uncaughtException', caught);
+  try {
+    await until(() => { try { process.kill(launched.pid, 0); return false; } catch { return true; } }, 'the agent never exited');
+    await new Promise((r) => setTimeout(r, 200));
+  } finally { process.off('uncaughtException', caught); }
+  assert.deepEqual(thrown, []);
 });

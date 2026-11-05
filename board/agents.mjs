@@ -40,14 +40,15 @@ const SESSION_WAIT_MS = 15_000;
 function sessionOf(child, log, offset, session) {
   return new Promise((resolve) => {
     let done = false;
-    const finish = (id) => { if (done) return; done = true; clearInterval(poll); clearTimeout(cap); resolve(id); };
+    const finish = (id) => { if (done) return; done = true; clearInterval(poll); clearTimeout(cap); child.off('exit', exited); resolve(id); };
     const scan = () => {
       const text = fs.readFileSync(log, 'utf8').slice(offset);
       for (const line of text.split('\n')) { const id = session(line); if (id) return finish(id); }
     };
     const poll = setInterval(scan, 100);
     const cap = setTimeout(() => finish(null), SESSION_WAIT_MS);
-    child.once('exit', () => { scan(); finish(null); });
+    const exited = () => { scan(); finish(null); };
+    child.once('exit', exited);
   });
 }
 
