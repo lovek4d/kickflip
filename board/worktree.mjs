@@ -335,10 +335,12 @@ export async function prepareLand({ path: dir, branch, repo, base, ref }, { say 
   if (Number(git(repo, 'rev-list', '--count', `${base}..${branch}`).out) === 0) fail(`${branch} has no commits beyond ${base}; nothing to land`);
 
   if (!git(repo, 'merge-base', '--is-ancestor', base, branch).ok) {
-    if (!git(dir, 'rebase', '--quiet', base).ok) {
+    const rebased = git(dir, 'rebase', '--quiet', base);
+    if (!rebased.ok) {
       const conflicted = git(dir, 'diff', '--name-only', '--diff-filter=U').out.split('\n').filter(Boolean);
       git(dir, 'rebase', '--abort');
-      fail(`rebasing ${branch} onto ${base} conflicts in ${conflicted.join(', ') || 'files git did not name'}; resolve it in ${dir} and land again`);
+      if (!conflicted.length) fail(`rebasing ${branch} onto ${base} failed: ${rebased.err}`);
+      fail(`rebasing ${branch} onto ${base} conflicts in ${conflicted.join(', ')}; resolve it in ${dir} and land again`);
     }
     say(`rebased ${branch} onto ${base} (${short(repo, base)})`);
   }

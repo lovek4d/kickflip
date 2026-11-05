@@ -2280,6 +2280,9 @@ function remoteBoard(fields) {
   const origin = scratchRepo();
   const clone = path.join(home, 'clone');
   git(home, 'clone', '--quiet', origin, clone);
+  // HOME is the test's own, so no global identity: without these git guesses one from the hostname, which fails on Linux.
+  git(clone, 'config', 'user.name', 'Test');
+  git(clone, 'config', 'user.email', 'test@example.com');
   const manifest = read(at('kickflip', 'manifest.json'));
   Object.assign(manifest.sites.orch, { branch: 'main', owner: { repo: clone }, ...fields(origin) });
   write(at('kickflip', 'manifest.json'), manifest);
