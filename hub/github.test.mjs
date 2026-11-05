@@ -7,6 +7,7 @@ import http from 'node:http';
 import { fakeGh, prView, writePR, writeReady, writeUser, writeIssueComments, writeReviewComments, writeReviews, writeMerge, writeOpen, calls, queried } from '../shared/fake-gh.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import { storedPRs } from '../shared/card-prs.mjs';
+import { readAudit, hubAudit } from '../shared/audit.mjs';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
 process.env.HOME = home;
@@ -399,6 +400,7 @@ test('the poll never moves an In Review or Done ticket backwards for a draft PR'
 
 test('a shared ticket waits for both cards across file boards to be ready and then merged', async (t) => {
   const { board, issue, poll, world, updates } = await linearPoll(t);
+  const logged = readAudit(hubAudit()).length;
   const first = board('shared-first', [{ id: 'A1', pr: 34, ticket: 'ENG-5' }]);
   board('shared-second', [{ id: 'A1', pr: 35, ticket: 'ENG-5' }, { id: 'dropped', status: 'dropped', ticket: 'ENG-5' }]);
   issue('ENG-5');
@@ -414,6 +416,15 @@ test('a shared ticket waits for both cards across file boards to be ready and th
   writePR(home, 35, prView({ state: 'MERGED' }));
   assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-5', state: 'Done' }]);
   assert.equal(updates().length, 3);
+  // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: each move goes
+  // in the hub's audit log, naming the cards on the ticket; a poll that moves nothing logs nothing.
+  const moves = readAudit(hubAudit()).slice(logged);
+  assert.deepEqual(moves.map((e) => [e.call, e.key, e.result, e.reason]), [
+    ['linear-move', 'ENG-5', 'moved to In Progress', 'A card on it has a PR.'],
+    ['linear-move', 'ENG-5', 'moved to In Review', 'Every card on it has merged or has a PR ready for review.'],
+    ['linear-move', 'ENG-5', 'moved to Done', 'Every card on it has merged.'],
+  ]);
+  assert.deepEqual(moves[0].inputs.cards, ['shared-first:linear/A1', 'shared-second:linear/A1']);
 });
 
 test('the poll combines Linear lists and Linear-source tickets once across waves boards, including created tickets', async (t) => {

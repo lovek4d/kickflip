@@ -330,13 +330,13 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
         };
         const key = JSON.stringify([source, slug, item.id]);
         for (const id of ids) {
-          if (!tickets.has(id)) tickets.set(id, { items: new Map(), scoped: false, created: false });
+          if (!tickets.has(id)) tickets.set(id, { items: new Map(), scoped: false, created: false, cards: [] });
           const ticket = tickets.get(id);
           const previous = ticket.items.get(key);
           ticket.items.set(key, { ...carrying, failed: carrying.failed || previous?.failed });
           ticket.scoped ||= summaries.some(Boolean);
           ticket.created ||= item.ticket === id && Boolean(item.ticket_created);
-          ticket.cards = [...(ticket.cards || []), `${board.route}:${slug}/${item.id}`];
+          ticket.cards.push(`${board.route}:${slug}/${item.id}`);
         }
       }
     }
