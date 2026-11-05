@@ -5140,7 +5140,7 @@ const deckBoard = (questions, needs) => {
 };
 const topicNeed = (id, n) => ({ kind: 'Question', title: `Topic ${id}`, text: '', url: `questions.html#${id}`, topic: id, band: null, questions: { open: n, url: `questions.html#${id}` }, ready: null });
 
-test("on a phone, Needs you is a deck showing one thing at a time: a question's options answer it on the tap, Skip moves on, dots count what waits, and the foot links to every open question", async () => {
+test("on a phone, Needs you is a deck showing one thing at a time: a tap on an option drafts its answer for Send on the questions page, Skip moves on, dots count what waits, and the foot links to every open question", async () => {
   const questions = [deckQuestion('q1', 't1'), deckQuestion('q2', 't1'), deckQuestion('q3', 't2', { url: 'prototype-shell.html?q=q3' })];
   const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#item=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#item=w%2FGH-9' } };
   const board = deckBoard(questions, [topicNeed('t1', 2), topicNeed('t2', 1), action]);
@@ -5172,9 +5172,16 @@ test("on a phone, Needs you is a deck showing one thing at a time: a question's 
   await tap('[data-deck-skip]');
   assert.equal(card().dataset.deck, 'q:q1', 'Skip past the last goes back to the first');
 
+  b.page.win.localStorage.setItem('qdraft:q1', JSON.stringify({ note: 'keep this note' }));
   await tap('[data-deck-pick="B"]');
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['owner-answers', { answers: [{ id: 'q1', question: 'Question q1?', choice: 'B', label: 'B. No', note: '' }] }]]);
-  assert.deepEqual([card().dataset.deck, deck().querySelector('.deck-n').textContent], ['q:q2', '3']);
+  assert.deepEqual(b.sent, [], 'a tap sends nothing');
+  assert.deepEqual(JSON.parse(b.page.win.localStorage.getItem('qdraft:q1')), { note: 'keep this note', choice: 'B' }, 'it drafts the pick in the questions page store, keeping the note');
+  assert.deepEqual([card().dataset.deck, deck().querySelector('.deck-n').textContent], ['q:q2', '4']);
+  assert.match(deck().querySelector('a.deck-more').textContent, /3 · 1 drafted/);
+  await tap('[data-deck-skip]');
+  await tap('[data-deck-skip]');
+  await tap('[data-deck-skip]');
+  assert.deepEqual([card().dataset.deck, card().querySelector('[data-deck-pick="B"]').getAttribute('aria-pressed')], ['q:q1', 'true'], 'the drafted pick shows as picked');
 });
 
 test("the phone's deck keeps the thing it shows when another arrives, adding only its dot", async () => {

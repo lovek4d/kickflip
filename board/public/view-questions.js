@@ -30,11 +30,7 @@
     const { $, site } = B;
     const scroll = (y) => { if (!ctx.embedded) scrollTo(0, y); };
     const setHash = (id) => { if (!ctx.embedded) history.replaceState(history.state, '', '#' + encodeURIComponent(id)); };
-    const { esc, choiceLabel, choiceOf, questionCard, roundChip, takes, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
-    // prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
-    const draftKey = (id) => 'qdraft:' + id;
-    const getDraft = (id) => { try { return JSON.parse(localStorage.getItem(draftKey(id)) || '{}'); } catch { return {}; } };
-    const setDraft = (id, v) => { try { localStorage.setItem(draftKey(id), JSON.stringify(v)); } catch {} };
+    const { esc, getDraft, setDraft, choiceLabel, choiceOf, questionCard, roundChip, takes, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     const hashId = () => { if (ctx.embedded) return ''; const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
 
     let all = [];

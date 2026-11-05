@@ -11,6 +11,10 @@
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.
   const choiceOf = (q, draft) => draft.choice ?? (q.answers.length ? q.answers[q.answers.length - 1].choice : q.suggested?.option ?? null);
+  // A question's unsent {choice, note} on this device, in localStorage under qdraft:<id>. view-questions.js and the
+  // phone's deck (app-needs.js) write it; prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
+  const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
+  const setDraft = (id, v) => { try { localStorage.setItem('qdraft:' + id, JSON.stringify(v)); } catch {} };
   const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(`You answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
@@ -179,5 +183,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { isPrototype, choiceLabel, choiceOf, option, answerHistory, questionCard, roundChip, takes, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, option, answerHistory, questionCard, roundChip, takes, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
 })();
