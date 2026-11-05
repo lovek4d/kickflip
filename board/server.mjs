@@ -229,6 +229,7 @@
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
 import { boardWorktree } from './worktree.mjs';
+import { transcriptMovedAt } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
@@ -547,8 +548,17 @@ async function snapshot(outside, archived = []) {
     if (lines.length) threadLines[`ask:${e.id}`] = lines;
   }));
 
+  const moved = Object.create(null);
+  for (const { agents } of waves) {
+    for (const record of Object.values(agents || {}).flatMap((byAgent) => Object.values(byAgent))) {
+      const dir = record.worktree?.path;
+      const at = dir && !record.done ? transcriptMovedAt(dir) : null;
+      if (at !== null) moved[dir] = at;
+    }
+  }
+
   return {
-    ...items, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
+    ...items, moved, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
     topicItems: outside.topicItems,
@@ -1332,7 +1342,7 @@ async function reviveHeadless() {
     if (!Object.keys(tracked).length) return;
     const open = new Set(buildBoard(await itemSnapshot(await outsideData())).items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
     const handBack = async (card) => {
-      await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads Stalled once 30 minutes pass without progress.' });
+      await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads Stalled once 10 minutes pass without progress or movement.' });
     };
     const launch = async (card) => {
       try { return { pid: (await launchBuilder(here, card)).pid }; } catch (e) {

@@ -6,9 +6,10 @@ import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
 
-function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft } = {}) {
+function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft, moved } = {}) {
   return buildBoard({
     now,
+    moved,
     skipDraft,
     topicItems,
     threads,
@@ -189,24 +190,37 @@ test('an install builder exposes its kind and keeps drafts and ready PRs In Prog
   assert.equal(other.builder.kind, 'claude');
 });
 
-test('a builder stalls after 30 minutes without progress, clears on progress or done, and ignores ordinary thread lines', () => {
+test('a builder stalls after 10 minutes without progress or transcript movement, clears on either or done, and ignores ordinary thread lines', () => {
   const started = '2026-10-30T10:00:00Z';
   const record = { kind: 'codex', started };
-  const card = (minutes, lines = [], agent = record) => board({
+  const card = (minutes, lines = [], agent = record, moved) => board({
     now: Date.parse(started) + minutes * 60000,
-    agents: { A1: { main: agent } }, threads: { 'w/A1': lines },
+    agents: { A1: { main: agent } }, threads: { 'w/A1': lines }, moved,
   }).items.find((i) => i.key === 'w/A1');
-  for (const minutes of [29, 30, 31]) {
+  for (const minutes of [9, 10, 11]) {
     const builder = card(minutes).builder;
-    assert.deepEqual([builder.stalled, builder.silentSince, builder.at], [minutes >= 30, started, started]);
+    assert.deepEqual([builder.stalled, builder.silentSince, builder.at], [minutes >= 10, started, started]);
   }
   const progress = { ts: '2026-10-30T10:20:00Z', kind: 'status', text: 'Running tests' };
-  assert.deepEqual([card(31, [progress]).builder.stalled, card(31, [progress]).builder.silentSince], [false, progress.ts]);
-  assert.equal(card(49, [progress]).builder.stalled, false);
-  assert.equal(card(51, [progress, { ts: '2026-10-30T10:50:00Z', who: 'claude', text: 'Checking.' }]).builder.stalled, true);
+  assert.deepEqual([card(31, [progress]).builder.stalled, card(31, [progress]).builder.silentSince], [true, progress.ts]);
+  assert.equal(card(29, [progress]).builder.stalled, false);
+  assert.equal(card(31, [progress, { ts: '2026-10-30T10:30:00Z', who: 'claude', text: 'Checking.' }]).builder.stalled, true);
   assert.equal(card(31, [{ ...progress, ts: '2026-10-30T09:59:00Z' }]).builder.silentSince, started);
   assert.equal(card(31, [], { ...record, done: '2026-10-30T10:30:00Z' }).builder, null);
   assert.equal(card(31, [], { kind: 'codex' }).builder, null);
+});
+
+test("a headless builder's transcript changing within 10 minutes keeps it from reading Stalled, and an unread transcript falls back to progress lines", () => {
+  const worktree = { path: '/w/GH-1' };
+  const record = { kind: 'claude', started: '2026-10-30T10:00:00Z', worktree };
+  const card = (minutes, moved) => board({ now: Date.parse(record.started) + minutes * 60000, agents: { A1: { main: record } }, moved }).items.find((i) => i.key === 'w/A1').builder;
+  const at = (minutes) => Date.parse(record.started) + minutes * 60000;
+  assert.deepEqual([card(40, { '/w/GH-1': at(35) }).stalled, card(40, { '/w/GH-1': at(35) }).silentSince], [false, new Date(at(35)).toISOString()]);
+  assert.equal(card(46, { '/w/GH-1': at(35) }).stalled, true);
+  assert.equal(card(40, { '/w/GH-1': at(1) }).stalled, true);
+  assert.equal(card(40, {}).stalled, true);
+  assert.equal(card(40, undefined).stalled, true);
+  assert.equal(card(40, { '/w/other': at(39) }).stalled, true);
 });
 
 test("a card lists each agent oldest first, its line is the newest status line since a running agent started, and it shows the latest ETA", () => {

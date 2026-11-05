@@ -46,7 +46,7 @@ test('automatic builder check-ins run without a browser, once per silent spell a
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
   fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', status: 'building', title: 'One' }] }));
-  const started = new Date(now - 29 * 60000).toISOString();
+  const started = new Date(now - 9 * 60000).toISOString();
   fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started }));
   fs.writeFileSync(clockFile, String(now));
   fs.writeFileSync(setup, `

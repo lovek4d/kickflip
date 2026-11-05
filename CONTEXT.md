@@ -409,7 +409,7 @@ A question a running builder puts to the board's session, the **orchestrator**, 
 _Avoid_: builder question, check-in
 
 **Stalled**:
-A builder still recorded as running whose last progress, or start before its first progress, was at least 30 minutes ago. Its card's status line turns the needs-you red, and a tap on it nudges Claude, until fresh progress or completion; silence calls for a check, without establishing that the process has failed.
+A builder still recorded as running with no progress line, and no change to its Claude transcript, for at least 10 minutes (counted from its start before its first progress). Its card's status line turns the needs-you red, and a tap on it nudges Claude, until fresh progress or completion; silence calls for a check, without establishing that the process has failed.
 _Avoid_: stuck, hung, failed
 
 **Worktree**:

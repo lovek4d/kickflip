@@ -28,7 +28,7 @@ const { laneOrder } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'reask-request'];
 export const ITEM_STATUSES = ['planned', 'waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
-export const BUILDER_STALLED_AFTER = 30 * 60000;
+export const BUILDER_STALLED_AFTER = 10 * 60000;
 // The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
 // The thread line kinds of a builder's ask and the orchestrator's answer or deferral of it (store.mjs askOrchestrator).
@@ -525,7 +525,9 @@ function reachedPhaseOf(agents, lines = []) {
   return lines.filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop()?.phase || null;
 }
 
-function builderOf(agents, lines = [], now) {
+// A run reads stalled once BUILDER_STALLED_AFTER passes with neither a progress line nor movement in its worktree's Claude
+// transcript (moved {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone.
+function builderOf(agents, lines = [], now, movedAt = null) {
   const open = agents.filter((a) => a.started && !a.done);
   const planner = open.every(plans);
   const running = planner ? open : open.filter(builds);
@@ -533,9 +535,10 @@ function builderOf(agents, lines = [], now) {
   if (since === undefined) return null;
   const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since && (planner || !m.planner)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : providerOf(running.at(-1).kind);
-  const silentSince = line?.ts || since;
+  const quiet = line?.ts || since;
+  const silentSince = movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
   const progress = line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
-  return { progress, phase: line?.phase || null, at: silentSince, kind, planner, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
+  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled: now - Date.parse(silentSince) >= BUILDER_STALLED_AFTER };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
@@ -884,7 +887,7 @@ export function buildBoard(snapshot) {
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
         prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
-        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
+        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
         thread: lines,
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],
