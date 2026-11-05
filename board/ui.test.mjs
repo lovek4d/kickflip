@@ -2181,3 +2181,12 @@ test("a shared person's sidebar lists only their boards: no Hub row, no New boar
   assert.doesNotMatch(html, /sb-row[^"]*" href="\/_hub\/"|data-new-board|sb-utility|data-app-reload|Turn on notifications/);
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/orch/']);
 });
+
+test('the Questions page bar docks on the keyboard while a field is focused, and the + hides', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const view = fs.readFileSync(new URL('./public/view-questions.js', import.meta.url), 'utf8');
+  assert.match(css, /\.view-questions\.kb-up \.bar \{[^}]*position: fixed;[^}]*bottom: var\(--kb/);
+  assert.match(css, /\.view-questions\.kb-up \.fab/);
+  assert.match(view, /classList\.toggle\('kb-up', typing && kb > 0\)/);
+  assert.match(view, /B\.on\(vv, 'resize', dock\)[\s\S]*B\.on\(vv, 'scroll', dock\)/);
+});

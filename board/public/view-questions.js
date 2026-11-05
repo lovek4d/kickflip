@@ -403,6 +403,18 @@
     });
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);
+    // While a text field is focused and the keyboard is up, the bar docks on the keyboard (style.css .kb-up) from
+    // visualViewport, which iOS reports apart from the layout viewport the sticky bar follows.
+    const vv = window.visualViewport;
+    let typing = false;
+    const dock = () => {
+      const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+      root.style.setProperty('--kb', kb + 'px');
+      root.classList.toggle('kb-up', typing && kb > 0);
+    };
+    B.on(root, 'focusin', (ev) => { typing = ev.target.matches?.('textarea, input[type="text"], input:not([type])') ?? false; dock(); });
+    B.on(root, 'focusout', () => { typing = false; dock(); });
+    if (vv) { B.on(vv, 'resize', dock); B.on(vv, 'scroll', dock); }
     // A link to another question here only moves the hash.
     if (!ctx.embedded) B.on(window, 'hashchange', () => {
       if (!loaded) return;

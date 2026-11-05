@@ -648,6 +648,9 @@ main > * { transition: opacity .25s ease; }
 /* The + rides above the sticky Send bar rather than over its Send. */
 .view-questions:has(.bar) .fab { bottom: calc(var(--app-bottom, 0px) + var(--fab-edge) + 72px); }
 .view-questions .bar #qstatus { min-width: 0; }
+/* Typing with the keyboard up: one compact row docked on the keyboard, and the + out of the way (view-questions.js dock). */
+.view-questions.kb-up .bar { position: fixed; left: 0; right: 0; bottom: var(--kb, 0px); z-index: 7; padding: 6px 16px; box-shadow: 0 -6px 14px rgba(0,0,0,.12); }
+.view-questions.kb-up .bar .send-hint, .view-questions.kb-up .fab { display: none; }
 .view-questions .bar #qstatus.sent { color: var(--color-success); font-weight: 600; }
 .view-questions .solo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0; }
 /* docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md */
