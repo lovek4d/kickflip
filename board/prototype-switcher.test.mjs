@@ -45,15 +45,32 @@ test('once answered, the picked take reads Picked and every other take offers Ch
   assert.equal(sw.pickState(answered('B', null), 'B').kind, 'picked');
 });
 
+// docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md
+test("a drafted pick, the one Send on the question would send, reads Picked over the last answer; a resolved question offers no pick", () => {
+  assert.equal(sw.pickState(question, 'B', 'B').kind, 'picked');
+  assert.equal(sw.pickState(question, 'A', 'B').kind, 'change');
+  assert.equal(sw.pickState(answered('A'), 'B', 'B').kind, 'picked');
+  assert.equal(sw.pickState(answered('A'), 'A', 'B').kind, 'change');
+  const resolved = { ...answered('B'), state: 'resolved' };
+  assert.equal(sw.pickState(resolved, 'B').kind, 'picked');
+  assert.equal(sw.pickState(resolved, 'A').kind, 'none');
+  // A question waiting on the prototype the owner asked for is locked at the request's pick, whatever is drafted.
+  const requested = { ...question, state: 'requested', request: { choice: 'B' } };
+  assert.equal(sw.pickState(requested, 'B', 'A').kind, 'picked');
+  assert.equal(sw.pickState(requested, 'A', 'A').kind, 'none');
+  // The option the overnight triage suggested is pre-checked on the question, so it reads Picked here too.
+  assert.equal(sw.pickState({ ...question, suggested: { option: 'B' } }, 'B').kind, 'picked');
+  assert.equal(sw.pickState({ ...question, suggested: { option: 'B' } }, 'A').kind, 'change');
+});
+
 test("the pill shows the take's name and the pick control for its state", () => {
-  const pill = (pick, busy) => sw.pillHtml({ name: 'Named <chips>', pick, busy });
+  const pill = (pick) => sw.pillHtml({ name: 'Named <chips>', pick });
   assert.equal(text(pill({ kind: 'none' })), '‹ Named &lt;chips&gt; ›');
   assert.doesNotMatch(pill({ kind: 'none' }), /data-ps="pick"/);
   assert.match(pill(sw.pickState(question, 'A')), /<button type="button" class="ps-pick" data-ps="pick">Pick this<\/button>/);
   assert.match(pill(sw.pickState(answered('B'), 'A')), />Change pick<\/button>/);
   assert.match(pill(sw.pickState(answered('A'), 'A')), /<span class="ps-picked">Picked<\/span>/);
   assert.doesNotMatch(pill(sw.pickState(answered('A'), 'A')), /data-ps="pick"/);
-  assert.match(pill(sw.pickState(question, 'A'), true), /data-ps="pick" disabled>Sending…/);
   const name = 'A long take name with "quotes" & <details> '.repeat(8);
   const html = sw.pillHtml({ name });
   const escaped = name.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -67,12 +84,9 @@ test("the pill shows the take's name and the pick control for its state", () => 
   assert.match(page.styles, /\.ps-pill button\s*\{[^}]*flex-shrink:0;[^}]*min-width:44px;[^}]*min-height:44px;/);
 });
 
-test("a pick answers with the label questions.html sends for that option", () => {
-  for (const o of question.options) assert.equal(sw.answerLabel(o), ui.choiceLabel(question, o.id));
-});
-
-// resolved: the questions of its topic /api/board leaves out, which /api/questions answers.
-function prototypePage(url, { framed = false, owner, resolved = [], next = owner[1] || null }) {
+// resolved: the questions of its topic /api/board leaves out, which /api/questions answers. drafts: this device's
+// unsent {choice, note} by question id, as questions.html keeps them.
+function prototypePage(url, { framed = false, owner, resolved = [], drafts = {} }) {
   const listeners = [];
   const el = () => {
     const e = { hidden: false, value: '', textContent: '', innerHTML: '', parts: {}, classList: { add() {} },
@@ -82,28 +96,24 @@ function prototypePage(url, { framed = false, owner, resolved = [], next = owner
   };
   const sent = [];
   const moves = [];
-  const noticesAtMove = [];
-  const decisions = [];
-  const loaded = [];
   const replacements = [];
   let styles = '';
   let fetches = 0;
   const rendered = [];
   const classes = [];
   const controls = [];
-  const storage = () => {
-    const data = new Map();
+  const storage = (entries = {}) => {
+    const data = new Map(Object.entries(entries));
     return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: (k) => data.delete(k) };
   };
   const topics = [{ id: 'item:w/A1', title: 'INT-1: Snooze', state: 'open', open: owner.length, questions: [...owner, ...resolved].map((q) => q.id) }];
   const asked = [];
-  const move = (to) => { noticesAtMove.push(shared.sessionStorage.getItem('sent:orch')); moves.push(to); };
   const u = new URL(url);
   const win = {
     URL, URLSearchParams, Map, Set, JSON,
-    location: { href: u.href, search: u.search, replace: (to) => move(['load', String(to)]) },
+    location: { href: u.href, search: u.search, replace: (to) => moves.push(['load', String(to)]) },
     history: { replaceState: (...args) => replacements.push(args) },
-    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    localStorage: storage(Object.fromEntries(Object.entries(drafts).map(([id, d]) => ['qdraft:' + id, JSON.stringify(d)]))),
     sessionStorage: storage(),
     document: { getElementById: () => null, head: { insertAdjacentHTML: (_, html) => { styles += html; } }, body: { append: (el) => controls.push(el) }, documentElement: { classList: { add: (name) => classes.push(name) } },
       createElement: el, querySelector: () => null, addEventListener: (type, fn) => listeners.push({ target: 'document', type, fn }) },
@@ -111,90 +121,65 @@ function prototypePage(url, { framed = false, owner, resolved = [], next = owner
     ClaudeSite: { url: (p) => new URL(p, 'https://mac.ts.net/orch/').href, send: async (kind, data) => { sent.push([kind, data]); return {}; } },
   };
   win.window = win;
-  const app = { sessionStorage: storage(), AppShell: { open: (to, opts) => { move(['app', to, { ...opts }]); return true; } } };
-  const shared = framed ? app : win;
-  if (framed) {
-    vm.createContext(app);
-    for (const file of ['ui.js', 'ui-links.js', 'ui-questions.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
-  }
-  const follow = () => {
-    shared.BoardUI.nextQuestion = (...args) => { decisions.push(plain(args)); return next; };
-  };
-  if (framed) follow();
-  win.top = framed ? app : win;
+  win.top = framed ? { AppShell: { open: (to, opts) => { moves.push(['app', to, { ...opts }]); return true; } } } : win;
   vm.createContext(win);
-  win.document.head.append = (script) => {
-    const file = new URL(script.src).pathname.split('/').pop();
-    loaded.push(script.src);
-    vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
-    if (file === 'ui-questions.js') follow();
-    script.onload();
-  };
+  const loaded = [];
+  win.document.head.append = (script) => { loaded.push(script.src); script.onload?.(); };
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-switcher.js', import.meta.url), 'utf8'), win);
   const mounted = win.PrototypeSwitcher.mount({ takes: { A: 'Named chips', B: 'One stepper' }, initial: 'A', render: (take) => rendered.push(take) });
   const pill = listeners.find((l) => l.type === 'click')?.target;
+  const part = (sel) => controls[0]?.parts[sel];
   const settle = () => new Promise((r) => setTimeout(r, 0));
   const pick = async () => {
     await settle();
     for (const l of listeners.filter((x) => x.target === pill && x.type === 'click')) l.fn({ target: { closest: () => ({ dataset: { ps: 'pick' } }) } });
     await settle();
   };
-  return { pick, pillName: () => /<span class="ps-name"[^>]*>([^<]*)</.exec(controls[0]?.parts['.ps-pill']?.innerHTML || '')?.[1], sent, moves, noticesAtMove, decisions, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, current: () => win.PrototypeSwitcher.current, fetches: () => fetches, asked, notice: () => shared.BoardUI.sentNotice.take('orch'), localNotice: () => win.sessionStorage.getItem('sent:orch') };
+  return { pick, settle, pillName: () => /<span class="ps-name"[^>]*>([^<]*)</.exec(part('.ps-pill')?.innerHTML || '')?.[1], pill: () => part('.ps-pill')?.innerHTML || '',
+    typeNote: (v) => { part('.ps-text').value = v; }, noteBox: () => part('.ps-text')?.value, draft: (id) => JSON.parse(win.localStorage.getItem('qdraft:' + id) ?? 'null'),
+    sent, moves, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, fetches: () => fetches, asked };
 }
 
-test('a pick on a prototype page sends the answer, then moves on to the next open question in its place, or with none left to the board, through the app shell around a framed page', async () => {
+// docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md
+test('a pick in the viewer drafts that take with the note typed above the pill and returns to its question, sending nothing, through the app shell around a framed page', async () => {
   const owner = [{ ...question, topic: 'item:w/A1' }, { id: 'q2', topic: 'item:w/A1', state: 'open', question: 'Next?', options: [] }];
   for (const framed of [false, true]) {
     const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed, owner });
+    await page.settle();
+    page.typeNote('  On a phone  ');
     await page.pick();
     assert.equal(page.pillName(), 'Named chips');
-    assert.deepEqual(plain(page.sent), [['owner-answer', { id: 'q1', question: 'Which snooze?', choice: 'A', label: 'A. Named chips', note: '' }]]);
-    assert.deepEqual(plain(page.moves), [framed ? ['app', 'https://mac.ts.net/orch/questions.html#q2', { replace: true }] : ['load', 'https://mac.ts.net/orch/questions.html#q2']]);
-    assert.deepEqual(page.decisions.map(([qs, pills, answered]) => [qs.map((q) => q.id), pills.map((t) => t.id), answered.id]), [[['q1', 'q2'], ['item:w/A1'], 'q1']]);
-    assert.equal(page.notice(), '');
-    assert.deepEqual(page.noticesAtMove, [null]);
-    assert.deepEqual(page.loaded, framed ? [] : ['ui.js', 'ui-links.js', 'ui-questions.js'].map((f) => 'https://mac.ts.net/orch/' + f));
-    const prototype = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed, owner, next: { ...owner[1], url: 'prototype-next.html?q=q2' } });
-    await prototype.pick();
-    assert.deepEqual(plain(prototype.moves), [framed ? ['app', 'https://mac.ts.net/orch/prototype-next.html?q=q2', { replace: true }] : ['load', 'https://mac.ts.net/orch/prototype-next.html?q=q2']]);
-    const last = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed, owner: owner.slice(0, 1) });
-    await last.pick();
-    assert.deepEqual(plain(last.moves), [framed ? ['app', 'https://mac.ts.net/orch/', { replace: true }] : ['load', 'https://mac.ts.net/orch/']]);
-    assert.equal(last.decisions.length, 1);
-    assert.deepEqual(last.noticesAtMove, ['Sent 1 answer to INT-1.']);
-    if (framed) assert.equal(last.localNotice(), null);
-    assert.equal(last.notice(), 'Sent 1 answer to INT-1.');
-    assert.equal(last.notice(), '');
+    assert.deepEqual(page.sent, []);
+    assert.deepEqual(page.draft('q1'), { choice: 'A', note: 'On a phone' });
+    assert.deepEqual(plain(page.moves), [framed ? ['app', 'https://mac.ts.net/orch/questions.html#q1', { replace: true }] : ['load', 'https://mac.ts.net/orch/questions.html#q1']]);
+    assert.deepEqual(page.loaded, []);
   }
 });
 
-test('a take embedded by Waiting on you renders only that take without fetching the question, adding pick controls or changing history', () => {
-  const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1&take=B', { framed: true, owner: [question] });
-  assert.deepEqual(page.rendered, ['B']);
-  assert.equal(page.take, 'B');
-  assert.deepEqual(page.classes, ['ps-embed']);
-  assert.deepEqual(page.controls, []);
-  assert.equal(page.fetches(), 0);
-  assert.deepEqual(page.moves, []);
-  assert.deepEqual(page.replacements, []);
-  assert.deepEqual(page.sent, []);
-  assert.deepEqual(page.loaded, []);
-  assert.match(page.styles, /\.ps-embed header\.top \{ display:none; \}/);
-  assert.match(page.styles, /\.ps-embed main \{ padding-bottom:12px !important; \}/);
-  page.current().go('A');
-  page.current().go('Z');
-  assert.deepEqual(page.rendered, ['B', 'A']);
-  assert.equal(page.current().take, 'A');
-  assert.deepEqual(page.replacements.map((args) => String(args[2])), ['https://mac.ts.net/orch/prototype-snooze.html?q=q1&take=A']);
-  assert.equal(page.fetches(), 0);
-  assert.deepEqual(page.moves, []);
+test('the viewer keeps a drafted note and its pick, and Change pick drafts the new take over them', async () => {
+  const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { owner: [{ ...question, topic: 'item:w/A1' }], drafts: { q1: { choice: 'B', note: 'Kept' } } });
+  await page.settle();
+  assert.equal(page.noteBox(), 'Kept');
+  assert.match(page.pill(), />Change pick<\/button>/);
+  await page.pick();
+  assert.deepEqual(page.draft('q1'), { choice: 'A', note: 'Kept' });
+});
+
+test('?take= is no longer an embed: the page keeps its header, pill and question at any take', () => {
+  const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1&take=B', { owner: [question] });
+  assert.deepEqual(page.classes, []);
+  assert.equal(page.controls.length, 1);
+  assert.doesNotMatch(page.styles, /ps-embed/);
 });
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
-test("a prototype page for a resolved question, which /api/board leaves out, loads it from its topic's resolved questions and can still change the pick", async () => {
+test("a prototype page for a resolved question, which /api/board leaves out, loads it from its topic's resolved questions and shows its pick with nothing to change", async () => {
   const done = { ...answered('B'), topic: 'item:w/A1', state: 'resolved' };
   const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { owner: [], resolved: [done], next: null });
+  await page.settle();
+  assert.deepEqual(page.asked, ['https://mac.ts.net/orch/api/board', 'https://mac.ts.net/orch/api/questions?topic=item%3Aw%2FA1']);
+  assert.doesNotMatch(page.pill(), /data-ps="pick"/);
   await page.pick();
-  assert.deepEqual(page.asked, ['https://mac.ts.net/orch/api/board', 'https://mac.ts.net/orch/api/questions?topic=item%3Aw%2FA1', 'https://mac.ts.net/orch/api/board', 'https://mac.ts.net/orch/api/questions?topic=item%3Aw%2FA1']);
-  assert.deepEqual(plain(page.sent), [['owner-answer', { id: 'q1', question: 'Which snooze?', choice: 'A', label: 'A. Named chips', note: '' }]]);
+  assert.deepEqual(page.moves, []);
+  assert.equal(page.draft('q1'), null);
 });

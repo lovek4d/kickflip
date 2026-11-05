@@ -759,50 +759,23 @@ test("a question card checks this device's draft over the last answer", () => {
 const takeCards = (html) => html.split('<article class="take"').slice(1).map(beforeComposer);
 const frames = (html) => [...html.matchAll(/<iframe src="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
 
-const shots = (html) => [...html.matchAll(/<div class="(take-shot[^"]*)"[^>]*?(?: style="([^"]*)")?><iframe/g)].map((m) => [m[1], m[2] ?? '']);
-
-test("a question on a prototype page sets its takes in one grid with no carousel, each its option over a frame hidden until measured, with no full-size link", () => {
+// docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md
+test("a question on a prototype page shows plain options and one View prototypes button that opens its viewer, with no take framed in the question", () => {
   const proto = ui.questionCard({ ...question, url: 'prototype-hub-snooze.html?q=q1#top' }, { draft: { choice: 'B' } });
-  assert.match(proto, /<div class="takes"><article class="take" data-opt="A"><label class="opt">[\s\S]*<\/label><div class="take-shot[\s\S]*<\/article><article class="take" data-opt="B">[\s\S]*<\/article><\/div>/);
-  assert.doesNotMatch(proto, /take-track|take-dots|data-dot/);
-  assert.deepEqual(takeCards(proto).map((t) => /\bchecked>/.test(t)), [false, true]);
-  assert.deepEqual(frames(proto), ['prototype-hub-snooze.html?q=q1&take=A#top', 'prototype-hub-snooze.html?q=q1&take=B#top']);
-  assert.doesNotMatch(proto, /loading="lazy"/);
-  assert.deepEqual(shots(proto), [['take-shot measuring', ''], ['take-shot measuring', '']]);
-  assert.deepEqual([...proto.matchAll(/<iframe [^>]*>/g)].map((m) => /tabindex="-1"|aria-hidden/.test(m[0])), [false, false]);
-  assert.doesNotMatch(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.take-shot iframe \{[^}]*pointer-events: none/);
-  assert.doesNotMatch(proto, /Open full size|take-full|take-open|variant=/);
-  assert.doesNotMatch(proto, /See the prototypes|target="_blank"|<label class="opt">[\s\S]*<label class="opt">[\s\S]*<label class="opt">/);
+  assert.deepEqual(frames(proto), []);
+  assert.doesNotMatch(proto, /class="takes|take-shot|takes-full|See the prototypes|target="_blank"/);
+  assert.equal((proto.match(/<a class="button proto-view" href="prototype-hub-snooze\.html\?q=q1#top">View prototypes<\/a>/g) || []).length, 1);
+  assert.deepEqual(options(proto).map((o) => /\bchecked>/.test(o)), [false, true]);
+  assert.deepEqual(options(proto).map((o) => text(o)), ['A. Keep', 'B. Drop recommended Saves a step']);
+  assert.ok(proto.indexOf('View prototypes') < proto.indexOf('<label class="opt">'));
   context.location = { origin: 'https://mac.tail.ts.net', href: 'https://mac.tail.ts.net/orch/' };
   try {
     const absolute = ui.questionCard({ ...question, url: 'https://mac.tail.ts.net/orch/prototype-hub-snooze.html?q=q1' });
-    assert.deepEqual(frames(absolute), ['https://mac.tail.ts.net/orch/prototype-hub-snooze.html?q=q1&take=A', 'https://mac.tail.ts.net/orch/prototype-hub-snooze.html?q=q1&take=B']);
-    assert.doesNotMatch(absolute, /target="_blank"/);
+    assert.match(absolute, /<a class="button proto-view" href="https:\/\/mac\.tail\.ts\.net\/orch\/prototype-hub-snooze\.html\?q=q1">View prototypes<\/a>/);
     const elsewhere = ui.questionCard({ ...question, url: 'https://elsewhere.example/orch/prototype-hub-snooze.html?q=q1' });
-    assert.deepEqual(takeCards(elsewhere), []);
+    assert.doesNotMatch(elsewhere, /View prototypes/);
     assert.match(elsewhere, /target="_blank"/);
   } finally { context.location = { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }; }
-});
-
-test('one scrolling take gives the question a chooser in stored order and one full-size frame, defaulting to the recommended take without answering', () => {
-  const q = { ...question, url: 'prototype-hub-snooze.html?q=q1' };
-  const sizes = { A: { h: 214 }, B: { h: 902, scrolls: true, fullH: 1102 } };
-  const render = (question = q, draft = {}) => ui.questionCard(question, { draft, fit: (id) => sizes[id] });
-  const proto = render();
-  assert.match(proto, /class="takes takes-full"/);
-  assert.deepEqual(options(proto).map((o) => text(o)), ['A. Keep', 'B. Drop recommended Saves a step']);
-  assert.deepEqual(frames(proto), ['prototype-hub-snooze.html?q=q1&take=B']);
-  assert.deepEqual([...proto.matchAll(/aria-current="true"><input [^>]*value="(\w+)"/g)].map((m) => m[1]), ['B']);
-  assert.deepEqual(shots(proto), [['take-shot', 'height:1102px']]);
-  assert.equal(takeCards(proto).length, 1);
-  assert.doesNotMatch(proto, /checked|Open full size|take-full|take-open|variant=/);
-  assert.ok(proto.indexOf('<iframe') < proto.indexOf('class="composer"'));
-  assert.deepEqual(frames(render(q, { choice: 'A' })), ['prototype-hub-snooze.html?q=q1&take=A']);
-  assert.deepEqual(frames(render({ ...q, answers: [{ choice: 'A' }] })), ['prototype-hub-snooze.html?q=q1&take=A']);
-  assert.deepEqual(frames(render({ ...q, options: q.options.map((o) => ({ ...o, recommended: false })) })), ['prototype-hub-snooze.html?q=q1&take=A']);
-  const fitting = ui.questionCard(q, { fit: () => ({ h: 214 }) });
-  assert.doesNotMatch(fitting, /takes-full|Open full size/);
-  assert.deepEqual(frames(fitting), ['prototype-hub-snooze.html?q=q1&take=A', 'prototype-hub-snooze.html?q=q1&take=B']);
 });
 
 test('a take with nothing to see draws its boxes and arrows, coloured by meaning, and what it means in practice', () => {
@@ -823,7 +796,7 @@ test('a take with nothing to see draws its boxes and arrows, coloured by meaning
   assert.deepEqual(anchors(a), [['./#item=site%2FS54', 'INT-54', false]]);
   assert.match(b, /<div class="flow-box tone-danger">Each &lt;own&gt; read<\/div>/);
   assert.match(text(b), /In practice Nothing to build\. Each feature forgets a kind\.$/);
-  assert.match(html, /<a class="pill proto" href="prototype-seams\.html\?q=q1">See the prototypes →<\/a>/);
+  assert.match(html, /<a class="button proto-view" href="prototype-seams\.html\?q=q1">View prototypes<\/a>/);
 });
 
 test("a question's link opens in place on this hub, and outside the board anywhere else", () => {
@@ -848,16 +821,17 @@ test('a question asked for a prototype reads prototype requested with a spinner,
 });
 
 // docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md
-test('an open question has its eye on and nothing locked, a resolved one has no eye; a confirm links its one take alone and says why it is asked', () => {
+test('an open question has its eye on and nothing locked, a resolved one has no eye; a confirm opens the viewer on its one take and says why it is asked', () => {
   assert.match(ui.questionCard(question), /<button type="button" class="attach proto-ask" data-proto="q:q1" aria-label="Ask for a prototype instead" title="Ask for a prototype instead">/);
   assert.doesNotMatch(ui.questionCard(question), /disabled|pr-busy|try-spin/);
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved' }), /data-proto/);
 
   const confirm = { ...question, id: 'c1', question: 'Is this it?', url: 'prototype-search.html?q=c1', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'q1' };
   const open = ui.questionCard(confirm);
-  assert.match(open, /<a class="pill proto pr-open" href="prototype-search\.html\?q=c1&amp;take=B">Open the prototype →<\/a>/);
+  assert.match(open, /<a class="button proto-view" href="prototype-search\.html\?q=c1&amp;variant=B">View prototypes<\/a>/);
+  assert.doesNotMatch(open, /pr-open|Open the prototype|[?&]take=/);
   assert.match(text(open), /A pick with a note gets a one-take confirm once Claude has updated the take\./);
-  assert.deepEqual(frames(open), ['prototype-search.html?q=c1&take=B']);
+  assert.deepEqual(frames(open), []);
   assert.doesNotMatch(ui.questionCard({ ...confirm, state: 'answered', answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] }), /one-take confirm/);
   assert.doesNotMatch(ui.questionCard({ ...confirm, url: 'prototype-search.html?q=c1', confirm_of: undefined }), /pr-open|one-take confirm/);
 });

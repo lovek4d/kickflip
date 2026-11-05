@@ -1,18 +1,18 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
   const { esc, time, ago, replyBody, attachments, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
-  // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it. prototype-switcher.js answerLabel matches.
+  // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
   // suggested: the line under a suggested option saying where the owner chose it before, as HTML.
-  const option = (o, { type = 'radio', name, checked = false, numbered = true, shown = false, locked = false, suggested = '' }) => `<label class="opt"${shown ? ' aria-current="true"' : ''}><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
+  const option = (o, { type = 'radio', name, checked = false, numbered = true, locked = false, suggested = '' }) => `<label class="opt"><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
         <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${suggested ? badge('ready', 'suggested').replace('class="chip', 'class="chip suggested') : ''}${o.recommended ? '<span class="rec">recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div>${suggested ? `<div class="suggested-why">${suggested}</div>` : ''}</span></label>`;
   // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.
   const choiceOf = (q, draft) => draft.choice ?? (q.answers.length ? q.answers[q.answers.length - 1].choice : q.suggested?.option ?? null);
   // A question's unsent {choice, note} on this device, in localStorage under qdraft:<id>. view-questions.js and the
-  // phone's deck (app-needs.js) write it; prototype-switcher.js reads a draft's note and clears the draft once it sends that question's answer.
+  // phone's deck (app-needs.js) and the prototype viewer's Pick (prototype-switcher.js) write it.
   const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
   const setDraft = (id, v) => { try { localStorage.setItem('qdraft:' + id, JSON.stringify(v)); } catch {} };
   const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(`You answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
@@ -44,7 +44,9 @@
     const last = q.answers[q.answers.length - 1];
     return q.state === 'open' || !last.reply ? body : `<details><summary>Your answer and Claude's reply</summary>${body}</details>`;
   }
-  // A prototype page in the site's public/ opens in place, and its switcher picks a take (board/public/prototype-switcher.js).
+  // A prototype page in the site's public/ is the question's full-page viewer: it opens in place, shows one take at a
+  // time, and its switcher drafts a pick (board/public/prototype-switcher.js,
+  // docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md).
   const PROTOTYPE_PAGE = /^prototype-[\w-]+\.html(?:[?#]|$)/;
   const isPrototype = (url) => Boolean(url) && PROTOTYPE_PAGE.test(globalThis.location && url.startsWith(location.origin + '/') ? url.replace(/^[^?#]*\//, '') : url);
   const withParam = (url, key, value) => {
@@ -52,13 +54,11 @@
     return `${url.slice(0, at)}${url.slice(0, at).includes('?') ? '&' : '?'}${key}=${encodeURIComponent(value)}${url.slice(at)}`;
   };
   const questionLink = (url) => !url ? ''
-    : isPrototype(url) ? `<a class="pill proto" href="${esc(url)}">See the prototypes →</a>`
+    : isPrototype(url) ? `<a class="button proto-view" href="${esc(url)}">View prototypes</a>`
     : `<div class="small" style="margin-bottom:8px"><a href="${esc(url)}"${opensHere(url) ? '' : ' target="_blank" rel="noopener"'}>${esc(url.replace(/^https:\/\/(linear\.app\/[^/]+\/issue|github\.com)\//, ''))} ${LINK_ARROW}</a></div>`;
 
-  // A question's takes show inline (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md): an option with `diagram` draws
-  // it with its `practice`, and on a question whose url is a prototype page any other option shows that page's take.
-  const framed = (q) => isPrototype(q.url) && q.options.some((o) => !o.diagram);
-  const inline = (q) => isPrototype(q.url) || q.options.some((o) => o.diagram);
+  // An option with `diagram` draws it with its `practice` in the question (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md).
+  const drawn = (q) => q.options.some((o) => o.diagram);
 
   // rows: [[{text, tone?, to?}]], top to bottom. A box points at the boxes of the next row listed in `to`, else at all
   // of them; tone is a status colour's name.
@@ -76,28 +76,12 @@
   }
   const practice = (lines, links) => `<div class="practice"><b>In practice</b><ul>${lines.map((l) => `<li>${linkText(l, links)}</li>`).join('')}</ul></div>`;
 
-  const fullTakes = (q, fit) => isPrototype(q.url) && q.options.every((o) => !o.diagram && !o.practice)
-    && (q.options.length === 1 || q.options.some((o) => fit(o.id)?.scrolls));
-  // Grid heights decide the layout; fullH measures the chosen take at the full content width.
-  function takeBody(q, o, links, fit, full = false) {
-    if (o.diagram) return diagram(o.diagram) + practice(o.practice || [], links);
-    if (!isPrototype(q.url)) return '';
-    const size = fit(o.id);
-    const h = full ? size?.fullH : size?.h;
-    // Every take loads so one outside the viewport can still decide the question's layout.
-    return `<div class="take-shot${h ? '' : ' measuring'}"${h ? ` style="height:${Math.round(h)}px"` : ''}><iframe src="${esc(withParam(q.url, 'take', o.id))}" title="${esc(o.label)}"></iframe></div>`;
-  }
-  function takes(q, chosen, links, fit, locked = false) {
+  function takes(q, chosen, links, locked = false) {
     const name = 'c-' + q.id;
-    if (fullTakes(q, fit)) {
-      const shown = q.options.find((o) => o.id === chosen) || q.options.find((o) => o.recommended) || q.options[0];
-      return `<div class="takes takes-full"><div class="take-choices" role="group" aria-label="Takes">${q.options.map((o) => option(o, { name, checked: chosen === o.id, shown: o === shown, locked, suggested: suggestedLine(q, o, links) })).join('')}</div><article class="take" data-opt="${esc(shown.id)}">${takeBody(q, shown, links, fit, true)}</article></div>`;
-    }
-    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })}${takeBody(q, o, links, fit)}</article>`).join('')}</div>`;
+    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })}${o.diagram ? diagram(o.diagram) + practice(o.practice || [], links) : ''}</article>`).join('')}</div>`;
   }
-  // A confirm links its one take alone, and says why it is asked.
-  const confirmLines = (q) => !q.confirm_of ? ''
-    : `<a class="pill proto pr-open" href="${esc(withParam(q.url, 'take', q.options[0].id))}">Open the prototype →</a>${q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : ''}`;
+  // A confirm says why it is asked; its View prototypes opens the viewer on its one take (?variant=).
+  const confirmLine = (q) => q.confirm_of && q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : '';
   // docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md
   // A resolved question, read-only: its green resolved badge asks Claude to ask it again (view-questions.js sends
   // `reask-request` once the owner confirms), how it was resolved and when it was acted on (resolved_at), its last pick
@@ -119,11 +103,10 @@
       ${q.reask ? '<div class="small muted reask-line">re-ask requested</div>' : ''}
     </section>`;
   }
-  // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext;
-  // fit(option id) supplies the measured grid and full-width heights.
+  // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext.
   // A question waiting on the prototype the owner asked for is locked at the pick and note the request sent until its
   // round arrives (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
-  function questionCard(q, { n = 0, draft = {}, links = {}, fit = () => null } = {}) {
+  function questionCard(q, { n = 0, draft = {}, links = {} } = {}) {
     if (q.state === 'resolved') return resolvedCard(q, links);
     const locked = q.state === 'requested';
     const chosen = locked ? q.request.choice : choiceOf(q, draft);
@@ -131,9 +114,9 @@
       <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, QUESTION_STATE[q.state].label)}</div>
       <h3>${linkText(q.question, links)}</h3>
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
-      ${framed(q) ? '' : questionLink(q.url)}
-      ${confirmLines(q)}
-      ${inline(q) ? takes(q, chosen, links, fit, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })).join('')}
+      ${questionLink(q.confirm_of && isPrototype(q.url) ? withParam(q.url, 'variant', q.options[0].id) : q.url)}
+      ${confirmLine(q)}
+      ${drawn(q) ? takes(q, chosen, links, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })).join('')}
       ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, draft.note)}
       ${answerHistory(q, links)}
     </section>`;
@@ -183,5 +166,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, option, answerHistory, questionCard, roundChip, takes, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, option, answerHistory, questionCard, roundChip, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
 })();

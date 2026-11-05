@@ -1,16 +1,11 @@
-// The floating ‹ take › pill every prototype page switches its takes with (docs/adr/2026-10-29-1639-prototypes-come-on-request.md).
+// The floating ‹ take › pill of a question's full-page prototype viewer (docs/adr/2026-10-29-1639-prototypes-come-on-request.md,
+// docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md).
 // Load it with a relative src after claude.js, on a page whose header leads with the back arrow, then call
 //   const sw = PrototypeSwitcher.mount({ takes: { A: 'A. Name', … }, initial: 'A', render(take) {…}, above: el? })
 // render runs at mount and on each switch; sw.take is the current key. ←/→ switch unless a field has focus, and the
-// take stays in ?variant=. With ?q=<owner question id>, the pill offers the take as that question's answer: a take
-// is pickable when an option's id equals its key. Pick sends the owner-answer event questions.html sends, with the
-// note typed above the pill, then moves on through BoardUI.nextQuestion (ui-questions.js).
-// PrototypeSwitcher.current is the mounted switcher, whose go(key) shows another take in place; Waiting on you uses it
-// to switch its full-width frame without a reload (view-questions.js inPlace).
-// With ?take=<key> the page shows that take alone, with no header or pill, as questions.html frames it
-// (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md); a page hides its own extras under html.ps-embed. There main's
-// bottom padding, kept clear for the pill, shrinks to 12px whatever the page sets, since questions.html sizes the frame
-// to the page's height.
+// take stays in ?variant=. With ?q=<owner question id>, the pill offers the take as that question's pick: a take is
+// pickable when an option's id equals its key. Pick drafts it, with the note typed above the pill, in the {choice, note}
+// questions.html keeps for that question, and goes back to the question, whose Send sends it.
 (function () {
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -20,53 +15,42 @@
   };
   const startTake = (keys, wanted, initial) => (keys.includes(wanted) ? wanted : keys.includes(initial) ? initial : keys[0]);
 
-  // The owner's current pick is the latest answer that chose an option; a note-only answer keeps the earlier pick.
+  // The owner's last sent pick is the latest answer that chose an option; a note-only answer keeps the earlier pick.
   const pickedChoice = (question) => [...(question?.answers || [])].reverse().find((a) => a.choice)?.choice ?? null;
-  // none: no question, or the take is not one of its options. pick: nothing picked yet. picked: this take is the
-  // owner's pick. change: another take is.
-  function pickState(question, take) {
+  // The pick a question shows on Waiting on you (ui-questions.js choiceOf): drafted, this device's unsent pick, which Send
+  // would send, else the last answer's, else the option the overnight triage suggested. A resolved question is locked at
+  // its last answer, and one waiting on the prototype the owner asked for at the request's pick.
+  const locked = (question) => question.state === 'resolved' || question.state === 'requested';
+  const shownPick = (question, drafted) => question.state === 'requested' ? question.request?.choice ?? null
+    : question.state === 'resolved' ? pickedChoice(question)
+    : drafted ?? pickedChoice(question) ?? question.suggested?.option ?? null;
+  // none: no question, the take is not one of its options, or the question is locked and the take isn't its pick.
+  // pick: nothing picked yet. picked: this take is the pick. change: another take is.
+  function pickState(question, take, drafted = null) {
     if (!question) return { kind: 'none' };
     const option = (question.options || []).find((o) => o.id === take);
-    const picked = pickedChoice(question);
+    const picked = shownPick(question, drafted);
     if (!option) return { kind: 'none', picked };
-    if (!picked) return { kind: 'pick', option };
-    return { kind: picked === take ? 'picked' : 'change', option, picked };
+    if (picked === take) return { kind: 'picked', option, picked };
+    if (locked(question)) return { kind: 'none', picked };
+    return picked ? { kind: 'change', option, picked } : { kind: 'pick', option };
   }
-  // Matches ui-questions.js choiceLabel for a single-choice question.
-  const answerLabel = (option) => `${/^[A-Z][0-9]?$/i.test(option.id) ? `${option.id}. ` : ''}${option.label}`;
-  const questionUrl = (q) => (/^prototype-[\w-]+\.html(?:[?#]|$)/.test(q.url || '') ? q.url : `questions.html#${encodeURIComponent(q.id)}`);
-  // questions.html keeps each question's unsent {choice, note} under this key; a pick sent here takes its note and clears it.
+  // questions.html keeps each question's unsent {choice, note} under this key (ui-questions.js getDraft).
   const draftKey = (qid) => 'qdraft:' + qid;
   const readDraft = (qid) => { try { return JSON.parse(localStorage.getItem(draftKey(qid)) || '{}'); } catch { return {}; } };
-  // In place of this page: framed in the app shell, the shell shows the URL's view in place (board/public/shell.js
-  // AppShell.open); alone, or for a URL that isn't a view, the page loads it.
+  const writeDraft = (qid, draft) => { try { localStorage.setItem(draftKey(qid), JSON.stringify(draft)); } catch { /* nothing kept */ } };
+  // In place of this page: framed in the app shell, the shell shows the URL's view in place, going up to the question
+  // the viewer sits under (board/public/shell.js AppShell.open, router.js); alone, the page loads it.
   function replaceWith(url) {
     let app = null;
     try { app = window.top !== window ? window.top.AppShell : null; } catch { app = null; }
     if (!app?.open?.(String(url), { replace: true })) location.replace(url);
   }
 
-  // Prototype pages need only claude.js and this switcher. In the shell, its BoardUI also owns the board's notice.
-  let questionsUI = null;
-  const sharedQuestions = (site) => (questionsUI ||= (async () => {
-    try { if (window.top !== window && window.top.BoardUI?.nextQuestion) return window.top.BoardUI; } catch {}
-    for (const [file, key] of [['ui.js', 'esc'], ['ui-links.js', 'linkText'], ['ui-questions.js', 'nextQuestion']]) {
-      if (globalThis.BoardUI?.[key]) continue;
-      await new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = site.url(file);
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.append(script);
-      });
-    }
-    return globalThis.BoardUI;
-  })().catch((e) => { questionsUI = null; throw e; }));
-
-  function pillHtml({ name, pick = { kind: 'none' }, busy = false }) {
+  function pillHtml({ name, pick = { kind: 'none' } }) {
     const control = pick.kind === 'picked' ? '<span class="ps-picked">Picked</span>'
       : pick.kind === 'pick' || pick.kind === 'change'
-        ? `<button type="button" class="ps-pick" data-ps="pick"${busy ? ' disabled' : ''}>${busy ? 'Sending…' : pick.kind === 'pick' ? 'Pick this' : 'Change pick'}</button>`
+        ? `<button type="button" class="ps-pick" data-ps="pick">${pick.kind === 'pick' ? 'Pick this' : 'Change pick'}</button>`
         : '';
     return `<button type="button" data-ps="prev" aria-label="Previous take">‹</button><span class="ps-name" title="${esc(name)}">${esc(name)}</span><button type="button" data-ps="next" aria-label="Next take">›</button>${control}`;
   }
@@ -82,16 +66,13 @@
 .ps-switch .pill button.on { background:#fff; color:#000; }
 .ps-name { flex:0 1 auto; padding:7px 6px; color:#fff; white-space:nowrap; min-width:0; text-align:center; overflow:hidden; text-overflow:ellipsis; }
 .ps-pill .ps-pick { background:#fff; color:#000; margin-left:2px; }
-.ps-pill .ps-pick:disabled { opacity:.6; cursor:default; }
 .ps-switch .ps-text { width:min(420px, 100%); resize:none; border-radius:12px; border:1px solid #fff3; background:#000d; color:#fff;
   padding:7px 10px; font:400 14px -apple-system, system-ui, sans-serif; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); }
 .ps-switch .ps-text::placeholder { color:#fffa; }
 .ps-switch .ps-text[hidden] { display:none; }
 .ps-picked { margin-left:2px; padding:7px 11px; border-radius:999px; color:#fff; background:#1f9d55; white-space:nowrap; }
 .ps-note { background:#000d; color:#fff; border-radius:8px; padding:5px 10px; font:500 12px -apple-system, system-ui, sans-serif; text-align:center; }
-.ps-note[hidden] { display:none; }
-.ps-embed header.top { display:none; }
-.ps-embed main { padding-bottom:12px !important; }`;
+.ps-note[hidden] { display:none; }`;
 
   const typing = (el) => Boolean(el?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])'));
 
@@ -101,29 +82,10 @@
     const qid = params.get('q');
     const site = globalThis.ClaudeSite;
     if (!document.getElementById('ps-style')) document.head.insertAdjacentHTML('beforeend', `<style id="ps-style">${CSS}</style>`);
-    if (params.has('take')) {
-      let only = startTake(keys, params.get('take'), initial);
-      document.documentElement.classList.add('ps-embed');
-      render(only);
-      const embedded = {
-        takes: keys,
-        get take() { return only; },
-        go(next) {
-          if (!keys.includes(next) || next === only) return;
-          only = next;
-          const u = new URL(location.href); u.searchParams.set('take', only); history.replaceState(history.state, '', u);
-          render(only);
-        },
-      };
-      return (globalThis.PrototypeSwitcher.current = embedded);
-    }
     let take = startTake(keys, params.get('variant'), initial);
     let question = null;
-    let topics = [];
-    // The board's cards, which name their own question topics (ui-questions.js cardTopics).
-    let cards = [];
-    // A push opened this page (board/store.mjs pushUrl). Read once and dropped from the URL, so a pick made here or a
-    // reload stays on the page; only the first load sends an already-picked question on to its card's thread.
+    // A push opened this page (board/store.mjs pushUrl). Read once and dropped from the URL, so a reload stays on the
+    // page; only the first load sends an already-picked question on to its card's thread.
     let fromPush = params.get('from') === 'push';
     if (fromPush) { const u = new URL(location.href); u.searchParams.delete('from'); history.replaceState(null, '', u); }
 
@@ -135,13 +97,13 @@
     const pill = box.querySelector('.ps-pill');
     const noteEl = box.querySelector('.ps-note');
     const text = box.querySelector('.ps-text');
-    let busy = false;
 
     const note = (text) => { noteEl.textContent = text || ''; noteEl.hidden = !text; };
+    const state = () => pickState(question, take, qid ? readDraft(qid).choice : null);
     function paint() {
-      const state = pickState(question, take);
-      pill.innerHTML = pillHtml({ name: takes[take], pick: state, busy });
-      text.hidden = !(state.kind === 'pick' || state.kind === 'change');
+      const now = state();
+      pill.innerHTML = pillHtml({ name: takes[take], pick: now });
+      text.hidden = !(now.kind === 'pick' || now.kind === 'change');
     }
     function go(next) {
       take = next;
@@ -153,14 +115,11 @@
 
     async function load() {
       if (!qid || !site) return;
-      let board = null;
       try {
-        board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
-        topics = board.ownerTopics;
-        cards = board.items || [];
+        const board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
         // A resolved question is left out of /api/board, and its topic's resolved questions hold it
         // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
-        const topic = topics.find((t) => t.questions.includes(qid));
+        const topic = board.ownerTopics.find((t) => t.questions.includes(qid));
         question = board.owner.find((q) => q.id === qid)
           || (topic && (await (await fetch(site.url('api/questions?topic=' + encodeURIComponent(topic.id)), { cache: 'no-store' })).json()).questions.find((q) => q.id === qid))
           || null;
@@ -174,37 +133,13 @@
       if (question && !text.value) text.value = readDraft(qid).note || '';
       fromPush = false;
       paint();
-      return board;
     }
 
-    async function pick() {
-      const state = pickState(question, take);
-      if (busy || !(state.kind === 'pick' || state.kind === 'change')) return;
-      busy = true; paint();
-      const answered = question;
-      let ui, pills, name;
-      try {
-        ui = await sharedQuestions(site);
-        pills = ui.topicRow(topics, answered.topic).pills;
-        const topic = topics.find((t) => t.id === answered.topic);
-        name = topic ? ui.topicName(ui.cardTopics([topic], cards)[0]) : '';
-        await site.send('owner-answer', { id: answered.id, question: answered.question, choice: state.option.id, label: answerLabel(state.option), note: text.value.trim() });
-      } catch { busy = false; paint(); note('Could not send. Is the host awake?'); return; }
-      try { localStorage.removeItem(draftKey(qid)); } catch { /* nothing kept */ }
-      text.value = '';
-      busy = false;
-      note('Sent. Claude replies on the card.');
-      const board = await load();
-      const next = ui.nextQuestion(board?.owner || [], pills, answered);
-      if (next) {
-        const u = new URL(site.url(questionUrl(next)), location.href);
-        if (globalThis.PageBack?.pushed) u.searchParams.set('from', 'push');
-        replaceWith(u);
-      } else {
-        const route = new URL(site.url(''), location.href).pathname.replace(/^\/+|\/+$/g, '');
-        ui.sentNotice.put(route, `Sent 1 answer${name ? ` to ${name}` : ''}.`);
-        replaceWith(site.url('./'));
-      }
+    function pick() {
+      const now = state();
+      if (!(now.kind === 'pick' || now.kind === 'change')) return;
+      writeDraft(qid, { ...readDraft(qid), choice: now.option.id, note: text.value.trim() });
+      replaceWith(site.url(`questions.html#${encodeURIComponent(qid)}`));
     }
     text.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.isComposing) return;
@@ -227,8 +162,8 @@
 
     go(take);
     load();
-    return (globalThis.PrototypeSwitcher.current = { takes: keys, get take() { return take; }, go });
+    return { takes: keys, get take() { return take; }, go };
   }
 
-  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, answerLabel, pillHtml, mount };
+  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, pillHtml, mount };
 })();

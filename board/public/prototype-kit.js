@@ -127,6 +127,21 @@
 
   const kit = { sidebar, hub, cards, sheet, toast, on, fake, esc };
 
+  // [element, place] for each element in stage, its place the tag and class of it and each ancestor up to the stage, with
+  // a count telling apart boxes that share one, so a take drawn again finds the same box.
+  function placesIn(stage) {
+    const seen = new Map();
+    return [...stage.querySelectorAll('*')].map((el) => {
+      let path = '';
+      for (let at = el; at && at !== stage; at = at.parentElement) path = `${at.tagName}.${at.className}/${path}`;
+      const n = seen.get(path) || 0;
+      seen.set(path, n + 1);
+      return [el, `${path}#${n}`];
+    });
+  }
+  // place → [scrollTop, scrollLeft] of each box in stage scrolled away from its start.
+  const scrolledBoxes = (stage) => new Map(placesIn(stage).filter(([el]) => el.scrollTop || el.scrollLeft).map(([el, place]) => [place, [el.scrollTop, el.scrollLeft]]));
+
   function start(data) {
     const keys = data.takes.map((t) => t.key);
     const takes = Object.fromEntries(data.takes.map((t) => [t.key, t.label]));
@@ -158,13 +173,23 @@
       try { cleanup?.(); } catch (err) { console.error(err); }
       cleanup = null;
       ends.splice(0).forEach((end) => end());
-      // A switch keeps the page where it is: the new stage holds the old one's height until the take has drawn.
+      // A switch keeps the page where it is: the new stage holds the old one's height until the take has drawn, and
+      // each box scrolled inside the take scrolls where it was once the new take has drawn the same box.
       const old = document.getElementById('stage');
       const stage = old.cloneNode(false);
       const y = window.scrollY;
+      const scrolled = scrolledBoxes(old);
       stage.style.minHeight = `${old.offsetHeight}px`;
       old.replaceWith(stage);
-      const settle = () => { if (n !== shown) return; stage.style.minHeight = ''; window.scrollTo(0, y); };
+      const settle = () => {
+        if (n !== shown) return;
+        stage.style.minHeight = '';
+        for (const [el, place] of placesIn(stage)) {
+          const at = scrolled.get(place);
+          if (at) [el.scrollTop, el.scrollLeft] = at;
+        }
+        window.scrollTo(0, y);
+      };
       document.documentElement.dataset.take = key;
       const take = data.takes.find((t) => t.key === key);
       if (!take.src) {

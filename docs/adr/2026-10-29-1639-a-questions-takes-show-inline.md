@@ -1,8 +1,10 @@
 ---
-status: superseded in part by 2026-10-29-2005-one-app-for-the-whole-hub and 2026-10-30-1125-back-follows-the-page-tree
+status: superseded in part by 2026-10-29-2005-one-app-for-the-whole-hub, 2026-10-30-1125-back-follows-the-page-tree and 2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer
 ---
 
 # A question's takes show inline, and back goes one step
+
+Superseded in part by [a question's prototypes open in a full-page viewer](2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md): Waiting on you frames no take, the two layouts, frame measuring and `?take=` are gone, and a pick on a prototype page drafts it for the question's Send instead of sending at once. Diagrams, back and the shared header stand.
 
 Superseded in part by [one app for the whole hub](2026-10-29-2005-one-app-for-the-whole-hub.md) on how back finds the step: in the app shell the referrer stops changing, so each history entry carries `{idx}`, and the arrow goes back while `idx` is above 0. A page a push opened still goes to its `backHref`.
 

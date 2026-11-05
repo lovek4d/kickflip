@@ -19,7 +19,8 @@ const timers = new Set();
 let timerIds = 0;
 const stages = [];
 function stage() {
-  const s = { id: 'stage', innerHTML: '', style: {}, offsetHeight: 400, cloneNode: () => stage(), replaceWith: (next) => { current = next; } };
+  const s = { id: 'stage', innerHTML: '', style: {}, offsetHeight: 400, boxes: [], cloneNode: () => stage(), replaceWith: (next) => { current = next; },
+    querySelectorAll: (sel) => { if (sel !== '*') throw new Error(sel); return s.boxes; } };
   stages.push(s);
   return s;
 }
@@ -55,14 +56,27 @@ fs.writeFileSync(path.join(takeDir, 'A.js'), `export function render(stage, kit)
 }`);
 fs.writeFileSync(path.join(takeDir, 'B.js'), 'export async function render(stage) { stage.innerHTML = "B"; }');
 fs.writeFileSync(path.join(takeDir, 'D.js'), 'export function render() { throw new Error("no <stage>"); }');
+// E and F draw the same page with a scrolled list and a strip; F's strip sits one level deeper.
+const boxes = (deep) => `(stage) => {
+  const box = (tagName, className, parentElement) => ({ tagName, className, parentElement, scrollTop: 0, scrollLeft: 0 });
+  const main = box('MAIN', 'take', stage);
+  const lists = [box('UL', 'list', main), box('UL', 'list', main)];
+  const wrap = box('DIV', 'wrap', main);
+  const strip = box('DIV', 'strip', ${deep} ? wrap : main);
+  stage.boxes = [main, ...lists, wrap, strip];
+  stage.innerHTML = 'boxes';
+}`;
+fs.writeFileSync(path.join(takeDir, 'E.js'), `export const render = ${boxes(false)};`);
+fs.writeFileSync(path.join(takeDir, 'F.js'), `export const render = ${boxes(true)};`);
 const takes = [{ key: 'A', label: 'Keys', src: 'prototypes/x/A.js?v=1', file: 'prototypes/x/A.js' }, { key: 'B', label: 'Plain', src: 'prototypes/x/B.js?v=1', file: 'prototypes/x/B.js' },
-  { key: 'C', label: 'Missing', src: null, file: 'prototypes/x/C.js' }, { key: 'D', label: 'Broken', src: 'prototypes/x/D.js?v=1', file: 'prototypes/x/D.js' }];
+  { key: 'C', label: 'Missing', src: null, file: 'prototypes/x/C.js' }, { key: 'D', label: 'Broken', src: 'prototypes/x/D.js?v=1', file: 'prototypes/x/D.js' },
+  { key: 'E', label: 'Boxes', src: 'prototypes/x/E.js?v=1', file: 'prototypes/x/E.js' }, { key: 'F', label: 'Deeper', src: 'prototypes/x/F.js?v=1', file: 'prototypes/x/F.js' }];
 
 test('each take renders into a fresh stage, and switching ends what the last take added and keeps the scroll position', async () => {
   const before = listeners.length;
   kit.start({ topic: 'x', title: 'X', takes });
   const kitListeners = listeners.slice(before);
-  assert.deepEqual(Object.entries(mounted.takes), [['A', 'Keys'], ['B', 'Plain'], ['C', 'Missing'], ['D', 'Broken']]);
+  assert.deepEqual(Object.entries(mounted.takes), [['A', 'Keys'], ['B', 'Plain'], ['C', 'Missing'], ['D', 'Broken'], ['E', 'Boxes'], ['F', 'Deeper']]);
   assert.equal(mounted.initial, 'A');
   await mounted.first;
   assert.equal(current.innerHTML, 'A function');
@@ -84,6 +98,21 @@ test('each take renders into a fresh stage, and switching ends what the last tak
   assert.equal(current.innerHTML, '<p class="kit-missing">Take C has no file yet: write public/prototypes/x/C.js, exporting render(stage, kit).</p>');
   await mounted.render('D');
   assert.equal(current.innerHTML, '<p class="kit-missing">Take D failed: no &lt;stage&gt;</p>');
+});
+
+// docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md
+test("a switch keeps each scrolled box inside the take where it was, matched by its place in the stage, as well as the page's scroll", async () => {
+  await mounted.render('E');
+  const [, , second, , strip] = current.boxes;
+  second.scrollTop = 140;
+  strip.scrollLeft = 60;
+  await mounted.render('E');
+  assert.deepEqual(current.boxes.map((b) => [b.scrollTop, b.scrollLeft]), [[0, 0], [0, 0], [140, 0], [0, 0], [0, 60]]);
+  assert.deepEqual(scrolls.at(-1), [0, 250]);
+  await mounted.render('F');
+  assert.deepEqual(current.boxes.map((b) => [b.scrollTop, b.scrollLeft]), [[0, 0], [0, 0], [140, 0], [0, 0], [0, 0]]);
+  await mounted.render('B');
+  assert.equal(current.innerHTML, 'B');
 });
 
 test('a link or form in the stage never navigates or sends, and toasts unless the take showed its own toast', () => {
