@@ -261,7 +261,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1441,6 +1441,18 @@ async function trackLaunch(key, entry) {
   await fs.writeFile(file + '.tmp', JSON.stringify(tracked) + '\n');
   await fs.rename(file + '.tmp', file);
 }
+// docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
+// At startup: a build the previous process started but died before launching (store.mjs cutOffBuilds) that
+// headless-builders.json doesn't list gets its builder now, as the pull would have launched it.
+async function launchCutOffBuilds() {
+  try {
+    const tracked = await readJSON(path.join(data, 'headless-builders.json'), {});
+    for (const started of (await cutOffBuilds(here)).filter((c) => !tracked[c.key])) {
+      logCall({ call: 'launch-cut-off', key: started.key, result: 'launching', reason: 'A restart cut off the launch after its build started.', inputs: { kind: started.kind, model: started.model ?? null } });
+      await handOff(started);
+    }
+  } catch (e) { console.error('Cut-off launch check failed:', e.message); }
+}
 // Once a minute: a headless builder whose usage isn't held and whose process exited with its record open launches again
 // once, and after that leaves a thread line; its record stays open, so the stall alarm brings in the orchestrator.
 let revivingHeadless = false;
@@ -1770,6 +1782,7 @@ async function archiveDone() {
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
 try { for (const line of await dropPlannedStatus(here)) console.log(line); } catch (e) { console.error('planned-status migration:', e.message); }
 try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
+await launchCutOffBuilds();
 await checkArchive();
 await markNewCards();
 await watchBoard();

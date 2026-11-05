@@ -2702,6 +2702,24 @@ export async function startPlanner(site, key, kind) {
   return { key, kind, model: started.model };
 }
 
+// docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
+// The builds the board server started (a pull, a Build tap, a queued start) whose launch it never made: a building card
+// whose main build record is open with dispatched still set, since a builder's own `builder start` clears that mark.
+// → [{key, kind, model}], launchBuilder's card for each.
+export async function cutOffBuilds(site) {
+  const out = [];
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    for (const item of wave?.items || []) {
+      if (item.status !== 'building') continue;
+      const record = await readJSON(path.join(source.dir, 'agents', `${item.id}.json`), null);
+      if (!record?.started || record.done || !record.dispatched || plans(record)) continue;
+      out.push({ key: `${source.slug}/${item.id}`, kind: providerOf(record.kind), model: record.model });
+    }
+  }
+  return out;
+}
+
 // A tapped build that failed to start puts back the hold the tap cleared.
 async function restoreHold(site, key, was) {
   const { source, wave, item } = await loadItem(site, key);

@@ -361,6 +361,45 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   }
 });
 
+// docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
+test("a restarted server launches the builder of a building card whose record is still dispatched and untracked, and leaves a planner and a tracked one alone", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-cutoff-'));
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(data, 'threads'));
+  const wt = path.join(home, 'wt');
+  fs.mkdirSync(wt);
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: ['C1', 'C2', 'C3', 'C4'].map((id) => ({ id, title: id, status: 'building' })) }));
+  const record = (extra) => JSON.stringify({ started: '2026-11-05T04:42:41.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'x', repo: wt }, ...extra });
+  fs.writeFileSync(path.join(data, 'agents', 'C1.json'), record({ dispatched: 'hub' }));
+  fs.writeFileSync(path.join(data, 'agents', 'C2.json'), record({ dispatched: 'hub', kind: 'grill' }));
+  fs.writeFileSync(path.join(data, 'agents', 'C3.json'), record({ dispatched: 'hub' }));
+  fs.writeFileSync(path.join(data, 'agents', 'C4.json'), record({}));
+  fs.writeFileSync(path.join(data, 'headless-builders.json'), JSON.stringify({ 't/C3': { model: 'opus', pid: process.pid, relaunched: false } }));
+  const seen = path.join(home, 'claude-runs.jsonl');
+  const fake = path.join(home, 'claude');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');\nsetTimeout(() => {}, 5000);\n`);
+  fs.chmodSync(fake, 0o755);
+  const [port] = await freePorts();
+  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
+  try {
+    await boardListening(child);
+    await until(() => fs.existsSync(seen) && fs.readFileSync(seen, 'utf8').includes('\n'), 'the cut-off builder launches');
+    await until(() => JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/C1']?.relaunched === false, 'the launch is tracked');
+    const runs = fs.readFileSync(seen, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(runs.length, 1);
+    assert.match(runs[0].argv[1], /builder start t\/C1 --kind build/);
+  } finally {
+    child.kill();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 // A local board over a git repo, its wave's items, and a fake claude at bin (by default one that logs each run).
 function oneLaunchBoard(items, bin) {
