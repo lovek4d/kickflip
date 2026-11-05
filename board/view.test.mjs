@@ -3362,10 +3362,10 @@ test("a stalled card's red status line, closed or open, confirms before sending 
     await b.settle();
     assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['builder-nudge', { key: 'w/S1' }]]);
     assert.equal(b.root.querySelector('.toast').textContent, 'Nudge sent');
-    // The answer ends the request, not the spinner: the line stays busy until a board shows the builder's line moved.
-    assert.deepEqual([chip().disabled, chip().getAttribute('aria-busy')], [true, 'true']);
+    // The answer ends the request, not the calm: the line stays nudging, without a spinner, until a board shows the builder's line moved.
+    assert.deepEqual([chip().classList.contains('nudging'), chip().getAttribute('aria-busy')], [true, null]);
     await b.change({ board: boardOf([item]) });
-    assert.equal(chip().getAttribute('aria-busy'), 'true');
+    assert.equal(chip().classList.contains('nudging'), true);
     await b.change({ board: boardOf([workCard('S1', { lane: 'progress', builder: { stalled: false, progress: 'Running tests', at: null } })]) });
     assert.equal(b.root.querySelector('summary button.stalled'), null);
     assert.equal(b.root.querySelector('summary .agent').textContent, 'Running tests');
