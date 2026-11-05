@@ -105,14 +105,14 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
     grill
       ? `4. Find every decision the card leaves open: read the code it touches and answer what the code answers yourself. Post each decision left as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first.`
         + ' Invoke the grilling skill with the Skill tool and run it as one round: its questions go to the board with question add, never into the chat, and you never wait for an answer; after the round, finish. (With no Skill tool, follow this step as written.)'
-        + ' When the card changes the hub\'s or a board\'s UI, end with one more question asking for a prototype round of it, that round recommended first, so the owner can pick it or tap its eye.'
+        + ` End every grill with one more question, "Prototype round first?", whose options are yes and no, with "prototype_gate": true in its \`question add --file\` entry: the board moves the card to prototyping on yes, or to ready on no once the owner has answered the rest, so nothing else moves it. Recommend yes when the card changes the hub's or a board's UI, no otherwise. Ask it even when it is your only question.`
       : `4. Record the prototype with \`${b} prototype add <topic> --card ${key} --take <K>:<label> …\`, write one take per option as a page built from the board's real components fed fake data, and post one question whose url opens it with \`${b} question add --file <json>\` on topic item:${key}, never asking in the chat. Invoke the prototype skill with the Skill tool for this step. (With no Skill tool, follow this step as written.)`,
     ...(text ? [`   The owner asked for this ${grill ? 'grill' : 'prototype'}, writing: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     ...(question ? [`   The owner asked for prototypes of question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`] : []),
     `5. Record what you learned in the card's notes with \`${b} item set ${key} --notes-file <file.md>\`, naming each answered question's id.`,
     ...(grill ? [
-      `6. If you have no question left to ask, end the card ready: run \`${b} item set ${key} --size <s> --state ready\` once its notes file is set, so the board builds it. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end it \`--state prototyping\` instead, never ready. Never leave a Next that asks the owner to mark it ready.`,
+      `6. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end the card \`${b} item set ${key} --state prototyping\` instead and skip the prototype question. Otherwise the prototype question is what moves the card on: never set it ready yourself, and never leave a Next that asks the owner to mark it ready.`,
     ] : []),
     '',
     ...linkLines(links),

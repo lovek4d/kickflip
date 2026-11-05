@@ -42,7 +42,7 @@ command fails and changes nothing.
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
+          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, prototype_gate?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
           for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
           a board over ~/.claude/waves. A question on a done or merged card reopens it.
          A question on an item: topic whose card has a grill or prototype planner running is staged, not published,
@@ -64,6 +64,9 @@ command fails and changes nothing.
          and printed as "replaced: <old id>". round_of names the question on the same topic whose
          prototype-request this answers; the question needs a prototype url, takes the next round
          number, and resolves that one, noting "Followed by prototype round N".
+         prototype_gate: true marks a grill's closing "Prototype round first?" question (options yes, no, on a card's
+         topic): the owner's yes moves the card to prototyping and starts its prototype planner, a no moves it to ready
+         once no question on it is left open, the board doing both with no orchestrator step.
          reask_of names a resolved question on the same topic that the owner asked to ask again
          (reask-request): it resolves that one again, noting "Asked again as <new id>", printed as "resolved: <old id>".
          ask names a builder ask the session deferred on the item (builder defer): the question puts it to the

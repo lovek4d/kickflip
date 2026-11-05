@@ -261,7 +261,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -381,7 +381,10 @@ async function recordAnswers(answers) {
   const again = (a) => asked.has(String(a.id)) && picksNoTake(asked.get(String(a.id)), a.choice);
   const ids = await appendEvents(answers.map((a) => ['owner-answer', again(a) ? { ...a, prototype_again: true } : a]));
   await resolveNoteAnswers(here, answers);
+  // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
+  const { prototype } = await settleGates(here, answers);
   dataVersion++;
+  for (const key of prototype) await launchPlanner(key, 'prototype');
   // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
   const built = await sharedBoard();
   const started = [...new Set(answers.map((a) => startedByAnswer(built, String(a.id))).filter(Boolean))];

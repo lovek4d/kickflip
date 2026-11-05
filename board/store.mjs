@@ -1171,7 +1171,7 @@ export async function addQuestions(site, input) {
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
-    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested'], name);
+    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested', 'prototype_gate'], name);
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
@@ -1185,6 +1185,7 @@ export async function addQuestions(site, input) {
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
+    optional(q.prototype_gate, (v) => checkGate(v, q, name));
     optional(q.suggested, (v) => checkSuggested(v, q.options, `${name}.suggested`));
     await checkPrototype(site, q, name);
     if (q.ask !== undefined) await checkAskQuestion(site, q, name);
@@ -1272,6 +1273,54 @@ async function publishQuestions(site, owner, items, questions, lines) {
   const written = { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at }))] };
   await writeJSON(ownerFile(site), written);
   return { file: ownerFile(site), lines: [...lines, ...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
+}
+
+// docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
+// prototype_gate: true marks a card's "Prototype round first?" question: options yes and no, on the card's own topic.
+function checkGate(flag, q, name) {
+  bool(flag, `${name}.prototype_gate`);
+  if (!flag) return;
+  if (!q.topic.startsWith('item:') || q.topic.startsWith('item:ask:')) fail(`${name}.prototype_gate goes on a card's topic, item:<wave>/<id>`);
+  if (q.options?.map((o) => o.id).join() !== 'yes,no') fail(`${name}.prototype_gate takes exactly the options yes and no, in that order`);
+}
+
+// docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
+// The owner's answers acted on with no orchestrator step. A prototype_gate question answered yes resolves and moves its
+// card to prototyping; answered no it resolves, and the card moves to ready once no question on it is left open, as a
+// grill with nothing left to ask ends ready. Either only while the card still reads grilling.
+// → {prototype: [keys]}, the cards whose prototype planner the server starts.
+export async function settleGates(site, answers) {
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  const asked = new Map((owner.items || []).map((q) => [q.id, q]));
+  const touched = new Set(answers.map((a) => asked.get(String(a.id))?.topic).filter((t) => t?.startsWith('item:')));
+  const prototype = [];
+  for (const a of answers) {
+    const q = asked.get(String(a.id));
+    if (!q?.prototype_gate || !['yes', 'no'].includes(a.choice)) continue;
+    setResolved(owner, [q.id], `Prototype round: ${a.choice}. The board moved the card on.`);
+    await writeJSON(ownerFile(site), owner);
+    if (a.choice === 'no') continue;
+    touched.delete(q.topic);
+    const key = q.topic.slice(5);
+    if ((await loadItem(site, key)).item.state !== 'grilling') continue;
+    await setItem(site, key, { state: 'prototyping' });
+    await appendThread(site, key, { text: 'You asked for a prototype round, so the board moved the card to prototyping.' });
+    prototype.push(key);
+  }
+  for (const topic of touched) {
+    const { asked: views } = await topicQuestions(site, topic);
+    const gate = views.find((v) => v.prototype_gate && v.answers.at(-1)?.choice === 'no');
+    const key = topic.slice(5);
+    if (!gate || views.some((v) => v.state === 'open') || (await loadItem(site, key)).item.state !== 'grilling') continue;
+    try {
+      await setItem(site, key, { state: 'ready' });
+      await appendThread(site, key, { text: 'No prototype round, and nothing left to answer, so the board moved the card to ready.' });
+    } catch (e) {
+      if (!(e instanceof BoardError)) throw e;
+      await appendThread(site, key, { text: `No prototype round, but the card isn't ready yet: ${e.message}` });
+    }
+  }
+  return { prototype };
 }
 
 // The ids of a topic's answered questions that Claude acting on the card resolves.
@@ -1531,7 +1580,7 @@ async function checkNextDeps(site, key, item, next) {
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // Ready means a builder can start from the card alone: it has a size, a notes file, and that file names the id of every
-// question on the card the owner answered (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+// question on the card the owner answered, bar a prototype_gate answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
 function checkSizeAndNotes(key, item) {
   const starts = 'a builder starts from it, so pass';
   if (!item.size) fail(`${key} has no size; ${starts} --size small or large with --state ready`);
@@ -1540,7 +1589,7 @@ function checkSizeAndNotes(key, item) {
 async function checkNotesComplete(site, key, dir, item) {
   checkSizeAndNotes(key, item);
   const notes = await fs.readFile(await planPath(dir, item.plan), 'utf8');
-  const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id)).map((q) => q.id);
+  const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id) && !(q.prototype_gate && !q.answers.at(-1).note)).map((q) => q.id);
   if (left.length) fail(`${key}'s notes leave out the answered question${left.length === 1 ? '' : 's'} ${left.join(', ')}; record each answer in ${item.plan}, naming its id, before it is ready`);
 }
 

@@ -50,13 +50,14 @@ test("a headless planner's brief names its card and its notes so far, spells its
     assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
   }
   assert.ok(!proto.includes('/s/waves/w/a1.md'));
-  // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md: a grill offers the prototype round.
-  assert.match(grill, /When the card changes the hub's or a board's UI, end with one more question asking for a prototype round/);
-  assert.ok(!proto.includes('one more question asking for a prototype round'));
-  // docs/adr/2026-11-05-0226-a-grill-with-nothing-left-to-ask-ends-ready.md: a grill with nothing to ask ends ready, or prototyping.
-  assert.ok(grill.includes(`no question left to ask, end the card ready: run \`${b} item set w/A1 --size <s> --state ready\``));
-  assert.ok(grill.includes('end it `--state prototyping` instead, never ready'));
-  assert.ok(grill.includes('Never leave a Next that asks the owner to mark it ready'));
+  // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md: every grill ends with the gate.
+  assert.match(grill, /End every grill with one more question, "Prototype round first\?", whose options are yes and no, with "prototype_gate": true/);
+  assert.ok(grill.includes('Recommend yes when the card changes the hub\'s or a board\'s UI, no otherwise') && grill.includes('Ask it even when it is your only question'));
+  assert.ok(!proto.includes('prototype_gate'));
+  // A grill sets no ready itself: the gate's answer moves the card; the owner asking for prototypes ends it prototyping.
+  assert.ok(grill.includes(`end the card \`${b} item set w/A1 --state prototyping\` instead and skip the prototype question`));
+  assert.ok(grill.includes('never set it ready yourself'));
+  assert.ok(grill.includes('never leave a Next that asks the owner to mark it ready'));
   assert.ok(!proto.includes('--state ready'));
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: Codex has no skills, so they're named only as extras.
   assert.ok(grill.includes('Invoke the grilling skill with the Skill tool') && proto.includes('Invoke the prototype skill with the Skill tool'));
