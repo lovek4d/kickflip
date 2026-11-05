@@ -163,6 +163,9 @@ button.link { background: none; border: 0; color: var(--accent); padding: 8px 12
 .wb-done { padding: 8px 12px; font-size: 12.5px; color: var(--muted); }
 .wb-done a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .wb-loosehead { cursor: default; }
+.wb-counts { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wb-counts .wv-cur { font-weight: 700; color: var(--accent); }
+.wb-lane + .wb-lane, .wb-lane + .wb-loose { border-top: 1px solid var(--line); }
 .wb-loosehead:hover { background: var(--band); }
 /* A wave card's step number, inside its id chip, and its ⋯ menu. */
 .wn { color: var(--muted); font-variant-numeric: tabular-nums; padding-right: 5px; margin-right: 4px; border-right: 1px solid var(--line); }

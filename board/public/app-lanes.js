@@ -25,7 +25,7 @@ BoardView.part((B) => {
     const n = left + (older || 0);
     const words = `${n} older card${n === 1 ? '' : 's'}`;
     const fetches = older !== 0 && shown + STEP > cards.length;
-    return cards.slice(0, shown).map((it) => B.card(it)).join('')
+    return waveGroups(laneId, cards.slice(0, shown))
       + (n > 0 ? `<button type="button" class="thread-more" data-lane-more="${laneId}"${fetches ? ' data-fetch' : ''}>Show more <span class="n">· ${words}</span></button>` : '');
   }
 
@@ -97,7 +97,7 @@ BoardView.part((B) => {
       if (lane.hideEmpty && !items.length) return '';
       const expanded = laneState[lane.id] ?? lane.open;
       const open = items.filter((i) => !i.fold);
-      const rows = lane.id === 'todo' ? todoRows(d, shown, open) : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : open.map((it) => B.card(it)).join('')) + waveFolds(d, items);
+      const rows = lane.id === 'todo' ? todoRows(d, shown, open) : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : waveGroups(lane.id, open)) + waveFolds(d, items);
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
         <summary><span class="lane-name">${lane.name}</span><span class="count">${lane.id === 'done' ? doneCount(d, items) : items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
         <div class="list">${rows || '<div class="empty">Nothing here.</div>'}
@@ -106,8 +106,31 @@ BoardView.part((B) => {
     }).join('');
   }
 
+  // docs/adr/2026-11-05-0215-every-lane-groups-its-cards-by-wave.md
+  // Every lane but Todo groups its cards under a header per open wave (state.board.waveBands) that has cards there, in
+  // band order, then the cards in no wave under No wave. A lane with no card in a wave lists its cards plainly. A header
+  // counts its wave's cards in Todo, In Progress (Stale included), In Review and Done as x/y/k/z, from every lane, with
+  // the lane's own number bold in its colour and a tooltip that spells the counts out.
+  const COUNT_LANES = [['todo', 'in Todo'], ['progress', 'in progress'], ['review', 'in review'], ['done', 'done']];
+  function waveCounts(band, laneId) {
+    const lanes = state.board.items.reduce((m, i) => m.set(i.key, i.lane === 'stale' ? 'progress' : i.lane), new Map());
+    const n = COUNT_LANES.map(([id]) => band.keys.filter((k) => lanes.get(k) === id).length);
+    const here = laneId === 'stale' ? 'progress' : laneId;
+    return `<span class="wb-counts" tabindex="0" title="${COUNT_LANES.map(([, word], at) => `${n[at]} ${word}`).join(' · ')}">${COUNT_LANES.map(([id], at) => `<span${id === here ? ` class="wv-cur wv-${id}"` : ''}>${n[at]}</span>`).join('<span aria-hidden="true">/</span>')}</span>`;
+  }
+  function waveGroups(laneId, cards) {
+    const bands = state.board.waveBands || [];
+    const inBand = (b) => cards.filter((i) => b.keys.includes(i.key));
+    const grouped = bands.filter((b) => inBand(b).length);
+    if (!grouped.length) return cards.map((it) => B.card(it)).join('');
+    const loose = cards.filter((i) => !bands.some((b) => b.keys.includes(i.key)));
+    const group = (cls, data, name, n, counts, list) => `<section class="${cls}"${data}><div class="wb-head wb-loosehead">${counts ? BoardUI.WAVE_ICON : ''}<span class="wb-label"><span class="lane-name">${name}</span> <span class="count">${n}</span></span>${counts}</div>${list.map((it) => B.card(it)).join('')}</section>`;
+    return grouped.map((b) => group('wb-lane', ` data-wave="${esc(b.slug)}"`, esc(b.title), inBand(b).length, waveCounts(b, laneId), inBand(b))).join('')
+      + (loose.length ? group('wb-loose', '', 'No wave', loose.length, '', loose) : '');
+  }
+
   // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-  // Todo's wave bands (domain.mjs waveBandsOf), then its cards in no wave under Not in a wave. A band's open state lives
+  // Todo's wave bands (domain.mjs waveBandsOf), then its cards in no wave under No wave. A band's open state lives
   // in storage once the owner taps its head; until then only the first band whose next card is ready (a wave file's:
   // any Todo card) starts open. A band's name shows its goal as a tooltip, or a popover on a long-press. menu is the
   // card whose ⋯ menu is open, goalShown the band whose goal popover is open.
@@ -135,14 +158,14 @@ BoardView.part((B) => {
   }
 
   function bandRows(d, shown, todo) {
-    const bands = d.waveBands || [];
     const byKey = new Map(shown.filter((i) => !i.queued).map((i) => [i.key, i]));
-    const banded = new Set(bands.flatMap((b) => b.keys));
+    const bands = (d.waveBands || []).filter((b) => b.keys.some((k) => byKey.get(k)?.lane === 'todo'));
+    const banded = new Set((d.waveBands || []).flatMap((b) => b.keys));
     const loose = todo.filter((i) => !banded.has(i.key));
     const first = bands.find((b) => (b.next ? b.next.ready : b.keys.some((k) => byKey.get(k)?.ready)))?.slug;
     if (!bands.length) return loose.map((it) => B.card(it)).join('');
     return bands.map((b) => bandHtml(b, b.keys.map((k) => byKey.get(k)).filter(Boolean), bandOpen(b, first))).join('')
-      + (loose.length ? `<div class="wb-loose"><div class="wb-head wb-loosehead"><span class="lane-name">Not in a wave</span><span class="count">${loose.length}</span></div>${loose.map((it) => B.card(it)).join('')}</div>` : '');
+      + (loose.length ? `<div class="wb-loose"><div class="wb-head wb-loosehead"><span class="lane-name">No wave</span><span class="count">${loose.length}</span></div>${loose.map((it) => B.card(it)).join('')}</div>` : '');
   }
 
   function bandHtml(band, cards, open) {
@@ -159,7 +182,7 @@ BoardView.part((B) => {
     const pop = goalShown === band.slug && band.goal ? `<div class="wb-pop" role="tooltip">${esc(band.goal)}</div>` : '';
     const head = `<div class="wb-head" data-band-toggle="${esc(band.slug)}" role="button" tabindex="0" aria-expanded="${open}">${BoardUI.WAVE_ICON}`
       + `<span class="wb-label">${name} <span class="count">${todo.length}</span> <span class="count">· ${progress}</span></span>`
-      + `<span class="wb-end"><span class="wb-links">${notes}${triageLink(band)}</span>${go}</span>${pop}</div>`;
+      + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}${triageLink(band)}</span>${go}</span>${pop}</div>`;
     if (!open) return `<section class="wb" data-band="${esc(band.slug)}">${head}</section>`;
     const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#item=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
     const step = (it) => (band.kind === 'lineup' ? band.phases.findIndex((p) => p.includes(it.key)) + 1 : 0);

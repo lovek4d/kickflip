@@ -4382,7 +4382,7 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   const shown = (slug) => b.root.querySelectorAll(`.wb[data-band="${slug}"] details.item`).map((el) => el.dataset.key);
   assert.deepEqual(todo().children.map((el) => el.dataset.band || el.getAttribute('class')), ['mon', 'go', 'pilot', 'wb-loose', 'thread-more']);
   assert.deepEqual(b.root.querySelectorAll('.wb-loose details.item').map((el) => el.dataset.key), ['w/A3']);
-  assert.equal(b.root.querySelector('.wb-loose .lane-name').textContent, 'Not in a wave');
+  assert.equal(b.root.querySelector('.wb-loose .lane-name').textContent, 'No wave');
   assert.deepEqual(['mon', 'go', 'pilot'].map((slug) => head(slug).getAttribute('aria-expanded')), ['false', 'true', 'false']);
   assert.deepEqual(shown('mon'), []);
 
@@ -5053,4 +5053,27 @@ test("a Permissions switch keeps its spinner past the server's answer until the 
   await tick(); await tick();
   assert.deepEqual([toggle().checked, toggle().disabled], [true, false]);
   v.unmount();
+});
+
+// docs/adr/2026-11-05-0215-every-lane-groups-its-cards-by-wave.md
+test("every lane groups its cards under wave headers, none for a wave with no cards there, cards in no wave last under No wave, each header counting the wave across all lanes with its own lane bold", async () => {
+  const idle = { running: false, questions: 0 };
+  const band = (slug, title, ids) => ({ kind: 'lineup', slug, title, goal: null, keys: ids.map((id) => `w/${id}`), phases: ids.map((id) => [`w/${id}`]), next: null, merged: 0, total: ids.length, triage: idle });
+  const cards = [workCard('A1', { lane: 'done' }), workCard('A2', { lane: 'progress' }), workCard('A3'), workCard('A4'),
+    workCard('B1', { lane: 'review' }), workCard('B2', { lane: 'done' }), workCard('L1', { lane: 'progress' }), workCard('L2', { lane: 'done' })];
+  const b = boardOnDom({ board: { ...boardOf(cards), waveBands: [band('a', 'Alpha', ['A1', 'A2', 'A3', 'A4']), band('b', 'Beta', ['B1', 'B2'])] }, threads: {} });
+  await b.settle();
+  const lane = (id) => b.root.querySelector(`details.lane[data-lane="${id}"]`);
+  const heads = (id) => lane(id).querySelectorAll('.wb > .wb-head, .wb-lane > .wb-head, .wb-loose > .wb-head').map((h) => h.querySelector('.lane-name').textContent);
+  assert.deepEqual(heads('progress'), ['Alpha', 'No wave']);
+  assert.deepEqual(heads('review'), ['Beta']);
+  assert.deepEqual(heads('done'), ['Alpha', 'Beta', 'No wave']);
+  assert.deepEqual(heads('todo'), ['Alpha']);
+  assert.deepEqual(lane('progress').querySelectorAll('details.item').map((el) => el.dataset.key), ['w/A2', 'w/L1']);
+  const counts = (id, name) => lane(id).querySelectorAll('.wb-head').find((h) => h.querySelector('.lane-name').textContent === name).querySelector('.wb-counts');
+  assert.equal(counts('progress', 'Alpha').textContent.replace(/\s/g, ''), '2/1/0/1');
+  assert.equal(counts('progress', 'Alpha').getAttribute('title'),'2 in Todo · 1 in progress · 0 in review · 1 done');
+  assert.equal(counts('progress', 'Alpha').querySelector('.wv-cur').textContent, '1');
+  assert.equal(counts('review', 'Beta').querySelector('.wv-cur').textContent, '1');
+  assert.equal(counts('todo', 'Alpha').querySelector('.wv-cur').textContent, '2');
 });
