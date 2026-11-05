@@ -173,6 +173,15 @@ test("a card keeps the phase its latest build reached after the build ends, from
   assert.equal(card({}, lines).reachedPhase, null);
 });
 
+// docs/adr/2026-11-05-0520-waiting-for-the-test-slot-keeps-the-test-step-pulsing.md
+test('a land waiting for the test slot leaves the card on the testing phase, naming the card it waits for', () => {
+  const lines = [{ ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing' },
+    { ts: '2026-10-23T10:06:00Z', who: 'claude', kind: 'status', phase: 'testing', text: 'Testing: waiting for the test slot, B2 is running the suite' }];
+  const card = board({ now: Date.parse('2026-10-23T10:07:00Z'), agents: { A1: { main: { kind: 'claude', started: '2026-10-23T10:00:00Z' } } }, threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1');
+  assert.equal(card.builder.phase, 'testing');
+  assert.equal(card.builder.progress, 'Testing · waiting for the test slot, B2 is running the suite');
+});
+
 test('an install builder exposes its kind and keeps drafts and ready PRs In Progress until the install lands', () => {
   const install = { url: 'https://m/app.apk', sha: 'old' };
   const record = { kind: 'install', started: '2026-10-30T10:00:00Z' };
