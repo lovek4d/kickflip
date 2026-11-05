@@ -148,9 +148,9 @@
     return `<button class="${it.merging || it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${busy ? BoardUI.BUSY : ''}>Merge</button>`;
   }
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on, and
-  // ends with how long ago that line was set. One whose process is gone leads with stopped, and one whose live process
-  // went quiet with quiet (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
-  const builderLine = (b) => [b.alive === false ? 'stopped' : b.quiet && 'quiet', b.progress || (b.alive === false ? null : 'starting'), b.at && lasted(b.at)].filter(Boolean).join(' · ');
+  // ends with how long ago that line was set. One whose process is gone leads with stopped; one whose live process
+  // went quiet keeps its words and only turns grey (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+  const builderLine = (b) => [b.alive === false && 'stopped', b.progress || (b.alive === false ? null : 'starting'), b.at && lasted(b.at)].filter(Boolean).join(' · ');
   // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
   // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).

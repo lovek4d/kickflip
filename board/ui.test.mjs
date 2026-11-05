@@ -1183,10 +1183,10 @@ test('a stalled builder has no Stalled badge: its status line turns the needs-yo
   assert.match(html, /<button type="button" class="line3 sub agent in-progress stalled" data-confirm="nudge" data-key="w\/B5" title="No recent progress\. Nudge Claude to check this implementer"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/button>/);
   assert.doesNotMatch(html, /Stalled|tone-danger/);
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a builder whose process is gone
-  // reads stopped in the same red at once, and one whose live process went quiet reads quiet in grey, with no dot and no nudge.
+  // reads stopped in the same red at once, and one whose live process went quiet keeps its words in grey, with no dot and no nudge.
   assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, alive: false } }), /data-confirm="nudge"[^>]*><span class="working-dot" aria-hidden="true"><\/span>stopped · Running tests<\/button>/);
   const quiet = ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, stalled: false, alive: true, quiet: true } });
-  assert.match(quiet, /<div class="line3 sub agent in-progress quiet">quiet · Running tests<\/div>/);
+  assert.match(quiet, /<div class="line3 sub agent in-progress quiet">Running tests<\/div>/);
   assert.doesNotMatch(quiet, /working-dot|data-confirm="nudge"/);
   for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stalled|data-confirm="nudge"/);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /stalled|data-confirm="nudge"/);
@@ -1325,7 +1325,7 @@ test("a builder line shows the progress and its age, not who is building", () =>
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'starting · 4m');
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'starting');
   assert.equal(ui.builderLine({ progress: null, at, alive: false }), 'stopped · 4m');
-  assert.equal(ui.builderLine({ progress: 'Testing · x', at, quiet: true }), 'quiet · Testing · x · 4m');
+  assert.equal(ui.builderLine({ progress: 'Testing · x', at, quiet: true }), 'Testing · x · 4m');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 
