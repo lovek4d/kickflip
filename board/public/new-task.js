@@ -9,7 +9,7 @@ globalThis.BoardNewTask = (function () {
     <div class="sheet-head"><h2 id="sheetTitle">New task</h2><button type="button" class="ghost" id="sheetClose" aria-label="Close">✕</button></div>
     ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>')}
     <div class="pending-files" data-files></div>
-    <div class="send-actions">${BoardUI.sendButton('Discuss', 0, ' data-intent="discuss"')}${BoardUI.sendButton('Quick build', 1, ' data-intent="quick"')}</div>
+    <div class="send-actions">${BoardUI.sendButton('Quick build', 1, ' data-intent="quick"')}${BoardUI.sendButton('Discuss', 0, ' data-intent="discuss"')}</div>
     <p class="muted small" id="askStatus" aria-live="polite"></p>
   </form>
 </dialog>`;

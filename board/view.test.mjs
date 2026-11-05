@@ -2558,7 +2558,7 @@ test("the thread's eye and fire send their request at once: nothing typed sends 
   const fire = () => form().querySelector('button[data-grill]');
   const box = () => form().querySelector('textarea');
   const tap = async (button, text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: button }); await b.settle(); };
-  const send = async (text) => { box().value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[type="submit"]') }); await b.settle(); };
+  const send = async (text) => { box().value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-nth="0"]') }); await b.settle(); };
   assert.match(box().getAttribute('placeholder'), /\/prototype or \/grill/);
   assert.equal(form().querySelector('[data-hint]'), null);
   assert.deepEqual([eye().getAttribute('aria-pressed'), fire().getAttribute('aria-pressed')], [null, null]);
@@ -2595,7 +2595,7 @@ test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the
   await b.settle();
   const form = b.root.querySelector('#askForm');
   const buttons = () => [...form.querySelectorAll('button[type="submit"]')].map((el) => [el.dataset.intent, el.textContent]);
-  assert.deepEqual(buttons(), [['discuss', 'Discuss⌘↵'], ['quick', 'Quick build⌥↵']]);
+  assert.deepEqual(buttons(), [['quick', 'Quick build⌥↵'], ['discuss', 'Discuss⌘↵']]);
   assert.equal(form.querySelector('.ask-seg'), null);
   const send = async (text, submitter) => {
     b.root.querySelector('#askText').value = text;
@@ -2621,7 +2621,7 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
   const buttons = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => [el.dataset.intent ?? null, el.textContent]);
-  assert.deepEqual(buttons('w/T1'), [['reply', 'Reply⌘↵'], ['build', 'Implement⌥↵']]);
+  assert.deepEqual(buttons('w/T1'), [['build', 'Implement⌥↵'], ['reply', 'Reply⌘↵']]);
   assert.deepEqual(buttons('w/P1'), [[null, 'Send⌘↵']]);
   const send = async (key, text, intent) => {
     form(key).querySelector('textarea').value = text;
@@ -3195,7 +3195,7 @@ test("a thread's Send and the New task sheet's Send each wait, disabled with the
   const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
   await b.settle();
   const form = () => b.root.querySelector('form[data-reply="w/T1"]');
-  const send = () => form().querySelector('button[type="submit"]');
+  const send = () => form().querySelector('button[data-intent="reply"]');
   form().querySelector('textarea').value = 'Ship it';
   b.page.fire(b.root, 'submit', { target: form(), submitter: send() });
   await b.settle();
@@ -3205,7 +3205,7 @@ test("a thread's Send and the New task sheet's Send each wait, disabled with the
   assert.deepEqual(waitState(send()), IDLE);
 
   b.root.querySelector('#askText').value = 'A new task';
-  const askSend = b.root.querySelector('#askForm button[type="submit"]');
+  const askSend = b.root.querySelector('#askForm button[data-nth="0"]');
   b.page.fire(b.root.querySelector('#askForm'), 'submit', { target: b.root.querySelector('#askForm'), submitter: askSend });
   await b.settle();
   assert.deepEqual([...waitState(askSend), b.root.querySelector('#askStatus').textContent], [...WAITING, '']);

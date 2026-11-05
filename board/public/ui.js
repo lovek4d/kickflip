@@ -56,16 +56,17 @@
   // attach while files are dragged over the composer.
   const dropZone = (textarea) => `<div class="dz">${textarea}${attachButton()}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
   // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
-  // A composer's send buttons: its first presses on ⌘↵ and its second, where it has one, on ⌥↵ (Ctrl+↵ and Alt+↵ off a
-  // Mac), each with its key as a small gray hint that style.css shows only where there is a keyboard and room.
+  // A composer's send buttons: the one with nth 0 presses on ⌘↵ and the one with nth 1, where there is one, on ⌥↵,
+  // wherever each sits in the row (Ctrl+↵ and
+  // Alt+↵ off a Mac), each with its key as a small gray hint that style.css shows only where there is a keyboard and room.
   const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || '');
   const SEND_KEYS = MAC ? ['⌘↵', '⌥↵'] : ['Ctrl+↵', 'Alt+↵'];
-  const sendButton = (label, nth, attrs = '') => `<button type="submit"${nth === 0 ? ' class="primary"' : ''}${attrs}>${esc(label)}<span class="key-hint" aria-hidden="true">${SEND_KEYS[nth]}</span></button>`;
+  const sendButton = (label, nth, attrs = '') => `<button type="submit"${nth === 0 ? ' class="primary"' : ''} data-nth="${nth}"${attrs}>${esc(label)}<span class="key-hint" aria-hidden="true">${SEND_KEYS[nth]}</span></button>`;
   // The send button an Enter keydown in form's box presses, or null.
   const keyedSend = (ev, form) => {
     if (ev.key !== 'Enter' || ev.isComposing) return null;
     const nth = (ev.metaKey || ev.ctrlKey) && !ev.altKey ? 0 : ev.altKey && !ev.metaKey && !ev.ctrlKey ? 1 : -1;
-    return nth < 0 ? null : form.querySelectorAll('button[type="submit"]')[nth] || null;
+    return nth < 0 ? null : form.querySelector(`button[type="submit"][data-nth="${nth}"]`);
   };
   const icon = (body, size = 18, attrs = '') => `<svg${attrs} width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
   // An SVG, not ↗: iOS Safari can draw ↗ as an emoji tile even with U+FE0E.

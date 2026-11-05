@@ -13,3 +13,5 @@ The owner (#256): the New task sheet's Discuss/Quick build segment above Send be
 Considered:
 - ⇧⌘↵ for Quick build (take C): the owner picked ⌥↵.
 - Two buttons only on the New task sheet (take A): the owner wanted the thread to state its intent too.
+
+**Order on screen (#299).** The pair is drawn Quick build / Implement on the left and Discuss / Reply on the right, each keeping its colour and its key. `sendButton` marks a button with its `nth` (`data-nth`), and `keyedSend` presses the button by that mark, not by its place in the row.

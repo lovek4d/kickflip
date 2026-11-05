@@ -18,7 +18,7 @@ BoardView.part((B) => {
   const sendsOf = (item) => (item?.lane !== 'todo' ? 'one' : item.ready ? 'todo-ready' : 'todo');
   const sends = (kind) => (kind === 'one'
     ? `<span data-sends="one">${sendButton('Send', 0)}</span>`
-    : `<span class="send-actions" data-sends="${kind}">${sendButton('Reply', 0, ' data-intent="reply"')}${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}</span>`);
+    : `<span class="send-actions" data-sends="${kind}">${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}${sendButton('Reply', 0, ' data-intent="reply"')}</span>`);
   // The board, not the thread, decides the Done button and the send buttons, so they follow each board load even when
   // the thread is unchanged.
   function syncDone(el, key) {
