@@ -882,7 +882,7 @@ test("a card's topic, which the board sends with no title, takes its name from i
   const cards = [{ key: 'w/B5', kind: 'work', ref: 'B5', title: 'Lane chips' }, { key: 'ask:e1', kind: 'ask', ref: 'New', title: 'Fix it', ask: { askedAt: at.toISOString() } }];
   const named = ui.cardTopics([{ id: 'item:w/B5', card: 'w/B5', open: 1 }, { id: 'item:ask:e1', card: 'ask:e1', open: 1 }, { id: 'plan', title: 'Release plan' }, { id: 'item:w/Z', card: 'w/Z', title: 'Z9: Archived' }], cards);
   assert.deepEqual(plain(named.map((t) => [t.title, t.summary ?? null, ui.topicName(t)])),
-    [['B5: Lane chips', 'Questions about this work item.', 'B5'], ['New: Fix it', 'Questions about this work item.', ui.cardTime(at.toISOString())], ['Release plan', null, 'Release plan'], ['Z9: Archived', null, 'Z9']]);
+    [['B5: Lane chips', null, 'B5'], ['New: Fix it', null, ui.cardTime(at.toISOString())], ['Release plan', null, 'Release plan'], ['Z9: Archived', null, 'Z9']]);
 });
 
 test('the topic row shows only topics with an open question, the current one kept, and the rest wait on Claude', () => {

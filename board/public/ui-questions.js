@@ -129,7 +129,7 @@
     const byKey = new Map(cards.map((c) => [c.key, c]));
     return topics.map((t) => {
       const c = t.title === undefined && byKey.get(t.card);
-      return c ? { ...t, title: `${c.ref}: ${c.title}`, summary: 'Questions about this work item.', ...(c.kind === 'ask' ? { askedAt: c.ask.askedAt } : {}) } : t;
+      return c ? { ...t, title: `${c.ref}: ${c.title}`, ...(c.kind === 'ask' ? { askedAt: c.ask.askedAt } : {}) } : t;
     });
   }
   // Topics from /api/board ownerTopics, in order. pills: unresolved topics with an open question, plus the

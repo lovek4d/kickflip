@@ -3319,7 +3319,7 @@ test("Waiting on you names a card's topic from its card, since the board sends t
   const question = { id: 'q1', topic: 'item:w/T1', source: '', question: 'Question?', context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' };
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', card: 'w/T1' }], items: [workCard('T1', { ref: 'INT-1', title: 'Search' })], questions: [question], at: 'q1' });
   await v.settle();
-  assert.match(v.root.querySelector('.topichead').textContent, /^INT-1: Search · Questions about this work item\./);
+  assert.match(v.root.querySelector('.topichead').textContent, /^INT-1: Search$/);
   v.unmount();
 });
 
