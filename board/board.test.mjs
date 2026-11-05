@@ -3925,3 +3925,28 @@ test('item set --status done refuses a done card the owner reopened with a messa
   assert.deepEqual([r.code, r.err], [1, "the owner reopened A1 with a message; it closes on the owner's Done\n"]);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status_at, closed);
 });
+
+test('question move puts a merged question on one card, resolves the duplicates there, and blocks and relates the other cards in order', () => {
+  const ok = (...args) => assert.equal(board(...args, '--site', 'orch').code, 0);
+  const move = (...args) => board('question', 'move', ...args, '--site', 'orch');
+  ok('item', 'add', 'w/B2', '--title', 'Two');
+  ok('item', 'add', 'w/C3', '--title', 'Three');
+  const file = site('orch', 'data', 'owner.json');
+  write(file, { topics: [], items: ['A1', 'B2', 'C3'].map((c, i) => question(`q${i + 1}`, { topic: `item:w/${c}` })) });
+  assert.equal(move('q9', '--to', 'w/A1').err, 'no question "q9" in owner.json\n');
+  assert.equal(move('q1', '--to', 'w/Z9').code, 1);
+  assert.equal(move('q1', '--to', 'w/A1', '--block', 'w/A1').err, 'question move names a card twice\n');
+  addEvents({ id: 'answer-q3', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q3', choice: 'A' } });
+  assert.equal(move('q2,q3', '--to', 'w/A1').err, 'q3 is answered; question move takes open questions\n');
+  assert.deepEqual(read(file).items.map((q) => q.topic), ['item:w/A1', 'item:w/B2', 'item:w/C3']);
+
+  const moved = move('q2,q1', '--to', 'w/A1', '--block', 'w/B2,w/C3');
+  assert.equal(moved.code, 0, moved.err);
+  const [q1, q2] = read(file).items;
+  assert.equal(q2.topic, 'item:w/A1');
+  assert.equal(q1.resolved, "Duplicate of A1's question q2");
+  const items = read(at('waves', 'w', 'wave.json')).items;
+  const card = (id) => items.find((it) => it.id === id);
+  assert.deepEqual([card('B2').deps, card('C3').deps], [['A1'], ['A1', 'B2']]);
+  assert.deepEqual([card('B2').related, card('C3').related], [['A1'], ['A1']]);
+});

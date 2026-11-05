@@ -1242,6 +1242,37 @@ export async function resolveQuestion(site, id, note) {
   return file;
 }
 
+// docs/adr/2026-11-05-1000-a-question_for_several_cards_moves_to_the_card_built_first.md
+// The triage's merge of questions that ask one thing. ids are open questions, the first the one that stays: it moves
+// onto card `to` (topic item:<to>). The others resolve "Duplicate of <to's ref>'s question <first>". Each card in
+// `block`, in order, is then blocked by the one before it (the first by `to`) and related to `to`.
+export async function moveQuestions(site, ids, to, block = []) {
+  needSite(site);
+  const [kept, ...others] = [...new Set(ids)];
+  if (!kept) fail('question move takes the ids of the questions to merge');
+  await loadItem(site, to);
+  const chain = [to, ...block];
+  if (new Set(chain).size !== chain.length) fail('question move names a card twice');
+  for (const key of block) await loadItem(site, key);
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  const { answers, requests } = await ownerEvents(site);
+  for (const id of [kept, ...others]) {
+    const q = (owner.items || []).find((x) => x.id === id) || fail(`no question "${id}" in owner.json`);
+    const { state } = ownerQuestion(q, answers, requests);
+    if (state !== 'open') fail(`${id} is ${state}; question move takes open questions`);
+  }
+  for (const [i, key] of block.entries()) {
+    const { item } = await loadItem(site, key);
+    const deps = [...(item.deps || []), chain[i]].join(',');
+    await setItem(site, key, { deps, relate: to });
+  }
+  const ref = await cardName(site, to);
+  Object.assign(owner.items.find((x) => x.id === kept), { topic: `item:${to}` });
+  setResolved(owner, others, `Duplicate of ${ref}'s question ${kept}`);
+  await writeJSON(ownerFile(site), owner);
+  return ownerFile(site);
+}
+
 // docs/adr/2026-11-02-1607-a-pick-with-no-note-settles-a-prototype-round.md
 // Each owner answer with a note and no take resolves its question, noting "Answered with a note", in one write.
 export async function resolveNoteAnswers(site, answers) {

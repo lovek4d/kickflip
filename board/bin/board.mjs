@@ -71,6 +71,10 @@ command fails and changes nothing.
          prototype page until an answer settles its round: a pick, with a note or none, or an answer to
          an "Is this it?" confirm already on the board. A question already resolved, such as one an
          answer with a note and no option resolved, is left as it is
+  question move <id>,<id>,… --to <wave>/<id> [--block <wave>/<id>,…]   merges open questions that ask one thing onto
+         one card: the first id moves to that card (topic item:<card>), the others resolve "Duplicate of
+         <card>'s question <first id>". Each --block card, in order, is blocked by the one before it (the
+         first by --to) and related to --to
   prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
          [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
                                                          the title, a back arrow to --card (else the board), the
@@ -658,6 +662,7 @@ const COMMANDS = {
     return { ...(await store.addQuestions(site, input)), asked: [input].flat() };
   }],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
+  'question move': [['ids'], ['to', 'block'], (site, [ids], f) => store.moveQuestions(site, ids.split(',').filter(Boolean), f.to, (f.block || '').split(',').filter(Boolean))],
   'prototype add': [['topic'], ['title', '...take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
@@ -844,6 +849,7 @@ const SAID = {
     return `${plural(asked.map((q) => q.id), 'question')} added${on}`;
   },
   'question resolve': (site, [id]) => `question ${id} resolved`,
+  'question move': (site, [ids], f) => `questions ${ids} merged onto ${f.to}`,
   'prototype add': async (site, [topic], f) => `prototype ${topic} recorded${f.card ? ` for ${await card(site, f.card)}` : ''}`,
   'prototype rm': (site, [topic]) => `prototype ${topic} removed`,
   'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,
