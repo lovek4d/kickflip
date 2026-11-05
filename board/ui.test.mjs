@@ -1936,8 +1936,8 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
   assert.match(ui.githubLine(checks, { links: [links[0], { ...links[1], state: 'broken' }] }), /links-dot/);
   assert.equal(ui.setupCard(null), '');
   const setup = ui.setupCard({ events: false, github: true });
-  assert.equal(text(setup), 'Connecting this board Waiting for Claude to answer the hello GitHub checks reach this board');
-  assert.equal(text(ui.setupCard({ events: false })), 'Connecting this board Waiting for Claude to answer the hello');
+  assert.equal(text(setup), 'Connecting this board Waiting for Claude to answer the ping GitHub checks reach this board');
+  assert.equal(text(ui.setupCard({ events: false })), 'Connecting this board Waiting for Claude to answer the ping');
   const remote = ui.remoteLine({ host: 'gitlab.com', name: 'gitlab.com/acme/firmware' }, { links });
   assert.match(remote, /data-hub-links[^>]*aria-label="Hub links: 1 not working"/);
   assert.doesNotMatch(remote, /GitHub|data-check-github/);

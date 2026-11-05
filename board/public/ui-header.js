@@ -65,13 +65,13 @@
     ? `<ul class="hub-links">${links.map(linkRow).join('')}</ul>`
     : '<p class="muted">The hub doesn\'t list this board yet. It picks a board up from the manifest on its next check.</p>');
 
-  // The checklist a new board shows at the top until its session answered the hello and GitHub checks reach it; setup
+  // The checklist a new board shows at the top until its session answered the ping and GitHub checks reach it; setup
   // is /api/board's, null once both pass. Cards can start meanwhile.
   const setupCard = (setup) => {
     if (!setup) return '';
     const step = (ok, done, waiting) => `<li><span class="dot ${ok ? 'pass' : 'pending'}" aria-hidden="true"></span>${ok ? done : waiting}</li>`;
     return `<h2>Connecting this board</h2><ul class="setup-steps">
-      ${step(setup.events, 'Claude answered the hello', 'Waiting for Claude to answer the hello')}
+      ${step(setup.events, 'Claude answered the ping', 'Waiting for Claude to answer the ping')}
       ${setup.github === undefined ? '' : step(setup.github, 'GitHub checks reach this board', 'Waiting for the hub\'s next GitHub check')}
     </ul>`;
   };
