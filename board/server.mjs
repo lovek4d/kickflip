@@ -1250,8 +1250,7 @@ async function runAuto() {
   for (const key of heldByPause ? [] : starts) {
     await handOff(await startQueuedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts)));
   }
-  // A lander is only ever due on a checking card, so a board without one skips landable's read of the wave files.
-  if (!heldByPause && items.some((i) => i.status === 'checking')) await launchLanders();
+  if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'));
   if (await checkTriage(settings, log, items, ready)) return;
   const startPull = async (key) => handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
   if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, startPull)) return;
@@ -1359,8 +1358,9 @@ function runHeldMerge(key) {
 // data/landers.json {<key>: {verified, pid}}: the verification each launched lander was for, so each gets one lander,
 // and its process. A card whose verified build waits to land (store.mjs landable) gets a headless lander. A lander whose
 // process has gone while its card still reads building stopped partway (the usage pause ends a headless run): its card
-// goes back to checking (store.mjs relaunchLander) and gets a fresh lander in this pass.
-async function launchLanders() {
+// goes back to checking (store.mjs relaunchLander) and gets a fresh lander in this pass. A lander is only ever due on a
+// checking card, so with none checking (anyChecking false) and none sent back, landable's read of the wave files is skipped.
+async function launchLanders(anyChecking) {
   const file = path.join(data, 'landers.json');
   const sent = Object.fromEntries(Object.entries(await readJSON(file, {})).map(([k, v]) => [k, typeof v === 'string' ? { verified: v, pid: null } : v]));
   const pidGone = new Set();
@@ -1369,6 +1369,7 @@ async function launchLanders() {
     try { await relaunchLander(here, key); pidGone.add(key); } catch (e) { if (!(e instanceof BoardError)) throw e; }
   }
   const kept = Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k)));
+  if (!anyChecking && !pidGone.size) return;
   const due = (await landable(here)).filter((c) => kept[c.key]?.verified !== c.verified);
   if (!due.length) return;
   for (const c of due) {

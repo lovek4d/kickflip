@@ -2408,7 +2408,7 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.deepEqual(threadOf().slice(-2).map((m) => m.text), [
     `Not merged yet: rebasing A1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again. A lander fixes it and lands it.`,
-    `Lander launched headless on Claude Opus in ${worktree()}.`,
+    `Lander launched on Claude Opus in ${worktree()}.`,
   ]);
   await until(() => fs.existsSync(seen), 'the lander runs');
   assert.match(fs.readFileSync(seen, 'utf8'), /You are the headless lander for card A1/);
