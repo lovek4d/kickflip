@@ -7,8 +7,8 @@
 // Prints and exits on:
 //   event <file> <line>       new matching lines (several, batched for 2 s), each followed by one plain line saying
 //                             what came in and on which card (plainLine); on a board it marks each ask,
-//                             item-message, wave-triage and overnight-triage working in data/working.json and answers a hello for the
-//                             session (board/store.mjs ackHello), then prints:
+//                             item-message, wave-triage and overnight-triage working in data/working.json and answers a ping for the
+//                             session (board/store.mjs ackPing), then prints:
 //   waits <kind> <ref> <key> since <iso>[, picked up <iso>]: <next>
 //                             each card idle on the orchestrator, lanes top-down, from data/orchestrator-waits.json,
 //                             which the board server keeps (board/server.mjs checkWaits): handle each one on every wake
@@ -27,6 +27,9 @@
 //                             (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md); and `link hub
 //                             <detail>` while the hub runs older code than its files (../hub/boards.mjs hubLink)
 //   handed-over <owner json>  another session took the route over: stop, don't relaunch
+//   Record-only events never wake the session (docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md):
+//   main-pulled, settings, ask-done, reviewers-removed, repo-changed and ping (hello, as old boards wrote it). The cursor moves past
+//   them at once, a ping is answered then, and their lines print, in order, ahead of the new events on the next wake.
 //   site-removed              the route left the manifest: stop, don't relaunch
 // On start it writes <site dir>/data/watcher.json {pid, since}, and adds exited_at when it exits; a board reads it
 // to say whether a watcher runs (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
@@ -41,7 +44,7 @@ import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mjs';
 import { parentOf, sessionGone } from '../hub/live.mjs';
-import { ackHello, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
+import { ackPing, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 
 const [route, session] = process.argv.slice(2);
@@ -68,10 +71,27 @@ const QUIET = "quiet The owner doesn't read this session's terminal. Answer a pr
   + 'show, such as the hub being down, gets one line here. Each message to the owner stands alone in its card\'s thread: name cards '
   + 'by label (#96), and a pointer such as "above" or "here" must make sense in that thread, never point into this session.';
 
+const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'repo-changed', 'ping', 'hello'];
+const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
+const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
+// A board is a site with a board.json; other sites get no rules.
+function boardOf(s) {
+  try { return JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { return e.code === 'ENOENT' ? null : {}; }
+}
+// Printing the ping is the proof the session hears the board (docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
+async function ackPings(dir, lines) {
+  for (const line of lines) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    if ((e.kind === 'ping' || e.kind === 'hello') && typeof e.id === 'string') await ackPing(dir, e.id).catch((err) => console.log(`ping ${e.id} not answered (${err.message})`));
+  }
+}
+
 const PLAIN = {
   ask: (e) => `new task ${e.id} received`,
   'owner-answer': (e) => `answer received to question ${e.data?.id}`,
-  hello: (e) => `hello ${e.id} from the hub answered`,
+  ping: (e) => `ping ${e.id} from the hub answered`,
+  hello: (e) => `ping ${e.id} from the hub answered`,
   'overnight-triage': (e) => `Overnight triage ${e.data?.date} asked: ${e.data?.cards?.length} cards wait on your answers`,
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle`,
   'orchestrator-waits': (e) => `waiting on you now: ${(e.data?.added || []).join(', ')}`,
@@ -155,54 +175,65 @@ for (;;) {
   if (s === null) { console.log('site-removed'); process.exit(0); }
   if (s.owner?.session && s.owner.session !== session) { console.log('handed-over ' + JSON.stringify(s.owner)); process.exit(0); }
   orphaned();
-  const pending = (seen) => Object.fromEntries(Object.entries(seen).map(([f, lines]) => [f, [...(routeRecord(base.$usageHeld, f) || []), ...lines.slice(routeRecord(base, f) || 0)]]));
+  const pending = (seen) => Object.fromEntries(Object.entries(seen).map(([f, lines]) => [f, [...(routeRecord(base.$quietHeld, f) || []), ...(routeRecord(base.$usageHeld, f) || []), ...lines.slice(routeRecord(base, f) || 0)]]));
   const eligible = (line, gate) => gate.state !== 'paused' || !heldUsageEvent(line);
+  const wakes = (waiting, gate) => Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate) && !recordOnly(line)));
   const currentGate = readUsageGate();
-  if (Object.values(pending(matching(s))).some((lines) => lines.some((line) => eligible(line, currentGate)))) {
-    await new Promise((r) => setTimeout(r, 2000));
-    orphaned();
-    const seen = matching(s);
-    const gate = readUsageGate();
-    const waiting = pending(seen);
-    if (!Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate)))) continue;
-    const held = Object.create(null);
-    const started = [];
-    const hellos = [];
-    for (const [f, lines] of Object.entries(waiting)) {
-      held[f] = lines.filter((line) => !eligible(line, gate));
-      for (const line of lines.filter((line) => eligible(line, gate))) {
-        console.log(`event ${f} ${line}`);
-        const plain = await plainLine(s.dir, line);
-        if (plain) console.log(plain);
-        try {
-          const e = JSON.parse(line);
-          if (WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id);
-          if (e.kind === 'hello' && typeof e.id === 'string') hellos.push(e.id);
-        } catch {}
-      }
+  const now = matching(s);
+  if (!wakes(pending(now), currentGate)) {
+    // Nothing to wake for: record-only lines are kept for the next wake, so the cursor can move past them.
+    const fresh = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter(recordOnly)]));
+    const rest = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter((l) => !recordOnly(l))]));
+    if (Object.values(fresh).some((l) => l.length)) {
+      if (boardOf(s)) await ackPings(s.dir, Object.values(fresh).flat());
+      const append = (kept, add) => Object.fromEntries(Object.keys(now).map((f) => [f, [...(routeRecord(kept, f) || []), ...add[f]]]));
+      base = { ...Object.fromEntries(Object.entries(now).map(([f, l]) => [f, l.length])), $quietHeld: append(base.$quietHeld, fresh), $usageHeld: append(base.$usageHeld, rest) };
+      if (!Object.values(base.$usageHeld).some((l) => l.length)) delete base.$usageHeld;
+      fs.writeFileSync(cursorFile, JSON.stringify(base));
     }
-    // A board is a site with a board.json; other sites get no rules.
-    let board = null;
-    try { board = JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { if (e.code !== 'ENOENT') board = {}; }
-    // The session takes each one it is handed, so its page reads "Working on it" from now
-    // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
-    if (board) await markWorking(s.dir, started).catch((e) => console.log(`working marks not written (${e.message})`));
-    // Printing the hello is the proof the session hears the board (docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md).
-    if (board) for (const id of hellos) await ackHello(s.dir, id).catch((e) => console.log(`hello ${id} not answered (${e.message})`));
-    if (board) for (const line of waitLines(s.dir)) console.log(line);
-    if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
-    if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);
-    if (board) console.log(QUIET);
-    if (gate.state === 'paused') console.log(`usage paused ${gate.resets_at} ${gate.window} ${gate.used}%`);
-    // This watcher still runs, so the events link reads as reaching the board. A failure here must not keep the
-    // cursor below from moving, or the same events would wake the session again.
-    try {
-      const self = board && boardAt(s.dir);
-      if (self) for (const l of [...linksOf(self, { listen: 'listening' }), hubLink()]) if (!l.ok) console.log(`link ${l.link} ${l.detail}`);
-    } catch (e) { console.log(`link registry could not check the links (${e.message})`); }
-    const next = Object.fromEntries(Object.entries(seen).map(([f, l]) => [f, l.length]));
-    if (Object.values(held).some((lines) => lines.length)) next.$usageHeld = held;
-    fs.writeFileSync(cursorFile, JSON.stringify(next));
-    process.exit(0);
+    continue;
   }
+  await new Promise((r) => setTimeout(r, 2000));
+  orphaned();
+  const seen = matching(s);
+  const gate = readUsageGate();
+  const waiting = pending(seen);
+  if (!wakes(waiting, gate)) continue;
+  const held = Object.create(null);
+  const started = [];
+  const heard = new Set(Object.values(base.$quietHeld || {}).flat());
+  const pings = [];
+  for (const [f, lines] of Object.entries(waiting)) {
+    held[f] = lines.filter((line) => !eligible(line, gate));
+    for (const line of lines.filter((line) => eligible(line, gate))) {
+      if (!heard.has(line)) pings.push(line);
+      console.log(`event ${f} ${line}`);
+      const plain = await plainLine(s.dir, line);
+      if (plain) console.log(plain);
+      try {
+        const e = JSON.parse(line);
+        if (WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id);
+      } catch {}
+    }
+  }
+  const board = boardOf(s);
+  // The session takes each one it is handed, so its page reads "Working on it" from now
+  // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
+  if (board) await markWorking(s.dir, started).catch((e) => console.log(`working marks not written (${e.message})`));
+  if (board) await ackPings(s.dir, pings);
+  if (board) for (const line of waitLines(s.dir)) console.log(line);
+  if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
+  if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);
+  if (board) console.log(QUIET);
+  if (gate.state === 'paused') console.log(`usage paused ${gate.resets_at} ${gate.window} ${gate.used}%`);
+  // This watcher still runs, so the events link reads as reaching the board. A failure here must not keep the
+  // cursor below from moving, or the same events would wake the session again.
+  try {
+    const self = board && boardAt(s.dir);
+    if (self) for (const l of [...linksOf(self, { listen: 'listening' }), hubLink()]) if (!l.ok) console.log(`link ${l.link} ${l.detail}`);
+  } catch (e) { console.log(`link registry could not check the links (${e.message})`); }
+  const next = Object.fromEntries(Object.entries(seen).map(([f, l]) => [f, l.length]));
+  if (Object.values(held).some((lines) => lines.length)) next.$usageHeld = held;
+  fs.writeFileSync(cursorFile, JSON.stringify(next));
+  process.exit(0);
 }

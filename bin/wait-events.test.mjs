@@ -183,3 +183,31 @@ test('a new watcher for the same session stops the one watcher.json records, and
   const woke = await third.done;
   assert.match(woke.stdout, /^event data\/events.jsonl .*"kind":"ask"/);
 });
+
+test('record-only events and pings do not wake the session: a ping is acked at once, and the held lines print on the next wake ahead of the new events', { timeout: 60000 }, async (t) => {
+  const { home, dir, add } = shop(t);
+  const events = path.join(dir, 'data', 'events.jsonl');
+  const cursor = path.join(dir, 'data', '.watch-cursor-s1.json');
+  write(path.join(dir, 'board.json'), { title: 'Shop' });
+  ownSession(home, 's1');
+  const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
+  t.after(() => { if (child.exitCode === null) child.kill(); });
+  let stdout = '';
+  child.stdout.on('data', (d) => { stdout += d; });
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  await until(() => fs.existsSync(path.join(dir, 'data', 'watcher.json')), 'watcher started');
+  const line = (id, kind, data) => fs.appendFileSync(events, JSON.stringify({ id, kind, ts: new Date().toISOString(), data }) + '\n');
+  for (const kind of ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'repo-changed']) line(kind, kind, {});
+  line('p1', 'ping', { title: 'Shop' });
+  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 6,'held lines moved the cursor');
+  assert.equal(child.exitCode, null);
+  assert.equal(stdout, '');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'handshake.json'), 'utf8')).ack.id, 'p1');
+  line('a1', 'ask', { text: 'Wake' });
+  assert.equal(await exited, 0);
+  const lines = stdout.split('\n');
+  const at = (kind) => lines.findIndex((l) => l.includes(`"kind":"${kind}"`));
+  assert.ok(at('main-pulled') >= 0 && at('main-pulled') < at('settings') && at('settings') < at('ask-done') && at('ask-done') < at('reviewers-removed') && at('reviewers-removed') < at('repo-changed') && at('repo-changed') < at('ping') && at('ping') < at('ask'));
+  assert.ok(lines.includes('ping p1 from the hub answered'));
+  assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$quietHeld, undefined);
+});

@@ -37,7 +37,7 @@
 //               --template board runs the shared board (../board/server.mjs) from the site dir,
 //               writing its board.json; --items is "waves" (default) or a wave.json-format file, made with no
 //               items when missing.
-//               It then runs handshake, unless this session already answered the board's hello, and
+//               It then runs handshake, unless this session already answered the board's ping, and
 //               asks the hub for one poll (as poll-now --keep-queue), so the board's GitHub link passes
 //               without waiting for the next slot. Prints poll: "reached this board", or why not
 //               --icon names a line icon from ../hub/icons.mjs and --color tints it in the
@@ -88,9 +88,9 @@
 //   kickflip sessions [--json]
 //               one line per board: route, session id, live (background or terminal) or not, folder
 //   kickflip handshake <route>
-//               tests a board's hub links (../hub/boards.mjs handshake): appends a `hello` event, which the
-//               owning session's watcher answers when it prints it. The board shows a setup checklist
-//               until the watcher answered and the hub's GitHub check reached it. Prints {route, hello}
+//               tests a board's hub links (../hub/boards.mjs handshake): appends a `ping` event, which the
+//               owning session's watcher answers when it sees it. The board shows a setup checklist
+//               until the watcher answered and the hub's GitHub check reached it. Prints {route, ping}
 //   kickflip set <route> [--icon <key>] [--color <hex>] [--hub | --no-hub]
 //               changes an existing site's icon or color without joining; '' clears one. --hub makes the board the
 //               hub board, whose session runs in tmux and `hub` attaches to (`hub: true` in its entry), clearing the flag from any other
@@ -229,7 +229,7 @@ async function sessionCall(fn) {
   const { SessionError } = await sessionsModule();
   try { return await fn(); } catch (e) { if (e instanceof SessionError) fail(e.message, e.reason === 'live' ? 3 : e.reason === 'hub' ? 2 : 1); throw e; }
 }
-// The board's hello (../hub/boards.mjs handshake). → {route, hello}
+// The board's ping (../hub/boards.mjs handshake). → {route, ping}
 async function runHandshake(route) {
   const { handshake } = await import(path.join(SKILL, 'hub', 'boards.mjs'));
   try { return await handshake(route, readManifest()); } catch (e) { return fail(e.message, 2); }
@@ -638,12 +638,12 @@ const commands = {
       return { route, created, previousOwner: previous, site };
     });
     const hub = await hubStatus();
-    // A session that already answered this board's hello has proved its links; a new board or owner tests them.
+    // A session that already answered this board's ping has proved its links; a new board or owner tests them.
     let handshake;
     let poll;
     if (args.template === 'board') {
       const h = readJSON(path.join(result.site.dir, 'data', 'handshake.json'));
-      handshake = h?.ack && h.hello?.session === args.session ? 'answered before' : await runHandshake(route);
+      handshake = h?.ack && (h.ping || h.hello)?.session === args.session ? 'answered before' : await runHandshake(route);
       poll = hub ? await pollFor(route) : 'not run (the hub is not running)';
     }
     out({

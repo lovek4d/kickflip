@@ -588,17 +588,17 @@ test('a board whose stopped session the hub can wake is asleep, then waking once
   assert.equal(linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, true);
 });
 
-test("the handshake says hello without a push; the board shows its checklist until the session's watcher answers the hello", async () => {
+test("the handshake sends a ping without a push; the board shows its checklist until the session's watcher answers the ping", async () => {
   const before = pushes().length;
   const r = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['handshake', 'shop']);
   assert.equal(r.status, 0, r.stderr);
-  const { hello } = JSON.parse(r.stdout);
-  assert.deepEqual(events('shop', 'hello').map((e) => [e.id, e.data.title]), [[hello, 'Shop']]);
+  const { ping } = JSON.parse(r.stdout);
+  assert.deepEqual(events('shop', 'ping').map((e) => [e.id, e.data.title]), [[ping, 'Shop']]);
   assert.equal(pushes().length, before);
   assert.deepEqual((await api('shop')).setup, { events: false, github: true });
-  const { ackHello } = await import('../board/store.mjs');
-  await assert.rejects(ackHello(site('shop'), 'e-shop'), /no hello event "e-shop"/);
-  await ackHello(site('shop'), hello);
+  const { ackPing } = await import('../board/store.mjs');
+  await assert.rejects(ackPing(site('shop'), 'e-shop'), /no ping event "e-shop"/);
+  await ackPing(site('shop'), ping);
   assert.equal((await api('shop')).setup, null);
   assert.ok(read(site('shop', 'data', 'handshake.json')).done_at);
   assert.equal((await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['handshake', 'plain'])).status, 2);

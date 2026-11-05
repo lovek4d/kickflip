@@ -606,19 +606,25 @@ async function flushAfterTick() {
 }
 
 // The join handshake (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md): data/handshake.json
-// {hello: {id, at, session}, ack: {id, at} | null, done_at?}, written by hub/boards.mjs handshake.
-// The board shows its setup checklist until the session acks the newest hello and the hub's GitHub check reaches it.
+// {ping: {id, at, session}, ack: {id, at} | null, done_at?}, written by hub/boards.mjs handshake.
+// A file an older board wrote keeps its ping under `hello`, which reads as the ping.
+// The board shows its setup checklist until the session acks the newest ping and the hub's GitHub check reaches it.
 const handshakeFile = (site) => path.join(site, 'data', 'handshake.json');
-export const readHandshake = (site) => readJSON(handshakeFile(site), null);
+export async function readHandshake(site) {
+  const h = await readJSON(handshakeFile(site), null);
+  if (!h?.hello) return h;
+  const { hello, ...rest } = h;
+  return { ...rest, ping: rest.ping || hello };
+}
 
-export async function ackHello(site, eventId) {
+export async function ackPing(site, eventId) {
   needSite(site);
   domId(eventId, 'the event id');
   const event = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
-  if (event?.kind !== 'hello') fail(`no hello event "${eventId}" in this site's data/events.jsonl`);
+  if (event?.kind !== 'ping' && event?.kind !== 'hello') fail(`no ping event "${eventId}" in this site's data/events.jsonl`);
   const h = (await readHandshake(site)) || {};
-  if (h.hello?.id && h.hello.id !== eventId) fail(`"${eventId}" is an older hello; ack the newest, "${h.hello.id}"`);
-  await writeJSON(handshakeFile(site), { ...h, hello: h.hello || { id: eventId, at: event.ts, session: null }, ack: { id: eventId, at: new Date().toISOString() } });
+  if (h.ping?.id && h.ping.id !== eventId) fail(`"${eventId}" is an older ping; ack the newest, "${h.ping.id}"`);
+  await writeJSON(handshakeFile(site), { ...h, ping: h.ping || { id: eventId, at: event.ts, session: null }, ack: { id: eventId, at: new Date().toISOString() } });
   return handshakeFile(site);
 }
 

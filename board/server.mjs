@@ -641,13 +641,13 @@ async function checkPrototypeWaits() {
 }
 
 // The setup checklist after a join's handshake (hub/boards.mjs handshake), or null: when the board never had one, or
-// once the session acked the newest hello and the GitHub link passed, which marks it done for good. A board on another
+// once the session acked the newest ping and the GitHub link passed, which marks it done for good. A board on another
 // git remote has no GitHub link, so no github step.
 async function setupOf(links) {
   const h = await readHandshake(here);
-  if (!h?.hello?.id || h.done_at) return null;
+  if (!h?.ping?.id || h.done_at) return null;
   const github = links?.find((l) => l.link === 'github');
-  const steps = { events: h.ack?.id === h.hello.id, ...(github || !links ? { github: Boolean(github?.ok) } : {}) };
+  const steps = { events: h.ack?.id === h.ping.id, ...(github || !links ? { github: Boolean(github?.ok) } : {}) };
   if (steps.events && steps.github !== false) { await finishHandshake(here); return null; }
   return steps;
 }

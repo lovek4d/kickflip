@@ -324,22 +324,22 @@ export async function checkListening({ manifest, now = new Date(), running = liv
 }
 
 // ---------- handshake ----------
-// data/handshake.json {hello: {id, at, session}, ack: {id, at} | null, done_at?}: board/store.mjs
-// ackHello records the session's answer, and the board shows its setup checklist until that and the GitHub link pass.
+// data/handshake.json {ping: {id, at, session}, ack: {id, at} | null, done_at?}: board/store.mjs
+// ackPing records the session's answer, and the board shows its setup checklist until that and the GitHub link pass.
 export const handshakeFile = (dir) => path.join(dir, 'data', 'handshake.json');
 
-// A new board's test of its links: a `hello` event its session's watcher answers (bin/wait-events.mjs). The owner's
-// watcher cursor is set first when the session has none, so its first watcher prints the hello rather than starting
-// past it. → {route, hello}
+// A new board's test of its links: a `ping` event its session's watcher answers (it never wakes the session) (bin/wait-events.mjs). The owner's
+// watcher cursor is set first when the session has none, so its first watcher prints the ping rather than starting
+// past it. → {route, ping}
 export async function handshake(route, manifest = readManifest()) {
   const board = listBoards(manifest).find((b) => b.route === route);
   if (!board) throw new Error(`/${route} is not a board site in the manifest`);
   if (board.owner?.session && !fs.existsSync(cursorFile(board))) {
     saveJSON(cursorFile(board), Object.fromEntries(Object.entries(watchedLines(board)).map(([f, l]) => [f, l.length])));
   }
-  const hello = { id: await appendEvent(board, 'hello', { title: board.title }), at: new Date().toISOString(), session: board.owner?.session || null };
-  saveJSON(handshakeFile(board.dir), { hello, ack: null });
-  return { route, hello: hello.id };
+  const ping = { id: await appendEvent(board, 'ping', { title: board.title }), at: new Date().toISOString(), session: board.owner?.session || null };
+  saveJSON(handshakeFile(board.dir), { ping, ack: null });
+  return { route, ping: ping.id };
 }
 
 // ---------- links ----------
