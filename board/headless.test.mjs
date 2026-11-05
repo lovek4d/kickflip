@@ -59,8 +59,15 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.ok(grill.includes('Never leave a Next that asks the owner to mark it ready'));
   assert.ok(!proto.includes('--state ready'));
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: Codex has no skills, so they're named only as extras.
-  assert.ok(grill.includes('If you have the grilling skill') && proto.includes('If you have the prototype skill'));
+  assert.ok(grill.includes('Invoke the grilling skill with the Skill tool') && proto.includes('Invoke the prototype skill with the Skill tool'));
   assert.ok(!/Follow the (grilling|prototype) skill/.test(grill + proto));
+  // docs/adr/2026-11-05-0930-planners-run-the-skills-from-one-engineered-prompt.md: one round, board questions not chat, rules labelled.
+  assert.ok(grill.includes('as one round') && grill.includes('never into the chat') && grill.includes('after the round, finish'));
+  assert.ok(proto.includes('never asking in the chat'));
+  const ruled = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', rules: ['Push main after every land'] });
+  assert.match(ruled, /Rules from the hub and this board, written for the orchestrator:/);
+  assert.ok(ruled.includes('- Push main after every land'));
+  assert.ok(builderBrief({ ...card, rules: ['x'] }).includes('Rules from the hub and this board:\n- x'), "a builder's rules aren't relabelled");
 });
 
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md

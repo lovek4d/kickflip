@@ -20,7 +20,7 @@ import { modelName, plans } from './domain.mjs';
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
 const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
 const rebase = (base) => `git -c core.commentChar=';' rebase ${base}`;
-const ruleLines = (rules) => (rules.length ? ['Rules from the hub and this board:', ...rules.map((r) => `- ${r}`), ''] : []);
+const ruleLines = (rules, heading = 'Rules from the hub and this board:') => (rules.length ? [heading, ...rules.map((r) => `- ${r}`), ''] : []);
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: the cards the card links (briefFacts' links).
 const linkLines = (links) => (links.length ? [
   "Related cards: read their notes for context; don't build their scope.",
@@ -103,9 +103,10 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
     `2. Gather the context yourself: ${notes ? `the card's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the card has no notes file yet; '}its thread, in the board site's data/threads folder, the repo's docs/adr and CONTEXT.md, and the cards its notes and thread link.`,
     `3. Report progress with \`${b} builder progress ${key} "<plain, 80 characters or fewer>"\` at least every 10 minutes.`,
     grill
-      ? `4. Find every decision the card leaves open: read the code it touches and answer what the code answers yourself. Post each decision left as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first. If you have the grilling skill, it covers this step.`
+      ? `4. Find every decision the card leaves open: read the code it touches and answer what the code answers yourself. Post each decision left as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first.`
+        + ' Invoke the grilling skill with the Skill tool and run it as one round: its questions go to the board with question add, never into the chat, and you never wait for an answer; after the round, finish. (With no Skill tool, follow this step as written.)'
         + ' When the card changes the hub\'s or a board\'s UI, end with one more question asking for a prototype round of it, that round recommended first, so the owner can pick it or tap its eye.'
-      : `4. Record the prototype with \`${b} prototype add <topic> --card ${key} --take <K>:<label> …\`, write one take per option as a page built from the board's real components fed fake data, and post one question whose url opens it with \`${b} question add --file <json>\` on topic item:${key}. If you have the prototype skill, it covers this step.`,
+      : `4. Record the prototype with \`${b} prototype add <topic> --card ${key} --take <K>:<label> …\`, write one take per option as a page built from the board's real components fed fake data, and post one question whose url opens it with \`${b} question add --file <json>\` on topic item:${key}, never asking in the chat. Invoke the prototype skill with the Skill tool for this step. (With no Skill tool, follow this step as written.)`,
     ...(text ? [`   The owner asked for this ${grill ? 'grill' : 'prototype'}, writing: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     ...(question ? [`   The owner asked for prototypes of question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`] : []),
@@ -115,7 +116,7 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
     ] : []),
     '',
     ...linkLines(links),
-    ...ruleLines(rules),
+    ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, restart the hub or a board server, or do the orchestrator's work, it isn't yours; you never push or restart:"),
     `To finish, run \`${b} builder done ${key} --text "<what you asked>"\`.`,
     '',
     'Never push.',
