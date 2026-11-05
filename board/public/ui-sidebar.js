@@ -176,18 +176,20 @@
   }
 
   // The New version row. update: the app's reload, null | 'ready' | 'reloading', which comes first. upgrade:
-  // /_hub/sidebar.json's npm update, null | {state: available | waiting | updating | failed, version, builders, error}
-  // (hub/upgrade.mjs; docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md). A reload, and an asked
-  // update until it runs out, waits (ui.js BUSY): its pill keeps its blue with a spinner in place of its word.
+  // /_hub/sidebar.json's npm update, null | {state: available | updating | updated | restarting | failed, version, error}
+  // (hub/upgrade.mjs; docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md). The hub pulls a new
+  // version itself, so the row reads Updated to v<version> with Restart; restarting is the sidebar's own state while the hub
+  // restarts. A reload, a pull and a restart wait (ui.js BUSY): the pill keeps its blue with a spinner in place of its word.
   function updateRow(update, upgrade) {
     const button = (attr, busy, title, sub, go) => `<button type="button" class="sb-row sb-update-row" ${attr}${busy ? globalThis.BoardUI.BUSY : ''}>${tile('up', 'var(--accent)')}`
       + `<span class="sb-text"><span class="sb-title">${title}</span>${sub ? `<span class="sb-sub">${esc(sub)}</span>` : ''}</span><span class="sb-go">${go}</span></button>`;
     if (update) return button('data-app-reload', update === 'reloading', 'New version', '', 'Reload');
     if (!upgrade) return '';
-    if (upgrade.state === 'waiting') return button('data-app-upgrade', true, `Update waits for ${upgrade.builders} implementer${upgrade.builders === 1 ? '' : 's'}`, '', 'Upgrade');
-    if (upgrade.state === 'updating') return button('data-app-upgrade', true, 'Update available', '', 'Upgrade');
-    if (upgrade.state === 'failed') return button('data-app-upgrade', false, 'Update failed', upgrade.error, 'Upgrade');
-    return button('data-app-upgrade', false, 'Update available', '', 'Upgrade');
+    if (upgrade.state === 'updated') return button('data-app-restart', false, `Updated to v${esc(upgrade.version)}`, upgrade.error, 'Restart');
+    if (upgrade.state === 'restarting') return button('data-app-restart', true, `Restarting to v${esc(upgrade.version)}`, '', 'Restart');
+    if (upgrade.state === 'updating') return button('data-app-upgrade', true, 'Updating', '', 'Update');
+    if (upgrade.state === 'failed') return button('data-app-upgrade', false, 'Update failed', upgrade.error, 'Update');
+    return button('data-app-upgrade', false, 'Update available', '', 'Update');
   }
 
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push

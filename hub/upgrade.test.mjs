@@ -29,25 +29,11 @@ test('newer compares versions by their numbers', () => {
   assert.equal(newer('0.2.9', '0.3.0'), false);
 });
 
-test('an npm install offers the update once @lovek4d/kickflip@latest is newer than the installed version', async () => {
-  const root = install({ version: '0.3.0' });
-  const { fetch, asked } = registry('0.4.0');
-  let changes = 0;
-  const up = upgrader({ root, fetch, builders: async () => [], run: async () => ({ ok: true }), changed: () => changes++ });
-  assert.equal(up.state(), null);
-  await up.check();
-  assert.deepEqual(asked, [LATEST_URL]);
-  assert.deepEqual(up.state(), { state: 'available', version: '0.4.0' });
-  assert.equal(changes, 1);
-  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '0.4.0' }));
-  assert.equal(up.state(), null);
-});
-
 test('an installed version as new as latest offers nothing, and a registry that fails keeps the last answer', async () => {
   const root = install({ version: '0.4.0' });
   let answer = { ok: true, status: 200, json: async () => ({ version: '0.4.0' }) };
   const logs = [];
-  const up = upgrader({ root, fetch: async () => answer, builders: async () => [], run: async () => ({ ok: true }), log: (...a) => logs.push(a.join(' ')) });
+  const up = upgrader({ root, running: '0.4.0', fetch: async () => answer, run: () => new Promise(() => {}), log: (...a) => logs.push(a.join(' ')) });
   await up.check();
   assert.equal(up.state(), null);
   answer = { ok: true, status: 200, json: async () => ({ version: '0.5.0' }) };
@@ -62,48 +48,59 @@ test('an installed version as new as latest offers nothing, and a registry that 
 test('a clone never asks npm and never shows the update', async () => {
   const root = install({ version: '0.1.0', clone: true });
   const { fetch, asked } = registry('9.0.0');
-  const up = upgrader({ root, fetch, builders: async () => [], run: async () => ({ ok: true }) });
+  const up = upgrader({ root, running: '0.1.0', fetch, run: async () => ({ ok: true }) });
   await up.check();
   assert.deepEqual(asked, []);
   assert.equal(up.state(), null);
   await assert.rejects(up.request(), { status: 409 });
 });
 
-test('a tap runs kickflip update at once when no builder runs', async () => {
-  const root = install();
+// The hub pulls the new version itself, then offers Restart (docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md).
+const install2 = (version) => (root) => fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: '@lovek4d/kickflip', version }));
+
+test('a check that finds a newer version pulls it at once, with no builder wait, and then offers Restart until the hub runs it', async () => {
+  const root = install({ version: '0.3.0' });
   const runs = [];
   let finish;
-  const up = upgrader({ root, fetch: registry('0.4.0').fetch, builders: async () => [], run: () => { runs.push(1); return new Promise((resolve) => { finish = resolve; }); } });
-  await assert.rejects(up.request(), { status: 409, message: /up to date/ });
+  let changes = 0;
+  const up = upgrader({ root, running: '0.3.0', fetch: registry('0.4.0').fetch, run: () => { runs.push(1); return new Promise((resolve) => { finish = resolve; }); }, changed: () => changes++ });
+  assert.equal(up.state(), null);
   await up.check();
-  assert.deepEqual(await up.request(), { state: 'updating', version: '0.4.0' });
   assert.equal(runs.length, 1);
-  assert.deepEqual(await up.request(), { state: 'updating', version: '0.4.0' });
-  await up.tick();
+  assert.deepEqual(up.state(), { state: 'updating', version: '0.4.0' });
+  await up.check();
   assert.equal(runs.length, 1);
-  finish({ ok: false, error: 'npm update failed' });
+  install2('0.4.0')(root);
+  finish({ ok: true });
   await new Promise(setImmediate);
-  assert.deepEqual(up.state(), { state: 'failed', version: '0.4.0', error: 'npm update failed' });
-  await up.request();
-  assert.equal(runs.length, 2);
+  assert.deepEqual(up.state(), { state: 'updated', version: '0.4.0' });
+  assert.ok(changes >= 2);
+  const again = upgrader({ root, running: '0.4.0', fetch: registry('0.4.0').fetch, run: async () => ({ ok: true }) });
+  await again.check();
+  assert.equal(again.state(), null);
 });
 
-test('the update waits until no builder runs, counting them, then runs', async () => {
-  const root = install();
-  let running = [{ key: 'hub/GH-1' }, { key: 'shop/INT-2' }];
+test('a version installed on disk newer than the running hub is offered for Restart even before a check', () => {
+  const root = install({ version: '0.4.0' });
+  const up = upgrader({ root, running: '0.3.0', fetch: registry('0.4.0').fetch, run: async () => ({ ok: true }) });
+  assert.deepEqual(up.state(), { state: 'updated', version: '0.4.0' });
+});
+
+test('a failed pull shows as failed with its error, a tap pulls again, and the next check retries too', async () => {
+  const root = install({ version: '0.3.0' });
   const runs = [];
-  let changes = 0;
-  const up = upgrader({ root, fetch: registry('0.4.0').fetch, builders: async () => running, run: () => { runs.push(1); return new Promise(() => {}); }, changed: () => changes++ });
+  let result = { ok: false, error: 'npm update failed' };
+  const up = upgrader({ root, running: '0.3.0', fetch: registry('0.4.0').fetch, run: async () => { runs.push(1); return result; } });
+  await assert.rejects(up.request(), { status: 409, message: /up to date/ });
   await up.check();
-  assert.deepEqual(await up.request(), { state: 'waiting', version: '0.4.0', builders: 2 });
-  running = [running[0]];
-  await up.tick();
-  assert.deepEqual(up.state(), { state: 'waiting', version: '0.4.0', builders: 1 });
-  assert.equal(runs.length, 0);
-  running = [];
-  const before = changes;
-  await up.tick();
-  assert.equal(runs.length, 1);
-  assert.equal(up.state().state, 'updating');
-  assert.ok(changes > before);
+  await new Promise(setImmediate);
+  assert.deepEqual(up.state(), { state: 'failed', version: '0.4.0', error: 'npm update failed' });
+  result = { ok: false, error: 'still down' };
+  await up.request();
+  await new Promise(setImmediate);
+  assert.equal(runs.length, 2);
+  assert.equal(up.state().error, 'still down');
+  await up.check();
+  await new Promise(setImmediate);
+  assert.equal(runs.length, 3);
 });

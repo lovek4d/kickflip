@@ -15,7 +15,7 @@
 //                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}], hub: {tone, word, detail},
-//                     notifications: {state, text}, away, upgrade}, away true while the owner reads away (presence.mjs ownerTracker), upgrade null or a newer kickflip on npm (upgrade.mjs state), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
+//                     notifications: {state, text}, away, upgrade}, away true while the owner reads away (presence.mjs ownerTracker), upgrade null or the pull of a newer kickflip from npm (upgrade.mjs state), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards, each with its start step and a running clone's percent (sessions.mjs)
 //                     usage: {claude, codex}, each null when hidden, else {at, five_hour, seven_day}; windows are
@@ -48,8 +48,8 @@
 //   /_hub/restart-hub POST from the hub page's Restart hub: answers {restarting, command} (the hub service's restart
 //                     command, for a restart by hand), then runs that restart (board/worktree.mjs restartRunner), which
 //                     replaces this process; 409 while one is out
-//   /_hub/upgrade    POST from the sidebar's Upgrade: runs `kickflip update` once no builder runs → {upgrade}, the sidebar's
-//                     upgrade field, or 409 when nothing newer is on npm (upgrade.mjs)
+//   /_hub/upgrade    POST from the sidebar's Update after a failed pull: pulls again → {upgrade}, the sidebar's upgrade
+//                     field, or 409 when nothing newer is on npm (upgrade.mjs)
 //   /_hub/wake       POST {route} from a board page's tap while the board is asleep: the session check resumes its
 //                     session now, as for an event that landed → {route, listen} (boards.mjs listenState)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
@@ -546,7 +546,6 @@ async function checkUsageGate() {
 
 setInterval(() => {
   tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message));
-  upgrade.tick().catch((e) => log('kickflip update tick failed:', e.message));
   checkUsageGate().catch((e) => log('usage gate failed:', e.message));
   owner.check().then(presenceChanged, (e) => log('presence check failed:', e.message)).finally(() => {
     if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
@@ -724,23 +723,22 @@ async function shellPage(here) {
   return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
 }
 
-// A newer kickflip on npm, checked as the hub starts and hourly; Upgrade runs `kickflip update` once no board's builder
-// runs, logging to logs/kickflip-update.log (docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md).
+// A newer kickflip on npm, checked as the hub starts and hourly and pulled at once without a restart, logging to
+// logs/kickflip-update.log (docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md).
 const upgrade = upgrader({
   root: cloneRoot(),
-  builders: async () => (await Promise.all(listBoards(loadManifest()).map((b) => openBoardBuilders(b.dir)))).flat(),
+  running: VERSION,
   run: runUpdate,
   log,
   changed: () => stream.refresh(),
 });
-// The update restarts the hub, so it runs in its own process group, where the hub's restart doesn't stop it first.
 function runUpdate() {
   const file = path.join(LOGS, 'kickflip-update.log');
   fs.writeFileSync(file, `${new Date().toISOString()} kickflip update\n`);
   const out = fs.openSync(file, 'a');
-  log('running kickflip update');
+  log('pulling the new kickflip');
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'update'], { detached: true, stdio: ['ignore', out, out] });
+    const child = spawn(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'update', '--no-restart'], { detached: true, stdio: ['ignore', out, out] });
     fs.closeSync(out);
     child.unref();
     child.on('error', (e) => resolve({ ok: false, error: e.message }));

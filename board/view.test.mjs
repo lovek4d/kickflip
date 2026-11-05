@@ -4669,7 +4669,7 @@ test('a held Todo card shows Unhold, and no Implement in its action row', async 
   assert.equal(detail.querySelector('.actions [data-confirm="card-build"]'), null);
 });
 
-test('Upgrade on the sidebar posts to the hub and shows only what the hub answers', async () => {
+test('Update after a failed pull posts to the hub and shows only what the hub answers', async () => {
   const page = repoPage();
   const { win, doc } = page;
   const posted = [];
@@ -4678,22 +4678,20 @@ test('Upgrade on the sidebar posts to the hub and shows only what the hub answer
     posted.push([url, options.method, options.headers?.['content-type']]);
     return new Promise((resolve) => { answer = resolve; });
   };
-  const sidebar = win.Sidebar.mount({ data: { sites: [], upgrade: { state: 'available', version: '0.4.0' } } });
+  const sidebar = win.Sidebar.mount({ data: { sites: [], upgrade: { state: 'failed', version: '0.4.0', error: 'npm update failed' } } });
   const aside = doc.getElementById('sidebar');
   const button = () => aside.querySelector('[data-app-upgrade]');
   const title = () => aside.querySelector('.sb-update .sb-title').textContent;
-  assert.equal(title(), 'Update available');
+  assert.equal(title(), 'Update failed');
   assert.ok(doc.documentElement.classList.contains('sb-update'));
   page.fire(aside, 'click', { target: button() });
   page.fire(aside, 'click', { target: button() });
   assert.deepEqual(posted, [['/_hub/upgrade', 'POST', 'application/json']]);
-  assert.equal(title(), 'Update available');
-  assert.equal(aside.querySelector('.sb-update .sb-go').textContent, 'Upgrade');
-  answer(repoResponse({ upgrade: { state: 'waiting', version: '0.4.0', builders: 2 } }));
+  answer(repoResponse({ upgrade: { state: 'updating', version: '0.4.0' } }));
   await tick(); await tick();
-  assert.equal(title(), 'Update waits for 2 implementers');
+  assert.equal(title(), 'Updating');
   assert.equal(button().disabled, true);
-  sidebar.setData({ sites: [], upgrade: { state: 'available', version: '0.4.0' } });
+  sidebar.setData({ sites: [], upgrade: { state: 'failed', version: '0.4.0', error: 'npm update failed' } });
   page.fire(aside, 'click', { target: button() });
   answer({ ok: false, status: 409, text: async () => JSON.stringify({ error: 'kickflip is up to date.' }), json: async () => ({ error: 'kickflip is up to date.' }) });
   await tick(); await tick();
@@ -4703,6 +4701,35 @@ test('Upgrade on the sidebar posts to the hub and shows only what the hub answer
   sidebar.setData({ sites: [], upgrade: null });
   assert.equal(button(), null);
   assert.equal(doc.documentElement.classList.contains('sb-update'), false);
+  sidebar.close();
+});
+
+test('Restart on the sidebar restarts the hub, reads Restarting, and reloads the page once the hub answers with other code', async () => {
+  const page = repoPage();
+  const { win, doc } = page;
+  const calls = [];
+  let hubCode = 'old';
+  let down = false;
+  win.setTimeout = (fn) => setImmediate(fn);
+  win.fetch = async (url, options = {}) => {
+    calls.push([url, options.method || 'GET']);
+    if (url === '/_hub/restart-hub') { down = true; return { ...repoResponse({ restarting: true, command: 'launchctl kickstart' }), headers: { get: () => hubCode } }; }
+    if (down && calls.filter(([u]) => u === '/_hub/api/hub').length < 3) throw new Error('down');
+    if (down) hubCode = 'new';
+    return { ...repoResponse({ sites: [], upgrade: null }), headers: { get: () => hubCode } };
+  };
+  let reloads = 0;
+  const sidebar = win.Sidebar.mount({ data: { sites: [], upgrade: { state: 'updated', version: '0.4.0' } }, reload: () => reloads++ });
+  const aside = doc.getElementById('sidebar');
+  const row = () => `${aside.querySelector('.sb-update .sb-title').textContent} ${aside.querySelector('.sb-update .sb-go').textContent}`;
+  assert.equal(row(), 'Updated to v0.4.0 Restart');
+  page.fire(aside, 'click', { target: aside.querySelector('[data-app-restart]') });
+  page.fire(aside, 'click', { target: aside.querySelector('[data-app-restart]') });
+  await tick();
+  assert.equal(row(), 'Restarting to v0.4.0 Restart');
+  assert.equal(calls.filter(([u]) => u === '/_hub/restart-hub').length, 1);
+  for (let i = 0; i < 20 && !reloads; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(reloads, 1);
   sidebar.close();
 });
 

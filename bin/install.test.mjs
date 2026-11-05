@@ -376,7 +376,7 @@ test('the update command installs the latest package before restarting the hub a
   fs.writeFileSync(path.join(root, 'package.json'), '{"version":"0.4.2"}');
   stub(manager);
   stub('npm', `printf '{"version":"0.4.3"}' > '${path.join(root, 'package.json')}'\n`);
-  const kickflip = (folder, command) => spawnSync(process.execPath, [path.join(folder, 'bin', 'kickflip.mjs'), command], {
+  const kickflip = (folder, command, ...flags) => spawnSync(process.execPath, [path.join(folder, 'bin', 'kickflip.mjs'), command, ...flags], {
     env: { ...process.env, HOME: home, PATH: tools, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', KICKFLIP_TEST_LOG: log }, encoding: 'utf8',
   });
   const run = (folder) => kickflip(folder, 'update');
@@ -388,6 +388,13 @@ test('the update command installs the latest package before restarting the hub a
     'npm i -g @lovek4d/kickflip@latest',
     restartCall,
   ]);
+  fs.unlinkSync(log);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"version":"0.4.3"}');
+  stub('npm', `printf '{"version":"0.4.4"}' > '${path.join(root, 'package.json')}'\n`);
+  const pulled = kickflip(root, 'update', '--no-restart');
+  assert.equal(pulled.status, 0, pulled.stderr);
+  assert.equal(pulled.stdout, '0.4.3 > 0.4.4\n');
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['npm i -g @lovek4d/kickflip@latest']);
   fs.unlinkSync(log);
   stub('npm');
   const unchanged = run(root);

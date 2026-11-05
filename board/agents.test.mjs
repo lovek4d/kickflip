@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { launchAgent } from './agents.mjs';
 import { until } from '../shared/test-helpers.mjs';
 
@@ -88,4 +88,24 @@ test('launchAgent stops watching the log once it has the session id, so the agen
     await new Promise((r) => setTimeout(r, 200));
   } finally { process.off('uncaughtException', caught); }
   assert.deepEqual(thrown, []);
+});
+
+// docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md
+test('an agent launched by a process that is then killed keeps running, as builders do across a hub restart', async () => {
+  const dir = tmp('agent-detached-');
+  try {
+    const fake = fakeAgent(dir, 'claude', { stdout: `${JSON.stringify({ type: 'system', subtype: 'init', session_id: 's', cwd: dir })}\n`, stay: 2000 });
+    const launcher = path.join(dir, 'launcher.mjs');
+    fs.writeFileSync(launcher, `import { launchAgent } from ${JSON.stringify(new URL('./agents.mjs', import.meta.url).href)};
+const { pid } = await launchAgent({ kind: 'claude', bin: ${JSON.stringify(fake.bin)}, model: 'sonnet', cwd: ${JSON.stringify(dir)}, site: '/s/x', prompt: 'p', log: ${JSON.stringify(path.join(dir, 'a.log'))} });
+console.log(pid);
+setInterval(() => {}, 1000);
+`);
+    const hub = spawn(process.execPath, [launcher], { stdio: ['ignore', 'pipe', 'inherit'] });
+    const agentPid = Number(await new Promise((resolve) => hub.stdout.once('data', (d) => resolve(String(d).trim()))));
+    hub.kill('SIGKILL');
+    await new Promise((resolve) => hub.once('exit', resolve));
+    assert.doesNotThrow(() => process.kill(agentPid, 0));
+    await until(() => { try { process.kill(agentPid, 0); return false; } catch { return true; } }, 'the agent never exited');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

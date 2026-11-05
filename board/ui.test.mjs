@@ -2020,23 +2020,26 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });
 
-test('the New version row offers the npm update, waits with its pill spinning while the update waits for builders or runs, and gives Reload priority', () => {
+test('the New version row reads Updated to the pulled version with Restart, spins while the pull or the restart runs, and gives Reload priority', () => {
   const row = (update, upgrade) => ui.updateRow(update, upgrade);
   assert.equal(row(null, null), '');
   const available = row(null, { state: 'available', version: '0.4.0' });
   assert.match(available, /<button type="button" class="sb-row sb-update-row" data-app-upgrade>/);
-  assert.equal(text(available), 'Update available Upgrade');
-  const waiting = row(null, { state: 'waiting', version: '0.4.0', builders: 2 });
-  assert.match(waiting, /data-app-upgrade disabled aria-busy="true"/);
-  assert.equal(text(waiting), 'Update waits for 2 implementers Upgrade');
-  assert.equal(text(row(null, { state: 'waiting', version: '0.4.0', builders: 1 })), 'Update waits for 1 implementer Upgrade');
+  assert.equal(text(available), 'Update available Update');
   const updating = row(null, { state: 'updating', version: '0.4.0' });
   assert.match(updating, /data-app-upgrade disabled aria-busy="true"/);
-  assert.equal(text(updating), 'Update available Upgrade');
+  assert.equal(text(updating), 'Updating Update');
+  const updated = row(null, { state: 'updated', version: '0.4.0' });
+  assert.match(updated, /<button type="button" class="sb-row sb-update-row" data-app-restart>/);
+  assert.equal(text(updated), 'Updated to v0.4.0 Restart');
+  assert.doesNotMatch(updated, /sb-sub/);
+  const restarting = row(null, { state: 'restarting', version: '0.4.0' });
+  assert.match(restarting, /data-app-restart disabled aria-busy="true"/);
+  assert.equal(text(restarting), 'Restarting to v0.4.0 Restart');
   const failed = row(null, { state: 'failed', version: '0.4.0', error: 'npm <update> failed' });
   assert.doesNotMatch(failed, /disabled/);
-  assert.equal(text(failed), 'Update failed npm <update> failed Upgrade');
-  assert.equal(text(row('ready', { state: 'available', version: '0.4.0' })), 'New version Reload');
+  assert.equal(text(failed), 'Update failed npm <update> failed Update');
+  assert.equal(text(row('ready', { state: 'updated', version: '0.4.0' })), 'New version Reload');
   const reloading = row('reloading', null);
   assert.match(reloading, /data-app-reload disabled aria-busy="true"/);
   assert.equal(text(reloading), 'New version Reload');

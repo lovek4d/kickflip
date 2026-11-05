@@ -1,9 +1,9 @@
-// The hub's check for a newer kickflip on npm, and the update the sidebar's Upgrade asks for
-// (docs/adr/2026-11-03-1521-the-hub-offers-a-newer-kickflip-from-npm.md). check() asks the registry for
-// @lovek4d/kickflip@latest; state() compares it with the version in root's package.json, read on each call so a finished
-// install offers nothing. A clone (root has .git) never asks and never offers. request() asks for the update: it runs
-// once builders() lists no running builder, and tick() tries again while it waits. run() → {ok, error} runs
-// `kickflip update`, which installs from npm and restarts the hub; the app's reload row follows once the new code runs.
+// The hub's check for a newer kickflip on npm, and the pull that follows
+// (docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md). check() asks the registry for
+// @lovek4d/kickflip@latest and, when it is newer than the version in root's package.json (read on each call), pulls it at
+// once: run() → {ok, error} runs `kickflip update --no-restart`, which installs from npm and leaves the hub running. state()
+// then reads "updated" while the installed version is newer than `running`, the version this hub started with, until the
+// hub restarts. A clone (root has .git) never asks and never offers. request() pulls again after a failure.
 // changed() is called whenever state() may answer differently.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,14 +19,11 @@ export function newer(a, b) {
   return false;
 }
 
-// → {check(), state(), request(), tick()}; state() → null | {state: available | waiting | updating | failed, version,
-// builders (waiting), error (failed)}
-export function upgrader({ root, fetch = globalThis.fetch, builders, run, log = () => {}, changed = () => {} }) {
+// → {check(), state(), request()}; state() → null | {state: updating | updated | failed | available, version, error (failed)}
+export function upgrader({ root, running: runningVersion, fetch = globalThis.fetch, run, log = () => {}, changed = () => {} }) {
   const clone = fs.existsSync(path.join(root, '.git'));
   let latest = null;
-  let asked = false;
-  let running = false;
-  let waitingFor = 0;
+  let pulling = false;
   let error = null;
 
   const installed = () => JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -38,38 +35,34 @@ export function upgrader({ root, fetch = globalThis.fetch, builders, run, log = 
       if (!response.ok) throw new Error(`npm answered ${response.status}`);
       latest = (await response.json()).version;
     } catch (e) { log(`kickflip update check failed: ${e.message}`); }
+    if (latest && newer(latest, installed())) pull();
     changed();
   }
 
   function state() {
-    if (clone || !latest || !newer(latest, installed())) return null;
-    if (running) return { state: 'updating', version: latest };
-    if (asked) return { state: 'waiting', version: latest, builders: waitingFor };
+    if (clone) return null;
+    const on = installed();
+    if (newer(on, runningVersion)) return { state: 'updated', version: on };
+    if (!latest || !newer(latest, on)) return null;
+    if (pulling) return { state: 'updating', version: latest };
     if (error) return { state: 'failed', version: latest, error };
     return { state: 'available', version: latest };
   }
 
-  // One tick at a time, so a tap and the timer never both start the update.
-  let ticking = Promise.resolve();
-  const tick = () => (ticking = ticking.catch(() => {}).then(tickOnce));
-  async function tickOnce() {
-    if (!asked || running) return;
-    waitingFor = (await builders()).length;
-    if (waitingFor) { changed(); return; }
-    asked = false;
-    running = true;
+  function pull() {
+    if (pulling) return;
+    pulling = true;
     error = null;
-    changed();
     run().then(({ ok, error: why }) => { if (!ok) error = why; }, (e) => { error = e.message; })
-      .finally(() => { running = false; changed(); });
+      .finally(() => { pulling = false; changed(); });
   }
 
   async function request() {
-    if (!state()) throw Object.assign(new Error('kickflip is up to date.'), { status: 409 });
-    if (!running) asked = true;
-    await tick();
+    if (!state() || state().state === 'updated') throw Object.assign(new Error('kickflip is up to date.'), { status: 409 });
+    pull();
+    changed();
     return state();
   }
 
-  return { check, state, request, tick };
+  return { check, state, request };
 }

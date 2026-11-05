@@ -113,9 +113,10 @@
 //               --dry-run prints what init would move, link and start, and changes nothing.
 //               uninstall stops the hub and removes its service, kickflip's status-line link and Tailscale /;
 //               Claude settings and skill links are kept
-//   kickflip update
+//   kickflip update [--no-restart]
 //               installs @lovek4d/kickflip@latest globally with npm. When the version changed it prints
 //               "<old> > <new>" and restarts the hub; otherwise it prints "no new version available" and leaves the hub running.
+//               --no-restart leaves the hub running on its old code (the hub pulls this way, and offers Restart).
 //               A clone refuses (exit 2); update it with git pull
 //   kickflip push --kind action|prompt|fault|reminder --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]
@@ -192,7 +193,7 @@ for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
   if (a.startsWith('--')) {
     const k = a.slice(2);
-    if (k === 'fix' || k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run') args[k] = true;
+    if (k === 'fix' || k === 'force' || k === 'json' || k === 'urgent' || k === 'now' || k === 'keep-queue' || k === 'hub' || k === 'no-hub' || k === 'dry-run' || k === 'no-restart') args[k] = true;
     else if (k === 'watch' && (i + 1 >= rest.length || rest[i + 1].startsWith('--'))) args[k] = true;
     else args[k] = rest[++i];
   } else args._.push(a);
@@ -860,6 +861,7 @@ const commands = {
     const after = installedVersion();
     if (after === before) return out('no new version available');
     out(`${before} > ${after}`);
+    if (args['no-restart']) return;
     restartHub('update finished but the hub did not restart');
   },
 
