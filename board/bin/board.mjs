@@ -177,7 +177,7 @@ command fails and changes nothing.
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too.
          --status done refuses a done card the owner messaged since it closed: it reads reopened, and closes
          again only on the owner's Done
-  item add <wave>[/<id>] --title <t> [--notes <t>]       a new card, planned (waiting when it has --deps); never
+  item add <wave>[/<id>] --title <t> [--notes <t>]       a new card, unstarted (waiting when it has --deps); never
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
          [--notes-file <file>]                           --plan is an alias of --notes-file
          [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at

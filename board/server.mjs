@@ -249,7 +249,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders } from './headless.mjs';
-import { BoardError, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, startPlanner, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1595,6 +1595,7 @@ async function archiveDone() {
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
+try { for (const line of await dropPlannedStatus(here)) console.log(line); } catch (e) { console.error('planned-status migration:', e.message); }
 try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
 await checkArchive();
 await watchBoard();

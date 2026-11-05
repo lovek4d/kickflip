@@ -102,6 +102,9 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     ...(question ? [`   The owner asked for prototypes of question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`] : []),
     `5. Record what you learned in the card's notes with \`${b} item set ${key} --notes-file <file.md>\`, naming each answered question's id.`,
+    ...(grill ? [
+      `6. If you have no question left to ask, end the card ready: run \`${b} item set ${key} --size <s> --state ready\` once its notes file is set, so the board builds it. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end it \`--state prototyping\` instead, never ready. Never leave a Next that asks the owner to mark it ready.`,
+    ] : []),
     '',
     ...ruleLines(rules),
     `To finish, run \`${b} builder done ${key} --text "<what you asked>"\`.`,

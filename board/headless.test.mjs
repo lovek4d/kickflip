@@ -52,6 +52,11 @@ test("a headless planner's brief names its card and its notes so far, spells its
   // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md: a grill offers the prototype round.
   assert.match(grill, /When the card changes the hub's or a board's UI, end with one more question asking for a prototype round/);
   assert.ok(!proto.includes('one more question asking for a prototype round'));
+  // docs/adr/2026-11-05-0226-a-grill-with-nothing-left-to-ask-ends-ready.md: a grill with nothing to ask ends ready, or prototyping.
+  assert.ok(grill.includes(`no question left to ask, end the card ready: run \`${b} item set w/A1 --size <s> --state ready\``));
+  assert.ok(grill.includes('end it `--state prototyping` instead, never ready'));
+  assert.ok(grill.includes('Never leave a Next that asks the owner to mark it ready'));
+  assert.ok(!proto.includes('--state ready'));
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: Codex has no skills, so they're named only as extras.
   assert.ok(grill.includes('If you have the grilling skill') && proto.includes('If you have the prototype skill'));
   assert.ok(!/Follow the (grilling|prototype) skill/.test(grill + proto));

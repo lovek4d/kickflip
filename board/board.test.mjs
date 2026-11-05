@@ -131,7 +131,7 @@ test('every text flag refuses a bare file path, and --file refuses a missing fil
   assert.match(missing.err, /no such file/);
 });
 
-test('item add records creation on a planned card, waiting when it has deps, and refuses a taken id, an unknown dep, or a --summary', () => {
+test('item add records creation on a card with no status, waiting when it has deps, and refuses a taken id, an unknown dep, or a --summary', () => {
   const before = Date.now();
   const withoutCreated = (item) => {
     const { created, ...rest } = item;
@@ -144,7 +144,7 @@ test('item add records creation on a planned card, waiting when it has deps, and
   assert.equal(summed.code, 2);
   assert.match(summed.err, /item add does not take --summary/);
   assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', notes: 'Why', status: 'planned', ticket: 'INT-1' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', notes: 'Why', ticket: 'INT-1' });
   assert.equal(board('item', 'add', 'w/C3', '--site', 'orch', '--title', 'Three', '--deps', 'A1,B2').code, 0);
   assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting', ticket: 'INT-2' });
   const taken = board('item', 'add', 'w/A1', '--site', 'orch', '--title', 'Again');
@@ -155,7 +155,7 @@ test('item add records creation on a planned card, waiting when it has deps, and
   assert.match(dep.err, /no item "Z9"/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 4);
   assert.equal(board('item', 'add', 'audit/E5', '--site', 'audit', '--title', 'Five').code, 0);
-  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'wave.json')).items.at(-1)), { id: 'E5', title: 'Five', status: 'planned', ticket: 'INT-1' });
+  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'wave.json')).items.at(-1)), { id: 'E5', title: 'Five', ticket: 'INT-1' });
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].created, undefined);
 });
 
@@ -316,7 +316,7 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   assert.equal(out.at(-1), 'ticket ENG-9: left as it is, not assigned to you');
   assert.deepEqual([item('C3').status, stateOf('ENG-9')], ['building', 'Todo']);
   const before = linear.calls.length;
-  for (const flags of [['--status', 'checking'], ['--status', 'planned'], ['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
+  for (const flags of [['--status', 'checking'],['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
   assert.equal(linear.calls.length, before);
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five'), 0);
   assert.equal(await cli('item', 'add', 'audit', '--title', 'Named in Linear'), 0);
@@ -1030,8 +1030,8 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(typeof arrived, 'string');
   assert.deepEqual(edited, { id: 'A1', title: 'One', next: 'Run tests', prs: [{ number: 42 }] });
   for (const [key, route, file] of [['w/A1', 'orch', at('waves', 'w', 'wave.json')], ['audit/A1', 'audit', site('audit', 'data', 'wave.json')]]) {
-    for (const status of ['building', 'fixing', 'checking', 'planned', 'held', 'done']) {
-      assert.equal(board('item', 'set', key, '--site', route, '--status', status, ...(status === 'done' ? ['--text', 'Done.'] : [])).code, 0);
+    for (const status of ['building', 'fixing', 'checking', 'held', 'done']) {
+      assert.equal(board('item', 'set', key, '--site', route, '--status', status,...(status === 'done' ? ['--text', 'Done.'] : [])).code, 0);
       assert.equal(board('item', 'set', key, '--site', route, '--pr', '7').code, 0);
       assert.equal(read(file).items[0].status, ['building', 'fixing'].includes(status) ? undefined : status);
     }
@@ -1249,7 +1249,7 @@ test('a follow-up is item add --parent; item set sets or clears a Parent and rep
   const item = (id) => read(site('audit', 'data', 'wave.json')).items.find((i) => i.id === id);
   const added = board('item', 'add', 'audit/ENG-7', '--site', 'audit', '--title', 'Tidy', '--parent', 'A1');
   assert.deepEqual([added.code, added.err], [0, '']);
-  assert.deepEqual([item('ENG-7').parent, item('ENG-7').status], ['audit/A1', 'planned']);
+  assert.deepEqual([item('ENG-7').parent, item('ENG-7').status], ['audit/A1', undefined]);
   for (const [args, err] of [
     [['item', 'add', 'audit/X1', '--title', 'X', '--parent', 'NOPE'], /^wave "audit" has no item "NOPE"/],
     [['item', 'set', 'audit/ENG-7', '--parent', 'ENG-7'], /^--parent: a card can't be its own Parent/],
@@ -1305,9 +1305,9 @@ test("a wave file's follow-ups move into its items once: ids, titles, tickets an
   assert.equal('followups' in after, false);
   assert.deepEqual(after.items, [
     { id: 'A1', title: 'One' },
-    { id: 'open-one', title: 'Open', created: '2026-11-03', parent: 'audit/A1', status: 'planned', ticket: '#51', ticket_created: true, notes: 'Why' },
+    { id: 'open-one', title: 'Open', created: '2026-11-03', parent: 'audit/A1', ticket: '#51', ticket_created: true, notes: 'Why' },
     { id: 'closed-one', title: 'Closed', created: '2026-11-02', parent: 'audit/A1', status: 'done', status_at: '2026-11-03T12:00:00.000Z', ticket: '#65' },
-    { id: 'no-from', title: 'Orphan', created: '2026-11-01', status: 'planned' },
+    { id: 'no-from', title: 'Orphan', created: '2026-11-01' },
   ]);
   const text = fs.readFileSync(file, 'utf8');
   assert.deepEqual(await migrateFollowups(site('audit')), []);
@@ -1317,6 +1317,23 @@ test("a wave file's follow-ups move into its items once: ids, titles, tickets an
   const clash = fs.readFileSync(file, 'utf8');
   await assert.rejects(migrateFollowups(site('audit')), /audit: follow-up A1 has the id of a card; rename one, then restart the board/);
   assert.equal(fs.readFileSync(file, 'utf8'), clash);
+});
+
+// docs/adr/2026-11-05-0226-a-grill-with-nothing-left-to-ask-ends-ready.md
+test('status planned is gone: the board drops it from every card on load, and item set --status planned is refused', async (t) => {
+  const { dropPlannedStatus } = await import('./store.mjs');
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
+  const file = site('audit', 'data', 'wave.json');
+  write(file, { title: 'W', items: [{ id: 'A1', title: 'One', status: 'planned', state: 'ready' }, { id: 'A2', title: 'Two', status: 'waiting' }, { id: 'A3', title: 'Three', status: 'done' }, { id: 'A4', title: 'Four' }] });
+  assert.deepEqual(await dropPlannedStatus(site('audit')), ['audit: 1 planned cards now have no status']);
+  assert.deepEqual(read(file).items, [{ id: 'A1', title: 'One', state: 'ready' }, { id: 'A2', title: 'Two', status: 'waiting' }, { id: 'A3', title: 'Three', status: 'done' }, { id: 'A4', title: 'Four' }]);
+  assert.deepEqual(await dropPlannedStatus(site('audit')), []);
+  const refused = board('item', 'set', 'audit/A2', '--site', 'audit', '--status', 'planned');
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /--status planned is gone: an unstarted card has no status/);
+  assert.equal(read(file).items[1].status, 'waiting');
 });
 
 test("closing a card resolves its answered questions, refuses while one has no answer, changing nothing, and --force closes it anyway", () => {
@@ -1405,7 +1422,7 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
     ['audit/A1', ['--dir', site('audit', 'data')], site('audit', 'data', 'wave.json')],
   ]) {
     const route = key.startsWith('audit/') ? ['--site', 'audit'] : [];
-    for (const status of ['building', 'fixing', 'checking', 'planned', 'held', 'done']) {
+    for (const status of ['building', 'fixing', 'checking', 'held', 'done']) {
       assert.equal(board('item', 'set', key, ...route, '--status', status, ...(status === 'done' && route.length ? ['--text', 'Done.'] : [])).code, 0);
       const before = read(file).items[0];
       assert.equal(board('builder', 'start', key, ...flags).code, 0);
@@ -2777,14 +2794,14 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
     { id: 'A2', title: 'Two', status: 'waiting', deps: ['A1'] },
     { id: 'A3', title: 'Three', status: 'waiting', deps: ['A1', 'A2'] },
     { id: 'A4', title: 'Four', status: 'done', deps: ['A1'] },
-    { id: 'A5', title: 'Five', status: 'planned', deps: ['d/A3'] },
+    { id: 'A5', title: 'Five', deps: ['d/A3'] },
   ] });
   const status = () => read(at('waves', 'd', 'wave.json')).items.map((it) => it.status);
   const events = () => lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked');
   const blocked = board('item', 'set', 'd/A3', '--status', 'building', '--site', 'orch');
   assert.equal(blocked.code, 1);
   assert.match(blocked.err, /d\/A1.*d\/A2|d\/A2.*d\/A1/);
-  assert.deepEqual(status(), ['building', 'waiting', 'waiting', 'done', 'planned']);
+  assert.deepEqual(status(), ['building', 'waiting', 'waiting', 'done', undefined]);
   assert.deepEqual(events(), []);
   const done = board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch', '--text', 'Done.');
   assert.equal(done.code, 0);
@@ -2911,7 +2928,7 @@ test('--pick-up-at holds a card until a time, read as local time without an offs
   assert.equal(board('item', 'set', 'd/A1', '--unheld', '--site', 'orch').code, 0);
   assert.deepEqual([item().held, item().pick_up_at], [undefined, undefined]);
   assert.equal(board('item', 'add', 'd/A2', '--title', 'Two', '--pick-up-at', local, '--site', 'orch').code, 0);
-  assert.deepEqual([item('A2').status, item('A2').held, item('A2').pick_up_at], ['planned', true, nine]);
+  assert.deepEqual([item('A2').status, item('A2').held, item('A2').pick_up_at], [undefined, true, nine]);
 });
 
 test("item set --status building takes a prototype pick's note as guidance, and refuses while the newest answer to the card's prototypes picks no take", () => {

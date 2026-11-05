@@ -426,7 +426,7 @@ export async function markAsk(site, eventId, state, next) {
 
 // Why an ask is no longer New on this board, or null. An ask that became work items is New to moveAsk while none of
 // them has started; it returns them as `items`.
-const UNSTARTED = [undefined, 'planned', 'waiting'];
+const UNSTARTED = [undefined, 'waiting'];
 async function askNotNew(site, eventId, events) {
   const named = `ask "${eventId}"`;
   if (events.some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId && !e.data?.key)) return { why: `${named} was deleted by the owner` };
@@ -1362,7 +1362,7 @@ async function unblockedBy(site, key) {
   for (const s of await itemSources(site)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
-      if (![undefined, 'planned', 'waiting', 'held'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      if (![undefined, 'waiting', 'held'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
       if (!(await unfinishedDeps(site, s.slug, it)).length) out.push({ key: `${s.slug}/${it.id}`, queued: Boolean(it.queued_at) });
     }
   }
@@ -1514,6 +1514,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     fail(item.pick_up_at ? `${key} is held until ${item.pick_up_at}, when the board resumes it; start it early only with item set ${key} --unheld`
       : `${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
   }
+  if (status === 'planned') fail('--status planned is gone: an unstarted card has no status. Clear it with --clear-status');
   if (status !== undefined) item.status = ITEM_STATUSES.includes(status) ? status : fail(`--status takes ${ITEM_STATUSES.join(', ')}`);
   if (LEAVES_TODO.includes(status) || pr !== undefined || pushed !== undefined || mergeReady !== undefined) clearHold(item);
   if (status === 'building') {
@@ -1905,7 +1906,7 @@ export const setItem = (site, key, changes, options) => (changes.ticket !== unde
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 
-// → {file, key}. A new card starts unstarted: planned, or waiting when it names deps. key is <wave>/<id>, or <wave>
+// → {file, key}. A new card starts unstarted: no status, or waiting when it names deps. key is <wave>/<id>, or <wave>
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
 // (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
 async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model, state }, options) {
@@ -1921,7 +1922,7 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   setBuildChoice(item, { size, model });
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
-  item.status = item.deps?.length ? 'waiting' : 'planned';
+  if (item.deps?.length) item.status = 'waiting';
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
   // A new card has no questions, so ready needs only its size and notes file, checked before its ticket is made.
   if (state) { checkSizeAndNotes(id === undefined ? 'the card' : key, item); item.state = state; }
@@ -2002,11 +2003,27 @@ export const migrateFollowups = (site) => ticketWrite(site, async () => {
     for (const { id, title, from, filed, done, ...rest } of wave.followups) {
       const closedAt = done ? (site && (await readLines(threadFile(site, `${entry.slug}/${id}`))).map((l) => l.ts).filter(Boolean).sort().pop()) || filed : null;
       moved.push({ id, title, ...(filed ? { created: filed } : {}), ...(from ? { parent: depKey(entry.slug, from) } : {}),
-        status: done ? 'done' : 'planned', ...(closedAt ? { status_at: closedAt } : {}), ...rest });
+        ...(done ? { status: 'done' } : {}), ...(closedAt ? { status_at: closedAt } : {}), ...rest });
     }
     const { followups, ...kept } = wave;
     await writeJSON(entry.file, { ...kept, items: [...wave.items, ...moved] });
     lines.push(`${entry.slug}: ${moved.length} follow-ups moved to cards (${moved.filter((m) => m.status === 'done').length} done)`);
+  }
+  return lines;
+});
+
+// docs/adr/2026-11-05-0226-a-grill-with-nothing-left-to-ask-ends-ready.md
+// Removes the status "planned" from every card of a site's wave files: an unstarted card has no status. Run by the board
+// server as it starts. → one line per wave file changed.
+export const dropPlannedStatus = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  for (const entry of await itemSources(site)) {
+    const wave = await readJSON(entry.file, null);
+    const planned = (Array.isArray(wave?.items) ? wave.items : []).filter((it) => it.status === 'planned');
+    if (!planned.length) continue;
+    for (const it of planned) delete it.status;
+    await writeJSON(entry.file, wave);
+    lines.push(`${entry.slug}: ${planned.length} planned cards now have no status`);
   }
   return lines;
 });
