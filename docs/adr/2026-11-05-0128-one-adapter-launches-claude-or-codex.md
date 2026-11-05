@@ -1,0 +1,19 @@
+# One adapter launches Claude or Codex
+
+Every headless worker the board server starts goes through one module, `board/agents.mjs` `launchAgent`. That covers builders, landers and planners. Its input is the agent's kind (claude | codex), the Claude model, the working folder, the board's site folder, the brief and the log path. Its output is `{pid, sessionId, log}`. Each kind is one entry in a table: its binary, its command line, and how its output names the session. `headless.mjs` `launchBuilder` passes the record's kind and never branches on it. A planner runs as Claude. The orchestrator session (`hub/sessions.mjs`) stays Claude and stays outside the adapter. Card #224 (agent-adapter-notes.md), following [the hub launches every agent from the card](2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+
+**Claude** runs as `claude -p <brief> --permission-mode auto --model <opus|sonnet> --output-format stream-json --verbose`. Its first event, `system`/`init`, carries `session_id`.
+
+**Codex** runs as `codex exec --color never --cd <folder> --sandbox workspace-write --add-dir <site> --add-dir <repo .git> -c sandbox_workspace_write.network_access=true <brief>`. A builder runs the board CLI, which writes the site folder. Its commits write the repo's shared `.git` (`git rev-parse --git-common-dir`), which sits outside a worktree. gh needs the network. That is why both folders are writable and network is on. This replaces `--sandbox danger-full-access` from #206. The log stays plain text, so the log sheet reads it as text, and the session id comes from the banner's `session id: <id>` line.
+
+**The session id is recorded.** The launch waits until the agent names its session, the agent exits, or 15 seconds pass. It then writes `session: {id, at}` on the card's main builder record and puts the id in the thread line: "Builder launched on <model> in <folder>, session <id>." The agent's own `builder start` keeps a session written since the record last started or closed. That covers taking up a hub-opened record, a revived builder, and a lander on a closed record. Any other start drops the session. Relaunches still start from scratch. Nothing resumes a session yet.
+
+**One brief per role, in plain steps.** Codex has no skills. So the planner brief spells out the grill's and the prototype's steps, and names the grilling or prototype skill only as an optional extra ("If you have the grilling skill, it covers this step."). The builder's and lander's briefs named no skill already.
+
+**Each kind is held by its own usage** (`shared/usage-gate.mjs` `heldFor`). Codex is held while it is past its line. Any other kind is held while Claude's work is paused. A planner counts as Claude here. This applies to the launch `handOff` holds, the minute revive (`reviveBuilders`' `held`), and `builder start`'s refusal. So a Codex builder starts while Claude is paused. The board-wide pause on taps, pulls and landers comes before any pick, and it stays as it was. A lander runs as the kind that built the card (`landable` returns the newest record's kind).
+
+The owner, on gh224-scope: workers only, and the orchestrator stays Claude. On gh224-sandbox: workspace-write, plus `--add-dir` for the site folder and the repo's `.git`, with network on. On gh224-session: record the id on the builder record and in the thread line, and keep relaunching from scratch. On gh224-brief: one brief per role in plain steps, with skills named only as optional extras.
+
+Considered:
+- **`codex exec --json`** for the session id (`thread.started`). The log sheet only reads Claude's stream-json, so a JSONL Codex log would have read as empty. The banner gives the same id in a plain-text log.
+- **Resolving the launch at spawn and recording the session later.** That would leave the thread line without the id, or need a second line. Claude's init event arrives within seconds, so the launch waits for it, up to a cap.

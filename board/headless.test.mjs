@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until } from '../shared/test-helpers.mjs';
-import { builderBrief, landerBrief, plannerBrief, launchHeadless, reviveBuilders, BOARD_CLI } from './headless.mjs';
+import { builderBrief, landerBrief, plannerBrief, reviveBuilders, BOARD_CLI } from './headless.mjs';
 
 const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
 
@@ -36,7 +36,7 @@ test("a lander's brief takes up the card's verified build, acts on the owner's a
 });
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
-test("a headless planner's brief names its card, its notes so far and the skill to follow, and has it start, post questions and finish", () => {
+test("a headless planner's brief names its card and its notes so far, spells its steps out with the skill only an optional extra, and has it start, post questions and finish", () => {
   const b = `node ${BOARD_CLI} --site shop`;
   const grill = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop' });
   for (const want of ['ENG-1', 'Make it go', '/s/waves/w/a1.md', 'grilling skill', `${b} builder start w/A1 --kind grill`, `${b} question add`, `${b} builder done w/A1`, 'docs/adr', 'Never push']) {
@@ -50,40 +50,9 @@ test("a headless planner's brief names its card, its notes so far and the skill 
   // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md: a grill offers the prototype round.
   assert.match(grill, /When the card changes the hub's or a board's UI, end with one more question asking for a prototype round/);
   assert.ok(!proto.includes('one more question asking for a prototype round'));
-});
-
-test('launchHeadless runs codex exec in the worktree with full access for a codex build', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-codex-'));
-  try {
-    const out = path.join(dir, 'seen.json');
-    const fake = path.join(dir, 'codex');
-    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\n`);
-    fs.chmodSync(fake, 0o755);
-    await launchHeadless({ bin: fake, kind: 'codex', cwd: dir, prompt: 'Build it.', log: path.join(dir, 'A1.log') });
-    await until(() => fs.existsSync(out), 'the fake codex runs');
-    assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), { argv: ['exec', '--sandbox', 'danger-full-access', '--cd', dir, 'Build it.'], cwd: fs.realpathSync(dir) });
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('launchHeadless runs claude -p in the worktree in auto mode on the model, detached, streaming its events as JSON lines to a log file, and rejects when claude does not start', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-'));
-  try {
-    const out = path.join(dir, 'seen.json');
-    const fake = path.join(dir, 'claude');
-    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), nested: process.env.CLAUDECODE ?? null }));\nconsole.log('ran');\n`);
-    fs.chmodSync(fake, 0o755);
-    const log = path.join(dir, 'logs', 'A1.log');
-    const before = process.env.CLAUDECODE;
-    process.env.CLAUDECODE = '1';
-    let launched;
-    try { launched = await launchHeadless({ bin: fake, cwd: dir, prompt: 'Build it.', model: 'sonnet', log }); } finally {
-      if (before === undefined) delete process.env.CLAUDECODE; else process.env.CLAUDECODE = before;
-    }
-    assert.ok(Number.isInteger(launched.pid));
-    await until(() => fs.existsSync(out) && fs.readFileSync(log, 'utf8').includes('ran'), 'the fake claude runs');
-    assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8')), { argv: ['-p', 'Build it.', '--permission-mode', 'auto', '--model', 'sonnet', '--output-format', 'stream-json', '--verbose'], cwd: fs.realpathSync(dir), nested: null });
-    await assert.rejects(launchHeadless({ bin: path.join(dir, 'missing'), cwd: dir, prompt: 'x', model: 'opus', log }), /ENOENT/);
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: Codex has no skills, so they're named only as extras.
+  assert.ok(grill.includes('If you have the grilling skill') && proto.includes('If you have the prototype skill'));
+  assert.ok(!/Follow the (grilling|prototype) skill/.test(grill + proto));
 });
 
 test("the server launches the builder for a tap and a pull instead of waking the session, and a lander once a checking card's calls are verified and no question is open", async () => {
@@ -264,6 +233,20 @@ test('a headless builder whose process exited with its record open is relaunched
   });
 });
 
+// docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
+test("a tracked builder whose kind its usage holds waits, launched or not, while the other kind's builders revive", async () => {
+  const launched = [];
+  const launch = async ({ key }) => { launched.push(key); return { pid: 900 + launched.length }; };
+  const tracked = {
+    'w/A': { kind: 'codex', pid: null, relaunched: false },
+    'w/B': { kind: 'codex', pid: 2, relaunched: false },
+    'w/C': { kind: 'claude', model: 'opus', pid: null, relaunched: false },
+  };
+  const next = await reviveBuilders(tracked, new Set(Object.keys(tracked)), { launch, handBack: async () => assert.fail('nothing is handed back'), alive: () => false, held: (kind) => kind === 'codex' });
+  assert.deepEqual(launched, ['w/C']);
+  assert.deepEqual(next, { 'w/A': tracked['w/A'], 'w/B': tracked['w/B'], 'w/C': { kind: 'claude', model: 'opus', pid: 901, relaunched: false } });
+});
+
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
 test("the server's minute check relaunches a tracked headless builder whose process died with its record open", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-revive-'));
@@ -285,7 +268,8 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = path.join(home, 'claude');
   // The relaunched builder stays alive a while, so the 50ms check leaves its entry at relaunched instead of handing it back.
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');\nsetTimeout(() => {}, 5000);\n`);
+  // It names its session as Claude's init event does, which the launch records on the card's builder record and thread line.
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-R1' }));\nsetTimeout(() => {}, 5000);\n`);
   fs.chmodSync(fake, 0o755);
   const setup = path.join(home, 'setup.mjs');
   fs.writeFileSync(setup, `
@@ -299,6 +283,9 @@ test("the server's minute check relaunches a tracked headless builder whose proc
     await until(() => fs.existsSync(seen), 'the dead builder is relaunched');
     assert.match(JSON.parse(fs.readFileSync(seen, 'utf8').trim().split('\n')[0]).argv[1], /builder start t\/R1 --kind build/);
     await until(() => JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/R1']?.relaunched === true, 'the relaunch is tracked');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.id, 'sess-R1');
+    const lines = fs.readFileSync(path.join(data, 'threads', 't__R1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.match(lines.at(-1).text, new RegExp(`^Builder launched on Claude Opus in ${wt}, session sess-R1\\.$`));
   } finally {
     child.kill();
     fs.rmSync(home, { recursive: true, force: true });

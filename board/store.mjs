@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
-import { readUsageGate, pauseReason, builderPick } from '../shared/usage-gate.mjs';
+import { readUsageGate, pauseReason, pauseReasonFor, heldFor, builderPick } from '../shared/usage-gate.mjs';
 import { reviseQueued, flushQueue, queueStatus, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { holdLine, CHECK_MINUTES } from '../hub/schedule.mjs';
 import { AT_RE } from '../hub/duration.mjs';
@@ -2294,8 +2294,6 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
 // → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null;
 // {file, alreadyOpen: true, lines: []} for a session's dispatch on a record the tap opened.
 export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, ownWorktree, dispatch }) {
-  const gate = readUsageGate();
-  if (gate.state === 'paused') throw new BoardError(pauseReason(gate));
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
   const asLine = optional(progress, (v) => progressLine(site, phase, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
@@ -2318,6 +2316,9 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const pick = takeUp && asked === 'build' ? { kind: providerOf(takeUp.kind), model: takeUp.model, reason: { tap: "The owner's Build tap picked it.", hub: "The board's pull picked it." }[takeUp.dispatched] ?? "The session's dispatch picked it." } : build ? builderPick({ card: was ?? {} }) : null;
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
+  // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: each kind is held by its own usage.
+  const gate = readUsageGate();
+  if (heldFor(gate, k)) throw new BoardError(pauseReasonFor(gate, k));
   const line = asLine && forAgent(asLine, plans({ kind: k }), '--progress');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
@@ -2329,6 +2330,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(dispatch ? { dispatched: dispatch } : {}),
     ...(resumed ? { calls: resumed.calls, ...(resumed.verified ? { verified: resumed.verified } : {}) } : {}),
+    ...(launchedSession(before) ? { session: before.session } : {}),
   };
   const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
   const marked = marking ? await setItem(site, key, { status: 'building' }) : { lines: [] };
@@ -2452,6 +2454,17 @@ export async function abandonPlanner(site, key, text) {
   if (record && !record.done) await writeJSON(file, { ...record, done: new Date().toISOString() });
   await appendThread(site, key, { text });
 }
+
+// docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
+// The session id of the agent the board server just launched on a card (headless.mjs launchBuilder), on its main
+// builder record as session {id, at}. The agent's own builder start keeps it (launchedSession).
+export async function recordSession(site, key, id) {
+  const file = await builderFile(site, key);
+  const record = await readJSON(file, null);
+  await writeJSON(file, { ...record, session: { id, at: new Date().toISOString() } });
+}
+// A record's session belongs to the agent now starting on it when a launch wrote it since the record last started or closed.
+const launchedSession = (record) => Boolean(record?.session) && record.session.at > (record.done ?? record.started);
 
 // The board server's start of a planner, kind grill or prototype, on a card: the main record opens, dispatched: 'hub',
 // as builder start --kind <kind> does. → {key, kind, model}, or null while an agent already works on the card's main
@@ -2642,8 +2655,8 @@ export async function briefFacts(site, key) {
 }
 
 // The cards a headless lander lands: checking, every call on their records verified, none of their questions open,
-// and their worktree still there. → [{key, verified, model}], verified the newest verification's time and model the
-// newest record's Claude model.
+// and their worktree still there. → [{key, verified, kind, model}], verified the newest verification's time, and kind and
+// model the newest record's, so the lander runs as the agent that built the card.
 export async function landable(site) {
   const out = [];
   for (const source of await itemSources(site)) {
@@ -2656,7 +2669,7 @@ export async function landable(site) {
       const key = `${source.slug}/${item.id}`;
       if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open')) continue;
       const newest = records.filter((r) => r.worktree?.path).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
-      if (newest && existsSync(newest.worktree.path)) out.push({ key, verified, model: newest.model });
+      if (newest && existsSync(newest.worktree.path)) out.push({ key, verified, kind: providerOf(newest.kind), model: newest.model });
     }
   }
   return out;

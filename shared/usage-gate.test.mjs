@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, heldUsageEvent, builderPick } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, heldUsageEvent, builderPick, heldFor, pauseReasonFor } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel } from '../hub/push.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
@@ -55,6 +55,17 @@ test('Keep going covers exactly the paused Claude window until its reset and nev
   assert.equal(codex.state, 'normal');
   assert.deepEqual(codex.codex, { past: true, window: 'seven_day', used: 92, resets_at: week });
   assert.equal(gate({ codex: { five_hour: win(99, until, 'stale') } }).codex.past, false);
+});
+
+// docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
+test('each kind of agent is held by its own usage: Claude by the pause, Codex past its line, and a planner kind as Claude', () => {
+  const claudePaused = gate();
+  const codexPast = gate({ claude: reading(20), codex: reading(20, 92) });
+  assert.deepEqual(['claude', 'codex', 'grill'].map((k) => heldFor(claudePaused, k)), [true, false, true]);
+  assert.deepEqual(['claude', 'codex', 'prototype'].map((k) => heldFor(codexPast, k)), [false, true, false]);
+  assert.equal(heldFor(gate({ keepGoing: { window: 'five_hour', until } }), 'claude'), false, 'Keep going lets Claude go');
+  assert.match(pauseReasonFor(claudePaused, 'claude'), /^Work is paused: Claude's 5-hour usage is at 90%/);
+  assert.equal(pauseReasonFor(codexPast, 'codex'), `Codex is paused: its weekly usage is at 92%, past the 90% line. Resumes at ${week}.`);
 });
 
 test('the file reader follows setting changes and resets while writes preserve other settings', (t) => {

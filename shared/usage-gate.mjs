@@ -83,4 +83,13 @@ function claudePick(setting, card) {
   return card.size === 'small' ? { model: 'sonnet', reason: 'Claude model is Auto and the card is small.' } : { model: 'opus', reason: "Claude model is Auto and the card isn't small." };
 }
 
-export const pauseReason = (gate) => `Work is paused: Claude's ${gate.window === 'five_hour' ? '5-hour' : 'weekly'} usage is at ${Math.round(gate.used)}%. Resumes at ${gate.resets_at}. The owner can tap Keep going on the Hub page.`;
+export const pauseReason = (gate) => `Work is paused: Claude's ${windowWord(gate.window)} usage is at ${Math.round(gate.used)}%. Resumes at ${gate.resets_at}. The owner can tap Keep going on the Hub page.`;
+
+// docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
+// Whether gate holds an agent of kind: Codex while past its line, any other kind (Claude, and the planners, which run
+// as Claude) while Claude's work is paused. pauseReasonFor words the hold.
+export const heldFor = (gate, kind) => (kind === 'codex' ? gate.codex.past : gate.state === 'paused');
+const windowWord = (window) => (window === 'five_hour' ? '5-hour' : 'weekly');
+export const pauseReasonFor = (gate, kind) => (kind === 'codex'
+  ? `Codex is paused: its ${windowWord(gate.codex.window)} usage is at ${Math.round(gate.codex.used)}%, past the ${gate.pause_at}% line. Resumes at ${gate.codex.resets_at}.`
+  : pauseReason(gate));

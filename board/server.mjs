@@ -255,7 +255,7 @@ import { routeRecord } from '../hub/routes.mjs';
 import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
-import { readUsageGate } from '../shared/usage-gate.mjs';
+import { readUsageGate, heldFor } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
@@ -1270,9 +1270,9 @@ async function handOff(started) {
   if (!started || started.queued) return null;
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
-    // A pause that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.
-    if (readUsageGate().state === 'paused') await trackLaunch(started.key, { ...entry, pid: null });
-    else await trackLaunch(started.key, { ...entry, ...(await launchBuilder(here, started)) });
+    // A pause on its kind that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.
+    if (heldFor(readUsageGate(), started.kind)) await trackLaunch(started.key, { ...entry, pid: null });
+    else await trackLaunch(started.key, { ...entry, pid: (await launchBuilder(here, started)).pid });
   } catch (e) {
     await abandonLaunch(here, started.key, `the launch failed (${e.message}). Tap Implement to try again.`);
   }
@@ -1319,14 +1319,14 @@ async function trackLaunch(key, entry) {
   await fs.writeFile(file + '.tmp', JSON.stringify(tracked) + '\n');
   await fs.rename(file + '.tmp', file);
 }
-// Once a minute while usage isn't paused: a headless builder whose process exited with its record open launches again
+// Once a minute: a headless builder whose usage isn't held and whose process exited with its record open launches again
 // once, and after that leaves a thread line; its record stays open, so the stall alarm brings in the orchestrator.
 let revivingHeadless = false;
 async function reviveHeadless() {
   if (revivingHeadless) return;
   revivingHeadless = true;
   try {
-    if (readUsageGate().state === 'paused') return;
+    const gate = readUsageGate();
     const file = path.join(data, 'headless-builders.json');
     const tracked = await readJSON(file, {});
     if (!Object.keys(tracked).length) return;
@@ -1335,12 +1335,12 @@ async function reviveHeadless() {
       await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads Stalled once 30 minutes pass without progress.' });
     };
     const launch = async (card) => {
-      try { return await launchBuilder(here, card); } catch (e) {
+      try { return { pid: (await launchBuilder(here, card)).pid }; } catch (e) {
         await appendThread(here, card.key, { text: `Couldn't relaunch the builder headless (${e.message}).` });
         return { pid: null };
       }
     };
-    const next = await reviveBuilders(tracked, open, { launch, handBack });
+    const next = await reviveBuilders(tracked, open, { launch, handBack, held: (kind) => heldFor(gate, kind) });
     if (JSON.stringify(next) !== JSON.stringify(tracked)) {
       await fs.writeFile(file + '.tmp', JSON.stringify(next) + '\n');
       await fs.rename(file + '.tmp', file);

@@ -3250,6 +3250,24 @@ test("a builder's builder start takes up the record the owner's Build tap starte
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).worktree, undefined);
 });
 
+// docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
+test("a builder's start keeps the session id its launch recorded since the record last started or closed, and drops an older one", () => {
+  const file = at('waves', 'w', 'agents', 'A1.json');
+  const session = { id: 'sess-1', at: '2026-11-03T10:00:01.000Z' };
+  write(file, { label: 'Builder', kind: 'claude', model: 'opus', started: '2026-11-03T10:00:00.000Z', dispatched: 'hub', session, worktree: { path: '/w/A1', branch: 'A1', repo: '/r' } });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  assert.deepEqual(read(file).session, session, 'the agent taking up its launch keeps its session');
+  // A lander launched on a closed record: its session was written after the close.
+  const lander = { id: 'sess-2', at: '2026-11-03T12:00:01.000Z' };
+  write(file, { ...read(file), done: '2026-11-03T12:00:00.000Z', session: lander });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Lander').code, 0);
+  assert.deepEqual(read(file).session, lander);
+  // A start with no launch since the record started belongs to no session the record knows.
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  assert.equal(read(file).session, undefined);
+});
+
 test("builder start --dispatch opens the record before the agent launches, for build, prototype and grill, and the agent's own start takes it up", () => {
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'todo' }, { id: 'A2', title: 'Two', status: 'todo' }] });
   const dispatched = board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'build', '--model', 'sonnet', '--label', 'Sonnet builder');
