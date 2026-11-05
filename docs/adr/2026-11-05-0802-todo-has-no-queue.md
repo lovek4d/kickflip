@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-05-2345-new-todo-cards-join-the-bottom
+---
+
 # Todo has no queue: Implement starts at once, and the pull takes Todo's top ready card
+
+Superseded in part by [new Todo cards join the bottom, so old ones leave first](2026-11-05-2345-new-todo-cards-join-the-bottom.md): the rest of Todo is oldest first, and the pull takes the oldest ready card.
 
 The owner on #293 (11/05), after the queued-green prototype round (gh293-queue B, no queue, Implement bumps): "the only reason the Q has to exist is because the number of parallel in progress items is limited to ten. An alternative option, I think, is that we get rid of the cap for manually clicking implement … They can go straight to in progress. And there's no other reason to have a queue because the auto pull will just pull the newest ready card. And then the bump will handle prioritization there. So yeah, I think we can totally get rid of the queue entirely."
 

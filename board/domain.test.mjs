@@ -973,14 +973,14 @@ test('a bumped card that has not started, or is running, tops its lane, the late
     { id: 'A6', title: 'Six', status: 'fixing' },
   ];
   const cards = (events) => askBoard(events, { items, agents: runningBuilders('A5', 'A6') }).items.filter((i) => i.kind === 'work').map((i) => [i.key, i.lane, i.bumpable, i.bumpedAt]);
-  assert.deepEqual(cards([]).map(([key, , bumpable]) => [key, bumpable]), [['w/A6', true], ['w/A5', true], ['w/A4', true], ['w/A3', true], ['w/A2', true], ['w/A1', true]]);
+  assert.deepEqual(cards([]).map(([key, , bumpable]) => [key, bumpable]), [['w/A6', true], ['w/A5', true], ['w/A1', true], ['w/A2', true], ['w/A3', true], ['w/A4', true]]);
   const at1 = '2026-10-23T11:10:00Z';
   const at2 = '2026-10-23T11:20:00Z';
   assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A5', at2), bump('w/A4', at2)]), [
     ['w/A5', 'progress', true, at2],
     ['w/A6', 'progress', true, null],
-    ['w/A4', 'todo', true, at2],
     ['w/A2', 'todo', true, at2],
+    ['w/A4', 'todo', true, at2],
     ['w/A1', 'todo', true, at1],
     ['w/A3', 'todo', true, null],
   ]);
@@ -1028,7 +1028,7 @@ test('a card-hold applies at once unless held_at is newer, including a legacy he
 });
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
-test("each lane has one fixed order, each card carrying the time it sorts by: Todo its New cards, then bumped cards, then newest made; In Progress and In Review newest arrival first; Done most recently closed first; Asks newest answer first", () => {
+test("each lane has one fixed order, each card carrying the time it sorts by: Todo its New cards, then bumped cards, then oldest made; In Progress and In Review newest arrival first; Done most recently closed first; Asks newest answer first", () => {
   const now = Date.parse('2026-11-10T12:00:00Z');
   const at = (d) => `2026-11-${String(d).padStart(2, '0')}T10:00:00Z`;
   const made = (d) => `2026-11-${String(d).padStart(2, '0')}T08:00:00Z`;
@@ -1072,7 +1072,7 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
     review: ['R1', 'R2'],
     stale: ['S1', 'S2'],
     progress: ['P2', 'P4', 'P3', 'P1'],
-    todo: ['ask:a1', 'ask:a2', 'T1', 'ENG-2', 'T2', 'ENG-1'],
+    todo: ['ask:a1', 'ask:a2', 'ENG-1', 'T2', 'ENG-2', 'T1'],
     done: ['D4', 'D3', 'D2', 'D1'],
     asks: ['ask:a4', 'ask:a3'],
   });
@@ -1083,8 +1083,8 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
     'ask:a1': at(7), 'ask:a2': at(10), T1: made(8), T2: made(4), 'ENG-1': at(2), 'ENG-2': at(6),
     'ask:a3': at(9), 'ask:a4': at(10), D1: at(2), D2: at(7), D3: at(8), D4: tapped,
   });
-  const bumped = built([{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/ENG-1' }, reply: null }]);
-  assert.deepEqual(lanesOf(bumped).todo, ['ask:a1', 'ask:a2', 'ENG-1', 'T1', 'ENG-2', 'T2']);
+  const bumped = built([{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/ENG-2' }, reply: null }]);
+  assert.deepEqual(lanesOf(bumped).todo, ['ask:a1', 'ask:a2', 'ENG-2', 'ENG-1', 'T2', 'T1']);
 });
 
 test("an internal card's ref reads INT-<n> with no repo, and each card lists when Claude or GitHub wrote in its thread, leaving out builder status lines and the owner's answers", () => {
@@ -1504,7 +1504,7 @@ test('an In Progress card with nothing building and no next step reads a gap as 
 });
 
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md
-test('Todo has no queue: every Todo card keeps its place, bumped first and the rest newest first', () => {
+test('Todo has no queue: every Todo card keeps its place, bumped first and the rest oldest first', () => {
   const at = (m) => `2026-11-04T10:${String(m).padStart(2, '0')}:00.000Z`;
   const items = [
     { id: 'A1', title: 'Blocker', status: 'building' },
@@ -1517,15 +1517,15 @@ test('Todo has no queue: every Todo card keeps its place, bumped first and the r
   const built = ({ events = [] } = {}) => buildBoard({ fromWaves: false, events, now: Date.parse(at(30)),
     waves: [{ slug: 'w', agents: runningBuilders('A1'), wave: { internal: true, items } }] });
   const lanes = (b) => b.items.filter((i) => i.kind === 'work').map((i) => `${i.id}:${i.lane}`);
-  const order = ['A1:progress', 'H1:todo', 'T1:todo', 'B1:todo', 'R2:todo', 'R1:todo'];
+  const order = ['A1:progress', 'R1:todo', 'R2:todo', 'B1:todo', 'T1:todo', 'H1:todo'];
   assert.deepEqual(lanes(built()), order);
   assert.equal(built().items.some((i) => 'queued' in i || 'queuedAt' in i), false);
 
   const bump = (kind, key, m) => ({ id: `${kind}${m}`, ts: at(m), kind, data: { key } });
-  assert.deepEqual(lanes(built({ events: [bump('card-bump', 'w/R1', 10)] })).slice(1, 3), ['R1:todo', 'H1:todo'], 'a bump puts its card on top');
-  assert.deepEqual(pullOf(built().items).pulls, ['w/R2', 'w/R1'], 'the pull takes the newest ready card first');
-  assert.deepEqual(pullOf(built({ events: [bump('card-bump', 'w/R1', 10)] }).items).pulls, ['w/R1', 'w/R2'], 'and a bump orders the ready cards');
-  assert.deepEqual(pullOf(built({ events: [bump('card-bump', 'w/R1', 10), bump('card-unbump', 'w/R1', 11)] }).items).pulls, ['w/R2', 'w/R1'], 'an unbump returns it to its place by time');
+  assert.deepEqual(lanes(built({ events: [bump('card-bump', 'w/R1', 10)] })).slice(1, 3), ['R1:todo', 'R2:todo'], 'a bump puts its card on top');
+  assert.deepEqual(pullOf(built().items).pulls, ['w/R1', 'w/R2'], 'the pull takes the oldest ready card first');
+  assert.deepEqual(pullOf(built({ events: [bump('card-bump', 'w/R2', 10)] }).items).pulls, ['w/R2', 'w/R1'], 'and a bump orders the ready cards');
+  assert.deepEqual(pullOf(built({ events: [bump('card-bump', 'w/R2', 10), bump('card-unbump', 'w/R2', 11)] }).items).pulls, ['w/R1', 'w/R2'], 'an unbump returns it to its place by time');
 });
 
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md

@@ -1,8 +1,10 @@
 ---
-status: superseded in part by 2026-11-03-0259-answered-asks-have-their-own-section-below-done and 2026-11-04-0121-in-progress-has-a-queued-section
+status: superseded in part by 2026-11-03-0259-answered-asks-have-their-own-section-below-done, 2026-11-04-0121-in-progress-has-a-queued-section and 2026-11-05-2345-new-todo-cards-join-the-bottom
 ---
 
 # Each lane has one fixed order
+
+Superseded in part by [new Todo cards join the bottom, so old ones leave first](2026-11-05-2345-new-todo-cards-join-the-bottom.md): Todo lists the cards after the bumped ones oldest first, not newest first.
 
 Superseded in part by [answered asks have their own section below Done, and Done and Asks show 10 cards at a time](2026-11-03-0259-answered-asks-have-their-own-section-below-done.md): answered asks sit in Asks, below Done, newest answer first.
 

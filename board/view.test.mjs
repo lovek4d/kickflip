@@ -3697,6 +3697,10 @@ test("Mark as done closes the card and leaves the page where it is as the card m
   board.items[2] = { ...board.items[2], builder: { progress: 'Tests pass' } };
   await b.change({ board });
   assert.deepEqual([flashing(), tinting()], [[], ['ask:b1', 'w/C1']]);
+  // docs/adr/2026-11-05-2345-new-todo-cards-join-the-bottom.md
+  board.items.push(workCard('C2'));
+  await b.change({ board });
+  assert.deepEqual(flashing(), ['w/C2'], 'a work card that joins Todo flashes once');
 });
 
 function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }) {
