@@ -71,9 +71,10 @@
     function topicBar() {
       const list = topicRow(topics, topicId).pills;
       if (list.length < 2) return '';
-      return `<div class="topics" role="group" aria-label="Topics">${list.map(pillHtml).join('')}</div>`;
+      return `<div class="topics" role="group" aria-label="Topics">${list.map((t) => pillHtml(t)).join('')}</div>`;
     }
-    const pillHtml = (t) => `<button data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
+    // An arrival (arrive) slides in with a glow and settles (style.css .arrived).
+    const pillHtml = (t, arrived = false) => `<button${arrived ? ' class="arrived"' : ''} data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
     const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
 
     // Only open questions changed here since their last answer, with files attached, or with a suggested option
@@ -393,7 +394,7 @@
       if (list.length < 2) bar?.remove();
       else if (!bar) page.insertAdjacentHTML('afterbegin', topicBar());
       else {
-        const pills = list.map((t) => bar.querySelector(`button[data-topic="${CSS.escape(t.id)}"]`) || fragmentOf(pillHtml(t)));
+        const pills = list.map((t) => bar.querySelector(`button[data-topic="${CSS.escape(t.id)}"]`) || fragmentOf(pillHtml(t, true)));
         for (const b of [...bar.children]) if (!pills.includes(b)) b.remove();
         pills.forEach((b, i) => {
           const t = list[i];

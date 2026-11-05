@@ -5244,12 +5244,15 @@ test("a topic or question arriving on Waiting on you inserts its pill or card in
   await v.settle();
   const card = v.root.querySelector('section.q[data-q="q1"]');
   const reload = async () => { v.page.fire(v.page.win.document, 'visibilitychange'); await v.settle(); };
+  card.querySelector('textarea').value = 'half typed';
 
   topics.splice(1, 0, { id: 'item:w/T2', title: 'INT-2: Filter' });
   v.server.questions.push(question('q2', 'item:w/T2'));
   await reload();
   assert.deepEqual(v.shown().pills, [['item:w/T1', 'true'], ['item:w/T2', 'false'], ['item:w/T3', 'false']]);
   assert.equal(v.root.querySelector('section.q[data-q="q1"]'), card, 'the open topic did not repaint');
+  assert.deepEqual(v.root.querySelectorAll('.topics button').map((b) => b.classList.contains('arrived')), [false, true, false], 'only the new pill slides in, then settles');
+  assert.equal(v.root.querySelector('textarea').value, 'half typed', 'the note being typed stays');
 
   v.server.questions.push(question('q1b', 'item:w/T1'));
   await reload();
