@@ -228,7 +228,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     signalGroup(run.child, 'SIGTERM');
     run.ending = new Promise((resolve) => {
       const finish = () => { clearTimeout(timer); clearInterval(check); resolve(); };
-      const timer = setTimeout(() => { signalGroup(run.child, 'SIGKILL'); finish(); }, 4000);
+      // A group still up after 4s is killed, then waited on (up to 1s more) until the kernel has removed it.
+      let timer = setTimeout(() => { signalGroup(run.child, 'SIGKILL'); timer = setTimeout(finish, 1000); }, 4000);
       const check = setInterval(() => {
         try { process.kill(-run.child.pid, 0); } catch { finish(); }
       }, 20);
