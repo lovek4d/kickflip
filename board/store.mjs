@@ -95,6 +95,9 @@ export async function itemSources(site) {
 
 export const threadFile = (site, key) => path.join(site, 'data', 'threads', key.replace(/[^\w.-]+/g, '__') + '.jsonl');
 const ownerFile = (site) => path.join(site, 'data', 'owner.json');
+// data/staged-questions.json {<wave>/<id>: [question]}: questions added to a card while a planner of it runs, held back from
+// owner.json until it finishes (docs/adr/2026-11-06-0100-a-grills-questions-appear-together-once-the-grill-is-done.md).
+const stagedFile = (site) => path.join(site, 'data', 'staged-questions.json');
 const needSite = (site) => site || fail('this command needs --site <route>');
 const text = (v, name) => (typeof v === 'string' && v.trim() ? v.trim() : fail(`${name} must be non-empty text`));
 const optional = (v, check) => (v === undefined ? undefined : check(v));
@@ -1163,7 +1166,8 @@ export async function addQuestions(site, input) {
   if (!questions.length) fail('the question file is empty');
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const items = owner.items || [];
-  const taken = new Set(items.map((q) => q.id));
+  const staged = await readJSON(stagedFile(site), {});
+  const taken = new Set([...items, ...Object.values(staged).flat()].map((q) => q.id));
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
@@ -1197,6 +1201,44 @@ export async function addQuestions(site, input) {
       if (!from.resolved) fail(`${name}.reask_of names ${id}, which is not resolved; only a resolved question is asked again`);
     });
   }
+  const lines = [];
+  const held = [];
+  for (const q of questions) {
+    const card = q.topic.startsWith('item:') && !q.topic.startsWith('item:ask:') ? q.topic.slice(5) : null;
+    const planner = card && await runningPlanner(site, card);
+    if (!planner) continue;
+    (staged[card] ||= []).push(q);
+    held.push(q);
+    lines.push(`staged: ${q.id} waits for ${card}'s ${planner} to finish; the card's staged questions then publish together`);
+  }
+  if (held.length) await writeJSON(stagedFile(site), staged);
+  if (held.length === questions.length) return { file: stagedFile(site), lines, staged: held.length };
+  return publishQuestions(site, owner, items, questions.filter((q) => !held.includes(q)), lines);
+}
+
+// The kind of the card's open planner record (grill or prototype), or null while none runs.
+async function runningPlanner(site, key) {
+  const { source } = await loadItem(site, key);
+  for (const file of await builderFiles(source.dir, parseKey(key).id)) {
+    const record = await readJSON(file, null);
+    if (record?.started && !record.done && plans(record)) return record.kind;
+  }
+  return null;
+}
+
+// Publishes the card's staged questions in the order added, with one write, once no planner of it runs. A planner that
+// finishes, fails or is stopped all end here, so none is lost.
+async function publishStaged(site, key) {
+  if (!site || await runningPlanner(site, key)) return;
+  const staged = await readJSON(stagedFile(site), {});
+  if (!staged[key]) return;
+  const { [key]: questions, ...rest } = staged;
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  await publishQuestions(site, owner, owner.items || [], questions, []);
+  await writeJSON(stagedFile(site), rest);
+}
+
+async function publishQuestions(site, owner, items, questions, lines) {
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   const { answers, requests } = await ownerEvents(site);
   const at = new Date().toISOString();
@@ -1229,7 +1271,7 @@ export async function addQuestions(site, input) {
   }
   const written = { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at }))] };
   await writeJSON(ownerFile(site), written);
-  return { file: ownerFile(site), lines: [...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
+  return { file: ownerFile(site), lines: [...lines, ...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
 }
 
 // The ids of a topic's answered questions that Claude acting on the card resolves.
@@ -1706,6 +1748,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (moved) resolved.push(moved);
   // A builder that forgot builder done would keep the card In Progress after it was handed back.
   if (pr !== undefined || pushed !== undefined || mergeReady !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
+  if (pr !== undefined || pushed !== undefined || mergeReady !== undefined || HANDED_BACK.includes(status)) await publishStaged(site, key);
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
@@ -1793,7 +1836,7 @@ export async function recordOwnerTap(site, kind, data) {
   setHold(item, data.hold ? { until } : null);
   await writeJSON(source.file, wave);
   // A hold stops the card's builders, so their records close: an open record with an exited process is relaunched.
-  if (data.hold) await closeBuilders(source.dir, id, false);
+  if (data.hold) { await closeBuilders(source.dir, id, false); await publishStaged(site, key); }
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   return appendThread(site, key, { text: data.hold ? (at ? `Held until ${at}.` : 'Held.') : 'Resumed.', who: 'love' });
 }
@@ -2665,6 +2708,7 @@ export async function abandonPlanner(site, key, text) {
   const file = await builderFile(site, key);
   const record = await readJSON(file, null);
   if (record && !record.done) await writeJSON(file, { ...record, done: new Date().toISOString() });
+  await publishStaged(site, key);
   await appendThread(site, key, { text });
 }
 
@@ -3084,6 +3128,7 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
     fail(`builder done closes ${key}'s last open builder, which leaves it In Progress with no Next; pass --next "<what happens next>", or hand it back with item set ${key} --status checking or land`);
   }
   await writeJSON(file, stopped);
+  await publishStaged(site, key);
   if (note) await statusToThread(site, key, agent, record, { detail: note }, done);
   if (cleared || next !== undefined) await writeJSON(source.file, wave);
   return file;

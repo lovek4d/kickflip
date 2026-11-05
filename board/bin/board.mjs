@@ -45,6 +45,9 @@ command fails and changes nothing.
           source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
           for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
           a board over ~/.claude/waves. A question on a done or merged card reopens it.
+         A question on an item: topic whose card has a grill or prototype planner running is staged, not published,
+         whoever adds it: it shows nowhere until the planner finishes, fails or is stopped, when every staged question
+         on the card publishes in the order added, with one owner push. The command says "staged" and why.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
          suggested: {option, card, answer} pre-checks the option the owner already chose on an earlier card, with a
@@ -854,10 +857,10 @@ const SAID = {
   reply: async (site, [id]) => `reply written to ${await store.eventCard(site, id)}`,
   thread: async (site, [key]) => `thread line on ${await card(site, key)}`,
   'topic add': (site, [id]) => `topic ${id} added`,
-  'question add': async (site, _, f, { asked }) => {
+  'question add': async (site, _, f, { asked, staged }) => {
     const topics = [...new Set(asked.map((q) => q.topic))];
     const on = topics.length !== 1 ? '' : topics[0].startsWith('item:') ? ` on ${await card(site, topics[0].slice(5))}` : ` on topic ${topics[0]}`;
-    return `${plural(asked.map((q) => q.id), 'question')} added${on}`;
+    return `${plural(asked.map((q) => q.id), 'question')} ${staged === asked.length ? 'staged' : 'added'}${on}`;
   },
   'question resolve': (site, [id]) => `question ${id} resolved`,
   'question move': (site, [ids], f) => `questions ${ids} merged onto ${f.to}`,

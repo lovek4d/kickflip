@@ -3969,3 +3969,32 @@ test('question move puts a merged question on one card, resolves the duplicates 
   assert.deepEqual([card('B2').deps, card('C3').deps], [['w/A1'], ['w/B2']]);
   assert.deepEqual([card('B2').related, card('C3').related], [['w/A1'], ['w/A1']]);
 });
+
+// docs/adr/2026-11-06-0100-a-grills-questions-appear-together-once-the-grill-is-done.md
+test("question add on a card with a planner running stages its questions; the planner's done publishes them together", () => {
+  const owner = site('orch', 'data', 'owner.json');
+  const add = (...ids) => { write(path.join(home, 'q.json'), ids.map((id) => question(id, { topic: 'item:w/A1' }))); return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')); };
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'grill').code, 0);
+  const staged = add('q1', 'q2');
+  assert.equal(staged.code, 0, staged.err);
+  assert.match(staged.out, /staged/);
+  assert.match(staged.out, /grill/);
+  assert.deepEqual(read(owner).items, []);
+  assert.equal(add('q1').code, 1);
+  assert.equal(add('q3').code, 0);
+  assert.equal(board('--site', 'orch', 'builder', 'done', 'w/A1', '--next', 'x').code, 0);
+  assert.deepEqual(read(owner).items.map((q) => q.id), ['q1', 'q2', 'q3']);
+  assert.equal(new Set(read(owner).items.map((q) => q.asked_at)).size, 1);
+  assert.match(add('q4').out, /added/);
+  assert.deepEqual(read(owner).items.map((q) => q.id), ['q1', 'q2', 'q3', 'q4']);
+});
+
+test("a planner that is stopped or abandoned publishes the questions staged on its card", () => {
+  const owner = site('orch', 'data', 'owner.json');
+  write(path.join(home, 'q.json'), question('q1', { topic: 'item:w/A1' }));
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'prototype').code, 0);
+  assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')).code, 0);
+  assert.deepEqual(read(owner).items, []);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+  assert.deepEqual(read(owner).items.map((q) => q.id), ['q1']);
+});
