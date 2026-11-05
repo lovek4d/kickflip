@@ -20,6 +20,7 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
     `${b} builder asks w/A1`, `${b} builder done w/A1 --text`, "git -c core.commentChar=';' rebase main", 'Never push',
   ]) assert.ok(brief.includes(want), `the brief has ${want}`);
   for (const phase of ['reading', 'building', 'testing', 'checking', 'landing']) assert.ok(brief.includes(`- ${phase}:`), `the brief says what ${phase} means`);
+  assert.ok(brief.includes("don't start the text with it"), 'the brief says not to lead with the phase word');
   assert.ok(!brief.includes(`${b} land`), 'done finishes the card, so the brief never runs land');
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'calls come before the finishing step');
   assert.match(builderBrief({ ...card, notes: null }), /no notes file/);
@@ -31,6 +32,7 @@ test("a lander's brief takes up the card's verified build, acts on the owner's a
   for (const want of [`${b} builder start w/A1 --kind build`, 'ask1 "Keep the badge?": Drop it: too loud', "git -c core.commentChar=';' rebase main", `${b} builder done w/A1 --text`, 'Never push']) {
     assert.ok(brief.includes(want), `the lander's brief has ${want}`);
   }
+  assert.ok(brief.includes("don't start the text with it"), 'the lander brief says not to lead with the phase word');
 });
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md

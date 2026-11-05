@@ -40,7 +40,7 @@ export function builderBrief({ route, key, ref, title, notes, worktree, base, ru
     `You are the headless builder for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person. Work only in ${worktree}. Never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind build\`. If it refuses, stop.`,
-    `2. Report progress with \`${b} builder progress ${key} --phase reading|building|testing|checking|landing "<plain, 80 characters or fewer>"\`, at least every 10 minutes. The phases:`,
+    `2. Report progress with \`${b} builder progress ${key} --phase reading|building|testing|checking|landing "<plain, 80 characters or fewer>"\`, at least every 10 minutes. The board adds the phase word; don't start the text with it. The phases:`,
     '   - reading: the notes and the code, until the first test is written.',
     '   - building: the tests and the code, the ADR and docs, and the commit.',
     '   - testing: the full suite run before you finish.',
@@ -71,7 +71,7 @@ export function landerBrief({ route, key, ref, title, worktree, base, answers = 
     `You are the headless lander for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its build is done and the orchestrator verified its judgment calls; it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind build --label Lander\`. If it refuses, stop.`,
-    `2. Report progress with \`${b} builder progress ${key} --phase landing "<plain, 80 characters or fewer>"\`.`,
+    `2. Report progress with \`${b} builder progress ${key} --phase landing "<plain, 80 characters or fewer>"\`. The board adds the phase word; don't start the text with it.`,
     ...(answers.length ? [
       "3. The owner answered the builder's deferred asks. Where an answer changes the build, change it, with its tests, and commit:",
       ...answers.map((a) => `- ${a.ask} "${a.question}": ${a.answer}`),

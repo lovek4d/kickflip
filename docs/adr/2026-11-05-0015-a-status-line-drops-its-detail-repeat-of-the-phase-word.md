@@ -1,0 +1,3 @@
+# A status line drops its detail's repeat of the phase word
+
+`statusToThread` (board/store.mjs) composes every phased status line as "<Head>: <detail>". A lander that wrote `--phase landing "Landing: rebase"` stored "Landing: Landing: rebase", and the card line repeated it. The composer now drops a leading repeat of the head or the bare phase word from the detail, case-insensitive, with or without a colon. The builder and lander briefs and SKILL.md also tell the agent not to lead with the phase word. Lines already stored stay as written. finish.mjs and server.mjs write no phased lines, so they needed no change.

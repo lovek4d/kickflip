@@ -2250,7 +2250,8 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
   const planner = plans(builder);
   const who = planner || agent === 'main' ? '' : modelName(builder) || builder.kind || agent;
   const head = planner ? PLANNER_WORD[builder.kind] : [who, phase].filter(Boolean).join(' ');
-  const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail}` : detail;
+  const repeat = new RegExp(`^(?:${head}|${phase ?? head})\\s*:?\\s+`, 'i');
+  const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail.replace(repeat, '')}` : detail;
   const file = threadFile(site, key);
   if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
   await appendLine(file, { ts, who: 'claude', kind: 'status', ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), text: body });
