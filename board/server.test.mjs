@@ -48,7 +48,8 @@ test("a held card's Merge records the tap on the card and runs board.mjs merge d
     assert.equal(answer.board.items.find((i) => i.key === 't/M1').merging, true);
     assert.equal(typeof JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'M1').merge_ready.tapped, 'string');
     assert.equal(events().includes('"card-merge"'), false);
-    await until(() => fs.existsSync(path.join(home, 'merges.jsonl')), 'the merge runs');
+    // The stand-in merge creates the file before it writes its line.
+    await until(() => fs.existsSync(path.join(home, 'merges.jsonl')) && fs.readFileSync(path.join(home, 'merges.jsonl'), 'utf8').endsWith('\n'), 'the merge runs');
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'merges.jsonl'), 'utf8').trim()), ['--site', 'site', 'merge', 't/M1']);
   } finally { if (before) fs.writeFileSync(waveFile, before); else fs.rmSync(waveFile); }
 });

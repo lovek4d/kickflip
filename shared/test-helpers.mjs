@@ -144,12 +144,23 @@ export function ownSession(home, session, pid = process.pid) {
 }
 
 // A ps on a PATH of its own that answers as /bin/ps does, and while stall(true) hangs past live.mjs's 3 s timeout, as
-// ps does on a heavily loaded Mac. → {bin: the folder to put first on PATH, stall(on)}
-export function stallingPs(dir) {
+// ps does on a heavily loaded Mac. Given standIn {lstart, ppid}, it answers live.mjs's start-time and parent queries
+// itself, without ps: every running pid started at lstart (ps -o lstart= text) with parent ppid, so a test's own
+// load can't push a real ps past that timeout. → {bin: the folder to put first on PATH, stall(on)}
+export function stallingPs(dir, standIn = null) {
   const bin = path.join(dir, 'stalling-ps');
   const flag = path.join(dir, 'ps-stalls');
   fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(path.join(bin, 'ps'), `#!/bin/sh\n[ -e '${flag}' ] && exec sleep 10\nexec /bin/ps "$@"\n`, { mode: 0o755 });
+  const answers = standIn ? [
+    'if [ "$1" = -o ] && [ "$3" = -p ]; then',
+    '  case "$2" in',
+    `    lstart=) kill -0 "$4" 2>/dev/null || exit 1; echo '${standIn.lstart}'; exit 0 ;;`,
+    `    ppid=) kill -0 "$4" 2>/dev/null || exit 1; echo ${standIn.ppid}; exit 0 ;;`,
+    `    pid=,lstart=) IFS=,; for p in $4; do kill -0 "$p" 2>/dev/null && echo "$p ${standIn.lstart}"; done; exit 0 ;;`,
+    '  esac',
+    'fi',
+  ] : [];
+  fs.writeFileSync(path.join(bin, 'ps'), ['#!/bin/sh', `[ -e '${flag}' ] && exec sleep 10`, ...answers, 'exec /bin/ps "$@"', ''].join('\n'), { mode: 0o755 });
   return { bin, stall: (on) => (on ? fs.writeFileSync(flag, '') : fs.rmSync(flag, { force: true })) };
 }
 

@@ -15,6 +15,10 @@ const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
 process.env.HOME = home;
 process.env.CLAUDE_CONFIG_DIR = path.join(home, 'claude-config');
+// ps is the stand-in for the whole file, here and in every CLI it runs: each live record's process started at START.
+const START = 'Thu Nov  5 00:00:00 2026';
+const ps = stallingPs(home, { lstart: START, ppid: process.pid });
+process.env.PATH = `${ps.bin}:${process.env.PATH}`;
 const { checkSessions, RESUME_AFTER, COMEBACK_WAIT, BG_SETTINGS } = await import('./sessions.mjs');
 const { WAIT_MS } = await import('./prompts.mjs');
 
@@ -87,8 +91,7 @@ const sleepers = [];
 const liveRecord = (sessionId, cwd) => {
   const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   sleepers.push(c);
-  const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(c.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
-  write(path.join(home, '.claude', 'sessions', `${c.pid}.json`), { pid: c.pid, sessionId, cwd, procStart, kind: 'interactive' });
+  write(path.join(home, '.claude', 'sessions', `${c.pid}.json`), { pid: c.pid, sessionId, cwd, procStart: START, kind: 'interactive' });
   return c;
 };
 
@@ -755,17 +758,15 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
 
   // ps is asked only about a pid that runs.
   const session = liveRecord('s-unknown', repo);
-  const ps = stallingPs(home);
   ps.stall(true);
   try {
-    const env = { PATH: `${ps.bin}:${process.env.PATH}` };
     const before = calls().length;
     write(web('manifest.json'), { ...(fs.existsSync(web('manifest.json')) ? manifest() : {}), sites: { ...(fs.existsSync(web('manifest.json')) ? manifest().sites : {}), ...m.sites } });
-    const refusals = [await cli(['resume', 'unknown'], { env }), await cli(['start', 'unknown'], { env })];
+    const refusals = [await cli(['resume', 'unknown']), await cli(['start', 'unknown'])];
     assert.deepEqual(refusals.map((x) => x.status), [1, 1]);
     for (const r of refusals) assert.match(r.stderr, /Couldn't tell whether session \S+ is live: ps gave no answer in time, as happens on a busy Mac\. Try again in a moment\./);
     assert.equal(calls().length, before, 'no second claude process');
-    const listed = await cli(['sessions'], { env });
+    const listed = await cli(['sessions']);
     assert.match(listed.stdout, /^\/unknown  s-unknown  live unknown \(ps gave no answer\)  /m);
     delete m.sites.unknown;
     write(web('manifest.json'), { ...manifest(), sites: Object.fromEntries(Object.entries(manifest().sites).filter(([route]) => route !== 'unknown')) });

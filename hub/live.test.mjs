@@ -3,11 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { liveOf, liveSessions, parentOf, processStarts, sessionGone } from './live.mjs';
 import { stallingPs } from '../shared/test-helpers.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
+// ps is the stand-in for the whole file: each sleeper, a child of this process, started at START.
+const START = 'Thu Nov  5 00:00:00 2026';
+const ps = stallingPs(dir, { lstart: START, ppid: process.pid });
+process.env.PATH = `${ps.bin}:${process.env.PATH}`;
 const sleepers = [];
 const sleeper = async () => {
   const c = spawn(process.execPath, ['-e', "process.send('ready'); setInterval(() => {}, 1000)"], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
@@ -15,7 +19,6 @@ const sleeper = async () => {
   await new Promise((resolve, reject) => { c.once('message', resolve); c.once('error', reject); c.once('exit', (code) => reject(new Error(`sleeper exited ${code}`))); });
   return c;
 };
-const lstart = (pid) => execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
 const record = (pid, sessionId, extra = {}) => fs.writeFileSync(path.join(dir, `${pid}.json`), JSON.stringify({ pid, sessionId, cwd: '/repo', kind: 'bg', ...extra }));
 
 after(() => { for (const c of sleepers) c.kill(); fs.rmSync(dir, { recursive: true, force: true }); });
@@ -35,9 +38,9 @@ test('liveSessions reads the session records and checks each pid and its start t
   const running = await sleeper();
   const reused = await sleeper();
   const gone = await sleeper();
-  record(running.pid, 'live-one', { procStart: lstart(running.pid) });
+  record(running.pid, 'live-one', { procStart: START });
   record(reused.pid, 'reused-pid', { procStart: 'Thu Oct 01 00:00:00 2026' });
-  record(gone.pid, 'exited', { procStart: lstart(gone.pid) });
+  record(gone.pid, 'exited', { procStart: START });
   fs.writeFileSync(path.join(dir, 'broken.json'), '{');
   const exited = new Promise((resolve) => gone.once('exit', resolve));
   gone.kill();
@@ -65,12 +68,9 @@ test("a watcher's session is gone once its shell or the shell's parent changes, 
 
 test("a ps that times out leaves every liveness unknown, so a live session's watcher isn't told it is gone", { timeout: 60000 }, async (t) => {
   const running = await sleeper();
-  record(running.pid, 'stalled', { procStart: lstart(running.pid) });
-  const ps = stallingPs(dir);
-  const PATH = process.env.PATH;
-  process.env.PATH = `${ps.bin}:${PATH}`;
-  t.after(() => { process.env.PATH = PATH; ps.stall(false); });
-  assert.deepEqual([...liveSessions({ dir, session: 'stalled' }).keys()], ['stalled'], 'the stand-in ps answers as ps does');
+  record(running.pid, 'stalled', { procStart: START });
+  t.after(() => ps.stall(false));
+  assert.deepEqual([...liveSessions({ dir, session: 'stalled' }).keys()], ['stalled'], 'the stand-in ps answers before it stalls');
   assert.equal(parentOf(running.pid), process.pid);
   ps.stall(true);
   assert.equal(processStarts([running.pid]), null);
