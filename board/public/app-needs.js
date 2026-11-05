@@ -140,6 +140,15 @@ BoardView.part((B) => {
     picked.focus();
     picked.scrollIntoView({ block: 'nearest' });
   });
+  // A double-click on a pane pill focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>),
+  // wave:<slug> a band; any other topic, or one the board doesn't show, does nothing.
+  B.on(B.root, 'dblclick', (ev) => {
+    const pill = questions && ev.target.closest?.('button[data-topic]');
+    if (!pill || !questions.slot.contains(pill)) return;
+    const id = pill.dataset.topic;
+    if (id.startsWith('item:')) B.focusOnBoard({ key: id.slice(5) });
+    else if (id.startsWith('wave:')) B.focusOnBoard({ slug: id.slice(5) });
+  });
   fitPane();
   B.on(wide, 'change', fitPane);
   B.atUnmount(() => { questions?.unmount(); questions = null; });

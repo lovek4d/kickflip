@@ -232,6 +232,15 @@ window.BoardView = (function () {
       ev.preventDefault();
       readHash(); render(); scrollToFocus();
     });
+    // Opens and scrolls to the card key or the band slug on the board → whether the board shows it.
+    function focusOnBoard({ key, slug }) {
+      const band = slug && state.board?.waveBands?.find((b) => b.slug === slug);
+      if (!band && !state.board?.items.some((i) => i.key === key)) return false;
+      if (key) { location.hash = `#item=${encodeURIComponent(key)}`; readHash(); } else B.openBand({ slug });
+      render();
+      if (key) scrollToFocus(); else $(`section.wb[data-band="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'start' });
+      return true;
+    }
     // A card missing from the last visit's board waits for the fresh one, which is final.
     function scrollToFocus(final = true) {
       if (!focusKey) return;
@@ -372,7 +381,7 @@ window.BoardView = (function () {
       signalled();
       render();
     }
-    Object.assign(B, { render, loadBoard, send, failed, stillWaiting, reload: signalled });
+    Object.assign(B, { render, focusOnBoard, loadBoard, send, failed, stillWaiting, reload: signalled });
     const live = paintSnapshot();
     B.headerWired();
     if (live) B.linkUp();

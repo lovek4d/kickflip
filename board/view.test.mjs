@@ -5156,6 +5156,28 @@ test("on a desktop, a link into open questions focuses that topic's pill in the 
   assert.equal(link(narrow, 'questions.html#q2').defaultPrevented, false, 'a phone follows the link');
 });
 
+test("on a desktop, double-clicking a pill in the pane opens that topic's card on the board and scrolls to it, a wave topic opens its band, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
+  const idle = { running: false, questions: 0 };
+  const band = { kind: 'lineup', slug: 'alpha', title: 'Alpha', goal: null, keys: ['w/T1'], phases: [['w/T1']], next: null, merged: 0, total: 1, triage: idle };
+  const board = { ...deckBoard([deckQuestion('q1', 'item:w/T1'), deckQuestion('q2', 'wave:alpha'), deckQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')], waveBands: [band] };
+  const wide = boardOnDom({ board, threads: {}, width: 1280 });
+  await wide.settle();
+  const scrolled = [];
+  wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.band || this.dataset.topic); };
+  const dbl = async (id) => { wide.page.fire(wide.root, 'dblclick', { target: wide.root.querySelector(`#needsPane button[data-topic="${id}"]`) }); await wide.settle(); };
+  await dbl('item:w/T1');
+  assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#item=w%2FT1', true, 'w/T1'], 'a card topic opens its card');
+  scrolled.length = 0;
+  await dbl('wave:alpha');
+  assert.deepEqual(scrolled, ['alpha'], 'a wave topic scrolls to its band');
+  scrolled.length = 0;
+  await dbl('item:w/T9');
+  assert.deepEqual([scrolled, wide.page.win.location.hash], [[], '#item=w%2FT1'], 'a topic with nothing on the board does nothing');
+  const narrow = boardOnDom({ board, threads: {} });
+  await narrow.settle();
+  assert.equal(narrow.root.querySelector('#needsPane button[data-topic]'), null, 'a phone has no pane to double-click');
+});
+
 test("a topic or question arriving on Waiting on you inserts its pill or card in place, leaving the open topic's cards and the note being typed as they were", async () => {
   const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const topics = [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T3', title: 'INT-3: Sort' }];
