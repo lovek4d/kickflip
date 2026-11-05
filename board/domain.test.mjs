@@ -441,21 +441,22 @@ test('needs lists each Needs you line: open topics apart from items, then items 
   assert.deepEqual(lines(settling).map((n) => ({ ...n, text: refKind(n.text.split(': ')[0]) + n.text.slice(n.text.indexOf(': ')) })), [{ kind: 'Action needed', text: 'asked: a1 first line · Pick a take', url: '#item=ask%3Aa1' }]);
 });
 
-test('needs lists the line that has waited longest first: its oldest open question, else its card since it started waiting', () => {
+test("needs sorts each card's line by its card's created time, and a topic with no card by its oldest open question", () => {
   const owner = {
     topics: [{ id: 'site', title: 'Site' }],
     items: [
       { id: 'q1', topic: 'site', question: 'Open?', asked_at: '2026-10-23T12:00:00Z' },
-      { id: 'q2', topic: 'item:w/A1', question: 'Keep it?', asked_at: '2026-10-23T09:00:00Z' },
-      { id: 'q3', topic: 'item:w/A1', question: 'Again?', asked_at: '2026-10-23T08:00:00Z' },
+      { id: 'q2', topic: 'item:w/A1', question: 'Keep it?', asked_at: '2026-10-23T20:00:00Z' },
     ],
   };
-  assert.deepEqual(board({ owner }).needs.map((l) => [l.text.split(' · ')[0], l.since]), [['A1: One', '2026-10-23T08:00:00Z'], ['Site', '2026-10-23T12:00:00Z']]);
-  const earlier = { ...owner, items: owner.items.map((q) => (q.id === 'q1' ? { ...q, asked_at: '2026-10-23T07:00:00Z' } : q)) };
-  assert.deepEqual(board({ owner: earlier }).needs.map((l) => l.text.split(' · ')[0]), ['Site', 'A1: One']);
+  const names = (b) => b.needs.map((l) => l.text.split(' · ')[0]);
+  assert.deepEqual(names(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['A1: One', 'Site'], 'the card was created first, though asked last');
+  assert.deepEqual(board({ owner, item: { created: '2026-10-23T10:00:00Z' } }).needs.map((l) => l.since), ['2026-10-23T10:00:00Z', '2026-10-23T12:00:00Z']);
+  const newer = board({ owner, item: { created: '2026-10-23T13:00:00Z' } });
+  assert.deepEqual(names(newer), ['Site', 'A1: One']);
   const pills = (b) => b.ownerTopics.filter((t) => t.open > 0).map((t) => t.id);
-  assert.deepEqual(pills(board({ owner })), ['item:w/A1', 'site'], "Waiting on you's topics follow Needs you");
-  assert.deepEqual(pills(board({ owner: earlier })), ['site', 'item:w/A1']);
+  assert.deepEqual(pills(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['item:w/A1', 'site'], "Waiting on you's topics follow Needs you");
+  assert.deepEqual(pills(newer), ['site', 'item:w/A1']);
 });
 
 test("the board session's pending prompts lead Needs you, each a Prompt line carrying its details, and the summary and the hub's needs count them", () => {

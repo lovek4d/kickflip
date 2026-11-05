@@ -1143,8 +1143,8 @@ function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, waves
 }
 
 // Needs you: one line per topic not tied to an item with open questions, and one per item with open
-// questions or a draft waiting on Ready, oldest first by since: when the line's oldest open question was asked, else
-// when its card began waiting on the owner (its review start, else its last update). A line with no stamp comes last,
+// questions or a draft waiting on Ready, oldest first by since: its card's created time, the key Todo sorts by; a topic with no card
+// has none, so it takes when its oldest open question was asked. A line with no stamp comes last,
 // in board order (docs/adr/2026-11-05-2130-needs-you-feeds-oldest-first.md). Answered questions wait on Claude, so they don't count. A held item has
 // its line like any other: held only stops the automatic pull (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 // {kind, text, url} is the GET /_claude/needs contract (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md);
@@ -1167,7 +1167,7 @@ function needsOf(items, topics, questions) {
     const title = `${it.ref}: ${it.title}`;
     const text = [title, asking && plural(asking.open, 'question'), ready && 'Ready on GitHub', other?.label].filter(Boolean).join(' · ');
     return { kind: asking ? 'Question' : ready ? 'Tap Ready' : 'Action needed', title, text, url: `#item=${encodeURIComponent(it.key)}`, key: it.key, questions: asking, ready, action: other,
-      since: (asking ? it.questions.askedAt[0] : it.reviewSince || it.updatedAt) || null };
+      since: it.created || null };
   }).filter(Boolean);
   return [...fromTopics, ...fromItems].sort(oldestFirst);
 }
