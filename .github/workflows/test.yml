@@ -1,0 +1,23 @@
+# Runs the release's test step on demand, so a release candidate is proven on CI's runner before its tag is pushed.
+name: test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Test
+        run: |
+          git config --global user.name "kickflip release"
+          git config --global user.email "release@users.noreply.github.com"
+          node --test
