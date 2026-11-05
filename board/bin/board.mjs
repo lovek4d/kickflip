@@ -472,6 +472,13 @@ command fails and changes nothing.
                                                          and the card's --size and --model: "codex: <reason>" or
                                                          "claude sonnet: <reason>". Pass that kind to builder start
                                                          --kind, and launch that model
+  audit [<wave>/<id>]                                    the board's audit log of the last 30 days, data/audit.jsonl:
+                                                         each call the code made on its own (builder-pick, pull,
+                                                         released-start, launch-held, arrival-planner, relaunch,
+                                                         lander, triage, pr-review, push, pick-up, auto-merge,
+                                                         ready-draft, session-resume, compact) as "<at> <call>
+                                                         [<key>]: <result>. <reason>" and the inputs it read; with
+                                                         a card, only that card's. The hub's own: kickflip audit
   builder call <wave>/<id> <judgment call>             appends one line to the agent's open builder record: a
          [--agent <name>]                                judgment call as the builder makes it, or a "Question: …"
                                                          for the session; refused with no open record. A builder start
@@ -761,6 +768,10 @@ const COMMANDS = {
     return store.stopBuilder(site, key, { ...f, requireNext: true });
   }],
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
+  audit: [['...wave/id?'], [], (site, [key, ...more]) => {
+    if (more.length) throw new UsageError('audit takes one <wave/id> at most');
+    return store.auditLog(site, key);
+  }],
   'builder call': [['wave/id', '...text'], ['dir', 'agent'], (site, [key, ...words], f) => store.recordCall(site, key, words.join(' '), f)],
   'builder calls': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.listCalls(site, key, f)],
   'builder ask': [['wave/id', '...text'], ['agent'], (site, [key, ...words], f) => store.askOrchestrator(site, key, words.join(' '), f)],

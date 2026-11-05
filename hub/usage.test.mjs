@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 
 const originalHome = process.env.HOME;
@@ -153,6 +155,32 @@ test('the hub remembers the gate across ticks and restarts, wakes after paused a
   await check('paused', 'seven_day');
   await check('normal');
   assert.deepEqual(woke, ['five_hour', 'seven_day']);
+});
+
+// docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+test("each pause that starts, and each that lifts and wakes the boards, goes in the hub's audit log, which kickflip audit prints", async (t) => {
+  const f = fixture(t);
+  const cli = () => spawnSync(process.execPath, [fileURLToPath(new URL('../bin/kickflip.mjs', import.meta.url)), 'audit'], { env: { ...process.env, HOME: f.home }, encoding: 'utf8' });
+  assert.deepEqual([cli().status, cli().stdout], [0, 'No calls in the last 30 days.\n']);
+  const check = (state, window = null) => checkUsagePause({ home: f.home, gate: { state, window, pause_at: 90, used: window && 91 }, resume: async () => {} });
+  await check('normal');
+  await check('paused', 'five_hour');
+  await check('paused', 'five_hour');
+  await check('going', 'five_hour');
+  await check('normal');
+  await check('paused', 'seven_day');
+  await check('normal');
+  const log = fs.readFileSync(f.file('.claude', 'kickflip', 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(log.map((e) => [e.call, e.result, e.reason]), [
+    ['usage-pause', 'paused', "Claude's 5-hour usage reached the 90% line."],
+    ['usage-pause', 'paused', "Claude's weekly usage reached the 90% line."],
+    ['usage-resume', 'resumed', "Claude's weekly usage is under the line again, so every board was told."],
+  ]);
+  assert.deepEqual(log[0].inputs, { gate: { state: 'paused', window: 'five_hour', pause_at: 90, used: 91 }, previous: 'normal' });
+  const printed = cli();
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.match(printed.stdout, /^\S+ usage-pause: paused\. Claude's 5-hour usage reached the 90% line\.\n {2}inputs: \{"gate":/);
+  assert.equal(printed.stdout.trim().split('\n').length, 6);
 });
 
 test('a session\'s context reading is its saved percent and time, null without one', () => {

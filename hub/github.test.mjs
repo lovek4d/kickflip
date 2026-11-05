@@ -166,6 +166,7 @@ function fileBoard(route, cfg, items) {
     thread: (key) => lines(path.join(dir, 'data/threads', `${key.replace('/', '__')}.jsonl`)),
     events: () => lines(path.join(dir, 'data/events.jsonl')),
     wave: () => JSON.parse(fs.readFileSync(path.join(dir, 'data/wave.json'), 'utf8')),
+    audit: () => lines(path.join(dir, 'data/audit.jsonl')),
   };
 }
 
@@ -287,6 +288,17 @@ test("on a board with auto-merge on, the poll merges an approved, green, clean P
   const second = await auto.poll();
   assert.deepEqual(second.failed, ['auto: could not merge a/A3 (gh pr merge #92 failed: base branch policy prohibits the merge)']);
   assert.equal(auto.wave().items[2].status, undefined);
+  // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: each merge the
+  // poll tries goes in the board's audit log, with what it read; a board with auto-merge off logs none.
+  const why = (pr) => `Auto-merge is on and PR #${pr} is approved, green and clean.`;
+  assert.deepEqual(auto.audit().map((e) => [e.call, e.key, e.result, e.reason]), [
+    ['auto-merge', 'a/A1', 'merged', why(90)],
+    ['auto-merge', 'a/A2', 'not merged', `${why(91)} ${auto.audit()[1].reason.slice(why(91).length + 1)}`],
+    ['auto-merge', 'a/A3', 'not merged', `${why(92)} gh pr merge #92 failed: base branch policy prohibits the merge`],
+  ]);
+  assert.match(auto.audit()[1].reason, /^Auto-merge is on and PR #91 is approved, green and clean\. Not merged:/);
+  assert.deepEqual(auto.audit()[0].inputs, { repo: 'o/r', pr: 90, reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', checks: 'passed' });
+  assert.deepEqual(manual.audit(), []);
 });
 
 test("the poll reads every PR on a card in its own repo, and closes the card only once all have merged or closed, one merged", async () => {

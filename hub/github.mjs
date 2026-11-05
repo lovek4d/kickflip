@@ -23,6 +23,7 @@ import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKe
 import { appendThread, setItem, mergedLine, mergeCard } from '../board/store.mjs';
 import { allLanded, cardPRs, leastReady } from '../shared/card-prs.mjs';
 import { runOwnerChecks } from './owner-checks.mjs';
+import { audit, boardAudit, hubAudit } from '../shared/audit.mjs';
 
 export const CHANGE_KINDS = ['ci', 'review', 'comments', 'merged', 'mergeable', 'draft', 'linked'];
 
@@ -277,8 +278,13 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
 async function readyGreenDraft(board, { p, key }, view, readied, failed) {
   if (readied.has(key) || view?.state !== 'OPEN' || !view.isDraft || !checksPassed(view.statusCheckRollup)) return;
   readied.add(key);
+  const entry = { call: 'ready-draft', key: `${p.wave}/${p.id}`, reason: `The board skips the draft and PR #${p.pr}'s CI passed.`, inputs: { repo: p.repo, pr: p.pr, isDraft: view.isDraft, checks: 'passed' } };
   try { await markReady({ repo: p.repo, pr: p.pr }); }
-  catch (err) { failed.push(`${board.route}: could not mark ${key} ready for review (${err.message})`); return; }
+  catch (err) {
+    audit(boardAudit(board.dir), { ...entry, result: 'failed', reason: `${entry.reason} gh failed: ${err.message}` }, { once: true });
+    failed.push(`${board.route}: could not mark ${key} ready for review (${err.message})`); return;
+  }
+  audit(boardAudit(board.dir), { ...entry, result: 'marked ready' });
   try { await appendThread(board.dir, `${p.wave}/${p.id}`, { text: `CI passed, so PR #${p.pr} is marked ready for review.` }); }
   catch (err) { failed.push(`${board.route}: could not write ${p.wave}/${p.id}'s ready line (${err.message})`); }
 }
@@ -292,8 +298,14 @@ async function mergeApproved(board, { p }, view, tried, failed) {
   const key = JSON.stringify([board.dir, card]);
   if (tried.has(key) || view?.state !== 'OPEN' || view.isDraft || view.reviewDecision !== 'APPROVED' || view.mergeStateStatus !== 'CLEAN' || !checksPassed(view.statusCheckRollup)) return;
   tried.add(key);
-  try { await mergeCard(board.dir, card); }
-  catch (err) { if (!err.message.startsWith('Not merged:')) failed.push(`${board.route}: could not merge ${card} (${err.message})`); }
+  const entry = { call: 'auto-merge', key: card, reason: `Auto-merge is on and PR #${p.pr} is approved, green and clean.`, inputs: { repo: p.repo, pr: p.pr, reviewDecision: view.reviewDecision, mergeStateStatus: view.mergeStateStatus, checks: 'passed' } };
+  try {
+    await mergeCard(board.dir, card);
+    audit(boardAudit(board.dir), { ...entry, result: 'merged' });
+  } catch (err) {
+    audit(boardAudit(board.dir), { ...entry, result: 'not merged', reason: `${entry.reason} ${err.message}` }, { once: true });
+    if (!err.message.startsWith('Not merged:')) failed.push(`${board.route}: could not merge ${card} (${err.message})`);
+  }
 }
 
 async function advanceLinear(boards, fetched, fetchKey, result) {
@@ -324,6 +336,7 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
           ticket.items.set(key, { ...carrying, failed: carrying.failed || previous?.failed });
           ticket.scoped ||= summaries.some(Boolean);
           ticket.created ||= item.ticket === id && Boolean(item.ticket_created);
+          ticket.cards = [...(ticket.cards || []), `${board.route}:${slug}/${item.id}`];
         }
       }
     }
@@ -335,10 +348,18 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
       : items.every((item) => item.merged || item.ready) ? 'review'
       : items.some((item) => item.hasPR) ? 'started' : null;
     if (!target) continue;
+    const reason = { done: 'Every card on it has merged.', review: 'Every card on it has merged or has a PR ready for review.', started: 'A card on it has a PR.' }[target];
+    const entry = { call: 'linear-move', key: id, reason, inputs: { target, cards: ticket.cards, items } };
     try {
       const state = await client.advanceIssue(id, target, { owner: client.saved.viewer.id, created: ticket.created });
-      if (state) result.moved.push({ id, state });
-    } catch (e) { result.failed.push(`linear ${id}: ${e.message}`); }
+      if (state) {
+        result.moved.push({ id, state });
+        audit(hubAudit(), { ...entry, result: `moved to ${state}` });
+      }
+    } catch (e) {
+      audit(hubAudit(), { ...entry, result: 'failed', reason: `${reason} ${e.message}` }, { once: true });
+      result.failed.push(`linear ${id}: ${e.message}`);
+    }
   }
 }
 

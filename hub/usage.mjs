@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { audit, hubAudit } from '../shared/audit.mjs';
 
 const CODEX_FILES = 6;
 const SAME_WINDOW_S = 180;
@@ -118,10 +119,18 @@ export function contextReading(session, { home = os.homedir() } = {}) {
   return num(saved?.percent) == null || !saved.at ? null : { percent: num(saved.percent), at: saved.at };
 }
 
+// docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: a pause that
+// starts, and one that lifts and wakes the boards, go in the hub's audit log with the gate they read.
 export async function checkUsagePause({ gate, home = os.homedir(), resume }) {
   const file = path.join(home, '.claude', 'kickflip', 'usage-gate-state.json');
   const previous = readJson(file);
-  if (previous?.state === 'paused' && gate.state === 'normal') await resume(previous.window);
+  if (gate.state === 'paused' && previous?.state !== 'paused') {
+    audit(hubAudit(home), { call: 'usage-pause', result: 'paused', reason: `Claude's ${gate.window === 'five_hour' ? '5-hour' : 'weekly'} usage reached the ${gate.pause_at}% line.`, inputs: { gate, previous: previous?.state ?? null } });
+  }
+  if (previous?.state === 'paused' && gate.state === 'normal') {
+    audit(hubAudit(home), { call: 'usage-resume', result: 'resumed', reason: `Claude's ${previous.window === 'five_hour' ? '5-hour' : 'weekly'} usage is under the line again, so every board was told.`, inputs: { gate, previous: previous.window } });
+    await resume(previous.window);
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(gate) + '\n');

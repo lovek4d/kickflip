@@ -445,6 +445,11 @@ test('the wake resumes the session in place with a prompt naming its id, and win
   assert.match(call.argv.at(-1), new RegExp(`join --name 'Wake' --session ${id}\``));
   assert.deepEqual([read(cursor), manifest().sites.wake.owner.session], [{ 'data/events.jsonl': 1 }, id]);
   assert.deepEqual((await check()).resumed, []);
+  // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+  const logged = fs.readFileSync(path.join(dir, 'data', 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(logged.map((e) => [e.call, e.result, e.reason, e.inputs.listening, e.inputs.live, e.inputs.asked]), [
+    ['session-resume', 'resumed', "An event waited while the board's session wasn't listening.", false, false, false],
+  ]);
 });
 
 test('the wake gives a session with no watcher cursor the mark as its cursor, for a watched file named __proto__', async () => {

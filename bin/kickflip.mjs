@@ -150,6 +150,11 @@
 //               prints {pause_at, state, window, used, resets_at, codex: {past, window, used, resets_at}}; a read exits 0.
 //               pause-at saves the line in steps of 5 (default 90, 100 Off); keep-going lifts the current Claude pause
 //               until its window resets; stop restores it. Codex hands work to Opus past the same line.
+//   kickflip audit
+//               prints the hub's audit log of the last 30 days (~/.claude/kickflip/audit.jsonl): each call the hub's code
+//               made on its own for no one board (usage-pause, usage-resume, linear-move) as
+//               "<at> <call> [<ticket>]: <result>. <reason>" and the inputs it read. A board's own calls are in its
+//               data/audit.jsonl: board.mjs --site <route> audit (docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md)
 //   kickflip poll-now [--keep-queue]
 //               asks the hub for one poll now (GitHub check, github-change events,
 //               checked.json, then the queue unless --keep-queue) and prints its result
@@ -933,6 +938,12 @@ const commands = {
       }
       out(readUsageGate());
     } catch (e) { if (e.status) fail(e.message, e.status === 400 ? 2 : 1); throw e; }
+  },
+
+  async audit() {
+    if (rest.length) fail('audit takes no arguments', 2);
+    const { readAudit, auditLines, hubAudit } = await import('../shared/audit.mjs');
+    out(auditLines(readAudit(hubAudit())).join('\n'));
   },
 
   async 'poll-now'() {

@@ -294,6 +294,14 @@ test('with auto implement on the board starts and launches the build of the top 
     assert.deepEqual(thread('A5').slice(0, 2).map((t) => t.replace(/ in .*/, '')), ['Pulled in: an implementer slot was free.', 'Builder launched on Claude Opus']);
     assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'A5.json'), 'utf8')).dispatched, 'hub');
     assert.ok(!fs.readFileSync(eventsFile, 'utf8').includes('card-pull'), 'no event wakes the session');
+    // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pull and
+    // the pick it started on are in the board's audit log, with what each read.
+    const logged = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    const pull = logged.find((e) => e.call === 'pull');
+    assert.deepEqual([pull.key, pull.result, pull.reason, pull.inputs.cap, pull.inputs.pullable.includes('t/A5')], ['t/A5', 'started', 'An implementer slot was free and it was the top ready card in Todo.', 2, true]);
+    const pick = logged.find((e) => e.call === 'builder-pick');
+    assert.deepEqual([pick.key, pick.result, pick.inputs.dispatch, pick.inputs.codex], ['t/A5', 'claude opus', 'hub', 'not logged in']);
+    assert.ok(logged.indexOf(pick) < logged.indexOf(pull), 'the pick is logged as the start makes it, the pull once the start returns');
     await stop();
     fs.rmSync(pulledFile, { force: true });
     await start();
@@ -613,6 +621,13 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
     assert.deepEqual(launched('prototype'), ['t/B2']);
     assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);
     assert.deepEqual(thread('B2')[0], 'Landed in Todo, so the board started its prototype.');
+    // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+    const arrivals = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.call === 'arrival-planner');
+    assert.deepEqual(arrivals.map((e) => [e.key, e.result, e.reason, e.inputs.state]).sort(), [
+      ['t/B2', 'prototype', 'It landed in Todo filed prototyping.', 'prototyping'],
+      ['t/B3', 'grill', 'It landed in Todo, not filed prototyping.', 'grilling'],
+      ['t/B4', 'grill', 'It landed in Todo, not filed prototyping.', null],
+    ]);
     // B3's grill finishes with no questions: one grill per arrival, so it isn't grilled again.
     put(agentFile('B3'), JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile('B3'), 'utf8')), done: iso(now) }));
     await tick();

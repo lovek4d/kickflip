@@ -60,17 +60,20 @@ export const heldUsageEvent = (line) => {
 
 // Who builds a card, codex or claude: Codex while it is usable, the Codex share in effect is auto or always, and Codex is
 // under the pause line, else Claude (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md), with the
-// model claudePick gives. card is the card's wave entry, whose size and model Auto reads.
-// → {kind, model?, reason}
+// model claudePick gives. card is the card's wave entry, whose size and model Auto reads. inputs is what the pick read,
+// up to the point it decided, for the audit log (shared/audit.mjs).
+// → {kind, model?, reason, inputs}
 export function builderPick({ home = os.homedir(), now = Date.now(), card = {} } = {}) {
-  const claude = (why) => { const { model, reason } = claudePick(readClaudeModel(home), card); return { kind: 'claude', model, reason: `${why} ${reason}` }; };
   const status = codexStatus({ home });
+  const inputs = { codex: status.reason ?? 'usable', claudeModel: readClaudeModel(home), size: card.size ?? null, cardModel: card.model ?? null };
+  const claude = (why) => { const { model, reason } = claudePick(inputs.claudeModel, card); return { kind: 'claude', model, reason: `${why} ${reason}`, inputs }; };
   if (!status.usable) return claude(status.words);
-  const codexShare = effectiveCodexShare(readSettingsFile(home).codexShare, status);
-  if (codexShare === 'off') return claude('Codex share is off.');
+  inputs.codexShare = effectiveCodexShare(readSettingsFile(home).codexShare, status);
+  if (inputs.codexShare === 'off') return claude('Codex share is off.');
   const gate = readUsageGate({ home, now });
+  Object.assign(inputs, { pauseAt: gate.pause_at, codexUsage: gate.codex });
   if (gate.codex.past) return claude(`Codex is at ${Math.round(gate.codex.used)}%, past the ${gate.pause_at}% line until ${gate.codex.resets_at}.`);
-  return { kind: 'codex', reason: `Codex share is ${codexShare} and Codex is under the ${gate.pause_at}% line.` };
+  return { kind: 'codex', reason: `Codex share is ${inputs.codexShare} and Codex is under the ${gate.pause_at}% line.`, inputs };
 }
 
 // The hub's Claude model (hub/push.mjs readClaudeModel) forces Opus or Sonnet; Auto takes the card's own model, else

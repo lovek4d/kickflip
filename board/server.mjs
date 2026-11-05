@@ -262,7 +262,8 @@ import { routeRecord } from '../hub/routes.mjs';
 import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
-import { readUsageGate, heldFor } from '../shared/usage-gate.mjs';
+import { readUsageGate, heldFor, pauseReasonFor } from '../shared/usage-gate.mjs';
+import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
@@ -283,6 +284,9 @@ async function pageHeaders(html) {
 const here = path.resolve(process.argv[2] || process.cwd());
 const roots = [path.join(here, 'public'), path.join(template, 'public'), path.join(template, '..', 'starter', 'public'), path.join(template, '..', 'shared')];
 const data = path.join(here, 'data');
+// docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: each call this
+// server makes on its own goes in the board's audit log, {call, key?, result, reason, inputs}.
+const logCall = (entry) => audit(boardAudit(here), entry);
 const events = path.join(data, 'events.jsonl');
 const replies = path.join(data, 'replies');
 const port = Number(process.env.PORT || 4600);
@@ -1257,6 +1261,7 @@ async function checkPickUps() {
     const sent = due.length ? await readLines(events) : [];
     for (const { key, heldUntil: until } of due) {
       await pickUp(here, key, until, { announce: !sent.some((e) => e.kind === 'card-unblocked' && e.data?.key === key && e.data?.until === until) });
+      logCall({ call: 'pick-up', key, result: 'resumed', reason: 'Its hold ended.', inputs: { heldUntil: until } });
     }
   } catch (err) {
     console.error('Pick-up check failed:', err.message);
@@ -1292,21 +1297,32 @@ async function runAuto() {
   const settings = settingsOf(await config());
   const log = await readLines(events);
   const { items, reviews } = await sharedBoard();
-  const { idle, waiting, starts, pulls } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
+  const { idle, pullable, waiting, starts, pulls } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
   heldByPause = readUsageGate().state === 'paused';
   const ready = idle && !heldByPause;
   for (const key of heldByPause ? [] : starts) {
-    await handOff(await startReleasedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts)));
+    const started = await startReleasedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
+    logCall({ call: 'released-start', key, result: startResult(started), reason: 'Its Implement message was folded in and it was released ready.', inputs: { cap: settings.max_implementers } });
+    await handOff(started);
   }
   if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'));
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   if (await checkTriage(settings, log, items, ready)) return;
-  const startPull = async (key) => handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
+  const startPull = async (key) => {
+    const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
+    logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready card in Todo.', inputs: { cap: settings.max_implementers, pullable, waiting, starts } });
+    return handOff(started);
+  };
   if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, startPull)) return;
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
   const { due, repo } = reviews;
-  if (ready && due) await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
+  if (!ready || !due) return;
+  logCall({ call: 'pr-review', result: 'asked', reason: `The board is idle and PR #${due.number} touches its work.`, inputs: { repo, pr: due.number, head: due.head, touches: due.touches, asked: Boolean(due.asked) } });
+  await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
 }
+
+// What a start the server made came to, for the audit log: started, bumped behind its blockers, or refused.
+const startResult = (started) => (!started ? 'refused' : started.bumped ? 'bumped' : 'started');
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 // A build the server started ({key, kind, model, worktree}, startTappedBuild's) launches its builder here, Claude or
@@ -1319,8 +1335,11 @@ async function handOff(started) {
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
     // A pause on its kind that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.
-    if (heldFor(readUsageGate(), started.kind)) await trackLaunch(started.key, { ...entry, pid: null });
-    else await trackLaunch(started.key, { ...entry, pid: (await launchBuilder(here, started)).pid });
+    const gate = readUsageGate();
+    if (heldFor(gate, started.kind)) {
+      logCall({ call: 'launch-held', key: started.key, result: 'held', reason: pauseReasonFor(gate, started.kind), inputs: { kind: started.kind, model: started.model ?? null, gate } });
+      await trackLaunch(started.key, { ...entry, pid: null });
+    } else await trackLaunch(started.key, { ...entry, pid: (await launchBuilder(here, started)).pid });
   } catch (e) {
     await abandonLaunch(here, started.key, `the launch failed (${e.message}). Tap Implement to try again.`);
   }
@@ -1334,6 +1353,7 @@ async function handOff(started) {
 async function launchArrivals(cards) {
   for (const { key, state } of cards) {
     const kind = state === 'prototyping' ? 'prototype' : 'grill';
+    logCall({ call: 'arrival-planner', key, result: kind, reason: state === 'prototyping' ? 'It landed in Todo filed prototyping.' : 'It landed in Todo, not filed prototyping.', inputs: { state: state ?? null } });
     await appendThread(here, key, { text: `Landed in Todo, so the board started its ${kind}.` });
     await launchPlanner(key, kind);
     dataVersion++;
@@ -1380,10 +1400,19 @@ async function reviveHeadless() {
     if (!Object.keys(tracked).length) return;
     const open = new Set(buildBoard(await itemSnapshot(await outsideData())).items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
     const handBack = async (card) => {
+      logCall({ call: 'relaunch', key: card.key, result: 'handed back', reason: 'Its builder exited twice with its record open.', inputs: tracked[card.key] });
       await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads stopped until the orchestrator takes it up.' });
     };
     const launch = async (card) => {
-      try { return { pid: (await launchBuilder(here, card)).pid }; } catch (e) {
+      const was = tracked[card.key];
+      const entry = { call: 'relaunch', key: card.key, inputs: was,
+        reason: was.pid === null ? 'Its launch was held by the usage pause, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
+      try {
+        const { pid } = await launchBuilder(here, card);
+        logCall({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });
+        return { pid };
+      } catch (e) {
+        logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
         await appendThread(here, card.key, { text: `Couldn't relaunch the builder headless (${e.message}).` });
         return { pid: null };
       }
@@ -1424,14 +1453,24 @@ async function launchLanders(anyChecking) {
   const pidGone = new Set();
   for (const [key, entry] of Object.entries(sent)) {
     if (!entry.pid || pidAlive(entry.pid)) continue;
-    try { await relaunchLander(here, key); pidGone.add(key); } catch (e) { if (!(e instanceof BoardError)) throw e; }
+    try {
+      await relaunchLander(here, key);
+      pidGone.add(key);
+      logCall({ call: 'lander', key, result: 'sent back to checking', reason: 'Its lander exited with the card still building.', inputs: entry });
+    } catch (e) { if (!(e instanceof BoardError)) throw e; }
   }
   const kept = Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k)));
   if (!anyChecking && !pidGone.size) return;
   const due = (await landable(here)).filter((c) => kept[c.key]?.verified !== c.verified);
   if (!due.length) return;
   for (const c of due) {
-    try { kept[c.key] = { verified: c.verified, pid: (await launchBuilder(here, c, { lander: true })).pid }; await trackLaunch(c.key, null); } catch (e) {
+    const entry = { call: 'lander', key: c.key, reason: 'Its build was verified and waits to land.', inputs: { verified: c.verified, before: kept[c.key] ?? null } };
+    try {
+      kept[c.key] = { verified: c.verified, pid: (await launchBuilder(here, c, { lander: true })).pid };
+      logCall({ ...entry, result: 'launched' });
+      await trackLaunch(c.key, null);
+    } catch (e) {
+      logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
       kept[c.key] = { verified: c.verified, pid: null };
       await appendThread(here, c.key, { text: `Couldn't launch the lander headless (${e.message}); land it with board.mjs land ${c.key}.` });
     }
@@ -1468,6 +1507,7 @@ async function checkTriage(settings, log, items, ready) {
   const topic = `overnight-triage-${date}`;
   const owner = await readJSON(path.join(data, 'owner.json'), { topics: [] });
   if (!(owner.topics || []).some((t) => t.id === topic)) await addTopic(here, { id: topic, title: `Overnight triage ${date}` });
+  logCall({ call: 'triage', result: 'sent', reason: `Auto triage is on, ${waiting.length} cards wait on answers, and tonight's triage hadn't gone out.`, inputs: { date, cards: waiting } });
   await appendEvent('overnight-triage', { date, topic, cards: waiting });
   await save();
   return true;
@@ -1506,6 +1546,22 @@ async function sendPulls({ file: name, line }, on, keep, go, start) {
   return keys.length > 0;
 }
 
+// A push this server sends on its own (store.mjs sendPush), logged with why, under the card it is about when key names
+// one, and what it read; one kickflip push refuses is logged as not sent and left at that, so a missing device isn't
+// retried each minute.
+async function sendOwnPush(push, { key, reason, inputs }) {
+  const entry = { call: 'push', key, reason, inputs: { tag: push.tag, title: push.title, ...inputs } };
+  try {
+    await sendPush(here, push);
+    logCall({ ...entry, result: 'sent' });
+  } catch (e) {
+    if (!(e instanceof BoardError)) throw e;
+    const why = e.message.split('\n').at(-2) || e.message;
+    logCall({ ...entry, result: 'not sent', reason: `${reason} Not sent: ${why}` });
+    console.error(`Push ${push.tag} not sent:`, why);
+  }
+}
+
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // data/action-pushes.json {<tag>: {kind, ids}}: what waited on the owner at the last check (domain.mjs ownerActions).
 // A tag that is new, changes kind or gains an open question pushes; one that is gone drops its queued push. The first
@@ -1533,8 +1589,9 @@ async function pushActions() {
       const fresh = a.questions.filter((q) => !was?.ids?.includes(q.id));
       if (was?.kind === a.kind && !fresh.length) continue;
       const url = fresh.length ? `questions.html#${encodeURIComponent(fresh[0].id)}` : a.url;
-      try { await sendPush(here, { kind: 'action', title: a.title, body: fresh[0]?.question || a.body, url: `/${route}/${url}`, tag: a.tag, now: a.now }); }
-      catch (e) { if (e instanceof BoardError) console.error(`Push ${a.tag} not sent:`, e.message.split('\n').at(-2) || e.message); else throw e; }
+      const reason = !was ? 'Something new waits on the owner.' : was.kind !== a.kind ? `What waits on the owner changed from ${was.kind} to ${a.kind}.` : 'A new question waits on the owner.';
+      await sendOwnPush({ kind: 'action', title: a.title, body: fresh[0]?.question || a.body, url: `/${route}/${url}`, tag: a.tag, now: a.now },
+        { key: a.tag.startsWith('item-') ? a.tag.slice(5) : undefined, reason, inputs: { was: was ?? null, kind: a.kind, fresh: fresh.map((q) => q.id) } });
     }
     const gone = Object.keys(previous).filter((tag) => !routeRecord(current, tag));
     if (gone.length) await dropQueued(gone, route);
@@ -1577,8 +1634,8 @@ async function stepWaits() {
     if (!w.picked && !was(w)) added.push(w.key);
     if (!w.picked && !pushed && Date.now() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
       pushed = true;
-      try { await sendPush(here, { kind: 'reminder', title: `${w.ref} waits on the orchestrator`, body: `${w.title}: ${w.next}`, url: `/${route}/#item=${encodeURIComponent(w.key)}`, tag: `wait-${w.key}`, now: true }); }
-      catch (e) { if (e instanceof BoardError) console.error(`Wait push for ${w.key} not sent:`, e.message.split('\n').at(-2) || e.message); else throw e; }
+      await sendOwnPush({ kind: 'reminder', title: `${w.ref} waits on the orchestrator`, body: `${w.title}: ${w.next}`, url: `/${route}/#item=${encodeURIComponent(w.key)}`, tag: `wait-${w.key}`, now: true },
+        { key: w.key, reason: `It has waited on the orchestrator since ${w.since} and nobody picked it up.`, inputs: { kind: w.kind, since: w.since } });
     }
     waits.push(pushed ? { ...w, pushed } : w);
   }
@@ -1616,8 +1673,8 @@ async function stepIdle() {
   const idle = strictlyIdle(built, { pulled: await sentOf(PULL) });
   const { state, push } = idleStep(previous, { idle, now: new Date() });
   if (push) {
-    try { await sendPush(here, { kind: 'reminder', title: `${cfg.title || route} has gone idle`, body: idleSummary(built.items, previous.last), url: `/${route}/`, tag: 'idle', now: true }); }
-    catch (e) { if (e instanceof BoardError) console.error('Idle push not sent:', e.message.split('\n').at(-2) || e.message); else throw e; }
+    await sendOwnPush({ kind: 'reminder', title: `${cfg.title || route} has gone idle`, body: idleSummary(built.items, previous.last), url: `/${route}/`, tag: 'idle', now: true },
+      { reason: 'The board has been strictly idle long enough, with idle notifications on.', inputs: { previous } });
   }
   if (JSON.stringify(state) !== JSON.stringify(previous)) {
     await fs.mkdir(data, { recursive: true });

@@ -28,6 +28,7 @@ import { reposDir } from '../shared/repos.mjs';
 import { isClone } from './repos.mjs';
 import { trustFolder } from './trust.mjs';
 import { contextFull, contextReading } from './usage.mjs';
+import { audit, boardAudit } from '../shared/audit.mjs';
 
 const SKILL_DIR = storedPath(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
 export const RESUME_AFTER = 3 * 60_000;
@@ -144,6 +145,7 @@ export async function compactFullContexts({ manifest = readManifest(), now = new
     const sent = typed.status === 0 ? tmux(['send-keys', '-t', target, 'Enter']) : typed;
     const error = sent.status === 0 ? null : (sent.stderr || sent.stdout).trim().slice(0, 300) || `tmux exited ${sent.status}`;
     state[board.route] = { session: board.owner.session, percent: reading.percent, at: now.toISOString(), ...(error ? { error } : {}) };
+    audit(boardAudit(board.dir), { call: 'compact', result: error ? 'failed' : 'typed /compact', reason: `Its session's context is ${reading.percent}% full and it isn't listening.${error ? ` ${error}` : ''}`, inputs: { session: board.owner.session, context: reading } }, { now });
     dirty = true;
     if (error) failed.push(`${board.route}: could not send /compact to tmux session ${tmuxName(board.route)} (${error})`);
     else compacted.push(board.route);
@@ -430,21 +432,33 @@ export async function checkSessions({
       const pending = Object.entries(watchedLines(board)).flatMap(([file, lines]) => lines.slice(routeRecord(mark, file) || 0));
       if (!pending.some((line) => !heldUsageEvent(line))) { action = 'none'; delete entry.resumed_at; }
     }
+    // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+    const was = routeRecord(state, board.route);
+    const inputs = { listening: heard, live: isLive, asked: asked.has(board.route), downSince: was?.down_since ?? null, resumedAt: was?.resumed_at ?? null };
+    const logged = (call, result, reason) => audit(boardAudit(board.dir), { call, result, reason, inputs }, { now });
     if (action === 'resume') {
-      try { await resume(board.route, entry.mark); out.resumed.push(board.route); } catch (e) {
+      const why = asked.has(board.route) ? "The owner opened the board's page while its session wasn't listening." : "An event waited while the board's session wasn't listening.";
+      try { await resume(board.route, entry.mark); out.resumed.push(board.route); logged('session-resume', 'resumed', why); } catch (e) {
         // A resume that couldn't tell whether the session runs is tried again on the next check.
         if (e.reason === 'unknown') delete entry.resumed_at;
         else entry = { ...entry, error: e.message };
         out.failed.push(`${board.route}: could not resume its session (${e.message})`);
+        logged('session-resume', 'failed', `${why} ${e.message}`);
       }
     } else if (action === 'push') {
       const body = entry.error ? `The hub couldn't resume it: ${entry.error}`
         : isLive ? "Its session is running but hasn't relaunched its watcher."
           : `It still isn't listening after the hub resumed it. Try kickflip resume ${board.route}, or claude agents.`;
+      const why = `Its session didn't come back after the hub resumed it: ${body}`;
       try {
         await push({ title: `${board.title}'s session didn't come back`, body, url: `/${board.route}/`, tag: `resume-${board.route}` }, { kind: 'fault', immediate: true, at: now });
         out.pushed.push(board.route);
-      } catch (e) { entry = { ...entry, pushed_at: undefined }; out.failed.push(`${board.route}: could not push that its session didn't come back (${e.message})`); }
+        logged('push', 'sent', why);
+      } catch (e) {
+        entry = { ...entry, pushed_at: undefined };
+        out.failed.push(`${board.route}: could not push that its session didn't come back (${e.message})`);
+        logged('push', 'not sent', `${why} Not sent: ${e.message}`);
+      }
     }
     if (entry) next[board.route] = entry;
   }

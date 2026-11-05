@@ -1649,6 +1649,25 @@ test('builder pick names the kind that builds now, builder start refuses the oth
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A2.json')), false);
 });
 
+// docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+test("a build start records builder pick's choice, reason and inputs in the board's audit log, which board.mjs audit prints", () => {
+  const noCodex = (...args) => run('board.mjs', args, undefined, { PATH: path.join(home, 'bin') });
+  assert.equal(board('--site', 'orch', 'audit').out, 'No calls in the last 30 days.\n');
+  assert.equal(noCodex('builder', 'pick', 'w/A1', '--site', 'orch').code, 0);
+  assert.equal(fs.existsSync(site('orch', 'data', 'audit.jsonl')), false, 'a pick that starts nothing records nothing');
+  const started = noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
+  assert.equal(started.code, 0, started.err);
+  const [entry, ...more] = fs.readFileSync(site('orch', 'data', 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const reason = "Codex isn't installed on the host. Claude model is Auto and the card isn't small.";
+  assert.deepEqual([{ ...entry, at: typeof entry.at }, more], [{ at: 'string', call: 'builder-pick', key: 'w/A1', result: 'claude opus', reason, inputs: { codex: 'not installed', claudeModel: 'auto', size: null, cardModel: null } }, []]);
+  const printed = board('--site', 'orch', 'audit');
+  assert.equal(printed.code, 0, printed.err);
+  assert.equal(printed.out, `${entry.at} builder-pick w/A1: claude opus. ${reason}\n  inputs: {"codex":"not installed","claudeModel":"auto","size":null,"cardModel":null}\n`);
+  assert.equal(board('--site', 'orch', 'audit', 'w/A1').out, printed.out);
+  assert.equal(board('--site', 'orch', 'audit', 'w/B7').out, 'No calls in the last 30 days.\n');
+  assert.equal(board('audit').code, 1, 'audit reads a board, so it needs --site');
+});
+
 // docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
 test("a card's --size and --model feed builder pick's Claude model, and builder start refuses a --model the hub's Claude model rules out", () => {
   const noCodex = (...args) => run('board.mjs', args, undefined, { PATH: path.join(home, 'bin') });

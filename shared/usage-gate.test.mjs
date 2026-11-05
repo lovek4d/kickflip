@@ -132,7 +132,7 @@ test('the reader exposes Codex past the line only while effective share is on', 
   process.env.PATH = bin;
   t.after(() => { process.env.PATH = oldPath; });
   const read = () => readUsageGate({ home: f.home, now });
-  const pick = () => builderPick({ home: f.home, now });
+  const pick = () => { const { inputs, ...picked } = builderPick({ home: f.home, now }); return picked; };
   assert.deepEqual(read().codex, { past: true, window: 'five_hour', used: 91, resets_at: until });
   assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: `Codex is at 91%, past the 90% line until ${until}. Claude model is Auto and the card isn't small.` });
   f.write('settings.json', { codexShare: 'off' });
@@ -173,7 +173,28 @@ test("the hub's Claude model decides a Claude build's model: Auto gives a small 
   fs.mkdirSync(path.join(f.home, '.codex'));
   fs.writeFileSync(path.join(f.home, '.codex', 'auth.json'), '{}');
   f.write('settings.json', { claudeModel: 'sonnet' });
-  assert.deepEqual(builderPick({ home: f.home, now, card: { size: 'small' } }), { kind: 'codex', reason: 'Codex share is auto and Codex is under the 90% line.' });
+  const { inputs, ...picked } = builderPick({ home: f.home, now, card: { size: 'small' } });
+  assert.deepEqual(picked, { kind: 'codex', reason: 'Codex share is auto and Codex is under the 90% line.' });
+});
+
+// docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+test('a pick names the inputs it read, as far as it read them', (t) => {
+  const f = fixture(t);
+  const oldPath = process.env.PATH;
+  process.env.PATH = path.join(f.home, 'bin');
+  t.after(() => { process.env.PATH = oldPath; });
+  f.write('settings.json', { claudeModel: 'auto' });
+  assert.deepEqual(builderPick({ home: f.home, now, card: { size: 'small' } }).inputs, { codex: 'not installed', claudeModel: 'auto', size: 'small', cardModel: null });
+  fs.mkdirSync(path.join(f.home, 'bin'));
+  fs.writeFileSync(path.join(f.home, 'bin', 'codex'), '#!/bin/sh\nexit 99\n', { mode: 0o755 });
+  fs.mkdirSync(path.join(f.home, '.codex'));
+  fs.writeFileSync(path.join(f.home, '.codex', 'auth.json'), '{}');
+  f.write('settings.json', { codexShare: 'off', claudeModel: 'sonnet' });
+  assert.deepEqual(builderPick({ home: f.home, now, card: { model: 'opus' } }).inputs, { codex: 'usable', claudeModel: 'sonnet', size: null, cardModel: 'opus', codexShare: 'off' });
+  f.write('settings.json', { claudeModel: 'auto' });
+  assert.deepEqual(builderPick({ home: f.home, now }).inputs, {
+    codex: 'usable', claudeModel: 'auto', size: null, cardModel: null, codexShare: 'auto', pauseAt: 90, codexUsage: { past: false, window: null, used: null, resets_at: null },
+  });
 });
 
 test('setClaudeModel saves opus, auto or sonnet beside the other hub settings and refuses anything else', (t) => {

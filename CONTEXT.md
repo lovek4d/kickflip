@@ -78,6 +78,10 @@ _Avoid_: buffer threshold, quota guard
 The Usage card's Opus · Auto · Sonnet control, opening Claude's block: `claudeModel` in `~/.claude/kickflip/settings.json`, default Auto. It decides which model builds a card Claude builds: Opus or Sonnet always, or under Auto the card's own `--model`, else Sonnet for a card `--size small` and Opus for the rest. `builder pick` prints it with why, and a build's `builder start` refuses a `--model` it rules out. Codex builds, prototypes and grills don't read it ([usage picks Opus, Auto or Sonnet for Claude builders, and builder pick says which and why](docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md)).
 _Avoid_: Opus builders, allow Opus
 
+**Audit log**:
+One JSON line for each call the code makes on its own, with when, the call, the card, its result, the reason and the inputs it read: a board's in its `data/audit.jsonl`, such as the pick a build started on, a pull, a relaunch or an auto-merge, and the hub's own (usage pauses and resumes, Linear moves) in `~/.claude/kickflip/audit.jsonl`. Each keeps the last 30 days. `board.mjs audit [<card>]` and `kickflip audit` print them ([the hub and each board keep an audit log of the calls their code makes](docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md)).
+_Avoid_: hub.log (the hub's free-text stderr), history
+
 **Board registry**:
 `hub/boards.mjs`, the only hub code that reads a board's `board.json` and wave files. Every hub feature that serves boards (the GitHub check, wakes, rules, the handshake, the not-listening push) takes its boards from it, so a board over the waves and a board over its own file get the same links ([one board registry for every hub feature](docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md)).
 _Avoid_: board list, wave boards and file boards (as separate code paths)

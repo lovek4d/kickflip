@@ -18,6 +18,7 @@ import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleT
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
+import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { merge3 } from './merge3.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, leastReady, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
@@ -2530,6 +2531,12 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     throw e;
   }
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
+  // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pick a build
+  // started on, with what it read; a start taking up a dispatched record reuses the pick its dispatch recorded.
+  if (pick?.inputs && site) {
+    audit(boardAudit(site), { call: 'builder-pick', key, result: [k, k === 'claude' ? claude : null].filter(Boolean).join(' '), reason: pick.reason,
+      inputs: { ...pick.inputs, ...(askedModel ? { askedModel } : {}), ...(dispatch ? { dispatch } : {}) } });
+  }
   if (remade && site) await appendThread(site, key, { text: remade });
   if (line) await statusToThread(site, key, agent, record, line, now);
   const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
@@ -2691,6 +2698,13 @@ async function restoreStatus(site, key, was) {
   const { source, wave, item } = await loadItem(site, key);
   for (const field of ['status', 'status_at']) if (was[field] === undefined) delete item[field]; else item[field] = was[field];
   await writeJSON(source.file, wave);
+}
+
+// `audit [<wave/id>]`: the board's audit log (shared/audit.mjs), only that card's calls when given. → {lines}
+export async function auditLog(site, key) {
+  if (!site) fail('audit reads a board: pass --site <route>');
+  if (key !== undefined) parseKey(key);
+  return { lines: auditLines(readAudit(boardAudit(site), { key })) };
 }
 
 const PICKED = ['codex', 'claude'];
