@@ -2499,8 +2499,8 @@ test("a status line drops a detail's repeat of its own phase label", () => {
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
   assert.equal(board('builder', 'progress', 'w/A1', '--phase', 'landing', '--site', 'orch', '--text', 'Landing: x').code, 0);
   assert.equal(board('builder', 'progress', 'w/A1', '--phase', 'landing', '--site', 'orch', '--text', 'landing rebase').code, 0);
-  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'codex', '--phase', 'landing', '--progress', 'Landing: y').code, 0);
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.text), ['Landing: x', 'Landing: rebase', 'Codex landing: y']);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'claude', '--phase', 'landing', '--progress', 'Landing: y').code, 0);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.text), ['Landing: x', 'Landing: rebase', 'Claude Opus landing: y']);
 });
 
 test('builder progress and start --progress refuse a missing or unknown phase and a detail over 80 characters, writing nothing', () => {
