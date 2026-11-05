@@ -175,16 +175,21 @@ test('a lander whose process is gone while its card reads building (the usage pa
   const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).length : 0);
   const status = () => JSON.parse(fs.readFileSync(waveFile, 'utf8')).items[0].status;
   const [port] = await freePorts();
-  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
+  const serve = async () => {
+    const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
+    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    return server;
+  };
+  let child = await serve();
   try {
-    await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
     await until(() => runs() === 1, 'the lander launches');
     // The lander started (building) and then its process went with the pause.
     const building = () => { const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].status = 'building'; fs.writeFileSync(waveFile, JSON.stringify(w)); };
     building();
     await until(() => runs() === 2, 'the stopped lander launches again');
     assert.equal(status(), 'checking');
-    // The one command does the same by hand.
+    // The one command does the same by hand, with the server stopped so its own pass cannot relaunch first.
+    await new Promise((resolve) => { child.once('exit', resolve); child.kill(); });
     building();
     const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'board.mjs');
     fs.mkdirSync(path.join(home, '.claude', 'kickflip', 'sites'), { recursive: true });
@@ -193,6 +198,7 @@ test('a lander whose process is gone while its card reads building (the usage pa
     assert.match(out, /back at checking/);
     assert.equal(status(), 'checking');
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))['t/H3'], undefined);
+    child = await serve();
     await until(() => runs() === 3, 'the relaunched lander launches');
   } finally {
     child.kill();
