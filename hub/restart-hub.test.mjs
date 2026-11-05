@@ -48,7 +48,8 @@ test("Restart hub answers once the hub service's restart is asked for, then runs
     const out = await r.json();
     assert.equal(out.restarting, true);
     assert.equal(typeof out.command, 'string');
-    await until(() => fs.existsSync(restarts), 'the restart runs');
+    // Until the stand-in has written its line, not just created the file.
+    await until(() => fs.existsSync(restarts) && fs.readFileSync(restarts, 'utf8').includes('\n'), 'the restart runs');
     assert.deepEqual(fs.readFileSync(restarts, 'utf8').trim().split('\n'), ['hub']);
     const again = await post();
     assert.deepEqual([again.status, await again.json()], [409, { error: 'The hub is already restarting.' }]);

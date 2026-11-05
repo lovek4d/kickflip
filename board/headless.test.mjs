@@ -344,7 +344,8 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   const child = spawn(process.execPath, ['--import', setup, path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
   try {
     await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject); });
-    await until(() => fs.existsSync(seen), 'the dead builder is relaunched');
+    // Until the fake builder has written its whole first line, not just created the file.
+    await until(() => fs.existsSync(seen) && fs.readFileSync(seen, 'utf8').includes('\n'), 'the dead builder is relaunched');
     assert.match(JSON.parse(fs.readFileSync(seen, 'utf8').trim().split('\n')[0]).argv[1], /builder start t\/R1 --kind build/);
     await until(() => JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/R1']?.relaunched === true, 'the relaunch is tracked');
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.id, 'sess-R1');
