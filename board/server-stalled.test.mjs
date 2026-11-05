@@ -216,7 +216,7 @@ test('with auto implement on the board starts and launches the build of the top 
   const wave = { items: [
     { id: 'A0', title: 'Running', status: 'building' },
     { id: 'A1', title: 'Held', status: 'planned', state: 'ready', held: true },
-    { id: 'A2', title: 'Blocked', status: 'waiting', state: 'ready', deps: ['A0'] },
+    { id: 'A2', title: 'Blocked', status: 'waiting', state: 'ready', deps: ['A3'] },
     { id: 'A3', title: 'Asking', status: 'planned', state: 'ready' },
     { id: 'A4', title: 'Next', status: 'planned', state: 'ready' },
     { id: 'A5', title: 'Bumped', status: 'planned', state: 'ready' },
@@ -294,7 +294,7 @@ test('with auto implement on the board starts and launches the build of the top 
   // The running build finishing frees its slot at once.
   put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
   await until(() => pulls().length === 2, 'a freed slot is filled on the change');
-  assert.deepEqual(pulls(), ['t/A5', 't/A7']);
+  assert.deepEqual(pulls(), ['t/A5', 't/A4']);
 
   // Changed while the server is down: Orchestrator review takes A0's slot back, so A5 finishing frees none.
   await stop();
@@ -302,19 +302,19 @@ test('with auto implement on the board starts and launches the build of the top 
   finish('A5');
   await start();
   await tick();
-  assert.deepEqual(pulls(), ['t/A5', 't/A7']);
+  assert.deepEqual(pulls(), ['t/A5', 't/A4']);
   setStatus('A0', 'done');
   await until(() => pulls().length === 3, 'the review ending frees a slot');
-  assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
+  assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6']);
 
   put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
-  finish('A7');
+  finish('A4');
   await tick();
   await tick();
-  assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6']);
+  assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6']);
   fs.rmSync(usageFile);
   await until(() => pulls().length === 4, 'the pull waits for the pause to end');
-  assert.deepEqual(pulls(), ['t/A5', 't/A7', 't/A6', 't/A4']);
+  assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6', 't/A7']);
   assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
   // The follow-up, filed with no state, is no pull but arrived in Todo, so it got its grill.
   assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
@@ -521,7 +521,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
     { id: 'B3', title: 'A follow-up', status: 'planned', state: 'grilling', parent: 't/B1' },
     { id: 'B4', title: 'Past the cap', status: 'planned' },
     { id: 'B5', title: 'Quick build', status: 'planned', state: 'ready' },
-  ].map((it, n) => ({ ...it, created: iso(now - (9 - n) * 60000) })) };
+  ].map((it, n) => ({ ...it, created: iso(now - (n + 1) * 60000) })) };
   fs.writeFileSync(waveFile, JSON.stringify(wave));
   const question = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'a', label: 'A' }] });
   fs.writeFileSync(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1')] }));
@@ -567,7 +567,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   assert.deepEqual(launched('grill', 'prototype', 'build'), [], 'nothing launches while usage is paused');
   fs.rmSync(usageFile);
   await until(() => launched('grill').length === 2 && launched('build').length === 1 && thread('B3').length === 2, 'the arrivals get their grills');
-  assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being newest first');
+  assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being oldest first');
   assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
   assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
   assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
