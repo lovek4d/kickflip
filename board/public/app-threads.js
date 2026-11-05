@@ -1,7 +1,7 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, toast, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, doneButton, waitOn, newQuestionsLine } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, boltButton, doneButton, waitOn, newQuestionsLine } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more' };
   // A /prototype or /grill word in a message, the last one winning, and the message without it.
@@ -24,6 +24,10 @@ BoardView.part((B) => {
     const item = state.board?.items.find((i) => i.key === key);
     const todo = item?.lane === 'todo';
     if (at.dataset.sends !== (todo ? 'todo' : 'one')) { at.insertAdjacentHTML('afterend', sends(todo)); at.remove(); }
+    const tools = el.querySelector('form .tools');
+    const bolt = tools.querySelector('[data-bolt]');
+    if (todo && !bolt) tools.insertAdjacentHTML('afterbegin', boltButton(key));
+    else if (!todo) bolt?.remove();
     const html = doneButton(item);
     const current = el.querySelector('form [data-confirm="finish"]');
     if (current?.outerHTML === html) return;
@@ -141,6 +145,14 @@ BoardView.part((B) => {
     if (!b) return;
     const key = b.closest('form').dataset.reply;
     try { await waitOn(b, B.sentHere(key, () => B.send('item-message', { key, text: b.dataset.quick }))); loadThread(key, { force: true }); }
+    catch { toast('Could not send'); }
+  });
+  // docs/adr/2026-11-05-0010-a-lightning-button-in-a-todo-threads-footer-starts-a-quick-build.md
+  B.on(B.root, 'click', async (ev) => {
+    const b = ev.target.closest('form[data-reply] button[data-bolt]');
+    if (!b) return;
+    const key = b.dataset.bolt;
+    try { await waitOn(b, B.sentHere(key, () => B.send('item-message', { key, text: 'Quick build', intent: 'build' }))); loadThread(key, { force: true }); }
     catch { toast('Could not send'); }
   });
   B.on(B.root, 'click', (ev) => {

@@ -2631,6 +2631,24 @@ test("a Todo card's thread box has Reply (⌘↵) and Reply and build (⌥↵), 
   b.view.unmount();
 });
 
+// docs/adr/2026-11-05-0010-a-lightning-button-in-a-todo-threads-footer-starts-a-quick-build.md
+test("a Todo card's thread footer has a lightning left of the eye and fire that sends a quick build at once, whatever is typed; a card past Todo has none", async () => {
+  const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
+  await b.settle();
+  const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
+  const tools = (key) => [...form(key).querySelectorAll('.tools button')].map((el) => ['bolt', 'proto', 'grill'].find((k) => el.hasAttribute('data-' + k)));
+  assert.deepEqual(tools('w/T1'), ['bolt', 'proto', 'grill']);
+  assert.deepEqual(tools('w/P1'), ['proto', 'grill']);
+  form('w/T1').querySelector('textarea').value = 'half typed';
+  b.page.fire(b.root, 'click', { target: form('w/T1').querySelector('button[data-bolt]') });
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['item-message', { key: 'w/T1', text: 'Quick build', intent: 'build' }]]);
+  assert.equal(form('w/T1').querySelector('textarea').value, 'half typed');
+  await b.change({ board: boardOf([workCard('T1', { lane: 'progress' }), workCard('P1', { lane: 'progress' })]) });
+  assert.deepEqual(tools('w/T1'), ['proto', 'grill']);
+  b.view.unmount();
+});
+
 test('a running badge replaces its install link without confirmation and becomes current after completion', async () => {
   const install = { url: 'https://m/app.apk', sha: 'abcdef1', older: true };
   const b = boardOnDom({ open: ['w/R1'], board: boardOf([workCard('R1', { lane: 'progress', install, builder: { kind: 'install' } })]), threads: {} });
