@@ -2759,13 +2759,6 @@ export async function landingLine(site, key) {
   await appendLine(file, { ts: new Date().toISOString(), who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing' });
 }
 
-// While a land waits for the host's test slot, its status line is a testing phase line, so the card's bars stay on the
-// test step and keep pulsing (docs/adr/2026-11-05-0520-waiting-for-the-test-slot-keeps-the-test-step-pulsing.md).
-export async function testSlotLine(site, key, card) {
-  await loadItem(site, key);
-  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: 'status', phase: 'testing', text: `Testing: waiting for the test slot, ${card} is running the suite` });
-}
-
 // A judgment call is one line a builder records as it decides, kept on its record as {at, text}; the session's
 // `builder verified` stamps the record verified {at, note}, which covers every call made before it. land refuses while
 // any record on the card has a call after its stamp

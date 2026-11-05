@@ -48,13 +48,11 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
     syncBase(tree.repo, base);
     git(tree.repo, 'branch', '--unset-upstream', tree.branch);
   }
-  // docs/adr/2026-11-05-0100-one-full-suite-at-a-time-on-the-host.md
-  const onWaitTests = (card) => store.testSlotLine(site, key, card);
   const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
   if (go) await store.landingLine(site, key);
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: only the fast-forward waits for the land lock,
   // and base is brought up to origin's again under it.
-  await landInTurn({ ...tree, ref }, { hold: !go, onWait, onWaitTests, sync: () => remote && syncBase(tree.repo, base) });
+  await landInTurn({ ...tree, ref }, { hold: !go, onWait, sync: () => remote && syncBase(tree.repo, base) });
   if (!go) {
     const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
     await store.appendThread(site, key, { text });

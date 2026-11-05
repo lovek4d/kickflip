@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BoardError } from './store.mjs';
 import { boardAt, hubCode, listBoards, readManifest } from '../hub/boards.mjs';
@@ -101,30 +101,51 @@ function testFiles(dir) {
   return found.sort();
 }
 
-// The full suite of the worktree. NODE_TEST_CONTEXT is dropped, since a run started from inside a test would
-// otherwise report to that test's runner instead of exiting with its own result.
-export function nodeTests(dir) {
+// The full suite of the worktree, as a promise. NODE_TEST_CONTEXT is dropped, since a run started from inside a test
+// would otherwise report to that test's runner instead of exiting with its own result. Each test fails once it runs past
+// testLimit, and the whole run is cut off at limit: its process group is killed, so a hung file's child dies with it, and
+// → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
+// (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md).
+export function nodeTests(dir, { limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000 } = {}) {
   const files = testFiles(dir);
-  if (!files.length) return { ok: true, pass: 0, fail: 0 };
+  if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
   const { NODE_TEST_CONTEXT: _, ...env } = process.env;
-  const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], { cwd: dir, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-  const count = (name) => Number((r.stdout || '').match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] ?? 0);
-  const result = { ok: r.status === 0, pass: count('pass'), fail: count('fail') };
-  if (!result.ok) {
-    const output = (r.stdout || '') + (r.stderr || '') + (r.error ? `\n${r.error.message}\n` : '');
+  const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${testLimit}`, ...files], { cwd: dir, env, detached: true });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });
+  child.stderr.setEncoding('utf8').on('data', (d) => { stderr += d; });
+  let left = null;
+  const cutoff = setTimeout(() => {
+    left = spawnSync('ps', ['-A', '-o', 'pgid=,pid=,args='], { encoding: 'utf8' }).stdout.split('\n')
+      .filter((line) => Number(line.trim().split(/\s+/)[0]) === child.pid).map((line) => line.trim());
+    if (left.length) process.kill(-child.pid, 'SIGKILL');
+    // A process outside the group can still hold the output pipes open.
+    const release = () => { child.stdout.destroy(); child.stderr.destroy(); };
+    if (child.exitCode === null && child.signalCode === null) child.once('exit', release); else release();
+  }, limit);
+  return new Promise((resolve) => child.on('close', (status, signal) => {
+    clearTimeout(cutoff);
+    const count = (name) => Number(stdout.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] ?? 0);
+    const result = { ok: status === 0, pass: count('pass'), fail: count('fail') };
+    if (result.ok) { resolve(result); return; }
     const logs = path.join(os.homedir(), '.claude', 'kickflip', 'logs');
     try {
       fs.mkdirSync(logs, { recursive: true });
       const log = path.join(logs, `land-${randomUUID()}.tap`);
-      fs.writeFileSync(log, output, { mode: 0o600 });
+      fs.writeFileSync(log, stdout + stderr + (left ? `\n# processes still running at the cutoff\n${left.join('\n')}\n` : ''), { mode: 0o600 });
       result.log = log;
     } catch (e) { result.logError = `Could not save the full test output: ${e.message}`; }
-    result.failures = tapFailures(r.stdout || '');
-    const stderr = (r.stderr || '').trim().split('\n')[0];
-    result.error = r.error?.message || `${r.signal ? `test runner killed by ${r.signal}` : `test runner exited ${r.status}`}${stderr ? `: ${stderr}` : ''}`;
-  }
-  return result;
+    // The runner's own args name every file, so only its children's name the files still running.
+    const children = left?.filter((line) => Number(line.split(/\s+/)[1]) !== child.pid);
+    if (left) result.hung = { after: duration(limit), files: files.filter((f) => children.some((p) => p.includes(f))).map((f) => path.relative(dir, f)) };
+    result.failures = tapFailures(stdout);
+    const firstErr = stderr.trim().split('\n')[0];
+    result.error = `${signal ? `test runner killed by ${signal}` : `test runner exited ${status}`}${firstErr ? `: ${firstErr}` : ''}`;
+    resolve(result);
+  }));
 }
+const duration = (ms) => ms % 60000 ? `${ms / 1000} seconds` : `${ms / 60000} minutes`;
 
 function tapFailures(tap) {
   const lines = tap.split('\n');
@@ -251,11 +272,6 @@ async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now() } 
 }
 export const holdingLandLock = (card, fn, opts) => holdingQueuedLock('land', card, fn, opts);
 
-// One full suite at a time on the host, since landers and builders share the machine and the suite's timing tests
-// fail under load: ~/.claude/kickflip/test.lock {card, pid, at}, queued first in first out like the land lock
-// (test.queue). Held around the suite run only, so a rebase and the merge lock never wait on it.
-export const holdingTestSlot = (card, fn, opts) => holdingQueuedLock('test', card, fn, opts);
-
 // One land per card: ~/.claude/kickflip/landing/<card> {pid} while fn runs. A land asked for a card already landing
 // joins that land instead: it waits for it to end and → {joined: true}, so the caller reads what became of the card.
 // A marker whose process is gone is taken over.
@@ -311,24 +327,25 @@ export function syncBase(repo, base) {
   if (!moved.ok) fail(`${base} in ${repo} doesn't fast-forward to origin's (${moved.err}); bring it level with origin/${base} and land again`);
 }
 
-// Runs the worktree's full suite, refusing on a failure with each failing test and outcome, what the refusal left undone.
-// It takes the host's test slot first, saying who it waits for (onWait).
-export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, card = dir, onWait }) {
-  const tests = await holdingTestSlot(card, () => runTests(dir), { onWait });
+// Runs the worktree's full suite, refusing on a failure with each failing test, or on a run cut off at its time limit
+// with the files still running, and outcome, what the refusal left undone.
+export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome }) {
+  const tests = await runTests(dir);
+  const log = tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : [];
+  if (tests.hung) fail([`tests hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}; ${outcome}`, ...log].join('\n'));
   if (!tests.ok) fail([
     `tests failed in ${dir} (${tests.fail} failing); ${outcome}`,
     ...(tests.failures?.length ? tests.failures : [tests.error || 'test runner failed without test diagnostics']),
-    ...(tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : []),
+    ...log,
   ].join('\n'));
   say(`tests passed: ${tests.pass}`);
 }
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
-// The part of a land that runs outside the land lock: the checks, the rebase onto base when base moved, and the suite,
-// which runs in the host's test slot (onWaitTests names the card running it while this one waits).
+// The part of a land that runs outside the land lock: the checks, the rebase onto base when base moved, and the suite.
 // → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is still it, with base
 // not moved past it, is not tested again.
-export async function prepareLand({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests, onWaitTests } = {}) {
+export async function prepareLand({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
@@ -356,7 +373,7 @@ export async function prepareLand({ path: dir, branch, repo, base, ref }, { say 
     say(`${branch} was tested on ${base} as it is now; not testing it again`);
     return head;
   }
-  await passTests(dir, { say, runTests, outcome: 'nothing landed', card: ref ?? branch, onWait: onWaitTests });
+  await passTests(dir, { say, runTests, outcome: 'nothing landed' });
   git(repo, 'update-ref', testedRef(branch), head);
   return head;
 }
@@ -370,11 +387,11 @@ function onBase(repo, base) {
 // branch was prepared, the lock is let go and the branch is prepared again. hold stops once the tests pass, before the
 // fast-forward: the verified branch waits in its worktree for the owner's Merge
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward.
-export async function landInTurn(tree, { hold = false, onWait, onWaitTests, sync = () => {}, ...opts } = {}) {
+export async function landInTurn(tree, { hold = false, onWait, sync = () => {}, ...opts } = {}) {
   const { say = console.log } = opts;
   const asked = Date.now();
   for (;;) {
-    const tested = await prepareLand(tree, { ...opts, onWaitTests });
+    const tested = await prepareLand(tree, opts);
     if (hold) return;
     const landed = await holdingLandLock(tree.ref ?? tree.branch, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked });
     if (landed) return;

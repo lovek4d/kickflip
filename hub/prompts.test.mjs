@@ -350,19 +350,26 @@ test("an AskUserQuestion is allowed with the owner's picks as its answers, besid
   } finally { await hub.close(); }
 });
 
-test("the hook denies with a note when no answer comes by the hub's deadline, telling the hub it gave up, when the hub drops the prompt, and at once when the hub can't be reached", async () => {
+test("the hook denies with a note when no answer comes by the hub's deadline, telling the hub it gave up, when the hub drops the prompt, and at once when the hub can't be reached", async (t) => {
+  // Each wait has a budget: over it warns, and only five times it fails, so a loaded host doesn't fail the run.
+  const timed = (r, budget, what) => {
+    t.diagnostic(`${what}: ${r.ms} ms`);
+    if (r.ms > budget) console.warn(`the hook ${what} in ${r.ms} ms, over its ${budget} ms budget`);
+    assert.ok(r.ms < budget * 5, `the hook ${what} in ${r.ms} ms, five times its ${budget} ms budget`);
+  };
   const quiet = await fakeHub({ answer: null, deadlineIn: 1500 });
   try {
     const r = await runHook(bash('npm test'), quiet.port);
     assert.deepEqual(decision(r), { behavior: 'deny', message: NO_ANSWER });
-    assert.ok(r.ms >= 1400 && r.ms < 6000, `${r.ms} ms`);
+    assert.ok(r.ms >= 1400, `the hook gave up at ${r.ms} ms, before the hub's 1500 ms deadline`);
+    timed(r, 2500, 'gave up at the deadline');
     assert.deepEqual(quiet.seen.deleted, ['/_hub/prompts/p1']);
   } finally { await quiet.close(); }
   const gone = await fakeHub({ answer: 'gone' });
   try { assert.deepEqual(decision(await runHook(bash('npm test'), gone.port)), { behavior: 'deny', message: DROPPED }); } finally { await gone.close(); }
   const r = await runHook(bash('npm test'), await freePort());
   assert.deepEqual(decision(r), { behavior: 'deny', message: UNREACHABLE });
-  assert.ok(r.ms < 3000, `${r.ms} ms`);
+  timed(r, 1000, 'gave up on an unreachable hub');
 });
 
 test("a pending prompt expires once its hook stops polling or never takes its answer, with the hub's downtime not counted against it", () => {

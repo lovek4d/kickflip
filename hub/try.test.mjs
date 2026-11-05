@@ -48,7 +48,7 @@ const { listBoards } = await import('./boards.mjs');
 const { buildScriptError } = await import('../board/build-script.mjs');
 const { ownerGate } = await import('../board/on-host.mjs');
 let site, repo, worktree, manifest, manager, clock;
-const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 3000 }).trim();
+const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 60_000 }).trim();
 const script = () => path.join(worktree, '.kickflip', 'build');
 const setScript = (body, dir = worktree) => {
   const file = path.join(dir, '.kickflip', 'build');

@@ -937,7 +937,7 @@ test('with thousands of folders and lock folders coming and going, the board ans
     assert.equal(changes(), settled, 'lock folders coming and going send no change');
 
     fs.writeFileSync(path.join(data, 'w3', 'attachments', 'a7', 'note.json'), '{}');
-    await until(() => changes() > settled, 'a write in a normal folder sends a change during churn', 5000);
+    await until(() => changes() > settled, 'a write in a normal folder sends a change during churn');
   } finally {
     req?.destroy();
     churn?.kill();

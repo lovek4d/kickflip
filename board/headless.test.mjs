@@ -240,7 +240,12 @@ test('a lander whose process is gone while its card reads building (the usage pa
   let child = await serve();
   try {
     await until(() => runs() === 1, 'the lander launches');
-    // The lander started (building) and then its process went with the pause.
+    // The lander started (building) and then its process went with the pause. Only once the server has tracked the
+    // lander's process and that process is gone: a pass that still sees it alive relaunches nothing, and no change
+    // follows to run another.
+    const landers = () => { try { return JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8')); } catch { return {}; } };
+    const gone = (pid) => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } };
+    await until(() => Number.isInteger(landers()['t/H3']?.pid) && gone(landers()['t/H3'].pid), 'the lander is tracked and has exited');
     const building = () => { const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].status = 'building'; fs.writeFileSync(waveFile, JSON.stringify(w)); };
     building();
     await until(() => runs() === 2, 'the stopped lander launches again');
@@ -344,7 +349,8 @@ test("the server's minute check relaunches a tracked headless builder whose proc
     await until(() => JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/R1']?.relaunched === true, 'the relaunch is tracked');
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.id, 'sess-R1');
     const lines = fs.readFileSync(path.join(data, 'threads', 't__R1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    assert.match(lines.at(-1).text, new RegExp(`^Builder launched on Claude Opus in ${wt}, session sess-R1\\.$`));
+    // Found among the lines, since past the fake builder's 5 s the check hands the build back with a line of its own.
+    assert.match(lines.find((l) => l.text.startsWith('Builder launched'))?.text ?? '', new RegExp(`^Builder launched on Claude Opus in ${wt}, session sess-R1\\.$`));
     // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
     const logged = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.call === 'relaunch');
     assert.deepEqual({ ...logged, at: undefined }, { at: undefined, call: 'relaunch', key: 't/R1', result: 'relaunched', reason: 'Its builder exited with its record open, for the first time.', inputs: { model: 'opus', pid: dead.pid, relaunched: false } });

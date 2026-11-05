@@ -2105,7 +2105,7 @@ test('land rebases onto a moved main, fast-forwards main, and removes the worktr
 });
 
 test("land into the running kickflip clone restarts only the code that changed: the hub for its code, else every board for board/, nothing for tests or docs", async (t) => {
-  // In process, so HOME is pointed at the test's home: the land's test slot is then not the host's.
+  // In process, so HOME is pointed at the test's home: the land's lock is then not the host's.
   const oldHome = process.env.HOME;
   process.env.HOME = home;
   t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });

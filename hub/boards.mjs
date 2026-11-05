@@ -292,15 +292,14 @@ export function oldestUnheard(board) {
 
 // One push per board per outage when an event has waited DEAF_AFTER while the board is deaf (listenState); an asleep or
 // waking board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/kickflip/deaf-state.json {<route>: {at, since}}). The hub runs it after each
-// GitHub check. → {pushed: [route], failed: [message]}
-export async function checkListening({ manifest, now = new Date(), running = liveSessions() } = {}) {
+// GitHub check. wakes is resume-state.json's records. → {pushed: [route], failed: [message]}
+export async function checkListening({ manifest, now = new Date(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}) } = {}) {
   // With ps giving no answer, no board's listen state is known, so the check waits for the next.
   if (!running) return { pushed: [], failed: [] };
   const state = Object.assign(Object.create(null), readJSON(DEAF_STATE, {}));
   const pushed = [];
   const failed = [];
   let dirty = false;
-  const wakes = readJSON(RESUME_STATE, {});
   for (const board of listBoards(manifest)) {
     const listen = listenState(board, { now: now.getTime(), running, wakes });
     if (listen === 'listening') {

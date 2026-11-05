@@ -48,15 +48,15 @@ test('a board server whose code changed on disk restarts once its board has no r
 
     // The new code waits 3 seconds before it listens, so its page can be caught while it restarts.
     write(path.join(pkg, 'board', 'dep.mjs'), 'export const v = 2;\nawait new Promise((r) => setTimeout(r, 3000));\n');
-    await until(() => out.includes('shop runs older code than its files; restarts once no builder runs'), 'the hub sees the stale server and waits on the builder', 10_000);
+    await until(() => out.includes('shop runs older code than its files; restarts once no builder runs'), 'the hub sees the stale server and waits on the builder');
     await new Promise((r) => setTimeout(r, 3000));
     assert.equal(await pid(), first, 'a running builder keeps the old server');
 
     write(builder, { started: new Date().toISOString(), done: new Date().toISOString(), label: 'Builder' });
-    await until(() => out.includes('shop runs older code than its files; restarting it'), 'the hub restarts the stale server', 10_000);
+    await until(() => out.includes('shop runs older code than its files; restarting it'), 'the hub restarts the stale server');
     const page = await fetch(`${base}/shop/`, { headers: { accept: 'text/html' } });
     assert.match(await page.text(), /restarting · its code changed/);
-    await until(async () => { const now = await pid(); return now && now !== first; }, 'the new server answers', 15_000);
+    await until(async () => { const now = await pid(); return now && now !== first; }, 'the new server answers');
 
     // Once restarted, it runs the code in its files, so nothing restarts it again.
     const second = await pid();

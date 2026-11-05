@@ -17,7 +17,7 @@ const SKILL = path.join(HUB_DIR, '..');
 // Real, as a home is: the clone home sits under it, and repoPath refuses a clone home whose ancestors go through a symlink.
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-')));
 process.env.HOME = home;
-const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, HUB_CODE, listenState, checkListening, RESUME_STATE, withManifestLock, saveJSON } = await import('./boards.mjs');
+const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, HUB_CODE, listenState, checkListening, withManifestLock, saveJSON } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
 const site = (route, ...p) => claude('kickflip', 'sites', route, ...p);
@@ -564,27 +564,26 @@ test('a board whose stopped session the hub can wake is asleep, then waking once
   const manifest = (o = owner) => ({ sites: { nap: { dir: site('nap'), port: napPort, cmd: boardCmd('nap'), watch: ['data/events.jsonl'], owner: o } } });
   const [nap] = listBoards(manifest());
   const napPushes = () => pushes().filter((p) => p.tag === 'deaf-nap');
+  assert.equal(listenState(nap, { wakes: {} }), 'asleep');
+  assert.deepEqual((await checkListening({ manifest: manifest(), wakes: {} })).pushed, []);
+  assert.equal(listenState(listBoards(manifest({ ...owner, repo: undefined }))[0], { wakes: {} }), 'deaf');
+  const s = liveSession('s-nap');
+  const resumed = { nap: { down_since: ago(1), resumed_at: ago(1) } };
   try {
-    assert.equal(listenState(nap, { wakes: {} }), 'asleep');
-    assert.deepEqual((await checkListening({ manifest: manifest() })).pushed, []);
-    assert.equal(listenState(listBoards(manifest({ ...owner, repo: undefined }))[0], { wakes: {} }), 'deaf');
-    const s = liveSession('s-nap');
-    const resumed = { nap: { down_since: ago(1), resumed_at: ago(1) } };
-    try {
-      assert.equal(listenState(nap, { wakes: {} }), 'deaf');
-      assert.equal(listenState(nap, { wakes: resumed }), 'waking');
-    } finally { s.kill(); }
+    assert.equal(listenState(nap, { wakes: {} }), 'deaf');
     assert.equal(listenState(nap, { wakes: resumed }), 'waking');
-    write(RESUME_STATE, resumed);
-    assert.deepEqual([linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, (await checkListening({ manifest: manifest() })).pushed], [true, []]);
-    assert.equal(listenState(nap, { wakes: { nap: { ...resumed.nap, pushed_at: ago(0) } } }), 'deaf');
-    const failed = { nap: { down_since: ago(1), resumed_at: ago(1), error: 'claude --resume failed' } };
-    assert.equal(listenState(nap, { wakes: failed }), 'deaf');
-    write(RESUME_STATE, failed);
-    assert.equal(linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, false);
-    assert.deepEqual((await checkListening({ manifest: manifest() })).pushed, ['nap']);
-    assert.deepEqual(napPushes(), [{ title: "Nap isn't listening", url: '/nap/', tag: 'deaf-nap' }]);
-  } finally { fs.rmSync(RESUME_STATE, { force: true }); }
+  } finally { await new Promise((resolve) => { s.once('exit', resolve); s.kill(); }); }
+  assert.equal(listenState(nap, { wakes: resumed }), 'waking');
+  // The resume records are passed in rather than written to resume-state.json, which the running hub's own session
+  // check rewrites every 15 s for the boards in its manifest, nap not among them.
+  const heard = (wakes) => linksOf(nap, { faults: {}, listen: listenState(nap, { wakes }) }).find((l) => l.link === 'events').ok;
+  assert.deepEqual([heard(resumed), (await checkListening({ manifest: manifest(), wakes: resumed })).pushed], [true, []]);
+  assert.equal(listenState(nap, { wakes: { nap: { ...resumed.nap, pushed_at: ago(0) } } }), 'deaf');
+  const failed = { nap: { down_since: ago(1), resumed_at: ago(1), error: 'claude --resume failed' } };
+  assert.equal(listenState(nap, { wakes: failed }), 'deaf');
+  assert.equal(heard(failed), false);
+  assert.deepEqual((await checkListening({ manifest: manifest(), wakes: failed })).pushed, ['nap']);
+  assert.deepEqual(napPushes(), [{ title: "Nap isn't listening", url: '/nap/', tag: 'deaf-nap' }]);
   assert.equal(linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, true);
 });
 

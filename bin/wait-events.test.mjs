@@ -125,7 +125,7 @@ test("a watcher whose session dies exits without taking the next event, so the r
   claude.kill('SIGKILL');
   await died;
   add('ask');
-  await until(() => !running(orphan), 'the orphaned watcher exits', 15000);
+  await until(() => !running(orphan), 'the orphaned watcher exits');
   assert.equal(fs.readFileSync(out, 'utf8'), '');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', '.watch-cursor-s1.json'), 'utf8')), { 'data/events.jsonl': 0 });
   assert.ok(watcherRecord().exited_at, 'the board reads the watcher as exited');

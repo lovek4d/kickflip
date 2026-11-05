@@ -5,3 +5,5 @@ Since the Merge tap waits its turn (2026-11-04-2320), preparing a land (rebase a
 Decision: the suite run takes a host-wide test slot, `~/.claude/kickflip/test.lock` `{card, pid, at}`, queued first in first out in `test.queue` exactly like the land lock (one shared implementation in worktree.mjs). It covers the suite run only: the rebase stays outside it and the land lock is unchanged. A lock or ask whose process is gone is taken over. A land waiting for the slot says so on the card's thread, naming the card running its suite.
 
 The timing tests that failed under load now wait on the event or file state they need, with a generous ceiling, instead of sleeping or using fixed timeouts.
+
+Superseded by [land suites run side by side, under a time limit](2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md): there is no test slot, so no land waits for one.
