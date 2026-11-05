@@ -132,18 +132,15 @@ test("a board view mounted then unmounted leaves no listener, interval, timer or
   assert.deepEqual([page.left(), subscribed.size], [loaded, 0]);
 });
 
-test("another view of a board gets the + and its new-task sheet, and unmounting it leaves nothing behind", () => {
+// docs/adr/2026-11-07-0100-the-plus-is-the-board-pages-alone.md
+test("a page that isn't the board's main page has no + and no new-task sheet; the board page has both", () => {
   const page = fakePage(memoryStorage().localStorage);
-  assert.match(page.win.BoardNewTask.markup(), /id="compose"[\s\S]*id="sheet"[\s\S]*id="askForm"/);
   const root = new page.El();
-  const view = page.win.BoardView.page(root, 'https://mac.ts.net/board-a', (B) => page.win.BoardNewTask.wire(B));
-  const loaded = page.left();
+  const view = page.win.BoardView.page(root, 'https://mac.ts.net/board-a', () => {});
   view.mount();
-  page.fire(root.querySelector('#compose'), 'click');
-  assert.equal(root.querySelector('#sheet').open, true);
-  page.fire(root.querySelector('#sheetClose'), 'click');
+  assert.doesNotMatch(root.innerHTML, /id="compose"|id="sheet"/);
   view.unmount();
-  assert.deepEqual(page.left(), loaded);
+  assert.match(page.win.BoardView.markup({ title: 'Shop' }), /id="compose"[\s\S]*id="sheet"[\s\S]*id="askForm"/);
 });
 
 test("a board's header shows the away moon right of its title while the owner reads away, and drops it once they're back", () => {
@@ -5272,7 +5269,7 @@ test("the + is on the board's left pane on desktop and gone from the Open questi
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const shell = readFileSync(new URL('./public/shell.js', import.meta.url), 'utf8');
-  assert.match(shell, /const plus = [^\n]*view\.kind !== 'questions'/);
+  assert.doesNotMatch(shell, /BoardNewTask/);
   assert.doesNotMatch(css, /view-questions[^{]*\.fab/);
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(50% /);
 });
