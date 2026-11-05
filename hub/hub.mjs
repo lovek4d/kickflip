@@ -995,7 +995,12 @@ async function hubRoute(req, res, url, viewer = null) {
     return sendJSON(200, viewer ? viewer.sidebar(data) : data);
   }
   if (p === '/_hub/stream' && req.method === 'GET') {
-    if (viewer) req.on('close', shares.watching(viewer.login));
+    if (viewer) {
+      const open = { login: viewer.login, routes: viewer.routes, res };
+      sharedStreams.add(open);
+      req.on('close', () => sharedStreams.delete(open));
+      req.on('close', shares.watching(viewer.login));
+    }
     stream.handle(req, res, viewer && { routes: viewer.routes, view: viewer.sidebar });
     return;
   }
@@ -1281,6 +1286,19 @@ const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 
 // Shared boards (share.mjs): when each shared person was last seen, and who was just refused.
 const shares = shareTracker({ file: path.join(HOME, 'share-seen.json') });
+// A shared person's open /_hub/stream, {login, routes, res}: the one long-lived answer a shared view holds. A board's
+// share can be removed while it's open, from Board settings or by editing board.json, so every 2 seconds, and at once
+// after the owner's POST /<route>/api/share, a stream whose login has lost a board it was opened with is ended; its
+// page's EventSource comes back through access, with the boards still shared or refused.
+const sharedStreams = new Set();
+function endUnshared() {
+  const sites = loadManifest().sites;
+  for (const open of sharedStreams) {
+    const now = sharedRoutes(open.login, sites);
+    if ([...open.routes].some((route) => !now.has(route))) { sharedStreams.delete(open); open.res.destroy(); }
+  }
+}
+setInterval(() => { if (sharedStreams.size) endUnshared(); }, 2000).unref();
 
 // Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs). A login the gate
 // calls someone else that a board's board.json shares with reaches what share.mjs shareReach allows.
@@ -1351,7 +1369,8 @@ function serve(req, res, viewer = null) {
   if (url.pathname === '/' + route) { res.writeHead(302, { location: '/' + route + '/' + url.search }).end(); return; }
 
   const prefix = '/' + route;
-  const rest = req.url.slice(prefix.length) || '/';
+  // A shared person's request goes on as the path access checked, so the board can't read it differently.
+  const rest = viewer ? url.pathname.slice(prefix.length) + url.search : req.url.slice(prefix.length) || '/';
   // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
   const vary = pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell';
   if (servesOf(site) === 'files') {
@@ -1372,6 +1391,7 @@ function serve(req, res, viewer = null) {
   });
   // A page that leaves a long-lived response, such as a board's /api/stream, would otherwise keep the site's end open.
   res.on('close', () => { if (!res.writableFinished) up.destroy(); });
+  if (!viewer && req.method === 'POST' && rest.split('?')[0] === '/api/share') res.on('finish', endUnshared);
   up.on('error', () => {
     if (res.headersSent) { res.destroy(); return; }
     res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
@@ -1382,8 +1402,9 @@ function serve(req, res, viewer = null) {
 
 // WebSockets and other upgrades: pipe the raw sockets through.
 server.on('upgrade', async (req, socket, head) => {
+  // A shared view opens no upgrades.
   const { verdict } = await access(req);
-  if (verdict !== 'owner' && verdict !== 'shared') { refuseUpgrade(socket, verdict === 'home' ? 'other' : verdict); return; }
+  if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict === 'home' ? 'other' : verdict); return; }
   const route = requestURL(req).pathname.split('/')[1];
   const site = routeRecord(loadManifest().sites, route);
   if (!site?.port) { socket.destroy(); return; }

@@ -175,7 +175,7 @@ test('a board shared with a login lets that person read the shell and the board,
     const r = await fetch(base + p, { method, headers: { ...shared, 'content-type': 'application/json' }, body: method === 'POST' ? '{}' : undefined });
     assert.deepEqual([r.status, await r.text()], [403, '{}'], `${method} ${p}`);
   }
-  assert.deepEqual(await upgrade(base, '/orch/socket', shared), { status: 101, body: '/socket' });
+  assert.deepEqual(await upgrade(base, '/orch/socket', shared), { status: 403, body: JSON.stringify({ error: 'This board is shared with you to look at only.' }) }, 'a shared view opens no upgrades');
   assert.deepEqual(await upgrade(base, '/app/socket', shared), { status: 403, body: '{}' });
 
   // Someone not shared is refused, and Board settings offers them; the shared person reads as seen.
@@ -189,4 +189,67 @@ test('a board shared with a login lets that person read the shell and the board,
   // A login the board no longer lists is someone else again.
   write(path.join(home, 'orch', 'board.json'), { title: 'Orch', share: [] });
   assert.equal((await fetch(`${base}/orch/api/board`, { headers: shared })).status, 403);
+});
+
+// → {status, body} for a GET of exactly `raw`, which fetch would normalise before sending
+const rawGet = (base, raw, headers) => new Promise((resolve, reject) => {
+  const { hostname, port } = new URL(base);
+  http.get({ hostname, port, path: raw, headers }, (res) => {
+    let body = '';
+    res.on('data', (chunk) => { body += chunk; });
+    res.on('end', () => resolve({ status: res.statusCode, body }));
+  }).on('error', reject);
+});
+
+test("a shared person's path is checked and forwarded as one parse, so no spelling reaches a read the owner keeps", async (t) => {
+  const { base } = await startHub(t, { status: STATUS, board: { title: 'Orch', share: ['friend@github'] } });
+  const deadline = Date.now() + 15_000;
+  while ((await fetch(`${base}/orch/x`).then((r) => r.text(), () => '')) !== 'orch GET /x' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+
+  // The board strips its own /orch again and parses a leading // as a host, so these once reached its private reads.
+  for (const raw of ['/orch/orch/api/log?file=hub.log', '/orch/orch/api/settings', '/orch//x/../api/log?file=hub.log', '/orch//api/log',
+    '/orch/x/%2e%2e/api/log', '/orch/x/%2E%2E/api/settings', '/orch/%2e%2e/orch/api/log', '/orch/api%2flog', '/orch/%2forch/api/log', '/orch/%6frch/api/log',
+    '/orch\\api\\log', '/orch/x\\..\\api/permissions', '/orch/\\x/../api/rules', '/orch/orch/orch/api/reviewer-people', '/orch/api/stream', '/orch/log.html']) {
+    const r = await rawGet(base, raw, friend);
+    assert.equal(r.status, 403, raw);
+    assert.doesNotMatch(r.body, /^orch /, raw);
+  }
+  // A path that normalises to a board read reaches the board as that read.
+  for (const [raw, seen] of [['/orch/x/../api/board', '/api/board'], ['/orch/x/%2e%2e/api/thread?key=a', '/api/thread?key=a'], ['/orch\\api\\board', '/api/board']]) {
+    assert.deepEqual(await rawGet(base, raw, friend), { status: 200, body: `orch GET ${seen}` }, raw);
+  }
+  // The owner's requests go on as sent.
+  assert.equal((await rawGet(base, '/orch//x/../y', phone)).body, 'orch GET //x/../y');
+});
+
+test("removing a share ends that person's open hub stream, and leaves the owner's", async (t) => {
+  const { base, home } = await startHub(t, { status: STATUS, board: { title: 'Orch', share: ['friend@github'] } });
+  const deadline = Date.now() + 15_000;
+  while ((await fetch(`${base}/orch/x`).then((r) => r.text(), () => '')) !== 'orch GET /x' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+  const { hostname, port } = new URL(base);
+  const open = (headers) => new Promise((resolve, reject) => {
+    const req = http.get({ hostname, port, path: '/_hub/stream', headers }, (res) => {
+      const s = { status: res.statusCode, ended: false };
+      res.on('data', () => {});
+      res.on('close', () => { s.ended = true; });
+      resolve(s);
+    });
+    req.on('error', () => {});
+    t.after(() => req.destroy());
+    setTimeout(() => reject(new Error('no stream')), 5000);
+  });
+  const theirs = await open(friend);
+  const owners = await open(phone);
+  assert.deepEqual([theirs.status, owners.status], [200, 200]);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(theirs.ended, false);
+
+  // Board settings' Remove: the board writes board.json and answers the owner's POST.
+  write(path.join(home, 'orch', 'board.json'), { title: 'Orch', share: [] });
+  await fetch(`${base}/orch/api/share`, { method: 'POST', headers: { ...phone, 'content-type': 'application/json' }, body: JSON.stringify({ remove: 'friend@github' }) });
+  const until = Date.now() + 5000;
+  while (!theirs.ended && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(theirs.ended, true, 'their stream ended');
+  assert.equal(owners.ended, false, "the owner's stream stays open");
+  assert.equal((await fetch(`${base}/_hub/stream`, { headers: friend })).status, 403, 'and coming back is refused');
 });

@@ -3,7 +3,8 @@
 // logins exactly as tailscale serve's Tailscale-User-Login sends them. The hub's gate (board/on-host.mjs ownerGate) calls
 // anyone else `other`; for a login some board shares with, shareReach says which paths it reaches instead: the shell and
 // its files, the sidebar and stream (sharedSidebar filters them to the shared boards), and the shared boards' own pages
-// and reads, by GET or HEAD alone. The tracker keeps when each shared person was last seen on each board, whether they're
+// and reads, by GET or HEAD alone. Both are allow-lists, checked on the hub's one parse of the path, which the hub then
+// forwards as is to the board. The tracker keeps when each shared person was last seen on each board, whether they're
 // viewing now, and who was just refused at the door, for Board settings' Sharing section.
 import path from 'node:path';
 import { isBoardSite, readJSON, saveJSON } from './boards.mjs';
@@ -28,21 +29,30 @@ const SHELL = new Set(['/', '/sw.js', '/manifest.webmanifest', '/favicon.ico']);
 const HUB_FILES = /^\/_hub\/(?:app\/[\w.-]+|colors\.css|kickflip\.png|hub\.css|icon-(?:180|192|512)\.png|sidebar\.json|stream)$/;
 // The hub's own pages, which send a shared person to `/`, their first shared board.
 const HUB_PAGES = new Set(['/_hub', '/_hub/', '/_hub/settings', '/_hub/settings/polling']);
-// A shared board's paths that stay the owner's: its settings, and reads that reach past the board (any of the host's logs
-// by name, the Slack members and GitHub logins Board settings picks reviewers from, the hub's rules).
-const PRIVATE = /^\/(?:settings\.html|api\/(?:settings|permissions|rules|reviewer-people|log))(?:[/?]|$)/;
+// What a shared board view reads, the path after the route: the board's pages and the files they load, its prototypes
+// and uploads, and its data, threads, notes and Main's build log. Everything else stays the owner's, such as Board
+// settings and the reads behind it that reach past the board (any of the host's logs by name, the Slack members and
+// GitHub logins Board settings picks reviewers from, the hub's rules), the event log, the board's own stream (the shell
+// follows /_hub/stream) and upgrades.
+const BOARD_READS = new RegExp('^/(?:' + [
+  '', 'questions\\.html', 'notes\\.html', 'plan\\.html', 'index\\.html', 'prototype-[a-z0-9-]+\\.html',
+  '[\\w-][\\w.-]*\\.(?:js|mjs|css|png|svg|ico|webp|jpe?g|gif|woff2?)', 'prototypes/[a-z0-9-]+/[\\w-][\\w.-]*\\.js', 'uploads/[^/]+',
+  'api/(?:board|questions|done|links|working|thread|notes|plan|try/main/log)',
+].join('|') + ')$');
 
-// method and pathname from the request; routes, sharedRoutes for its login.
+// method and pathname from the request, pathname as the hub parses it (WHATWG URL, so already free of dot segments and
+// backslashes) and forwards it; routes, sharedRoutes for its login.
 // → 'pass' | 'home' (a hub page: redirect to `/`) | 'view-only' (a write, or a board path the owner keeps) | 'other'
 export function shareReach({ method = 'GET', pathname, routes }) {
   const read = method === 'GET' || method === 'HEAD';
   if (SHELL.has(pathname) || HUB_FILES.test(pathname)) return read ? 'pass' : 'view-only';
   if (HUB_PAGES.has(pathname)) return read ? 'home' : 'other';
   const m = /^\/([^/]+)(\/.*)?$/.exec(pathname);
-  let route = null;
-  try { route = m && decodeURIComponent(m[1]); } catch { route = null; }
-  if (!route || !routes.has(route)) return 'other';
-  return read && !PRIVATE.test(m[2] || '/') ? 'pass' : 'view-only';
+  if (!m || !routes.has(m[1])) return 'other';
+  const rest = m[2] || '/';
+  // The board strips its own /<route> again, so a path naming the route twice would reach past this check.
+  if (rest === `/${m[1]}` || rest.startsWith(`/${m[1]}/`)) return 'view-only';
+  return read && BOARD_READS.test(rest) ? 'pass' : 'view-only';
 }
 
 // The route a path names, or null for `/` and the hub's own paths.
