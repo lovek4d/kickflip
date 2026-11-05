@@ -224,7 +224,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const draftNext = prStatus === PR_STATE.draft ? `Review draft PR #${views[least].number}` : null;
   return {
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, status: it.status || null,
-    created: it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
+    created: it.created || null, reviewSince: it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
     ownerStep: awaitsDone ? ownerStep : null,
@@ -450,7 +450,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'asks' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
-    linear: [], pr: null, prs: [], reviewers: [], review: {}, inReviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
+    linear: [], pr: null, prs: [], reviewers: [], review: {}, inReviewSince: null, reviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
     threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, prototyping: false, created: e.ts, updatedAt: handled ? lastTs : e.ts,
     ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
     fold: null, action: null,
@@ -1025,7 +1025,7 @@ export function buildBoard(snapshot) {
     it.working = workingOn.some((w) => w.key === it.key);
     if (it.kind === 'work' && ((it.lane === 'progress' && it.queuedAt) || (autoPull && it.lane === 'todo' && queueable(it)))) Object.assign(it, { lane: 'todo', queued: true });
     if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working && !it.queued) it.next = NO_NEXT;
-    it.sortAt = (it.queued ? it.queuedAt || it.created : SORT_AT[it.lane](it)) || it.updatedAt || null;
+    it.sortAt = (it.queued ? it.queuedAt || it.created : SORT_AT[it.lane](it)) || (['review', 'stale'].includes(it.lane) ? null : it.updatedAt) || null;
   }
   for (const it of items) {
     if (it.kind !== 'work') continue;
@@ -1091,7 +1091,7 @@ function linkCards(items, byKey, stored) {
 // The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review (Stale too) when it
 // came into the lane, Done when it closed, and Asks when Claude answered. A card with none falls back to its latest activity.
 const SORT_AT = {
-  todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.inReviewSince, stale: (i) => i.inReviewSince,
+  todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.reviewSince, stale: (i) => i.reviewSince,
   done: (i) => i.closedAt, asks: (i) => i.ask.answerAt,
 };
 

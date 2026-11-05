@@ -1498,6 +1498,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (clearNext) { delete item.next; delete item.next_on_questions; }
   // A build starting acts on whatever a Next set during the card's questions waited on.
   if (status === 'building' && next === undefined && item.next_on_questions) { delete item.next; delete item.next_on_questions; }
+  // The In Review lane sorts by this first arrival, which no later PR, push, merge-ready, tap or land rewrites.
+  if ((pr !== undefined || pushed !== undefined || mergeReady !== undefined) && !item.review_since) item.review_since = new Date().toISOString();
   if (pr !== undefined) {
     addPRs(item, pr, boardRepoOf(site, wave));
     clearBuildingStatus(item);

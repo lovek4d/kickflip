@@ -716,6 +716,29 @@ test("a verified branch held for the owner's Merge waits In Review on it with Me
   assert.deepEqual([done.lane, done.mergeReady, done.action], ['done', null, null]);
 });
 
+test("a merge-ready card keeps its place in In Review through a Merge tap, a Waiting line, a lander and a thread message", () => {
+  const held = (id, arrived) => ({ id, title: id, branch: id, review_since: arrived, merge_ready: { branch: id, at: '2026-11-04T20:00:00Z' } });
+  const build = (a = {}, threads = {}, agents = {}) => buildBoard({
+    fromWaves: true, branch: 'trunk', threads, now: Date.parse('2026-11-05T00:00:00Z'),
+    waves: [{ slug: 'w', agents, wave: { items: [{ ...held('A', '2026-11-04T08:00:00.000Z'), ...a }, held('B', '2026-11-04T09:00:00.000Z')] } }],
+  });
+  const order = (b) => b.items.map((i) => i.id);
+  const before = build();
+  assert.deepEqual(order(before), ['B', 'A']);
+  const after = build(
+    { merge_ready: { branch: 'A', at: '2026-11-04T22:00:00Z', tapped: '2026-11-04T22:30:00Z' } },
+    { 'w/A': [
+      { ts: '2026-11-04T22:30:10Z', who: 'claude', kind: 'status', text: 'Waiting for #210 to land' },
+      { ts: '2026-11-04T23:00:00Z', who: 'owner', text: 'one more thing' },
+    ] },
+    { lander: { kind: 'lander', started: '2026-11-04T23:10:00Z' } },
+  );
+  assert.deepEqual(order(after), ['B', 'A']);
+  const sortAt = (b) => b.items.find((i) => i.id === 'A').sortAt;
+  assert.equal(sortAt(after), sortAt(before));
+  assert.equal(sortAt(after), '2026-11-04T08:00:00.000Z');
+});
+
 test("an unstarted Todo card that waits on nothing from the owner can Build, a blocked one too, which the idle pull skips", () => {
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
   const card = ({ item = {}, events = [], threads = {}, owner = {}, agents = {}, dep } = {}) => buildBoard({

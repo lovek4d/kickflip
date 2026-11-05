@@ -1027,7 +1027,8 @@ test("item set --pr adds each PR, repeatable, in the board's repo or owner/repo#
 
 test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'building', '--next', 'Run tests', '--pr', '42').code, 0);
-  const { status_at: _w, ...edited } = read(at('waves', 'w', 'wave.json')).items[0];
+  const { status_at: _w, review_since: arrived, ...edited } = read(at('waves', 'w', 'wave.json')).items[0];
+  assert.equal(typeof arrived, 'string');
   assert.deepEqual(edited, { id: 'A1', title: 'One', next: 'Run tests', prs: [{ number: 42 }] });
   for (const [key, route, file] of [['w/A1', 'orch', at('waves', 'w', 'wave.json')], ['audit/A1', 'audit', site('audit', 'data', 'wave.json')]]) {
     for (const status of ['building', 'fixing', 'checking', 'planned', 'held', 'done']) {
@@ -1045,7 +1046,7 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking', '--next', '').code, 0);
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items[0].status, 'next' in read(at('waves', 'w', 'wave.json')).items[0]], ['checking', false]);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--clear-next', '--status', 'held').code, 0);
-  const { status_at: _a, ...audit } = read(site('audit', 'data', 'wave.json')).items[0];
+  const { status_at: _a, review_since: _r, ...audit } = read(site('audit', 'data', 'wave.json')).items[0];
   assert.deepEqual(audit, { id: 'A1', title: 'One', status: 'held', prs: [{ number: 7 }] });
   assert.equal(board('item', 'set', 'w/A1', '--site', 'audit', '--status', 'held').code, 1);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--status', 'shipped').code, 1);
@@ -2312,6 +2313,11 @@ test('on a plain git remote, builder done pushes the branch and the card waits o
   assert.ok(r.out.includes('\nA1: pushed A1 for its merge\n'), r.out);
   assert.equal(git(origin, 'rev-parse', 'A1'), git(worktree(), 'rev-parse', 'HEAD'));
   assert.deepEqual([itemOf().pushed.branch, typeof record().done], ['A1', 'string']);
+  // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md: the first arrival in review is kept, however often the push is set again.
+  const arrived = itemOf().review_since;
+  assert.equal(typeof arrived, 'string');
+  assert.equal(onOrch('item', 'set', 'w/A1', '--pushed', 'A1').code, 0);
+  assert.equal(itemOf().review_since, arrived);
 });
 
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
