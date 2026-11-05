@@ -144,9 +144,9 @@ test('item add records creation on a card with no status, waiting when it has de
   assert.equal(summed.code, 2);
   assert.match(summed.err, /item add does not take --summary/);
   assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', notes: 'Why', ticket: 'INT-1' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', notes: 'Why', unfiled: true, ticket: 'INT-1' });
   assert.equal(board('item', 'add', 'w/C3', '--site', 'orch', '--title', 'Three', '--deps', 'A1,B2').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting', ticket: 'INT-2' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting', unfiled: true, ticket: 'INT-2' });
   const taken = board('item', 'add', 'w/A1', '--site', 'orch', '--title', 'Again');
   assert.equal(taken.code, 1);
   assert.match(taken.err, /already has an item "A1"/);
@@ -155,7 +155,7 @@ test('item add records creation on a card with no status, waiting when it has de
   assert.match(dep.err, /no item "Z9"/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 4);
   assert.equal(board('item', 'add', 'audit/E5', '--site', 'audit', '--title', 'Five').code, 0);
-  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'wave.json')).items.at(-1)), { id: 'E5', title: 'Five', ticket: 'INT-1' });
+  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'wave.json')).items.at(-1)), { id: 'E5', title: 'Five', unfiled: true, ticket: 'INT-1' });
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].created, undefined);
 });
 
@@ -1276,6 +1276,51 @@ test('a follow-up is item add --parent; item set sets or clears a Parent and rep
   assert.equal(board('item', 'set', 'audit/ENG-7', '--site', 'audit', '--parent', 'audit/ENG-1').out, 'ENG-7: parent audit/ENG-1\n');
 });
 
+// docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md
+test('item set --relate adds links and --unrelate removes them on both sides, keeping the rest; neither goes with --related', () => {
+  const item = (id) => read(site('audit', 'data', 'wave.json')).items.find((i) => i.id === id);
+  for (const id of ['R1', 'R2', 'R3']) assert.equal(board('item', 'add', `audit/${id}`, '--site', 'audit', '--title', id, '--state', 'grilling').code, 0);
+  assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--related', 'R1').code, 0);
+  const added = board('item', 'set', 'audit/A1', '--site', 'audit', '--relate', 'R2,audit/R1');
+  assert.deepEqual([added.code, added.out], [0, 'A1: related to R2, audit/R1 added\n']);
+  assert.deepEqual(item('A1').related, ['audit/R1', 'audit/R2']);
+  // R3 stores its own link to A1; --unrelate takes it off R3 as well as A1's own list.
+  assert.equal(board('item', 'set', 'audit/R3', '--site', 'audit', '--relate', 'A1').code, 0);
+  const removed = board('item', 'set', 'audit/A1', '--site', 'audit', '--unrelate', 'R1,R3');
+  assert.deepEqual([removed.code, removed.out], [0, 'A1: unrelated from R1, R3\n']);
+  assert.deepEqual([item('A1').related, 'related' in item('R3')], [['audit/R2'], false]);
+  for (const [args, err] of [
+    [['--relate', 'A1'], /^--relate: a card can't be related to itself/],
+    [['--relate', 'NOPE'], /^wave "audit" has no item "NOPE"/],
+    [['--relate', 'R1', '--related', 'R2'], /^pass --related, or --relate and --unrelate, not both/],
+  ]) {
+    const r = board('item', 'set', 'audit/A1', '--site', 'audit', ...args);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.err, err, args.join(' '));
+  }
+  assert.deepEqual(item('A1').related, ['audit/R2']);
+});
+
+test("an agent's item add files the card New and wakes the orchestrator with card-added; item add --state files it at once, linked with --relate", () => {
+  const item = (id) => read(site('audit', 'data', 'wave.json')).items.find((i) => i.id === id);
+  const events = () => fs.readFileSync(site('audit', 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === 'card-added');
+  const before = fs.existsSync(site('audit', 'data', 'events.jsonl')) ? events().length : 0;
+  const newCard = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'Follow it up', '--parent', 'A1');
+  assert.deepEqual([newCard.code, newCard.err], [0, '']);
+  assert.deepEqual([item('F1').unfiled, item('F1').state], [true, undefined]);
+  assert.deepEqual(events().slice(before).map((e) => e.data), [{ key: 'audit/F1', title: 'Follow it up' }]);
+  // The orchestrator's filing turn: links, then the state, which files it.
+  const filed = board('item', 'set', 'audit/F1', '--site', 'audit', '--relate', 'A1', '--state', 'grilling');
+  assert.equal(filed.code, 0, filed.err);
+  assert.deepEqual([item('F1').state, 'unfiled' in item('F1'), item('F1').related], ['grilling', false, ['audit/A1']]);
+  const direct = board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'Filed', '--state', 'prototyping', '--relate', 'A1,F1');
+  assert.deepEqual([direct.code, direct.err], [0, '']);
+  assert.deepEqual([item('F2').state, 'unfiled' in item('F2'), item('F2').related], ['prototyping', false, ['audit/A1', 'audit/F1']]);
+  assert.equal(events().length, before + 1, 'a card filed with its state wakes nobody');
+  const bad = board('item', 'add', 'audit/F3', '--site', 'audit', '--title', 'X', '--state', 'done');
+  assert.deepEqual([bad.code, /^--state takes ready, grilling or prototyping/.test(bad.err), item('F3')], [1, true, undefined]);
+});
+
 test('--parent works when an ancestor of the new Parent no longer exists', () => {
   const file = site('audit', 'data', 'wave.json');
   const data = read(file);
@@ -1625,7 +1670,7 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   // what a builder starts from, so the board never grills it.
   const count = () => read(at('waves', 'w', 'wave.json')).items.length;
   const before = count();
-  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'grilling').err, /item add takes --state ready only/);
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'planned').err, /--state takes ready, grilling or prototyping/);
   write(at('waves', 'w', 'q1.md'), '# Quick\n');
   assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'ready', '--notes-file', 'q1.md').err, /w\/Q1 has no size; a builder starts from it/);
   assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'ready', '--size', 'small').err, /w\/Q1 has no notes file/);

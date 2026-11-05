@@ -7,6 +7,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until } from '../shared/test-helpers.mjs';
 import { builderBrief, landerBrief, plannerBrief, reviveBuilders, BOARD_CLI } from './headless.mjs';
+import { briefFacts } from './store.mjs';
 
 const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
 
@@ -60,6 +61,46 @@ test("a headless planner's brief names its card and its notes so far, spells its
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: Codex has no skills, so they're named only as extras.
   assert.ok(grill.includes('If you have the grilling skill') && proto.includes('If you have the prototype skill'));
   assert.ok(!/Follow the (grilling|prototype) skill/.test(grill + proto));
+});
+
+// docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md
+test("a builder's and a planner's brief list the card's related cards with their notes, for context only; a lander's doesn't", () => {
+  const links = [
+    { relation: 'related', ref: 'ENG-2', title: 'Sort the lane', status: 'planned', notes: '/s/waves/w/a2.md' },
+    { relation: 'parent', ref: 'ENG-3', title: 'The lane', status: 'done', notes: null },
+  ];
+  for (const brief of [builderBrief({ ...card, links }), plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', links })]) {
+    for (const want of ['Related cards', "don't build their scope", 'ENG-2 "Sort the lane" (related, planned): /s/waves/w/a2.md', 'ENG-3 "The lane" (parent, done): no notes']) {
+      assert.ok(brief.includes(want), `the brief has ${want}`);
+    }
+  }
+  assert.ok(!builderBrief(card).includes('Related cards'), 'a card with no links has no Related cards line');
+  assert.ok(!landerBrief({ ...card, links }).includes('Related cards'));
+});
+
+test("briefFacts gives a card's links: Related to set on either card, its Parent and its deps, each with its ref, title, status and notes path", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'brief-facts-'));
+  try {
+    const site = path.join(home, 'site');
+    fs.mkdirSync(path.join(site, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
+    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ title: 'T', items: [
+      { id: 'A1', title: 'One', parent: 'P1', deps: ['D1'], related: ['R1'] },
+      { id: 'R1', title: 'Rel', status: 'planned', plan: 'r1.md' },
+      { id: 'R2', title: 'Rel back', status: 'building', related: ['t/A1'] },
+      { id: 'P1', title: 'Par', status: 'done' },
+      { id: 'D1', title: 'Dep', status: 'waiting' },
+      { id: 'X1', title: 'Other' },
+    ] }));
+    const { links } = await briefFacts(site, 't/A1');
+    assert.deepEqual(links, [
+      { relation: 'parent', ref: 'P1', title: 'Par', status: 'done', notes: null },
+      { relation: 'depends on', ref: 'D1', title: 'Dep', status: 'waiting', notes: null },
+      { relation: 'related', ref: 'R1', title: 'Rel', status: 'planned', notes: path.join(site, 'data', 'r1.md') },
+      { relation: 'related', ref: 'R2', title: 'Rel back', status: 'building', notes: null },
+    ]);
+    assert.deepEqual((await briefFacts(site, 't/X1')).links, []);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
 test("the server launches the builder for a tap and a pull instead of waking the session, and a lander once a checking card's calls are verified and no question is open", async () => {

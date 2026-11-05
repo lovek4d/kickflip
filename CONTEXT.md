@@ -263,7 +263,7 @@ The one card a work item was spun out of, or none: set when a card is created fr
 _Avoid_: filed from, origin, epic
 
 **Related to**:
-Similar cards that should be cross-referenced, set by hand with `item set --related`, shown on both cards. It neither blocks nor orders anything; Blocked by does that ([cards wait on explicit blocked-by links](docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md)).
+Similar cards that should be cross-referenced, shown on both cards. The session links a new card in the call that files it: `item set --relate` adds links, `--unrelate` takes them off on both cards, and `--related` replaces the list. Planner and builder briefs list a card's Related to, Parent and deps with their notes, for context ([the orchestrator links a new card when it files it](docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md)). It neither blocks nor orders anything; Blocked by does that ([cards wait on explicit blocked-by links](docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md)).
 _Avoid_: sibling, link (alone)
 
 **Plan waves**:
@@ -295,7 +295,7 @@ Who the card is waiting for: the owning session's check, the owner's Ready, the 
 _Avoid_: blocked by, assignee
 
 **Card state**:
-What a card made from a **New task** does next, which its session picks and sets with `item set --state`: **ready** (its notes leave the owner nothing to decide, so it can be built; the plan lives only in the notes), **grilling** (questions on the card) or **prototyping** (takes on the card). The board enforces the three: `--state` refuses any other, and ready while the card has an open question. Until it has one, the card reads New beside its ticket id and is never pulled. A Ready card's time line reads a green "ready" in Action needed's place ("10:26 · held · ready · 2 new messages") while nothing blocks it and nothing waits on the owner, and the idle pull takes it like any settled card ([a new card is ready, grilling or prototyping, and reads ready in green when it is](docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md)).
+What a card made from a **New task** does next, which its session picks and sets with `item set --state`: **ready** (its notes leave the owner nothing to decide, so it can be built; the plan lives only in the notes), **grilling** (questions on the card) or **prototyping** (takes on the card). The board enforces the three: `--state` refuses any other, and ready while the card has an open question. Until it has one, the card reads New beside its ticket id and is never pulled. So does a card an agent added with `item add` and no `--state`, which a `card-added` event hands the session to link and file ([the orchestrator links a new card when it files it](docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md)). A Ready card's time line reads a green "ready" in Action needed's place ("10:26 · held · ready · 2 new messages") while nothing blocks it and nothing waits on the owner, and the idle pull takes it like any settled card ([a new card is ready, grilling or prototyping, and reads ready in green when it is](docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md)).
 _Avoid_: triage state, status (the wave entry's `status` is a different field)
 
 **Action needed**:

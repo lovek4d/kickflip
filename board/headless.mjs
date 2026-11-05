@@ -20,6 +20,12 @@ export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.ur
 const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
 const rebase = (base) => `git -c core.commentChar=';' rebase ${base}`;
 const ruleLines = (rules) => (rules.length ? ['Rules from the hub and this board:', ...rules.map((r) => `- ${r}`), ''] : []);
+// docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: the cards the card links (briefFacts' links).
+const linkLines = (links) => (links.length ? [
+  "Related cards: read their notes for context; don't build their scope.",
+  ...links.map((l) => `- ${l.ref} "${l.title}" (${l.relation}, ${l.status}): ${l.notes || 'no notes'}`),
+  '',
+] : []);
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md: builder done finishes the card.
 const finishSteps = ({ route, key, worktree, base }) => [
@@ -31,8 +37,8 @@ const finishSteps = ({ route, key, worktree, base }) => [
 ];
 const finishCommand = ({ route, key }) => `\`${cli(route)} builder done ${key} --text "<what you checked>"\``;
 
-// The standard brief for a card's headless builder. card: {route, key, ref, title, notes, worktree, base, rules}.
-export function builderBrief({ route, key, ref, title, notes, worktree, base, rules = [] }) {
+// The standard brief for a card's headless builder. card: {route, key, ref, title, notes, worktree, base, rules, links}.
+export function builderBrief({ route, key, ref, title, notes, worktree, base, rules = [], links = [] }) {
   const b = cli(route);
   return [
     `You are the headless builder for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person. Work only in ${worktree}. Never restart the hub or a board server, and never push.`,
@@ -49,6 +55,7 @@ export function builderBrief({ route, key, ref, title, notes, worktree, base, ru
     '',
     notes ? `Spec: the card's notes, ${notes}, all sections, where later sections override earlier ones.` : `The card has no notes file: build from its title, and record what you had to decide as calls.`,
     '',
+    ...linkLines(links),
     ...ruleLines(rules),
     "Write tests first, and run the full suite once, in the foreground, at the end. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.",
     `Commit with \`git -c core.commentChar=';' commit -F <file>\`, the subject "${ref}: <what the card now does>".`,
@@ -85,7 +92,7 @@ export function landerBrief({ route, key, ref, title, worktree, base, answers = 
 // The brief for a planner, a grill or a prototype, launched from the card and its notes so far. card as builderBrief's,
 // with kind grill or prototype, repo the board's repo folder it reads, the owner's text and files (uploads, {name, path})
 // when the request carried them, and for the owner's eye on one question, question (its id), note and choice.
-export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules = [], text, files = [], question, note, choice }) {
+export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules = [], links = [], text, files = [], question, note, choice }) {
   const b = cli(route);
   const grill = kind === 'grill';
   return [
@@ -106,6 +113,7 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
       `6. If you have no question left to ask, end the card ready: run \`${b} item set ${key} --size <s> --state ready\` once its notes file is set, so the board builds it. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end it \`--state prototyping\` instead, never ready. Never leave a Next that asks the owner to mark it ready.`,
     ] : []),
     '',
+    ...linkLines(links),
     ...ruleLines(rules),
     `To finish, run \`${b} builder done ${key} --text "<what you asked>"\`.`,
     '',

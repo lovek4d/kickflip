@@ -152,6 +152,9 @@ command fails and changes nothing.
                                                          --parent "" clears it
          [--related <id>,<wave>/<id>]                    replaces the cards it is Related to, which both cards
                                                          show; --related "" clears it, on both
+         [--relate <id>,<wave>/<id>]                     adds cards to its Related to, keeping the rest
+         [--unrelate <id>,<wave>/<id>]                   takes cards off its Related to, on both cards; neither
+                                                         goes with --related
          [--install <url> [--install-sha <sha>]          a device build the owner installs from the card's Install
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=
                                                          download-manifest&url=https://…/manifest.plist for iOS,
@@ -192,6 +195,10 @@ command fails and changes nothing.
                                                          another card's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A card
                                                          from the + or New task has none
+         [--state ready|grilling|prototyping]            files it at once, as item set's --state; the session's
+         [--relate <id>,<wave>/<id>]                     own form, linking it with --relate in the same call.
+                                                         Without --state it reads New and a card-added event
+                                                         wakes the board's session, which links and files it
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
          card. Prints "<label> added as <key>": use the key in later commands
   item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
@@ -642,14 +649,14 @@ const COMMANDS = {
   'prototype add': [['topic'], ['title', '...take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
+  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
     if (f.status === 'done' && site) await store.checkNotReopened(site, key);
     // docs/adr/2026-11-05-0000-a-card-in-progress-has-its-worktree-until-done.md
     if (f.status === 'building' && site && boardAt(site)) await store.ensureWorktree(site, key, (opts) => boardWorktree(site, key.split('/')[1], opts));
-    return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related,
+    return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check }, options);
   }],
-  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model', 'state'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model, state: f.state }, options)],
+  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model', 'state', 'relate'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model, state: f.state, relate: f.relate, intake: true }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
@@ -797,6 +804,7 @@ function itemChanges(f) {
     f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),
     notesFileOf(f) !== undefined && 'notes recorded', f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
     f.parent !== undefined && (f.parent ? `parent ${f.parent}` : 'parent cleared'), f.related !== undefined && (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
+    f.relate !== undefined && `related to ${f.relate.split(',').join(', ')} added`, f.unrelate !== undefined && `unrelated from ${f.unrelate.split(',').join(', ')}`,
     f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',
     f.title !== undefined && 'renamed', f.ticket !== undefined && `ticket ${f.ticket}`,
     f.check !== undefined && (f.check.trim() ? `check ${f.check.trim().split(/\s+/).join(' ')}` : 'check removed'),

@@ -93,6 +93,7 @@ const ON_CARD = {
   'reask-request': (c) => `question asked again on ${c}`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text}`,
   'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}`,
+  'card-added': (c) => `${c} added by an agent: link it and file it`,
 };
 
 // One plain line per event line, from its kind and card (data.key, or data.id for an ask-* event), or null for a

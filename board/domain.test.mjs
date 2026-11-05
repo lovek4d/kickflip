@@ -1589,6 +1589,9 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   assert.deepEqual(fields(fresh), [true, false, false]);
   assert.deepEqual(pullOf([fresh]).pullable, []);
   assert.equal(card({ item: { from_ask: undefined } }).unsorted, false);
+  // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: an agent's item add reads New too.
+  assert.equal(card({ item: { from_ask: undefined, unfiled: true } }).unsorted, true);
+  assert.deepEqual(pullOf([card({ item: { from_ask: undefined, unfiled: true } })]).pullable, []);
   const ready = card({ item: { state: 'ready' } });
   assert.deepEqual(fields(ready), [false, true, false]);
   assert.deepEqual(pullOf([ready]).pullable, ['w/A1']);

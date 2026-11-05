@@ -1465,8 +1465,9 @@ function closingLine(site, key, item, status, text, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, ownerStep, ownerDone, check }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, ownerStep, ownerDone, check }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
+  if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
@@ -1479,7 +1480,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --install, --clear-install, --title, --size, --model, --ticket or --check');
+  if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1508,7 +1509,9 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     const to = await parentKey(site, parseKey(key).wave, key, parent);
     if (to) item.parent = to; else delete item.parent;
   }
-  const unrelate = related === undefined ? null : await setRelated(site, key, item, related);
+  let unlink = related === undefined ? null : await setRelated(site, key, item, related);
+  if (relate !== undefined) item.related = [...new Set([...(item.related || []).map((r) => depKey(parseKey(key).wave, r)), ...await relatedKeys(site, key, relate, '--relate')])];
+  if (unrelate !== undefined) unlink = await unrelateCards(site, key, item, await relatedKeys(site, key, unrelate, '--unrelate'));
   if (hold !== undefined) setHold(item, hold);
   if (status === 'building' && (item.held || item.status === 'held')) {
     fail(item.pick_up_at ? `${key} is held until ${item.pick_up_at}, when the board resumes it; start it early only with item set ${key} --unheld`
@@ -1570,7 +1573,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
     await checkNotesComplete(site, key, source.dir, item);
   }
-  if (state !== undefined) item.state = state;
+  if (state !== undefined) { item.state = state; delete item.unfiled; }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the state the card is in.
   if (item.state === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the state it is already in; pass --next with what happens next, or --clear-next`);
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: ready releases an Implement
@@ -1583,7 +1586,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (!owedBefore && !['building', 'fixing'].includes(status) && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
   if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, wave, item, ticket, options, source.dir);
   await writeJSON(source.file, wave);
-  if (unrelate) await unrelate();
+  if (unlink) await unlink();
   const resolved = await resolve();
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
@@ -1741,28 +1744,47 @@ async function parentKey(site, slug, key, parent) {
   return to;
 }
 
-// --related for card key: a comma list of cards that exist, replacing the cards it is related to; "" is none. A link
-// shows on both cards whichever stores it, so each card the list leaves out loses its own link to key too: the returned
-// write does that once item's wave file is written.
-async function setRelated(site, key, item, related) {
-  const list = [...new Set(String(related).split(',').map((r) => r.trim()).filter(Boolean).map((r) => depKey(parseKey(key).wave, r)))];
-  if (list.includes(key)) fail("--related: a card can't be related to itself");
+// A --related, --relate or --unrelate list for card key (<wave>/<id>, or <wave> for a card not made yet): a comma list
+// of cards that exist, as keys, without repeats.
+async function relatedKeys(site, key, value, flag) {
+  const slug = key.split('/')[0];
+  const list = [...new Set(String(value).split(',').map((r) => r.trim()).filter(Boolean).map((r) => depKey(slug, r)))];
+  if (list.includes(key)) fail(`${flag}: a card can't be related to itself`);
   for (const r of list) await loadItem(site, r);
-  if (list.length) item.related = list; else delete item.related;
-  return async () => {
-    for (const entry of await itemSources(site)) {
-      const wave = await readJSON(entry.file, null);
-      let changed = false;
-      for (const it of Array.isArray(wave?.items) ? wave.items : []) {
-        const own = `${entry.slug}/${it.id}`;
-        if (own === key || list.includes(own) || !(it.related || []).some((r) => depKey(entry.slug, r) === key)) continue;
-        it.related = it.related.filter((r) => depKey(entry.slug, r) !== key);
-        if (!it.related.length) delete it.related;
-        changed = true;
-      }
-      if (changed) await writeJSON(entry.file, wave);
+  return list;
+}
+
+// A link shows on both cards whichever stores it, so taking one off means taking it off the other card too: → the
+// write that drops key from the Related to of each other card that drop(<its key>) picks, run once key's own wave
+// file is written.
+const dropLinksTo = (site, key, drop) => async () => {
+  for (const entry of await itemSources(site)) {
+    const wave = await readJSON(entry.file, null);
+    let changed = false;
+    for (const it of Array.isArray(wave?.items) ? wave.items : []) {
+      const own = `${entry.slug}/${it.id}`;
+      if (own === key || !drop(own) || !(it.related || []).some((r) => depKey(entry.slug, r) === key)) continue;
+      it.related = it.related.filter((r) => depKey(entry.slug, r) !== key);
+      if (!it.related.length) delete it.related;
+      changed = true;
     }
-  };
+    if (changed) await writeJSON(entry.file, wave);
+  }
+};
+
+// --related for card key: the list replaces the cards it is related to; "" is none. Each card the list leaves out
+// loses its own link to key too.
+async function setRelated(site, key, item, related) {
+  const list = await relatedKeys(site, key, related, '--related');
+  if (list.length) item.related = list; else delete item.related;
+  return dropLinksTo(site, key, (own) => !list.includes(own));
+}
+
+// --unrelate for card key: the listed cards come off its Related to, and key off theirs; the rest stay.
+function unrelateCards(site, key, item, list) {
+  const kept = (item.related || []).filter((r) => !list.includes(depKey(parseKey(key).wave, r)));
+  if (kept.length) item.related = kept; else delete item.related;
+  return dropLinksTo(site, key, (own) => list.includes(own));
 }
 
 export const boardRepoOf = (site, wave) => (site && listBoards().find((b) => samePath(b.dir, site))?.github) || wave.repo;
@@ -1914,11 +1936,14 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // → {file, key}. A new card starts unstarted: no status, or waiting when it names deps. key is <wave>/<id>, or <wave>
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
 // (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
-async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model, state }, options) {
-  // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md: a card added without ready is grilled.
-  if (state !== undefined && state !== 'ready') fail('item add takes --state ready only: a card added without it gets its grill from the board');
+// docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: state files the card at once, with
+// relate its Related to. With intake, a site and no state, the card is unfiled, reading New, and a `card-added {key, title}`
+// event wakes the board's session to file it; once filed it arrives in Todo and gets its grill
+// (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is ready.
+async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model, state, relate, intake = false }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
+  if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const item = { id, title: text(title, '--title'), created: new Date().toISOString() };
@@ -1929,16 +1954,22 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (item.deps?.length) item.status = 'waiting';
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
+  if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   // A new card has no questions, so ready needs only its size and notes file, checked before its ticket is made.
-  if (state) { checkSizeAndNotes(id === undefined ? 'the card' : key, item); item.state = state; }
+  if (state === 'ready') checkSizeAndNotes(id === undefined ? 'the card' : key, item);
+  if (state !== undefined) item.state = state;
+  // Without a site there is no board session to file it.
+  else if (intake && site) item.unfiled = true;
   await assignTicket(site, key, wave, item, ticket, options, source.dir);
   if (id === undefined) {
     item.id = cardIdOf(item.ticket);
     if (wave.items.some((it) => it.id === item.id)) fail(`wave "${slug}" already has an item "${item.id}"; link ${item.ticket} with item add ${slug}/<id> --ticket ${item.ticket}`);
   }
+  const added = `${slug}/${item.id}`;
   wave.items.push(item);
   await writeJSON(source.file, wave);
-  return { file: source.file, key: `${slug}/${item.id}`, lines: [] };
+  if (item.unfiled) await appendEvent(listBoards().find((b) => samePath(b.dir, site)) || { dir: site }, 'card-added', { key: added, title: item.title });
+  return { file: source.file, key: added, lines: [] };
 }
 
 // `tickets backfill`: each open card with no ticket links the first id in its title, or in its legacy
@@ -2723,12 +2754,35 @@ export async function verifyCalls(site, key, { dir, agent = 'main', note }) {
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // What a headless builder's brief is built from: {key, ref, title, notes: the notes file's path or null, worktree: the
 // newest record's worktree path or null, answers: the owner's answer to each deferred ask put to them, [{ask, question,
-// answer}]}.
+// answer}], links: its cardLinks}.
 export async function briefFacts(site, key) {
   const { source, item } = await loadItem(site, key);
   const said = (q, a) => [(q.options || []).find((o) => o.id === a.choice)?.label, a.note].filter(Boolean).join(': ') || 'answered';
   const answers = (await cardQuestions(site, key)).asked.filter((q) => q.ask && q.answers.length).map((q) => ({ ask: q.ask, question: q.question, answer: said(q, q.answers.at(-1)) }));
-  return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, worktree: (await recordedWorktree(site, key))?.path ?? null, answers };
+  return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key) };
+}
+
+// docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md
+// The cards on the board that card key links: its Parent, the cards it depends on, and the cards it is Related to
+// (set on either card), in that order. → [{relation: parent|depends on|related, ref, title, status, notes: the notes
+// file's path or null}]; a link to a card no longer on the board is left out.
+async function cardLinks(site, key) {
+  const cards = new Map();
+  for (const entry of await itemSources(site)) {
+    for (const it of (await readJSON(entry.file, null))?.items || []) cards.set(`${entry.slug}/${it.id}`, { entry, it });
+  }
+  const slug = parseKey(key).wave;
+  const { it: item } = cards.get(key);
+  const back = [...cards].filter(([, c]) => (c.it.related || []).some((r) => depKey(c.entry.slug, r) === key)).map(([k]) => k);
+  const linked = [
+    ...(item.parent ? [['parent', depKey(slug, item.parent)]] : []),
+    ...(item.deps || []).map((d) => ['depends on', depKey(slug, d)]),
+    ...[...new Set([...(item.related || []).map((r) => depKey(slug, r)), ...back])].map((k) => ['related', k]),
+  ].filter(([, k]) => cards.has(k));
+  return Promise.all(linked.map(async ([relation, k]) => {
+    const { entry, it } = cards.get(k);
+    return { relation, ref: await cardName(site, k), title: it.title || k, status: it.status || 'not started', notes: it.plan ? path.join(entry.dir, it.plan) : null };
+  }));
 }
 
 // The cards a headless lander lands: checking, every call on their records verified, none of their questions open,

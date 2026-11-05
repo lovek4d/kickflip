@@ -239,7 +239,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
-    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || draftNext || null,
+    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || draftNext || null,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
     mergeReady: lane === 'review' ? mergeReady : null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
@@ -1016,10 +1016,11 @@ export function buildBoard(snapshot) {
     if (it.unpicked) it.state = 'prototyping';
     if (it.unpicked && !it.action) it.next = PROTOTYPE_AGAIN;
     it.buildable = buildableOf(it);
-    // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask reads New until its
-    // session sets its state, and ready once Ready with nothing blocking it or waiting on the owner.
+    // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask, or one an agent
+    // added (docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md), reads New until its session
+    // sets its state, and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
-    it.unsorted = unstarted && Boolean(it.fromAsk) && !it.state;
+    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !it.state;
     it.ready = unstarted && it.state === 'ready' && !it.blockedBy.length && !it.action;
   }
   linkCards(items, byKey, storedLinks);
@@ -1239,13 +1240,13 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
 // How many grills and prototypes a board runs at once, unless its max_planners setting says otherwise.
 export const MAX_PLANNERS = 3;
 // For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
-// card in Todo nothing has picked up: buildable, not ready, blocked by no unfinished dep, held, queued by a Build tap or worked on by a session, with
+// card in Todo nothing has picked up: buildable, not ready, filed (not New), blocked by no unfinished dep, held, queued by a Build tap or worked on by a session, with
 // no planner record ever, no grill or prototype requested and no question topic. However it was filed (an ask, item add,
 // the +, an import) it counts the same. The cap, less the planners running, takes them from the top; the rest wait.
 export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
-  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.blockedBy.length && !i.held && !i.queuedAt && !i.working && !i.grilling && !i.prototyping
+  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.unsorted && !i.blockedBy.length && !i.held && !i.queuedAt && !i.working && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some(plans));
   return arrived.slice(0, Math.max(0, cap - planners)).map((i) => i.key);
 }
