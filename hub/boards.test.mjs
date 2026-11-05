@@ -74,14 +74,14 @@ test("an event for a board that is down is appended directly, and one a board to
   const dir = fs.mkdtempSync(path.join(home, 'append-'));
   const lines = () => { try { return fs.readFileSync(path.join(dir, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
   const [downPort] = await freePorts(1);
-  const id = await appendEvent({ dir, port: downPort }, 'hello', { title: 'Down' });
-  assert.deepEqual(lines().map((e) => [e.id, e.kind, e.data]), [[id, 'hello', { title: 'Down' }]]);
+  const id = await appendEvent({ dir, port: downPort }, 'ping', { title: 'Down' });
+  assert.deepEqual(lines().map((e) => [e.id, e.kind, e.data]), [[id, 'ping', { title: 'Down' }]]);
   // A board that reads the request and never answers may well have written the line: the hub can't tell, so it says so.
   const slow = http.createServer(() => {});
   await new Promise((resolve) => slow.listen(0, '127.0.0.1', resolve));
   try {
-    await assert.rejects(appendEvent({ dir, port: slow.address().port, route: 'slow' }, 'hello', { title: 'Slow' }, { timeout: 300 }),
-      /^Error: \/slow didn't answer within 0\.3 s, so it may already have the hello event$/);
+    await assert.rejects(appendEvent({ dir, port: slow.address().port, route: 'slow' }, 'ping', { title: 'Slow' }, { timeout: 300 }),
+      /^Error: \/slow didn't answer within 0\.3 s, so it may already have the ping event$/);
     assert.equal(lines().length, 1);
   } finally { slow.closeAllConnections(); slow.close(); }
 });
