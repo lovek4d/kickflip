@@ -104,3 +104,17 @@ test('a failed pull shows as failed with its error, a tap pulls again, and the n
   await new Promise(setImmediate);
   assert.equal(runs.length, 3);
 });
+
+test('a pull that finishes OK calls pulled, and a failed pull does not', async () => {
+  const root = install({ version: '0.3.0' });
+  let result = { ok: false, error: 'down' };
+  let pulled = 0;
+  const up = upgrader({ root, running: '0.3.0', fetch: registry('0.4.0').fetch, run: async () => result, pulled: () => pulled++ });
+  await up.check();
+  await new Promise(setImmediate);
+  assert.equal(pulled, 0);
+  result = { ok: true };
+  await up.request();
+  await new Promise(setImmediate);
+  assert.equal(pulled, 1);
+});

@@ -176,7 +176,7 @@ import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED, AWAKE_REFUSE
 import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
-import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
+import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -196,6 +196,7 @@ import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
 import { upgrader, CHECK_MS } from './upgrade.mjs';
+import { restarter } from './self-restart.mjs';
 import { fallBackFromLinear, openBoardBuilders } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
@@ -354,6 +355,7 @@ async function serverAnswers(route) {
 }
 async function reconcile() {
   if (shuttingDown) return;
+  selfRestart.check();
   const { sites } = loadManifest();
   for (const route of [...procs.keys()]) {
     if (closingResponses.has(route)) continue;
@@ -395,6 +397,8 @@ async function reconcile() {
     if (p.child && p.up) Object.assign(p, { state: 'up' }, p.stopping ? {} : { why: undefined });
   }
 }
+// The hub restarts itself for new code once it is whole on disk (self-restart.mjs).
+const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), log });
 const reconciling = setInterval(() => reconcile().catch((e) => log('reconcile failed:', e.message)), 2000);
 reconcile().catch((e) => log('reconcile failed:', e.message));
 
@@ -739,6 +743,7 @@ const upgrade = upgrader({
   run: runUpdate,
   log,
   changed: () => stream.refresh(),
+  pulled: () => selfRestart.restartNow(),
 });
 function runUpdate() {
   const file = path.join(LOGS, 'kickflip-update.log');

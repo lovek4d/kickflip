@@ -4,7 +4,8 @@
 // once: run() → {ok, error} runs `kickflip update --no-restart`, which installs from npm and leaves the hub running. state()
 // then reads "updated" while the installed version is newer than `running`, the version this hub started with, until the
 // hub restarts. A clone (root has .git) never asks and never offers. request() pulls again after a failure.
-// changed() is called whenever state() may answer differently.
+// changed() is called whenever state() may answer differently; pulled() when a pull finished OK, which the hub answers by
+// restarting itself (self-restart.mjs); "updated" and its Restart remain for a restart that failed.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -20,7 +21,7 @@ export function newer(a, b) {
 }
 
 // → {check(), state(), request()}; state() → null | {state: updating | updated | failed | available, version, error (failed)}
-export function upgrader({ root, running: runningVersion, fetch = globalThis.fetch, run, log = () => {}, changed = () => {} }) {
+export function upgrader({ root, running: runningVersion, fetch = globalThis.fetch, run, log = () => {}, changed = () => {}, pulled = () => {} }) {
   const clone = fs.existsSync(path.join(root, '.git'));
   let latest = null;
   let pulling = false;
@@ -53,7 +54,7 @@ export function upgrader({ root, running: runningVersion, fetch = globalThis.fet
     if (pulling) return;
     pulling = true;
     error = null;
-    run().then(({ ok, error: why }) => { if (!ok) error = why; }, (e) => { error = e.message; })
+    run().then(({ ok, error: why }) => { if (ok) pulled(); else error = why; },(e) => { error = e.message; })
       .finally(() => { pulling = false; changed(); });
   }
 
