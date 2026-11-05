@@ -2643,6 +2643,9 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     throw e;
   }
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
+  // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: any other main build, not the
+  // rebase run nor the lander of its hand-back, ends the card's rebase run, so its push isn't counted as one.
+  if (was?.rebase_run && agent === 'main' && ![REBASE_LABEL, 'Lander'].includes(record.label)) await endRebaseRun(site, key);
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pick a build
   // started on, with what it read; a start taking up a dispatched record reuses the pick its dispatch recorded.
   if (pick?.inputs && site) {
@@ -2693,11 +2696,22 @@ export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
 // worktree makes from the PR's branch, and the card records rebase_run {pr, base, conflict, at} until the run's push
 // (recordRebase). → {key, kind, model, worktree}, as startTappedBuild's
 export async function startRebase(site, key, { pr, conflict, base }, worktree) {
-  const started = await startBuilder(site, key, { kind: 'build', label: 'Rebase', dispatch: 'hub', ownWorktree: worktree });
   const { source, wave, item } = await loadItem(site, key);
   item.rebase_run = { pr, base, conflict, at: new Date().toISOString() };
   await writeJSON(source.file, wave);
-  return { key, kind: started.kind, ...(started.model ? { model: started.model } : {}), worktree: started.worktree };
+  try {
+    const started = await startBuilder(site, key, { kind: 'build', label: REBASE_LABEL, dispatch: 'hub', ownWorktree: worktree });
+    return { key, kind: started.kind, ...(started.model ? { model: started.model } : {}), worktree: started.worktree };
+  } catch (e) {
+    await endRebaseRun(site, key);
+    throw e;
+  }
+}
+const REBASE_LABEL = 'Rebase';
+async function endRebaseRun(site, key) {
+  const { source, wave, item } = await loadItem(site, key);
+  delete item.rebase_run;
+  await writeJSON(source.file, wave);
 }
 // The number of the card's PR in its board's repo, which a finish pushes to instead of opening one, or null.
 export async function cardPR(site, key) {
@@ -3035,7 +3049,8 @@ export async function briefFacts(site, key) {
   const { source, item } = await loadItem(site, key);
   const said = (q, a) => [(q.options || []).find((o) => o.id === a.choice)?.label, a.note].filter(Boolean).join(': ') || 'answered';
   const answers = (await cardQuestions(site, key)).asked.filter((q) => q.ask && q.answers.length).map((q) => ({ ask: q.ask, question: q.question, answer: said(q, q.answers.at(-1)) }));
-  return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key) };
+  return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key),
+    rebasePR: item.rebase_run?.pr ?? null };
 }
 
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md

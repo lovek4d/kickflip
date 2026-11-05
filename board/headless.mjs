@@ -188,18 +188,20 @@ export async function reviveBuilders(tracked, open, { launch, handBack, alive = 
 
 const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'logs', `${role}-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 
-// Launches the agent of a build startTappedBuild started ({key, kind, model}), with lander the lander of a verified
-// card, with rebase {pr} the rebase run of a card whose PR conflicts (store.mjs startRebase), or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, text?, files?, question?,
+// Launches the agent of a build startTappedBuild started ({key, kind, model}), the rebase run when the card has one
+// open (store.mjs startRebase's rebase_run, so a relaunch after a restart briefs it the same), with lander the lander of
+// a verified card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, text?, files?, question?,
 // note?, choice?}), through the adapter (agents.mjs launchAgent): a build or lander as its record's kind, a planner as
 // Claude. The session id it names goes on the card's main builder record and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, text, files, question, note, choice }, { lander = false, rebase = null } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, text, files, question, note, choice }, { lander = false } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
   const { base, repo } = builderRepo(site);
   const planner = plans({ kind });
-  const card = { ...facts, route, base, repo, rules, kind, text, files, question, note, choice, pr: rebase?.pr };
+  const rebase = !planner && !lander && facts.rebasePR !== null;
+  const card = { ...facts, route, base, repo, rules, kind, text, files, question, note, choice, pr: facts.rebasePR };
   const role = planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
   const cwd = planner ? repo : facts.worktree;
   const prompt = planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);

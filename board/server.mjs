@@ -1579,7 +1579,7 @@ async function launchRebases(items) {
       continue;
     } finally { dataVersion++; }
     try {
-      sent[d.key].pid = (await launchBuilder(here, started, { rebase: { pr: d.pr } })).pid;
+      sent[d.key].pid = (await launchBuilder(here, started)).pid;
       logCall({ ...entry, result: 'launched' });
     } catch (e) {
       logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });

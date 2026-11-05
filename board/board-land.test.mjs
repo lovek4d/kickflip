@@ -662,6 +662,15 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
   assert.deepEqual([item.prs, item.status, item.rebase_run, typeof record().done], [[{ number: 100 }], undefined, undefined, 'string']);
   assert.deepEqual(item.rebased.map(({ at: _, ...r }) => r), [{ from: before, to: rebased, base: 'main' }]);
   assert.equal(threadOf().at(-1).text, 'Rebased onto main.');
+
+  // A run's hand-back keeps it through its lander; any other build on the card ends it, so its push isn't a rebase's.
+  const again = read(at('waves', 'w', 'wave.json'));
+  again.items[0].rebase_run = { pr: 100, base: 'main', conflict: 'x@main', at: new Date().toISOString() };
+  write(at('waves', 'w', 'wave.json'), again);
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Lander').code, 0);
+  assert.equal(typeof itemOf().rebase_run, 'object');
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  assert.equal(itemOf().rebase_run, undefined);
 });
 
 test('on a plain git remote, builder done pushes the branch and the card waits on the merge', () => {
