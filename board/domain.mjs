@@ -1216,13 +1216,13 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
 // How many grills and prototypes a board runs at once, unless its max_planners setting says otherwise.
 export const MAX_PLANNERS = 3;
 // For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
-// card in Todo nothing has picked up: buildable, not ready, held, queued by a Build tap or worked on by a session, with
+// card in Todo nothing has picked up: buildable, not ready, blocked by no unfinished dep, held, queued by a Build tap or worked on by a session, with
 // no planner record ever, no grill or prototype requested and no question topic. However it was filed (an ask, item add,
 // the +, an import) it counts the same. The cap, less the planners running, takes them from the top; the rest wait.
 export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
-  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.held && !i.queuedAt && !i.working && !i.grilling && !i.prototyping
+  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.blockedBy.length && !i.held && !i.queuedAt && !i.working && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some(plans));
   return arrived.slice(0, Math.max(0, cap - planners)).map((i) => i.key);
 }

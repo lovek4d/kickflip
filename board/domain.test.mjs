@@ -1770,9 +1770,9 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
     card('w/A1'),
     card('w/A2', { state: 'grilling', fromAsk: 'e1' }),
     card('w/A3', { state: 'prototyping' }),
-    card('w/A4', { blockedBy: [{ key: 'w/X' }] }),
   ];
   const pickedUp = [
+    card('w/B0', { blockedBy: [{ key: 'w/X' }] }),
     card('w/B1', { state: 'ready' }),
     card('w/B2', { held: true }),
     card('w/B3', { queuedAt: at }),
@@ -1786,7 +1786,9 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
     card('w/C2', { lane: 'done', buildable: false }),
   ];
   assert.equal(MAX_PLANNERS, 3);
-  assert.deepEqual(arrivalsOf([...pickedUp, ...arrived], { cap: 99 }), ['w/A1', 'w/A2', 'w/A3', 'w/A4']);
+  assert.deepEqual(arrivalsOf([...pickedUp, ...arrived], { cap: 99 }), ['w/A1', 'w/A2', 'w/A3']);
+  assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }] })]), [], 'a blocked card waits for its blockers');
+  assert.deepEqual(arrivalsOf([card('w/B0')]), ['w/B0'], 'and arrives once none is left');
   assert.deepEqual(arrivalsOf([...pickedUp, ...arrived]), ['w/A1', 'w/A2', 'w/A3'], 'the default cap takes three');
   const running = card('w/R1', { buildable: false, agents: [{ kind: 'grill', started: at, done: null }] });
   const drawing = card('w/R2', { lane: 'progress', buildable: false, agents: [{ kind: 'prototype', started: at, done: null }] });
