@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { holdingLandLock, joiningLand, landInTurn } from './worktree.mjs';
+import { holdingLandLock, holdingTestSlot, joiningLand, landInTurn } from './worktree.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function home(t) {
@@ -160,4 +160,64 @@ test('lands from separate processes go first in, first out', { timeout: 20000 },
   release();
   await Promise.all([hold, ...runs]);
   assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['#1', '#2', '#3']);
+});
+
+// docs/adr/2026-11-05-0100-one-full-suite-at-a-time-on-the-host.md: one full suite at a time across the host.
+async function settled(ok, what) {
+  const until = Date.now() + 30000;
+  while (!ok()) { assert.ok(Date.now() < until, what); await sleep(10); }
+}
+
+test('a land whose suite finds the test slot taken waits for it, saying which card runs, with the land lock free meanwhile', async (t) => {
+  const dir = home(t);
+  const kick = path.join(dir, '.claude', 'kickflip');
+  const tree = scratch(dir);
+  let release;
+  const holder = holdingTestSlot('B2', () => new Promise((r) => { release = r; }));
+  await settled(() => release, 'the slot was never taken');
+  const waited = [];
+  const events = [];
+  const run = landInTurn(tree, { ...quiet, hold: true, onWaitTests: (card) => waited.push(card), runTests: () => { events.push('suite'); return { ok: true, pass: 1 }; } });
+  await settled(() => waited.length, 'the land never waited');
+  assert.deepEqual(waited, ['B2']);
+  assert.deepEqual(events, []);
+  assert.equal(fs.existsSync(path.join(kick, 'land.lock')), false);
+  release();
+  await Promise.all([holder, run]);
+  assert.deepEqual(events, ['suite']);
+  assert.equal(fs.existsSync(path.join(kick, 'test.lock')), false);
+});
+
+test('the test slot is held around the suite only, and freed when the suite throws', async (t) => {
+  const dir = home(t);
+  const tree = scratch(dir);
+  const slot = path.join(dir, '.claude', 'kickflip', 'test.lock');
+  const seen = [];
+  await landInTurn(tree, { ...quiet, hold: true, runTests: () => { seen.push(JSON.parse(fs.readFileSync(slot, 'utf8')).card); return { ok: true, pass: 1 }; } });
+  assert.deepEqual(seen, ['A1']);
+  assert.equal(fs.existsSync(slot), false);
+  await assert.rejects(holdingTestSlot('A2', () => { throw new Error('boom'); }), /boom/);
+  assert.equal(fs.existsSync(slot), false);
+});
+
+test('test slot waiters go first in, first out, and a slot or ask left by a process that is gone is taken over', async (t) => {
+  const dir = home(t);
+  const kick = path.join(dir, '.claude', 'kickflip');
+  const queue = path.join(kick, 'test.queue');
+  fs.mkdirSync(queue, { recursive: true });
+  fs.writeFileSync(path.join(kick, 'test.lock'), JSON.stringify({ card: '#9', pid: 2 ** 22 + 1, at: 'x' }));
+  fs.writeFileSync(path.join(queue, '000000000000001-000000-4194305'), '');
+  const order = [];
+  let release;
+  const hold = holdingTestSlot('#1', () => new Promise((r) => { release = r; }));
+  await settled(() => release, 'the first never took the slot');
+  const later = [];
+  for (const card of ['#2', '#3', '#4']) {
+    const before = fs.readdirSync(queue).length;
+    later.push(holdingTestSlot(card, async () => { order.push(card); }));
+    await settled(() => fs.readdirSync(queue).length > before, `${card} never queued`);
+  }
+  release();
+  await Promise.all([hold, ...later]);
+  assert.deepEqual(order, ['#2', '#3', '#4']);
 });

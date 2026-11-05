@@ -197,8 +197,6 @@ export function restartRunner(what, route) {
 // its place. A waiter wakes when the lock or the queue changes; a lock or ask whose process is gone is taken over, found
 // by a slow recheck since a process that dies changes neither.
 const kickflipDir = () => path.join(os.homedir(), '.claude', 'kickflip');
-const landLock = () => path.join(kickflipDir(), 'land.lock');
-const landQueue = () => path.join(kickflipDir(), 'land.queue');
 const landing = () => path.join(kickflipDir(), 'landing');
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const RECHECK_MS = 5000;
@@ -218,9 +216,10 @@ function watching(dirs) {
   };
 }
 let asks = 0;
-export async function holdingLandLock(card, fn, { onWait, asked = Date.now() } = {}) {
-  const file = landLock();
-  const queue = landQueue();
+// The lock named name (<name>.lock, queue in <name>.queue) held while fn runs; onWait(card) names who it waits for.
+async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now() } = {}) {
+  const file = path.join(kickflipDir(), `${name}.lock`);
+  const queue = path.join(kickflipDir(), `${name}.queue`);
   fs.mkdirSync(queue, { recursive: true });
   const ticket = `${String(asked).padStart(15, '0')}-${String(asks++).padStart(6, '0')}-${process.pid}`;
   const changes = watching([kickflipDir(), queue]);
@@ -238,8 +237,8 @@ export async function holdingLandLock(card, fn, { onWait, asked = Date.now() } =
           if (!(Number.isInteger(held?.pid) && alive(held.pid))) { fs.rmSync(file, { force: true }); continue; }
         }
       }
-      const name = held?.card ?? (ahead.length ? 'the land ahead' : null);
-      if (name && name !== waitingFor) { waitingFor = name; await onWait?.(name); }
+      const who = held?.card ?? (ahead.length ? `the ${name} ahead` : null);
+      if (who && who !== waitingFor) { waitingFor = who; await onWait?.(who); }
       await changes.next();
     }
   } finally {
@@ -250,6 +249,12 @@ export async function holdingLandLock(card, fn, { onWait, asked = Date.now() } =
     try { if (JSON.parse(fs.readFileSync(file, 'utf8')).pid === process.pid) fs.rmSync(file, { force: true }); } catch {}
   }
 }
+export const holdingLandLock = (card, fn, opts) => holdingQueuedLock('land', card, fn, opts);
+
+// One full suite at a time on the host, since landers and builders share the machine and the suite's timing tests
+// fail under load: ~/.claude/kickflip/test.lock {card, pid, at}, queued first in first out like the land lock
+// (test.queue). Held around the suite run only, so a rebase and the merge lock never wait on it.
+export const holdingTestSlot = (card, fn, opts) => holdingQueuedLock('test', card, fn, opts);
 
 // One land per card: ~/.claude/kickflip/landing/<card> {pid} while fn runs. A land asked for a card already landing
 // joins that land instead: it waits for it to end and → {joined: true}, so the caller reads what became of the card.
@@ -307,8 +312,9 @@ export function syncBase(repo, base) {
 }
 
 // Runs the worktree's full suite, refusing on a failure with each failing test and outcome, what the refusal left undone.
-export function passTests(dir, { say = console.log, runTests = nodeTests, outcome }) {
-  const tests = runTests(dir);
+// It takes the host's test slot first, saying who it waits for (onWait).
+export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, card = dir, onWait }) {
+  const tests = await holdingTestSlot(card, () => runTests(dir), { onWait });
   if (!tests.ok) fail([
     `tests failed in ${dir} (${tests.fail} failing); ${outcome}`,
     ...(tests.failures?.length ? tests.failures : [tests.error || 'test runner failed without test diagnostics']),
@@ -318,10 +324,11 @@ export function passTests(dir, { say = console.log, runTests = nodeTests, outcom
 }
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
-// The part of a land that runs outside the land lock: the checks, the rebase onto base when base moved, and the suite.
+// The part of a land that runs outside the land lock: the checks, the rebase onto base when base moved, and the suite,
+// which runs in the host's test slot (onWaitTests names the card running it while this one waits).
 // → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is still it, with base
 // not moved past it, is not tested again.
-export function prepareLand({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests } = {}) {
+export async function prepareLand({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests, onWaitTests } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
@@ -347,7 +354,7 @@ export function prepareLand({ path: dir, branch, repo, base, ref }, { say = cons
     say(`${branch} was tested on ${base} as it is now; not testing it again`);
     return head;
   }
-  passTests(dir, { say, runTests, outcome: 'nothing landed' });
+  await passTests(dir, { say, runTests, outcome: 'nothing landed', card: ref ?? branch, onWait: onWaitTests });
   git(repo, 'update-ref', testedRef(branch), head);
   return head;
 }
@@ -361,11 +368,11 @@ function onBase(repo, base) {
 // branch was prepared, the lock is let go and the branch is prepared again. hold stops once the tests pass, before the
 // fast-forward: the verified branch waits in its worktree for the owner's Merge
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward.
-export async function landInTurn(tree, { hold = false, onWait, sync = () => {}, ...opts } = {}) {
+export async function landInTurn(tree, { hold = false, onWait, onWaitTests, sync = () => {}, ...opts } = {}) {
   const { say = console.log } = opts;
   const asked = Date.now();
   for (;;) {
-    const tested = prepareLand(tree, opts);
+    const tested = await prepareLand(tree, { ...opts, onWaitTests });
     if (hold) return;
     const landed = await holdingLandLock(tree.ref ?? tree.branch, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked });
     if (landed) return;
@@ -374,8 +381,8 @@ export async function landInTurn(tree, { hold = false, onWait, sync = () => {}, 
 }
 
 // The land as one synchronous step, for a caller that holds the land lock already.
-export function land(tree, { hold = false, ...opts } = {}) {
-  const tested = prepareLand(tree, opts);
+export async function land(tree, { hold = false, ...opts } = {}) {
+  const tested = await prepareLand(tree, opts);
   if (hold) return;
   if (!landPrepared(tree, tested, opts)) fail(`${tree.base} moved while ${tree.branch} was tested; land again`);
 }

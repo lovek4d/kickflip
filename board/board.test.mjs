@@ -1990,28 +1990,28 @@ test('land rebases onto a moved main, fast-forwards main, and removes the worktr
   assert.deepEqual(branches(repo), ['main']);
 });
 
-test("land into the running kickflip clone restarts only the code that changed: the hub for its code, else every board for board/, nothing for tests or docs", () => {
+test("land into the running kickflip clone restarts only the code that changed: the hub for its code, else every board for board/, nothing for tests or docs", async () => {
   const repo = scratchRepo();
   const restarted = [];
-  const landHere = () => {
+  const landHere = async () => {
     const said = [];
-    landWorktree({ path: worktree(), branch: 'A1', repo, base: 'main' }, {
+    await landWorktree({ path: worktree(), branch: 'A1', repo, base: 'main' }, {
       clone: repo, say: (line) => said.push(line), runTests: () => ({ ok: true, pass: 1 }),
       restart: (what, route) => { restarted.push([what, route].filter(Boolean).join(' ')); return null; },
       boards: () => [{ route: 'orch' }, { route: 'audit' }],
     });
     return said;
   };
-  const card = (...files) => {
+  const card = async (...files) => {
     assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
     for (const [file, text] of files) commit(worktree(), file, text);
     return landHere();
   };
-  assert.ok(card(['board/server.mjs', '2\n']).includes('board restarted: audit'));
+  assert.ok((await card(['board/server.mjs', '2\n'])).includes('board restarted: audit'));
   assert.deepEqual(restarted, ['board orch', 'board audit']);
-  assert.ok(card(['shared/lib.mjs', 'export const a = 2;\n'], ['board/server.mjs', '3\n']).includes('hub restarted, with every site'));
+  assert.ok((await card(['shared/lib.mjs', 'export const a = 2;\n'], ['board/server.mjs', '3\n'])).includes('hub restarted, with every site'));
   assert.deepEqual(restarted, ['board orch', 'board audit', 'hub']);
-  const tests = card(['hub/hub.test.mjs', '// t\n'], ['board/server.test.mjs', '// t\n'], ['shared/notes.md', 'c\n']);
+  const tests = await card(['hub/hub.test.mjs', '// t\n'], ['board/server.test.mjs', '// t\n'], ['shared/notes.md', 'c\n']);
   assert.equal(tests.some((line) => /restarted/.test(line)), false);
   assert.deepEqual(restarted, ['board orch', 'board audit', 'hub']);
 });
