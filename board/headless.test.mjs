@@ -364,6 +364,7 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
     fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', auto_pull: true }));
     await until(() => b.runs().length === 3, 'the arrival launches a grill');
     assert.match(b.runs()[2].argv[1], /builder start t\/Q1 --kind grill/);
+    await until(() => b.thread('Q1').length === 2, 'the launch line follows the run');
     assert.deepEqual(b.thread('Q1').map((t) => t.text.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
     assert.ok(!b.events().includes('card-plan'), 'the grill wakes no session');
     // A tap while the card's planner is open launches nothing more.
