@@ -56,11 +56,13 @@ test("merge counts commits after the approval as trivial when the board's rebase
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   const merge = (...args) => run('board.mjs', ['--site', 'orch', 'merge', ...args], undefined, env);
   const rebased = (...steps) => write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7,
-    rebased: steps.map(([from, to]) => ({ from, to, base: 'main', at: '2026-11-05T10:00:00Z' })) }] });
+    rebased: steps.map(([from, to, replayed = true]) => ({ from, to, base: 'main', replayed, at: '2026-11-05T10:00:00Z' })) }] });
   writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', head: 'ccc' }));
   writeReviews(dir, 7, [{ id: 1, user: { login: 'ann' }, state: 'APPROVED', submitted_at: '2026-11-01T10:00:00Z', commit_id: 'aaa' }]);
   rebased(['zzz', 'ccc']);
   assert.match(merge('w/A1').err, /^Not merged: commits after the approval/, "a run that didn't start from the approved commit isn't the only change");
+  rebased(['aaa', 'bbb'], ['bbb', 'ccc', false]);
+  assert.match(merge('w/A1').err, /^Not merged: commits after the approval/, 'a run that added commits of its own made no rebase-only push');
   rebased(['aaa', 'bbb'], ['bbb', 'ccc']);
   const done = merge('w/A1');
   assert.equal(done.code, 0, done.err);
@@ -660,7 +662,7 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
   assert.equal(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').length, 1, 'the PR stays as it is');
   const item = itemOf();
   assert.deepEqual([item.prs, item.status, item.rebase_run, typeof record().done], [[{ number: 100 }], undefined, undefined, 'string']);
-  assert.deepEqual(item.rebased.map(({ at: _, ...r }) => r), [{ from: before, to: rebased, base: 'main' }]);
+  assert.deepEqual(item.rebased.map(({ at: _, ...r }) => r), [{ from: before, to: rebased, base: 'main', replayed: true }]);
   assert.equal(threadOf().at(-1).text, 'Rebased onto main.');
 
   // A run's hand-back keeps it through its lander; any other build on the card ends it, so its push isn't a rebase's.

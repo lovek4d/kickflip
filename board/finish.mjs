@@ -116,7 +116,9 @@ async function sendForReview(site, key, { path: dir, branch, base, ref, text }) 
     : git(dir, 'push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`);
   if (!pushed.ok) fail(`could not push ${branch} to origin: ${pushed.err}`);
   if (open) {
-    await store.recordRebase(site, key, { from, to: git(dir, 'rev-parse', 'HEAD').out });
+    // Rebase-only: no more commits on base than the PR had, so the run replayed the PR's commits and added none of its own.
+    const ahead = (tip) => Number(git(dir, 'rev-list', '--count', `refs/remotes/origin/${base}..${tip}`).out);
+    await store.recordRebase(site, key, { from, to: git(dir, 'rev-parse', 'HEAD').out, replayed: ahead('HEAD') <= ahead(from) });
     const set = await store.setItem(site, key, { pr: open });
     await store.appendThread(site, key, { text });
     return { said: `pushed ${branch} to PR #${open}`, lines: set.lines };

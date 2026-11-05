@@ -101,7 +101,7 @@ export function rebaseBrief({ route, key, ref, title, worktree, base, pr }) {
     '',
     `1. Run \`${b} builder start ${key} --kind build --label Rebase --phase building --progress "Rebase run started · fetching ${base}"\`. If it refuses, stop.`,
     `2. Run \`git fetch origin\`, then \`${rebase(`origin/${base}`)}\`. Resolve each conflict keeping both sides' intent, \`git add\` it and continue with \`git -c core.commentChar=';' rebase --continue\`. Report each step with \`${b} builder progress ${key} --phase building "<line>"\`, the board adds the phase word, in these words: "Rebasing onto ${base} · resolving <n> files", then "Rebasing onto ${base} · suite running".`,
-    "3. Run the full test suite once, in the foreground. Fix what the rebase broke, and commit each fix with `git -c core.commentChar=';' commit -F <file>`.",
+    "3. Run the full test suite once, in the foreground. Fix what the rebase broke, and commit each fix with `git -c core.commentChar=';' commit -F <file>`. A push with commits of its own is no longer rebase-only, so a merge after an approval won't count it as trivial.",
     `4. If a conflict or a failing test is past what you can resolve with confidence, run \`git -c core.commentChar=';' rebase --abort\` if a rebase is under way, record it with \`${b} builder call ${key} "Rebase failed in <the files or tests> · <why>"\`, and run the finish step: with the call it hands the card to the orchestrator.`,
     '',
     `To finish, run ${finishCommand({ route, key })}, the text saying what you resolved. It reruns the suite and pushes the branch to PR #${pr} with --force-with-lease; the PR stays as it is.`,

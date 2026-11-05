@@ -2142,10 +2142,15 @@ test("a card whose PR a rebase run fixes stays in In Review with the run's line,
   const run = { pr: 7, base: 'main', conflict: 'aaaaaaaaaa1111@main', at: '2026-11-05T10:00:00Z' };
   const rebasing = { kind: 'claude', model: 'opus', label: 'Rebase', started: '2026-11-05T10:00:00Z' };
   const line = { ts: '2026-11-05T10:01:00Z', who: 'claude', kind: 'status', text: 'Rebasing onto main · resolving 2 files' };
-  const running = board({ pr: conflicting, item: { status: 'building', rebase_run: run }, agents: { A1: { main: rebasing } }, threads: { 'w/A1': [line] } });
+  const running = board({ pr: conflicting, now: Date.parse('2026-11-05T10:05:00Z'), item: { status: 'building', rebase_run: run }, agents: { A1: { main: rebasing } }, threads: { 'w/A1': [line] } });
   const card = running.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([card.lane, card.waitsOn, card.builder.progress, card.next], ['review', 'builder', 'Rebasing onto main · resolving 2 files', null]);
   assert.equal(pullOf(running.items, { cap: 1 }).idle, false, 'the run holds an implementer slot');
+  assert.equal(card.orchestrator, null);
+  // A run gone silent past the stall limit waits on the orchestrator, the card still In Review.
+  const silent = board({ pr: conflicting, now: Date.parse('2026-11-05T10:30:00Z'), item: { status: 'building', rebase_run: run }, agents: { A1: { main: rebasing } }, threads: { 'w/A1': [line] } });
+  assert.deepEqual(orchestratorWaits(silent).map((w) => [w.key, w.kind]), [['w/A1', 'stalled']]);
+  assert.equal(silent.items.find((i) => i.key === 'w/A1').lane, 'review');
 
   // Failed: its call hands the card back, still In Review, waiting on the orchestrator with the run's own line.
   const handed = { ...rebasing, done: '2026-11-05T10:20:00Z', calls: [{ at: '2026-11-05T10:19:00Z', text: 'Rebase failed in 2 files · both sides rewrote the send bar' }] };
@@ -2166,9 +2171,9 @@ test("a card whose PR a rebase run fixes stays in In Review with the run's line,
 });
 
 test('rebasesDue lists each open card whose PR, draft or ready, conflicts, once per head and base, while nothing runs on it', () => {
-  const pr = (extra) => ({ ...greenDraft, mergeable: 'CONFLICTING', headRefOid: 'aaaaaaaaaa', ...extra });
+  const pr = (extra) => ({ ...greenDraft, mergeable: 'CONFLICTING', headRefOid: 'aaaaaaaaaa', headRefName: 'by-hand', ...extra });
   const items = (p, extra = {}) => board({ pr: p, ...extra }).items;
-  assert.deepEqual(rebasesDue(items(pr()), {}, 'main'), [{ key: 'w/A1', pr: 7, conflict: 'aaaaaaaaaa@main' }], 'a draft too');
+  assert.deepEqual(rebasesDue(items(pr()), {}, 'main'), [{ key: 'w/A1', pr: 7, branch: 'by-hand', conflict: 'aaaaaaaaaa@main' }], 'a draft too');
   assert.deepEqual(rebasesDue(items(pr({ isDraft: false })), {}, 'main').map((d) => d.key), ['w/A1']);
   assert.deepEqual(rebasesDue(items(pr()), { 'w/A1': 'aaaaaaaaaa@main' }, 'main'), [], 'one run per conflict');
   assert.deepEqual(rebasesDue(items(pr({ headRefOid: 'bbbbbbbbbb' })), { 'w/A1': 'aaaaaaaaaa@main' }, 'main').map((d) => d.conflict), ['bbbbbbbbbb@main'], 'a new head conflicting again');

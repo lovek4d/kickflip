@@ -1565,29 +1565,33 @@ async function launchRebases(items) {
   const { base } = builderRepo(here);
   const due = rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base);
   if (!due.length) return;
-  for (const d of due) {
-    const id = d.key.split('/')[1];
-    const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
-    sent[d.key] = { conflict: d.conflict, pid: null };
-    let started;
-    try {
-      started = await startRebase(here, d.key, { pr: d.pr, conflict: d.conflict, base }, () => prWorktree(here, id, id));
-    } catch (e) {
-      if (!(e instanceof BoardError)) throw e;
-      logCall({ ...entry, result: 'refused', reason: `${entry.reason} The start refused: ${e.message}` });
-      await appendThread(here, d.key, { text: `PR #${d.pr} conflicts with ${base}, but the rebase run couldn't start: ${e.message}` });
-      continue;
-    } finally { dataVersion++; }
-    try {
-      sent[d.key].pid = (await launchBuilder(here, started)).pid;
-      logCall({ ...entry, result: 'launched' });
-    } catch (e) {
-      logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-      await appendThread(here, d.key, { text: `Couldn't launch the rebase run headless (${e.message}); it reads stopped until the orchestrator takes it up.` });
+  try {
+    for (const d of due) {
+      const id = d.key.split('/')[1];
+      const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
+      sent[d.key] = { conflict: d.conflict, pid: null };
+      let started;
+      try {
+        started = await startRebase(here, d.key, { pr: d.pr, conflict: d.conflict, base }, () => prWorktree(here, id, d.branch));
+      } catch (e) {
+        if (!(e instanceof BoardError)) throw e;
+        logCall({ ...entry, result: 'refused', reason: `${entry.reason} The start refused: ${e.message}` });
+        await appendThread(here, d.key, { text: `PR #${d.pr} conflicts with ${base}, but the rebase run couldn't start: ${e.message}` });
+        continue;
+      } finally { dataVersion++; }
+      try {
+        sent[d.key].pid = (await launchBuilder(here, started)).pid;
+        logCall({ ...entry, result: 'launched' });
+      } catch (e) {
+        logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
+        await appendThread(here, d.key, { text: `Couldn't launch the rebase run headless (${e.message}); it reads stopped until the orchestrator takes it up.` });
+      }
     }
+  } finally {
+    // Written even when a start throws, so a run already launched in this pass isn't started again.
+    await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
+    await fs.rename(file + '.tmp', file);
   }
-  await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
-  await fs.rename(file + '.tmp', file);
 }
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md

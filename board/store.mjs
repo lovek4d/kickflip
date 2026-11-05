@@ -2046,8 +2046,8 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   const needsApproval = reviewersOf(wave, (await boardConfig(site)).reviewers || []).length > 0;
   const reasons = [];
   let after = false;
-  // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: commits the board's rebase runs
-  // pushed after the approval are trivial, and the merge says so.
+  // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: the board's rebase-only pushes
+  // after the approval are trivial, and the merge says so.
   let rebasedOnly = false;
   for (const p of open) {
     const { view, reviews } = p;
@@ -2719,19 +2719,21 @@ export async function cardPR(site, key) {
   const repo = boardRepoOf(site, wave);
   return cardPRs(item, repo).find((p) => p.repo === repo)?.number ?? null;
 }
-// A push to the card's open PR: from a rebase run (rebase_run), recorded in rebased [{from, to, base, at}], the commits
-// the run pushed, which mergeCard counts as trivial after an approval. → whether it was a rebase run's
-export async function recordRebase(site, key, { from, to }) {
+// A push to the card's open PR: from a rebase run (rebase_run), recorded in rebased [{from, to, base, replayed, at}], the
+// commits the run pushed, replayed when the push only replayed the PR's commits onto the base (finish.mjs), which
+// mergeCard then counts as trivial after an approval. → whether it was a rebase run's
+export async function recordRebase(site, key, { from, to, replayed }) {
   const { source, wave, item } = await loadItem(site, key);
   if (!item.rebase_run) return false;
-  item.rebased = [...(item.rebased || []), { from, to, base: item.rebase_run.base, at: new Date().toISOString() }];
+  item.rebased = [...(item.rebased || []), { from, to, base: item.rebase_run.base, replayed, at: new Date().toISOString() }];
   delete item.rebase_run;
   await writeJSON(source.file, wave);
   return true;
 }
-// Whether the card's rebased pushes lead from the approved commit to head, so only the board's rebases came after it.
+// Whether the card's rebase-only pushes lead from the approved commit to head, so only the board's rebases came after it.
+// A run's push that added commits of its own breaks the chain.
 const onlyRebased = (item, approved, head) => {
-  const steps = new Map((item.rebased || []).map((r) => [r.to, r.from]));
+  const steps = new Map((item.rebased || []).filter((r) => r.replayed).map((r) => [r.to, r.from]));
   for (let at = head, seen = 0; at && seen <= steps.size; at = steps.get(at), seen++) if (at === approved) return true;
   return false;
 };

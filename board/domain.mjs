@@ -1065,8 +1065,8 @@ export function buildBoard(snapshot) {
     if (it.kind !== 'work') continue;
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered').map((q) => q.answers.at(-1).ts).sort().pop();
     const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
-    // A rebase run's hand-back waits on the orchestrator from In Review (laneOf).
-    it.orchestrator = ['progress', 'todo', 'stale'].includes(it.lane) || it.waitsOn === 'checking' ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
+    // A rebase run's hand-back, or its stalled run, waits on the orchestrator from In Review (laneOf).
+    it.orchestrator = ['progress', 'todo', 'stale'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && it.builder?.stalled) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
   // Items arrive in the order the page shows them (public/ui-order.js).
@@ -1251,12 +1251,12 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
 // For built items: the open work cards whose PR in the card's repo, draft or ready, GitHub reads CONFLICTING, with no
 // agent running on them and no hand-back waiting, each keyed on the PR's head and the base it conflicts with
-// ({key: conflict} in sent is the run already started for it). → [{key, pr, conflict}]
+// ({key: conflict} in sent is the run already started for it). → [{key, pr, branch, conflict}], branch the PR's head branch
 export function rebasesDue(items, sent, base) {
   return items.filter((i) => i.kind === 'work' && !closedLane(i) && i.waitsOn !== 'checking' && !(i.agents || []).some((a) => a.started && !a.done)).flatMap((i) => {
     const p = (i.prs || []).find((v) => v.state === 'OPEN' && v.mergeable === 'CONFLICTING' && v.repo === i.repo && v.headRefOid);
     const conflict = p && `${p.headRefOid}@${base}`;
-    return p && routeRecord(sent, i.key) !== conflict ? [{ key: i.key, pr: p.number, conflict }] : [];
+    return p && routeRecord(sent, i.key) !== conflict ? [{ key: i.key, pr: p.number, branch: p.headRefName, conflict }] : [];
   });
 }
 

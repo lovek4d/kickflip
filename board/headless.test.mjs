@@ -234,7 +234,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   fs.writeFileSync(path.join(origin, 'a.txt'), 'a\n');
   git(origin, 'add', '-A');
   git(origin, 'commit', '--quiet', '-m', 'base');
-  git(origin, 'checkout', '--quiet', '-b', 'R2');
+  git(origin, 'checkout', '--quiet', '-b', 'by-hand');
   fs.writeFileSync(path.join(origin, 'b.txt'), 'by hand\n');
   git(origin, 'add', '-A');
   git(origin, 'commit', '--quiet', '-m', 'R2 by hand');
@@ -258,7 +258,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   // gh answers the board's own `gh pr view <n> --json …` (server.mjs ghPR) from this map, and nothing else.
   const ghDir = path.join(home, 'gh');
   fs.mkdirSync(ghDir);
-  const view = (n, over) => ({ number: n, state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', statusCheckRollup: [], headRefName: `R${n - 4}`, ...over });
+  const view = (n, over) => ({ number: n, state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', statusCheckRollup: [], headRefName: n === 6 ? 'by-hand' : `R${n - 4}`, ...over });
   fs.writeFileSync(path.join(ghDir, 'prs.json'), JSON.stringify({
     5: view(5, { isDraft: true, mergeable: 'CONFLICTING', headRefOid: 'a'.repeat(40) }),
     6: view(6, { mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }),
@@ -284,7 +284,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
     assert.ok(byCard.R1.argv[1].includes('builder start t/R1 --kind build --label Rebase') && byCard.R1.argv[1].includes('PR #5'));
     const made = path.join(home, '.claude', 'kickflip', 'worktrees', 'R2');
     assert.equal(byCard.R2.cwd, fs.realpathSync(made));
-    assert.equal(git(made, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'R2'), "the hand-linked PR's worktree is made from its branch");
+    assert.equal(git(made, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'by-hand'), "the hand-linked PR's worktree is made from its branch");
     assert.deepEqual([read('agents/R1.json').label, read('agents/R1.json').dispatched, read('agents/R1.json').done], ['Rebase', 'hub', undefined]);
     const items = read('wave.json').items;
     assert.deepEqual(items.map((i) => i.rebase_run?.conflict ?? null), [`${'a'.repeat(40)}@main`, `${'b'.repeat(40)}@main`, null]);
