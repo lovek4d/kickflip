@@ -247,6 +247,11 @@ test('with auto implement on the board starts and launches the build of the top 
     http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
   `);
   const { claude, launched } = launchingBoard(dir, siteDir);
+  // An installed Codex that isn't logged in (HOME has no .codex/auth.json), whatever the machine has.
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  put(path.join(bin, 'codex'), '#!/bin/sh\n');
+  fs.chmodSync(path.join(bin, 'codex'), 0o755);
   const pulls = () => launched('build');
   const thread = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).text) : []);
   // The server writes the wave file too, so a change reads it fresh.
@@ -254,7 +259,7 @@ test('with auto implement on the board starts and launches the build of the top 
   const finish = (id) => { const file = path.join(dataDir, 'agents', `${id}.json`); put(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), done: iso(now) })); setStatus(id, 'done'); };
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
-      env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
+      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
     });
     await boardListening(worker);
   };

@@ -54,13 +54,16 @@ test('a test that runs past the per-test limit fails as timed out, and the rest 
   const dir = home(t);
   const tree = path.join(dir, 'tree');
   fs.mkdirSync(tree);
-  fs.writeFileSync(path.join(tree, 'slow.test.mjs'), "import test from 'node:test';\ntest('slow', () => new Promise((r) => setTimeout(r, 2000)));\ntest('after', () => {});\n");
-  const r = await nodeTests(tree, { testLimit: 300 });
+  fs.writeFileSync(path.join(tree, 'slow.test.mjs'), "import test from 'node:test';\ntest('slow', () => new Promise((r) => setTimeout(r, 4000)));\n");
+  fs.writeFileSync(path.join(tree, 'after.test.mjs'), "import test from 'node:test';\ntest('after', () => {});\n");
+  // The limit is long enough for the other file to start under load: on Node 22 it covers the file's start too.
+  const r = await nodeTests(tree, { testLimit: 2000 });
   assert.equal(r.ok, false);
   assert.equal(r.pass, 1);
   assert.equal(r.hung, undefined);
   assert.equal(r.failures.length, 1);
-  assert.match(r.failures[0], /^slow\n.*slow\.test\.mjs:2:1\n  test timed out after 300ms/);
+  // Node 22 times out the whole file and names it; Node 26 times out the one test and names it.
+  assert.match(r.failures[0], /^(slow|\S*slow\.test\.mjs)\n.*slow\.test\.mjs:\d+:\d+\n  test timed out after 2000ms/);
 });
 
 test('a suite that passes resolves with its counts and saves no log', async (t) => {

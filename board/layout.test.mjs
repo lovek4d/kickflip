@@ -31,7 +31,7 @@ test('a red status line sits as close to its title as an orange one, beside the 
     const exited = new Promise((resolve) => chrome.once('exit', resolve));
     chrome.kill();
     await exited;
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
   });
 
   let target;

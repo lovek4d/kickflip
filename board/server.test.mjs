@@ -852,6 +852,7 @@ test('the board, a thread and the static files come gzipped when the browser acc
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', 't__G1.jsonl'), Array.from({ length: 20 }, (_, n) => JSON.stringify({ ts: '2026-10-23T10:00:00Z', who: 'claude', text: `Line ${n} of a long thread` })).join('\n') + '\n');
   await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.some((i) => i.key === 't/G29'), 'the board sees the new wave');
+  await cardsMarkedRead('t/G');
   for (const p of ['/api/board', '/api/thread?key=t%2FG1', '/app.js', '/style.css', '/']) {
     const plainRes = await raw(p, { 'accept-encoding': 'identity' });
     const zipped = await raw(p, { 'accept-encoding': 'gzip, deflate, br' });
@@ -1402,8 +1403,16 @@ test("/api/board leaves resolved questions out while its topics still count and 
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+// The server marks a card new to the board read right after the board change that brought it (markNewCards), which is
+// another change to the board; a test comparing two reads of the board waits for it first.
+const cardsMarkedRead = (prefix) => until(async () => {
+  const mine = (await (await fetch(`${base}/api/board`)).json()).items.filter((i) => i.key.startsWith(prefix));
+  return mine.length > 0 && mine.every((i) => i.readAt);
+}, `the ${prefix} cards are marked read`);
+
 test("/api/board carries its version as its ETag: a reload naming it answers 304 with no body until the board changes, and an events POST's board carries the version the next reload has", async () => {
   await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'E1', title: 'Tagged' }, { id: 'E2', title: 'Other' }] })));
+  await cardsMarkedRead('t/E');
   const first = await raw('/api/board', { 'accept-encoding': 'gzip' });
   const tag = first.headers.etag;
   const body = JSON.parse(zlib.gunzipSync(first.body));
@@ -1427,6 +1436,7 @@ test("a reload naming its version since gets a patch of the cards that changed, 
   const content = (b) => { const { generatedAt: _, ...rest } = JSON.parse(JSON.stringify(b)); return rest; };
   const get = async (q = '') => (await fetch(`${base}/api/board${q}`)).json();
   await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched' }, { id: 'F2', title: 'Still' }, { id: 'F3', title: 'Gone soon' }] })));
+  await cardsMarkedRead('t/F');
   const first = await get();
   await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched again' }, { id: 'F2', title: 'Still' }] })));
   const patch = await get(`?since=${first.version}`);
