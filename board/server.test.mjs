@@ -414,7 +414,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual([unheld.held, unheld.lane, unheld.status, unheld.builder.progress, unheld.refusal], [false, 'progress', 'building', null, null]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
     assert.deepEqual(thread('B2').map((m) => [m.who, m.text]), [['love', 'Resumed.']]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), ['card-build', 'card-build']);
     // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
     const queuedAnswer = await (await post({ kind: 'card-build', key: 't/B3' })).json();
     assert.equal(queuedAnswer.id, null);
@@ -428,14 +428,14 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const unheldQueued = await card('B5');
     assert.deepEqual([unheldQueued.held, unheldQueued.lane, unheldQueued.queued], [false, 'todo', true]);
     assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Implement queued: it starts once B4 is done.']);
-    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), ['card-build', 'card-build']);
 
     const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
     fs.mkdirSync(taken, { recursive: true });
     assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
     const leftover = await card('B4');
     assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${taken} already exists; land or remove it first`]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind), ['card-build', 'card-build']);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), ['card-build', 'card-build']);
 
     // The blocker finishing starts both queued builds in the server, each waking the session once, with no card-unblocked.
     const done = wave();
