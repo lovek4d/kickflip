@@ -1,4 +1,4 @@
-// The reader sheet (docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md): a thread's "Open the log →"
+// The reader sheet (docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md): a thread's "Open the log"
 // (ui-threads.js) and a card's or a lineup's Notes (app-cards.js, app-lanes.js) open over the board in one sheet in
 // place of log.html and notes.html, which still open on their own. It closes on its ✕, Escape, a tap on the dim area
 // and Back, through a history entry of its own that carries the board's URL, so the router's pop keeps the board.

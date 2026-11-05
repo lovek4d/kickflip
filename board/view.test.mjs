@@ -2489,7 +2489,9 @@ test("an open card shows its workflow buttons below a final details line of Note
   const links = [...b.root.querySelectorAll('.external-links a')];
   assert.ok(links.length);
   for (const link of links) {
-    assert.equal(link.querySelectorAll('svg.link-arrow').length, 1);
+    // Notes opens the reader sheet, so only the links that leave the page carry the arrow.
+    assert.equal(link.querySelectorAll('svg.link-arrow').length, /^Notes$/.test(link.textContent.trim()) ? 0 : 1);
+    if (/^Notes$/.test(link.textContent.trim())) continue;
     assert.equal(link.querySelector('svg.link-arrow').getAttribute('aria-hidden'), 'true');
   }
   const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`);
@@ -2512,7 +2514,7 @@ test("an open card shows its workflow buttons below a final details line of Note
   assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
   const external = row('w/D1').querySelector('.grid .external-links');
   assert.deepEqual(external.querySelectorAll('a').map((a) => a.getAttribute('href')), ['notes.html?item=w%2FD1', install.url, draft.url]);
-  assert.equal(external.textContent, 'Notes  · Install  · Review draft on GitHub ');
+  assert.equal(external.textContent, 'Notes · Install  · Review draft on GitHub ');
   assert.equal(external.parentNode.children.at(-1), external);
   assert.equal(b.root.querySelector('.action-row.external'), null);
   assert.equal(row('w/D1').querySelector('.actions .install, .actions a[target="_blank"]'), null);
@@ -4757,7 +4759,7 @@ test("a builder's log opens in a sheet over the board: readable lines of its str
     + called('Bash', { command: 'node --test board/view.test.mjs', description: 'Run the tests' }) + answered([{ type: 'text', text: 'ℹ pass 6' }]));
   await r.settle();
   const link = r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]');
-  assert.equal(link.textContent, 'Open the log →');
+  assert.equal(link.textContent, 'Open the log');
   assert.equal(r.tap(link).defaultPrevented, true, 'the link opens the sheet in place of the log page');
   await r.settle();
   assert.equal(r.sheet().open, true);
