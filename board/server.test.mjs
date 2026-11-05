@@ -144,7 +144,8 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
   const plain = { id: 'keep', topic: 'item:t/P1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }] };
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [takes, plain] }));
   const answer = (id, choice, note) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice, note }) });
-  const last = () => JSON.parse(fs.readFileSync(eventsFile, 'utf8').trim().split('\n').at(-1));
+  // The server's own orchestrator-waits pass appends meanwhile; the answers' lines are what this reads.
+  const last = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind !== 'orchestrator-waits').at(-1);
   try {
     assert.equal((await answer('keep', null, 'Rename it')).status, 200);
     assert.equal(last().data.prototype_again, undefined);

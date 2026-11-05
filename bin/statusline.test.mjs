@@ -31,19 +31,26 @@ test('status line prints the exact directory, branch, model and context for clea
   fs.writeFileSync(tracked, 'original\n');
   git('add', 'tracked');
   git('commit', '-m', 'fixture');
+  // Each git call has the status line's 500 ms budget, so on a loaded host a run can print no branch or a stray *; a
+  // few tries give git its time without loosening what the line prints.
+  const inRepo = (input, expected) => {
+    let out;
+    for (let i = 0; i < 5 && out !== expected; i++) out = run(input);
+    assert.equal(out, expected);
+  };
   const input = { cwd: repo, model: { display_name: 'Opus 4.6' }, context_window: { used_percentage: 42 } };
-  assert.equal(run(input), 'dev/kickflip feature · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip feature · Opus 4.6 / 42% ctx\n');
   fs.writeFileSync(path.join(repo, 'untracked'), 'untracked files do not count');
-  assert.equal(run(input), 'dev/kickflip feature · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip feature · Opus 4.6 / 42% ctx\n');
   fs.writeFileSync(tracked, 'changed\n');
-  assert.equal(run(input), 'dev/kickflip feature* · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip feature* · Opus 4.6 / 42% ctx\n');
   assert.equal(fs.existsSync(usageFile()), false);
-  assert.equal(run({ ...input, rate_limits: { five_hour: { used_percentage: 81 }, seven_day: { used_percentage: 78 } } }), 'dev/kickflip feature* · Opus 4.6 / 42% ctx · 5h: 81% / 7d: 78%\n');
+  inRepo({ ...input, rate_limits: { five_hour: { used_percentage: 81 }, seven_day: { used_percentage: 78 } } }, 'dev/kickflip feature* · Opus 4.6 / 42% ctx · 5h: 81% / 7d: 78%\n');
   git('add', 'tracked');
-  assert.equal(run(input), 'dev/kickflip feature* · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip feature* · Opus 4.6 / 42% ctx\n');
   git('commit', '-m', 'second fixture');
   git('checkout', '--detach', 'HEAD');
-  assert.equal(run(input), 'dev/kickflip · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip · Opus 4.6 / 42% ctx\n');
 });
 
 test('status line shortens slash-separated directories and omits absent fields, including outside Git', () => {

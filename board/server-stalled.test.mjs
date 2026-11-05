@@ -834,7 +834,8 @@ test('a card that comes to wait on the orchestrator wakes the session once, and 
     http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };
   `);
   const wakes = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'orchestrator-waits').map((e) => e.data);
-  const pushes = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+  // The fake push command may be mid-write, so an empty file or an unfinished last line is no call yet.
+  const pushes = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').split('\n').flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : []);
   const flag = (call, name) => call[call.indexOf(`--${name}`) + 1];
   const waits = () => { try { return JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits; } catch { return null; } };
   const start = async () => {
