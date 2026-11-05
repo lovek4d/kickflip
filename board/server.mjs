@@ -252,8 +252,8 @@ import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
-import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders } from './headless.mjs';
-import { BoardError, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
+import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startQueuedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readNotes, readWorking, readUpload, removeReviewers, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1065,10 +1065,19 @@ const server = http.createServer(async (req, res) => {
       // why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
       if (kind === 'card-hold' || kind === 'card-done') {
         const key = String(body.key || '');
-        let written;
-        try { written = await recordOwnerTap(here, kind, body); }
+        let written, agents;
+        try {
+          // Read before the tap, which closes the records. A Hold stops the card's agents at once; a Done lets a landing finish.
+          agents = kind === 'card-hold' && !body.hold ? [] : await openAgents(here, key);
+          if (kind === 'card-done' && await isLanding(here, key)) agents = [];
+          written = await recordOwnerTap(here, kind, body);
+        }
         catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its wave file: ${e.message}` }); }
         if (!written) return json(res, 400, { error: `${key} is already merged or dropped, so its wave file stays as it is.` });
+        if (agents.length) {
+          stopAgents(agents);
+          await appendThread(here, key, { text: 'Stopped its builder.', who: 'love' });
+        }
       }
       // A remove is written here and recorded as reviewers-removed; an add stays a `reviewers {add}` event, since finding
       // the person's Slack and GitHub ids needs the session (docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md).

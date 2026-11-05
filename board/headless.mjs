@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchAgent } from './agents.mjs';
+import { processStarts } from '../hub/live.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
@@ -121,6 +122,24 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
   ].join('\n');
 }
 
+// Stops the agents launchBuilder started, each {pid, at} as store.mjs openAgents reads it: SIGTERM to the agent's process
+// group (it leads its own, so its children go too), SIGKILL after killAfter ms. Pids get reused, so a pid is signalled
+// only while its process started within LAUNCH_WINDOW before the session was recorded. → how many it signalled.
+const LAUNCH_WINDOW = 60_000;
+export function stopAgents(agents, { starts = processStarts, kill = (pid, sig) => process.kill(-pid, sig), killAfter = 5000 } = {}) {
+  const pids = agents.filter((a) => a.pid && a.at).map((a) => a.pid);
+  const started = (pids.length && starts(pids)) || new Map();
+  const mine = agents.filter((a) => {
+    const at = started.get(a.pid);
+    return at !== undefined && at <= Date.parse(a.at) && at >= Date.parse(a.at) - LAUNCH_WINDOW;
+  });
+  for (const { pid } of mine) {
+    try { kill(pid, 'SIGTERM'); } catch { continue; }
+    setTimeout(() => { try { kill(pid, 'SIGKILL'); } catch {} }, killAfter).unref();
+  }
+  return mine.length;
+}
+
 export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
@@ -162,7 +181,7 @@ export async function launchBuilder(site, { key, kind = 'claude', model, text, f
   const cwd = planner ? repo : facts.worktree;
   const prompt = planner ? plannerBrief(card) : lander ? landerBrief(card) : builderBrief(card);
   const launched = await launchAgent({ kind: planner ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.toLowerCase()) });
-  if (launched.sessionId) await recordSession(site, key, launched.sessionId);
+  if (launched.sessionId) await recordSession(site, key, launched.sessionId, launched.pid);
   const session = launched.sessionId ? `, session ${launched.sessionId}` : '';
   await appendThread(site, key, { text: `${role} launched on ${modelName({ kind, model })} in ${cwd}${session}.`, log: path.basename(launched.log) });
   return launched;

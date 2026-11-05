@@ -1688,6 +1688,8 @@ export async function recordOwnerTap(site, kind, data) {
   const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
   setHold(item, data.hold ? { until } : null);
   await writeJSON(source.file, wave);
+  // A hold stops the card's builders, so their records close: an open record with an exited process is relaunched.
+  if (data.hold) await closeBuilders(source.dir, id, false);
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   return appendThread(site, key, { text: data.hold ? (at ? `Held until ${at}.` : 'Held.') : 'Resumed.', who: 'love' });
 }
@@ -2559,10 +2561,23 @@ export async function abandonPlanner(site, key, text) {
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
 // The session id of the agent the board server just launched on a card (headless.mjs launchBuilder), on its main
 // builder record as session {id, at}. The agent's own builder start keeps it (launchedSession).
-export async function recordSession(site, key, id) {
+export async function recordSession(site, key, id, pid) {
   const file = await builderFile(site, key);
   const record = await readJSON(file, null);
-  await writeJSON(file, { ...record, session: { id, at: new Date().toISOString() } });
+  await writeJSON(file, { ...record, session: { id, pid, at: new Date().toISOString() } });
+}
+
+// The card's open builder records, each as {pid, at}: the process the board server launched (null for an agent a
+// session started itself) and when its session was recorded. Read before a tap closes them.
+export async function openAgents(site, key) {
+  const { source } = await loadItem(site, key);
+  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
+  return records.filter((r) => r && r.started && !r.done).map((r) => ({ pid: r.session?.pid ?? null, at: r.session?.at ?? null }));
+}
+
+// Whether the card's latest status line is the finish step's landing line.
+export async function isLanding(site, key) {
+  return (await readLines(threadFile(site, key))).filter((m) => m.kind === 'status').pop()?.phase === 'landing';
 }
 // A record's session belongs to the agent now starting on it when a launch wrote it since the record last started or closed.
 const launchedSession = (record) => Boolean(record?.session) && record.session.at > (record.done ?? record.started);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until } from '../shared/test-helpers.mjs';
-import { builderBrief, landerBrief, plannerBrief, reviveBuilders, BOARD_CLI } from './headless.mjs';
+import { builderBrief, landerBrief, plannerBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts } from './store.mjs';
 
 const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
@@ -444,5 +444,41 @@ test('a build whose builder fails to launch goes back to Todo with the reason, a
   } finally {
     child.kill();
     fs.rmSync(b.home, { recursive: true, force: true });
+  }
+});
+
+// docs/adr/2026-11-05-0900-done-and-hold-stop-the-cards-headless-builder.md
+test('stopAgents signals only the agents whose process started when their session was recorded, then kills what lingers', async () => {
+  const at = '2026-11-05T10:00:00.000Z';
+  const sent = [];
+  const starts = (pids) => new Map(pids.map((p) => [p, p === 3 ? Date.parse('2026-11-01T00:00:00Z') : Date.parse(at) - 5000]));
+  const n = stopAgents([{ pid: 1, at }, { pid: 2, at }, { pid: 3, at }, { pid: null, at: null }], { starts, kill: (pid, sig) => sent.push([pid, sig]), killAfter: 10 });
+  assert.equal(n, 2, 'pid 3 started long before the session, so it is a reused pid; the record with no pid only closes');
+  assert.deepEqual(sent, [[1, 'SIGTERM'], [2, 'SIGTERM']]);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(sent.slice(2), [[1, 'SIGKILL'], [2, 'SIGKILL']]);
+  assert.equal(stopAgents([{ pid: 9, at }], { starts: () => null, kill: () => assert.fail('ps gave no answer') }), 0);
+});
+
+test("the owner's Hold kills the card's running builder, closes its record and says so in the thread", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-fake-'));
+  const fake = path.join(home, 'claude');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\nsetInterval(() => {}, 1000);\n`);
+  fs.chmodSync(fake, 0o755);
+  const b = oneLaunchBoard([{ id: 'H1', title: 'Hold me', state: 'ready', size: 'large' }], fake);
+  const { child, send } = await b.start();
+  try {
+    await send('card-build', { key: 't/H1' });
+    await until(() => b.record('H1').session?.pid, 'the launch records the agent pid');
+    const { pid } = b.record('H1').session;
+    assert.doesNotThrow(() => process.kill(pid, 0), 'the agent runs');
+    await send('card-hold', { key: 't/H1', hold: true });
+    await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'the hold stops the agent');
+    assert.ok(b.record('H1').done, 'its record closed, so nothing relaunches it');
+    assert.deepEqual(b.thread('H1').slice(-2).map((t) => t.text), ['Held.', 'Stopped its builder.']);
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
   }
 });
