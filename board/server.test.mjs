@@ -389,6 +389,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
     { id: 'B1', title: 'Tapped', next: 'Implement' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
     { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree' }, { id: 'B7', title: 'Leftover work' },
+    { id: 'B8', title: 'Held and planned', status: 'planned', held: true }, { id: 'B9', title: 'Held and waiting', status: 'waiting', held: true }, { id: 'B10', title: 'Held and grilled', held: true },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -416,6 +417,16 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
     assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed.'], ['claude', 'Builder launched on Claude Opus']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
+    // docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md: a held card that has an unstarted status is unheld by Implement too.
+    for (const id of ['B8', 'B9']) {
+      assert.equal((await post({ kind: 'card-build', key: `t/${id}` })).status, 200);
+      const resumed = await card(id);
+      assert.deepEqual([resumed.held, resumed.lane, resumed.status, resumed.refusal], [false, 'progress', 'building', null], id);
+      assert.deepEqual(thread(id).map((m) => m.text.replace(/ in .*/, '')), ['Resumed.', 'Builder launched on Claude Opus'], id);
+    }
+    // Grill leaves the hold alone.
+    assert.equal((await post({ kind: 'grill-more', key: 't/B10' })).status, 200);
+    assert.equal((await card('B10')).held, true);
     // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md
     const queuedAnswer = await (await post({ kind: 'card-build', key: 't/B3' })).json();
     assert.equal(queuedAnswer.id, null);
@@ -429,14 +440,14 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const unheldQueued = await card('B5');
     assert.deepEqual([unheldQueued.held, unheldQueued.lane, unheldQueued.queued], [false, 'todo', true]);
     assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Implement queued: it starts once B4 is done.']);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more'].includes(k)), []);
 
     const taken = path.join(home, '.claude', 'kickflip', 'worktrees', 'B4');
     fs.mkdirSync(taken, { recursive: true });
     assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
     const leftover = await card('B4');
     assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${taken} already exists; land or remove it first`]);
-    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
+    assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more'].includes(k)), []);
 
     // The blocker finishing starts both queued builds in the server, each launching its builder, with no card-unblocked.
     const done = wave();

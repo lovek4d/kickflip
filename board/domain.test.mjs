@@ -118,7 +118,7 @@ test('a card waiting on its questions stays in Todo with its action until buildi
   const built = card({ owner: { items: [q] }, agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   assert.deepEqual([built.lane, built.action?.kind], ['progress', 'pick']);
   const held = card({ owner: { items: [q] }, held: true });
-  assert.deepEqual([held.lane, held.action, held.actionButton, held.resolvedBy], ['todo', null, 'openQuestions', null]);
+  assert.deepEqual([held.lane, held.held, held.action?.kind, held.actionButton], ['todo', true, 'pick', 'openQuestions']);
   assert.equal(card({ held: true }).actionButton, null);
 });
 
@@ -429,7 +429,11 @@ test('needs lists each Needs you line: open topics apart from items, then items 
     { kind: 'Question', text: 'A1: One · 1 question · Ready on GitHub', url: '#item=w%2FA1' },
   ]);
   assert.equal(board({ owner, events: answered }).needsSummary, '2 questions · 1 draft waiting on Ready');
-  assert.deepEqual(lines(board({ owner, events: answered, held: true, item: { pr: undefined } })), [{ kind: 'Question', text: 'Site · 1 question', url: 'questions.html#q1' }]);
+  // docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md: a held card's open question is a Needs you line too.
+  assert.deepEqual(lines(board({ owner, events: answered, held: true, item: { pr: undefined } })), [
+    { kind: 'Question', text: 'Site · 1 question', url: 'questions.html#q1' },
+    { kind: 'Question', text: 'A1: One · 1 question', url: '#item=w%2FA1' },
+  ]);
   assert.deepEqual(lines(board()), [{ kind: 'Tap Ready', text: 'A1: One · Ready on GitHub', url: '#item=w%2FA1' }]);
   assert.deepEqual(lines(board({ pr: { ...greenDraft, isDraft: false } })), []);
   assert.equal(board({ pr: { ...greenDraft, isDraft: false } }).needsSummary, '');

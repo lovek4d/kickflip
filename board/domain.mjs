@@ -303,9 +303,10 @@ const mergeable = (pr, needsApproval) => !mergeBlockers(pr, { needsApproval }).l
 // question), questions, ready (a draft's review, then Ready on GitHub), done (an ask's Done in its thread), steps (manual
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
 // auto-merge is off, and always on a verified branch held for it). A held card waits on nobody, and a reopened card
-// waiting only on its Done has no action.
+// waiting only on its Done has no action. Held only stops the automatic pull, so a held card has actions like any other
+// (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 function actionOf(it, questionById, autoMerge) {
-  if (it.held || closedLane(it)) return null;
+  if (closedLane(it)) return null;
   const thread = `#item=${encodeURIComponent(it.key)}`;
   if (asking(it)) {
     const q = questionById.get(it.questions.first);
@@ -1135,8 +1136,8 @@ function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, waves
 }
 
 // Needs you: one line per topic not tied to an item with open questions, then one per item with open
-// questions or a draft waiting on Ready. Answered questions wait on Claude, so they don't count, and a
-// held item waits on nobody, so it has no line.
+// questions or a draft waiting on Ready. Answered questions wait on Claude, so they don't count. A held item has
+// its line like any other: held only stops the automatic pull (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 // {kind, text, url} is the GET /_claude/needs contract (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md);
 // url is relative to the site root.
 function needsOf(items, topics, questions) {
@@ -1147,7 +1148,7 @@ function needsOf(items, topics, questions) {
     const band = /^(?:lineup|wave):(.+)$/.exec(t.id)?.[1] || null;
     return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, band, questions: { open: t.open, url }, ready: null };
   });
-  const fromItems = items.filter((it) => !it.held).map((it) => {
+  const fromItems = items.map((it) => {
     const asking = it.questions && it.questions.state !== 'resolved' && it.questions.open > 0 ? { open: it.questions.open, url: `questions.html#${it.questions.first}` } : null;
     const ready = it.waitsOn === 'ready' ? it.pr.url : null;
     // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md: every card with Action needed gets a line.

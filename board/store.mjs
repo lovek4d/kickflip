@@ -2435,7 +2435,7 @@ async function tapRefusals(site, key) {
   if (gate.state === 'paused') fail(pauseReason(gate));
   const { item } = await loadItem(site, key);
   const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
-  if (held && item.status && item.status !== 'held') fail("it's held. Unhold it, then tap Implement.");
+  if (held && ![...UNSTARTED, 'held'].includes(item.status)) fail("it's held. Unhold it, then tap Implement.");
   if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes, so it prototypes again. Pick a take from the next round, then tap Implement.');
   const blockers = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
   return { held, blockers };
