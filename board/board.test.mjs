@@ -1990,7 +1990,11 @@ test('land rebases onto a moved main, fast-forwards main, and removes the worktr
   assert.deepEqual(branches(repo), ['main']);
 });
 
-test("land into the running kickflip clone restarts only the code that changed: the hub for its code, else every board for board/, nothing for tests or docs", async () => {
+test("land into the running kickflip clone restarts only the code that changed: the hub for its code, else every board for board/, nothing for tests or docs", async (t) => {
+  // In process, so HOME is pointed at the test's home: the land's test slot is then not the host's.
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
   const repo = scratchRepo();
   const restarted = [];
   const landHere = async () => {
