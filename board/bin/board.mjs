@@ -280,11 +280,20 @@ command fails and changes nothing.
                                                          no link recorded; reactions: git_merged on each recorded link
                                                          of a merged card. record is the command to run once sent.
                                                          While Slack isn't ready: {waiting} and nothing owed
-  review record <pr> --state posted|needs               the session's review of an incoming PR, after a pr-review
-         --text <markdown> | --file <path>               event, in data/reviews.json: posted once it is on GitHub
-         [--url <review link>]                           (--url its link), needs while it waits on the owner, which
-                                                         puts it in Needs you and pushes. The PR must be one the hub
+  review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
+         [--read-at <time>]                              approval or a request for changes) on an incoming PR at
+                                                         its listed head, as the board's github-login (else gh's
+                                                         account), under "🤖 Claude review from the <board title>
+                                                         board" and the <!-- claude-bridge --> marker, and records
+                                                         it posted with the review's link. Refuses words that carry
+                                                         the header or marker, and, with --read-at, a PR that got
+                                                         another review after that time. The PR must be one the hub
                                                          listed in data/incoming.json or reviewed before
+  review record <pr> --state posted|needs               the session's review of an incoming PR that was not posted
+         --text <markdown> | --file <path>               through review post, in data/reviews.json: posted for a PR
+                                                         it chose to say nothing on, needs while it waits on the
+                                                         owner, which puts it in Needs you and pushes. Same PRs as
+                                                         review post
   review digest                                         pending reviews as JSON; due weekday mornings from 09:00
   review digest sent <reviewer> --ts <ts>               records a digest in data/review-digests.json;
               --channel <dm> --items <key,key>           marks today sent in the Slack identity timezone
@@ -681,9 +690,13 @@ const COMMANDS = {
   'review updated': [['wave/id'], ['text'], (site, [key], f) => store.reviewUpdated(site, key, f.text)],
   'review sent': [['wave/id', 'reviewer'], ['ts', 'channel'], (site, [key, name], f) => store.reviewSent(site, key, name, f)],
   'review react': [['wave/id', 'reviewer', 'emoji'], [], (site, [key, name, emoji]) => store.reviewReact(site, key, name, emoji)],
-  'review record': [['pr'], ['state', 'text', 'file', 'url'], (site, [pr], f) => {
+  'review record': [['pr'], ['state', 'text', 'file'], (site, [pr], f) => {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('review record takes --text or --file');
-    return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file), url: f.url });
+    return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file) });
+  }],
+  'review post': [['pr'], ['file', 'read-at'], (site, [pr], f) => {
+    if (f.file === undefined) throw new UsageError('review post needs --file <review.md>');
+    return store.postIncomingReview(site, pr, { words: readInput(f.file), readAt: f['read-at'] });
   }],
   'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDigest(site, options))] })],
   'review due': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDue(site, options))] })],

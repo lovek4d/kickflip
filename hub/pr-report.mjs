@@ -18,19 +18,39 @@ function gh(args, env = process.env) {
 export const CLAUDE_PREFIX = '🤖 ';
 export const CLAUDE_MARK = '<!-- claude-bridge -->';
 
-// Posts Claude's words on PR pr of repo: a comment, or with replyTo a reply in that review comment's thread, as login
-// when given (its token from gh's own store, read each time since it can be rotated), else as gh's active account.
+// gh's environment as login when given (its token from gh's own store, read each time since it can be rotated), else as
+// gh's active account.
+async function envFor(login) {
+  const env = process.env;
+  if (!login) return env;
+  const token = await new Promise((resolve) => execFile('gh', ['auth', 'token', '-u', login], { env: { ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') } }, (err, stdout) => resolve(err ? '' : stdout.trim())));
+  if (!token) throw new Error(`gh has no ${login} account; run gh auth login`);
+  return { ...env, GH_TOKEN: token };
+}
+
+// Posts Claude's words on PR pr of repo: a comment, or with replyTo a reply in that review comment's thread, as login.
 // → the post's url
 export async function postToPR({ repo, pr, replyTo, words, login }) {
-  let env = process.env;
-  if (login) {
-    const token = await new Promise((resolve) => execFile('gh', ['auth', 'token', '-u', login], { env: { ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') } }, (err, stdout) => resolve(err ? '' : stdout.trim())));
-    if (!token) throw new Error(`gh has no ${login} account; run gh auth login`);
-    env = { ...env, GH_TOKEN: token };
-  }
+  const env = await envFor(login);
   const endpoint = replyTo === undefined ? `repos/${repo}/issues/${pr}/comments` : `repos/${repo}/pulls/${pr}/comments/${replyTo}/replies`;
   try { return (await gh(['api', endpoint, '-f', `body=${CLAUDE_PREFIX}${words}\n\n${CLAUDE_MARK}`], env)).html_url; }
   catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
+}
+
+// Posts body as one Comment review (never an approval or a request for changes) on PR pr of repo at commit head, as
+// login. → the review's url
+export async function postReview({ repo, pr, head, body, login }) {
+  const env = await envFor(login);
+  try { return (await gh(['api', `repos/${repo}/pulls/${pr}/reviews`, '-f', `body=${body}`, '-f', 'event=COMMENT', '-f', `commit_id=${head}`], env)).html_url; }
+  catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
+}
+
+// The reviews on PR pr of repo submitted after the ISO time since: [{login, at}]
+export async function reviewsSince({ repo, pr, since }) {
+  try {
+    const reviews = (await gh(['api', '--paginate', '--slurp', `repos/${repo}/pulls/${pr}/reviews`])).flat();
+    return reviews.filter((r) => Date.parse(r.submitted_at) > Date.parse(since)).map((r) => ({ login: r.user?.login ?? null, at: r.submitted_at }));
+  } catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
 }
 
 // Marks a draft PR ready for review as gh's active account, the one the finish opened it with (board/finish.mjs).

@@ -3468,16 +3468,62 @@ test("review record writes the session's review of a listed incoming PR, keeping
   assert.deepEqual(rec, { ...pr, state: 'needs', text: 'Clashes with #47.' });
   write(site('orch', 'data', 'incoming.json'), { at: 'y', repo: 'o/r', prs: [] });
   write(path.join(home, 'review.md'), 'Posted.\n\n- one point');
-  const url = 'https://github.com/o/r/pull/437#pullrequestreview-1';
-  assert.equal(board('--site', 'orch', 'review', 'record', '437', '--state', 'posted', '--file', path.join(home, 'review.md'), '--url', url).out, 'review of PR #437 recorded: posted\n');
-  assert.deepEqual([read(site('orch', 'data', 'reviews.json'))['437'].text, read(site('orch', 'data', 'reviews.json'))['437'].review_url, read(site('orch', 'data', 'reviews.json'))['437'].head], ['Posted.\n\n- one point', url, 'abc']);
+  assert.equal(board('--site', 'orch', 'review', 'record', '437', '--state', 'posted', '--file', path.join(home, 'review.md')).out, 'review of PR #437 recorded: posted\n');
+  assert.deepEqual([read(site('orch', 'data', 'reviews.json'))['437'].text, read(site('orch', 'data', 'reviews.json'))['437'].review_url, read(site('orch', 'data', 'reviews.json'))['437'].head], ['Posted.\n\n- one point', undefined, 'abc']);
   for (const [args, err] of [
     [['438', '--state', 'posted', '--text', 'x'], /not an incoming PR/],
     [['437', '--state', 'approved', '--text', 'x'], /--state posted or --state needs/],
     [['437', '--state', 'posted'], /--text or --file/],
-    [['437', '--state', 'posted', '--text', 'x', '--url', 'http://elsewhere'], /--url/],
+    [['437', '--state', 'posted', '--text', 'x', '--url', 'https://github.com/o/r/pull/437#pullrequestreview-1'], /--url/],
     [['seven', '--state', 'posted', '--text', 'x'], /PR number/],
   ]) assert.match(board('--site', 'orch', 'review', 'record', ...args).err, err, args.join(' '));
+});
+
+// docs/adr/2026-11-05-0930-review-post-posts-an-incoming-pr-review.md
+test("review post posts the session's words as one Comment review on a listed incoming PR at its head, then records it posted with the review's link", () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  writeAccounts(dir, { owner: 'token-owner' });
+  write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, github: 'o/r', cmd: [process.execPath, '/skill/board/server.mjs', site('orch')] } } });
+  const cli = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  const pr = { number: 437, title: 'One endpoint', author: 'quinn', url: 'https://github.com/o/r/pull/437', head: 'abc', touches: ['w/A1'], asked: true };
+  write(site('orch', 'data', 'incoming.json'), { at: 'x', repo: 'o/incoming', prs: [pr] });
+  write(site('orch', 'data', 'reviews.json'), {});
+  write(path.join(home, 'review.md'), 'One point: the retry loops.\n');
+  const file = path.join(home, 'review.md');
+  const posts = () => tokens(dir).filter((c) => c.args[0] === 'api' && c.args[1].endsWith('/reviews') && c.args.includes('-f')).map(({ args, token }) => [args.slice(1), token]);
+  assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
+  const title = JSON.parse(fs.readFileSync(site('orch', 'board.json'), 'utf8')).title;
+
+  const done = cli('review', 'post', '437', '--file', file);
+  assert.equal(done.code, 0, done.err);
+  assert.equal(done.out, 'posted review on PR #437: https://github.com/o/incoming/pull/437#pullrequestreview-1\n');
+  assert.deepEqual(posts(), [[['repos/o/incoming/pulls/437/reviews', '-f', `body=🤖 Claude review from the ${title} board\n\nOne point: the retry loops.\n\n<!-- claude-bridge -->`, '-f', 'event=COMMENT', '-f', 'commit_id=abc'], 'token-owner']]);
+  const { at: postedAt, ...rec } = read(site('orch', 'data', 'reviews.json'))['437'];
+  assert.ok(Date.parse(postedAt));
+  assert.deepEqual(rec, { ...pr, state: 'posted', text: 'One point: the retry loops.', review_url: 'https://github.com/o/incoming/pull/437#pullrequestreview-1' });
+
+  // Another review after --read-at is refused, nothing posted; one before it is not.
+  writeReviews(dir, 437, [{ id: 5, user: { login: 'ann' }, submitted_at: '2026-11-05T10:00:00Z', body: '', state: 'COMMENTED' }]);
+  const stale = cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T09:00:00Z');
+  assert.match(stale.err, /PR #437 got a review after 2026-11-05T09:00:00Z \(ann at 2026-11-05T10:00:00Z\)/);
+  assert.equal(posts().length, 1);
+  assert.equal(cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T10:30:00Z').code, 0);
+  assert.equal(posts().length, 2);
+
+  for (const [name, words, err] of [
+    ['robot', '🤖 Fine.', /adds the 🤖 header and the claude-bridge marker itself/],
+    ['header', 'Claude review from me\n\nFine.', /adds the 🤖 header/],
+    ['marker', 'Fine.\n<!-- claude-bridge -->', /adds the 🤖 header/],
+  ]) {
+    write(path.join(home, `${name}.md`), words);
+    assert.match(cli('review', 'post', '437', '--file', path.join(home, `${name}.md`)).err, err, name);
+  }
+  assert.match(cli('review', 'post', '438', '--file', file).err, /not an incoming PR/);
+  assert.match(cli('review', 'post', 'seven', '--file', file).err, /review post takes the PR number/);
+  assert.match(cli('review', 'post', '437').err, /review post needs --file/);
+  assert.match(cli('review', 'post', '437', '--file', file, '--read-at', 'noon').err, /--read-at takes the time/);
+  assert.equal(posts().length, 2);
 });
 
 test('main set publishes an install with the same URL and sha checks as card installs', () => {

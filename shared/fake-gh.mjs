@@ -92,6 +92,11 @@ if (args.length === 4 && args[0] === 'api' && args[2] === '-f' && args[3].starts
   console.log(JSON.stringify({ html_url: 'https://github.com/' + args[1].slice('repos/'.length) }));
   process.exit(0);
 }
+// A Comment review posted with gh api repos/<repo>/pulls/<n>/reviews -f body=… -f event=… -f commit_id=…: answers its html_url.
+if (args.length === 8 && args[0] === 'api' && args[2] === '-f' && args[4] === '-f' && args[6] === '-f' && /^repos\\/[^/]+\\/[^/]+\\/pulls\\/\\d+\\/reviews$/.test(args[1])) {
+  console.log(JSON.stringify({ html_url: 'https://github.com/' + args[1].slice('repos/'.length).replace('/pulls/', '/pull/').replace(/\\/reviews$/, '') + '#pullrequestreview-1' }));
+  process.exit(0);
+}
 // The hub's one GraphQL query (hub/pr-report.mjs fetchPRs), answered from the same fixtures as the REST calls: each
 // aliased PR from its pr, issue-comments, review-comments and reviews fixtures, the viewer from user.json and the rate
 // limit from rate.json. A PR without a fixture, or {fail: true}, comes back null with an error, as GitHub answers.

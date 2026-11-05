@@ -19,7 +19,7 @@ import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { merge3 } from './merge3.mjs';
-import { fetchPR, reportOf, githubLogin, postToPR, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
+import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, leastReady, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
@@ -542,20 +542,52 @@ export async function writeChecked(site, every, { idle } = {}) {
 // data/reviews.json {<number>: {number, title, author, url, touches, asked, head, state: posted|needs, text, review_url?,
 // at}}: the session's review of an incoming PR, at the head the hub's poll last listed for it in data/incoming.json, or
 // at the head its last review saw once the PR has left that list (board/auto-review.mjs reviewsOf).
-export async function recordReview(site, number, { state, text, url } = {}) {
+export async function recordReview(site, number, { state, text } = {}) {
   needSite(site);
-  if (!/^[1-9]\d{0,6}$/.test(String(number))) fail(`review record takes the PR number, such as 437, not "${number}"`);
   if (!['posted', 'needs'].includes(state)) fail('review record needs --state posted or --state needs');
   if (!String(text ?? '').trim()) fail('review record needs the review text, as --text or --file');
-  if (url !== undefined && !/^https:\/\/github\.com\/\S+$/.test(url)) fail('--url takes the review\'s link on GitHub');
+  return saveReview(site, await incomingPR(site, number, 'review record'), { state, text });
+}
+
+// The incoming PR number as the hub last listed it in data/incoming.json, else as its last review saw it, with the repo
+// it is in: incoming.json's, else the board's.
+async function incomingPR(site, number, command) {
+  if (!/^[1-9]\d{0,6}$/.test(String(number))) fail(`${command} takes the PR number, such as 437, not "${number}"`);
+  const incoming = await readJSON(path.join(site, 'data', 'incoming.json'), {});
+  const listed = (incoming?.prs || []).find((p) => p.number === Number(number));
+  const pr = listed || (await readJSON(path.join(site, 'data', 'reviews.json'), {}))[number] || fail(`PR #${number} is not an incoming PR on this board`);
+  return { ...pr, repo: incoming?.repo || boardRepoOf(site, {}) };
+}
+
+async function saveReview(site, { number, title, author, url, touches = [], asked = false, head }, { state, text, review_url }) {
   const file = path.join(site, 'data', 'reviews.json');
   const records = await readJSON(file, {});
-  const listed = ((await readJSON(path.join(site, 'data', 'incoming.json'), {}))?.prs || []).find((p) => p.number === Number(number));
-  const pr = listed || records[number] || fail(`PR #${number} is not an incoming PR on this board`);
-  const { title, author, url: link, touches = [], asked = false, head } = pr;
-  records[number] = { number: Number(number), title, author, url: link, touches, asked, head, state, text, ...(url ? { review_url: url } : {}), at: new Date().toISOString() };
+  records[number] = { number: Number(number), title, author, url, touches, asked, head, state, text, ...(review_url ? { review_url } : {}), at: new Date().toISOString() };
   await writeJSON(file, records);
   return { file, lines: [] };
+}
+
+// `review post`: the session's words as one Comment review on an incoming PR at its listed head, as the board's
+// github-login, under the board's header and the claude-bridge marker, then recorded as posted with the review's link.
+// It refuses, posting nothing, when another review landed after readAt. → {lines}
+export async function postIncomingReview(site, number, { words, readAt }) {
+  needSite(site);
+  const pr = await incomingPR(site, number, 'review post');
+  const text = String(words ?? '').trim() || fail('review post needs the review text, as --file');
+  const header = `${CLAUDE_PREFIX}Claude review from the ${(await boardConfig(site)).title} board`;
+  if (text.startsWith(CLAUDE_PREFIX.trim()) || text.includes('Claude review from') || text.includes(CLAUDE_MARK)) fail(`review post adds the ${CLAUDE_PREFIX.trim()} header and the claude-bridge marker itself; pass only your words`);
+  const repo = pr.repo || fail('review post needs a board on GitHub; this board has no repo there');
+  if (readAt !== undefined && Number.isNaN(Date.parse(readAt))) fail('--read-at takes the time you read the PR, such as 2026-11-05T09:30:00Z');
+  const login = settingsOf(await boardConfig(site)).github_login;
+  try {
+    if (readAt !== undefined) {
+      const newer = await reviewsSince({ repo, pr: pr.number, since: readAt });
+      if (newer.length) fail(`PR #${number} got ${newer.length === 1 ? 'a review' : `${newer.length} reviews`} after ${readAt} (${newer.map((r) => `${r.login} at ${r.at}`).join(', ')}); reread the PR and review again`);
+    }
+    const review_url = await postReview({ repo, pr: pr.number, head: pr.head, body: `${header}\n\n${text}\n\n${CLAUDE_MARK}`, login });
+    await saveReview(site, pr, { state: 'posted', text, review_url });
+    return { lines: [`posted review on PR #${number}: ${review_url}`] };
+  } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
 }
 
 // Whether a card the hub polls has a PR still open: the cards hub/boards.mjs prsOf lists.
