@@ -441,6 +441,20 @@ test('needs lists each Needs you line: open topics apart from items, then items 
   assert.deepEqual(lines(settling).map((n) => ({ ...n, text: refKind(n.text.split(': ')[0]) + n.text.slice(n.text.indexOf(': ')) })), [{ kind: 'Action needed', text: 'asked: a1 first line · Pick a take', url: '#item=ask%3Aa1' }]);
 });
 
+test('needs lists the line that has waited longest first: its oldest open question, else its card since it started waiting', () => {
+  const owner = {
+    topics: [{ id: 'site', title: 'Site' }],
+    items: [
+      { id: 'q1', topic: 'site', question: 'Open?', asked_at: '2026-10-23T12:00:00Z' },
+      { id: 'q2', topic: 'item:w/A1', question: 'Keep it?', asked_at: '2026-10-23T09:00:00Z' },
+      { id: 'q3', topic: 'item:w/A1', question: 'Again?', asked_at: '2026-10-23T08:00:00Z' },
+    ],
+  };
+  assert.deepEqual(board({ owner }).needs.map((l) => [l.text.split(' · ')[0], l.since]), [['A1: One', '2026-10-23T08:00:00Z'], ['Site', '2026-10-23T12:00:00Z']]);
+  const earlier = { ...owner, items: owner.items.map((q) => (q.id === 'q1' ? { ...q, asked_at: '2026-10-23T07:00:00Z' } : q)) };
+  assert.deepEqual(board({ owner: earlier }).needs.map((l) => l.text.split(' · ')[0]), ['Site', 'A1: One']);
+});
+
 test("the board session's pending prompts lead Needs you, each a Prompt line carrying its details, and the summary and the hub's needs count them", () => {
   const perm = { id: 'p1', tool: 'Bash', action: 'run npm test', detail: 'npm test', rule: 'Bash(npm test)', questions: null, cwd: '~/r', at: '2026-10-30T10:00:00Z' };
   const ask = { id: 'p2', tool: 'AskUserQuestion', action: null, detail: '', rule: null, cwd: '~/r', at: '2026-10-30T10:01:00Z', questions: [{ question: 'Colour?', options: [{ label: 'Red' }] }, { question: 'Size?', options: [{ label: 'S' }] }] };

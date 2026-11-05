@@ -1137,8 +1137,10 @@ function checksOf({ checked, watcher, replyAt, threads = {}, working = {}, waves
   };
 }
 
-// Needs you: one line per topic not tied to an item with open questions, then one per item with open
-// questions or a draft waiting on Ready. Answered questions wait on Claude, so they don't count. A held item has
+// Needs you: one line per topic not tied to an item with open questions, and one per item with open
+// questions or a draft waiting on Ready, oldest first by since: when the line's oldest open question was asked, else
+// when its card began waiting on the owner (its review start, else its last update). A line with no stamp comes last,
+// in board order (docs/adr/2026-11-05-2130-needs-you-feeds-oldest-first.md). Answered questions wait on Claude, so they don't count. A held item has
 // its line like any other: held only stops the automatic pull (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 // {kind, text, url} is the GET /_claude/needs contract (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md);
 // url is relative to the site root.
@@ -1148,7 +1150,8 @@ function needsOf(items, topics, questions) {
   const fromTopics = topics.filter((t) => t.state !== 'resolved' && t.open > 0 && !onItems.has(t.id)).map((t) => {
     const url = `questions.html#${firstOpen(t.questions)}`;
     const band = /^(?:lineup|wave):(.+)$/.exec(t.id)?.[1] || null;
-    return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, band, questions: { open: t.open, url }, ready: null };
+    return { kind: 'Question', title: t.title, text: `${t.title} · ${plural(t.open, 'question')}`, url, topic: t.id, band, questions: { open: t.open, url }, ready: null,
+      since: questions.filter((q) => q.topic === t.id && q.state === 'open').map((q) => q.asked_at).filter(Boolean).sort()[0] || null };
   });
   const fromItems = items.map((it) => {
     const asking = it.questions && it.questions.state !== 'resolved' && it.questions.open > 0 ? { open: it.questions.open, url: `questions.html#${it.questions.first}` } : null;
@@ -1158,10 +1161,12 @@ function needsOf(items, topics, questions) {
     if (!asking && !ready && !other) return null;
     const title = `${it.ref}: ${it.title}`;
     const text = [title, asking && plural(asking.open, 'question'), ready && 'Ready on GitHub', other?.label].filter(Boolean).join(' · ');
-    return { kind: asking ? 'Question' : ready ? 'Tap Ready' : 'Action needed', title, text, url: `#item=${encodeURIComponent(it.key)}`, key: it.key, questions: asking, ready, action: other };
+    return { kind: asking ? 'Question' : ready ? 'Tap Ready' : 'Action needed', title, text, url: `#item=${encodeURIComponent(it.key)}`, key: it.key, questions: asking, ready, action: other,
+      since: (asking ? it.questions.askedAt[0] : it.reviewSince || it.updatedAt) || null };
   }).filter(Boolean);
-  return [...fromTopics, ...fromItems];
+  return [...fromTopics, ...fromItems].sort(oldestFirst);
 }
+const oldestFirst = (a, b) => (a.since && b.since ? a.since.localeCompare(b.since) : Boolean(b.since) - Boolean(a.since));
 
 // The board session's pending prompts lead Needs you, since each holds the session until the owner answers it there
 // (../hub/prompts.mjs shown; docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md).
