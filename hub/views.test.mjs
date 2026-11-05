@@ -448,7 +448,8 @@ test("the hub page lists Boards and Pages apart with each site's health and link
     total: 3, sites: rows.map((r) => ({ route: r.route, board: ['alpha', 'beta', 'gone', 'new'].includes(r.route) })),
     hub: { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing' }, notifications: { state: 'on', text: 'On' },
   };
-  const v = hubView({ now, st: status(now, DEFAULTS, 1), poll: poll(now), sidebar, rows, links: new Map(Object.entries(links)), code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', rules: [{ text: 'a' }, { text: 'b' }] });
+  const v = hubView({ now, st: status(now, DEFAULTS, 1), poll: poll(now), sidebar, rows, links: new Map(Object.entries(links)), code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', version: '0.4.2', rules: [{ text: 'a' }, { text: 'b' }] });
+  assert.equal(v.version, '0.4.2');
   assert.deepEqual(v.groups.map((g) => [g.label, g.sites.map((s) => [s.route, s.tone, s.word, s.href])]), [
     ['Boards', [['alpha', 'ok', 'up · listening · every link passes', '/alpha/'], ['beta', 'wait', 'degraded · not listening', '/beta/'],
       ['gone', 'down', 'down · restarting', '/gone/'], ['new', 'wait', 'starting', '/new/']]],
@@ -555,7 +556,10 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]), code: { running: 'abc', onDisk: 'abc' },
   });
   assert.deepEqual(data.groups[0].sites.map((s) => s.remembered), [sessions, []]);
-  live.paint({ ...data, remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
+  live.paint({ ...data, version: '0.4.2', remembered: [{ session: 's-alone', rules: ['WebSearch'] }] });
+  const brand = root.querySelector('.hub-foot footer .brand');
+  assert.equal(brand.textContent, 'kickflip.sh / v0.4.2');
+  assert.equal(brand.querySelector('a').getAttribute('href'), 'https://kickflip.sh');
   const labels = root.querySelectorAll('.hub-status .label').map((el) => el.textContent);
   assert.equal(data.integrations, integrations);
   assert.deepEqual(labels.slice(0, 4), ['Usage', 'Health', 'Integrations', 'Boards']);

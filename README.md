@@ -53,7 +53,7 @@ To have the hub board's session running in a terminal you can attach to, run `ki
 - `kickflip hub`: attach to the hub board's tmux session
 - `kickflip sessions`: list each board's session
 - `kickflip start <route>` / `resume <route>`: start or resume a board's session
-- `kickflip restart <route>` / `logs <route>`: restart a site or read its log
+- `kickflip restart [route]` / `logs <route>`: restart a site (the hub with no route) or read its log
 - `kickflip close <route>` / `reopen <route>`: close a board and bring it back
 - `kickflip export <route>` / `import <file>`: move a board to another host
 - `kickflip notifications`: set push notifications

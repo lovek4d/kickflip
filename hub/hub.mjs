@@ -202,6 +202,8 @@ import { sendReviews } from './review-send.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
+// The version of the code this process started with; new files on disk run only after a restart.
+const VERSION = JSON.parse(fs.readFileSync(path.join(HUB_DIR, '..', 'package.json'), 'utf8')).version;
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -801,7 +803,7 @@ async function hubData(req) {
   return {
     ...hubView({
       now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-      code, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: awakeUntil(now),
+      code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: awakeUntil(now),
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
     prompts: pendingFor(null).map(shown),

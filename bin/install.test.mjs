@@ -372,19 +372,33 @@ test('the update command installs the latest package before restarting the hub a
   const log = path.join(home, 'calls.log');
   const manager = process.platform === 'darwin' ? 'launchctl' : 'systemctl';
   fs.mkdirSync(tools);
-  for (const name of ['npm', manager]) {
-    fs.writeFileSync(path.join(tools, name), `#!/bin/sh\nprintf '%s\\n' '${name}'" $*" >> "$KICKFLIP_TEST_LOG"\nexit 0\n`, { mode: 0o755 });
-  }
-  const run = (folder) => spawnSync(process.execPath, [path.join(folder, 'bin', 'kickflip.mjs'), 'update'], {
+  const stub = (name, extra = '') => fs.writeFileSync(path.join(tools, name), `#!/bin/sh\nprintf '%s\\n' '${name}'" $*" >> "$KICKFLIP_TEST_LOG"\n${extra}exit 0\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(root, 'package.json'), '{"version":"0.4.2"}');
+  stub(manager);
+  stub('npm', `printf '{"version":"0.4.3"}' > '${path.join(root, 'package.json')}'\n`);
+  const kickflip = (folder, command) => spawnSync(process.execPath, [path.join(folder, 'bin', 'kickflip.mjs'), command], {
     env: { ...process.env, HOME: home, PATH: tools, KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', KICKFLIP_TEST_LOG: log }, encoding: 'utf8',
   });
+  const run = (folder) => kickflip(folder, 'update');
+  const restartCall = process.platform === 'darwin' ? `launchctl kickstart -k gui/${process.getuid()}/local.claude.kickflip-hub` : 'systemctl --user restart kickflip-hub.service';
   const installed = run(root);
   assert.equal(installed.status, 0, installed.stderr);
-  assert.equal(installed.stdout, 'updated kickflip and restarted the hub\n');
+  assert.equal(installed.stdout, '0.4.2 > 0.4.3\nrestarted the hub\n');
   assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), [
     'npm i -g @lovek4d/kickflip@latest',
-    process.platform === 'darwin' ? `launchctl kickstart -k gui/${process.getuid()}/local.claude.kickflip-hub` : 'systemctl --user restart kickflip-hub.service',
+    restartCall,
   ]);
+  fs.unlinkSync(log);
+  stub('npm');
+  const unchanged = run(root);
+  assert.equal(unchanged.status, 0, unchanged.stderr);
+  assert.equal(unchanged.stdout, 'no new version available\n');
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['npm i -g @lovek4d/kickflip@latest']);
+  fs.unlinkSync(log);
+  const restarted = kickflip(root, 'restart');
+  assert.equal(restarted.status, 0, restarted.stderr);
+  assert.equal(restarted.stdout, 'restarted the hub\n');
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), [restartCall]);
   fs.unlinkSync(log);
   const clone = run(cloneRoot());
   assert.equal(clone.status, 2, clone.stderr);

@@ -75,7 +75,7 @@
 <h2 class="label">Polling status</h2>
 <div class="group">${nowRow(d.polling, tile('clock', '#3b82f6'))}</div></div>
 <section class="hub-settings"><h2 class="label">Hub settings</h2>${settings}</section>
-<div class="hub-foot"><footer>${d.sites.length} sites. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">mac.example.ts.net</span></footer></div></main></div>`;
+<div class="hub-foot"><footer>${d.sites.length} sites. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">mac.example.ts.net</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / v0.4.2</span></footer></div></main></div>`;
   }
 
   const LANES = [['review', 'In Review'], ['progress', 'In Progress'], ['todo', 'Todo'], ['done', 'Done']];

@@ -88,12 +88,12 @@ const claudeView = (model) => ({
 
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
 // hubHealth), and hub.restart is true while it does, for the Hub row's Restart hub; rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
-// (boards.mjs); host: the address the page was loaded from; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
+// (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
 // codex: a shared/codex.mjs codexStatus; awake: awake.mjs awakeUntil, which the Health row's Keeping awake shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = null }) {
+export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', version, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = null }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';
@@ -117,6 +117,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     rules: rules.length ? plural(rules.length, 'rule') : 'None yet',
     sites: plural(rows.length, 'site'),
     host,
+    version,
     total: sidebar.total,
   };
 }

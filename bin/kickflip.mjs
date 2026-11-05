@@ -101,7 +101,8 @@
 //               prints the hub's HTTPS address on the tailnet, the one to open on the phone, or with a route that
 //               site's (./install.mjs tailnetUrl). Exit 1 when Tailscale isn't installed or running, or HTTPS isn't on for the tailnet,
 //               2 for a route with no site
-//   kickflip restart <route>
+//   kickflip restart [route]
+//               restarts the site at that route; with no route, restarts the hub through its service
 //   kickflip logs <route> [--lines <n>]
 //   kickflip init [--dry-run] | uninstall
 //               init is the first-run name for doctor --fix. It links the running package or clone, hooks plugin
@@ -113,7 +114,8 @@
 //               uninstall stops the hub and removes its service, kickflip's status-line link and Tailscale /;
 //               Claude settings and skill links are kept
 //   kickflip update
-//               installs @lovek4d/kickflip@latest globally with npm, then restarts the hub.
+//               installs @lovek4d/kickflip@latest globally with npm. When the version changed it prints
+//               "<old> > <new>" and restarts the hub; otherwise it prints "no new version available" and leaves the hub running.
 //               A clone refuses (exit 2); update it with git pull
 //   kickflip push --kind action|prompt|fault|reminder --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]
@@ -421,6 +423,14 @@ async function joinFolder() {
 // A folder that already has a board: names it, records branch (the folder's default branch now) when it changed, and,
 // on a yes, restarts its session as the Hub page's Restart does (../hub/restart-board.mjs), then attaches to the hub
 // board's tmux session, or starts one when none is recorded.
+// Restarts the hub through its service, failing with `what` and the command to run by hand when it doesn't.
+function restartHub(what) {
+  const service = hubService();
+  const error = service.restart();
+  if (error) fail(`${what}: ${error}; run ${service.restartCommand}`);
+  out('restarted the hub');
+}
+
 async function restartFolderBoard(route, site, branch) {
   const title = site.title || route;
   out(`This folder already has a board: ${title} (/${route}).`);
@@ -807,6 +817,7 @@ const commands = {
 
   async restart() {
     const route = args._[0];
+    if (!route) return restartHub('the hub did not restart');
     await withLock(async () => {
       const m = readManifest();
       if (!routeRecord(m.sites, route)) fail('no site at /' + route);
@@ -837,12 +848,14 @@ const commands = {
 
   async update() {
     if (fs.existsSync(path.join(SKILL, '.git'))) fail(`${SKILL} is a clone; update it with git pull`, 2);
+    const installedVersion = () => JSON.parse(fs.readFileSync(path.join(SKILL, 'package.json'), 'utf8')).version;
+    const before = installedVersion();
     const result = spawnSync('npm', ['i', '-g', '@lovek4d/kickflip@latest'], { stdio: 'inherit' });
     if (result.status !== 0) fail(`npm update failed${result.error ? ': ' + result.error.message : ''}`);
-    const service = hubService();
-    const error = service.restart();
-    if (error) fail(`update finished but the hub did not restart: ${error}; run ${service.restartCommand}`);
-    out('updated kickflip and restarted the hub');
+    const after = installedVersion();
+    if (after === before) return out('no new version available');
+    out(`${before} > ${after}`);
+    restartHub('update finished but the hub did not restart');
   },
 
   async uninstall() {

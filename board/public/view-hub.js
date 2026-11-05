@@ -73,7 +73,7 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
 <div class="group">${nowRow(d.polling, tile('clock', d.polling.count ? 'var(--color-notice)' : 'var(--color-quiet)'))}</div>`;
   }
 
-  const footer = (d) => `<footer>${esc(d.sites)}. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">${esc(d.host)}</span></footer>`;
+  const footer = (d) => `<footer>${esc(d.sites)}. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">${esc(d.host)}</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / v${esc(d.version)}</span></footer>`;
 
   // iOS shows an app badge only in a Home Screen app with notifications allowed; elsewhere this does nothing.
   function badge(n) {
