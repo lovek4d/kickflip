@@ -556,6 +556,12 @@ main > * { transition: opacity .25s ease; }
 .view-settings .who.new { border-color: var(--accent); }
 .view-settings .add { display: flex; gap: 6px; margin-top: 8px; }
 .view-settings .add input { flex: 1; min-width: 0; }
+.view-settings .add.pick { flex-wrap: wrap; }
+.view-settings .pick-col { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.view-settings .pick-list { max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.view-settings .pick-list button { text-align: left; }
+.view-settings .pick-list button[aria-pressed="true"] { border-color: var(--accent); }
+.view-settings .who .sub { display: block; margin-top: 2px; }
 .view-settings .replies .reply { margin-top: 8px; }
 .view-settings label.who { gap: 12px; cursor: pointer; }
 .view-settings label.who .sub { display: block; margin-top: 2px; }

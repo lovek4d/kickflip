@@ -80,6 +80,17 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
       const { team, team_id, user, user_id } = await call('auth.test');
       return { team, team_id, user, user_id };
     },
+    // The workspace's people who can be messaged: [{id, name}] by name. Needs the users:read scope.
+    async people() {
+      const out = [];
+      let cursor = '';
+      do {
+        const page = await call('users.list', { limit: 200, ...(cursor ? { cursor } : {}) });
+        for (const m of page.members) if (!m.deleted && !m.is_bot && m.id !== 'USLACKBOT') out.push({ id: m.id, name: m.profile?.real_name || m.real_name || m.name });
+        cursor = page.response_metadata?.next_cursor || '';
+      } while (cursor);
+      return out.sort((a, b) => a.name.localeCompare(b.name));
+    },
     // The owner's DM with a user → its channel id
     openDM: async (user) => (await call('conversations.open', { users: user })).channel.id,
     // → the message ts

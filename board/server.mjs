@@ -119,11 +119,14 @@
 //                                builder-nudge {key} asks the session to check a builder
 //                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
 //                                including held cards, so the owning session hears it whoever ran the command.
-//                                reviewers {add?: [name], remove?: [name]} is Board settings' reviewers Save: the server
-//                                removes the names from board.json and unfinished waves itself (store.mjs removeReviewers)
-//                                and appends reviewers-removed {remove}, a record the session doesn't act on; names to add
-//                                are appended as reviewers {add} for the session. An unknown name or a list that isn't
-//                                one → 400 {error} and nothing recorded.
+//                                reviewers {add?: [{name, slack_user, github}], remove?: [name]} is Board settings' reviewers
+//                                Save: the server removes the names and adds the people itself (store.mjs removeReviewers,
+//                                addReviewers, with each DM opened through the hub's Slack token and each login checked on
+//                                GitHub), and appends reviewers-removed {remove} and reviewers-added {add: [name]}, records the
+//                                session doesn't act on. An unknown name, a Slack or GitHub refusal or a malformed list → 400
+//                                {error} and nothing recorded.
+//   GET  /api/reviewer-people    {slack: [{id, name}] | null, slackProblem?, github: [login], githubProblem?}: what Board
+//                                settings' Reviewers picks from, fetched with the hub's Slack token and gh.
 //                                card-bump {key} and card-unbump {key} are a work card's bump icon, sent with no confirm.
 //                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
@@ -254,7 +257,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, removeReviewers, markRead, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, saveBoardRules, saveBoardSettings, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -267,6 +270,8 @@ import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
+import { SlackError, SLACK_NEEDS_TOKEN, savedSlack, slackStatus } from '../hub/slack.mjs';
+import { collaborators, githubUser } from '../hub/pr-report.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
 // The hub's Home Screen icon, versioned by mtime the way hub/hub.mjs iconUrl() does, so iOS refetches a replaced icon.
@@ -664,6 +669,37 @@ async function setupOf(links) {
 // (ui-cards.js holdPicker).
 const HOLD_CHOICES = CHOICES.map(([value, label]) => ({ value, label, ms: value === FOREVER ? null : durationEnd(new Date(0), value) - new Date(0) }));
 
+// What Board settings' Reviewers picks from: the workspace's Slack people and the board repo's GitHub collaborators.
+// A list that can't be fetched is null (Slack) or empty (GitHub, where a typed login still works), with the reason.
+async function reviewerPeople() {
+  const out = { slack: null, github: [] };
+  const slack = savedSlack();
+  if (!slack || slackStatus().refused) out.slackProblem = SLACK_NEEDS_TOKEN;
+  else {
+    try { out.slack = await slack.people(); }
+    catch (e) {
+      if (!(e instanceof SlackError)) throw e;
+      out.slackProblem = e.message === 'Slack: missing_scope' ? 'Slack needs the users:read scope; update the app on Hub settings › Slack.' : e.message;
+    }
+  }
+  const repo = boardAt(here)?.github;
+  if (repo) {
+    try { out.github = await collaborators(repo); } catch (e) { out.githubProblem = `GitHub: ${e.message}`; }
+  }
+  return out;
+}
+
+// Each person to add with their GitHub login as GitHub spells it and the DM the hub's Slack token opens with them.
+async function withDMs(people) {
+  const slack = savedSlack();
+  if (!slack) throw new BoardError(SLACK_NEEDS_TOKEN);
+  return Promise.all(people.map(async (a) => {
+    const github = await githubUser(a.github.trim());
+    if (!github) throw new BoardError(`GitHub has no user ${a.github.trim()}.`);
+    return { name: a.name.trim(), slack_user: a.slack_user.trim(), dm: await slack.openDM(a.slack_user.trim()), github };
+  }));
+}
+
 // generatedAt is when the board began reading, so of two boards the later one holds every change the earlier one does.
 async function board() {
   const generatedAt = new Date().toISOString();
@@ -673,7 +709,7 @@ async function board() {
   const built = withHub(await sharedBoard(), { listen, prompts: self ? pendingFor(self.route).map(shown) : [] });
   built.items = built.items.map((it) => (it.worktree && !existsSync(it.worktree) ? { ...it, worktree: null } : it));
   const links = self ? linksOf(self, { listen }) : null;
-  return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), ...built, links, setup: await setupOf(links),
+  return { generatedAt, title, reviewers: (reviewers || []).map((r) => r?.name).filter((n) => typeof n === 'string'), reviewerGithub: Object.fromEntries((reviewers || []).filter((r) => typeof r?.name === 'string').map((r) => [r.name, r.github])), ...built, links, setup: await setupOf(links),
     holdChoices: HOLD_CHOICES, arch: self ? archOf(await readReviews(here), built.items, built.owner, { repo: repoName(boardRepo(self.route)), waits: reviewWaits() }) : null };
 }
 
@@ -977,6 +1013,7 @@ const server = http.createServer(async (req, res) => {
       if (sameTag(req.headers['if-none-match'], etag)) { res.writeHead(304, { etag, 'cache-control': 'no-store', vary: 'accept-encoding' }).end(); return; }
       return json(res, 200, b, { etag });
     }
+    if (p === '/api/reviewer-people') return json(res, 200, await reviewerPeople());
     if (p === '/api/questions') {
       const built = await sharedBoard();
       const ids = new Set(built.ownerTopics.find((t) => t.id === String(url.searchParams.get('topic') ?? ''))?.questions || []);
@@ -1090,16 +1127,22 @@ const server = http.createServer(async (req, res) => {
           await appendThread(here, key, { text: 'Stopped its builder.', who: 'love' });
         }
       }
-      // A remove is written here and recorded as reviewers-removed; an add stays a `reviewers {add}` event, since finding
-      // the person's Slack and GitHub ids needs the session (docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md).
+      // A Save's removes and adds are both written here, and recorded as reviewers-removed and reviewers-added, which the
+      // session takes no action on (docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md).
       if (kind === 'reviewers') {
-        const names = (v) => (v === undefined ? [] : Array.isArray(v) && v.every((n) => typeof n === 'string' && n.trim()) ? v.map((n) => n.trim()) : null);
-        const add = names(body.add), remove = names(body.remove);
-        if (!add || !remove || (!add.length && !remove.length)) return json(res, 400, { error: 'Send the names to add or remove, each as a list.' });
-        if (remove.length) {
-          try { await removeReviewers(here, remove); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        const list = (v) => (v === undefined ? [] : Array.isArray(v) ? v : null);
+        const add = list(body.add), remove = list(body.remove);
+        const text = (v) => typeof v === 'string' && v.trim();
+        if (!add || !remove || (!add.length && !remove.length)) return json(res, 400, { error: 'Send the people to add and the names to remove, each as a list.' });
+        if (!remove.every(text) || !add.every((a) => text(a?.name) && text(a.slack_user) && text(a.github))) return json(res, 400, { error: 'Each person to add needs a name, a Slack member and a GitHub login.' });
+        try {
+          if (remove.length) await removeReviewers(here, remove.map((n) => n.trim()));
+          if (add.length) await addReviewers(here, await withDMs(add));
+        } catch (e) {
+          if (e instanceof BoardError || e instanceof SlackError) return json(res, 400, { error: e.message });
+          throw e;
         }
-        const ids = await appendEvents([...(remove.length ? [['reviewers-removed', { remove }]] : []), ...(add.length ? [['reviewers', { add }]] : [])]);
+        const ids = await appendEvents([...(remove.length ? [['reviewers-removed', { remove }]] : []), ...(add.length ? [['reviewers-added', { add: add.map((a) => a.name) }]] : [])]);
         return json(res, 200, { id: ids.at(-1), board: await answerBoard(req, since) });
       }
       if (kind === 'reask-request') {

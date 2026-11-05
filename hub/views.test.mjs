@@ -416,7 +416,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   const slackSlot = root.querySelector('.setting-content');
   const appLink = slackSlot.querySelector('a[href^="https://api.slack.com/apps?new_app=1&manifest_json="]');
   assert.equal(appLink.textContent, 'a new Slack app');
-  assert.deepEqual(JSON.parse(new URL(appLink.getAttribute('href')).searchParams.get('manifest_json')).oauth_config.scopes.user, ['chat:write', 'im:write', 'reactions:write']);
+  assert.deepEqual(JSON.parse(new URL(appLink.getAttribute('href')).searchParams.get('manifest_json')).oauth_config.scopes.user, ['chat:write', 'im:write', 'reactions:write', 'users:read']);
   assert.match(slackSlot.textContent, /User OAuth Token \(xoxp-…\)/);
   assert.match(slackSlot.textContent, /The hub sends your reviewers their PR links, git_merged reactions and weekday digests as you, in your DMs with them\./);
   assert.equal(root.querySelector('#linearKey'), null);

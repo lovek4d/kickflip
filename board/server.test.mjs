@@ -7,9 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardSees, freePorts, until, ownSession, boardListening } from '../shared/test-helpers.mjs';
+import { boardSees, freePorts, until, ownSession, boardListening, fakeSlack, slackWorld } from '../shared/test-helpers.mjs';
+import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
 
-let home, site, child, base;
+let home, site, child, base, slackWorldOf, slackServer, ghDir;
 const uploads = () => path.join(site, 'data', 'uploads');
 
 before(async () => {
@@ -25,7 +26,16 @@ before(async () => {
   // A held card's Merge runs this instead of board.mjs merge, recording its arguments.
   fs.writeFileSync(path.join(home, 'merge-stub.mjs'), `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(path.join(home, 'merges.jsonl'))}, JSON.stringify(process.argv.slice(2)) + '\\n');`);
   const mergeEnv = { KICKFLIP_MERGE_CMD: JSON.stringify([process.execPath, path.join(home, 'merge-stub.mjs')]) };
-  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv } });
+  // The hub's Slack token is saved, Slack is a stand-in, and gh is a fixture one: Board settings' Reviewers fetches and adds through them.
+  slackWorldOf = slackWorld();
+  slackWorldOf.people = [{ id: 'U3', name: 'cy', real_name: 'Cy Doe' }, { id: 'U4', name: 'di', real_name: 'Di Poe' }];
+  slackServer = await fakeSlack(slackWorldOf).serve();
+  fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'secrets.json'), JSON.stringify({ slack: { token: slackWorldOf.token, team: 'Acme', user: 'love' } }));
+  ghDir = path.join(home, 'gh-fixtures');
+  const ghBin = fakeGh(ghDir);
+  const slackEnv = { KICKFLIP_SLACK_URL: slackServer.url, PATH: `${ghBin}:${process.env.PATH}` };
+  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv, ...slackEnv } });
   await boardListening(child);
   await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
 });
@@ -53,7 +63,7 @@ test("a held card's Merge records the tap on the card and runs board.mjs merge d
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'merges.jsonl'), 'utf8').trim()), ['--site', 'site', 'merge', 't/M1']);
   } finally { if (before) fs.writeFileSync(waveFile, before); else fs.rmSync(waveFile); }
 });
-after(() => { child?.kill(); fs.rmSync(home, { recursive: true, force: true }); });
+after(async () => { child?.kill(); await slackServer?.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
 const upload = (body, name, type) => fetch(`${base}/api/upload`, { method: 'POST', headers: { 'x-filename': encodeURIComponent(name), 'content-type': type }, body });
 
@@ -1309,8 +1319,8 @@ test("/api/permissions writes the board folder's settings.local.json and reads i
   }
 });
 
-// docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md
-test("Save on the settings page's reviewers removes names in the server, records reviewers-removed, and leaves only an add for the session", async () => {
+// docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md
+test("Save on the settings page's reviewers adds and removes in the server, opening the DM and checking the login, and records reviewers-added and reviewers-removed for the session", async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
   const ann = { name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }, bob = { name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'bob' };
   const read = (file) => JSON.parse(fs.readFileSync(path.join(site, file), 'utf8'));
@@ -1320,19 +1330,30 @@ test("Save on the settings page's reviewers removes names in the server, records
   const wavePrev = fs.existsSync(waveFile) ? fs.readFileSync(waveFile) : null;
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, reviewers: [ann, bob] }));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ reviewers: [ann, bob], items: [{ id: 'R1', title: 'R', status: 'planned' }] }));
+  slackWorldOf.dms.U3 = 'D3';
+  writeGithubUser(ghDir, 'cy-gh', { login: 'Cy-GH' });
+  const cy = { name: 'Cy Doe', slack_user: 'U3', dm: 'D3', github: 'Cy-GH' };
   try {
-    const before = [(await events('reviewers')).length, (await events('reviewers-removed')).length];
-    const r = await send({ add: ['Cy'], remove: ['ann'] });
+    const before = [(await events('reviewers-added')).length, (await events('reviewers-removed')).length];
+    const r = await send({ add: [{ name: 'Cy Doe', slack_user: 'U3', github: 'cy-gh' }], remove: ['ann'] });
     assert.equal(r.status, 200);
     const out = await r.json();
-    assert.deepEqual(out.board.reviewers, ['Bob']);
-    assert.deepEqual([read('board.json').reviewers, read('board.json').title, read('data/wave.json').reviewers], [[bob], 'T', [bob]]);
-    const [added, gone] = [await events('reviewers'), await events('reviewers-removed')];
-    assert.deepEqual([added.length, added[0], gone.length, gone[0]], [before[0] + 1, { add: ['Cy'] }, before[1] + 1, { remove: ['ann'] }]);
+    assert.deepEqual([out.board.reviewers, out.board.reviewerGithub], [['Bob', 'Cy Doe'], { Bob: 'bob', 'Cy Doe': 'Cy-GH' }]);
+    assert.deepEqual([read('board.json').reviewers, read('board.json').title, read('data/wave.json').reviewers], [[bob, cy], 'T', [bob, cy]]);
+    const [added, gone] = [await events('reviewers-added'), await events('reviewers-removed')];
+    assert.deepEqual([added.length, added[0], gone.length, gone[0]], [before[0] + 1, { add: ['Cy Doe'] }, before[1] + 1, { remove: ['ann'] }]);
+    assert.equal((await events('reviewers')).length, 0, 'nothing is left for the session to add');
 
-    const removed = await (await send({ add: [], remove: ['Bob'] })).json();
+    const refusedAdd = await send({ add: [{ name: 'Ghost', slack_user: 'U3', github: 'ghost' }] });
+    assert.equal(refusedAdd.status, 400);
+    assert.match((await refusedAdd.json()).error, /GitHub has no user ghost/);
+    assert.equal((await send({ add: [{ name: 'Di', slack_user: 'U404', github: 'cy-gh' }] })).status, 400, 'a Slack member with no DM is refused');
+    assert.equal((await send({ add: [{ name: 'Di', slack_user: 'U4' }] })).status, 400, 'an add needs both ids');
+    assert.deepEqual([read('board.json').reviewers, (await events('reviewers-added')).length], [[bob, cy], before[0] + 1]);
+
+    const removed = await (await send({ add: [], remove: ['Bob', 'Cy Doe'] })).json();
     assert.deepEqual([removed.board.reviewers, read('board.json').reviewers], [[], []]);
-    assert.equal((await events('reviewers')).length, before[0] + 1, 'a remove alone records no reviewers event for the session');
+    assert.equal((await events('reviewers-added')).length, before[0] + 1, 'a remove alone records no reviewers-added');
     assert.equal(removed.id, (await (await fetch(`${base}/_claude/events?kind=reviewers-removed`)).json())[0].id);
 
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, reviewers: [ann] }));
@@ -1346,6 +1367,19 @@ test("Save on the settings page's reviewers removes names in the server, records
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
     if (wavePrev) fs.writeFileSync(waveFile, wavePrev); else fs.rmSync(waveFile, { force: true });
   }
+});
+
+test("Board settings' Reviewers lists the workspace's Slack people, and says what to fix when Slack has no token or the app lacks users:read", async () => {
+  const people = async () => (await fetch(`${base}/api/reviewer-people`)).json();
+  assert.deepEqual(await people(), { slack: [{ id: 'U3', name: 'Cy Doe' }, { id: 'U4', name: 'Di Poe' }], github: [] });
+  slackWorldOf.missingScope = true;
+  try { assert.deepEqual(await people(), { slack: null, github: [], slackProblem: 'Slack needs the users:read scope; update the app on Hub settings › Slack.' }); }
+  finally { delete slackWorldOf.missingScope; }
+  const secrets = path.join(home, '.claude', 'kickflip', 'secrets.json');
+  const saved = fs.readFileSync(secrets);
+  fs.rmSync(secrets);
+  try { assert.deepEqual(await people(), { slack: null, github: [], slackProblem: 'Slack needs Hub’s Slack token; add it in Hub settings › Slack first.' }); }
+  finally { fs.writeFileSync(secrets, saved); }
 });
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md

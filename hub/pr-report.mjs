@@ -45,6 +45,16 @@ export async function postReview({ repo, pr, head, body, login }) {
   catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
 }
 
+// The logins that collaborate on repo, as gh's active account sees them. Throws with gh's reason.
+export async function collaborators(repo) {
+  return (await gh(['api', '--paginate', '--slurp', `repos/${repo}/collaborators`])).flat().map((u) => u.login).sort((a, b) => a.localeCompare(b));
+}
+
+// A GitHub login's own spelling, or null when GitHub has no such user.
+export async function githubUser(login) {
+  try { return (await gh(['api', `users/${encodeURIComponent(login)}`])).login; } catch { return null; }
+}
+
 // The reviews on PR pr of repo submitted after the ISO time since: [{login, at}]
 export async function reviewsSince({ repo, pr, since }) {
   try {

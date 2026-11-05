@@ -19,6 +19,10 @@ export const writeReady = (dir, n, value) => write(dir, 'ready', n, value);
 // [{number, headRefName, isCrossRepository}]: the open PRs the GraphQL query lists for repo (owner/name).
 export const writeOpen = (dir, repo, value) => write(dir, 'open', repo, value);
 export const writeUser = (dir, value) => write(dir, '', 'user', value);
+// {login}: the GitHub user gh api users/<login> answers with; no file means no such user.
+export const writeGithubUser = (dir, login, value = { login }) => write(dir, 'github-users', login, value);
+// [{login}]: the collaborators of owner/repo.
+export const writeCollaborators = (dir, repo, value) => write(dir, 'collaborators', repo.replace('/', '__'), value);
 // {login: token}: the accounts gh auth token -u answers for.
 export const writeAccounts = (dir, value) => write(dir, '', 'accounts', value);
 const jsonl = (dir, name) => {
@@ -138,6 +142,11 @@ let file;
 let list = false;
 if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === ${JSON.stringify(PR_VIEW_FIELDS)}) file = fixture('pr', args[4], args[2]);
 else if (args.length === 2 && args[0] === 'api' && args[1] === 'user') file = path.join(dir, 'user.json');
+else if (args.length === 2 && args[0] === 'api' && /^users\\/[\\w-]+$/.test(args[1])) file = path.join(dir, 'github-users', args[1].slice(6) + '.json');
+else if (args.length === 4 && args[0] === 'api' && args[1] === '--paginate' && args[2] === '--slurp' && /^repos\\/[^/]+\\/[^/]+\\/collaborators$/.test(args[3])) {
+  file = path.join(dir, 'collaborators', args[3].split('/').slice(1, 3).join('__') + '.json');
+  list = true;
+}
 else if (args.length === 4 && args[0] === 'api' && args[1] === '--paginate' && args[2] === '--slurp') {
   const match = /^repos\\/([^/]+\\/[^/]+)\\/(issues|pulls)\\/(\\d+)\\/(comments\\?since=.+|reviews)$/.exec(args[3]);
   if (!match || (match[2] === 'issues' && match[4] === 'reviews')) process.exit(1);

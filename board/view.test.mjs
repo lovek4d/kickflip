@@ -445,7 +445,7 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
 });
 
 // docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md
-test("Board Settings' reviewers Save draws the server's list at once: a remove reads Saved, an add waits on Claude, a refusal shows why", async () => {
+test("Board Settings' reviewers Add picks a Slack member and a GitHub login, stays off until both are chosen, and Save sends the person and draws the server's list", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
   const sent = [];
@@ -457,7 +457,8 @@ test("Board Settings' reviewers Save draws the server's list at once: a remove r
     return { id: `e${sent.length}`, board: { reviewers: ['Bob'] } };
   } });
   page.win.fetch = async (url) => {
-    const body = url.endsWith('/api/board') ? { reviewers: ['Ann', 'Bob'] } : {};
+    const body = url.endsWith('/api/board') ? { reviewers: ['Ann', 'Bob'], reviewerGithub: { Ann: 'ann-gh', Bob: 'bob-gh' } }
+      : url.endsWith('/api/reviewer-people') ? { slack: [{ id: 'U3', name: 'Cy Doe' }, { id: 'U2', name: 'Bob' }], github: ['cy-gh', 'zed'] } : {};
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
   };
   const view = page.win.AppViews.settings.create(root, '/orch', {});
@@ -466,7 +467,8 @@ test("Board Settings' reviewers Save draws the server's list at once: a remove r
   const list = root.querySelector('#list'), status = root.querySelector('#saveStatus'), save = root.querySelector('#save');
   const tapRemove = (name) => page.fire(list, 'click', { target: { closest: () => ({ dataset: { name } }) } });
   const saveNow = async () => { page.fire(save, 'click'); await tick(); await tick(); };
-  assert.match(list.innerHTML, /Ann[^]*Bob/);
+  assert.match(list.innerHTML, /Ann[^]*github: ann-gh[^]*Bob/);
+  assert.doesNotMatch(list.innerHTML, /U1/, 'the row shows no Slack id');
   tapRemove('Ann');
   assert.equal(save.disabled, false);
   await saveNow();
@@ -475,11 +477,24 @@ test("Board Settings' reviewers Save draws the server's list at once: a remove r
   assert.doesNotMatch(list.innerHTML, /Ann/);
   assert.equal(save.disabled, true);
 
-  root.querySelector('#addName').value = 'Cy';
+  const addBtn = root.querySelector('#addBtn');
+  const tap = (id, attr, value, extra = {}) => page.fire(root.querySelector(id), 'click', { target: { closest: () => ({ dataset: { [attr]: value, ...extra } }) } });
+  assert.match(root.querySelector('#slackPeople').innerHTML, /Cy Doe/);
+  assert.doesNotMatch(root.querySelector('#slackPeople').innerHTML, />Bob</, 'someone already a reviewer is not offered');
+  assert.equal(addBtn.disabled, true);
+  tap('#slackPeople', 'slack', 'U3', { name: 'Cy Doe' });
+  assert.equal(addBtn.disabled, true, 'a Slack member alone is not enough');
+  root.querySelector('#githubFilter').value = 'newbie';
+  page.fire(root.querySelector('#githubFilter'), 'input');
+  assert.match(root.querySelector('#githubPeople').innerHTML, /Use newbie/);
+  tap('#githubPeople', 'github', 'cy-gh');
+  assert.equal(addBtn.disabled, false);
   page.fire(root.querySelector('#addForm'), 'submit');
+  assert.match(list.innerHTML, /Cy Doe[^]*new[^]*github: cy-gh/);
+  assert.equal(addBtn.disabled, true);
   await saveNow();
-  assert.deepEqual(sent.at(-1), ['reviewers', { add: ['Cy'], remove: [] }]);
-  assert.equal(status.textContent, 'Sent. Claude updates the list and replies below.');
+  assert.deepEqual(sent.at(-1), ['reviewers', { add: [{ name: 'Cy Doe', slack_user: 'U3', github: 'cy-gh' }], remove: [] }]);
+  assert.equal(status.textContent, 'Saved');
 
   refuse = 'this board has no reviewer "Bob"';
   tapRemove('Bob');

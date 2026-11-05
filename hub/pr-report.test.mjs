@@ -214,3 +214,14 @@ test('a PR GitHub can\'t resolve fails alone, and a query that fails fails as a 
   writeRate(dir, { fail: true });
   await assert.rejects(fetchPRs([{ repo: 'o/r', pr: 7 }]), /^Error: GitHub query: no fixture for:/);
 });
+
+test("a repo's collaborators come as sorted logins, and a GitHub user is found by login in its own spelling or is null", async () => {
+  const { collaborators, githubUser } = await import('./pr-report.mjs');
+  const { writeCollaborators, writeGithubUser } = await import('../shared/fake-gh.mjs');
+  writeCollaborators(dir, 'o/r', [{ login: 'zed' }, { login: 'Ann' }, { login: 'bob' }]);
+  assert.deepEqual(await collaborators('o/r'), ['Ann', 'bob', 'zed']);
+  assert.deepEqual(await collaborators('o/other'), []);
+  writeGithubUser(dir, 'ann', { login: 'Ann' });
+  assert.equal(await githubUser('ann'), 'Ann');
+  assert.equal(await githubUser('ghost'), null);
+});

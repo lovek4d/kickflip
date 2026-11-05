@@ -199,9 +199,9 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   const exited = new Promise((resolve) => child.once('exit', resolve));
   await until(() => fs.existsSync(path.join(dir, 'data', 'watcher.json')), 'watcher started');
   const line = (id, kind, data) => fs.appendFileSync(events, JSON.stringify({ id, kind, ts: new Date().toISOString(), data }) + '\n');
-  for (const kind of ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'repo-changed']) line(kind, kind, {});
+  for (const kind of ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'reviewers-added', 'repo-changed']) line(kind, kind, {});
   line('p1', 'ping', { title: 'Shop' });
-  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 6,'held lines moved the cursor');
+  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 7,'held lines moved the cursor');
   assert.equal(child.exitCode, null);
   assert.equal(stdout, '');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'handshake.json'), 'utf8')).ack.id, 'p1');
@@ -209,7 +209,7 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   assert.equal(await exited, 0);
   const lines = stdout.split('\n');
   const at = (kind) => lines.findIndex((l) => l.includes(`"kind":"${kind}"`));
-  assert.ok(at('main-pulled') >= 0 && at('main-pulled') < at('settings') && at('settings') < at('ask-done') && at('ask-done') < at('reviewers-removed') && at('reviewers-removed') < at('repo-changed') && at('repo-changed') < at('ping') && at('ping') < at('ask'));
+  assert.ok(at('main-pulled') >= 0 && at('main-pulled') < at('settings') && at('settings') < at('ask-done') && at('ask-done') < at('reviewers-removed') && at('reviewers-removed') < at('reviewers-added') && at('reviewers-added') < at('repo-changed') && at('repo-changed') < at('ping') && at('ping') < at('ask'));
   assert.ok(lines.includes('ping p1 from the hub answered'));
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$quietHeld, undefined);
 });

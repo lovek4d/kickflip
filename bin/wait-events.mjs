@@ -28,7 +28,7 @@
 //                             <detail>` while the hub runs older code than its files (../hub/boards.mjs hubLink)
 //   handed-over <owner json>  another session took the route over: stop, don't relaunch
 //   Record-only events never wake the session (docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md):
-//   main-pulled, settings, ask-done, reviewers-removed, repo-changed and ping (hello, as old boards wrote it). The cursor moves past
+//   main-pulled, settings, ask-done, reviewers-removed, reviewers-added, repo-changed and ping (hello, as old boards wrote it). The cursor moves past
 //   them at once, a ping is answered then, and their lines print, in order, ahead of the new events on the next wake.
 //   site-removed              the route left the manifest: stop, don't relaunch
 // On start it writes <site dir>/data/watcher.json {pid, since}, and adds exited_at when it exits; a board reads it
@@ -71,7 +71,7 @@ const QUIET = "quiet The owner doesn't read this session's terminal. Answer a pr
   + 'show, such as the hub being down, gets one line here. Each message to the owner stands alone in its card\'s thread: name cards '
   + 'by label (#96), and a pointer such as "above" or "here" must make sense in that thread, never point into this session.';
 
-const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'repo-changed', 'ping', 'hello'];
+const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'reviewers-added', 'repo-changed', 'ping', 'hello'];
 const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
 const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 // A board is a site with a board.json; other sites get no rules.

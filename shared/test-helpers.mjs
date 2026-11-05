@@ -178,6 +178,10 @@ export function fakeSlack(world) {
     calls.push({ method, body });
     if (auth !== `Bearer ${world.token}`) return { ok: false, error: 'invalid_auth' };
     if (method === 'auth.test') return { ok: true, team: world.team, team_id: world.team_id, user: world.user, user_id: world.user_id, url: world.url };
+    if (method === 'users.list') {
+      if (world.missingScope) return { ok: false, error: 'missing_scope' };
+      return { ok: true, members: world.people || [], response_metadata: { next_cursor: '' } };
+    }
     if (method === 'conversations.open') {
       const channel = world.dms[body.users];
       return channel ? { ok: true, channel: { id: channel } } : { ok: false, error: 'user_not_found' };

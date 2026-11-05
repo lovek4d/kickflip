@@ -46,6 +46,18 @@ test('the client checks the token, opens a DM, posts and threads, and reacts onc
   await assert.rejects(slackClient(world.token, { fetch: async () => { throw new Error('offline'); } }).who(), { message: 'Could not reach Slack: offline', status: 502 });
 });
 
+test("the client lists the workspace's people by name, leaving out bots and deactivated accounts, and says when the token lacks users:read", async () => {
+  const world = slackWorld();
+  world.people = [
+    { id: 'U2', name: 'bob', profile: { real_name: 'Bob Lee' } }, { id: 'U1', name: 'ann', real_name: 'Ann Fox' },
+    { id: 'U9', name: 'gone', deleted: true }, { id: 'B1', name: 'robot', is_bot: true }, { id: 'USLACKBOT', name: 'slackbot' }, { id: 'U3', name: 'cy' },
+  ];
+  const client = slackClient(world.token, { fetch: fakeSlack(world).fetch });
+  assert.deepEqual(await client.people(), [{ id: 'U1', name: 'Ann Fox' }, { id: 'U2', name: 'Bob Lee' }, { id: 'U3', name: 'cy' }]);
+  world.missingScope = true;
+  await assert.rejects(client.people(), { message: 'Slack: missing_scope' });
+});
+
 test('the token is saved in secrets.json once Slack answers, as refused when Slack refuses it, and its status names the workspace without it', async () => {
   const world = slackWorld();
   const { fetch } = fakeSlack(world);

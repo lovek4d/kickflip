@@ -1,7 +1,7 @@
 // Board Settings, a modal the app shell (shell.js) mounts over its board for /<route>/settings.html.
-// Saving reviewers sends a `reviewers` event {add: [name], remove: [name]}; the server removes names itself and the list
-// redraws from its answer, while Claude finds each new person's Slack and GitHub accounts, adds them with board.mjs
-// reviewers, and replies. Tickets save on each change, and Done, ✕,
+// Saving reviewers sends a `reviewers` event {add: [{name, slack_user, github}], remove: [name]}; the server writes both
+// itself and the list redraws from its answer. Add picks a Slack member and a GitHub login from lists the server fetches
+// (GET api/reviewer-people), or a typed login, and stays off until both are chosen. Tickets save on each change, and Done, ✕,
 // Escape and the backdrop wait for that save to land before closing. An unsaved edit marks [data-dirty], and the shell
 // asks before closing the modal then.
 (globalThis.AppViews ||= {}).settings = {
@@ -66,12 +66,13 @@
   <h2>Reviewers</h2>
   <p class="muted small">Everyone here gets each PR link on this board once it's ready, and the weekday digest. Someone you add also gets the links of PRs already in review.</p>
   <div id="list"><p class="muted small">Loading…</p></div>
-  <form class="add" id="addForm">
-    <input id="addName" placeholder="Add someone by name" autocomplete="off">
-    <button type="submit">Add</button>
+  <form class="add pick" id="addForm">
+    <div class="pick-col"><input id="slackFilter" placeholder="Slack member" autocomplete="off"><div id="slackPeople" class="pick-list"><p class="muted small">Loading…</p></div></div>
+    <div class="pick-col"><input id="githubFilter" placeholder="GitHub login" autocomplete="off"><div id="githubPeople" class="pick-list"><p class="muted small">Loading…</p></div></div>
+    <button type="submit" id="addBtn" disabled>Add</button>
   </form>
+  <p class="muted small" id="pickStatus" role="status"></p>
   <div class="row" style="margin-top:12px"><span class="muted small" id="saveStatus"></span><button class="primary" id="save" disabled>Save</button></div>
-  <div class="replies" id="replies"></div>
   </div>
   <h2>Rules</h2>
   <p class="muted small">Standing instructions for this board's Claude session. It sees them each time it wakes, and says what changes when you save.</p>
@@ -289,11 +290,12 @@
     B.on(ticketsForm, 'submit', (e) => { e.preventDefault(); saveTickets(); });
     let buildKind = 'web';
     let current = [];
-    const add = new Set();
+    let githubOf = {};
+    const add = new Map();
     const remove = new Set();
     function render() {
-      const rows = [...current.map((n) => ({ n, cls: remove.has(n) ? 'gone' : '' })), ...[...add].map((n) => ({ n, cls: 'new' }))];
-      $('#list').innerHTML = rows.length ? rows.map(({ n, cls }) => `<div class="who ${cls}"><span>${esc(n)}${cls === 'new' ? ' <span class="muted small">new</span>' : ''}</span>
+      const rows = [...current.map((n) => ({ n, cls: remove.has(n) ? 'gone' : '', github: githubOf[n] })), ...[...add.values()].map((a) => ({ n: a.name, cls: 'new', github: a.github }))];
+      $('#list').innerHTML = rows.length ? rows.map(({ n, cls, github }) => `<div class="who ${cls}"><span>${esc(n)}${cls === 'new' ? ' <span class="muted small">new</span>' : ''}${github ? `<span class="muted small sub">github: ${esc(github)}</span>` : ''}</span>
         <button class="ghost" data-name="${esc(n)}" aria-label="${cls === 'gone' ? 'Keep' : 'Remove'} ${esc(n)}">${cls === 'gone' ? 'Undo' : '✕'}</button></div>`).join('') : '<p class="muted small">No reviewers yet.</p>';
       $('#save').disabled = !add.size && !remove.size;
       if (add.size || remove.size) $('#list').setAttribute('data-dirty', '');
@@ -305,6 +307,7 @@
       buildKind = d.kind || 'web';
       $('#autoBuildSub').textContent = BoardUI.tryWords(buildKind).autoSub;
       current = d.reviewers || [];
+      githubOf = d.reviewerGithub || {};
       render();
     }).catch(() => { if (B.alive()) $('#list').innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
 
@@ -317,26 +320,54 @@
       else remove.add(n);
       render();
     });
+
+    // The pickers: tap a Slack member and a GitHub login (or type one), then Add stages them for Save.
+    let people = { slack: [], github: [] };
+    const picked = { slack: null, github: '' };
+    const fits = (text, filter) => text.toLowerCase().includes(filter.trim().toLowerCase());
+    function renderPick() {
+      const slackFilter = $('#slackFilter').value, githubFilter = $('#githubFilter').value.trim();
+      const taken = new Set([...current, ...add.keys()].map((n) => n.toLowerCase()));
+      const slack = (people.slack || []).filter((p) => fits(p.name, slackFilter) && !taken.has(p.name.toLowerCase()));
+      $('#slackPeople').innerHTML = people.slack ? slack.map((p) => `<button type="button" class="ghost" data-slack="${esc(p.id)}" data-name="${esc(p.name)}" aria-pressed="${picked.slack?.id === p.id}">${esc(p.name)}</button>`).join('') || '<p class="muted small">No one matches.</p>'
+        : `<p class="muted small">${esc(people.slackProblem || 'Slack members are not available.')} <a href="/_hub/settings">Hub settings</a></p>`;
+      const logins = people.github.filter((l) => fits(l, githubFilter));
+      const typed = githubFilter && !people.github.some((l) => l.toLowerCase() === githubFilter.toLowerCase()) ? [githubFilter] : [];
+      $('#githubPeople').innerHTML = [...typed, ...logins].map((l) => `<button type="button" class="ghost" data-github="${esc(l)}" aria-pressed="${picked.github === l}">${typed.includes(l) ? `Use ${esc(l)}` : esc(l)}</button>`).join('')
+        + (people.githubProblem ? `<p class="muted small">${esc(people.githubProblem)}</p>` : '');
+      $('#addBtn').disabled = !picked.slack || !picked.github;
+    }
+    get(site.url('api/reviewer-people'), waitIn('#slackPeople')).then(({ body }) => { if (!B.alive()) return; people = { github: [], ...body }; renderPick(); })
+      .catch(() => { if (B.alive()) $('#slackPeople').innerHTML = '<p class="muted small">Offline. Is the host awake?</p>'; });
+    B.on($('#slackFilter'), 'input', renderPick);
+    B.on($('#githubFilter'), 'input', renderPick);
+    B.on($('#slackPeople'), 'click', (ev) => {
+      const b = ev.target.closest('button[data-slack]');
+      if (b) { picked.slack = { id: b.dataset.slack, name: b.dataset.name }; renderPick(); }
+    });
+    B.on($('#githubPeople'), 'click', (ev) => {
+      const b = ev.target.closest('button[data-github]');
+      if (b) { picked.github = b.dataset.github; renderPick(); }
+    });
     B.on($('#addForm'), 'submit', (ev) => {
       ev.preventDefault();
-      const input = $('#addName');
-      const n = input.value.trim();
-      if (n && !current.some((c) => c.toLowerCase() === n.toLowerCase())) add.add(n);
-      input.value = '';
+      if (!picked.slack || !picked.github) return;
+      add.set(picked.slack.name, { name: picked.slack.name, slack_user: picked.slack.id, github: picked.github });
+      picked.slack = null; picked.github = '';
+      $('#slackFilter').value = ''; $('#githubFilter').value = '';
+      renderPick();
       render();
     });
     B.on($('#save'), 'click', async () => {
       const status = $('#saveStatus');
       try {
-        const out = await BoardUI.waitOn($('#save'), site.send('reviewers', { add: [...add], remove: [...remove] }));
-        status.textContent = add.size ? 'Sent. Claude updates the list and replies below.' : 'Saved';
+        const out = await BoardUI.waitOn($('#save'), site.send('reviewers', { add: [...add.values()], remove: [...remove] }));
+        status.textContent = 'Saved';
         current = out.board.reviewers;
-        add.clear(); remove.clear(); render();
+        githubOf = out.board.reviewerGithub || {};
+        add.clear(); remove.clear(); render(); renderPick();
       } catch (e) { status.textContent = e?.reason || 'Could not send. Is the host awake?'; }
     });
-    B.watch((events) => {
-      $('#replies').innerHTML = events.map((e) => `<div class="reply">${e.reply ? (e.reply.html ?? '') : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
-    }, { kind: 'reviewers' });
 
     // The toggle saves at once through POST api/settings, which writes board.json itself, so it takes effect with no
     // session awake (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
