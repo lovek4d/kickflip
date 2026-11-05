@@ -1534,3 +1534,36 @@ test('with Idle notification on, the board pushes "<board> has gone idle" once 1
     assert.deepEqual([flag(second, 'title'), flag(second, 'body')], ['Idle board has gone idle', 'Nothing closed since the last idle notification.']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// data/since-counts.json, which #204 reads
+test("board answers are counted as patch, missed or none in data/since-counts.json, and the counts survive a restart that bumps restarts", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-counts-'));
+  const at = path.join(dir, 'site');
+  fs.mkdirSync(path.join(at, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 's' }));
+  fs.writeFileSync(path.join(at, 'data', 'owner.json'), '{"items":[]}');
+  const file = path.join(at, 'data', 'since-counts.json');
+  const counts = () => JSON.parse(fs.readFileSync(file, 'utf8'));
+  const start = async () => {
+    const [port] = await freePorts();
+    const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), at], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PORT: String(port), PREFIX: '' } });
+    await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
+    return { server, get: async (q = '') => (await fetch(`http://127.0.0.1:${port}/api/board${q}`)).json() };
+  };
+  const first = await start();
+  try {
+    const board = await first.get();
+    await first.get(`?since=${board.version}`);
+    await first.get('?since=gone');
+    await first.get('?since=gone');
+    await until(() => fs.existsSync(file) && counts().none === 1 && counts().patch === 1 && counts().missed === 2, 'the counts written');
+    const { since } = counts();
+    assert.equal(counts().restarts, 1);
+    first.server.kill();
+    await new Promise((r) => first.server.once('exit', r));
+    const second = await start();
+    try {
+      assert.deepEqual(counts(), { since, patch: 1, missed: 2, none: 1, restarts: 2 });
+    } finally { second.server.kill(); }
+  } finally { first.server.kill(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -697,8 +697,27 @@ const kept = new Map();
 const patches = vm.createContext({});
 vm.runInContext(await fs.readFile(new URL('./public/ui-patch.js', import.meta.url), 'utf8'), patches);
 const { boardPatch } = patches.BoardUI;
+// data/since-counts.json {since, patch, missed, none, restarts}, which #204 reads: how each board answer went, a patch
+// from a kept board, missed (a since naming a board no longer kept), or none (no since). A start bumps restarts, since
+// a restart forgets the kept boards. Written at most every SINCE_COUNTS_EVERY ms.
+const SINCE_COUNTS_EVERY = 3000;
+const sinceFile = path.join(data, 'since-counts.json');
+const sinceCounts = { since: new Date().toISOString(), patch: 0, missed: 0, none: 0, restarts: 0, ...(await readJSON(sinceFile, {})) };
+sinceCounts.restarts++;
+async function saveSinceCounts() {
+  await fs.mkdir(data, { recursive: true });
+  await fs.writeFile(sinceFile + '.tmp', JSON.stringify(sinceCounts) + '\n');
+  await fs.rename(sinceFile + '.tmp', sinceFile);
+}
+await saveSinceCounts();
+let sinceWrite = null;
+function countAnswer(kind) {
+  sinceCounts[kind]++;
+  sinceWrite ??= setTimeout(() => { sinceWrite = null; saveSinceCounts(); }, SINCE_COUNTS_EVERY).unref();
+}
 async function answerBoard(req, since) {
   const from = since && kept.get(since);
+  countAnswer(from ? 'patch' : since ? 'missed' : 'none');
   const b = await pageBoard(req);
   return from ? boardPatch(from, b) : b;
 }
