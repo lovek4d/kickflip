@@ -42,7 +42,7 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
         return missing ? { ready: false, missing, fix: { command } }
           : { ready: true, detail: `Serving ${value.dns}${value.operatorChecked ? ' · operator ' + value.operator : ''}` };
       }
-      case 'notifications': return value.on && value.devices ? { ready: true, detail: `Pushes on · ${value.devices} device${value.devices === 1 ? '' : 's'}` }
+      case 'notifications': return value.on && value.devices.length ? { ready: true, detail: `Pushes on · ${value.devices.length} device${value.devices.length === 1 ? '' : 's'}`, devices: value.devices.map(({ id, kind, browser, added }) => ({ id, kind, browser, added })) }
         : { ready: false, missing: value.on ? 'No device has turned on notifications' : 'Pushes are off', fix: settingsFix('notifications', 'Notifications', 'Turn on notifications in') };
     }
   };
@@ -60,7 +60,7 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
     linear: () => linearStatus(home),
     slack: () => slackStatus(home),
     tailscale: () => tailscaleState({ run: asyncRun(env), port: Number(env.KICKFLIP_HUB_PORT || 4500), tailscale: tailscaleBin({ env }) }),
-    notifications: () => ({ on: readSettings(home).notifications.on, devices: subscriptions(home).length }),
+    notifications: () => ({ on: readSettings(home).notifications.on, devices: subscriptions(home) }),
     ...probes,
   };
   const cache = new Map();

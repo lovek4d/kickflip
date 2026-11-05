@@ -225,6 +225,19 @@ test('removing a subscription forgets that device alone, and one the hub never h
   assert.deepEqual(read(pushFile('subs.json')).map((s) => s.endpoint), [device.subscription.endpoint]);
 });
 
+test('subscriptions name each device by kind and browser with an id that is not its endpoint, and forget one by that id', async () => {
+  const r = await inChild(`push.addSubscription({ endpoint: 'https://push.example/phone', keys: { p256dh: 'p', auth: 'a' } }, 'https://hub.example/', ${JSON.stringify(IPHONE)});
+    push.addSubscription({ endpoint: 'https://push.example/mac', keys: { p256dh: 'p', auth: 'a' } }, 'https://hub.example/', ${JSON.stringify(CHROME_MAC)});
+    const all = push.subscriptions();
+    const mac = all.find((s) => s.kind === 'Mac');
+    return { names: all.map((s) => [s.kind, s.browser]), ids: all.map((s) => s.id), left: push.removeSubscriptionById(mac.id), again: push.removeSubscriptionById(mac.id), edge: push.deviceNames('Mozilla/5.0 (Windows NT 10.0) Chrome/141 Safari/537.36 Edg/141'), none: push.deviceNames('') };`);
+  assert.deepEqual(r.names.slice(1), [['iPhone', 'Safari'], ['Mac', 'Chrome']]);
+  assert.ok(r.ids.every((id) => /^[0-9a-f]{16}$/.test(id)));
+  assert.deepEqual([r.left, r.again], [2, 2]);
+  assert.deepEqual(r.edge, { kind: 'Windows', browser: 'Edge' });
+  assert.deepEqual(r.none, { kind: '', browser: '' });
+});
+
 test('old polling windows migrate to quiet hours once, keeping the other settings, and a save writes quiet alone', async () => {
   write(settingsFile(), { polling: { windows: [{ from: '07:00', every_minutes: 15 }, { from: '23:00', every_minutes: 60 }], hold_overnight: false, wakes: ['07:00'] }, notifications: { on: true, weekends_off: true }, codexShare: 'auto' });
   assert.deepEqual(await inChild('return push.migrateSettings();'), { start: '23:00', end: '07:00', hold: false });

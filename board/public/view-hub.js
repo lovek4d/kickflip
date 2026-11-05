@@ -39,8 +39,12 @@
     const { row, tile } = HubUI;
     const fixHtml = (fix) => fix.command ? `<code>${esc(fix.command)}</code>` : fix.settings
       ? `${esc(fix.text)} <button type="button" class="link" data-settings-open="${esc(fix.settings)}">${esc(fix.label)}</button>.` : esc(fix.text);
+    // One line per device with notifications on: kind, browser, last seen, and a Remove that forgets it.
+    const mine = (() => { try { return localStorage.getItem('kickflip.push.id'); } catch { return null; } })();
+    const deviceLine = (d) => `<span class="rd-device">${esc([d.kind, d.browser, `seen ${BoardUI.ago(d.added)}`].filter(Boolean).join(' · '))}${d.id === mine ? ' · <b>this device</b>' : ''} <button type="button" class="link" data-forget-device="${esc(d.id)}">Remove</button></span>`;
+    const devices = (it) => it.devices?.length ? `<span class="links">${it.devices.map(deviceLine).join('')}</span>` : '';
     const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : 'var(--color-notice)'), title: esc(it.name), wrap: true,
-      sub: it.ready ? `<span class="st ok">ready</span> · ${esc(it.detail)}`
+      sub: it.ready ? `<span class="st ok">ready</span> · ${esc(it.detail)}${devices(it)}`
         : `<span class="st wait">not ready</span> · ${esc(it.missing)}<span class="links"><span class="rd-fix">${fixHtml(it.fix)}</span>${it.waits ? `<span class="rd-waits">${esc(it.waits)}</span>` : ''}</span>` })).join('');
     return `<h2 class="label" id="integrations">Integrations</h2><div class="group">${rows}</div>
 <p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>
@@ -148,7 +152,14 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         flash = { text: `The hub hasn’t come back. On the host, run ${out.command}`, error: true };
         if (B.alive()) paint();
       }
+      async function forgetDevice(id) {
+        const out = await fetch('/_hub/push/forget', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }).then((r) => r.ok, () => false);
+        if (!out) { flash = { text: 'Could not remove that device. Is the host awake?', error: true }; paint(); return; }
+        load();
+      }
       B.on(main, 'click', (e) => {
+        const forgetter = e.target.closest?.('[data-forget-device]');
+        if (forgetter) forgetDevice(forgetter.dataset.forgetDevice);
         const opener = e.target.closest?.('[data-settings-open]');
         if (opener) B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener);
         if (e.target.closest?.('[data-restart-hub]')) restartHub();

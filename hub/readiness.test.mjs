@@ -7,8 +7,9 @@ import { readinessReader, readinessRows } from './readiness.mjs';
 
 const now = Date.parse('2026-11-02T17:00:00Z');
 const tailscale = { installed: true, signedIn: true, pointsAtHub: true, dns: 'host.ts.net', operatorChecked: true, operator: 'love', username: 'love' };
-const ready = () => ({ github: 'love', codex: { usable: true }, linear: { set: true, workspace: 'Work' }, slack: { set: true, team: 'Acme', user: 'love' }, tailscale, notifications: { on: true, devices: 2 } });
-const off = () => ({ github: null, codex: { usable: false, words: "Codex isn't installed on the host.", fix: 'install codex' }, linear: { set: false }, slack: { set: false }, tailscale: { ...tailscale, installed: false }, notifications: { on: false, devices: 0 } });
+const ready = () => ({ github: 'love', codex: { usable: true }, linear: { set: true, workspace: 'Work' }, slack: { set: true, team: 'Acme', user: 'love' }, tailscale, notifications: { on: true, devices: DEVICES } });
+const off = () => ({ github: null, codex: { usable: false, words: "Codex isn't installed on the host.", fix: 'install codex' }, linear: { set: false }, slack: { set: false }, tailscale: { ...tailscale, installed: false }, notifications: { on: false, devices: [] } });
+const DEVICES = [{ id: 'a1', kind: 'Mac', browser: 'Chrome', added: '2026-11-02T15:00:00Z', agent: 'x' }, { id: 'b2', kind: 'iPhone', browser: 'Safari', added: '2026-11-02T16:55:00Z' }];
 const probesOf = (checks) => Object.fromEntries(Object.entries(checks).map(([id, value]) => [id, () => value]));
 
 test('readiness shares fixed row order, ready details, fixes, waits and waiting sentences', async () => {
@@ -18,6 +19,7 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   assert.deepEqual(rows.map((r) => r.name), ['GitHub', 'Codex', 'Linear', 'Slack', 'Tailscale', 'Notifications']);
   assert.ok(rows.every((r) => r.ready));
   assert.deepEqual(rows.map((r) => r.detail), ['gh logged in as love', 'Installed and logged in', 'Key set · Work workspace', 'Token set · Acme workspace, sending as love', 'Serving host.ts.net · operator love', 'Pushes on · 2 devices']);
+  assert.deepEqual(rows[5].devices, [{ id: 'a1', kind: 'Mac', browser: 'Chrome', added: '2026-11-02T15:00:00Z' }, { id: 'b2', kind: 'iPhone', browser: 'Safari', added: '2026-11-02T16:55:00Z' }]);
   for (const row of rows) assert.equal(await r.waiting(row.id), null);
   const reader = readinessReader({ now: () => now, probes: probesOf(off()) });
   const missing = await reader.rows();
@@ -48,8 +50,8 @@ test('Tailscale uses the first failing check and doctor fixes; Notifications ign
   assert.equal(row({ ...tailscale, pointsAtHub: false, operator: 'other' }).fix.command, 'kickflip doctor --fix');
   assert.equal(row({ ...tailscale, operator: 'other' }).fix.command, 'sudo tailscale set --operator=$USER');
   assert.equal(row({ ...tailscale, operatorChecked: false }).detail, 'Serving host.ts.net');
-  assert.equal(readinessRows({ notifications: { on: true, devices: 0 } })[0].missing, 'No device has turned on notifications');
-  assert.equal(readinessRows({ notifications: { on: true, devices: 1, snoozed_until: '2099-01-01', weekends_off: true } })[0].detail, 'Pushes on · 1 device');
+  assert.equal(readinessRows({ notifications: { on: true, devices: [] } })[0].missing, 'No device has turned on notifications');
+  assert.equal(readinessRows({ notifications: { on: true, devices: DEVICES.slice(0, 1), snoozed_until: '2099-01-01', weekends_off: true } })[0].detail, 'Pushes on · 1 device');
   const codex = readinessRows({ codex: { usable: false, words: "Codex isn't logged in on the host.", fix: 'codex login' } })[0];
   assert.equal(codex.missing, "Codex isn't logged in on the host.");
   assert.equal(codex.fix.command, 'codex login');

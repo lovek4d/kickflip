@@ -391,8 +391,16 @@ test('a device that lost its subscription is dropped from the hub, and Integrati
   const before = read(subs);
   const post = (p, body) => fetch(`${base}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const notifications = async () => (await (await fetch(`${base}/_hub/api/hub`)).json()).integrations.find((i) => i.id === 'notifications').detail;
-  assert.deepEqual(await post('/_hub/push/subscribe', { endpoint: 'https://push.example/gone', keys: { p256dh: 'p', auth: 'a' } }), { count: 2 });
+  const { count, id } = await post('/_hub/push/subscribe', { endpoint: 'https://push.example/gone', keys: { p256dh: 'p', auth: 'a' } });
+  assert.equal(count, 2);
   assert.equal(await notifications(), 'Pushes on · 2 devices');
+  const listed = (await (await fetch(`${base}/_hub/api/hub`)).json()).integrations.find((i) => i.id === 'notifications').devices;
+  assert.ok(listed.some((d) => d.id === id));
+  assert.ok(!JSON.stringify(listed).includes('push.example'));
+  assert.deepEqual(await post('/_hub/push/forget', { id }), { count: 1 });
+  assert.deepEqual(await post('/_hub/push/forget', { id }), { count: 1 });
+  assert.deepEqual(read(subs), before);
+  await post('/_hub/push/subscribe', { endpoint: 'https://push.example/gone', keys: { p256dh: 'p', auth: 'a' } });
   assert.deepEqual(await post('/_hub/push/unsubscribe', { endpoint: 'https://push.example/gone' }), { count: 1 });
   assert.deepEqual(await post('/_hub/push/unsubscribe', { endpoint: 'https://push.example/gone' }), { count: 1 });
   assert.deepEqual(read(subs), before);

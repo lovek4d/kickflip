@@ -113,6 +113,8 @@
     const KEPT = 'kickflip.push.endpoint';
     const kept = () => { try { return localStorage.getItem(KEPT); } catch { return null; } };
     const keep = (endpoint) => { try { if (endpoint) localStorage.setItem(KEPT, endpoint); else localStorage.removeItem(KEPT); } catch { /* storage blocked here */ } };
+    // The id the hub gave that subscription, so the Integrations list marks this device's line (view-hub.js).
+    const subscribe = (sub) => post('/_hub/push/subscribe', sub.toJSON()).then(({ id }) => { try { localStorage.setItem('kickflip.push.id', id); } catch { /* storage blocked here */ } });
     const settle = (endpoint = null) => {
       const old = kept();
       if (old && old !== endpoint) post('/_hub/push/unsubscribe', { endpoint: old }).catch(() => {});
@@ -133,7 +135,7 @@
       const sub = await reg?.pushManager.getSubscription();
       settle(sub?.toJSON().endpoint);
       if (sub) {
-        post('/_hub/push/subscribe', sub.toJSON()).catch(() => {});
+        subscribe(sub).catch(() => {});
         show({ title: 'This device', action: { label: 'Test', act: 'test', quiet: true } }, true);
       } else {
         show({ title: 'This device', sub: 'Off · Claude sessions tell you here when something needs you.', action: { label: 'Turn on', act: 'on' } });
@@ -148,7 +150,7 @@
         await navigator.serviceWorker.ready;
         const { key } = await (await fetch('/_hub/push/key')).json();
         const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
-        await post('/_hub/push/subscribe', sub.toJSON());
+        await subscribe(sub);
         await render();
         changed();
       } catch (err) { show({ title: 'Could not turn on notifications', sub: String(err?.message || err) }); }

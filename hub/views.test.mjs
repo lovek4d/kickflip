@@ -526,19 +526,19 @@ test('Send now says how many queued pushes went, or that none could', () => {
   assert.deepEqual(flushView({ count: 2, sent: 0, ok: false }), { sent: 0, count: 2, ok: false, message: 'Could not send the queue. It stays queued for the next check.' });
 });
 
-test('the hub page shows each session\'s remembered rules under its board, escaped and read-only', () => {
+test('the hub page shows each session\'s remembered rules under its board, escaped and read-only', async () => {
   const document = {};
   const { Element } = miniDom(class {}, document);
   const root = new Element('div');
-  let live;
+  let live, loads = 0;
   const listeners = [], opened = [];
   const context = vm.createContext({
-    navigator: {},
+    navigator: {}, localStorage: { getItem: () => 'mine' },
     BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
     HubSettings: { create: () => ({ B: { openSettings: (...args) => opened.push(args) }, mount() {}, unmount() {} }) },
-    BoardUI: { ...BOARD_UI },
+    BoardUI: { ...BOARD_UI, ago: (iso) => (Date.now() - Date.parse(iso) > 3600_000 ? '2h ago' : '5m ago') },
     PromptAnswers: { wire: () => ({ shows: () => true }) },
-    HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; } },
+    HubKit: { device: () => ({ state: () => null }), forms: () => ({}), live: (B, opts) => { live = opts; return () => { loads += 1; }; } },
   });
   for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
   root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
@@ -549,6 +549,9 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     { id: 'github', name: 'GitHub', ready: false, missing: "gh isn't logged in <img>", fix: { command: 'gh auth login <img>' }, waits: 'GitHub polling and PR reports wait on this.' },
     { id: 'codex', name: 'Codex', ready: true, detail: 'Installed and logged in <img>' },
     { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', fix: { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' }, waits: null },
+    { id: 'notifications', name: 'Notifications', ready: true, detail: 'Pushes on · 2 devices', devices: [
+      { id: 'mine', kind: 'Mac', browser: 'Chrome', added: new Date(Date.now() - 2 * 3600_000).toISOString() },
+      { id: 'other', kind: 'iPhone', browser: '', added: new Date(Date.now() - 5 * 60_000).toISOString() }] },
   ];
   const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), integrations,
     sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
@@ -565,8 +568,8 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.deepEqual(labels.slice(0, 4), ['Usage', 'Health', 'Integrations', 'Boards']);
   const label = root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations');
   const group = label.nextSibling;
-  assert.deepEqual(group.querySelectorAll('.title').map((el) => el.textContent), ['GitHub', 'Codex', 'Linear']);
-  const [github, codex, linear] = group.querySelectorAll('.row');
+  assert.deepEqual(group.querySelectorAll('.title').map((el) => el.textContent), ['GitHub', 'Codex', 'Linear', 'Notifications']);
+  const [github, codex, linear, notifications] = group.querySelectorAll('.row');
   assert.equal(github.querySelector('.st.wait').textContent, 'not ready');
   assert.match(github.textContent, /gh isn't logged in <img>/);
   assert.equal(github.querySelector('code').textContent, 'gh auth login <img>');
@@ -582,6 +585,14 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.deepEqual(plain(opened[0][0]), { hash: '#linear' });
   assert.equal(opened[0][1], link);
   assert.match(linear.querySelector('.rd-fix').textContent, /Add one in Hub settings › Linear\./);
+  assert.deepEqual(notifications.querySelectorAll('.rd-device').map((el) => el.textContent), ['Mac · Chrome · seen 2h ago · this device Remove', 'iPhone · seen 5m ago Remove']);
+  assert.equal(codex.querySelector('.rd-device'), null);
+  const posts = [];
+  context.fetch = async (url, opts) => { posts.push([url, JSON.parse(opts.body)]); return { ok: true }; };
+  listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target: notifications.querySelectorAll('[data-forget-device]')[1] });
+  assert.deepEqual(posts, [['/_hub/push/forget', { id: 'other' }]]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(loads, 1);
   const health = root.querySelector('.hub-status .st.wait');
   assert.deepEqual([health.tagName, health.textContent, health.getAttribute('class')], ['SPAN', 'degraded', 'st wait']);
   assert.equal(root.querySelector('[data-jump]'), null);

@@ -61,7 +61,17 @@ export function addSubscription(sub, origin, agent = '') {
   const subs = readSubs().filter((s) => s.endpoint !== sub.endpoint);
   subs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, origin, agent: String(agent).slice(0, 200), added: new Date().toISOString() });
   writePrivate(SUBS, subs);
-  return subs.length;
+  return { count: subs.length, id: deviceId(sub.endpoint) };
+}
+
+// A device's id in the page: a hash of its endpoint, so the page can name a line without ever holding the endpoint.
+const deviceId = (endpoint) => crypto.createHash('sha256').update(endpoint).digest('hex').slice(0, 16);
+
+export function removeSubscriptionById(id) {
+  const subs = readSubs();
+  const left = subs.filter((s) => deviceId(s.endpoint) !== id);
+  if (left.length !== subs.length) writePrivate(SUBS, left);
+  return left.length;
 }
 
 // The page of a device whose subscription went (hub-kit.js device) names its endpoint here; an endpoint the hub
@@ -73,8 +83,17 @@ export function removeSubscription(endpoint) {
   return left.length;
 }
 
+// The kind and browser a user agent names; a name it doesn't recognise is ''. iPhone and iPad agents also say "Mac OS X".
+export function deviceNames(agent = '') {
+  const kind = ['iPhone', 'iPad', 'Android', 'Windows', 'Macintosh', 'Linux'].find((k) => agent.includes(k));
+  const browser = [['Edg/', 'Edge'], ['OPR/', 'Opera'], ['Firefox/', 'Firefox'], ['FxiOS/', 'Firefox'], ['CriOS/', 'Chrome'], ['Chrome/', 'Chrome'], ['Safari/', 'Safari']].find(([m]) => agent.includes(m));
+  return { kind: kind === 'Macintosh' ? 'Mac' : kind || '', browser: browser?.[1] || '' };
+}
+
+// added is the last time the device's page re-posted its subscription (hub-kit.js device), so it reads as last seen.
 export function subscriptions(home) {
-  return readSubs(home ? path.join(home, '.claude', 'kickflip', 'push', 'subs.json') : SUBS).map((s) => ({ host: new URL(s.endpoint).host, agent: s.agent, added: s.added }));
+  return readSubs(home ? path.join(home, '.claude', 'kickflip', 'push', 'subs.json') : SUBS)
+    .map((s) => ({ id: deviceId(s.endpoint), host: new URL(s.endpoint).host, agent: s.agent, added: s.added, ...deviceNames(s.agent) }));
 }
 
 // A subscription with no user agent counts as a phone, so it never loses pushes while the owner is at the host.
