@@ -1861,6 +1861,8 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
   assert.deepEqual(arrivalsOf([...pickedUp, ...arrived], { cap: 99 }), ['w/A1', 'w/A2', 'w/A3']);
   assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }] })]), [], 'a blocked card waits for its blockers');
   assert.deepEqual(arrivalsOf([card('w/B0')]), ['w/B0'], 'and arrives once none is left');
+  // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: filed and linked before its grill.
+  assert.deepEqual(arrivalsOf([card('w/U0', { unsorted: true })]), [], 'a card that reads New arrives once its session files it');
   assert.deepEqual(arrivalsOf([...pickedUp, ...arrived]), ['w/A1', 'w/A2', 'w/A3'], 'the default cap takes three');
   const running = card('w/R1', { buildable: false, agents: [{ kind: 'grill', started: at, done: null }] });
   const drawing = card('w/R2', { lane: 'progress', buildable: false, agents: [{ kind: 'prototype', started: at, done: null }] });
