@@ -1125,6 +1125,16 @@ test("an open card waiting on the owner's Merge shows a Merge button that confir
   assert.equal(merge(undefined), '');
 });
 
+test("the Merge button keeps its colour from idle through the tap and the merge", () => {
+  const cls = (it) => /class="([^"]*)"/.exec(ui.mergeButton(it))[1];
+  const idle = { key: 'w/A1', action: { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, resolvedBy: 'merge', merging: false };
+  assert.equal(cls(idle), 'resolves');
+  ui.pending.start('w/A1:merge', () => false);
+  assert.equal(cls(idle), 'resolves');
+  ui.pending.drop('w/A1:merge');
+  assert.equal(cls({ key: 'w/A1', action: null, resolvedBy: null, merging: true }), 'resolves');
+});
+
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
 test("an open card's action row has no Implement, which lives in a Todo card's thread box, nor Grill or Prototype; a held card shows Unhold", () => {
   assert.equal(ui.buildButton, undefined);

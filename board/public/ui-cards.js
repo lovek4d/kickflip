@@ -144,7 +144,8 @@
   function mergeButton(it) {
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
     const busy = it.merging || BoardUI.pending.has(`${it.key}:merge`);
-    return `<button class="${it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${busy ? BoardUI.BUSY : ''}>Merge</button>`;
+    // A merging card has no Action needed left, so resolvedBy is null by then: merging keeps the colour resolvedBy gave it.
+    return `<button class="${it.merging || it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${busy ? BoardUI.BUSY : ''}>Merge</button>`;
   }
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on, and
   // ends with how long ago that line was set. One whose process is gone leads with stopped, and one whose live process
