@@ -233,7 +233,8 @@ BoardView.part((B) => {
     if (it.manualSteps.length) rows.push(['Manual steps', linkText(it.manualSteps.join('; '), ctx)]);
     if (it.next) rows.push(['Next', linkText(it.next, ctx)]);
     const external = [
-      // A vscode: link opens a folder on the machine whose browser follows it, so only the host's browser gets one.
+      // A vscode: link opens a folder on the machine whose browser follows it, so only the host's browser gets a live one; elsewhere it is muted, with a tooltip and a tap toast.
+      it.worktree && !state.board.onHost ? `<a aria-disabled="true" title="not on kickflip host" data-tip="not on kickflip host">Open in VS Code</a>` : '',
       it.worktree && state.board.onHost ? `<a href="vscode://file${esc(encodeURI(it.worktree))}" title="Open the worktree in VS Code">Open in VS Code ${LINK_ARROW}</a>` : '',
       installButton(it),
       pr?.state === 'OPEN' ? `<a${classes(it, BUTTON.github)} href="${esc(pr.url)}" target="_blank" rel="noopener">${pr.isDraft ? 'Review draft on GitHub' : 'Review on GitHub'} ${LINK_ARROW}</a>` : '',
@@ -415,6 +416,8 @@ BoardView.part((B) => {
       card?.querySelector('.thread')?.scrollIntoView({ block: 'start' });
       return;
     }
+    const off = ev.target.closest('a[data-tip]');
+    if (off) { ev.preventDefault(); toast(off.dataset.tip); return; }
     const button = ev.target.closest('button[data-try]');
     if (!button) return;
     ev.preventDefault();

@@ -1033,7 +1033,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   }
 });
 
-test("a card with a worktree opens it in VS Code from its Links line only on the host", () => {
+test("a card with a worktree opens it in VS Code from its Links line, live on the host and muted with a tooltip off it",() => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
@@ -1047,7 +1047,10 @@ test("a card with a worktree opens it in VS Code from its Links line only on the
   for (const lane of ['progress', 'review']) assert.match(B.detail({ ...open, lane }), /Open in VS Code/);
   assert.doesNotMatch(B.detail({ ...open, worktree: null }), /vscode:|Open in VS Code/);
   B.state.board.onHost = false;
-  assert.doesNotMatch(B.detail(open), /vscode:|Open in VS Code/);
+  assert.doesNotMatch(B.detail(open), /vscode:/);
+  assert.match(B.detail(open), /<a aria-disabled="true" title="not on kickflip host" data-tip="not on kickflip host">Open in VS Code<\/a>/);
+  assert.deepEqual(rows(open).at(-1), ['Links', 'Open in VS Code']);
+  assert.doesNotMatch(B.detail({ ...open, worktree: null }), /Open in VS Code/);
 });
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
