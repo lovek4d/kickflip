@@ -88,6 +88,26 @@ export function builderRepo(site, { repo, manifest = readManifest() } = {}) {
 // The worktree of card id on the board at site, from builderRepo. → as makeWorktree
 export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo }), busy });
 
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+// The worktree of card id for its open PR's branch, fetched from origin, for a rebase run on a PR no build of the board
+// made (a PR linked by hand). The local branch is made from origin's, or checked out as it is when it already exists.
+// → as makeWorktree
+export function prWorktree(site, id, branch) {
+  const { repo } = builderRepo(site);
+  const root = path.resolve(repo);
+  if (!git(root, 'check-ref-format', '--branch', branch).ok) fail(`"${branch}" can't be a branch name`);
+  const ref = `refs/remotes/origin/${branch}`;
+  const fetched = git(root, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:${ref}`);
+  if (!fetched.ok) fail(`could not fetch ${branch} from origin: ${fetched.err}`);
+  const dir = path.join(worktreesDir(), id);
+  if (fs.existsSync(dir)) fail(`${storedPath(dir)} already exists; land or remove it first`);
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  const exists = git(root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).ok;
+  const r = exists ? git(root, 'worktree', 'add', '--quiet', dir, branch) : git(root, 'worktree', 'add', '--quiet', '--track', '-b', branch, dir, ref);
+  if (!r.ok) fail(`git worktree add failed: ${r.err}`);
+  return { path: storedPath(dir), branch, repo: storedPath(root), remade: null };
+}
+
 function testFiles(dir) {
   const found = [];
   const walk = (d) => {

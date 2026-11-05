@@ -294,7 +294,7 @@
     const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${chip}` : chip;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
-      : it.orchestrator && !it.builder ? orchestratorStatus(it)
+      : it.orchestrator && !it.builder ? `${it.rebaseFailed ? `<div class="line3 sub">${esc(it.rebaseFailed)}</div>` : ''}${orchestratorStatus(it)}`
       : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
       : it.builder ? builderStatus(it)
       : it.grilling || it.prototyping ? '<div class="line3 sub asked">preheating</div>'

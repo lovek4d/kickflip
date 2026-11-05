@@ -2046,12 +2046,16 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   const needsApproval = reviewersOf(wave, (await boardConfig(site)).reviewers || []).length > 0;
   const reasons = [];
   let after = false;
+  // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: commits the board's rebase runs
+  // pushed after the approval are trivial, and the merge says so.
+  let rebasedOnly = false;
   for (const p of open) {
     const { view, reviews } = p;
     const { failing, pending } = reportOf(p, { pr: p.number, since: now, me: null });
     const own = mergeBlockers({ ...view, checks: { state: failing.length ? 'fail' : pending ? 'pending' : 'pass', failing, pending } }, { needsApproval });
     const approved = reviews.filter((r) => r.state === 'APPROVED').sort((a, b) => String(a.submitted_at).localeCompare(String(b.submitted_at))).at(-1)?.commit_id;
-    const later = Boolean(approved && view.headRefOid && approved !== view.headRefOid);
+    let later = Boolean(approved && view.headRefOid && approved !== view.headRefOid);
+    if (later && afterApproval === undefined && onlyRebased(item, approved, view.headRefOid)) { later = false; rebasedOnly = true; }
     after ||= later;
     if (later && afterApproval === undefined) own.push('commits after the approval: pass --after-approval "<why they are trivial>" when they are, else ask the approver to look again');
     reasons.push(...(prs.length > 1 ? own.map((r) => `${prNames([p], repo)} ${r}`) : own));
@@ -2074,7 +2078,8 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
     if (error) fail(`gh pr merge ${prNames([p], repo)} failed: ${error}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
     done.push(p);
   }
-  const said = [mergedLine(done, repo), afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`, steps && `The owner's word on the manual steps: "${steps}"`];
+  const said = [mergedLine(done, repo), afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`,
+    rebasedOnly && `After the approval: only the board's rebase onto ${item.rebased.at(-1).base}.`, steps && `The owner's word on the manual steps: "${steps}"`];
   return setItem(site, key, { status: 'merged', text: said.filter(Boolean).join(' ') });
 }
 
@@ -2681,6 +2686,41 @@ export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
     return null;
   }
 }
+
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+// The board server's rebase run on a card whose open PR conflicts ({pr, conflict}, domain.mjs rebasesDue): the card's
+// main builder record opens dispatched 'hub' and labelled Rebase, in the worktree its last build kept, else the one
+// worktree makes from the PR's branch, and the card records rebase_run {pr, base, conflict, at} until the run's push
+// (recordRebase). → {key, kind, model, worktree}, as startTappedBuild's
+export async function startRebase(site, key, { pr, conflict, base }, worktree) {
+  const started = await startBuilder(site, key, { kind: 'build', label: 'Rebase', dispatch: 'hub', ownWorktree: worktree });
+  const { source, wave, item } = await loadItem(site, key);
+  item.rebase_run = { pr, base, conflict, at: new Date().toISOString() };
+  await writeJSON(source.file, wave);
+  return { key, kind: started.kind, ...(started.model ? { model: started.model } : {}), worktree: started.worktree };
+}
+// The number of the card's PR in its board's repo, which a finish pushes to instead of opening one, or null.
+export async function cardPR(site, key) {
+  const { wave, item } = await loadItem(site, key);
+  const repo = boardRepoOf(site, wave);
+  return cardPRs(item, repo).find((p) => p.repo === repo)?.number ?? null;
+}
+// A push to the card's open PR: from a rebase run (rebase_run), recorded in rebased [{from, to, base, at}], the commits
+// the run pushed, which mergeCard counts as trivial after an approval. → whether it was a rebase run's
+export async function recordRebase(site, key, { from, to }) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (!item.rebase_run) return false;
+  item.rebased = [...(item.rebased || []), { from, to, base: item.rebase_run.base, at: new Date().toISOString() }];
+  delete item.rebase_run;
+  await writeJSON(source.file, wave);
+  return true;
+}
+// Whether the card's rebased pushes lead from the approved commit to head, so only the board's rebases came after it.
+const onlyRebased = (item, approved, head) => {
+  const steps = new Map((item.rebased || []).map((r) => [r.to, r.from]));
+  for (let at = head, seen = 0; at && seen <= steps.size; at = steps.get(at), seen++) if (at === approved) return true;
+  return false;
+};
 
 // The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
 // A held card that hasn't started is no refusal: the tap unholds it (docs/adr/2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md),

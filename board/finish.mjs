@@ -1,7 +1,8 @@
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md
 // Finishing a board card's build, the one step behind `builder done` with no unverified calls, `builder verified` on a
 // handed-back build, and `land`. On a board on GitHub whose PRs setting is on (store.mjs opensPRs) it pushes the card's
-// branch, opens a draft PR and moves the card to it; on a plain git remote it pushes the branch for the owner's merge.
+// branch, opens a draft PR and moves the card to it, or on a card whose PR is open force-pushes it there with a lease,
+// leaving the PR as it is; on a plain git remote it pushes the branch for the owner's merge.
 // Anywhere else, a local board (the hub board included) or a board on GitHub with PRs off, it verifies the worktree
 // as a land does and, with Auto-merge off, stops there: the card waits in In Review for the owner's Merge
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). With Auto-merge on, or once the owner tapped Merge, it
@@ -106,9 +107,20 @@ async function sendForReview(site, key, { path: dir, branch, base, ref, text }) 
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
   if (Number(git(dir, 'rev-list', '--count', `refs/remotes/origin/${base}..HEAD`).out) === 0) fail(`${branch} has no commits beyond ${base}; nothing to send for review`);
   await passTests(dir, { outcome: 'nothing was pushed' });
-  const pushed = git(dir, 'push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`);
-  if (!pushed.ok) fail(`could not push ${branch} to origin: ${pushed.err}`);
   const { github } = boardRepo(boardAt(site).route);
+  const open = github ? await store.cardPR(site, key) : null;
+  // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
+  // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is.
+  const from = open ? git(dir, 'rev-parse', `refs/remotes/origin/${branch}`).out : null;
+  const pushed = open ? git(dir, 'push', '--quiet', `--force-with-lease=refs/heads/${branch}:${from}`, 'origin', `HEAD:refs/heads/${branch}`)
+    : git(dir, 'push', '--quiet', 'origin', `HEAD:refs/heads/${branch}`);
+  if (!pushed.ok) fail(`could not push ${branch} to origin: ${pushed.err}`);
+  if (open) {
+    await store.recordRebase(site, key, { from, to: git(dir, 'rev-parse', 'HEAD').out });
+    const set = await store.setItem(site, key, { pr: open });
+    await store.appendThread(site, key, { text });
+    return { said: `pushed ${branch} to PR #${open}`, lines: set.lines };
+  }
   if (!github) {
     const set = await store.setItem(site, key, { pushed: branch });
     await store.appendThread(site, key, { text });

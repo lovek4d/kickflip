@@ -1280,6 +1280,10 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   // A running builder keeps its own line while its ask waits.
   assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Testing · x', phase: 'testing', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
     ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Testing · x · 2m']);
+  // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: a rebase run's hand-back, In
+  // Review, reads its own failure line above the wait.
+  const failed = ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'review', waitsOn: 'checking', orchestrator: waiting, rebaseFailed: 'Rebase failed in 2 files · <both sides>' });
+  assert.match(failed, /<div class="line3 sub">Rebase failed in 2 files · &lt;both sides&gt;<\/div><div class="line3 sub agent">waiting for orchestrator · 14m<\/div>/);
 });
 
 test("a builder line shows the progress and its age, not who is building", () => {

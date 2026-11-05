@@ -90,6 +90,28 @@ export function landerBrief({ route, key, ref, title, worktree, base, answers = 
   ].join('\n');
 }
 
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+// The brief for a rebase run, launched when the card's open PR, pr, conflicts with its base. card as builderBrief's. Its
+// progress lines are the card's status line, so the brief gives their words; a conflict it can't resolve is a judgment
+// call, which hands the card to the orchestrator.
+export function rebaseBrief({ route, key, ref, title, worktree, base, pr }) {
+  const b = cli(route);
+  return [
+    `You are the headless rebase run for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its PR #${pr} conflicts with ${base}; rebase its branch onto ${base} so the PR is clean again. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
+    '',
+    `1. Run \`${b} builder start ${key} --kind build --label Rebase --phase building --progress "Rebase run started · fetching ${base}"\`. If it refuses, stop.`,
+    `2. Run \`git fetch origin\`, then \`${rebase(`origin/${base}`)}\`. Resolve each conflict keeping both sides' intent, \`git add\` it and continue with \`git -c core.commentChar=';' rebase --continue\`. Report each step with \`${b} builder progress ${key} --phase building "<line>"\`, the board adds the phase word, in these words: "Rebasing onto ${base} · resolving <n> files", then "Rebasing onto ${base} · suite running".`,
+    "3. Run the full test suite once, in the foreground. Fix what the rebase broke, and commit each fix with `git -c core.commentChar=';' commit -F <file>`.",
+    `4. If a conflict or a failing test is past what you can resolve with confidence, run \`git -c core.commentChar=';' rebase --abort\` if a rebase is under way, record it with \`${b} builder call ${key} "Rebase failed in <the files or tests> · <why>"\`, and run the finish step: with the call it hands the card to the orchestrator.`,
+    '',
+    `To finish, run ${finishCommand({ route, key })}, the text saying what you resolved. It reruns the suite and pushes the branch to PR #${pr} with --force-with-lease; the PR stays as it is.`,
+    `- If it refuses because someone pushed to the branch since your fetch, fetch and rebase again (step 2), then run done again.`,
+    '- On failing tests, fix them, commit, and run done again.',
+    '',
+    'Never push.',
+  ].join('\n');
+}
+
 // The brief for a planner, a grill or a prototype, launched from the card and its notes so far. card as builderBrief's,
 // with kind grill or prototype, repo the board's repo folder it reads, the owner's text and files (uploads, {name, path})
 // when the request carried them, and for the owner's eye on one question, question (its id), note and choice.
@@ -167,21 +189,21 @@ export async function reviveBuilders(tracked, open, { launch, handBack, alive = 
 const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'logs', `${role}-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 
 // Launches the agent of a build startTappedBuild started ({key, kind, model}), with lander the lander of a verified
-// card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, text?, files?, question?,
+// card, with rebase {pr} the rebase run of a card whose PR conflicts (store.mjs startRebase), or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, text?, files?, question?,
 // note?, choice?}), through the adapter (agents.mjs launchAgent): a build or lander as its record's kind, a planner as
 // Claude. The session id it names goes on the card's main builder record and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, text, files, question, note, choice }, { lander = false } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, text, files, question, note, choice }, { lander = false, rebase = null } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
   const { base, repo } = builderRepo(site);
   const planner = plans({ kind });
-  const card = { ...facts, route, base, repo, rules, kind, text, files, question, note, choice };
-  const role = planner ? 'Planner' : lander ? 'Lander' : 'Builder';
+  const card = { ...facts, route, base, repo, rules, kind, text, files, question, note, choice, pr: rebase?.pr };
+  const role = planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
   const cwd = planner ? repo : facts.worktree;
-  const prompt = planner ? plannerBrief(card) : lander ? landerBrief(card) : builderBrief(card);
-  const launched = await launchAgent({ kind: planner ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.toLowerCase()) });
+  const prompt = planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
+  const launched = await launchAgent({ kind: planner ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
   if (launched.sessionId) await recordSession(site, key, launched.sessionId, launched.pid);
   const session = launched.sessionId ? `, session ${launched.sessionId}` : '';
   await appendThread(site, key, { text: `${role} launched on ${modelName({ kind, model })} in ${cwd}${session}.`, log: path.basename(launched.log) });

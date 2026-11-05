@@ -50,6 +50,23 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   assert.equal(merges().length, 2);
 });
 
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+test("merge counts commits after the approval as trivial when the board's rebase runs pushed them, and says so", () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  const merge = (...args) => run('board.mjs', ['--site', 'orch', 'merge', ...args], undefined, env);
+  const rebased = (...steps) => write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7,
+    rebased: steps.map(([from, to]) => ({ from, to, base: 'main', at: '2026-11-05T10:00:00Z' })) }] });
+  writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', head: 'ccc' }));
+  writeReviews(dir, 7, [{ id: 1, user: { login: 'ann' }, state: 'APPROVED', submitted_at: '2026-11-01T10:00:00Z', commit_id: 'aaa' }]);
+  rebased(['zzz', 'ccc']);
+  assert.match(merge('w/A1').err, /^Not merged: commits after the approval/, "a run that didn't start from the approved commit isn't the only change");
+  rebased(['aaa', 'bbb'], ['bbb', 'ccc']);
+  const done = merge('w/A1');
+  assert.equal(done.code, 0, done.err);
+  assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, "Merged PR #7. After the approval: only the board's rebase onto main.");
+});
+
 test("merge takes every PR on a card across repos in its order, refusing while any open one isn't ready and leaving a merged or closed one be", () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
@@ -605,6 +622,46 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   assert.deepEqual([itemOf().prs, itemOf().status, typeof record().done], [[{ number: 100 }], undefined, 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it on the phone.');
   assert.equal(fs.existsSync(worktree()), true);
+});
+
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+test("on a GitHub board, builder done on a card whose PR is open force-pushes the rebased branch with a lease, keeps the PR, and records a rebase run's push", () => {
+  const ghDir = path.join(home, 'gh');
+  const origin = remoteBoard(() => ({ github: 'owner/project' }));
+  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  assert.equal(b('builder', 'done', 'w/A1', '--text', 'Checked it.').code, 0);
+  const before = git(origin, 'rev-parse', 'A1');
+
+  // main moves on; the board's rebase run (rebase_run, which the server sets) rebases the branch onto it.
+  commit(origin, 'other.txt', 'main moved\n', 'main moved');
+  const wave = read(at('waves', 'w', 'wave.json'));
+  wave.items[0].rebase_run = { pr: 100, base: 'main', conflict: `${before.slice(0, 10)}@main`, at: new Date().toISOString() };
+  write(at('waves', 'w', 'wave.json'), wave);
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Rebase').code, 0);
+  git(worktree(), 'fetch', '--quiet', 'origin');
+  git(worktree(), 'rebase', '--quiet', 'origin/main');
+  const rebased = git(worktree(), 'rev-parse', 'HEAD');
+
+  // Someone else's push since the fetch: the lease refuses, and nothing changes on origin or the card.
+  git(origin, 'branch', '-f', 'A1', 'main');
+  const refused = b('builder', 'done', 'w/A1', '--text', 'Rebased onto main.');
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /could not push A1 to origin/);
+  assert.deepEqual([git(origin, 'rev-parse', 'A1'), itemOf().rebased, typeof itemOf().rebase_run], [git(origin, 'rev-parse', 'main'), undefined, 'object']);
+
+  git(origin, 'branch', '-f', 'A1', before);
+  const r = b('builder', 'done', 'w/A1', '--text', 'Rebased onto main.');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: pushed A1 to PR #100\n'), r.out);
+  assert.equal(git(origin, 'rev-parse', 'A1'), rebased);
+  assert.equal(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').length, 1, 'the PR stays as it is');
+  const item = itemOf();
+  assert.deepEqual([item.prs, item.status, item.rebase_run, typeof record().done], [[{ number: 100 }], undefined, undefined, 'string']);
+  assert.deepEqual(item.rebased.map(({ at: _, ...r }) => r), [{ from: before, to: rebased, base: 'main' }]);
+  assert.equal(threadOf().at(-1).text, 'Rebased onto main.');
 });
 
 test('on a plain git remote, builder done pushes the branch and the card waits on the merge', () => {

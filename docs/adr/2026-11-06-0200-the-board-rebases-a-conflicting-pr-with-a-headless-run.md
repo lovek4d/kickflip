@@ -1,0 +1,17 @@
+# The board rebases a conflicting PR with a headless run
+
+SKILL.md had the session's GitHub tick rebase a PR whose `mergeable` read CONFLICTING "through its builder", and do it again for every PR a merge left conflicting. #237 (from #180's audit, row 13) moves that into the board server, which already launches every agent a card gets.
+
+**Which cards.** In `runAuto`, beside the landers, `launchRebases` reads the built board: each open work card whose PR in the card's repo is open, draft or ready (owner answer gh237-which), and reads CONFLICTING in the board's own `gh pr view`, with no agent running on it and no hand-back waiting (domain.mjs `rebasesDue`). The conflict is keyed on the PR's full head sha and the base branch, in data/rebases.json, so each conflict gets one run and a new head that conflicts again gets another. The usage pause holds it as it holds the landers.
+
+**The run.** store.mjs `startRebase` opens the card's main builder record labelled Rebase and dispatched `hub`, in the worktree the card's last build kept, or for a PR linked by hand one made from the PR's branch (worktree.mjs `prWorktree`), and records `rebase_run {pr, base, conflict, at}` on the card. The record counts as a running build, so it takes an implementer slot. headless.mjs `rebaseBrief` has the agent fetch, rebase onto `origin/<base>` keeping both sides' intent, rerun the suite, commit any fix, and finish with `builder done`. It never pushes itself.
+
+**The push.** `builder done` on a card whose PR in the board's repo is already there (finish.mjs `sendForReview`) pushes with `--force-with-lease` against origin's branch as the worktree last fetched it, opens no PR and moves the card to the one it has. When the card has a `rebase_run`, the push is recorded in `rebased [{from, to, base, at}]` and `rebase_run` cleared. A lease refused by someone else's push leaves the card unchanged and the run fetches and rebases again.
+
+**Trivial after an approval.** `board.mjs merge` treats commits after the newest approval as trivial, with no `--after-approval`, when the card's `rebased` chain leads from the approved commit to the PR's head, and the merge line says "After the approval: only the board's rebase onto <base>." (owner answer gh237-approval).
+
+**A run that fails.** It records a call, "Rebase failed in <files> · <why>", and runs done, which hands the card back as any build's call does: the orchestrator tries once with its cross-card context before the owner (gh237-fail).
+
+**The card** (owner answer gh237-look, take A, "one status line"). The card stays In Review throughout: `rebase_run` keeps a running build or a checking status from moving it to In Progress (domain.mjs `laneOf`). While the run works its status line is the run's own progress ("Rebase run started · fetching main", "Rebasing onto main · resolving 2 files"). A hand-back reads the run's call above "waiting for orchestrator", and the orchestrator's wait list takes a checking card in In Review. After the push, while the PR's head is the run's, Next reads "Rebased onto main, pushed", with "· PR is clean again" once GitHub reads MERGEABLE. No new bar; the progress-bar review the owner asked for is #324.
+
+**What the hub does.** Its poll only notices the `mergeable` change, as it did, and launches nothing (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md). SKILL.md's Conflicts and After a merge steps leave the tick.

@@ -63,11 +63,13 @@ const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? {
 // buildBoard places a card that only the owner can move on (docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md).
 // A reopened card has left Done whatever its PR's state. An open PR is In Review, a draft too whatever its CI, apart
 // from red CI on a PR the board marks ready itself, which goes back to Claude: one out of draft, or a draft while the
-// board skips the draft (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md).
-function laneOf(item, pr, running, pushed, reopened, skipDraft) {
+// board skips the draft (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md). A card the board's rebase run works on
+// (rebasing) stays in its open PR's lane while the run builds and once it hands back
+// (docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
+function laneOf(item, pr, running, pushed, reopened, skipDraft, rebasing) {
   const s = (item.status || '').toLowerCase();
   if (s === 'merged' || s === 'done' || s === 'dropped' || (!reopened && (pr?.state === 'MERGED' || pr?.state === 'CLOSED'))) return 'done';
-  if (running || s === 'checking') return 'progress';
+  if ((running || s === 'checking') && !rebasing) return 'progress';
   if (pushed) return 'review';
   if (pr?.state === 'OPEN') return pr.checks?.state === 'fail' && (!pr.isDraft || skipDraft) ? 'progress' : 'review';
   return pr ? 'progress' : 'todo';
@@ -180,7 +182,11 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const pushed = !hasPR(it) && it.pushed?.branch ? { branch: it.pushed.branch, at: it.pushed.at || null, host: remote?.host || null } : null;
   // A verified branch waiting for the owner's Merge (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
   const mergeReady = !hasPR(it) && it.merge_ready?.branch ? { branch: it.merge_ready.branch, at: it.merge_ready.at || null, base } : null;
-  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed || mergeReady, Boolean(reopenAt), skipDraft);
+  // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: the run the server started
+  // (rebase_run) until its push, and the push it made (rebased), while that is still the PR's head.
+  const rebasing = Boolean(it.rebase_run) && pr?.state === 'OPEN';
+  const lastRebase = (it.rebased || []).at(-1);
+  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing);
   if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
   const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
@@ -225,6 +231,11 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     : waitsOn === 'merge' && !approved ? UNREVIEWED_MERGE_NEXT.auto : REVIEW_NEXT[waitsOn];
   // A draft PR waits on the owner's review of it, unless the card was given a Next.
   const draftNext = prStatus === PR_STATE.draft ? `Review draft PR #${views[least].number}` : null;
+  const rebasedNext = !rebasing && lastRebase?.to && lastRebase.to === pr?.headRefOid
+    ? `Rebased onto ${lastRebase.base || base}, pushed${pr.mergeable === 'MERGEABLE' ? ' · PR is clean again' : ''}` : null;
+  // A rebase run that handed back: its newest judgment call says why (headless.mjs rebaseBrief).
+  const rebaseFailed = rebasing && waitsOn === 'checking'
+    ? agents.flatMap((a) => a.calls).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1)?.text ?? null : null;
   return {
     key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, status: it.status || null,
     created: it.created || null, reviewSince: it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
@@ -238,7 +249,8 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
-    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : reviewNext || it.next || draftNext || null,
+    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
+    rebaseFailed,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
     mergeReady: lane === 'review' ? mergeReady : null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
@@ -1053,7 +1065,8 @@ export function buildBoard(snapshot) {
     if (it.kind !== 'work') continue;
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered').map((q) => q.answers.at(-1).ts).sort().pop();
     const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
-    it.orchestrator = ['progress', 'todo', 'stale'].includes(it.lane) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
+    // A rebase run's hand-back waits on the orchestrator from In Review (laneOf).
+    it.orchestrator = ['progress', 'todo', 'stale'].includes(it.lane) || it.waitsOn === 'checking' ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
   // Items arrive in the order the page shows them (public/ui-order.js).
@@ -1233,6 +1246,18 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const starts = open.filter((i) => i.implementAt && i.state === 'ready' && !i.blockedBy.length).map((i) => i.key);
   const pulls = pullable.filter((k) => !waiting.includes(k)).slice(0, Math.max(0, cap - implementers - waiting.length - starts.length));
   return { idle: !implementers, pullable, waiting, starts, pulls };
+}
+
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+// For built items: the open work cards whose PR in the card's repo, draft or ready, GitHub reads CONFLICTING, with no
+// agent running on them and no hand-back waiting, each keyed on the PR's head and the base it conflicts with
+// ({key: conflict} in sent is the run already started for it). → [{key, pr, conflict}]
+export function rebasesDue(items, sent, base) {
+  return items.filter((i) => i.kind === 'work' && !closedLane(i) && i.waitsOn !== 'checking' && !(i.agents || []).some((a) => a.started && !a.done)).flatMap((i) => {
+    const p = (i.prs || []).find((v) => v.state === 'OPEN' && v.mergeable === 'CONFLICTING' && v.repo === i.repo && v.headRefOid);
+    const conflict = p && `${p.headRefOid}@${base}`;
+    return p && routeRecord(sent, i.key) !== conflict ? [{ key: i.key, pr: p.number, conflict }] : [];
+  });
 }
 
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md

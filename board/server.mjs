@@ -152,6 +152,9 @@
 //                                headless lander per verification, tracked in data/landers.json (store.mjs landable;
 //                                docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md,
 //                                docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+//                                A card whose open PR conflicts gets one headless rebase run per head and base, tracked
+//                                in data/rebases.json (domain.mjs rebasesDue, store.mjs startRebase;
+//                                docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
 //                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
@@ -241,7 +244,7 @@
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
-import { boardWorktree } from './worktree.mjs';
+import { boardWorktree, builderRepo, prWorktree } from './worktree.mjs';
 import { transcriptMovedAt, transcriptCommandRunning } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
@@ -255,13 +258,13 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startRebase, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1365,6 +1368,7 @@ async function runAuto() {
     await handOff(started);
   }
   if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'));
+  if (!heldByPause) await launchRebases(items);
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   if (await checkTriage(settings, log, items, ready)) return;
   const startPull = async (key) => {
@@ -1547,6 +1551,42 @@ async function launchLanders(anyChecking) {
     }
   }
   await fs.writeFile(file + '.tmp', JSON.stringify(kept) + '\n');
+  await fs.rename(file + '.tmp', file);
+}
+
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+// data/rebases.json {<key>: {conflict, pid}}: the conflict (the PR's head @ the base) each rebase run was started for, so
+// each conflict gets one run, and its process. Each card whose open PR conflicts (domain.mjs rebasesDue) gets a headless
+// rebase run in its worktree, or one made from the PR's branch (store.mjs startRebase). A start or launch that fails
+// leaves a thread line and keeps its conflict, so it isn't retried until the PR's head or base moves.
+async function launchRebases(items) {
+  const file = path.join(data, 'rebases.json');
+  const sent = await readJSON(file, {});
+  const { base } = builderRepo(here);
+  const due = rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base);
+  if (!due.length) return;
+  for (const d of due) {
+    const id = d.key.split('/')[1];
+    const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
+    sent[d.key] = { conflict: d.conflict, pid: null };
+    let started;
+    try {
+      started = await startRebase(here, d.key, { pr: d.pr, conflict: d.conflict, base }, () => prWorktree(here, id, id));
+    } catch (e) {
+      if (!(e instanceof BoardError)) throw e;
+      logCall({ ...entry, result: 'refused', reason: `${entry.reason} The start refused: ${e.message}` });
+      await appendThread(here, d.key, { text: `PR #${d.pr} conflicts with ${base}, but the rebase run couldn't start: ${e.message}` });
+      continue;
+    } finally { dataVersion++; }
+    try {
+      sent[d.key].pid = (await launchBuilder(here, started, { rebase: { pr: d.pr } })).pid;
+      logCall({ ...entry, result: 'launched' });
+    } catch (e) {
+      logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
+      await appendThread(here, d.key, { text: `Couldn't launch the rebase run headless (${e.message}); it reads stopped until the orchestrator takes it up.` });
+    }
+  }
+  await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
   await fs.rename(file + '.tmp', file);
 }
 

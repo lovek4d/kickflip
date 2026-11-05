@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, arrivalsOf, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits } from './domain.mjs';
+import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -2134,4 +2134,50 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   assert.deepEqual(orchestratorWaits(both).map((w) => w.key), ['w/P1', 'w/T1']);
   assert.deepEqual(both.items.find((i) => i.key === 'w/P1').orchestrator, { kind: 'calls', since: at, picked: null, next: "Verify the builder's judgment calls" });
   assert.equal(both.items.find((i) => i.key === 'w/P1').waitFacts, undefined, 'the facts stay off the card');
+});
+
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+test("a card whose PR a rebase run fixes stays in In Review with the run's line, takes an implementer slot, and reads done or handed to the orchestrator after it", () => {
+  const conflicting = { ...greenDraft, isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'CONFLICTING', headRefOid: 'aaaaaaaaaa1111' };
+  const run = { pr: 7, base: 'main', conflict: 'aaaaaaaaaa1111@main', at: '2026-11-05T10:00:00Z' };
+  const rebasing = { kind: 'claude', model: 'opus', label: 'Rebase', started: '2026-11-05T10:00:00Z' };
+  const line = { ts: '2026-11-05T10:01:00Z', who: 'claude', kind: 'status', text: 'Rebasing onto main · resolving 2 files' };
+  const running = board({ pr: conflicting, item: { status: 'building', rebase_run: run }, agents: { A1: { main: rebasing } }, threads: { 'w/A1': [line] } });
+  const card = running.items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([card.lane, card.waitsOn, card.builder.progress, card.next], ['review', 'builder', 'Rebasing onto main · resolving 2 files', null]);
+  assert.equal(pullOf(running.items, { cap: 1 }).idle, false, 'the run holds an implementer slot');
+
+  // Failed: its call hands the card back, still In Review, waiting on the orchestrator with the run's own line.
+  const handed = { ...rebasing, done: '2026-11-05T10:20:00Z', calls: [{ at: '2026-11-05T10:19:00Z', text: 'Rebase failed in 2 files · both sides rewrote the send bar' }] };
+  const failed = board({ pr: conflicting, item: { status: 'checking', status_at: '2026-11-05T10:20:00Z', next: "Verify the builder's judgment calls", rebase_run: run }, agents: { A1: { main: handed } } });
+  const stuck = failed.items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([stuck.lane, stuck.waitsOn, stuck.rebaseFailed, stuck.orchestrator?.kind], ['review', 'checking', 'Rebase failed in 2 files · both sides rewrote the send bar', 'calls']);
+  assert.deepEqual(orchestratorWaits(failed).map((w) => w.key), ['w/A1']);
+  assert.equal(running.items.find((i) => i.key === 'w/A1').rebaseFailed, null);
+
+  // Done: while the PR's head is the run's push, Next says so, and that the PR is clean once GitHub reads it so.
+  const pushed = { rebased: [{ from: 'aaaaaaaaaa1111', to: 'bbbbbbbbbb2222', base: 'main', at: '2026-11-05T10:30:00Z' }] };
+  const done = { ...rebasing, done: '2026-11-05T10:30:00Z' };
+  const next = (pr) => board({ pr, item: pushed, agents: { A1: { main: done } } }).items.find((i) => i.key === 'w/A1');
+  const clean = next({ ...conflicting, headRefOid: 'bbbbbbbbbb2222', mergeable: 'MERGEABLE' });
+  assert.deepEqual([clean.lane, clean.next], ['review', 'Rebased onto main, pushed · PR is clean again']);
+  assert.equal(next({ ...conflicting, headRefOid: 'bbbbbbbbbb2222', mergeable: 'UNKNOWN' }).next, 'Rebased onto main, pushed');
+  assert.equal(next({ ...conflicting, headRefOid: 'cccccccccc3333', mergeable: 'MERGEABLE' }).next, 'Waiting for PR reviewers', 'a later push leaves the run behind');
+});
+
+test('rebasesDue lists each open card whose PR, draft or ready, conflicts, once per head and base, while nothing runs on it', () => {
+  const pr = (extra) => ({ ...greenDraft, mergeable: 'CONFLICTING', headRefOid: 'aaaaaaaaaa', ...extra });
+  const items = (p, extra = {}) => board({ pr: p, ...extra }).items;
+  assert.deepEqual(rebasesDue(items(pr()), {}, 'main'), [{ key: 'w/A1', pr: 7, conflict: 'aaaaaaaaaa@main' }], 'a draft too');
+  assert.deepEqual(rebasesDue(items(pr({ isDraft: false })), {}, 'main').map((d) => d.key), ['w/A1']);
+  assert.deepEqual(rebasesDue(items(pr()), { 'w/A1': 'aaaaaaaaaa@main' }, 'main'), [], 'one run per conflict');
+  assert.deepEqual(rebasesDue(items(pr({ headRefOid: 'bbbbbbbbbb' })), { 'w/A1': 'aaaaaaaaaa@main' }, 'main').map((d) => d.conflict), ['bbbbbbbbbb@main'], 'a new head conflicting again');
+  for (const [why, p, extra] of [
+    ['mergeable', pr({ mergeable: 'MERGEABLE' })],
+    ['unknown', pr({ mergeable: 'UNKNOWN' })],
+    ['merged', pr({ state: 'MERGED' })],
+    ['running', pr(), { agents: { A1: { main: { kind: 'claude', started: '2026-11-05T10:00:00Z' } } } }],
+    ['checking', pr(), { item: { status: 'checking' } }],
+    ['done', pr(), { item: { status: 'done' } }],
+  ]) assert.deepEqual(rebasesDue(items(p, extra), {}, 'main'), [], why);
 });

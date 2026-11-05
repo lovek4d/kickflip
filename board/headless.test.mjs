@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening } from '../shared/test-helpers.mjs';
-import { builderBrief, landerBrief, plannerBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
+import { builderBrief, landerBrief, plannerBrief, rebaseBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts } from './store.mjs';
 
 const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
@@ -25,6 +25,18 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   assert.ok(!brief.includes(`${b} land`), 'done finishes the card, so the brief never runs land');
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'calls come before the finishing step');
   assert.match(builderBrief({ ...card, notes: null }), /no notes file/);
+});
+
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+test("a rebase run's brief takes up the card, rebases its PR's branch onto origin's base keeping both sides, reruns the suite and finishes with builder done, handing a failure back as a call", () => {
+  const brief = rebaseBrief({ ...card, pr: 31 });
+  const b = `node ${BOARD_CLI} --site shop`;
+  for (const want of [
+    `${b} builder start w/A1 --kind build --label Rebase --phase building --progress "Rebase run started · fetching main"`,
+    'PR #31', 'Work only in /wt/A1', 'git fetch origin', "git -c core.commentChar=';' rebase origin/main", "keeping both sides' intent",
+    '"Rebasing onto main · resolving', `${b} builder call w/A1 "Rebase failed in`, `${b} builder done w/A1 --text`, '--force-with-lease', 'Never push',
+  ]) assert.ok(brief.includes(want), `the rebase brief has ${want}`);
+  assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'a failure is a call, before the finishing step');
 });
 
 test("a lander's brief takes up the card's verified build, acts on the owner's answers, and finishes it with builder done", () => {
@@ -201,6 +213,88 @@ test("the server launches the builder for a tap and a pull instead of waking the
     boardJSON({ auto_pull: true, title: 'Shop again' });
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(runs().length, 4, 'each verification gets one lander');
+  } finally {
+    child.kill();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
+test("the server starts a rebase run on each card whose open PR conflicts, in its worktree or one made from the PR's branch, once per conflict", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-server-'));
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'threads'), { recursive: true });
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const origin = path.join(home, 'origin');
+  fs.mkdirSync(origin);
+  git(origin, 'init', '--quiet', '-b', 'main');
+  git(origin, 'config', 'user.name', 'Test');
+  git(origin, 'config', 'user.email', 'test@example.com');
+  fs.writeFileSync(path.join(origin, 'a.txt'), 'a\n');
+  git(origin, 'add', '-A');
+  git(origin, 'commit', '--quiet', '-m', 'base');
+  git(origin, 'checkout', '--quiet', '-b', 'R2');
+  fs.writeFileSync(path.join(origin, 'b.txt'), 'by hand\n');
+  git(origin, 'add', '-A');
+  git(origin, 'commit', '--quiet', '-m', 'R2 by hand');
+  git(origin, 'checkout', '--quiet', 'main');
+  const clone = path.join(home, 'clone');
+  git(home, 'clone', '--quiet', origin, clone);
+  const built = path.join(home, 'wt-R1');
+  git(clone, 'worktree', 'add', '--quiet', '-b', 'R1', built, 'origin/main');
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
+  const boardJSON = (extra = {}) => fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', ...extra }));
+  boardJSON();
+  fs.mkdirSync(path.join(data, 'agents'));
+  fs.writeFileSync(path.join(data, 'agents', 'R1.json'), JSON.stringify({ label: 'Builder', kind: 'claude', model: 'opus', started: '2026-11-05T01:00:00.000Z', done: '2026-11-05T02:00:00.000Z', worktree: { path: built, branch: 'R1', repo: clone } }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [
+    { id: 'R1', title: 'Built here', pr: 5 },
+    { id: 'R2', title: 'Linked by hand', pr: 6 },
+    { id: 'R3', title: 'Clean', pr: 7 },
+  ] }));
+  // gh answers the board's own `gh pr view <n> --json …` (server.mjs ghPR) from this map, and nothing else.
+  const ghDir = path.join(home, 'gh');
+  fs.mkdirSync(ghDir);
+  const view = (n, over) => ({ number: n, state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', statusCheckRollup: [], headRefName: `R${n - 4}`, ...over });
+  fs.writeFileSync(path.join(ghDir, 'prs.json'), JSON.stringify({
+    5: view(5, { isDraft: true, mergeable: 'CONFLICTING', headRefOid: 'a'.repeat(40) }),
+    6: view(6, { mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }),
+    7: view(7, { headRefOid: 'c'.repeat(40) }),
+  }));
+  fs.writeFileSync(path.join(ghDir, 'gh'), `#!/usr/bin/env node\nconst a = process.argv.slice(2);\nconst prs = require(${JSON.stringify(path.join(ghDir, 'prs.json'))});\nif (a[0] === 'pr' && a[1] === 'view' && prs[a[2]]) console.log(JSON.stringify(prs[a[2]])); else process.exit(1);\n`);
+  fs.chmodSync(path.join(ghDir, 'gh'), 0o755);
+  const seen = path.join(home, 'claude-runs.jsonl');
+  const fake = path.join(home, 'claude');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n`);
+  fs.chmodSync(fake, 0o755);
+  const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
+  const read = (file) => JSON.parse(fs.readFileSync(path.join(data, file), 'utf8'));
+  const [port] = await freePorts();
+  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], {
+    env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake, PATH: `${ghDir}:${process.env.PATH}` } });
+  try {
+    await boardListening(child);
+    await until(() => runs().length === 2, 'both rebase runs launch');
+    const byCard = Object.fromEntries(runs().map((r) => [/builder start t\/(R\d)/.exec(r.argv[1])[1], r]));
+    assert.deepEqual(Object.keys(byCard).sort(), ['R1', 'R2'], 'the clean PR gets none');
+    assert.equal(byCard.R1.cwd, fs.realpathSync(built));
+    assert.ok(byCard.R1.argv[1].includes('builder start t/R1 --kind build --label Rebase') && byCard.R1.argv[1].includes('PR #5'));
+    const made = path.join(home, '.claude', 'kickflip', 'worktrees', 'R2');
+    assert.equal(byCard.R2.cwd, fs.realpathSync(made));
+    assert.equal(git(made, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'R2'), "the hand-linked PR's worktree is made from its branch");
+    assert.deepEqual([read('agents/R1.json').label, read('agents/R1.json').dispatched, read('agents/R1.json').done], ['Rebase', 'hub', undefined]);
+    const items = read('wave.json').items;
+    assert.deepEqual(items.map((i) => i.rebase_run?.conflict ?? null), [`${'a'.repeat(40)}@main`, `${'b'.repeat(40)}@main`, null]);
+    assert.deepEqual(Object.fromEntries(Object.entries(read('rebases.json')).map(([k, v]) => [k, v.conflict])), { 't/R1': `${'a'.repeat(40)}@main`, 't/R2': `${'b'.repeat(40)}@main` });
+    const { items: cards } = await fetch(`http://127.0.0.1:${port}/api/board`).then((r) => r.json());
+    assert.deepEqual(['t/R1', 't/R2'].map((k) => cards.find((c) => c.key === k).lane), ['review', 'review'], 'the run leaves the card in In Review');
+
+    boardJSON({ title: 'Shop again' });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(runs().length, 2, 'each conflict gets one run');
   } finally {
     child.kill();
     fs.rmSync(home, { recursive: true, force: true });
