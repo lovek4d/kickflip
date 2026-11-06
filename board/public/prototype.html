@@ -25,6 +25,11 @@
   #protoToast[hidden] { display: none; }
   @media (max-width: 899px) { #protoToast { top: max(12px, env(safe-area-inset-top)); } }
 
+  /* A take's own panels (390px and 720px frames, side-by-side pairs) are capped to the stage at phone width, so a
+     flex-wrap row of them stacks in one column and nothing is cut off. */
+  @media (max-width: 599px) { #stage :where(div, section, article, aside, nav, header, footer, main, form, ul, ol, table, figure) { max-width: 100%; min-width: 0; } }
+  /* iOS Safari zooms the page when it focuses a field under 16px. */
+  #stage :where(input, select, textarea) { font-size: 16px; }
   #stage .kit-sidebar.sidebar { position: relative; inset: auto; z-index: auto; transform: none; visibility: visible; transition: none;
     width: min(320px, 100%); height: 640px; margin: 0 auto; padding: 0 8px; border: 1px solid var(--line); border-radius: 14px; }
   #stage .kit-sidebar.sidebar:not(.kit-head) > header.top { display: none; }

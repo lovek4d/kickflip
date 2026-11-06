@@ -110,7 +110,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-pill .ps-pick { background:var(--accent, #fff); color:var(--on-accent, #000); font-weight:700; }
 .ps-closed { padding:12px 11px; border-radius:999px; color:#fffa; background:#fff1; white-space:nowrap; }
 .ps-switch .ps-text { width:min(420px, 100%); resize:none; border-radius:12px; border:1px solid #fff3; background:#000d; color:#fff;
-  padding:7px 10px; font:400 14px -apple-system, system-ui, sans-serif; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); }
+  padding:7px 10px; font:400 16px -apple-system, system-ui, sans-serif; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); }
 .ps-switch .ps-text::placeholder { color:#fffa; }
 .ps-switch .ps-text[hidden] { display:none; }
 .ps-picked { padding:12px 11px; border-radius:999px; color:#fff; background:#1f9d55; white-space:nowrap; }

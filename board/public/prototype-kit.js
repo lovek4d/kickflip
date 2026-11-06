@@ -17,6 +17,9 @@
 // BoardUI and HubUI, the real renderers, are globals too. A link in the stage never navigates and a form never
 // submits: each toasts unless the take's own handler shows a toast. Listeners a take adds to document or window,
 // and its timers, end on the next switch. Interactions must work on a tap: a phone has no hover.
+// At phone width (under 600px) the page caps every box in the stage to the stage's width, so panels laid in a flex-wrap
+// row stack in one column; give side-by-side panels flex-wrap (or a column fallback), not a fixed width without it.
+// Fields in the stage are 16px, so iOS Safari doesn't zoom when one gets focus.
 (function () {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const wait = globalThis.setTimeout.bind(globalThis);
