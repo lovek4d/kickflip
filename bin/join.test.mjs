@@ -55,7 +55,7 @@ const asked = [];
 
 before(async () => {
   fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(path.join(bin, 'tailscale'), '#!/bin/sh\necho \'{"Self":{"DNSName":"mac.tail.ts.net."}}\'\n');
+  fs.writeFileSync(path.join(bin, 'tailscale'), '#!/bin/sh\necho \'{"BackendState":"Running","Self":{"DNSName":"mac.tail.ts.net."}}\'\n');
   fs.chmodSync(path.join(bin, 'tailscale'), 0o755);
   fs.writeFileSync(fakeClaude, `#!${process.execPath}
 const fs = require('node:fs');

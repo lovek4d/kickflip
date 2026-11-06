@@ -7,3 +7,5 @@ With no binary at all, nothing runs it: doctor marks Tailscale yours with the do
 A board the hub started on a Mac with only the GUI app sat for 15 minutes and failed with "Its session didn't answer within 15 minutes", the sheet's words for a session that never joined. The skill's step 2 said "Done when doctor exits 0" and to tell the person anything marked yours. Doctor runs before join, and with no CLI it never exits 0, so the background session nobody watches stopped there and never joined. Step 2 now ends once nothing is fixable: yours, optional and note lines are the person's and never hold up the join.
 
 Not yet checked: `serve` and `whois` on the App Store build, which is sandboxed; Tailscale's docs list no difference from the standalone build.
+
+Since #410, with more than one CLI kickflip runs the first whose daemon is Running ([kickflip runs the Tailscale CLI whose daemon is running](2026-11-06-1530-kickflip-runs-the-tailscale-cli-whose-daemon-is-running.md)).

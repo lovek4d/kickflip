@@ -28,6 +28,8 @@ const KEYCHAIN = /errSecInternalComponent|keychain[^\n]*\blocked\b|\blocked\b[^\
 export const TRY_PORTS = { first: 8500, last: 8599 };
 export const isTryPort = (port) => /^\d+$/.test(String(port)) && Number(port) >= TRY_PORTS.first && Number(port) <= TRY_PORTS.last;
 const IDLE_MS = 30 * 60_000;
+// What tailscale serve adds to say who a request is from; the try relay drops them before the app.
+const IDENTITY_HEADERS = ['tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'x-forwarded-for'];
 // Main and the board's base prototype worktree (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md)
 // are no card: each keeps its own entry in try.json, posts no thread line and never idles out.
 const OWN_ENTRY = { main: 'main', [BASE_KEY]: 'prototypes' };
@@ -196,7 +198,10 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       socket.on('close', () => sockets.delete(socket));
     };
     // tailscale serve proxies the port as HTTP, so the relay reads each request's login and lets only the owner and the
-    // board's shared logins through.
+    // board's shared logins through. It has judged the visitor, so the app gets the request as a direct loopback caller's,
+    // without tailscale serve's identity headers: a demo hub behind it with its own owner gate passes it, where it would
+    // ask its own, stubbed, tailscale who the login is and answer 503
+    // (docs/adr/2026-11-06-1531-try-ports-stay-served-across-a-hub-restart-and-the-relay-hides-who-asked.md).
     const shared = run.shared = new Set();
     run.relay = http.createServer(async (req, res) => {
       const verdict = await relayVerdict(req, run.board);
@@ -206,7 +211,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         shared.add(open);
         res.on('close', () => shared.delete(open));
       }
-      const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers: req.headers }, (answer) => {
+      const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !IDENTITY_HEADERS.includes(name)));
+      const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers }, (answer) => {
         res.writeHead(answer.statusCode, answer.headers);
         answer.on('data', visit);
         answer.pipe(res);
@@ -220,7 +226,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     run.relay.on('upgrade', async (req, socket, head) => {
       const verdict = await relayVerdict(req, run.board);
       if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict); return; }
-      track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url }));
+      track(pipeUpgrade({ req, socket, head, port: run.port, path: req.url, replace: IDENTITY_HEADERS }));
     });
     await new Promise((resolve, reject) => {
       run.relay.once('error', reject);
@@ -232,13 +238,33 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     catch (e) { throw new Error(`Couldn't open try port ${run.https}: ${(e.stderr || e.message).trim()}`); }
   }
   async function closePort(run) {
+    run.closing = true;
     await run.opening?.catch(() => {});
-    if (run.exposed) await removePort(run.https);
+    // A stopping hub leaves its try ports mapped: the next hub starts before this one has exited, re-serves the same fixed
+    // ports, and its startup sweep removes any no run claims.
+    if (run.exposed && !stopping) await removePort(run.https);
     if (run.relay) {
       for (const socket of run.sockets) socket.destroy();
       await new Promise((resolve) => run.relay.close(resolve));
     }
     if (!run.keepPort) cardPorts.delete(runKey(run.board, run.key));
+  }
+  // A try port's mapping can still go missing outside this hub, so each tick serves again any open port whose mapping
+  // isn't its relay.
+  async function reserve() {
+    const open = [...runs.values()].filter((run) => run.ready && run.relay && !run.closing);
+    if (!open.length) return;
+    let config;
+    try { config = JSON.parse((await tailscale(['serve', 'status', '--json'])).stdout); }
+    catch (e) { log(`try ports check: ${(e.stderr || e.message).trim()}`); return; }
+    for (const run of open) {
+      const relay = `http://127.0.0.1:${run.relay.address().port}`;
+      const web = Object.entries(config?.Web || {}).find(([host]) => host.endsWith(`:${run.https}`))?.[1];
+      if (web?.Handlers?.['/']?.Proxy === relay) continue;
+      log(`try port ${run.https}: its serve mapping was ${web ? 'changed' : 'gone'}; serving it again`);
+      try { await tailscale(['serve', '--bg', `--https=${run.https}`, relay]); }
+      catch (e) { log(`try port ${run.https}: could not serve it again: ${(e.stderr || e.message).trim()}`); }
+    }
   }
   function initialize(manifest = readManifest()) {
     if (initializing) return initializing;
@@ -503,6 +529,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     }
     if (ticking) return ticking;
     ticking = (async () => {
+      await reserve();
       const listed = listBoards(manifest);
       const prs = readJSON(GITHUB_STATE, {}).prs || {};
       for (const run of [...runs.values()]) {

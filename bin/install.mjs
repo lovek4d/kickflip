@@ -119,8 +119,8 @@ export function tailnetUrl(route, { run = runCommand, platform = process.platfor
   return `https://${host}/${route ? route + '/' : ''}`;
 }
 
-// tailscale: the CLI to run (../shared/tailscale.mjs), null when there is none.
-export async function tailscaleState({ run = runCommand, platform = process.platform, uid = process.getuid(), username = os.userInfo().username, port = Number(process.env.KICKFLIP_HUB_PORT || 4500), tailscale = tailscaleBin({ platform }) } = {}) {
+// tailscale: the CLI to run (../shared/tailscale.mjs), null when there is none; skipped: the CLIs passed over to reach it.
+export async function tailscaleState({ skipped = [], run = runCommand, platform = process.platform, uid = process.getuid(), username = os.userInfo().username, port = Number(process.env.KICKFLIP_HUB_PORT || 4500), tailscale = tailscaleBin({ platform }) } = {}) {
   const execute = async (args) => {
     try { return await run(tailscale, args); } catch (e) { return { status: 1, error: e.message }; }
   };
@@ -141,7 +141,7 @@ export async function tailscaleState({ run = runCommand, platform = process.plat
   } catch {}
   const entry = (item, ok, detail, fix, state = 'yours') => ({ item, state: ok ? 'ok' : state, detail, fix: ok ? null : fix });
   const prereqs = [
-    entry('Tailscale', installed, installed ? `${(version.stdout || 'installed').trim().split('\n')[0]} (${tailscale})` : `not on this session’s PATH${platform === 'darwin' ? ' or in Applications' : ''}`, tailscaleInstallHint(platform)),
+    entry('Tailscale', installed, installed ? `${(version.stdout || 'installed').trim().split('\n')[0]} (${tailscale})${skipped.length ? `; skipped ${skipped.join(', ')}, whose daemon${skipped.length === 1 ? ' isn’t' : 's aren’t'} running` : ''}` : `not on this session’s PATH${platform === 'darwin' ? ' or in Applications' : ''}`, tailscaleInstallHint(platform)),
     entry('Tailscale signed in', signedIn, signedIn ? `signed in${dns ? ' as ' + dns : ''}` : installed ? 'not connected' : 'needs Tailscale', 'tailscale up'),
   ];
   if (operatorChecked) prereqs.push(entry('Tailscale operator', operator === username, operator === username ? username : `${operator || 'none'} (expected ${username})`, 'sudo tailscale set --operator=$USER'));

@@ -37,10 +37,20 @@ if (args.join(' ') === 'serve status --json') {
   console.log(JSON.stringify({ OperatorUser: require('node:os').userInfo().username }));
 } else if (args.includes('--bg') && fs.existsSync(path.join(process.env.HOME, 'tailscale.fail'))) {
   console.error('permission denied by tailscaled'); process.exit(1);
+} else if (args[0] === 'serve' && args.some((a) => a.startsWith('--https='))) {
+  // The serve config keeps what serve --bg sets and off removes, as tailscaled does.
+  const file = path.join(process.env.HOME, 'tailscale.status');
+  const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const port = args.find((a) => a.startsWith('--https=')).slice('--https='.length);
+  config.TCP ||= {}; config.Web ||= {};
+  if (args.at(-1) === 'off') { delete config.TCP[port]; delete config.Web['mac.ts.net:' + port]; }
+  else { config.TCP[port] = { HTTPS: true }; config.Web['mac.ts.net:' + port] = { Handlers: { '/': { Proxy: args.at(-1) } } }; }
+  fs.writeFileSync(file, JSON.stringify(config));
 }
 `);
 fs.chmodSync(path.join(bin, 'tailscale'), 0o700);
-const calls = () => fs.readFileSync(path.join(home, 'tailscale.calls'), 'utf8').trim().split('\n').filter(Boolean);
+// Without the pick's daemon check, which runs when this Mac has its own tailscale on PATH too.
+const calls = () => fs.readFileSync(path.join(home, 'tailscale.calls'), 'utf8').trim().split('\n').filter((call) => call && call !== 'status --json');
 const relayOf = (port) => calls().filter((call) => call.startsWith(`serve --bg --https=${port} `)).at(-1)?.split(' ').at(-1);
 process.env.PATH = `${bin}:${process.env.PATH}`;
 const { createTryManager, installWorktree, fetchTryBranches } = await import('./try.mjs');
@@ -517,7 +527,62 @@ test("a web script serves root paths and upgrades through the relay to the owner
     assert.equal(await (await fetch(relayOf(8500) + '/')).text(), 'served /');
   }
   await manager.stop();
-  assert.equal(calls().filter((call) => call === 'serve --https=8500 off').length, 3);
+  assert.equal(calls().filter((call) => call === 'serve --https=8500 off').length, 2, 'a stopping hub leaves the port mapped');
+});
+
+test('the relay hands the app an owner’s request without tailscale serve’s identity headers, so a gated demo hub behind it serves it', async () => {
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }) });
+  manager = createTryManager({ now: () => clock, log() {}, gate });
+  const server = http.createServer();
+  await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  await new Promise((resolve) => server.close(resolve));
+  // A demo hub's own gate: a login or a forwarded address sends it to its stubbed tailscale, which doesn't answer.
+  setScript(`const asked = (h) => ['tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'x-forwarded-for'].filter((n) => n in h);
+  const server = require('node:http').createServer((req, res) => asked(req.headers).length ? res.writeHead(503).end("Tailscale didn't answer") : res.end('served ' + req.url));
+  server.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\\r\\nConnection: Upgrade\\r\\nUpgrade: test\\r\\n\\r\\n' + asked(req.headers).join(',')));
+  server.listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`);
+  await start();
+  await until(() => state().cards['w/A1'].state === 'ready');
+  const phone = { 'x-forwarded-for': '100.70.1.2', 'tailscale-user-login': 'lovek4d@github', 'tailscale-user-name': 'Love', 'tailscale-user-profile-pic': 'https://pic' };
+  const page = await fetch(relayOf(8500) + '/demo/', { headers: phone });
+  assert.deepEqual([page.status, await page.text()], [200, 'served /demo/']);
+  const upgraded = await new Promise((resolve, reject) => {
+    const request = http.request(relayOf(8500) + '/socket', { headers: { connection: 'Upgrade', upgrade: 'test', ...phone } });
+    request.on('error', reject);
+    request.on('upgrade', (_response, socket, head) => {
+      let body = head.toString();
+      socket.on('data', (chunk) => { body += chunk; });
+      socket.on('end', () => { socket.destroy(); resolve(body); });
+    });
+    request.end();
+  });
+  assert.equal(upgraded, '');
+});
+
+test('a stopping hub leaves its try ports mapped, and each tick serves a gone or changed mapping again', async (t) => {
+  const relays = fakeRelays(t);
+  const logs = [];
+  manager = createTryManager({ now: () => clock, answers: async () => true, log: (line) => logs.push(line) });
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  await start();
+  await until(() => state().cards['w/A1'].state === 'ready');
+  const relay = `http://127.0.0.1:${relays[0].address().port}`;
+  const served = () => calls().filter((call) => call === `serve --bg --https=8500 ${relay}`).length;
+  assert.equal(served(), 1);
+  await tick();
+  assert.equal(served(), 1, 'a mapping that is the relay stays');
+  write(path.join(home, 'tailscale.status'), { TCP: { 443: { HTTPS: true } } });
+  await tick();
+  assert.equal(served(), 2);
+  assert.ok(logs.includes('try port 8500: its serve mapping was gone; serving it again'));
+  write(path.join(home, 'tailscale.status'), { TCP: { 8500: { HTTPS: true } }, Web: { 'mac.ts.net:8500': { Handlers: { '/': { Proxy: 'http://127.0.0.1:32123' } } } } });
+  await tick();
+  assert.equal(served(), 3);
+  assert.ok(logs.includes('try port 8500: its serve mapping was changed; serving it again'));
+  await manager.stop();
+  assert.ok(!calls().includes('serve --https=8500 off'));
+  assert.equal(read(path.join(home, 'tailscale.status')).Web['mac.ts.net:8500'].Handlers['/'].Proxy, relay);
 });
 
 test("a local board's main builds the tip of its recorded branch in its folder, not a branch called main", async () => {

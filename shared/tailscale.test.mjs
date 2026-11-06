@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { tailscaleBin, tailscaleInstallCommand, tailscaleInstallHint } from './tailscale.mjs';
+import { tailscaleBin, tailscaleSkipped, daemonRunning, tailscaleInstallCommand, tailscaleInstallHint } from './tailscale.mjs';
 
 let home;
 beforeEach(() => { home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-tailscale-'))); });
@@ -46,6 +46,35 @@ test('tailscaleBin skips a tailscale that isn’t an executable file, and reads 
   fs.rmSync(path.join(dir, 'tailscale'), { recursive: true });
   executable(path.join(dir, 'tailscale'));
   assert.equal(resolve(), path.join(dir, 'tailscale'));
+});
+
+test('with brew’s tailscale on PATH and the GUI app both installed, kickflip runs the first whose daemon is Running, and names the one it skipped', () => {
+  const apps = [path.join(home, 'Applications')];
+  const brew = executable(path.join(home, 'bin', 'tailscale'));
+  const app = executable(bundle(apps[0]));
+  const options = { env: { PATH: path.join(home, 'bin') }, platform: 'darwin', apps };
+  const asked = [];
+  const pick = (up) => tailscaleBin({ ...options, running: (file) => { asked.push(file); return up.includes(file); } });
+  assert.equal(pick([app]), app);
+  assert.deepEqual(tailscaleSkipped(app, options), [brew]);
+  assert.equal(pick([brew, app]), brew);
+  assert.deepEqual(tailscaleSkipped(brew, options), []);
+  // With no daemon running, the first found, so doctor's fix names that one.
+  assert.equal(pick([]), brew);
+  // A lone CLI is never asked.
+  asked.length = 0;
+  fs.rmSync(app);
+  assert.equal(pick([]), brew);
+  assert.deepEqual(asked, []);
+  assert.deepEqual(tailscaleSkipped(null, options), []);
+});
+
+test('a daemon counts as running only when its CLI’s status --json says Running', () => {
+  const cli = (body) => { const file = path.join(home, `cli-${Math.random()}`); fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 }); return file; };
+  assert.equal(daemonRunning(cli(`echo '{"BackendState":"Running"}'`)), true);
+  assert.equal(daemonRunning(cli(`echo '{"BackendState":"Stopped"}'; exit 1`)), false);
+  assert.equal(daemonRunning(cli('echo "failed to connect to local tailscaled" >&2; exit 1')), false);
+  assert.equal(daemonRunning(path.join(home, 'missing')), false);
 });
 
 test('the install hint names the download page and the cask on macOS, the install script elsewhere', () => {

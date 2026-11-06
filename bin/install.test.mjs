@@ -1020,6 +1020,14 @@ test('doctor names the tailscale binary it found, the GUI app’s included, and 
   assert.ok(!calls.some((call) => call.startsWith('tailscale ')));
 });
 
+test('doctor’s Tailscale line names a CLI it skipped because its daemon isn’t running, with no fix to run', async () => {
+  const { options, responses } = healthyDoctor();
+  for (const [key, value] of [...responses]) if (key.startsWith('tailscale ')) responses.set(key.replace('tailscale', APP_CLI), value);
+  const items = await doctorReport({ ...options, tailscale: APP_CLI, skipped: ['/opt/homebrew/bin/tailscale'] });
+  assert.deepEqual(pick(items, 'Tailscale'), { group: 'prereqs', item: 'Tailscale', state: 'ok',
+    detail: `1.90.0 (${APP_CLI}); skipped /opt/homebrew/bin/tailscale, whose daemon isn’t running`, fix: null });
+});
+
 test('with no tailscale anywhere, doctor says so once, runs nothing and names the download page on macOS', async () => {
   const { options, calls } = healthyDoctor();
   const items = await doctorReport({ ...options, tailscale: null });

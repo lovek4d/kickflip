@@ -13,3 +13,5 @@ Considered:
 - prefix support through `X-Forwarded-Prefix`: fixes only kickflip’s own pages and keeps the same-origin risk;
 - one try port routed by a header: shares an origin between builds and needs a routing header a normal browser Visit cannot supply;
 - pointing Tailscale straight at the script’s port: hides requests from the hub and loses the idle limit.
+
+Since #410 a stopping hub leaves its try ports mapped, and each tick re-serves a missing mapping ([try ports stay served across a hub restart](2026-11-06-1531-try-ports-stay-served-across-a-hub-restart-and-the-relay-hides-who-asked.md)).
