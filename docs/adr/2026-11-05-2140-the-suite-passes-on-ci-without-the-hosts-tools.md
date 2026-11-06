@@ -3,7 +3,7 @@
 The v0.5.1 release run failed at `node --test` on ubuntu-latest, Node 22, with no `claude` or `codex` installed. Each
 failure was a test leaning on something the host happens to have.
 
-- The auto-implement test in `board/server-stalled.test.mjs` expects the pick's Codex reading to be `not logged in`. That
+- The auto-implement test in `board/server-stale.test.mjs` expects the pick's Codex reading to be `not logged in`. That
   reading is `not installed` when no `codex` is on PATH, so the test puts an executable `codex` in a directory at the
   front of the board server's PATH; its HOME has no `.codex/auth.json`, so it reads as installed and not logged in
   on any machine.

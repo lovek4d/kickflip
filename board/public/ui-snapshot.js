@@ -1,7 +1,7 @@
 // The board this device last held, saved in IndexedDB with its change number, which the board page paints live on open
 // and catches up from (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). Needs ui.js.
 (function () {
-  const ACTIVE_LANES = ['review', 'stale', 'progress', 'todo'];
+  const ACTIVE_LANES = ['review', 'progress', 'todo'];
 
   // threads maps item keys to thread messages (app.js state.threadCache). → {build, savedAt, board, threads} with the
   // threads of the cards on the board; build is the saving page's (app.html data-build).

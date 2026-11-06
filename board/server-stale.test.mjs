@@ -34,7 +34,7 @@ function launchingBoard(dir, siteDir) {
 
 // docs/adr/2026-11-05-0200-a-stale-review-and-a-silent-builder-join-the-orchestrator-list.md
 test('a silent builder wakes the session once per silent spell through the orchestrator list, across a restart, and stops on done', async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'builder-stalled-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'builder-stale-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
   const clockFile = path.join(dir, 'clock');
@@ -91,7 +91,7 @@ test('a silent builder wakes the session once per silent spell through the orche
   assert.equal(wakes().length, 0);
   advance(2);
   await until(() => wakes().length === 1, 'the silent builder wakes the session');
-  assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since]), [['t/A1', 'stalled', started]]);
+  assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since]), [['t/A1', 'stale', started]]);
   await stop();
   await start();
   await tick();
@@ -106,10 +106,10 @@ test('a silent builder wakes the session once per silent spell through the orche
   assert.equal(waits()[0].since, progress);
 
   put(agentFile, JSON.stringify({ kind: 'codex', started, done: new Date(now).toISOString() }));
-  await until(() => waits().every((w) => w.kind !== 'stalled'), 'finishing the builder ends the wait');
+  await until(() => waits().every((w) => w.kind !== 'stale'), 'finishing the builder ends the wait');
   advance(60);
   await tick();
-  assert.ok(waits().every((w) => w.kind !== 'stalled'), 'no silent-builder wait after done');
+  assert.ok(waits().every((w) => w.kind !== 'stale'), 'no silent-builder wait after done');
 });
 
 test('a held card resumes itself within a minute of its pick-up time, once per time across a restart, announcing card-unblocked unless a dep is unfinished', async (t) => {

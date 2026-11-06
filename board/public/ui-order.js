@@ -3,7 +3,7 @@
 // (docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md). Each item carries its lane, isNew, bumpedAt, sortAt, order and key.
 // Needs nothing else: board/domain.mjs runs this file in a vm context.
 (function () {
-  const LANE_ORDER = { review: 0, stale: 1, progress: 2, todo: 3, done: 4, asks: 5 };
+  const LANE_ORDER = { review: 0, progress: 1, todo: 2, done: 3, asks: 4 };
   // Todo lists bumped cards first, the latest bump on top, a bumped New ask included
   // (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md); then the rest oldest first by sortAt, a card with no
   // time last, the first added to its wave file on top, so a New ask and every new card join the bottom and the pull takes the

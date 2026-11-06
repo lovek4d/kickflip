@@ -1,5 +1,7 @@
 # A red status line sits as close to its title as an orange one
 
+Superseded by [stale is automatic, stalled is the orchestrator's flag](2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md): no status line is a button now, so the float gap and its fix are moot; `button.sub`, the nudge's calm and `board/layout.test.mjs` are gone.
+
 Card #273. A stalled build's red status line showed a gap above it, up to 13.8px against the orange line's 3px, on a
 one-line title (desktop, or a short title on a phone). #250's text test of the button reset could not see it.
 

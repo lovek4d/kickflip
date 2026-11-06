@@ -10,7 +10,7 @@ import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, workt
 import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
-import { bump, queueLines, stopBuilder, stopForBlock, stopLand } from '../stop.mjs';
+import { bump, queueLines, stallCard, stopBuilder, stopForBlock, stopLand } from '../stop.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { checkTakesRender } from '../render-check.mjs';
@@ -513,6 +513,14 @@ command fails and changes nothing.
                                                          waiting on the orchestrator; the same words go in its thread.
                                                          Prints what it stopped, one process a line. Refuses a planner,
                                                          a builder a session started itself, or none running
+  item stall <wave>/<id> --reason "<why>"                the orchestrator's flag on a stale card it can't restart: the
+                                                         card stays in its lane reading red "stalled", an Action needed
+                                                         "stalled: <why>" with one push, waiting on nobody else; its
+                                                         run stops as builder stop stops it (nothing to stop when it
+                                                         is gone), its record stays open and stopped and its worktree
+                                                         stays, and it frees its implementer slot. Its thread reads
+                                                         "stalled by orchestrator: <why>". A message on the card
+                                                         clears it
   land stop <wave>/<id>                                  the orchestrator's stop of the card's land and its suite: one a
                                                          headless builder or lander runs stops that agent as builder
                                                          stop does; the land a held card's Merge tap started stops
@@ -691,7 +699,7 @@ function flagsOf(name, allowed, flags) {
  * the path itself (a reply once read "/private/tmp/…/exp-reply.html"), so it is refused: one
  * token that names an existing file, or that looks like a path to a document.
  */
-const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked', 'task'];
+const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked', 'task', 'reason'];
 const DOC_PATH = /^(?:\/|~\/|\.{1,2}\/)\S*\.(?:html?|md|json|txt)$/;
 
 function looksLikePath(value) {
@@ -912,6 +920,7 @@ const COMMANDS = {
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
   }],
   'builder stop': [['wave/id'], [], (site, [key]) => stopBuilder(needSite(site, 'builder stop'), key)],
+  'item stall': [['wave/id'], ['reason'], (site, [key], f) => stallCard(needSite(site, 'item stall'), key, f.reason)],
   'land stop': [['wave/id'], [], (site, [key]) => stopLand(needSite(site, 'land stop'), key)],
   'land queue': [[], [], () => queueLines()],
   'item bump': [['wave/id'], [], (site, [key]) => bump(needSite(site, 'item bump'), key, true)],

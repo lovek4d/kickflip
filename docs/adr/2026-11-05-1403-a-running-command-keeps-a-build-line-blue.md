@@ -1,5 +1,7 @@
 # A running command keeps a build's line blue
 
+Amended by [stale is automatic, stalled is the orchestrator's flag](2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md): Stalled and `BUILDER_STALLED_AFTER` are now stale and `BUILDER_STALE_AFTER`.
+
 Amends `2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md` and
 `2026-11-05-0800-a-quiet-builder-line-only-turns-gray.md`.
 

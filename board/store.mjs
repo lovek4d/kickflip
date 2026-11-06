@@ -3295,6 +3295,24 @@ export async function stopHeldMerge(site, key) {
   item.merge_ready.stopped = new Date().toISOString();
   await writeJSON(source.file, wave);
 }
+// docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+// The orchestrator's stall of a card (item stall): stalled {reason, at} on its wave entry, which the card reads as red
+// stalled and an Action needed until a message on the card clears it (clearStall). → the reason
+export async function markStalled(site, key, reason) {
+  const words = text(reason, 'item stall --reason');
+  const { source, wave, item } = await loadItem(site, key);
+  if (item.lane === 'done') fail(`${await cardName(site, key)} is done; there is nothing to stall`);
+  item.stalled = { reason: words, at: new Date().toISOString() };
+  await writeJSON(source.file, wave);
+  return words;
+}
+// A message on a stalled card clears its stall, so the card reads as it is and the message reaches the orchestrator.
+export async function clearStall(site, key) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (!item.stalled) return;
+  delete item.stalled;
+  await writeJSON(source.file, wave);
+}
 // The bump the card's land queues with: its latest card-bump when no card-unbump came after it and it was made once the
 // card's first build had started, as the board reads a bump (domain.mjs workItem), else null.
 export async function landFirst(site, key) {

@@ -1,8 +1,10 @@
 ---
-status: superseded in part by 2026-11-01-2347-kickflip-owns-the-reviewer-record and 2026-10-29-1639-pushes-only-when-something-waits-on-the-owner
+status: superseded in part by 2026-11-01-2347-kickflip-owns-the-reviewer-record, 2026-10-29-1639-pushes-only-when-something-waits-on-the-owner and 2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag
 ---
 
 # A PR in review shows its age, and goes Stale after seven days
+
+Superseded in part by [stale is automatic, stalled is the orchestrator's flag](2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md): the Stale lane is gone; a review past seven days stays In Review with a grey "stale" in its footer status, a `stale` wait on the orchestrator.
 
 Superseded in part by [kickflip owns the reviewer record](2026-11-01-2347-kickflip-owns-the-reviewer-record.md): review age, Stale and weekday digests use kickflip’s item reviewer record; the session sends through Claude’s Slack connector.
 

@@ -33,11 +33,13 @@ export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototy
 export const QUESTION_REOPEN = 'question-reopen';
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // The lanes a card is stored in (its wave entry's `lane`, which store.mjs placeIn alone writes), and their names in a
-// move's thread line. Stale is In Review shown past seven days, never stored.
+// move's thread line.
 export const LANES = Object.freeze({ todo: 'Todo', progress: 'In Progress', review: 'In Review', done: 'Done' });
 // The thread line kind of a card's move from one lane to another (store.mjs moveCard).
 export const MOVE = 'move';
-export const BUILDER_STALLED_AFTER = 10 * 60000;
+// How long a run may go without a status line or transcript movement before it reads stale
+// (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
+export const BUILDER_STALE_AFTER = 10 * 60000;
 // How long a headless builder whose process lives may go without a status line or transcript movement before it reads
 // quiet (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
 export const BUILDER_QUIET_AFTER = 5 * 60000;
@@ -50,7 +52,7 @@ const DAY = 86400000;
 const closedLane = (i) => i.lane === 'done' || i.lane === 'asks';
 // A finished wave's Done cards fold under a row of their own, which board/public/app-lanes.js reads back by this id.
 export const waveFold = (slug) => `wave:${slug}`;
-// A PR in review longer than this parks in the Stale lane (docs/adr/2026-10-29-1639-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
+// A PR in review longer than this reads stale, still In Review (docs/adr/2026-10-29-1639-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
 const STALE_AFTER = 7 * DAY;
 
 // board/public/ui-links.js links Linear ids in text from these urls, so a board with no workspace links none.
@@ -129,7 +131,7 @@ function waitsOnOf(lane, pr, builder, checking, pushed, skipDraft, { held, needs
   if (held && lane === 'review') return 'merge';
   if (pushed && lane === 'review') return 'owner';
   if (lane === 'review' && pr?.state === 'OPEN' && pr.isDraft) return skipDraft ? 'ci' : 'ready';
-  if (lane === 'review' || lane === 'stale') return reviewed(pr, needsApproval) ? 'merge' : 'reviewers';
+  if (lane === 'review') return reviewed(pr, needsApproval) ? 'merge' : 'reviewers';
   return null;
 }
 
@@ -203,7 +205,8 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const lastRebase = (it.rebased || []).at(-1);
   let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), Boolean(checkingAt), pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing);
   if (reopenAt && lane === 'todo') lane = 'progress';
-  if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
+  // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+  const staleReview = lane === 'review' && Boolean(inReviewSince) && now - Date.parse(inReviewSince) > STALE_AFTER;
   const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
   if (stepWaits) lane = 'review';
   let waitsOn = waitsOnOf(lane, pr, builder, Boolean(checkingAt) && lane !== 'done', pushed, skipDraft, { held: mergeReady, needsApproval: reviewers.length > 0 });
@@ -269,6 +272,9 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     mergeReady: lane === 'review' ? mergeReady : null,
     // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a Merge tap's land the orchestrator
     // stopped reads so until the next tap.
+    // Stale is the board's own reading of no updates: a run silent or gone, or a review past seven days. Stalled is the
+    // orchestrator's flag (item stall), its reason, until a message on the card.
+    stale: lane !== 'done' && (staleReview || Boolean(builder?.stale)), stalled: it.stalled?.reason || null,
     landStopped: lane === 'review' && mergeReady && it.merge_ready.stopped && String(it.merge_ready.stopped) > String(it.merge_ready.tapped || '')
       ? { words: stoppedWords('land'), at: it.merge_ready.stopped } : null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
@@ -333,12 +339,14 @@ const mergeable = (pr, needsApproval) => !mergeBlockers(pr, { needsApproval }).l
 // What the owner acts on next, or null: {kind, url, label}, url relative to the site root. kind is pick (a prototype
 // question), questions, ready (a draft's review, then Ready on GitHub), done (an ask's Done in its thread), steps (manual
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
-// auto-merge is off, and always on a verified branch held for it). A held card waits on nobody, and a reopened card
+// auto-merge is off, and always on a verified branch held for it), or, ahead of all of them, stalled (a card the
+// orchestrator stalled, cleared by a message in its thread). A held card waits on nobody, and a reopened card
 // waiting only on its Done has no action. Held only stops the automatic pull, so a held card has actions like any other
 // (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 function actionOf(it, questionById, autoMerge) {
   if (closedLane(it)) return null;
   const thread = `#item=${encodeURIComponent(it.key)}`;
+  if (it.stalled) return { kind: ACTION_KIND.stalled, url: thread, label: `stalled: ${it.stalled}` };
   if (asking(it)) {
     const q = questionById.get(it.questions.first);
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: ACTION_KIND.pick, url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
@@ -393,7 +401,7 @@ export const PROTOTYPE_AGAIN = 'Prototype again';
 // PR's Review on GitHub, or Merge.
 const RESOLVED_BY = Object.freeze({
   [ACTION_KIND.pick]: BUTTON.openQuestions, [ACTION_KIND.questions]: BUTTON.openQuestions, [ACTION_KIND.ready]: BUTTON.github,
-  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.done]: BUTTON.done,
+  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.done]: BUTTON.done, [ACTION_KIND.stalled]: BUTTON.reply,
 });
 
 // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md
@@ -423,7 +431,8 @@ function placeOwnerWait(it, questionById, autoMerge) {
   if (it.action?.kind === ACTION_KIND.merge && !it.mergeReady) it.next = (it.pr?.reviewDecision === 'APPROVED' ? OWNER_MERGE_NEXT : UNREVIEWED_MERGE_NEXT).ready;
   if (it.awaitsDone) Object.assign(it, { lane: 'review', next: it.ownerStep || TAP_DONE, bumpable: false, bumpedAt: null });
   const ownerOnly = it.lane === 'todo' || it.waitsOn === 'ready' || (it.lane === 'progress' && it.waitsOn === 'owner');
-  if (!it.action || !ownerOnly) return;
+  // A stalled card stays in the lane it stalled in.
+  if (!it.action || !ownerOnly || it.stalled) return;
   const lane = it.lane === 'todo' && ASKING.has(it.action.kind) ? 'todo' : 'review';
   Object.assign(it, { lane, waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label });
   if (lane === 'review') Object.assign(it, { bumpable: false, bumpedAt: null });
@@ -587,11 +596,11 @@ function reachedPhaseOf(agents, lines = []) {
 // A run's silence is the time since its newest progress line or movement in its worktree's Claude transcript (moved
 // {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone. alive is
 // whether the card's headless process lives (server.mjs snapshot alive), null when the board tracks none for it, or
-// 'held' while the board holds its launch for a usage pause: held, never stalled, since the board launches it once the
+// 'held' while the board holds its launch for a usage pause: held, never stale, since the board launches it once the
 // pause lifts (server.mjs reviveHeadless), so it is no wait on the orchestrator.
 // commandRunning is whether its transcript ends on a tool call with no result (server.mjs snapshot commandRunning).
-// A live one reads quiet after BUILDER_QUIET_AFTER of silence with no command running, and is never stalled; a gone one is stalled at once; an
-// untracked one is stalled after BUILDER_STALLED_AFTER of silence
+// A live one reads quiet after BUILDER_QUIET_AFTER of silence with no command running, and is never stale; a gone one is stale at once; an
+// untracked one is stale after BUILDER_STALE_AFTER of silence
 // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
 // A run the orchestrator stopped (a record's stopped {run, at}, written since that record last started) reads stopped
 // with its words from the stop, gone and waiting on the orchestrator from then.
@@ -612,8 +621,8 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
   const silent = now - Date.parse(silentSince);
   const held = !planner && !stop && alive === 'held';
   const live = planner || held ? null : stop ? false : alive;
-  const stalled = held ? false : live === null ? silent >= BUILDER_STALLED_AFTER : !live;
-  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled, alive: live, held, quiet: live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER, stopped: stop ? stoppedWords(stop.run) : null };
+  const stale = held ? false : live === null ? silent >= BUILDER_STALE_AFTER : !live;
+  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, quiet: live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER, stopped: stop ? stoppedWords(stop.run) : null };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
@@ -1198,14 +1207,15 @@ export function buildBoard(snapshot) {
   for (const it of items) {
     it.working = workingOn.some((w) => w.key === it.key);
     if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working) it.next = NO_NEXT;
-    it.sortAt = SORT_AT[it.lane](it) || (['review', 'stale'].includes(it.lane) ? null : it.updatedAt) || null;
+    it.sortAt = SORT_AT[it.lane](it) || (it.lane === 'review' ? null : it.updatedAt) || null;
   }
   for (const it of items) {
     if (it.kind !== 'work') continue;
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered').map((q) => q.answers.at(-1).ts).sort().pop();
     const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
-    // A rebase run's hand-back, or its stalled run, waits on the orchestrator from In Review (laneOf).
-    it.orchestrator = ['progress', 'todo', 'stale'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && it.builder?.stalled) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
+    // A rebase run's hand-back, its stale run or a stale review waits on the orchestrator from In Review (laneOf); a
+    // card the orchestrator stalled waits on the owner alone.
+    it.orchestrator = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && it.stale)) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
   intakeWaits(items, events);
@@ -1270,10 +1280,10 @@ function linkCards(items, byKey, stored) {
 }
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
-// The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review (Stale too) when it
+// The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review when it
 // came into the lane, Done when it closed, and Asks when Claude answered. A card with none falls back to its latest activity.
 const SORT_AT = {
-  todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.reviewSince, stale: (i) => i.reviewSince,
+  todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.reviewSince,
   done: (i) => i.closedAt, asks: (i) => i.ask.answerAt,
 };
 
@@ -1349,12 +1359,11 @@ function needsSummary(needs) {
 }
 
 // The GET /_claude/needs body for a built board (docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md).
-// A Stale card is a PR still in review, so it counts as review.
 export function needsAnswer(b) {
   const count = (...lanes) => b.items.filter((i) => lanes.includes(i.lane)).length;
   return {
     items: b.needs.map(({ kind, text, url }) => ({ kind, text, url })), working: b.working, summary: b.needsSummary,
-    lanes: { review: count('review', 'stale'), progress: count('progress'), todo: count('todo') },
+    lanes: { review: count('review'), progress: count('progress'), todo: count('todo') },
     building: b.items.some((i) => (i.agents || []).some((a) => !a.done)),
   };
 }
@@ -1387,7 +1396,9 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const counts = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes)
     && !(a.waits && agents.some((h) => h.name === a.waits && !h.done));
-  const implementers = open.reduce((n, i) => n + (i.agents || []).filter((a, _, all) => counts(a, all)).length, 0);
+  // A card the orchestrator stalled frees its slot, its stopped run still open
+  // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
+  const implementers = open.filter((i) => !i.stalled).reduce((n, i) => n + (i.agents || []).filter((a, _, all) => counts(a, all)).length, 0);
   const pullable = open.filter((i) => pullableCard(i) && !i.working).map((i) => i.key);
   const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
   const requested = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name, writes: a.writes })));
@@ -1512,10 +1523,10 @@ function intakeWaits(items, events) {
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
 // For built items: the Todo a triage looks at, one line per Todo card, with its key, title and deps, sorted, so a card
 // added, dropped, renamed or relinked changes it. '' when Todo is empty.
-// A triage also reads the Stale cards; Done cards leave the board by archivedOf, never by a triage
+// A triage also reads the stale reviews; Done cards leave the board by archivedOf, never by a triage
 // (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md).
 export function todoOf(items) {
-  return items.filter((i) => i.lane === 'todo' || i.lane === 'stale').map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
+  return items.filter((i) => i.lane === 'todo' || (i.lane === 'review' && i.stale)).map((i) => JSON.stringify([i.key, i.title, i.deps || []])).sort().join('\n');
 }
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
@@ -1552,13 +1563,13 @@ export function archivedOf(built, keep = DONE_KEPT) {
 
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // The moves the board server's settle pass makes after a build (store.mjs moveCard): each work card whose built lane
-// differs from its stored one moves to it, Stale as In Review, with why as its thread line. Done is left to what closes
+// differs from its stored one moves to it, with why as its thread line. Done is left to what closes
 // a card (item set --done, a land, a merge, the owner's Done), which records why itself, and a stored Done shown
 // elsewhere moves only once a message or question reopened it: an owner step shows a landed card in In Review while it
 // stays Done. → [{key, to, why}]
 export function movesOf(built) {
   return built.items.filter((i) => i.kind === 'work').flatMap((i) => {
-    const to = i.lane === 'stale' ? 'review' : i.lane;
+    const to = i.lane;
     if (to === i.storedLane || to === 'done' || (i.storedLane === 'done' && !i.reopened)) return [];
     return [{ key: i.key, to, why: moveWhy(i, to) }];
   });
@@ -1606,11 +1617,12 @@ export function strictlyIdle(built, { pulled = [] } = {}) {
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 // What an open work card waits on the orchestrator for, or null: an open builder ask; an owner answer not acted on;
 // a staged card's judgment (staging); unless the owner owes it an answer, a hand-back with judgment calls not verified (calls) or a checked card with none left
-// (checking); a builder silent past the stall limit (stalled); a review in the Stale lane, from when it crossed seven
-// days (stale); a grill or prototype asked for with no planner of that kind running; a refusal by the pull; or a started
+// (checking); a builder silent past the stale limit, or stopped (stale); a review past seven days, from when it crossed
+// them (stale); a grill or prototype asked for with no planner of that kind running; a refusal by the pull; or a started
 // card with no live builder and nothing else placing it (unowned). since is when it began to wait, and picked when the
 // session first wrote on the card after that (waitFactsOf), or the watcher marked one of its events working, which the
 // card reads as Orchestrator review. → {kind, since, picked, next}, next saying what it waits for.
+const STALL_NEXT = "item stall it with the reason when it can't go on";
 const STAGING_NEXT = 'Judge the staged card: item set --state ready, or --state grilling or prototyping for another round';
 function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
@@ -1619,9 +1631,9 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
     : it.staging ? { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT }
     : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
     : ASKING.has(it.action?.kind) ? null
-    : it.builder?.stopped ? { kind: 'stalled', since: it.builder.silentSince, next: `${it.builder.stopped}: start it again when it should run, or drop the card` }
-    : it.builder?.stalled ? { kind: 'stalled', since: it.builder.silentSince, next: 'Find out why the builder went silent or stopped, then restart or finish its run' }
-    : it.lane === 'stale' && it.inReviewSince ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), next: 'Find out why the review went stale and fix what you can: rebase, CI, comments, a silent reviewer' }
+    : it.builder?.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: start it again when it should run, or drop the card` }
+    : it.builder?.stale ? { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent or stopped, then restart or finish its run, or ${STALL_NEXT}` }
+    : it.lane === 'review' && it.stale ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), next: `Find out why the review went stale and fix what you can: rebase, CI, comments, a silent reviewer, or ${STALL_NEXT}` }
     : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
       : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }
     : it.grilling && facts.grillAt && !running('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }

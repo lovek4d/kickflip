@@ -269,7 +269,6 @@ BoardView.part((B) => {
   const openPRs = (it) => (it.prs || []).filter((p) => p.state === 'OPEN');
   const CONFIRM = {
     resume: (it, ref) => `Unhold ${ref}?${it.heldUntil ? ` It's held until ${heldUntilWords(it.heldUntil)}.` : ''} It can start again once nothing blocks it.`,
-    nudge: () => 'Nudge Claude to check this implementer?',
     // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
     merge: (it, ref) => (it.mergeReady ? `Merge ${ref}? The board rebases ${it.mergeReady.branch} onto ${it.mergeReady.base} as it is now, reruns the tests if  moved, and lands it.`
       : openPRs(it).length > 1
@@ -476,7 +475,6 @@ BoardView.part((B) => {
   // A data-confirm button's tap: Hold's sheet, or its confirm, then its event. The thread box's Done comes here on ⌥↵ too.
   async function confirmTap(b) {
     const { key, confirm: act } = b.dataset;
-    if (b.classList.contains('nudging')) return;
     const it = state.board.items.find((i) => i.key === key);
     if (it && act === 'hold') { openHold(it); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
@@ -484,40 +482,26 @@ BoardView.part((B) => {
     // server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
     const sent = { resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
       finish: it.kind === 'ask' ? ['ask-done', { id: it.id }] : ['card-done', { key }] }[act];
-    if (sent) {
-      // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
-      // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
-      const close = act === 'finish' ? () => {
-        const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
-        if (card) BoardUI.closeDetails(card);
-        state.openItems.delete(key);
-        store.set('openItems', [...state.openItems]);
-      } : null;
-      // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: Merge spins until a board shows the card left
-      // In Review, or no longer merging there, which is its refusal.
-      const pend = act === 'merge' ? `${key}:merge` : null;
-      if (pend) BoardUI.pending.start(pend, (board) => { const c = board.items.find((i) => i.key === key); return !c || c.lane !== 'review' || !c.merging; });
-      try {
-        const out = await waitOn(b, B.sentHere(key, () => B.send(...sent, close)));
-        if (pend) { BoardUI.pending.answered(pend, out.board.generatedAt); B.render(); }
-      } catch (e) {
-        if (pend) { BoardUI.pending.drop(pend); B.render(); }
-        B.failed(e);
-      }
-      if (act === 'finish') B.syncSends(key);
-      return;
-    }
-    // A stalled line's nudge calms it to orange with a ripple, not a spinner, until a board shows the card's status line
-    // changed, the builder no longer stalled or the card gone (style.css .nudging).
-    const id = `${key}:nudge`;
-    const { progress, at } = it.builder;
-    BoardUI.pending.start(id, (board) => { const c = board.items.find((i) => i.key === key); return !c?.builder?.stalled || c.builder.progress !== progress || c.builder.at !== at; }, B.stillWaiting);
-    B.render();
+    // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
+    // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
+    const close = act === 'finish' ? () => {
+      const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
+      if (card) BoardUI.closeDetails(card);
+      state.openItems.delete(key);
+      store.set('openItems', [...state.openItems]);
+    } : null;
+    // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: Merge spins until a board shows the card left
+    // In Review, or no longer merging there, which is its refusal.
+    const pend = act === 'merge' ? `${key}:merge` : null;
+    if (pend) BoardUI.pending.start(pend, (board) => { const c = board.items.find((i) => i.key === key); return !c || c.lane !== 'review' || !c.merging; });
     try {
-      const out = await B.sentHere(key, () => B.send('builder-nudge', { key }));
-      BoardUI.pending.answered(id, out.board.generatedAt); toast('Nudge sent');
-    } catch { BoardUI.pending.drop(id); toast('Could not send. Is the host awake?'); }
-    B.render();
+      const out = await waitOn(b, B.sentHere(key, () => B.send(...sent, close)));
+      if (pend) { BoardUI.pending.answered(pend, out.board.generatedAt); B.render(); }
+    } catch (e) {
+      if (pend) { BoardUI.pending.drop(pend); B.render(); }
+      B.failed(e);
+    }
+    if (act === 'finish') B.syncSends(key);
   }
 
   Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap });

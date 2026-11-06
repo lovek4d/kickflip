@@ -241,8 +241,8 @@ test('a stored copy that is damaged, saved under another build, undated or holdi
   assert.deepEqual(Object.keys(ui.readCopy({ ...good, threads: { 'w/A': 'text', 'w/B': [{ text: 'b' }] } }, 'b1').threads), ['w/B']);
 });
 
-test('threads load in the background for every In Review, Stale, In Progress and Todo card that is not already open', () => {
-  const items = ['review', 'stale', 'progress', 'todo', 'followups', 'done', 'asks', 'todo'].map((lane, n) => ({ key: `w/${n}`, lane }));
+test('threads load in the background for every In Review, In Progress and Todo card that is not already open', () => {
+  const items = ['review', 'review', 'progress', 'todo', 'followups', 'done', 'asks', 'todo'].map((lane, n) => ({ key: `w/${n}`, lane }));
   assert.deepEqual([...ui.preloadKeys(items, new Set(['w/2']))], ['w/0', 'w/1', 'w/3', 'w/7']);
   assert.deepEqual([...ui.preloadKeys(items, [])], ['w/0', 'w/1', 'w/2', 'w/3', 'w/7']);
 });
@@ -1040,7 +1040,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   for (const [extra, want] of [
     [{ lane: 'progress', builder: testing }, 'implementing'],
     [{ lane: 'progress', builder: { ...testing, phase: 'landing' } }, 'landing'],
-    [{ lane: 'progress', builder: { ...testing, alive: false, stalled: true } }, 'stopped'],
+    [{ lane: 'progress', builder: { ...testing, alive: false, stale: true } }, 'stopped'],
     [{ lane: 'progress', builder: null, waitsOn: 'checking' }, 'Orchestrator review'],
     [{ lane: 'progress', builder: null, reachedPhase: 'testing' }, 'stopped at testing'],
     [{ lane: 'todo', builder: { progress: 'Grilling · x', planner: true, kind: 'grill' } }, 'grilling'],
@@ -1215,61 +1215,46 @@ test('a thread message says thinking while Claude works on it, and only a pendin
   assert.deepEqual([...html.matchAll(/data-withdraw="(\w+)"/g)].map((m) => m[1]), ['e1']);
 });
 
-// docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
-test('a stalled builder has no Stalled badge: its status line turns the needs-you red and nudges Claude when tapped', () => {
-  const builder = { progress: 'Running tests', at: null, stalled: true };
-  const html = ui.workLines({ ...workCard, lane: 'progress', builder });
-  assert.match(html, /<button type="button" class="line3 sub agent in-progress stalled" data-confirm="nudge" data-key="w\/B5" title="No recent progress\. Nudge Claude to check this implementer"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/button>/);
-  assert.doesNotMatch(html, /Stalled|tone-danger/);
+// docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+test('a stale builder has no badge and no nudge: its status line goes grey with its dot still, and the footer reads stale', () => {
+  const builder = { progress: 'Running tests', at: null, stale: true };
+  const html = ui.workLines({ ...workCard, lane: 'progress', stale: true, builder });
+  assert.match(html, /<div class="line3 sub agent in-progress stale"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/div>/);
+  assert.doesNotMatch(html, /<button[^>]*line3|data-confirm="nudge"|Stalled|tone-danger/);
+  assert.match(html, /<span class="card-stale">stale<\/span>/);
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a builder whose process is gone
-  // reads stopped in the same red at once, and one whose live process went quiet keeps its words in grey, with no dot and no nudge.
-  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, alive: false } }), /data-confirm="nudge"[^>]*><span class="working-dot" aria-hidden="true"><\/span>stopped · Running tests<\/button>/);
-  const quiet = ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, stalled: false, alive: true, quiet: true } });
+  // reads stopped in the same grey at once, and one whose live process went quiet keeps its words in grey, with no dot.
+  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, alive: false } }), /<div class="line3 sub agent in-progress stale"><span class="working-dot" aria-hidden="true"><\/span>stopped · Running tests<\/div>/);
+  const quiet = ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, stale: false, alive: true, quiet: true } });
   assert.match(quiet, /<div class="line3 sub agent in-progress quiet">Running tests<\/div>/);
-  assert.doesNotMatch(quiet, /working-dot|data-confirm="nudge"/);
-  for (const next of [{ ...builder, stalled: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stalled|data-confirm="nudge"/);
-  assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /stalled|data-confirm="nudge"/);
+  assert.doesNotMatch(quiet, /working-dot|stale/);
+  for (const next of [{ ...builder, stale: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stale/);
+  assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /class="[^"]*\bstale\b/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /^\.sub\.agent\.stale \{ color: var\(--muted\); \}$/m);
+  assert.match(css, /^\.card-stale \{ color: var\(--muted\); \}$/m);
+  assert.match(css, /^\.card-stalled \{ color: var\(--color-danger\); \}$/m);
+  assert.doesNotMatch(css, /nudg|button\.sub/);
+});
+
+test('the footer status reads red stalled on a card the orchestrator stalled, in place of stale, after the time and beside its Action needed', () => {
+  const action = { kind: 'stalled', url: '#item=w%2FB5', label: 'stalled: Crashed twice' };
+  const html = ui.workLines({ ...workCard, lane: 'progress', sortAt: ago(5), stale: true, stalled: 'Crashed twice', action });
+  assert.match(html, /<time [^>]*>[^<]*<\/time><span class="sep"> · <\/span><a class="card-action" href="#item=w%2FB5" title="stalled: Crashed twice"[^>]*>Action needed<\/a><span class="sep"> · <\/span><span class="card-stalled">stalled<\/span>/);
+  assert.doesNotMatch(html, /card-stale"/);
+  const review = ui.workLines({ ...workCard, lane: 'review', sortAt: ago(60 * 24 * 8), stale: true });
+  assert.match(review, /<\/time><span class="sep"> · <\/span><span class="card-stale">stale<\/span>/);
 });
 
 // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md
-test("a run the orchestrator stopped reads the stop's words as its status, plain, with no dot or nudge, and a stopped Merge land reads them in In Review", () => {
-  const builder = { progress: 'Running tests', at: ago(1), stalled: true, alive: false, silentSince: ago(0.05), stopped: 'build stopped by orchestrator' };
+test("a run the orchestrator stopped reads the stop's words as its status, plain, with no dot, and a stopped Merge land reads them in In Review", () => {
+  const builder = { progress: 'Running tests', at: ago(1), stale: true, alive: false, silentSince: ago(0.05), stopped: 'build stopped by orchestrator' };
   const html = ui.workLines({ ...workCard, lane: 'progress', builder });
   assert.match(html, /<div class="line3 sub agent in-progress">build stopped by orchestrator · \d+m<\/div>/);
-  assert.doesNotMatch(html, /working-dot|data-confirm="nudge"|Running tests/);
+  assert.doesNotMatch(html, /working-dot|Running tests/);
   assert.equal(ui.statusWord({ ...workCard, lane: 'progress', builder }), 'build stopped by orchestrator');
   const review = ui.workLines({ ...workCard, lane: 'review', builder: null, next: 'Verified: tap Merge to land it on main', landStopped: { words: 'land stopped by orchestrator', at: ago(0.05) } });
   assert.match(review, /<div class="line3 sub">land stopped by orchestrator · \d+m<\/div>/);
-});
-
-test('a tap on the red status line calms it to orange with a ripple, no spinner, until the card has a new status line', () => {
-  const builder = { progress: 'Running tests', at: null, stalled: true };
-  const card = { ...workCard, lane: 'progress', builder };
-  const id = `${card.key}:nudge`;
-  assert.doesNotMatch(ui.workLines(card), /nudging/);
-  ui.pending.start(id, (board) => { const c = board.items.find((i) => i.key === card.key); return !c?.builder?.stalled || c.builder.progress !== 'Running tests'; });
-  ui.pending.answered(id, 100);
-  const html = ui.workLines(card);
-  assert.match(html, /class="line3 sub agent in-progress stalled nudging"/);
-  assert.doesNotMatch(html, /aria-busy/);
-  ui.pending.settle({ generatedAt: 200, items: [card] });
-  assert.ok(ui.pending.has(id));
-  ui.pending.settle({ generatedAt: 300, items: [{ ...card, builder: { ...builder, progress: 'Writing docs' } }] });
-  assert.ok(!ui.pending.has(id));
-  assert.doesNotMatch(ui.workLines(card), /nudging/);
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /^button\.sub\.agent\.stalled\.nudging \{ color: var\(--color-notice\);/m);
-});
-
-test('a button drawn as a status line resets to the div it replaces in one rule, so turning red changes only its colour', () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const reset = css.match(/^button\.sub \{([^}]*)\}/m)?.[1] ?? '';
-  for (const prop of ['margin-inline: 0', 'margin-bottom: 0', 'padding: 0', 'min-height: 0', 'line-height: inherit', 'font-family: inherit', 'appearance: none', 'text-align: left']) assert.ok(reset.includes(prop), prop);
-  assert.doesNotMatch(reset, /(^|[\s;])font:/);
-  // A full-width button is its own block formatting context and drops below the bump icons' float: board/layout.test.mjs.
-  assert.doesNotMatch(reset, /(^|[\s;])width:/);
-  assert.match(css, /^button\.sub\.agent\.stalled \{ color: var\(--color-danger\); \}$/m);
-  assert.match(css, /^\.sub\.agent\.quiet, \.sub\.asked \{ color: var\(--muted\); \}$/m);
 });
 
 test("a refused Implement's reason takes the card's status line, in place of its next step", () => {
@@ -1312,12 +1297,12 @@ test("every pulse beats on one clock: a pulse animation starting anywhere on the
   const anim = (animationName) => ({ animationName, startTime: 812 });
   for (const name of ['pulse', 'pulse-fill', 'sb-pulse', 'reader-pulse']) {
     const own = anim(name);
-    const other = anim('nudge-ping');
+    const other = anim('spin');
     ui.onePulse({ animationName: name, target: { getAnimations: () => [own, other] } });
     assert.deepEqual([own.startTime, other.startTime], [0, 812], name);
   }
-  const ping = anim('nudge-ping');
-  ui.onePulse({ animationName: 'nudge-ping', target: { getAnimations: () => [ping] } });
+  const ping = anim('spin');
+  ui.onePulse({ animationName: 'spin', target: { getAnimations: () => [ping] } });
   assert.equal(ping.startTime, 812, 'other animations keep their own start');
   const heard = [];
   const ctx = vm.createContext({ document: { addEventListener: (type, fn) => heard.push([type, fn]) } });
@@ -1340,7 +1325,7 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
     [{ builder: { ...testing, phase: 'reading' } }, { dim: false, label: 'Reading, step 1 of 5', bars: 'now - - - -' }],
     [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ builder: { ...testing, phase: 'landing' } }, { dim: false, label: 'Landing, step 5 of 5', bars: 'done done done done now' }],
-    [{ builder: { ...testing, stalled: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done done - -' }],
+    [{ builder: { ...testing, stale: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done done - -' }],
     [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, step 4 of 5', bars: 'done done done now -' }],
     [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
     [{ reachedPhase: 'building', action: questions }, { dim: true, label: 'Stopped at building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
@@ -2387,11 +2372,11 @@ test('a pending tap keeps its button busy through any repaint until a board made
   assert.equal(ui.pending.has('w/A1:try'), false);
 
   // A refusal drops it; the other card's entry stays.
-  ui.pending.start('w/A1:nudge', () => false);
-  ui.pending.start('w/A2:nudge', () => false);
-  ui.pending.drop('w/A1:nudge');
-  assert.deepEqual([ui.pending.has('w/A1:nudge'), ui.pending.has('w/A2:nudge')], [false, true]);
-  ui.pending.drop('w/A2:nudge');
+  ui.pending.start('w/A1:merge', () => false);
+  ui.pending.start('w/A2:merge', () => false);
+  ui.pending.drop('w/A1:merge');
+  assert.deepEqual([ui.pending.has('w/A1:merge'), ui.pending.has('w/A2:merge')], [false, true]);
+  ui.pending.drop('w/A2:merge');
 
   // 60 seconds on, it drops by itself and says so once.
   ui.pending.start('todo:plan', grills, () => { late += 1; });

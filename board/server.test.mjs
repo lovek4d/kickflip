@@ -1322,14 +1322,18 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   }
 });
 
-test('a builder nudge is recorded even when the card is no longer stalled', async () => {
-  const response = await fetch(`${base}/_claude/events`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ kind: 'builder-nudge', key: 't/A1' }),
-  });
-  const { id } = await response.json();
-  const events = await (await fetch(`${base}/_claude/events?kind=builder-nudge`)).json();
-  assert.deepEqual(events.map((e) => [e.id, e.data]), [[id, { key: 't/A1' }]]);
+// docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+test("a message in a stalled card's thread clears the orchestrator's stall, and reaches the orchestrator like any message", async () => {
+  const at = new Date().toISOString();
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ internal: true, items: [{ id: 'X1', title: 'Stuck', lane: 'progress', stalled: { reason: 'Crashed twice', at } }] })));
+  const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === 'X1');
+  assert.deepEqual([(await card()).stalled, (await card()).action?.kind], ['Crashed twice', 'stalled']);
+  const r = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/X1', text: 'Try the other test runner' }) });
+  assert.equal(r.status, 200);
+  const { id } = await r.json();
+  assert.ok(id, 'the message is an event the orchestrator wakes on');
+  assert.equal('stalled' in JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[0], false);
+  assert.deepEqual([(await card()).stalled, (await card()).action], [null, null]);
 });
 
 test("a wave's triage runs from its wave-triage event until Claude replies, and its notes show its goal, order and note", async () => {

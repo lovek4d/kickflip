@@ -3038,7 +3038,7 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
     workCard('T1', { finishable: true, holdable: true, hasNotes: true }),
     workCard('P1', { lane: 'progress', finishable: true, holdable: true }),
     workCard('R1', { lane: 'review', finishable: true, holdable: true, awaitsDone: true }),
-    workCard('S1', { lane: 'stale', finishable: true, holdable: true }),
+    workCard('S1', { lane: 'review', stale: true, finishable: true, holdable: true }),
     { ...askCard('a1', 'review'), ref: '10:00', finishable: true, resolvedBy: 'done', action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Tap Done' } },
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: Object.fromEntries(cards.map((c) => [c.key, []])), confirm: true });
@@ -3772,36 +3772,25 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['card-hold', { key: 'w/H1', hold: false }]);
 });
 
-// docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
-test("a stalled card's red status line, closed or open, confirms before sending a builder nudge and shows a sent notice", async () => {
+// docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+test("a stale card's grey status line is no button, closed or open, and a stalled card's Send is the orange control that clears its Action needed", async () => {
   for (const open of [[], ['w/S1']]) {
-    const item = workCard('S1', { lane: 'progress', builder: { stalled: true, progress: 'Running tests', at: null } });
-    const b = boardOnDom({ open, board: boardOf([item]), threads: {}, realDialogs: true });
-    const confirms = [];
-    let accept = false;
-    b.page.win.confirm = (message) => { confirms.push(message); return accept; };
+    const item = workCard('S1', { lane: 'progress', stale: true, builder: { stale: true, progress: 'Running tests', at: null } });
+    const b = boardOnDom({ open, board: boardOf([item]), threads: { 'w/S1': [] } });
     await b.settle();
-    assert.equal(b.root.querySelector('summary .line2'), null);
-    const chip = () => b.root.querySelector('summary button.line3.stalled[data-confirm="nudge"]');
-    b.page.fire(b.root, 'click', { target: chip() });
-    await b.settle();
-    assert.deepEqual(confirms, ['Nudge Claude to check this implementer?']);
-    assert.deepEqual(b.sent, []);
-    accept = true;
-    b.page.fire(b.root, 'click', { target: chip() });
-    await b.settle();
-    assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['builder-nudge', { key: 'w/S1' }]]);
-    assert.equal(b.root.querySelector('.toast').textContent, 'Nudge sent');
-    // The answer ends the request, not the calm: the line stays nudging, without a spinner, until a board shows the builder's line moved.
-    assert.deepEqual([chip().classList.contains('nudging'), chip().getAttribute('aria-busy')], [true, null]);
-    await b.change({ board: boardOf([item]) });
-    assert.equal(chip().classList.contains('nudging'), true);
-    await b.change({ board: boardOf([workCard('S1', { lane: 'progress', builder: { stalled: false, progress: 'Running tests', at: null } })]) });
-    assert.equal(b.root.querySelector('summary button.stalled'), null);
-    assert.equal(b.root.querySelector('summary .agent').textContent, 'Running tests');
-    assert.equal(b.root.querySelector('details.item').open, open.length > 0);
+    const line = b.root.querySelector('summary .line3.agent');
+    assert.deepEqual([line.tagName.toLowerCase(), line.classList.contains('stale'), line.textContent], ['div', true, 'Running tests']);
+    assert.equal(b.root.querySelector('[data-confirm="nudge"]'), null);
     b.view.unmount();
   }
+  const stalled = workCard('S1', { lane: 'progress', stalled: 'Crashed twice', action: { kind: 'stalled', url: '#item=w%2FS1', label: 'stalled: Crashed twice' }, resolvedBy: 'reply' });
+  const b = boardOnDom({ open: ['w/S1'], board: boardOf([stalled]), threads: { 'w/S1': [] } });
+  await b.settle();
+  const send = b.root.querySelector('form[data-reply="w/S1"] button[type="submit"]');
+  assert.deepEqual([send.textContent, send.classList.contains('resolves')], ['Send⌘↵', true]);
+  await b.change({ board: boardOf([workCard('S1', { lane: 'progress' })]) });
+  assert.equal(b.root.querySelector('form[data-reply="w/S1"] button[type="submit"]').classList.contains('resolves'), false);
+  b.view.unmount();
 });
 
 test("every owner action kind the board derives makes exactly one of the open card's buttons orange, every action button the board names draws, and the board and the page share one frozen enum of buttons and one of action kinds, each value its name", async () => {
@@ -3815,6 +3804,7 @@ test("every owner action kind the board derives makes exactly one of the open ca
     waves: [{ slug: 'w', wave: { repo: 'o/r', items: [
       { id: 'P', title: 'Pick' }, { id: 'Q', title: 'Questions' }, { id: 'R', title: 'Ready', pr: 1 },
       { id: 'S', title: 'Steps', pr: 2, manual_steps: ['Run the backfill'] }, { id: 'M', title: 'Merge', pr: 3 }, { id: 'G', title: 'Grill' },
+      { id: 'X', title: 'Stalled', lane: 'progress', stalled: { reason: 'Crashed twice', at: '2026-10-30T09:00:00Z' } },
     ] } }],
     events: [{ id: 'a1', ts: '2026-10-30T09:00:00Z', kind: 'ask', data: { text: 'Which take?' }, reply: { html: 'Two takes.', at: '2026-10-30T09:10:00Z' } }],
     askProgress: { a1: { state: 'progress', at: '2026-10-30T09:20:00Z', next: 'Pick a take' } },

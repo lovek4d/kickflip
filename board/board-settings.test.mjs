@@ -631,7 +631,7 @@ test('item set records a UTC gh-since and pr prints the board report through gh'
   assert.deepEqual(both.out.trim().split('\n').map((l) => JSON.parse(l)).map((r) => [r.repo, r.pr, r.isDraft]), [['wave/repo', 7, false], ['o/site', 1, true]]);
 });
 
-test("a PR's posted links and the topic fallback drive the same card age, Stale lane and hub Slack link", () => {
+test("a PR's posted links and the topic fallback drive the same card age, stale In Review and hub Slack link", () => {
   const sent = String(Math.floor((Date.now() - 8 * 86400000) / 1000)) + '.000100';
   const w = { ...wave(), repo: 'o/r', reviewers: [annReviewer, bobReviewer] };
   w.items[0].pr = 7;
@@ -640,7 +640,7 @@ test("a PR's posted links and the topic fallback drive the same card age, Stale 
   const fallback = reviewState();
   assert.equal(fallback.card.review.Ann.state, 'sent');
   assert.equal(fallback.slack.ok, true);
-  assert.equal(fallback.card.lane, 'stale');
+  assert.deepEqual([fallback.card.lane, fallback.card.stale], ['review', true]);
   fs.rmSync(at('slack-bridge'), { recursive: true });
   const link = (channel) => ({ channel, ts: sent, reactions: [] });
   write(site('orch', 'data', 'pr-slack.json'), { 'o/r#7': { head: 'abc', links: { Ann: link('D1'), Bob: { channel: 'D2', posting_at: '2026-11-02T00:00:00Z', reactions: [] } }, replies: [] } });
@@ -651,7 +651,7 @@ test("a PR's posted links and the topic fallback drive the same card age, Stale 
   const recorded = reviewState();
   assert.deepEqual(recorded.card.review, fallback.card.review);
   assert.equal(recorded.card.inReviewSince, fallback.card.inReviewSince);
-  assert.equal(recorded.card.lane, 'stale');
+  assert.deepEqual([recorded.card.lane, recorded.card.stale], ['review', true]);
   assert.equal(recorded.slack.ok, true);
 });
 

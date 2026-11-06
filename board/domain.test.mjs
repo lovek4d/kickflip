@@ -78,12 +78,12 @@ test('a green draft waits on Ready in In Review until a builder works on it', ()
   const record = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Record line', progress_at: '2026-10-23T10:06:00Z' };
   const earlier = { ts: '2026-10-23T09:00:00Z', who: 'claude', kind: 'status', text: 'Previous run' };
   const fresh = board({ now: Date.parse(record.started), agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(fresh.builder, { progress: null, phase: null, at: record.started, kind: null, planner: false, stalled: false, silentSince: record.started, alive: null, held: false, quiet: false, stopped: null });
+  assert.deepEqual(fresh.builder, { progress: null, phase: null, at: record.started, kind: null, planner: false, stale: false, silentSince: record.started, alive: null, held: false, quiet: false, stopped: null });
   const lines = [earlier, { ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', text: 'Running tests' }, { ts: '2026-10-23T10:07:00Z', who: 'claude', text: 'Halfway.' }];
   const busy = board({ now: Date.parse('2026-10-23T10:07:00Z'), agents: { A1: { main: record } }, threads: { 'w/A1': lines } });
   const item = busy.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([item.lane, item.waitsOn, item.action], ['progress', 'builder', null]);
-  assert.deepEqual(item.builder, { progress: 'Running tests', phase: null, at: '2026-10-23T10:05:00Z', kind: null, planner: false, stalled: false, silentSince: '2026-10-23T10:05:00Z', alive: null, held: false, quiet: false, stopped: null });
+  assert.deepEqual(item.builder, { progress: 'Running tests', phase: null, at: '2026-10-23T10:05:00Z', kind: null, planner: false, stale: false, silentSince: '2026-10-23T10:05:00Z', alive: null, held: false, quiet: false, stopped: null });
   const finished = board({ agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Running tests', progress_at: '2026-10-23T10:05:00Z', eta: '2026-10-23T11:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   const after = finished.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([after.lane, after.waitsOn, after.builder, after.eta], ['review', 'ready', null, null]);
@@ -193,7 +193,7 @@ test('an install builder exposes its kind and keeps drafts and ready PRs In Prog
   assert.equal(other.builder.kind, 'claude');
 });
 
-test('a builder stalls after 10 minutes without progress or transcript movement, clears on either or done, and ignores ordinary thread lines', () => {
+test('a builder goes stale after 10 minutes without progress or transcript movement, clears on either or done, and ignores ordinary thread lines', () => {
   const started = '2026-10-30T10:00:00Z';
   const record = { kind: 'codex', started };
   const card = (minutes, lines = [], agent = record, moved) => board({
@@ -202,12 +202,12 @@ test('a builder stalls after 10 minutes without progress or transcript movement,
   }).items.find((i) => i.key === 'w/A1');
   for (const minutes of [9, 10, 11]) {
     const builder = card(minutes).builder;
-    assert.deepEqual([builder.stalled, builder.silentSince, builder.at], [minutes >= 10, started, started]);
+    assert.deepEqual([builder.stale, builder.silentSince, builder.at], [minutes >= 10, started, started]);
   }
   const progress = { ts: '2026-10-30T10:20:00Z', kind: 'status', text: 'Running tests' };
-  assert.deepEqual([card(31, [progress]).builder.stalled, card(31, [progress]).builder.silentSince], [true, progress.ts]);
-  assert.equal(card(29, [progress]).builder.stalled, false);
-  assert.equal(card(31, [progress, { ts: '2026-10-30T10:30:00Z', who: 'claude', text: 'Checking.' }]).builder.stalled, true);
+  assert.deepEqual([card(31, [progress]).builder.stale, card(31, [progress]).builder.silentSince], [true, progress.ts]);
+  assert.equal(card(29, [progress]).builder.stale, false);
+  assert.equal(card(31, [progress, { ts: '2026-10-30T10:30:00Z', who: 'claude', text: 'Checking.' }]).builder.stale, true);
   assert.equal(card(31, [{ ...progress, ts: '2026-10-30T09:59:00Z' }]).builder.silentSince, started);
   assert.equal(card(31, [], { ...record, done: '2026-10-30T10:30:00Z' }).builder, null);
   assert.equal(card(31, [], { kind: 'codex' }).builder, null);
@@ -218,12 +218,12 @@ test("a headless builder's transcript changing within 10 minutes keeps it from r
   const record = { kind: 'claude', started: '2026-10-30T10:00:00Z', worktree };
   const card = (minutes, moved) => board({ now: Date.parse(record.started) + minutes * 60000, agents: { A1: { main: record } }, moved }).items.find((i) => i.key === 'w/A1').builder;
   const at = (minutes) => Date.parse(record.started) + minutes * 60000;
-  assert.deepEqual([card(40, { '/w/GH-1': at(35) }).stalled, card(40, { '/w/GH-1': at(35) }).silentSince], [false, new Date(at(35)).toISOString()]);
-  assert.equal(card(46, { '/w/GH-1': at(35) }).stalled, true);
-  assert.equal(card(40, { '/w/GH-1': at(1) }).stalled, true);
-  assert.equal(card(40, {}).stalled, true);
-  assert.equal(card(40, undefined).stalled, true);
-  assert.equal(card(40, { '/w/other': at(39) }).stalled, true);
+  assert.deepEqual([card(40, { '/w/GH-1': at(35) }).stale, card(40, { '/w/GH-1': at(35) }).silentSince], [false, new Date(at(35)).toISOString()]);
+  assert.equal(card(46, { '/w/GH-1': at(35) }).stale, true);
+  assert.equal(card(40, { '/w/GH-1': at(1) }).stale, true);
+  assert.equal(card(40, {}).stale, true);
+  assert.equal(card(40, undefined).stale, true);
+  assert.equal(card(40, { '/w/other': at(39) }).stale, true);
 });
 
 test("a card lists each agent oldest first, its line is the newest status line since a running agent started, and it shows the latest ETA", () => {
@@ -282,15 +282,15 @@ test('a review gone stale waits on the orchestrator from the day it crossed seve
   assert.equal(waits(8, said)[0].picked, '2026-11-01T00:00:00Z');
 });
 
-test('a review waits with its age, and parks in Stale after a week', () => {
+test('a review waits with its age, and reads stale in In Review after a week', () => {
   const ready = { ...greenDraft, isDraft: false };
   const sent = { 'w/A1': { review_link_ts: { Ann: '1792800000.000100' } } };
   const sentAt = '2026-10-24T00:00:00.000Z';
   const at = (days) => Date.parse(sentAt) + days * 86400000;
   const item = (days) => board({ pr: ready, topicItems: sent, now: at(days) }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual(item(2).review, { Ann: { state: 'sent', since: sentAt, github: 'ann' } });
-  assert.equal(item(2).lane, 'review');
-  assert.equal(item(8).lane, 'stale');
+  assert.deepEqual([item(2).lane, item(2).stale], ['review', false]);
+  assert.deepEqual([item(8).lane, item(8).stale], ['review', true]);
   assert.equal(item(8).waitsOn, 'reviewers');
   assert.equal(item(8).next, 'Waiting for PR reviewers');
   const approved = board({ pr: { ...ready, reviews: { ann: 'APPROVED' }, reviewDecision: 'APPROVED' }, topicItems: sent, now: at(2) }).items.find((i) => i.key === 'w/A1');
@@ -300,7 +300,7 @@ test('a review waits with its age, and parks in Stale after a week', () => {
     now: at(8), fromWaves: false, prs: { 'o/r#7': ready },
     waves: [{ slug: 'f', wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items: [{ id: 'B1', title: 'Two', pr: 7, review_sent: { Ann: '1792800000.000100' } }] } }],
   }).items[0];
-  assert.deepEqual([fileBoard.lane, fileBoard.review.Ann.since], ['stale', sentAt]);
+  assert.deepEqual([fileBoard.lane, fileBoard.stale, fileBoard.review.Ann.since], ['review', true, sentAt]);
   assert.match(approved.next, /^Approved/);
   const steps = buildBoard({
     now: at(2), fromWaves: false, prs: { 'o/r#7': { ...ready, reviewDecision: 'APPROVED' } },
@@ -1124,8 +1124,7 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
   };
   const b = built();
   assert.deepEqual(lanesOf(b), {
-    review: ['R1', 'R2'],
-    stale: ['S1', 'S2'],
+    review: ['R1', 'R2', 'S1', 'S2'],
     progress: ['P2', 'P4', 'P3', 'P1'],
     todo: ['ENG-1', 'T2', 'ENG-2', 'ask:a1', 'T1', 'ask:a2'],
     done: ['D4', 'D3', 'D2', 'D1'],
@@ -1425,7 +1424,7 @@ test('review records use one precedence order and date the card from the item re
   const card = board({ item: { review_link_ts: item.review_link_ts }, topicItems: { 'w/A1': { review_link_ts: { Ann: '1.0' } } }, pr: { ...greenDraft, isDraft: false }, now: Date.parse('2026-11-01T00:00:00Z') }).items[0];
   assert.deepEqual(card.review.Ann, { state: 'sent', since: '2026-10-24T00:00:00.000Z', github: 'ann' });
   assert.equal(card.inReviewSince, '2026-10-24T00:00:00.000Z');
-  assert.equal(card.lane, 'stale');
+  assert.deepEqual([card.lane, card.stale], ['review', true]);
   assert.equal(Object.hasOwn(card, 'slack'), false);
   assert.equal(Object.hasOwn(board().waves[0], 'watched'), false);
 });
@@ -1744,44 +1743,45 @@ test("triageOf names the open cards waiting on unanswered questions, and what it
   assert.notEqual(triageOf([...base, card('w/T3', 'todo')]).seen, seen.seen, 'a Todo change');
 });
 
-test('a triage sees Stale cards beside Todo, and never Done ones, which leave the board by the archive rule', () => {
-  const card = (key, lane) => ({ key, lane, title: key, deps: [] });
+test('a triage sees stale reviews beside Todo, and never Done ones, which leave the board by the archive rule', () => {
+  const card = (key, lane, stale = false) => ({ key, lane, stale, title: key, deps: [] });
   const todo = todoOf([card('w/T1', 'todo')]);
-  assert.notEqual(todoOf([card('w/T1', 'todo'), card('w/S1', 'stale')]), todo);
-  assert.match(todoOf([card('w/S1', 'stale')]), /w\/S1/);
+  assert.notEqual(todoOf([card('w/T1', 'todo'), card('w/S1', 'review', true)]), todo);
+  assert.match(todoOf([card('w/S1', 'review', true)]), /w\/S1/);
+  assert.equal(todoOf([card('w/T1', 'todo'), card('w/R1', 'review')]), todo);
   assert.equal(todoOf([card('w/T1', 'todo'), card('w/D1', 'done')]), todo);
 });
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
 // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md
-test("a headless builder whose process lives reads quiet once its transcript and lines stop for 5 minutes, and stopped the moment its process is gone without done; one with no known process keeps the 10-minute stall", () => {
+test("a headless builder whose process lives reads quiet once its transcript and lines stop for 5 minutes, and stopped the moment its process is gone without done; one with no known process keeps the 10-minute stale limit", () => {
   const worktree = { path: '/w/GH-1' };
   const record = { kind: 'claude', started: '2026-10-30T10:00:00Z', worktree };
   const at = (minutes) => Date.parse(record.started) + minutes * 60000;
   const card = (minutes, { moved, alive } = {}) => board({ now: at(minutes), agents: { A1: { main: record } }, moved, alive }).items.find((i) => i.key === 'w/A1').builder;
   const running = card(4, { alive: { 'w/A1': true } });
-  assert.deepEqual([running.alive, running.quiet, running.stalled], [true, false, false]);
+  assert.deepEqual([running.alive, running.quiet, running.stale], [true, false, false]);
   const quiet = card(5, { alive: { 'w/A1': true } });
-  assert.deepEqual([quiet.alive, quiet.quiet, quiet.stalled], [true, true, false]);
+  assert.deepEqual([quiet.alive, quiet.quiet, quiet.stale], [true, true, false]);
   // A live process never turns red, however long it is quiet.
-  assert.deepEqual([card(90, { alive: { 'w/A1': true } }).quiet, card(90, { alive: { 'w/A1': true } }).stalled], [true, false]);
+  assert.deepEqual([card(90, { alive: { 'w/A1': true } }).quiet, card(90, { alive: { 'w/A1': true } }).stale], [true, false]);
   assert.equal(card(40, { alive: { 'w/A1': true }, moved: { '/w/GH-1': at(38) } }).quiet, false);
   const stopped = card(1, { alive: { 'w/A1': false } });
-  assert.deepEqual([stopped.alive, stopped.quiet, stopped.stalled], [false, false, true]);
+  assert.deepEqual([stopped.alive, stopped.quiet, stopped.stale], [false, false, true]);
   const untracked = card(9, { alive: {} });
-  assert.deepEqual([untracked.alive, untracked.quiet, untracked.stalled], [null, false, false]);
-  assert.equal(card(10, { alive: {} }).stalled, true);
+  assert.deepEqual([untracked.alive, untracked.quiet, untracked.stale], [null, false, false]);
+  assert.equal(card(10, { alive: {} }).stale, true);
 });
 
 // docs/adr/2026-11-05-1403-a-running-command-keeps-a-build-line-blue.md
-test("a live builder with a command running never reads quiet, and an untracked one whose transcript ends on a dangling tool call still stalls after 10 minutes", () => {
+test("a live builder with a command running never reads quiet, and an untracked one whose transcript ends on a dangling tool call still goes stale after 10 minutes", () => {
   const record = { kind: 'claude', started: '2026-10-30T10:00:00Z', worktree: { path: '/w/GH-1' } };
   const card = (minutes, extra) => board({ now: Date.parse(record.started) + minutes * 60000, agents: { A1: { main: record } }, ...extra }).items.find((i) => i.key === 'w/A1').builder;
   const live = card(40, { alive: { 'w/A1': true }, commandRunning: { '/w/GH-1': true } });
-  assert.deepEqual([live.quiet, live.stalled], [false, false]);
+  assert.deepEqual([live.quiet, live.stale], [false, false]);
   assert.equal(card(40, { alive: { 'w/A1': true } }).quiet, true);
   const untracked = card(10, { alive: {}, commandRunning: { '/w/GH-1': true } });
-  assert.deepEqual([untracked.alive, untracked.stalled], [null, true]);
+  assert.deepEqual([untracked.alive, untracked.stale], [null, true]);
 });
 
 test("a running planner's line is the card's builder line, marked planner, until a build runs, whose line wins; before its first line a planner reads its kind's word, grilling for a grill and prototyping for a prototype", () => {
@@ -2300,9 +2300,9 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const proto = { id: 'p1', ts: at, kind: 'prototype-request', data: { key: 'w/A1' }, reply: null };
   assert.deepEqual(shape(one({}, { events: [proto] })), [['w/A1', 'prototype', at, null]]);
 
-  // A builder silent past the stall limit waits from its last sign of life; a progress line ends it.
+  // A builder silent past the stale limit waits from its last sign of life; a progress line ends it.
   const silent = one({ lane: 'progress' }, { agents: quiet });
-  assert.deepEqual(shape(silent), [['w/A1', 'stalled', '2026-11-04T09:00:00Z', null]]);
+  assert.deepEqual(shape(silent), [['w/A1', 'stale', '2026-11-04T09:00:00Z', null]]);
   assert.match(silent[0].next, /silent/);
   assert.deepEqual(one({ lane: 'progress' }, { agents: quiet, threads: { 'w/A1': [{ ts: '2026-11-04T10:55:00Z', who: 'claude', kind: 'status', text: 'Testing: x' }] } }), [], 'recent progress');
 
@@ -2338,9 +2338,9 @@ test("a card whose PR a rebase run fixes stays in In Review with the run's line,
   assert.deepEqual([card.lane, card.waitsOn, card.builder.progress, card.next], ['review', 'builder', 'Rebasing onto main · resolving 2 files', null]);
   assert.equal(pullOf(running.items, { cap: 1 }).idle, false, 'the run holds an implementer slot');
   assert.equal(card.orchestrator, null);
-  // A run gone silent past the stall limit waits on the orchestrator, the card still In Review.
+  // A run gone silent past the stale limit waits on the orchestrator, the card still In Review.
   const silent = board({ pr: conflicting, now: Date.parse('2026-11-05T10:30:00Z'), item: { lane: 'progress', rebase_run: run }, agents: { A1: { main: rebasing } }, threads: { 'w/A1': [line] } });
-  assert.deepEqual(orchestratorWaits(silent).map((w) => [w.key, w.kind]), [['w/A1', 'stalled']]);
+  assert.deepEqual(orchestratorWaits(silent).map((w) => [w.key, w.kind]), [['w/A1', 'stale']]);
   assert.equal(silent.items.find((i) => i.key === 'w/A1').lane, 'review');
 
   // Failed: its call hands the card back, still In Review, waiting on the orchestrator with the run's own line.
@@ -2517,11 +2517,11 @@ test("a re-wake's plain line names each card still waiting with its kind, how lo
 test('a builder whose launch the board holds for a usage pause is no wait on the orchestrator: the board launches it once the pause lifts', () => {
   const quiet = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z' } } };
   const built = (alive) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), alive, waves: [{ slug: 'w', agents: quiet, wave: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] });
-  assert.deepEqual(orchestratorWaits(built()).map((w) => w.kind), ['stalled']);
+  assert.deepEqual(orchestratorWaits(built()).map((w) => w.kind), ['stale']);
   const held = built({ 'w/A1': 'held' });
   assert.deepEqual(orchestratorWaits(held), []);
   const card = held.items.find((i) => i.key === 'w/A1');
-  assert.deepEqual([card.builder.stalled, card.builder.alive, card.builder.held], [false, null, true]);
+  assert.deepEqual([card.builder.stale, card.builder.alive, card.builder.held], [false, null, true]);
 });
 
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
@@ -2563,4 +2563,36 @@ test("answers written together (one ts) are one thread message with one status; 
   assert.deepEqual(stateEntries(half[0]).map(([, s]) => s), ['answered', 'waiting']);
   const lone = threadOf('w/A1', { events: [answer('q1', 'A', at)], owner: { items: qs } });
   assert.equal(lone[0].text, 'Question 1 · q1?\n→ A');
+});
+
+// docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+test("a run gone silent reads stale and waits on the orchestrator; one the orchestrator stalls stays in its lane, reads stalled as an Action needed with one push, waits on nobody else and frees its slot", () => {
+  const now = Date.parse('2026-11-06T12:00:00Z');
+  const open = { A1: { main: { kind: 'claude', started: '2026-11-06T10:00:00Z' } } };
+  const stopped = { A1: { main: { kind: 'claude', started: '2026-11-06T10:00:00Z', stopped: { run: 'build', at: '2026-11-06T11:00:00Z' } } } };
+  const built = (agents, a1 = {}) => buildBoard({ now, waves: [{ slug: 'w', agents, wave: { internal: true, items: [
+    { id: 'A1', title: 'One', lane: 'progress', ...a1 }, { id: 'T1', title: 'Next', state: 'ready', created: '2026-11-06T09:00:00Z' }] } }] });
+  const card = (b) => b.items.find((i) => i.key === 'w/A1');
+
+  const stale = built(open);
+  assert.deepEqual([card(stale).stale, card(stale).builder.stale, card(stale).stalled, card(stale).action], [true, true, null, null]);
+  assert.deepEqual(orchestratorWaits(stale).map((w) => [w.key, w.kind]), [['w/A1', 'stale']]);
+  assert.deepEqual(pullOf(stale.items, { cap: 1 }).pulls, [], 'a stale run still holds its slot');
+
+  const stalled = built(stopped, { stalled: { reason: 'Crashed twice on the same test', at: '2026-11-06T11:00:00Z' } });
+  const it = card(stalled);
+  assert.deepEqual([it.lane, it.stalled, it.waitsOn], ['progress', 'Crashed twice on the same test', 'builder']);
+  assert.deepEqual(it.action, { kind: 'stalled', url: '#item=w%2FA1', label: 'stalled: Crashed twice on the same test' });
+  assert.equal(it.orchestrator, null);
+  assert.deepEqual(orchestratorWaits(stalled), []);
+  assert.deepEqual(pullOf(stalled.items, { cap: 1 }).pulls, ['w/T1'], 'a stalled card frees its slot');
+  const [push] = ownerActions(stalled).filter((a) => a.tag === 'item-w/A1');
+  assert.deepEqual([push.kind, push.title.endsWith(': stalled: Crashed twice on the same test'), push.now], ['stalled', true, true]);
+  assert.ok(stalled.needs.some((line) => line.key === 'w/A1' && line.text.endsWith('stalled: Crashed twice on the same test')));
+
+  // A stalled review stays In Review; stalled wins over its stale age.
+  const sent = { 'w/A1': { review_link_ts: { Ann: '1792800000.000100' } } };
+  const review = buildBoard({ now: Date.parse('2026-11-06T00:00:00Z'), topicItems: sent, prs: { 'o/r#7': { ...greenDraft, isDraft: false } }, waves: [{ slug: 'w', wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }],
+    items: [{ id: 'A1', title: 'One', pr: 7, lane: 'review', stalled: { reason: 'Ann left', at: '2026-11-05T00:00:00Z' } }] } }] });
+  assert.deepEqual([card(review).lane, card(review).stalled, card(review).action.kind, card(review).orchestrator], ['review', 'Ann left', 'stalled', null]);
 });

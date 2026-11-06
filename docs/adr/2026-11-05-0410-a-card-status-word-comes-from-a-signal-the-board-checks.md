@@ -1,5 +1,7 @@
 # A card's status word comes from a signal the board checks
 
+Amended by [stale is automatic, stalled is the orchestrator's flag](2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md): a gone or silent run now reads stale, its status line grey with no nudge, and is a `stale` wait on the orchestrator.
+
 Card #241 audited every status word a card shows against real headless runs (the card's notes,
 `status-audit-notes.md`). Several words claimed work that wasn't happening, or hid work that was: a builder read
 "preheating" for up to 78 s while it read code, a grill request with nothing running read blue "preheating" for 73

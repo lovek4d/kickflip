@@ -209,8 +209,8 @@ test('one function words every stop, and a stopped build reads it as its status,
     waves: [{ slug: 'w', agents: { A1: { main: record } }, wave: { items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }],
   }).items[0];
   const stopped = card({ kind: 'claude', started, stopped: { run: 'build', at: stop } });
-  assert.deepEqual([stopped.lane, stopped.builder.stopped, stopped.builder.alive, stopped.builder.stalled, stopped.builder.silentSince], ['progress', 'build stopped by orchestrator', false, true, stop]);
-  assert.deepEqual([stopped.orchestrator.kind, stopped.orchestrator.since], ['stalled', stop]);
+  assert.deepEqual([stopped.lane, stopped.builder.stopped, stopped.builder.alive, stopped.builder.stale, stopped.builder.silentSince], ['progress', 'build stopped by orchestrator', false, true, stop]);
+  assert.deepEqual([stopped.orchestrator.kind, stopped.orchestrator.since], ['stale', stop]);
   // A build started again after the stop reads as it runs.
   const restarted = card({ kind: 'claude', started: '2026-11-05T10:20:30.000Z', stopped: { run: 'build', at: stop } });
   assert.deepEqual([restarted.builder.stopped, restarted.builder.alive], [null, true]);
@@ -234,4 +234,34 @@ test('the server never relaunches a build the orchestrator stopped: it stays tra
   const tracked = { 'w/A': { model: 'opus', pid: 7, relaunched: false } };
   const next = await reviveBuilders(tracked, new Set(['w/A']), { launch, handBack, alive: () => false, stopped: new Set(['w/A']) });
   assert.deepEqual(next, { 'w/A': { ...tracked['w/A'], handedBack: true } });
+});
+
+// docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+test("item stall stops the card's run with everything under it, keeps its record open and stopped, flags the card with the reason and says so in its thread", async (t) => {
+  const run = await fakeRun(t, { nested: true });
+  setA1({ lane: 'progress' });
+  write(recordFile(), { started: new Date(Date.now() - 60_000).toISOString(), kind: 'claude', session: { id: 's1', pid: run.root, at: now() }, worktree: { path: '/w/A1' } });
+  const r = await cli('item', 'stall', 'w/A1', '--reason', 'Crashed twice on the same test');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^A1 stalled: Crashed twice on the same test\n/);
+  assert.match(r.out, new RegExp(`stopped ${run.root} `));
+  await until(() => ![run.root, run.land, run.suite].some(alive), 'the builder and its suite are gone');
+  const record = read(recordFile());
+  assert.deepEqual([record.stopped.run, record.done, record.worktree.path], ['build', undefined, '/w/A1']);
+  const item = read(waveFile()).items.find((i) => i.id === 'A1');
+  assert.deepEqual([item.lane, item.stalled.reason, typeof item.stalled.at], ['progress', 'Crashed twice on the same test', 'string']);
+  assert.deepEqual(thread().map((l) => [l.who, l.text]), [['claude', 'stalled by orchestrator: Crashed twice on the same test']]);
+
+  // A run already gone has nothing to stop; the card is flagged all the same.
+  setA1({ stalled: undefined });
+  write(recordFile(), { started: now(), kind: 'claude' });
+  const gone = await cli('item', 'stall', 'w/A1', '--reason', 'Gone twice');
+  assert.equal(gone.code, 0, gone.err);
+  assert.equal(gone.out, 'A1 stalled: Gone twice\n');
+  assert.equal(read(recordFile()).stopped.run, 'build');
+  assert.equal(read(waveFile()).items.find((i) => i.id === 'A1').stalled.reason, 'Gone twice');
+
+  const bare = await cli('item', 'stall', 'w/A1');
+  assert.equal(bare.code, 1);
+  assert.match(bare.err, /--reason/);
 });

@@ -1,6 +1,7 @@
 // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md
 // The orchestrator's stops of the runs the board launched on a card, so its session never needs a raw kill: `builder
-// stop` stops the card's headless builder, lander or rebase run, and `land stop` the card's land, with every process
+// stop` stops the card's headless builder, lander or rebase run, `item stall` stops it and flags the card stalled, and
+// `land stop` the card's land, with every process
 // under each, a land's detached suite too (headless.mjs stopRuns). Each marks the card so nothing relaunches the run,
 // writes the stop's words (domain.mjs stoppedWords) as a thread line, and says what it stopped. A bump moves the card's
 // queued lands first (worktree.mjs moveQueuedLand).
@@ -13,7 +14,8 @@ import { processStarts } from '../hub/live.mjs';
 
 const fail = (msg) => { throw new store.BoardError(msg); };
 const ARGS_CAP = 120;
-const stoppedLines = (ref, run, stopped) => [`${ref}: ${stoppedWords(run)}`, ...stopped.map((p) => `stopped ${p.pid} ${p.args.length > ARGS_CAP ? `${p.args.slice(0, ARGS_CAP - 1)}…` : p.args}`)];
+const pidLines = (stopped) => stopped.map((p) => `stopped ${p.pid} ${p.args.length > ARGS_CAP ? `${p.args.slice(0, ARGS_CAP - 1)}…` : p.args}`);
+const stoppedLines = (ref, run, stopped) => [`${ref}: ${stoppedWords(run)}`, ...pidLines(stopped)];
 
 async function stopped(site, key, run, leader) {
   await store.markStopped(site, key, run);
@@ -54,6 +56,21 @@ export async function stopForBlock(site, key) {
   if (builds.every((r) => !r.pid)) fail(`${ref}'s builder runs in a session the board didn't launch, so blocking it can't stop it; finish or stop it in that session with builder done --next, then block it`);
   const agent = launchedAgents(builds)[0];
   return agent ? stopAgent(site, key, ref, agent) : [];
+}
+
+// docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+// The orchestrator's stall of a card it can't restart (item stall): the card is flagged with the reason, each open build
+// record is marked stopped so nothing relaunches it and its slot frees, and its board-launched run stops as builder stop
+// stops it. A run already gone, or one a session runs, has nothing the board can stop. Its worktree stays. → its lines
+export async function stallCard(site, key, reason) {
+  const ref = await store.cardName(site, key);
+  const words = await store.markStalled(site, key, reason);
+  await store.markStopped(site, key, await store.isLanding(site, key) ? 'land' : 'build');
+  const agent = launchedAgents((await store.openRuns(site, key)).filter((r) => !plans(r)))[0];
+  const processes = agent ? await stopRuns([agent.pid]) : [];
+  clearStoppedLand(ref, processes.map((p) => p.pid));
+  await store.appendThread(site, key, { text: `stalled by orchestrator: ${words}` });
+  return { lines: [`${ref} stalled: ${words}`, ...pidLines(processes)] };
 }
 
 const pgidOf = (pid) => Number(spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim()) || null;

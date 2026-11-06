@@ -60,9 +60,10 @@
   // A composer's send buttons: the one with nth 0 presses on ⌘↵ and the one with nth 1, where there is one, on ⌥↵,
   // wherever each sits in the row (Ctrl+↵ and
   // Alt+↵ off a Mac), each with its key as a small gray hint that style.css shows only where there is a keyboard and room.
+  // tone is its class: primary for the nth 0 one unless given, as resolves on the Send or Reply that clears Action needed.
   const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || '');
   const SEND_KEYS = MAC ? ['⌘↵', '⌥↵'] : ['Ctrl+↵', 'Alt+↵'];
-  const sendButton = (label, nth, attrs = '') => `<button type="submit"${nth === 0 ? ' class="primary"' : ''} data-nth="${nth}"${attrs}>${esc(label)}<span class="key-hint" aria-hidden="true">${SEND_KEYS[nth]}</span></button>`;
+  const sendButton = (label, nth, attrs = '', tone = nth === 0 ? 'primary' : '') => `<button type="submit"${tone ? ` class="${tone}"` : ''} data-nth="${nth}"${attrs}>${esc(label)}<span class="key-hint" aria-hidden="true">${SEND_KEYS[nth]}</span></button>`;
   // The send button an Enter keydown in form's box presses, or null.
   const keyedSend = (ev, form) => {
     if (ev.key !== 'Enter' || ev.isComposing) return null;

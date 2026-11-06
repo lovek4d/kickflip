@@ -132,7 +132,6 @@
 //                                again for a new answer and its card's thread reads "Question N was reopened"; one naming
 //                                a question with no answer sent → 400 {error}. Record-only: it wakes no session
 //                                (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md)
-//                                builder-nudge {key} asks the session to check a builder
 //                                item set appends card-unblocked {key} when a blocked card's last dep finishes,
 //                                including held cards, a record that wakes no session: the pull takes the card.
 //                                reviewers {add?: [{name, slack_user, github}], remove?: [name]} is Board settings' reviewers
@@ -325,7 +324,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, launchIntake, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -431,7 +430,7 @@ async function readBody(req, limit = 64 * 1024) {
 // the header's GitHub check stay the owner's, as does any kind not listed.
 const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
   'ask', 'ask-edited', 'ask-withdrawn', 'ask-bump', 'ask-done', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
-  'builder-nudge', 'lineup-move', 'plan-waves']);
+  'lineup-move', 'plan-waves']);
 const VIEW_ONLY = 'This board is shared with you to look at only.';
 const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
 // → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
@@ -1191,6 +1190,9 @@ const server = http.createServer(async (req, res) => {
         const key = String(body.key || '');
         const card = (await sharedBoard()).items.find((i) => i.key === key && i.kind === 'work');
         const bare = !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
+        // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md: a message on a card the
+        // orchestrator stalled clears the stall, and reaches the orchestrator as any message does.
+        if (card?.stalled) await clearStall(here, key);
         // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement readies the
         // card as it is and starts its build, with no event.
         if (bare && (card?.ready || card?.lane === 'todo')) {
@@ -1802,7 +1804,7 @@ async function launchCutOffBuilds() {
 // The cards whose run the orchestrator stopped (domain.mjs builderOf), which nothing relaunches.
 const stoppedKeys = (items) => new Set(items.filter((c) => c.builder?.stopped).map((c) => c.key));
 // Once a minute: a headless builder whose usage isn't held and whose process exited with its record open launches again
-// once, and after that leaves a thread line; its record stays open, so the stall alarm brings in the orchestrator. One
+// once, and after that leaves a thread line; its record stays open, so its stale wait brings in the orchestrator. One
 // whose run log ends on the usage limit (hub/usage.mjs runLimit) keeps its relaunch: it is held until the reset, with a
 // thread line, and launched then (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md).
 let revivingHeadless = false;

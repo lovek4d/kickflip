@@ -1,5 +1,7 @@
 # A stale review and a silent builder join the orchestrator's list
 
+Amended by [stale is automatic, stalled is the orchestrator's flag](2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md): the `stalled` kind is now `stale`, a stale review stays In Review rather than in a Stale lane, there is no `builder-nudge`, and the orchestrator flags a card it can't restart with `item stall`.
+
 The owner, on #206: "if a card is decided to be stale, I would like to automatically nudge the orchestrator to take a look." A builder reading Stalled woke the session once per silent spell (`builder-stalled`), and a review gone Stale woke nothing: the Stale lane showed it and no push or event followed.
 
 - **Two more kinds on the list** ([each lane is a queue for the orchestrator](2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md)). `domain.mjs` `orchestratorWaitOf` adds `stalled`, a builder or planner past the stall limit ([a builder stalls after 10 minutes without movement](2026-11-05-0001-a-builder-stalls-after-10-minutes-without-movement.md)), waiting since its `silentSince`; and `stale`, a card in the Stale lane, waiting since it crossed seven days in review. Both ride the existing `orchestrator-waits {added}` event, the list the watcher prints on every wake and the 30-minute push to the owner.

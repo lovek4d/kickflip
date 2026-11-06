@@ -86,6 +86,9 @@ button.chip { border: 0; }
 .card-blocked, .card-action { color: var(--color-notice); }
 .card-ready { color: var(--color-success); }
 .card-staging { color: var(--color-notice); }
+/* The footer status of a stale card, and of one the orchestrator stalled (ui-cards.js timeLine). */
+.card-stale { color: var(--muted); }
+.card-stalled { color: var(--color-danger); }
 .sub.next.idle { color: var(--muted); }
 .sub.refused { color: var(--color-danger); }
 .toast-stack { position: fixed; left: 50%; bottom: calc(var(--app-bottom, 0px) + 12px + env(safe-area-inset-bottom));
@@ -197,7 +200,6 @@ button.link { background: none; border: 0; color: var(--accent); padding: 8px 12
 .lane-github { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted); text-align: right; }
 .lane-github .late { color: var(--color-notice); }
 .msg.other { background: transparent; border: 1px solid var(--line); }
-.status.stale { border-color: var(--color-danger); background: conic-gradient(var(--color-danger) 0 75%, transparent 75% 100%); }
 .msg .reply, .msg .small, .rep, .sent { overflow-wrap: anywhere; }
 code { overflow-wrap: anywhere; }
 /* iOS Safari zooms the page when a field under 16px takes focus, which shifts the page width. */
@@ -376,20 +378,6 @@ button.attach:disabled { opacity: .35; }
 @keyframes pulse-fill { 50% { background-color: color-mix(in srgb, var(--bar-fill) 35%, transparent); } }
 /* Every pulse beats on one clock (ui-progress-bar.js onePulse), so a card's running bar and its status dot blink together. */
 @media (prefers-reduced-motion: no-preference) { .phase-bars i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
-/* A stale build's status line, dot included, is the needs-you red, and a tap on it nudges Claude (ui-cards.js builderStatus). */
-/* A status line that is a button is drawn as the div it replaces: this one reset, then only a colour per state. The font
-   shorthand stays out so .sub's 12px wins. It sets no width: a button is its own block formatting context, so a full-width one
-   drops below the bump icons' float instead of sitting beside it as the div's line box does (board/layout.test.mjs). */
-button.sub { display: block; margin-inline: 0; margin-bottom: 0; padding: 0; min-height: 0; border: 0; border-radius: 0; background: none;
-  font-family: inherit; font-weight: inherit; letter-spacing: inherit; line-height: inherit; text-align: left; appearance: none; -webkit-appearance: none; }
-button.sub.agent.stalled { color: var(--color-danger); }
-/* A tap on it calms the line to the in-progress orange, its dot sending a ripple, until the card's next status line (app-cards.js nudge). */
-button.sub.agent.stalled.nudging { color: var(--color-notice); cursor: default; }
-.nudging .working-dot { position: relative; }
-.nudging .working-dot::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0; }
-@keyframes nudge-ping { from { transform: scale(1); opacity: .9; } to { transform: scale(2.6); opacity: 0; } }
-@media (prefers-reduced-motion: no-preference) { .nudging .working-dot::after { animation: nudge-ping 1.1s ease-out infinite; } }
-.stalled .working-dot { background: currentColor; }
 .brand { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; }
 .brand .hub { grid-row: 1 / span 2; align-self: center; }
 /* The session's working line, "thinking", is the owner's blue with one font, size, weight and pulse on the card and in the thread. */
@@ -417,6 +405,9 @@ button.sub.agent.stalled.nudging { color: var(--color-notice); cursor: default; 
    has picked up are grey, after the lane colours so they win. */
 .sub.agent.quiet, .sub.asked { color: var(--muted); }
 .sub.agent.waiting-gray { color: var(--muted); }
+/* A stale build's status line is grey, its dot still (ui-cards.js builderStatus). */
+.sub.agent.stale { color: var(--muted); }
+.sub.agent.stale .working-dot { animation: none; }
 /* The one class every paused status takes, gray: the card and thread line, the header, the hub banner. */
 .paused { color: var(--muted); font-weight: 600; }
 .phase-bars.in-todo { --bar-fill: var(--muted); }

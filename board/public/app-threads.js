@@ -1,7 +1,7 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, waitOn, newQuestionsLine } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, waitOn, newQuestionsLine, BUTTON } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request' };
   // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it.
@@ -16,14 +16,18 @@ BoardView.part((B) => {
   // A Todo card's reply box sends with Reply (intent: 'reply') or Implement (intent: 'build'), which is the card's build
   // action: builder orange once the card is ready, quiet before. An In Review card's box has Done then Reply
   // (ui-threads.js doneButton), Done in its tone. Any other card's box sends with Send, carrying no intent. A pair wraps
-  // onto its own line under the row.
-  const REVIEW = new Set(['review', 'stale']);
-  const sendsOf = (item) => (item?.lane === 'todo' ? (item.ready ? 'todo-ready' : 'todo')
-    : REVIEW.has(item?.lane) ? ['review', doneTone(item)].filter(Boolean).join(' ') : 'one');
+  // onto its own line under the row. Send or Reply is orange while a message clears the card's Action needed, as on a
+  // card the orchestrator stalled (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
+  const replyTone = (item) => (item?.resolvedBy === BUTTON.reply ? 'resolves' : undefined);
+  const sendsOf = (item) => [item?.lane === 'todo' ? (item.ready ? 'todo-ready' : 'todo')
+    : item?.lane === 'review' ? ['review', doneTone(item)].filter(Boolean).join(' ') : 'one', replyTone(item) && 'reply-resolves'].filter(Boolean).join(' ');
   const pair = (kind, html) => `<span class="send-actions" data-sends="${kind}">${html}</span>`;
-  const sends = (kind, item) => (kind === 'one' ? `<span data-sends="one">${sendButton('Send', 0)}</span>`
-    : kind.startsWith('review') ? pair(kind, `${doneButton(item)}${sendButton('Reply', 0, ' data-intent="reply"')}`)
-    : pair(kind, `${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}${sendButton('Reply', 0, ' data-intent="reply"')}`));
+  const sends = (kind, item) => {
+    const reply = (label, attrs = '') => sendButton(label, 0, attrs, replyTone(item));
+    return kind.startsWith('one') ? `<span data-sends="${kind}">${reply('Send')}</span>`
+      : kind.startsWith('review') ? pair(kind, `${doneButton(item)}${reply('Reply', ' data-intent="reply"')}`)
+      : pair(kind, `${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}${reply('Reply', ' data-intent="reply"')}`);
+  };
   // The board, not the thread, decides the send buttons, so they follow each board load even when the thread is unchanged.
   function syncSends(el, key) {
     const at = el.querySelector('form [data-sends]');

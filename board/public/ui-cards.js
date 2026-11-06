@@ -194,7 +194,7 @@
     const name = (phase) => `${phase[0].toUpperCase()}${phase.slice(1)}`;
     if (it.builder && it.builder.kind !== BUILDER_KIND.install) {
       const done = BUILD_PHASES.indexOf(it.builder.phase) + 1;
-      return { count: all, done, now: done ? done - 1 : undefined, dim: asking || Boolean(it.builder.stalled || it.builder.quiet), label: `${done ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
+      return { count: all, done, now: done ? done - 1 : undefined, dim: asking || Boolean(it.builder.stale || it.builder.quiet), label: `${done ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
     }
     const dim = !it.builder || asking;
     if (it.reopened) return { count: all, done: all, dim, label: `Reopened, ${ALL_DONE}${answers}` };
@@ -221,16 +221,15 @@
     const words = isPaused() ? `${PAUSED} · ${esc(lasted(picked || since))}` : picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`;
     return `<div class="line3 sub agent${tone(it)}${picked && !isPaused() ? '' : ' waiting-gray'}">${words}</div>`;
   }
-  // A stale or stopped build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
-  // A quiet one is grey, with no dot, and one the orchestrator stopped plain, since the orchestrator already knows.
+  // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
+  // A stale build's status line is grey, its dot still, since the orchestrator is already told; a quiet one is grey with
+  // no dot, and one the orchestrator stopped plain.
   function builderStatus(it) {
     const { quiet } = it.builder;
-    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}${quiet ? ' quiet' : ''}`;
+    const stale = it.builder.stale && !it.builder.stopped && it.lane !== 'done';
+    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}${quiet ? ' quiet' : ''}${stale ? ' stale' : ''}`;
     if (it.builder.stopped) return `<div class="${classes}">${esc(builderLine(it.builder))}</div>`;
-    const words = `${quiet ? '' : DOT}${esc(builderLine(it.builder))}`;
-    if (!it.builder.stalled || it.lane === 'done') return `<div class="${classes}">${words}</div>`;
-    const nudging = BoardUI.pending.has(`${it.key}:nudge`) ? ' nudging' : '';
-    return `<button type="button" class="${classes} stalled${nudging}" data-confirm="nudge" data-key="${esc(it.key)}" title="No recent progress. Nudge Claude to check this implementer">${words}</button>`;
+    return `<div class="${classes}">${quiet ? '' : DOT}${esc(builderLine(it.builder))}</div>`;
   }
   // The open card's Status row: what runs on the card, else where its lane leaves it, never the wave file's raw status
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
@@ -264,14 +263,16 @@
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed,
-  // staging in orange or ready in green (docs/adr/2026-11-07-0700-staging-then-ready.md), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
+  // staging in orange or ready in green (docs/adr/2026-11-07-0700-staging-then-ready.md), stalled in red or stale in grey
+  // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
   // takes away when the card opens (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
   const newWords = (n, word) => n && `${n} new ${word}${n === 1 ? '' : 's'}`;
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
-    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.staging && '<span class="card-staging">staging</span>', it.ready && '<span class="card-ready">ready</span>'].filter(Boolean);
+    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.staging && '<span class="card-staging">staging</span>', it.ready && '<span class="card-ready">ready</span>',
+      it.stalled ? '<span class="card-stalled">stalled</span>' : it.stale && '<span class="card-stale">stale</span>'].filter(Boolean);
     const news = newWords(unread, 'message');
     const count = news ? `<span class="card-unread">${parts.length || bars ? SEP : ''}${news}</span>` : '';
     const tail = bars ? `${parts.length ? SEP : ''}${bars}` : '';

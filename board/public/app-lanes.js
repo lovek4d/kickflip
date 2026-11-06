@@ -6,7 +6,6 @@ BoardView.part((B) => {
   const { esc, escText, waitOn } = BoardUI;
   const LANES = [
     { id: 'review', name: 'In Review', open: true },
-    { id: 'stale', name: 'Stale', open: true, hideEmpty: true },
     { id: 'progress', name: 'In Progress', open: true },
     { id: 'todo', name: 'Todo', open: true },
     { id: 'done', name: 'Done', open: false, capped: true },
@@ -93,7 +92,6 @@ BoardView.part((B) => {
     return reviewsHtml(d) + LANES.map((lane) => {
       // Items arrive in each lane's fixed order (domain.mjs laneOrder).
       const items = shown.filter((i) => i.lane === lane.id);
-      if (lane.hideEmpty && !items.length) return '';
       const expanded = laneState[lane.id] ?? lane.open;
       const open = items.filter((i) => !i.fold);
       const rows = lane.id === 'todo' ? todoRows(d, shown, open) : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : waveGroups(lane.id, open)) + waveFolds(d, items);
@@ -108,19 +106,18 @@ BoardView.part((B) => {
   // docs/adr/2026-11-05-0215-every-lane-groups-its-cards-by-wave.md
   // Every lane but Todo groups its cards under a header per open wave (state.board.waveBands) that has cards there, in
   // band order, then the cards in no wave under No wave. A lane with no card in a wave lists its cards plainly. A header
-  // counts its wave's cards in Todo, In Progress (Stale included), In Review and Done as x/y/k/z, from every lane, with
+  // counts its wave's cards in Todo, In Progress, In Review and Done as x/y/k/z, from every lane, with
   // the lane's own number bold in that lane's colour (style.css: review blue, progress orange, Todo and Done gray) and a tooltip that spells the counts out.
   // A tap on the counts opens the tooltip (countsShown, the header's lane/wave); a second tap or a tap elsewhere closes it.
   let countsShown = null;
   const COUNT_LANES = [['todo', 'in Todo'], ['progress', 'in progress'], ['review', 'in review'], ['done', 'done']];
   function waveCounts(band, laneId) {
-    const lanes = state.board.items.reduce((m, i) => m.set(i.key, i.lane === 'stale' ? 'progress' : i.lane), new Map());
+    const lanes = state.board.items.reduce((m, i) => m.set(i.key, i.lane), new Map());
     const n = COUNT_LANES.map(([id]) => band.keys.filter((k) => lanes.get(k) === id).length);
-    const here = laneId === 'stale' ? 'progress' : laneId;
     const id = `${laneId}/${band.slug}`;
     const spelled = COUNT_LANES.map(([, word], at) => `${n[at]} ${word}`);
     const tip = `<span class="wb-tip" role="tooltip">${spelled.map((t) => `<div>${t}</div>`).join('')}</span>`;
-    return `<button type="button" class="wb-counts${countsShown === id ? ' open' : ''}" data-counts="${esc(id)}" aria-label="${spelled.join(', ')}">${COUNT_LANES.map(([lane], at) => `<span${lane === here ? ` class="wv-cur wv-${lane}"` : ''}>${n[at]}</span>`).join('<span aria-hidden="true">/</span>')}${tip}</button>`;
+    return `<button type="button" class="wb-counts${countsShown === id ? ' open' : ''}" data-counts="${esc(id)}" aria-label="${spelled.join(', ')}">${COUNT_LANES.map(([lane], at) => `<span${lane === laneId ? ` class="wv-cur wv-${lane}"` : ''}>${n[at]}</span>`).join('<span aria-hidden="true">/</span>')}${tip}</button>`;
   }
   function waveGroups(laneId, cards) {
     const bands = state.board.waveBands || [];
@@ -142,7 +139,7 @@ BoardView.part((B) => {
   let goalShown = null;
   const bandStore = (slug) => FOLDS[`band:${slug}`].store;
   const bandOpen = (band, first) => store.get(bandStore(band.slug), band.slug === first);
-  const LANE_WORDS = { progress: 'in progress', review: 'in review', stale: 'stale' };
+  const LANE_WORDS = { progress: 'in progress', review: 'in review' };
   const DOTS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
   // Todo's wave bands and loose cards, in the order they arrive (domain.mjs laneOrder).
