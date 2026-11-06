@@ -112,7 +112,7 @@ test('every hub path answers only the owner: the Mac, loopback callers and devic
     }
     for (const [method, p] of [['GET', '/_hub/api/hub'], ['GET', '/app/api/board'], ['POST', '/_hub/restart-hub'], ['POST', '/app/api/items']]) {
       const api = await fetch(base + p, { method, headers: { ...headers, 'content-type': 'application/json' }, body: method === 'POST' ? '{}' : undefined });
-      assert.deepEqual([api.status, api.headers.get('content-type'), await api.text()], [403, 'application/json', '{}'], `${method} ${p}`);
+      assert.deepEqual([api.status, api.headers.get('content-type'), api.headers.get('x-kickflip-down'), await api.text()], [403, 'application/json', 'access', '{}'], `${method} ${p}`);
     }
   }
   assert.equal(statusAsks(), 1);

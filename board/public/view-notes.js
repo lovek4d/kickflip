@@ -11,22 +11,42 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, async (B) => {
     const { $, site } = B;
-    const { esc, markdown, linkContext, fetchJSON, restartNotice } = BoardUI;
+    const { esc, markdown, linkContext, fetchJSON, downLanding, copyNote, pageCopy } = BoardUI;
     const key = ctx.view.item || '';
     const wave = ctx.view.wave;
     const el = $('#plan');
     const get = (url, opts = {}) => fetchJSON(url, { ...opts, sleep: B.sleep });
+    const paint = (body, items, note = '') => {
+      $('#ref').textContent = `${wave ? body.title : body.ref} notes`;
+      document.title = $('#ref').textContent;
+      el.innerHTML = note + markdown(body.markdown, linkContext(items, key, { base: './' }));
+    };
+    // While the board can't be reached, the notes' last answer here shows under its copy line, or with none the landing
+    // for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+    const url = site.url(`api/notes?${wave ? `wave=${encodeURIComponent(wave)}` : `item=${encodeURIComponent(key)}`}`);
+    let copy = null;
+    let live = false;
+    let copied = false;
+    const waiting = (down) => {
+      copy ||= pageCopy.read(url);
+      copy.then((c) => {
+        if (!B.alive() || live || copied) return;
+        if (!c) { el.innerHTML = downLanding(down); return; }
+        copied = true;
+        paint(c.body, [], copyNote('the notes', c.savedAt));
+      });
+    };
     try {
       const board = get(site.url('api/board')).then((r) => r.body).catch(() => ({}));
-      const query = wave ? `wave=${encodeURIComponent(wave)}` : `item=${encodeURIComponent(key)}`;
-      const r = await get(site.url(`api/notes?${query}`), { onWait: () => { el.innerHTML = restartNotice(); } });
+      const r = await get(url, { onWait: (ms, down) => waiting(down) });
       if (!B.alive()) return;
       if (!r.ok) throw new Error(r.body.error || `notes ${r.status}`);
-      $('#ref').textContent = `${wave ? r.body.title : r.body.ref} notes`;
-      document.title = $('#ref').textContent;
-      el.innerHTML = markdown(r.body.markdown, linkContext((await board).items || [], key, { base: './' }));
+      live = true;
+      paint(r.body, (await board).items || []);
+      pageCopy.save(url, r.body);
     } catch (e) {
-      el.innerHTML = `<p class="muted">Could not load these notes: ${esc(e.message)}</p>`;
+      if (e.down) waiting(e.down);
+      else el.innerHTML = `<p class="muted">Could not load these notes: ${esc(e.message)}</p>`;
     }
   }),
 };

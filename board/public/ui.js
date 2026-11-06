@@ -365,9 +365,54 @@
     },
   };
 
+  // Why a board request failed, from what the hub marks on its answer (hub/hub.mjs sendDown, hub/front-door.mjs refuse)
+  // (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md). answer is the response, or null when
+  // nothing answered or the request timed out; online is navigator.onLine. → {state, line, hint, retries}: the landing's
+  // two lines, and whether the board can come back by itself, so the page keeps retrying.
+  const BACK = 'This page comes back by itself.';
+  const DOWN = {
+    restarting: { line: 'Board restarting' },
+    stopped: { line: 'Board stopped', hint: 'Nothing answers on its port. Its Claude session has to start it.' },
+    removed: { line: 'This board is gone', hint: 'The hub no longer lists it.', retries: false },
+    access: { line: 'You no longer have access', hint: 'Ask its owner to share it again.', retries: false },
+    erroring: { line: 'Board restarting', hint: 'It answers with errors. Retrying for 30 seconds.' },
+    unreachable: { line: 'Board offline', hint: 'The hub, your connection or the Mac is down. Retrying.' },
+  };
+  const RESTART_WHY = { code: 'Its code changed.', starting: 'It’s starting.', crashed: 'It stopped, and the hub is starting it again.' };
+  function downOf(answer, online = navigator.onLine !== false) {
+    const why = online && answer ? answer.headers.get('x-kickflip-down') : null;
+    const state = !online || !answer ? 'unreachable'
+      : RESTART_WHY[why] ? 'restarting'
+        : DOWN[why] ? why
+          : answer.headers.get('x-app-shell') ? 'access'
+            : why || answer.headers.get('x-kickflip-hub') ? 'erroring' : 'unreachable';
+    return { state, retries: true, ...DOWN[state], ...(state === 'restarting' ? { hint: `${RESTART_WHY[why]} ${BACK}` } : {}) };
+  }
+  // A view's place when it has no copy to show: the kickflip mark and down's two lines, as the no-access page has them.
+  const downLanding = (down) => `<div class="down-landing" data-down="${down.state}"><img class="down-landing-mark" src="/_hub/kickflip.png" width="70" height="60" alt="">
+<p class="down-landing-line">${esc(down.line)}</p><p class="down-landing-hint">${esc(down.hint)}</p></div>`;
+  // The line over a side page painted from its copy while the board can't be reached.
+  const copyNote = (what, savedAt) => `<p class="note copy-note">Copy of ${esc(what)} as of ${since(savedAt)}. Read only.</p>`;
+  // The buttons that send, which a board out of reach holds (style.css .offline): every one greyed and stopped, and the
+  // labelled ones saying why on the button. Reading controls, folds, links, Edit and drafts stay live.
+  const SENDS_LABELLED = 'form button[type="submit"], .actions button, button[data-confirm], button[data-deck-pick], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick]';
+  const SENDS = `${SENDS_LABELLED}, button[data-card-bump], button[data-bump], button[data-withdraw], button[data-band-move], button[data-grill], button[data-proto], button[data-visual], button[data-plan], button[data-main-pull], button[data-arch-run], button[data-try], button[data-reopen]`;
+  // While held(), a tap on one of root's sending buttons, and any form's submit there, Enter's included, goes nowhere.
+  // on is the view's B.on.
+  function holdSends(on, root, held) {
+    const stop = (ev) => {
+      if (!held() || (ev.type === 'click' && !ev.target.closest?.(SENDS))) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+    };
+    on(root, 'click', stop, true);
+    on(root, 'submit', stop, true);
+  }
+
   // While a board restarts, the hub answers its own 502 page, and a request can fail outright. fetchJSON waits that out:
-  // on a network error, a 5xx or a body that isn't JSON it calls onWait(waitedMs) and retries with a growing backoff,
-  // then throws once about limit ms have passed. Any other answer resolves {ok, status, body}, a 404's {error} included.
+  // on a network error, a 5xx or a body that isn't JSON it calls onWait(waitedMs, down) and retries with a growing backoff,
+  // then throws once about limit ms have passed, the error carrying down (downOf). Any other answer resolves
+  // {ok, status, body}, a 404's {error} included.
   // tag is the version of the board the page holds: an unchanged board answers 304, which resolves with body null
   // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
   const RESTARTING = 'Board restarting…';
@@ -377,15 +422,18 @@
     let delay = 500;
     for (;;) {
       let failure;
+      let answer = null;
       try {
         const r = await get(url, { cache: 'no-store', ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) });
         if (r.status === 304) return { ok: true, status: 304, body: null };
         const body = await r.text().then((t) => JSON.parse(t)).catch(() => undefined);
         if (body !== undefined && r.status < 500) return { ok: r.ok, status: r.status, body };
+        answer = r;
         failure = new Error(r.status >= 500 ? `the board answered ${r.status}` : 'the board did not answer with JSON');
       } catch { failure = new Error('Offline. Is the host awake?'); }
+      failure.down = downOf(answer);
       if (waited >= limit) throw failure;
-      onWait(waited);
+      onWait(waited, failure.down);
       await sleep(delay);
       waited += delay;
       delay = Math.min(delay * 2, 4000);
@@ -394,7 +442,7 @@
 
   globalThis.BoardUI = {
     LINK_ARROW, escText,
-    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
+    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice, downOf, downLanding, copyNote, SENDS, SENDS_LABELLED, holdSends,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
   };
 })();

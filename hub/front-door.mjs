@@ -42,7 +42,8 @@ export function refusalPage(verdict) {
 export function refuse(req, res, verdict) {
   const { status, json } = REFUSALS[verdict];
   const page = /\btext\/html\b/.test(req.headers.accept || '');
-  res.writeHead(status, { 'content-type': page ? 'text/html; charset=utf-8' : 'application/json', 'cache-control': 'no-store' });
+  // A board page that loses its share reads 'access' (board/public/ui.js downOf).
+  res.writeHead(status, { 'content-type': page ? 'text/html; charset=utf-8' : 'application/json', 'cache-control': 'no-store', ...(verdict === 'other' ? { 'x-kickflip-down': 'access' } : {}) });
   res.end(page ? refusalPage(verdict) : JSON.stringify(json));
   // A body the client is still sending is never read.
   req.resume();

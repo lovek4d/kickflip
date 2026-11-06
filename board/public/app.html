@@ -17,7 +17,9 @@ window.BoardBoot = (function () {
   if (!route || route === '_hub') return null;
   try { if (JSON.parse(localStorage.getItem('hub:sidebar') || 'null')?.sites?.some((s) => s.route === route && !s.board)) return null; } catch {}
   const base = '/' + encodeURIComponent(route) + '/';
-  const get = (u) => { const p = fetch(base + u, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status))))); p.catch(() => {}); return p; };
+  // A failed answer rides on the error, for the board view's BoardUI.downOf.
+  const unanswered = (r) => Object.assign(new Error(String(r.status)), { answer: r });
+  const get = (u) => { const p = fetch(base + u, { cache: 'no-store' }).then((r) => (r.ok ? r.json().catch(() => { throw unanswered(r); }) : Promise.reject(unanswered(r)))); p.catch(() => {}); return p; };
   let open = [];
   try { open = JSON.parse(localStorage.getItem(`site:${route}:openItems`) || '[]'); } catch {}
   const focus = /^#item=([^&]+)/.exec(location.hash);

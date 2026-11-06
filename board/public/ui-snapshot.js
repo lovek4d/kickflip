@@ -13,10 +13,38 @@
   // → {savedAt, board, threads}, or null for anything copyOf didn't write under this build: code from another build may
   // read the board's shape differently, and a paint that throws stops the live load.
   function readCopy(s, build) {
-    if (s?.build !== build || !Array.isArray(s.board?.items) || !Number.isInteger(s.board.version) || typeof s.savedAt !== 'string' || !Number.isFinite(Date.parse(s.savedAt))) return null;
+    if (!s || s.build !== build || !Array.isArray(s.board?.items) || !Number.isInteger(s.board.version) || typeof s.savedAt !== 'string' || !Number.isFinite(Date.parse(s.savedAt))) return null;
     const threads = Object.fromEntries(Object.entries(s.threads && typeof s.threads === 'object' ? s.threads : {}).filter(([, m]) => Array.isArray(m)));
     return { savedAt: s.savedAt, board: s.board, threads };
   }
+
+  // One transaction on a store of the copies' database: 'boards', each board's copy, or 'pages', a side page's answers
+  // (pageCopy). fn(store) → the request whose result it resolves with. Rejects where IndexedDB is missing or refuses.
+  function copyStore(name, mode, fn) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open('kickflip-boards', 2);
+      open.onupgradeneeded = () => { for (const s of ['boards', 'pages']) if (!open.result.objectStoreNames.contains(s)) open.result.createObjectStore(s); };
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction(name, mode);
+        const req = fn(tx.objectStore(name));
+        tx.oncomplete = () => { db.close(); resolve(req.result); };
+        tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+      };
+    });
+  }
+
+  // A side page's last answer from each URL it reads, Notes' and Settings', for showing while the board can't be reached
+  // (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md). read(url) → {savedAt, body} or null.
+  const pageCopy = {
+    save: (url, body) => copyStore('pages', 'readwrite', (store) => store.put({ savedAt: new Date().toISOString(), body }, url)).catch(() => {}),
+    read: (url) => copyStore('pages', 'readonly', (store) => store.get(url)).then((c) => (typeof c?.savedAt === 'string' ? c : null), () => null),
+  };
+
+  // The copy of the board at key, the board view's site URL: the copy build saved, or with build null any build's.
+  // → {savedAt, board, threads} or null.
+  const boardCopy = (key, build) => copyStore('boards', 'readonly', (store) => store.get(key)).then((s) => readCopy(s, build ?? s?.build), () => null);
 
   // The cards whose threads load right after the board, so tapping one opens it filled; open cards load with the board.
   const preloadKeys = (items, open) => {
@@ -32,5 +60,5 @@
   const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.status ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
     it.next ?? null, it.ask?.state ?? null, ...(it.prs || []).map((pr) => [pr.state, pr.isDraft, pr.reviewDecision, pr.checks?.state ?? null])]);
 
-  Object.assign(globalThis.BoardUI, { copyOf, readCopy, preloadKeys, changedLines, updateSign });
+  Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, pageCopy, boardCopy, preloadKeys, changedLines, updateSign });
 })();

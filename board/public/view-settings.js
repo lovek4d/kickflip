@@ -114,8 +114,31 @@
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const { esc, fetchJSON, restartNotice } = BoardUI;
-    const get = (url, onWait) => fetchJSON(url, { onWait, sleep: B.sleep });
+    const { esc, fetchJSON, restartNotice, pageCopy, copyNote, downLanding } = BoardUI;
+    // While the board can't be reached, each part reads its last answer here and the whole body turns read only under
+    // the copy line, reopening live once the board answers; a part with no copy waits out a restart, then the body shows
+    // the landing (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+    const settingsBody = $('.settings-body');
+    let readOnly = false;
+    function fromCopy(savedAt) {
+      if (readOnly) return;
+      readOnly = true;
+      settingsBody.inert = true;
+      settingsBody.insertAdjacentHTML('afterbegin', copyNote('Settings', savedAt));
+      B.every(5000, () => { fetchJSON(site.url('api/settings'), { limit: 0 }).then(() => { if (B.alive()) ctx.reload(); }, () => {}); });
+    }
+    function down(e) {
+      if (readOnly || root.classList.contains('down')) return;
+      root.classList.add('down');
+      settingsBody.insertAdjacentHTML('afterbegin', downLanding(e.down));
+    }
+    const saved = (url, r) => { if (r.ok) pageCopy.save(url, r.body); return r; };
+    async function get(url, onWait) {
+      try { return saved(url, await fetchJSON(url, { limit: 0, sleep: B.sleep })); } catch {}
+      const c = await pageCopy.read(url);
+      if (c) { fromCopy(c.savedAt); return { ok: true, status: 200, body: c.body }; }
+      try { return saved(url, await fetchJSON(url, { onWait, sleep: B.sleep })); } catch (e) { down(e); throw e; }
+    }
     const waitIn = (sel) => () => { $(sel).innerHTML = restartNotice(); };
     const modal = $('#boardSettingsModal');
     const previous = document.activeElement;

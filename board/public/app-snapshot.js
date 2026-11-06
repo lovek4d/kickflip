@@ -4,30 +4,16 @@
 // Needs app-core.js and ui-snapshot.js; app.js paints it.
 BoardView.part((B) => {
   const { $$, state } = B;
-  const { copyOf, readCopy: checkCopy, preloadKeys, changedLines, updateSign } = BoardUI;
+  const { copyOf, boardCopy, copyStore, preloadKeys, changedLines, updateSign } = BoardUI;
   // The hub serves every site from one origin, so each board keeps its own key in the one store.
   const KEY = B.site.url('');
   const BUILD = document.documentElement.dataset.build;
 
-  // One transaction on the copies' store: fn(store) → the request whose result it resolves with. Rejects where
-  // IndexedDB is missing or refuses, and the board then loads whole.
-  function copies(mode, fn) {
-    return new Promise((resolve, reject) => {
-      const open = indexedDB.open('kickflip-boards', 1);
-      open.onupgradeneeded = () => open.result.createObjectStore('boards');
-      open.onerror = () => reject(open.error);
-      open.onsuccess = () => {
-        const db = open.result;
-        const tx = db.transaction('boards', mode);
-        const req = fn(tx.objectStore('boards'));
-        tx.oncomplete = () => { db.close(); resolve(req.result); };
-        tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
-      };
-    });
-  }
+  const copies = (mode, fn) => copyStore('boards', mode, fn);
 
-  // → {savedAt, board, threads} or null.
-  const readCopy = () => copies('readonly', (store) => store.get(KEY)).then((s) => checkCopy(s, BUILD), () => null);
+  // → {savedAt, board, threads} or null. anyBuild reads a copy another build saved too, which only a board out of reach
+  // paints, guarded (app.js showDown).
+  const readCopy = ({ anyBuild = false } = {}) => boardCopy(KEY, anyBuild ? null : BUILD);
 
   // Saves the board on screen. app.html's boot reads copyVersion before any script loads, so its first board request
   // asks since the copy's number; it names no number when the save failed.
@@ -46,10 +32,10 @@ BoardView.part((B) => {
   B.on(window, 'pagehide', () => { if (saveTimer) saveCopy(); });
   B.atUnmount(saveCopy);
 
-  // view is null until a board paints, then 'fresh'.
+  // view is null until a board paints, then 'fresh'; a guarded paint that failed sets it back to null.
   function setView(view) {
     state.view = view;
-    B.root.dataset.board = view;
+    if (view) B.root.dataset.board = view; else delete B.root.dataset.board;
   }
 
   // The lines a fresh board can change: each lane count, Needs you line and thread message. A card shows its own sign below.

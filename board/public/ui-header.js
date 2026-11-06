@@ -91,10 +91,11 @@
 
   // Which header controls take taps, and whether refresh spins. The header paints them disabled with refresh spinning;
   // both turn on together once the first board load has answered or failed.
-  // Offline, refresh stays on so a tap can retry the load (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
-  const headerControls = ({ link = 'online', wired = false, boardSettled = false, reloading = false } = {}) => {
+  // Offline, refresh stays on so a tap can retry the load (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md),
+  // and Settings opens its read-only copy (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+  const headerControls = ({ wired = false, boardSettled = false, reloading = false } = {}) => {
     const ready = wired && boardSettled && !reloading;
-    return { refresh: ready, settings: ready && link === 'online', spin: !boardSettled || reloading };
+    return { refresh: ready, settings: ready, spin: !boardSettled || reloading };
   };
 
   Object.assign(globalThis.BoardUI, { statusLine, freshSig, nextFresh, githubLine, remoteLine, brokenLinks, linksList, setupCard, checkLanded, githubRefresh, refreshIcon, headerControls });

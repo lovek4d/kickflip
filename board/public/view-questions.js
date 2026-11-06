@@ -36,7 +36,7 @@
     const { $, site } = B;
     const scroll = (y) => { if (!ctx.embedded) scrollTo(0, y); };
     const setHash = (id) => { if (!ctx.embedded) history.replaceState(history.state, '', '#' + encodeURIComponent(id)); };
-    const { esc, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, questionCard, roundChip, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, questionCard, roundChip, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, downLanding } = BoardUI;
     const hashId = () => { if (ctx.embedded) return ''; const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
 
     let all = [];
@@ -227,16 +227,30 @@
     let loading = null;
     let loaded = false;
     const load = (first) => (loading ||= fetchBoard(first).finally(() => { loading = null; }));
+    // While the board can't be reached, the page holds its sending buttons and shows the board's copy here, painted live,
+    // or with none and nothing landed the landing for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+    let copy = null;
+    BoardUI.holdSends(B.on, root, () => root.classList.contains('offline'));
+    const out = (down) => {
+      root.classList.add('offline');
+      copy ||= BoardUI.boardCopy(site.url(''), document.documentElement.dataset.build);
+      copy.then((c) => {
+        if (!B.alive() || loaded) return;
+        if (!c) { $('#page').innerHTML = downLanding(down); return; }
+        land(c.board, true);
+        repaint(true);
+      });
+    };
     async function fetchBoard(first) {
-      const page = $('#page');
       try {
-        const { body: d } = await fetchJSON(site.url('api/board' + (board ? '?since=' + encodeURIComponent(board.version) : '')), { tag: board?.version, onWait: () => { if (first) page.innerHTML = restartNotice(); }, sleep: B.sleep });
+        const { body: d } = await fetchJSON(site.url('api/board' + (board ? '?since=' + encodeURIComponent(board.version) : '')), { tag: board?.version, onWait: (ms, down) => out(down), sleep: B.sleep });
         if (!B.alive()) return false;
+        root.classList.remove('offline');
         if (d) land(d, first);
         repaint(first);
         return true;
       } catch (e) {
-        if (first) page.innerHTML = `<p class="muted">Could not load the questions: ${esc(e.message)}</p>`;
+        out(e.down);
         return false;
       }
     }

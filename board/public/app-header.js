@@ -85,24 +85,23 @@ BoardView.part((B) => {
   state.link = 'online';
   const controls = { wired: false, boardSettled: false, reloading: false };
   function applyControls() {
-    const on = headerControls({ link: state.link, ...controls });
+    const on = headerControls(controls);
     $('#refresh').disabled = !on.refresh;
     $('#refresh').classList.toggle('spinning', on.spin);
     const gear = $('#settingsLink');
     if (on.settings) { gear.removeAttribute('aria-disabled'); gear.removeAttribute('tabindex'); } else { gear.setAttribute('aria-disabled', 'true'); gear.tabIndex = -1; }
   }
   const headerWired = () => { controls.wired = true; applyControls(); };
-  // style.css dims the offline view from .view-board.offline.
+  // Offline, the board stays as it was and reads as before; only the header time turns red, and style.css holds the
+  // buttons that send from .view-board.offline (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
   function setLink(link) {
-    const was = state.link;
     state.link = link;
     if (link !== 'reconnecting') controls.boardSettled = true;
-    const off = link !== 'online';
-    B.root.classList.toggle('offline', off);
-    if (link === 'offline' && was === 'online') toast('Offline. Use refresh in the header to retry.');
+    B.root.classList.toggle('offline', link !== 'online');
     applyControls();
     renderStatus();
   }
+  BoardUI.holdSends(B.on, B.root, () => state.link !== 'online');
   const linkUp = () => setLink('online');
   const linkDown = () => { if (state.link !== 'reconnecting') setLink('offline'); };
   B.on($('.nav'), 'click', (ev) => {

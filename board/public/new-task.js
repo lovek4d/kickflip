@@ -66,7 +66,7 @@ globalThis.BoardNewTask = (function () {
       if (ev.defaultPrevented) { lastN = -Infinity; return; }
       if (ev.key !== 'n' || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || ev.isComposing) return;
       const field = ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-      if (field || document.querySelector('dialog[open]') || B.root.classList.contains('offline')) { lastN = -Infinity; return; }
+      if (field || document.querySelector('dialog[open]') || B.root.classList.contains('down')) { lastN = -Infinity; return; }
       if (ev.timeStamp - lastN > TWICE_MS) { lastN = ev.timeStamp; return; }
       lastN = -Infinity;
       ev.preventDefault();

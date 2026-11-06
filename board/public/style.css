@@ -461,8 +461,6 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .lane[open] > .list { border-radius: 0 0 10px 10px; }
 .lane > summary .count { color: var(--muted); font-weight: 400; }
 /* Each lane's sort icon and its menu, grey (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md) */
-/* INT-35: offline header */
-.view-board.offline #compose { display: none; }
 /* A board shared with someone else (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md):
    shell.js marks the page .shared-view, which hides Board settings and the architecture review, and, unless the person
    has Full on this board (.shared-full; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md), the +, every
@@ -472,8 +470,17 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .shared-full button[data-confirm="merge"] { opacity: .45; pointer-events: none; }
 .view-only-strip { margin: 8px 0; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 13px; }
 .view-only-strip b { color: var(--accent); }
-.view-board.offline main > * { opacity: .72; }
-.view-board.offline main, .view-board.offline > .top > :not(.nav), .view-board.offline > .top .nav > :not(.refresh) { pointer-events: none; }
+/* A board out of reach (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md): it reads as before,
+   undimmed, and only the buttons that send, ui.js SENDS, are held, the labelled ones saying why; app-header.js stops their taps. */
+.offline :is(form button[type="submit"], .actions button, button[data-confirm], button[data-deck-pick], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick], button[data-card-bump], button[data-bump], button[data-withdraw], button[data-band-move], button[data-grill], button[data-proto], button[data-visual], button[data-plan], button[data-main-pull], button[data-arch-run], button[data-try], button[data-reopen]) { opacity: .55; cursor: not-allowed; }
+.offline :is(form button[type="submit"], .actions button, button[data-confirm], button[data-deck-pick], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick])::after { content: " · Waits for the board"; }
+/* With no copy to show, the landing takes the board's place: the kickflip mark and two lines, as hub/front-door.mjs's page has them. */
+.down-landing { min-height: 60vh; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 32px 24px; text-align: center; }
+.down-landing-mark { display: block; margin-bottom: 8px; width: 70px; height: 60px; object-fit: contain; }
+.down-landing-line { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; text-wrap: balance; }
+.down-landing-hint { margin: 0; font-size: 14px; color: var(--muted); }
+.view-board.down main > :not(#downLanding), .view-board.down :is(#needsPane, #compose) { display: none; }
+.view-settings.down .settings-body > :not(.down-landing) { display: none; }
 /* INT-28: answer banner */
 .answer-banner { display: flex; align-items: center; gap: 4px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 10px; padding: 2px 4px 2px 0; margin-bottom: 12px; }

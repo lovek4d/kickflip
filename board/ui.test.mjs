@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, setTimeout, clearTimeout });
+const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
 for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
@@ -216,7 +216,7 @@ test('header controls turn on together once the first board load lands, refresh 
   assert.deepEqual(on({ wired: true }), waiting);
   assert.deepEqual(on({ boardSettled: true }), { ...waiting, spin: false });
   assert.deepEqual(on({ wired: true, boardSettled: true }), { refresh: true, settings: true, spin: false });
-  assert.deepEqual(on({ wired: true, boardSettled: true, link: 'offline' }), { refresh: true, settings: false, spin: false });
+  assert.deepEqual(on({ wired: true, boardSettled: true, link: 'offline' }), { refresh: true, settings: true, spin: false }, 'Settings opens its read-only copy offline');
   assert.deepEqual(on({ wired: true, boardSettled: true, link: 'reconnecting', reloading: true }), { refresh: false, settings: false, spin: true });
 });
 
@@ -1048,7 +1048,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
 });
 
 test('the side pages wait out a board restart: a failed request, a 5xx or a body that is not JSON shows Board restarting… and retries with a growing backoff, until about limit ms', async () => {
-  const answers = (list) => { const calls = []; return { calls, fetch: async (url) => { calls.push(url); const a = list.shift(); if (a instanceof Error) throw a; return { ok: a.status < 400, status: a.status, text: async () => a.body }; } }; };
+  const answers = (list) => { const calls = []; return { calls, fetch: async (url) => { calls.push(url); const a = list.shift(); if (a instanceof Error) throw a; return { ok: a.status < 400, status: a.status, headers: new Headers({ 'x-kickflip-hub': '1' }), text: async () => a.body }; } }; };
   const waits = [];
   const sleep = async (ms) => { waits.push(ms); };
   const restarting = answers([new Error('refused'), { status: 502, body: '<html>Bad gateway</html>' }, { status: 200, body: '<!doctype html>' }, { status: 200, body: '{"ref":"INT-1"}' }]);
@@ -1061,6 +1061,53 @@ test('the side pages wait out a board restart: a failed request, a 5xx or a body
   await assert.rejects(ui.fetchJSON('x', { fetch: down.fetch, sleep, limit: 3000 }), /the board answered 502/);
   assert.equal(down.calls.length, 4);
   assert.equal(ui.restartNotice().includes(ui.RESTARTING), true);
+});
+
+// docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md
+test('a failed board request reads as one of six states, each with its landing line and hint, from what the hub marks on its answer', () => {
+  const answer = (status, headers = {}) => ({ status, headers: new Headers(headers) });
+  const read = (r, online) => { const d = ui.downOf(r, online); return [d.state, d.line, d.hint]; };
+  const back = 'This page comes back by itself.';
+  assert.deepEqual(read(answer(502, { 'x-kickflip-down': 'code' })), ['restarting', 'Board restarting', `Its code changed. ${back}`]);
+  assert.deepEqual(read(answer(502, { 'x-kickflip-down': 'starting' })), ['restarting', 'Board restarting', `It’s starting. ${back}`]);
+  assert.deepEqual(read(answer(502, { 'x-kickflip-down': 'crashed' })), ['restarting', 'Board restarting', `It stopped, and the hub is starting it again. ${back}`]);
+  assert.deepEqual(read(answer(502, { 'x-kickflip-down': 'stopped' })), ['stopped', 'Board stopped', 'Nothing answers on its port. Its Claude session has to start it.']);
+  assert.deepEqual(read(answer(404, { 'x-kickflip-down': 'removed' })), ['removed', 'This board is gone', 'The hub no longer lists it.']);
+  assert.deepEqual(read(answer(403, { 'x-kickflip-down': 'access' })), ['access', 'You no longer have access', 'Ask its owner to share it again.']);
+  assert.equal(ui.downOf(answer(200, { 'x-app-shell': '1' })).state, 'access', 'a dropped share redirects the request to the shell at /');
+  assert.deepEqual(read(answer(500, { 'x-kickflip-hub': '1' })), ['erroring', 'Board restarting', 'It answers with errors. Retrying for 30 seconds.']);
+  assert.equal(ui.downOf(answer(200, { 'x-kickflip-hub': '1' })).state, 'erroring', 'a body that is not JSON');
+  const offline = ['unreachable', 'Board offline', 'The hub, your connection or the Mac is down. Retrying.'];
+  assert.deepEqual(read(null), offline, 'nothing answered, or the request timed out');
+  assert.deepEqual(read(answer(502)), offline, 'an answer the hub never marked: Tailscale, with the hub down');
+  assert.deepEqual(read(answer(502, { 'x-kickflip-down': 'code' }), false), offline, 'the device itself is offline');
+
+  const html = ui.downLanding(ui.downOf(answer(502, { 'x-kickflip-down': 'stopped' })));
+  assert.match(html, /class="down-landing" data-down="stopped"/);
+  assert.match(html, /<img class="down-landing-mark" src="\/_hub\/kickflip.png"/);
+  assert.deepEqual(text(html), 'Board stopped Nothing answers on its port. Its Claude session has to start it.');
+  assert.equal(ui.downOf(answer(502, { 'x-kickflip-down': 'code' })).retries, true);
+  assert.deepEqual(['removed', 'access'].map((d) => ui.downOf(answer(404, { 'x-kickflip-down': d })).retries), [false, false], 'nothing brings these back by itself');
+  assert.equal(text(ui.copyNote('the notes', ago(0.2))), 'Copy of the notes as of 12 min ago. Read only.');
+});
+
+test('a side page request that keeps failing carries its state, and each wait names the state so far', async () => {
+  const waits = [];
+  const down = async () => ({ ok: false, status: 502, headers: new Headers({ 'x-kickflip-down': 'stopped' }), text: async () => 'down' });
+  await assert.rejects(ui.fetchJSON('x', { fetch: down, sleep: async () => {}, limit: 1000, onWait: (ms, d) => waits.push(d.state) }), (e) => e.down.state === 'stopped');
+  assert.deepEqual(waits, ['stopped', 'stopped']);
+  await assert.rejects(ui.fetchJSON('x', { fetch: async () => { throw new TypeError('Failed to fetch'); }, sleep: async () => {}, limit: 0 }), (e) => e.down.state === 'unreachable');
+});
+
+test("offline, the board neither dims nor blocks reading: only the buttons that send are held, each saying it waits for the board", () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /\.offline main > \*\s*\{\s*opacity/);
+  assert.doesNotMatch(css, /\.offline[^{]*\{[^}]*pointer-events:\s*none/);
+  assert.doesNotMatch(css, /\.offline #compose\s*\{\s*display:\s*none/);
+  assert.ok(css.includes(`.offline :is(${ui.SENDS})`), 'every sending button is held');
+  assert.ok(css.includes(`.offline :is(${ui.SENDS_LABELLED})::after { content: " · Waits for the board"`), 'a labelled one says why');
+  for (const sel of ui.SENDS_LABELLED.split(', ')) assert.ok(ui.SENDS.includes(sel), sel);
+  for (const sel of ['button[data-edit]', 'a.button', 'button[data-lane-more]', 'button[data-thread-more]']) assert.equal(ui.SENDS.includes(sel), false, sel);
 });
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md

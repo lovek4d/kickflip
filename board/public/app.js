@@ -269,8 +269,10 @@ window.BoardView = (function () {
     // The saved copy paints live before the first load, which asks only for the changes since its number; the lines
     // that catch-up changes flash (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). A board that landed
     // meanwhile stays.
-    function paintCopy(copy) {
+    // old: a copy another build saved, whose board the next load asks for whole.
+    function paintCopy(copy, { old = false } = {}) {
       if (!copy || !B.alive() || state.view === 'fresh') return;
+      state.oldCopy = old;
       state.board = copy.board;
       for (const [key, msgs] of Object.entries(copy.threads)) state.threadCache.set(key, msgs);
       state.fresh = { at: copy.savedAt, sig: null };
@@ -292,6 +294,10 @@ window.BoardView = (function () {
     globalThis.BoardBoot = null;
     if (boot?.route && boot.route !== B.route) boot = null;
     let preloaded = false;
+    // A load nothing answers gives up after this, so an asleep host reads as out of reach.
+    const LOAD_TIMEOUT = 20000;
+    // A failed answer, carried to showDown for BoardUI.downOf.
+    const unanswered = (r) => Object.assign(new Error(`board ${r.status}`), { answer: r });
     async function loadBoard({ via = 'poll' } = {}) {
       const load = B.boardLoad = (B.boardLoad || 0) + 1;
       const started = boot;
@@ -302,9 +308,12 @@ window.BoardView = (function () {
         // A reload names the change number of the board on screen: an unchanged board answers 304 with no body
         // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md), and a changed one a patch of what
         // changed after it (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
-        const tag = state.view === 'fresh' ? state.board.version : null;
-        const board = await (started?.board || fetch(B.site.url('api/board' + (tag ? '?since=' + encodeURIComponent(tag) : '')), { cache: 'no-store', ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) })
-          .then((r) => (r.status === 304 ? null : r.ok ? r.json() : Promise.reject(new Error(`board ${r.status}`)))));
+        const tag = state.view === 'fresh' && !state.oldCopy ? state.board.version : null;
+        const timeout = new AbortController();
+        const stopTimer = B.later(LOAD_TIMEOUT, () => timeout.abort());
+        const board = await (started?.board || fetch(B.site.url('api/board' + (tag ? '?since=' + encodeURIComponent(tag) : '')), { cache: 'no-store', signal: timeout.signal, ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) })
+          .then((r) => (r.status === 304 ? null : r.ok ? r.json().catch(() => { throw unanswered(r); }) : Promise.reject(unanswered(r))))
+          .finally(stopTimer));
         if (board) land(board, load); else B.linkUp();
         landed = true;
         if (!preloaded) {
@@ -313,11 +322,35 @@ window.BoardView = (function () {
         }
       } catch (e) {
         B.linkDown();
+        if (state.view !== 'fresh' && B.alive()) await showDown(BoardUI.downOf(e.answer || null));
       }
       await Promise.all(threads);
       if (landed) B.landed(via);
       if (state.view === 'fresh') B.endFlash();
     }
+
+    // A board out of reach with nothing on screen paints the copy another build saved, which the first paint skipped,
+    // guarded: a paint that throws leaves the landing, the kickflip mark and down's two lines in the board's place, and
+    // the landing retries every 5 s while the board can come back by itself
+    // (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
+    let triedOldCopy = false;
+    async function showDown(down) {
+      if (!triedOldCopy) {
+        triedOldCopy = true;
+        const old = await B.readCopy({ anyBuild: true });
+        try { paintCopy(old, { old: true }); } catch {
+          state.board = null;
+          B.setView(null);
+        }
+        if (!B.alive()) return;
+        if (state.view === 'fresh') { B.linkDown(); return; }
+      }
+      state.down = down;
+      $('#downLanding').innerHTML = BoardUI.downLanding(down);
+      $('#downLanding').hidden = false;
+      B.root.classList.add('down');
+    }
+    B.every(5000, () => { if (state.down?.retries && !document.hidden) loadBoard(); });
 
     // A board from the server, a load's or an events POST's, or a patch from the board on screen (ui-patch.js). One built
     // before the board on screen leaves it as it is, so a slow load can't undo a newer one; a newer patch from a board
@@ -328,6 +361,12 @@ window.BoardView = (function () {
       if (!board) { signalled(); return false; }
       const first = state.view !== 'fresh';
       state.board = board;
+      state.oldCopy = false;
+      if (state.down) {
+        state.down = null;
+        $('#downLanding').hidden = true;
+        B.root.classList.remove('down');
+      }
       B.setView('fresh');
       if (!hashRead || (first && focusKey)) { readHash(); hashRead = true; }
       B.linkUp();
@@ -412,6 +451,7 @@ ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="needsDeck" class="needs-deck" aria-label="Needs you" hidden></section>
   <div id="tryMain"></div>
   <div id="lanes"></div>
+  <div id="downLanding" hidden></div>
 </main>
 <aside id="needsPane" class="needs-pane" aria-label="Needs you"><section id="waiting" class="waiting" hidden></section></aside>
 </div>

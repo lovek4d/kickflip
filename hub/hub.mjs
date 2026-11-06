@@ -1282,21 +1282,36 @@ async function promptRoute(req, res, { id, op, url, sendJSON }) {
 // One row as the down and missing pages list it.
 const row = ({ icon = '', title, sub = '' }) => `<div class="row">${icon}<span class="body"><span class="text"><span class="title">${title}</span>${sub ? `<span class="sub">${sub}</span>` : ''}</span></span></div>`;
 
+// The board page reads why from the answer's x-kickflip-down (board/public/ui.js downOf).
+function downWhy(route, site) {
+  const p = procs.get(route) || {};
+  const serves = servesOf(site);
+  return serves === 'port' ? 'stopped' : serves === 'files' ? 'missing' : p.why === 'code' ? 'code' : p.child ? 'starting' : 'crashed';
+}
+
+// A site that doesn't answer: the 502 page, with why in x-kickflip-down.
+function sendDown(res, route, site) {
+  res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-kickflip-down': downWhy(route, site) });
+  res.end(downPage(route, site));
+}
+
 function downPage(route, site) {
   const p = procs.get(route) || {};
   const exit = p.exitCode !== undefined && p.exitCode !== null ? ` (last exit: ${p.exitCode})` : '';
+  const said = {
+    stopped: `down · nothing answers on port ${site.port}`, missing: 'down · its folder is missing', code: 'restarting · its code changed',
+    starting: 'starting · waiting for it to answer', crashed: `down · restarting${exit}`,
+  };
+  const why = downWhy(route, site);
+  const tone = why === 'code' || why === 'starting' ? 'wait' : 'down';
   const serves = servesOf(site);
-  const [tone, said] = serves === 'port' ? ['down', `down · nothing answers on port ${site.port}`]
-    : serves === 'files' ? ['down', 'down · its folder is missing']
-      : p.why === 'code' ? ['wait', 'restarting · its code changed']
-        : p.child ? ['wait', 'starting · waiting for it to answer'] : ['down', `down · restarting${exit}`];
   const lede = serves === 'cmd' ? 'The hub runs every site and restarts one that stops.' : serves === 'port' ? 'Its session runs this server, so it comes back when that session starts it again.' : 'The hub serves this page from a folder that is no longer there.';
   return `${head(`${site.title || route} is down`, '<meta http-equiv="refresh" content="5">')}
 <a class="back" href="/_hub/">‹ Hub</a>
 <h1>${esc(site.title || route)} isn't answering</h1>
 <p class="lede">${esc(lede)}</p>
 <h2 class="label">Site</h2>
-<div class="group">${row({ icon: siteIcon(route, site), title: esc(site.title || route), sub: `<span class="st ${tone}">${esc(said)}</span>` })}</div>
+<div class="group">${row({ icon: siteIcon(route, site), title: esc(site.title || route), sub: `<span class="st ${tone}">${esc(said[why])}</span>` })}</div>
 <p class="note">This page retries every 5 seconds.</p>
 </main></body></html>`;
 }
@@ -1389,7 +1404,7 @@ function serve(req, res, viewer = null) {
 
   const route = url.pathname.split('/')[1];
   const site = routeRecord(loadManifest().sites, route);
-  if (!site) { res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' }); res.end(`${head('No Site')}<a class="back" href="/_hub/">‹ Hub</a><h1>No site at /${esc(route)}</h1></main></body></html>`); return; }
+  if (!site) { res.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'x-kickflip-down': 'removed' }); res.end(`${head('No Site')}<a class="back" href="/_hub/">‹ Hub</a><h1>No site at /${esc(route)}</h1></main></body></html>`); return; }
   if (url.pathname === '/' + route) { res.writeHead(302, { location: '/' + route + '/' + url.search }).end(); return; }
 
   const prefix = '/' + route;
@@ -1398,7 +1413,7 @@ function serve(req, res, viewer = null) {
   // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
   const vary = pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell';
   if (servesOf(site) === 'files') {
-    if (!isFolder(site.dir)) { res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(downPage(route, site)); return; }
+    if (!isFolder(site.dir)) { sendDown(res, route, site); return; }
     serveFiles(req, res, { dir: site.dir, rest, prefix, headers: vary ? { vary: 'sec-fetch-dest' } : {} })
       .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
     return;
@@ -1409,7 +1424,8 @@ function serve(req, res, viewer = null) {
   delete headers['x-kickflip-shared'];
   if (viewer) headers['x-kickflip-shared'] = viewer.login;
   const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
-    const h = { ...r.headers };
+    // A board page tells the board's own failure from the hub's being down by this (board/public/ui.js downOf).
+    const h = { ...r.headers, 'x-kickflip-hub': '1' };
     if (vary) h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');
     if (typeof h.location === 'string' && h.location.startsWith('/') && !h.location.startsWith('//') && !h.location.startsWith(prefix + '/') && h.location !== prefix) h.location = prefix + h.location;
     res.writeHead(r.statusCode, h);
@@ -1422,8 +1438,7 @@ function serve(req, res, viewer = null) {
   if (!viewer && req.method === 'POST' && rest.split('?')[0] === '/api/share') res.on('finish', endUnshared);
   up.on('error', () => {
     if (res.headersSent) { res.destroy(); return; }
-    res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(downPage(route, site));
+    sendDown(res, route, site);
   });
   req.pipe(up);
 }

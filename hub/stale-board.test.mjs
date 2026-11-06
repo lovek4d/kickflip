@@ -56,6 +56,10 @@ test('a board server whose code changed on disk restarts once its board has no r
     await until(() => out.includes('shop runs older code than its files; restarting it'), 'the hub restarts the stale server');
     const page = await fetch(`${base}/shop/`, { headers: { accept: 'text/html' } });
     assert.match(await page.text(), /restarting · its code changed/);
+    // docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md: the page tells the states apart by these.
+    assert.equal(page.headers.get('x-kickflip-down'), 'code');
+    const gone = await fetch(`${base}/nowhere/api/board`);
+    assert.deepEqual([gone.status, gone.headers.get('x-kickflip-down')], [404, 'removed']);
     write(release, '');
     await until(async () => { const now = await pid(); return now && now !== first; }, 'the new server answers');
 
@@ -63,6 +67,8 @@ test('a board server whose code changed on disk restarts once its board has no r
     const second = await pid();
     const proxied = () => fetch(`${base}/shop/`).then((r) => r.json()).then((j) => j.pid, () => null);
     await until(async () => (await proxied()) === second, 'the hub finds the new server up');
+    const answer = await fetch(`${base}/shop/`);
+    assert.deepEqual([answer.headers.get('x-kickflip-hub'), answer.headers.get('x-kickflip-down')], ['1', null]);
     assert.equal(await pid(), second);
     assert.equal(out.split('restarting it').length, 2, 'the hub restarted the server once');
   } finally {

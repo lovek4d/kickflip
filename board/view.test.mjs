@@ -105,8 +105,9 @@ function fakePage(localStorage) {
   for (const file of SCRIPTS) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   Object.assign(win.BoardDialogs, { confirm: async () => false, notice: async () => {} });
   const fire = (target, type, ev = {}) => {
-    const e = { target, type, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() {}, ...ev };
-    for (const l of listeners.filter((x) => x.target === target && x.type === type).sort((a, b) => b.capture - a.capture)) l.fn(e);
+    let stopped = false;
+    const e = { target, type, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() { stopped = true; }, ...ev };
+    for (const l of listeners.filter((x) => x.target === target && x.type === type).sort((a, b) => b.capture - a.capture)) { if (stopped) break; l.fn(e); }
     return e;
   };
   const left = () => ({ listeners: listeners.length, intervals: intervals.size, timeouts: timeouts.size, watches: watches.filter((w) => !w.stopped).length, observers: observers.size, frames: frames.size });
@@ -119,7 +120,8 @@ function fakePage(localStorage) {
   const runTimers = (ms = Infinity) => {
     for (const [id, t] of [...timeouts]) if (t.ms <= ms) { timeouts.delete(id); t.fn(); }
   };
-  return { win, El, Target, fire, left, advance, runTimers, listenerCount: (target) => listeners.filter((l) => l.target === target).length };
+  const runIntervals = (ms) => { for (const t of [...intervals.values()]) if (t.ms === ms) t.fn(); };
+  return { win, El, Target, fire, left, advance, runTimers, runIntervals, listenerCount: (target) => listeners.filter((l) => l.target === target).length };
 }
 
 test("a board view mounted then unmounted leaves no listener, interval, timer or watch behind, and lets go of the shell's change signal", () => {
@@ -356,30 +358,33 @@ test('reduced motion uses short fades and a toast treats markup as text; leaving
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.toast-row\s*\{\s*transition: none;/);
 });
 
-test('an offline toast dismisses without reconnecting or returning, while the header keeps the offline state and retry', async () => {
-  const b = boardOnDom({ board: boardOf([]), threads: {} });
+// docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md
+test('offline, the board stays readable with no toast: the header time turns red, refresh retries, Settings still opens, and only a tap or submit that sends is held', async () => {
+  const T1 = workCard('T1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
+  const T2 = workCard('T2', { bumpable: true, sortAt: '2026-10-02T00:00:00.000Z', order: 1 });
+  const b = boardOnDom({ board: boardOf([T1, T2]), threads: {} });
   await b.settle();
   const { B } = b.view;
   let retries = 0;
   B.loadBoard = async () => { retries++; };
   B.linkDown();
-  B.linkDown();
-  assert.equal(b.root.querySelectorAll('.toast').length, 1);
-  const el = b.root.querySelector('.toast');
-  b.page.advance(150);
-  b.page.fire(el, 'click');
-  b.page.advance(200);
-  assert.equal(b.root.querySelector('.toast'), null);
-  assert.equal(retries, 0);
-  B.toast('Could not send');
-  b.page.advance(3350);
-  assert.equal(b.root.querySelector('.toast'), null);
-  assert.equal(b.root.classList.contains('offline'), true);
-  assert.equal(B.state.link, 'offline');
+  assert.deepEqual([b.root.querySelectorAll('.toast').length, b.root.classList.contains('offline'), B.state.link], [0, true, 'offline']);
+  assert.match(b.root.querySelector('#status').innerHTML, /class="fresh down"/);
+  assert.equal(b.root.querySelector('#settingsLink').getAttribute('aria-disabled'), null);
+  const bump = b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]');
+  assert.equal(b.page.fire(b.root, 'click', { target: bump }).defaultPrevented, true);
+  assert.equal(b.page.fire(b.root, 'submit', { target: b.root.querySelector('#askForm') }).defaultPrevented, true);
+  assert.equal(b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T2"]') }).defaultPrevented, false, 'a card still opens');
+  await b.settle();
+  assert.deepEqual(b.sent, []);
   const refresh = b.root.querySelector('#refresh');
   assert.equal(refresh.disabled, false);
   b.page.fire(refresh, 'click');
   assert.equal(retries, 1);
+  B.linkUp();
+  b.page.fire(b.root, 'click', { target: bump });
+  await b.settle();
+  assert.deepEqual(b.sent.map(([k]) => k), ['card-bump']);
   b.view.unmount();
 });
 
@@ -1162,16 +1167,17 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
   assert.deepEqual(page.left(), loaded);
 });
 
-// One object store in memory, as IndexedDB answers: asynchronously, each value a copy. broken: every open fails, as in
-// a browser that refuses storage.
+// IndexedDB's object stores in memory, as it answers: asynchronously, each value a copy. rows is the boards store, pages
+// the side pages'. broken: every open fails, as in a browser that refuses storage.
 function memoryIndexedDB({ broken = false } = {}) {
-  const rows = new Map();
-  let made = false;
+  const stores = new Map();
   const later = (fn) => Promise.resolve().then(fn);
   const db = {
     close() {},
-    createObjectStore() { made = true; },
-    transaction() {
+    objectStoreNames: { contains: (name) => stores.has(name) },
+    createObjectStore(name) { stores.set(name, new Map()); },
+    transaction(name) {
+      const rows = stores.get(name);
       const tx = {};
       const ask = (fn) => { const req = {}; later(() => { req.result = fn(); tx.oncomplete?.(); }); return req; };
       tx.objectStore = () => ({ get: (k) => ask(() => structuredClone(rows.get(k))), put: (v, k) => ask(() => { rows.set(k, structuredClone(v)); }) });
@@ -1179,13 +1185,14 @@ function memoryIndexedDB({ broken = false } = {}) {
     },
   };
   return {
-    rows,
+    get rows() { return stores.get('boards'); },
+    get pages() { return stores.get('pages'); },
     open() {
       const req = {};
       later(() => {
         if (broken) { req.error = new Error('refused'); req.onerror?.(); return; }
         req.result = db;
-        if (!made) req.onupgradeneeded?.();
+        if (!stores.has('pages')) req.onupgradeneeded?.();
         req.onsuccess?.();
       });
       return req;
@@ -1232,6 +1239,158 @@ test("a board view keeps the board and its change number in IndexedDB, and the n
   await until(() => asked.some((u) => u.includes('/api/board')), 'the load asked');
   assert.deepEqual([other.dataset.board, asked.filter((u) => u.includes('/api/board'))], [undefined, [`${site}/api/board`]], 'a copy saved under another build is no copy');
   rebuilt.unmount();
+});
+
+// docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md
+test("with no copy to show, a board out of reach shows the landing for its state, retries every 5 s while it can come back, and the board takes its place once it answers", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  page.win.indexedDB = memoryIndexedDB();
+  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], waves: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  let answer = { ok: false, status: 502, headers: new Headers({ 'x-kickflip-down': 'stopped' }), json: async () => { throw new Error('html'); } };
+  const asked = [];
+  page.win.fetch = async (url) => { asked.push(url); return answer; };
+  const root = new page.El();
+  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a');
+  view.mount();
+  const landing = root.querySelector('#downLanding');
+  await until(() => root.classList.contains('down'), 'the landing shows');
+  assert.equal(landing.hidden, false);
+  assert.match(landing.innerHTML, /data-down="stopped"/);
+  assert.match(landing.innerHTML, /Board stopped/);
+  assert.deepEqual([root.classList.contains('down'), root.classList.contains('offline'), root.dataset.board], [true, true, undefined]);
+
+  answer = { ok: false, status: 404, headers: new Headers({ 'x-kickflip-down': 'removed' }), json: async () => ({}) };
+  page.runIntervals(5000);
+  await until(() => /This board is gone/.test(landing.innerHTML), 'the retry reads the new state');
+  const sent = asked.length;
+  page.runIntervals(5000);
+  assert.equal(asked.length, sent, 'nothing brings a removed board back by itself');
+
+  answer = { ok: true, status: 200, json: async () => board };
+  await view.B.loadBoard();
+  assert.deepEqual([landing.hidden, root.classList.contains('down'), root.classList.contains('offline'), root.dataset.board], [true, false, false, 'fresh']);
+  view.unmount();
+});
+
+test("out of reach with nothing on screen, the board paints the copy another build saved and asks for the whole board once it answers; a copy whose paint throws leaves the landing", async () => {
+  const site = 'https://mac.ts.net/board-a';
+  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], waves: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  for (const saved of [board, { ...board, items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7, prs: 'not a list' }] }]) {
+    const page = fakePage(memoryStorage().localStorage);
+    const idb = memoryIndexedDB();
+    page.win.indexedDB = idb;
+    page.win.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+    const root = new page.El();
+    const view = page.win.BoardView.create(root, site);
+    view.mount();
+    await until(() => root.classList.contains('down'), 'the landing shows');
+    view.unmount();
+    idb.rows.set(`${site}/`, { build: 'build-0', savedAt: board.generatedAt, board: saved, threads: {} });
+
+    const asked = [];
+    page.win.fetch = async (url) => { asked.push(url); throw new TypeError('Failed to fetch'); };
+    const again = new page.El();
+    const back = page.win.BoardView.create(again, site);
+    back.mount();
+    await until(() => asked.length > 0 && (again.dataset.board === 'fresh' || again.classList.contains('down')), 'the old copy paints or the landing shows');
+    await new Promise((r) => setImmediate(r));
+    if (saved === board) {
+      assert.deepEqual([again.dataset.board, back.B.state.link, again.classList.contains('down')], ['fresh', 'offline', false], 'the older copy paints, out of reach');
+      asked.length = 0;
+      await back.B.loadBoard();
+      assert.deepEqual(asked, [`${site}/api/board`], 'the next load asks for the whole board');
+    } else {
+      assert.deepEqual([again.dataset.board, again.classList.contains('down')], [undefined, true], 'a paint that throws leaves the landing');
+    }
+    back.unmount();
+  }
+});
+
+// docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md
+test("out of reach, Notes show their last answer here under its copy line, or with none the landing for why", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const idb = memoryIndexedDB();
+  page.win.indexedDB = idb;
+  const notes = { ref: 'INT-1', markdown: '# Plan\n\nKeep the strip.' };
+  page.win.fetch = async (url) => { const body = url.includes('/api/notes') ? notes : { items: [] }; return { ok: true, status: 200, text: async () => JSON.stringify(body) }; };
+  const open = (item) => {
+    const root = new page.El();
+    const view = page.win.AppViews.notes.create(root, 'https://mac.ts.net/board-a', { view: { kind: 'notes', route: 'board-a', item } });
+    view.mount();
+    return { root, view, plan: root.querySelector('#plan') };
+  };
+  const live = open('w/A1');
+  await until(() => idb.pages?.size === 1, 'the answer saved');
+  assert.doesNotMatch(live.plan.innerHTML, /copy-note/);
+  live.view.unmount();
+
+  page.win.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+  const copy = open('w/A1');
+  await until(() => /Keep the strip/.test(copy.plan.innerHTML), 'the copy shows');
+  assert.match(copy.plan.innerHTML, /<p class="note copy-note">Copy of the notes as of just now\. Read only\.<\/p>/);
+  copy.view.unmount();
+  const none = open('w/B2');
+  await until(() => /down-landing/.test(none.plan.innerHTML), 'the landing shows');
+  assert.match(none.plan.innerHTML, /Board offline/);
+  none.view.unmount();
+});
+
+test("out of reach, Waiting on you paints the board's copy with its sending buttons held, or with none the landing", async () => {
+  const site = 'https://mac.ts.net/board-a';
+  const q = { id: 'q1', topic: 't1', state: 'open', title: 'Which look?', options: [{ id: 'a', label: 'A' }], answers: [], source: 'w/A1' };
+  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [], waves: [], needs: [], answers: [], owner: [q],
+    ownerTopics: [{ id: 't1', title: 'Look', state: 'open', questions: ['q1'], open: 1, answered: 0, resolved: 0 }] };
+  for (const saved of [true, false]) {
+    const page = fakePage(memoryStorage().localStorage);
+    const idb = memoryIndexedDB();
+    page.win.indexedDB = idb;
+    if (saved) {
+      await page.win.BoardUI.copyStore('boards', 'readwrite', (store) => store.put({ build: 'build-1', savedAt: board.generatedAt, board, threads: {} }, `${site}/`));
+    }
+    page.win.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+    const root = new page.El();
+    const view = page.win.AppViews.questions.create(root, site, { view: { kind: 'questions', route: 'board-a' } });
+    view.mount();
+    const pageEl = root.querySelector('#page');
+    await until(() => pageEl.innerHTML !== '', 'the page paints');
+    assert.equal(root.classList.contains('offline'), true);
+    if (saved) assert.match(pageEl.innerHTML, /<section class="q" id="q1"/);
+    else assert.match(pageEl.innerHTML, /down-landing.*Board offline/s);
+    const send = { closest: (sel) => (sel === page.win.BoardUI.SENDS ? send : null) };
+    assert.equal(page.fire(root, 'click', { target: send }).defaultPrevented, true, 'a sending tap is held');
+    view.unmount();
+  }
+});
+
+test("out of reach, Board Settings shows each part's last answer here, read only under its copy line, and reopens live once the board answers", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const idb = memoryIndexedDB();
+  page.win.indexedDB = idb;
+  page.win.fetch = async (url) => { const body = url.endsWith('/api/board') ? { kind: 'web' } : url.endsWith('/api/settings') ? { settings: { auto_build: true } } : {}; return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body }; };
+  const live = page.win.AppViews.settings.create(new page.El(), '/orch', {});
+  live.mount();
+  await until(() => idb.pages?.has('https://mac.ts.net/orch/api/settings'), 'the answers saved');
+  live.unmount();
+
+  const answers = page.win.fetch;
+  page.win.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+  const root = new page.El();
+  const notes = [];
+  root.querySelector('.settings-body').insertAdjacentHTML = (where, html) => notes.push(html);
+  let reloads = 0;
+  const view = page.win.AppViews.settings.create(root, '/orch', { reload: () => { reloads++; } });
+  view.mount();
+  const toggle = root.querySelector('#autoBuild');
+  await until(() => toggle.checked === true, 'the copy fills the toggle');
+  assert.equal(root.querySelector('.settings-body').inert, true);
+  assert.deepEqual(notes.map((h) => h.replace(/<[^>]+>/g, '')), ['Copy of Settings as of just now. Read only.']);
+  page.runIntervals(5000);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(reloads, 0);
+  page.win.fetch = answers;
+  page.runIntervals(5000);
+  await until(() => reloads === 1, 'it reopens live');
+  view.unmount();
 });
 
 test("where IndexedDB refuses or is missing, the board view loads the whole board and paints nothing until it lands", async () => {
