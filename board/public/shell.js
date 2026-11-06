@@ -239,10 +239,12 @@ window.AppShell = (function () {
     // own refresh. → true, or a promise of whether the view switched once the owner answers about an unsaved edit.
     let router = null;
     const wide = matchMedia('(min-width: 900px)');
-    // From 900px Waiting on you is the board's pane, so a view of the questions page shows the board with that question's
-    // pill picked. A page's pane takes a moment to fill, so the pill is waited for.
+    // Board and Waiting on you are a board's two pages (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md):
+    // from 900px the board shows Waiting on you in its pane, so every view of the questions page, a link, a push, a
+    // hand-off, a history entry or a cold load, shows the board at its own URL and opens the question's topic there (id,
+    // or null for none). A board just shown takes a moment to fill its pane, so the pane is asked again until it has.
     function focusPane(id, tries = 50) {
-      if (!id || current?.view.kind !== 'board' || current.v.B.focusQuestion?.(id) || tries <= 0) return;
+      if (current?.view.kind !== 'board' || current.v.B.focusQuestion?.(id) || tries <= 0) return;
       setTimeout(() => focusPane(id, tries - 1), 100);
     }
     function go(view, href, how, from) {
@@ -251,6 +253,12 @@ window.AppShell = (function () {
         const board = { kind: 'board', route: view.route, hash: '' };
         const boardHref = new URL(AppRouter.urlOf(board), location.href).href;
         if (how === 'pop') history.replaceState(history.state, '', boardHref);
+        // On its own board it only opens the topic, so the URL, history and an open card stay as they are.
+        else if (current?.view.kind === 'board' && current.route === view.route && !settings) {
+          focusPane(view.id);
+          sidebar.close();
+          return true;
+        }
         return Promise.resolve(go(board, boardHref, how, from)).then((shown) => { if (shown) focusPane(view.id); return shown; });
       }
       if (view.kind === 'settings') {
@@ -304,13 +312,17 @@ window.AppShell = (function () {
     }
     if (!AppRouter.mounted(first)) { location.replace('/_hub/'); return; }
 
-    let focus = null;
+    let pane = null;
     if (first.kind === 'questions' && wide.matches) {
-      focus = first.id;
+      pane = { id: first.id };
       first = { kind: 'board', route: first.route, hash: '' };
       history.replaceState(history.state, '', AppRouter.urlOf(first));
     }
     router = AppRouter.listen({ boards, go, wide: () => wide.matches });
+    // Widening past 900px on Waiting on you swaps to the board with that topic open in the pane.
+    wide.addEventListener('change', () => {
+      if (wide.matches && current?.view.kind === 'questions') go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'replace');
+    });
     opener = (url, { replace = false, frames = true } = {}) => {
       const view = AppRouter.viewOf(url, { boards: boards() });
       if (!AppRouter.mounted(view) || (!frames && view.kind === 'frame')) return false;
@@ -326,7 +338,7 @@ window.AppShell = (function () {
     navigator.serviceWorker?.startMessages?.();
 
     show(first);
-    focusPane(focus);
+    if (pane) focusPane(pane.id);
     openStream();
     addEventListener('visibilitychange', () => { if (!document.hidden) openStream(); });
     addEventListener('pageshow', openStream);

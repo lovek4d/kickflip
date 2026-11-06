@@ -108,7 +108,7 @@
     const site = (s) => row({ icon: s.icon, title: esc(s.title), sub: s.status ?? '<span class="st ok">up · listening · every link passes</span>', wrap: true, trail: CHEVRON, href: `/${s.route}/` });
     const settings = d.settings.map(([id, title, sub]) => `<button type="button" class="hub-setting" data-setting="${esc(id)}" data-kit-inert aria-haspopup="dialog"><span class="text"><span class="title">${esc(title)}</span><span class="sub">${esc(sub)}</span></span>${CHEVRON}</button>`).join('');
     const usage = d.usageCard ?? HubUI.usageCard(d.usage);
-    const header = d.header ? BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png', logoHref: '/_hub/', settingsHref: null }) : '';
+    const header = d.header ? BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png', logoHref: '/_hub/' }) : '';
     return `<div class="hub-view view-hub kit-hub">${header}<main class="has-top"><div class="hub-status">${usage}${d.afterUsage || ''}<h2 class="label">Health</h2>
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}</div>
 <h2 class="label">Boards</h2>

@@ -27,7 +27,7 @@
 (globalThis.AppViews ||= {}).questions = {
   className: 'view-questions',
   title: () => 'Waiting On You',
-  markup: ({ embedded = false } = {}) => `${embedded ? '' : BoardUI.header({ lead: 'back', title: 'Waiting on you', controls: false, trail: '<span class="muted small" id="progress"></span>' })}
+  markup: ({ embedded = false } = {}) => `${embedded ? '' : BoardUI.header({ lead: 'logo', title: 'Waiting on you', logoSrc: '/_hub/kickflip.png', controls: false, trail: '<span class="muted small" id="progress"></span>', pages: 'board' })}
 <main>
   ${embedded ? '<span class="muted small" id="progress" hidden></span>' : ''}<section id="page"></section>
 </main>`,
@@ -427,6 +427,18 @@
       render();
       scroll(0);
     });
+
+    // In the board's pane, the shell opens the topic of a question or topic id there, a resolved one included, and with
+    // none or one that's gone the topic the page would open (app-needs.js focusQuestion). → false before the first load.
+    if (ctx.embedded) B.openTopic = (id) => {
+      if (!loaded) return false;
+      const topic = topics.find((t) => t.id === id);
+      if (topic) { soloId = null; topicId = topic.id; } else pick(id || '');
+      sentLine = '';
+      shown = '';
+      render();
+      return true;
+    };
 
     load(true);
     B.every(15000, () => { if (!document.hidden) load(false); });

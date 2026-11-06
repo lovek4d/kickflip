@@ -443,7 +443,7 @@ window.BoardView = (function () {
   }
   function markup({ title = '', shared = null } = {}) {
     const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
-    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', bulb: true, moon: true })}
+    return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true })}
 <div class="split">
 <main>
 ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
@@ -452,6 +452,7 @@ ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <div id="tryMain"></div>
   <div id="lanes"></div>
   <div id="downLanding" hidden></div>
+  ${BoardUI.boardFoot()}
 </main>
 <aside id="needsPane" class="needs-pane" aria-label="Needs you"><section id="waiting" class="waiting" hidden></section></aside>
 </div>

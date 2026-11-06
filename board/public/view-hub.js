@@ -89,7 +89,7 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
   (globalThis.AppViews ||= {}).hub = {
     className: 'hub-view view-hub',
     title: () => 'Hub',
-    markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png', settingsHref: null })}
+    markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png' })}
 <main class="has-top"><div class="hub-status"></div><section class="hub-settings" aria-labelledby="hubSettingsLabel"><h2 class="label" id="hubSettingsLabel">Hub settings</h2>${HubSettings.markup()}</section><div class="hub-foot"></div></main>`,
 
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {

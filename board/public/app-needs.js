@@ -5,8 +5,10 @@
 //   (the draft Send on the questions page sends) and a prompt's buttons answering it, Skip to the next, a dot for each thing waiting, and All open questions at its foot;
 // - from 900px, #waiting, one line each, in the pane beside the lanes, over Waiting on you mounted there
 //   (view-questions.js, embedded) while the width lasts. Waiting on you shows the questions there, so #waiting leaves out
-//   a line that only asks questions, and with nothing else left the orange section is gone. A link into those
-//   questions, wherever it sits on the board, picks its topic's pill there instead of opening the page.
+//   a line that only asks questions, and with nothing else left the orange section is gone. Every questions URL lands
+//   here at that width (shell.js go, focusQuestion), and a pill's double-click focuses its card on the board
+//   (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md).
+// Below 900px the header's ? opens Waiting on you, with the open-question count as its badge.
 // Needs app-core.js.
 BoardView.part((B) => {
   const { $, plural, state, toast } = B;
@@ -26,6 +28,17 @@ BoardView.part((B) => {
     const needs = (d.needs || []).filter((line) => !line.prompt || prompts.shows(line.prompt));
     renderList(wide.matches ? needs.filter((line) => !line.questions || line.ready || line.action) : needs);
     renderDeck(d, needs);
+    renderAsk(d);
+  }
+
+  // The header's ? below 900px, which opens Waiting on you, carries the open-question count as its badge.
+  function renderAsk(d) {
+    const open = (d.owner || []).filter((q) => q.state === 'open').length;
+    const ask = $('#questionsLink');
+    const badge = ask.querySelector('.q-badge');
+    badge.hidden = !open;
+    badge.textContent = open ? String(open) : '';
+    ask.setAttribute('aria-label', open ? `Open questions, ${open} open` : 'Open questions');
   }
 
   function renderList(needs) {
@@ -121,26 +134,15 @@ BoardView.part((B) => {
     questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true }), { slot });
     questions.mount();
   }
-  // From 900px, a link into open questions for a topic the pane holds picks that topic's pill there, rather than
-  // navigating to the page. It runs before the router's listener, which skips a prevented click.
-  B.on(B.root, 'click', (ev) => {
-    if (ev.defaultPrevented || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || !questions) return;
-    const a = ev.target.closest?.('a[href]');
-    if (!a || (a.target && a.target !== '_self')) return;
-    const home = new URL(`${B.site.root}/`, location.href);
-    const url = new URL(a.getAttribute('href'), home);
-    if (url.pathname !== new URL('questions.html', home).pathname || url.hash.length < 2) return;
-    if (focusQuestion(decodeURIComponent(url.hash.slice(1)))) ev.preventDefault();
-  });
-  // Picks the pill of the topic holding question or topic id, and focuses it → whether the pane holds that topic.
+  // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question
+  // or topic id, or null for none. The pane opens its topic, resolved or not, and focuses its pill → false while there
+  // is no pane or it hasn't loaded, so the shell asks again.
   function focusQuestion(id) {
     const topic = (state.board?.ownerTopics || []).find((t) => t.id === id || t.questions.includes(id));
-    const pill = topic && questions?.slot.querySelector(`button[data-topic="${CSS.escape(topic.id)}"]`);
-    if (!pill) return false;
-    pill.click();
-    const picked = questions.slot.querySelector(`button[data-topic="${CSS.escape(topic.id)}"]`);
-    picked.focus();
-    picked.scrollIntoView({ block: 'nearest' });
+    if (!questions?.B.openTopic(topic?.id ?? id)) return false;
+    const pill = questions.slot.querySelector('.topics button[aria-pressed="true"]');
+    pill?.focus();
+    pill?.scrollIntoView({ block: 'nearest' });
     return true;
   }
   // A double-click on a pane pill focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>),

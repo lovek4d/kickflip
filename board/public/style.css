@@ -527,11 +527,21 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .top .nav #refresh, .top .nav a.icon { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; line-height: 1; }
 .top .nav #status { line-height: 1.1; white-space: nowrap; }
 .top .nav #refresh:disabled, .top .nav a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
-/* [the bulb runs an architecture review of the board's repo](docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md): the bulb sits between refresh and the gear, and glows orange while an architecture review runs */
-.top .nav .arch-bulb { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; line-height: 1; color: var(--muted); }
-.top .nav .arch-bulb:hover { color: var(--text); }
-.top .nav .arch-bulb[hidden] { display: none; }
-.top .nav .arch-bulb.running { color: var(--color-notice); }
+/* The foot of the board (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md): the bulb and the gear, centred under the lanes.
+   [the bulb runs an architecture review of the board's repo](docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md): it glows orange while an architecture review runs */
+.board-foot { display: flex; justify-content: center; gap: 8px; margin: 20px 0 0; }
+.board-foot .arch-bulb, .board-foot a.icon { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin: 0; padding: 4px; border: 0; line-height: 1; color: var(--muted); }
+.board-foot :is(.arch-bulb, a.icon):hover { color: var(--text); }
+.board-foot .arch-bulb[hidden] { display: none; }
+.board-foot .arch-bulb.running { color: var(--color-notice); }
+.board-foot a.icon[aria-disabled="true"] { opacity: .35; pointer-events: none; }
+/* The pages switch below 900px: the board header's ? with the open-question count on its corner, and Waiting on you's check back to the board. */
+.top .pages-switch { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; width: auto; height: auto; margin: 0; padding: 4px; border: 0; border-radius: 0; line-height: 1; color: var(--muted); }
+.top .pages-switch:hover { color: var(--text); }
+.top .pages-switch:active { background: none; }
+.pages-switch .q-badge { position: absolute; top: 0; right: -2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--color-notice); color: #1c1407;
+  font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 1.5px var(--bg); }
+.pages-switch .q-badge[hidden] { display: none; }
 .arch-bulb.running svg { filter: drop-shadow(0 0 4px currentColor); }
 @media (prefers-reduced-motion: no-preference) { .arch-bulb.running svg { animation: arch-glow 1.4s ease-in-out infinite; } }
 @keyframes arch-glow { 50% { filter: drop-shadow(0 0 1px currentColor); opacity: .55; } }
@@ -753,7 +763,7 @@ main > * { transition: opacity .25s ease; }
     position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 7;
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
-  .top .nav #refresh, .top .nav a.icon, .top .nav .arch-bulb { min-width: 44px; min-height: 44px; }
+  .top .nav #refresh, .top .nav a.icon, .top .pages-switch { min-width: 44px; min-height: 44px; }
   body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
@@ -943,6 +953,8 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
   .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
   .split > main { max-width: none; margin: 0; }
   .needs-deck { display: none; }
+  /* Waiting on you is the board's pane here, so neither page shows the switch to the other. */
+  .top .pages-switch { display: none; }
   /* The board's + sits at the bottom right of the left pane: the pane ends at the middle of the space right of the sidebar. */
   .view-board .fab { right: calc(50% - var(--sidebar-w, 0px) / 2 + var(--fab-edge)); }
   body.has-sidebar { --sidebar-w: 272px; }

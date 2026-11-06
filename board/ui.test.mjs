@@ -257,14 +257,21 @@ test('every page header has a logo, a back arrow where needed, the title and dis
   assert.match(logo, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="kickflip\.png" alt=""><\/a><h1>iOS &lt;Orchestrator&gt;<\/h1><\/div>/);
   assert.match(logo, /<button class="ghost spinning" id="refresh" type="button" disabled/);
   assert.match(logo, /<span class="muted" id="status">…<\/span>/);
-  assert.match(logo, /<a href="settings\.html" id="settingsLink" class="ghost icon"[^>]*aria-disabled="true" tabindex="-1" aria-haspopup="dialog">/);
+  assert.doesNotMatch(logo, /settingsLink|archBulb|pages-switch/, 'the gear and bulb sit at the foot of the board, and only a board page has the switch');
   assert.equal(text(logo), 'iOS <Orchestrator> …');
+  const foot = ui.boardFoot();
+  assert.match(foot, /^<div class="board-foot"><button class="ghost icon arch-bulb" id="archBulb" type="button"[^>]*>.*<\/button><a href="settings\.html" id="settingsLink" class="ghost icon"[^>]*aria-disabled="true" tabindex="-1" aria-haspopup="dialog">/);
 
-  const back = ui.header({ lead: 'back', backHref: '/', backLabel: 'Back to Claude', title: 'Settings', logoSrc: '/_hub/kickflip.png', settingsHref: '/_hub/settings', time: 'now' });
+  // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md
+  const board = ui.header({ lead: 'logo', title: 'Board', pages: 'questions' });
+  assert.match(board, /<\/span><a href="questions\.html" id="questionsLink" class="ghost icon pages-switch" aria-label="Open questions" title="Open questions"><svg[^>]*><path d="M8 8a4 4 0 1 1 5\.5 3\.7[^"]*"\/><path d="M12 19\.5h\.01"\/><\/svg><span class="q-badge" hidden><\/span><\/a><\/nav>/);
+  const questions = ui.header({ lead: 'logo', title: 'Waiting on you', controls: false, trail: '<span id="progress"></span>', pages: 'board' });
+  assert.match(questions, /<span id="progress"><\/span><a class="ghost icon pages-switch back" href="\.\/" aria-label="Back to the board" title="Back to the board"><svg[^>]*><path d="M20 6 9 17l-5-5"\/><\/svg><\/a><\/header>$/);
+
+  const back = ui.header({ lead: 'back', backHref: '/', backLabel: 'Back to Claude', title: 'Settings', logoSrc: '/_hub/kickflip.png', time: 'now' });
   assert.match(back, /^<header class="top"><div class="brand"><a class="hub" href="\/_hub\/" aria-label="Boards"><img src="\/_hub\/kickflip\.png" alt=""><\/a><a class="back" href="\/" aria-label="Back to Claude"><svg width="24" height="24"[^>]*>.*?<\/svg><\/a><h1>Settings<\/h1><\/div>/);
   assert.equal((back.match(/class="hub"/g) || []).length, 1);
   assert.ok(back.indexOf('class="hub"') < back.indexOf('class="back"'), 'the icon comes before the back button');
-  assert.match(back, /href="\/_hub\/settings" id="settingsLink"/);
   assert.match(back, /id="status">now</);
 
   const bare = ui.header({ lead: 'back', title: 'Waiting on you', titleId: 'gtitle', backId: 'back', controls: false, trail: '<span class="muted small" id="progress"></span>' });

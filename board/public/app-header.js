@@ -104,7 +104,7 @@ BoardView.part((B) => {
   BoardUI.holdSends(B.on, B.root, () => state.link !== 'online');
   const linkUp = () => setLink('online');
   const linkDown = () => { if (state.link !== 'reconnecting') setLink('offline'); };
-  B.on($('.nav'), 'click', (ev) => {
+  B.on($('#settingsLink'), 'click', (ev) => {
     if (ev.target.closest('a[aria-disabled="true"]')) { ev.preventDefault(); ev.stopImmediatePropagation(); }
   }, true);
   // A load can return in milliseconds, so the spin and "reconnecting…" hold long enough to read.
