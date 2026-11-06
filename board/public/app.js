@@ -129,6 +129,8 @@ window.BoardView = (function () {
       board: null,
       fresh: null,
       openItems: new Set(store.get('openItems', [])),
+      // The cards open when the page loaded: Done and Asks hide those past their cap until the owner opens one this visit.
+      restored: new Set(store.get('openItems', [])),
       threadCache: new Map(),
       edits: new Map(),
       githubPending: null,
@@ -221,6 +223,7 @@ window.BoardView = (function () {
       focusKey = BoardUI.record(state.board?.moved, focusKey) || focusKey;
       replyKey = m[2] ? focusKey : null;
       state.openItems.add(focusKey);
+      state.restored.delete(focusKey);
       const it = state.board?.items.find((i) => i.key === focusKey);
       if (it) { const s = store.get('lanes', {}); s[it.lane] = true; store.set('lanes', s); B.openBand({ key: focusKey }); }
       if (it?.fold) store.set(B.FOLDS[it.fold].store, true);

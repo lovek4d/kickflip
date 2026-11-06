@@ -139,11 +139,11 @@
   // under el it was, so a card that moves lanes keeps its open thread. A textarea keeps what was typed in it, and an
   // element matching opts.keep stays as it is, for markup another part paints. The focused field keeps its focus when
   // its card moves (focusSafe). setHTML skips an unchanged rebuild, and reopens each <details> the reader left open,
-  // matched by its owning [data-key] and summary text. Open state is tracked page-wide, so content filled in after a
+  // matched by its owning [data-key] and summary text (a card itself by its key alone, its summary text changing as it ages). Open state is tracked page-wide, so content filled in after a
   // parent rebuild reopens too.
   const lastHtml = new WeakMap();
   const openDetails = new Set();
-  const detailsKey = (d) => `${(d.closest('[data-key]') || {}).dataset?.key || ''}|${(d.querySelector(':scope > summary')?.textContent || '').trim()}`;
+  const detailsKey = (d) => d.matches('[data-key]') ? d.dataset.key : `${(d.closest('[data-key]') || {}).dataset?.key || ''}|${(d.querySelector(':scope > summary')?.textContent || '').trim()}`;
   globalThis.document?.addEventListener('toggle', (ev) => {
     if (ev.target.tagName !== 'DETAILS') return;
     if (ev.target.open) openDetails.add(detailsKey(ev.target)); else openDetails.delete(detailsKey(ev.target));

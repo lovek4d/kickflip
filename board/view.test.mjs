@@ -4477,9 +4477,9 @@ test('answered asks have their own Asks section below Done, and Done and Asks ea
   assert.deepEqual(keys('done'), done.slice(0, 10).map((c) => c.key));
   assert.equal(more('done').textContent, 'Show more · 13 older cards');
   assert.ok(more('done').classList.contains('thread-more'));
-  // A card the owner has open stays shown past the cap, so nothing it is reading drops out.
-  assert.deepEqual(keys('asks'), asks.map((c) => c.key));
-  assert.equal(more('asks'), null);
+  // A card open from before the reload does not stay shown past the cap: the reload hides it with the rest.
+  assert.deepEqual(keys('asks'), asks.slice(0, 10).map((c) => c.key));
+  assert.equal(more('asks').textContent, 'Show more · 1 older card');
   b.page.fire(b.root, 'click', { target: more('done') });
   await b.settle();
   assert.deepEqual([keys('done').length, more('done').textContent], [20, 'Show more · 3 older cards']);
@@ -5323,4 +5323,23 @@ test("a card with prototypes always shows Prototypes, opening its latest round, 
   assert.equal(button('w/P2').getAttribute('class'), 'button');
   assert.ok(button('w/P3'));
   b.view.unmount();
+});
+
+test("a card the reader closes stays closed through a repaint that changed its summary text", () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const { Element } = miniDom(page.Target, page.win.document);
+  const { setHTML } = page.win.BoardUI;
+  const root = page.win.document.body.appendChild(new Element('div'));
+  const card = (ago, open) => `<details class="item" data-key="w/T1"${open ? ' open' : ''}><summary>Card · ${ago}</summary><p>body</p></details>`;
+  const el = () => root.querySelector('details.item');
+  const toggle = (open) => { el().open = open; page.fire(page.win.document, 'toggle', { target: el() }); };
+  setHTML(root, card('1m ago', false));
+  toggle(true);
+  setHTML(root, card('1m ago', false));
+  assert.equal(el().open, true);
+  setHTML(root, card('2m ago', true));
+  toggle(false);
+  setHTML(root, card('3m ago', false));
+  setHTML(root, card('1m ago', false));
+  assert.equal(el().open, false);
 });

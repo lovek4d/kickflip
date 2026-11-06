@@ -399,6 +399,7 @@ BoardView.part((B) => {
     const key = el.dataset.key;
     if (el.open) {
       state.openItems.add(key);
+      state.restored.delete(key);
       const it = state.board.items.find((i) => i.key === key) || state.archived.cards.find((i) => i.key === key);
       markSeen(it);
       B.renderBanner(state.board);

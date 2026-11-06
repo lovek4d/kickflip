@@ -13,13 +13,13 @@ BoardView.part((B) => {
     { id: 'asks', name: 'Asks', open: false, capped: true },
   ];
   // docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
-  // A capped lane shows STEP cards, and each Show more tap adds STEP more, kept in memory per lane. A card the owner has
-  // open stays shown past the cap. Show more says how many are left (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
+  // A capped lane shows STEP cards, and each Show more tap adds STEP more, kept in memory per lane. A card the owner opened
+  // this visit stays shown past the cap; one open from before a reload does not (state.restored). Show more says how many are left (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
   // older is how many cards wait past `cards` in the archive; the tap that would show past `cards` fetches them first.
   const STEP = 10;
   const moreTaps = new Map();
   function cappedRows(laneId, cards, older = 0) {
-    const lastOpen = cards.findLastIndex((it) => state.openItems.has(it.key));
+    const lastOpen = cards.findLastIndex((it) => state.openItems.has(it.key) && !state.restored.has(it.key));
     const shown = Math.max(STEP * (1 + (moreTaps.get(laneId) || 0)), lastOpen + 1);
     const left = Math.max(0, cards.length - shown);
     const n = left + (older || 0);
