@@ -17,13 +17,52 @@
 // BoardUI and HubUI, the real renderers, are globals too. A link in the stage never navigates and a form never
 // submits: each toasts unless the take's own handler shows a toast. Listeners a take adds to document or window,
 // and its timers, end on the next switch. Interactions must work on a tap: a phone has no hover.
-// At phone width (under 600px) the page caps every box in the stage to the stage's width, so panels laid in a flex-wrap
-// row stack in one column; give side-by-side panels flex-wrap (or a column fallback), not a fixed width without it.
+// At phone width (under 600px) the page caps every box in the stage to the stage's width and stacks a take's side-by-side
+// panels in one column, whether they sit in a grid, a flex row (wrapping or not) or inline-block (phoneFit below).
+// A frame laid out wider than the phone (a 720px or desktop mock) keeps its own layout and scrolls sideways in its box.
 // Fields in the stage are 16px, so iOS Safari doesn't zoom when one gets focus.
 (function () {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const wait = globalThis.setTimeout.bind(globalThis);
   const unwait = globalThis.clearTimeout.bind(globalThis);
+
+  // Phone width: the page caps the take's boxes to the stage (prototype.html). Panels the take puts side by side get
+  // data-stack, which CSS stacks in one column, and a frame the take gives a width of 600px or more (a 720px or desktop
+  // mock) gets data-wide, with its parent data-scroll, so the frame keeps its layout and scrolls sideways in its box.
+  const PHONE = '(max-width: 599px)';
+  const WIDE = 600;
+  const px = (v) => (/^[\d.]+px$/.test(v) ? parseFloat(v) : 0);
+  const rulesOf = (list) => [...list].flatMap((r) => (r.selectorText ? [r] : r.cssRules && !(r.media && !matchMedia(r.media.mediaText).matches) ? rulesOf(r.cssRules) : []));
+  const styleRules = () => [...document.styleSheets].flatMap((sheet) => { try { return rulesOf(sheet.cssRules); } catch { return []; } });
+  const declaredWidth = (el, rules) => Math.max(px(el.style.width), px(el.style.minWidth), ...rules.filter((r) => el.matches(r.selectorText)).map((r) => Math.max(px(r.style.width), px(r.style.minWidth))));
+  const sideBySide = (a, b) => a.right <= b.left + 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 40;
+  const isPanel = (el) => el.offsetWidth >= 120 && el.offsetHeight >= 80 && getComputedStyle(el).position !== 'absolute';
+  function phoneFit(stage) {
+    stage.querySelectorAll('[data-wide], [data-scroll], [data-stack]').forEach((el) => { delete el.dataset.wide; delete el.dataset.scroll; delete el.dataset.stack; });
+    if (!matchMedia(PHONE).matches) return;
+    const rules = styleRules();
+    for (const el of stage.querySelectorAll('*')) {
+      if (declaredWidth(el, rules) < WIDE || el.parentElement.closest('[data-wide]')) continue;
+      el.dataset.wide = '';
+      el.parentElement.dataset.scroll = '';
+    }
+    const walk = (el) => {
+      const rects = [...el.children].filter(isPanel).map((c) => c.getBoundingClientRect());
+      if (rects.some((a, i) => rects.some((b, j) => i < j && sideBySide(a, b)))) { el.dataset.stack = ''; return; }
+      [...el.children].filter((c) => !('wide' in c.dataset)).forEach(walk);
+    };
+    walk(stage);
+  }
+  function fitPhone(stage, ends) {
+    let queued = false;
+    const observer = new MutationObserver(() => queue());
+    const run = () => { queued = false; observer.disconnect(); phoneFit(stage); observer.observe(stage, { childList: true, subtree: true }); };
+    const queue = () => { if (!queued) { queued = true; requestAnimationFrame(run); } };
+    const mq = matchMedia(PHONE);
+    mq.addEventListener('change', queue);
+    ends.push(() => { observer.disconnect(); mq.removeEventListener('change', queue); });
+    run();
+  }
 
   const at = (ms) => new Date(Date.now() + ms).toISOString();
   const svg = (paths) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
@@ -211,6 +250,7 @@
         console.error(err);
         if (n === shown) stage.innerHTML = `<p class="kit-missing">Take ${esc(key)} failed: ${esc(err?.message || err)}</p>`;
       }
+      fitPhone(stage, ends);
       settle();
     }
 

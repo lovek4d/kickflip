@@ -20,7 +20,7 @@ let timerIds = 0;
 const stages = [];
 function stage() {
   const s = { id: 'stage', innerHTML: '', style: {}, offsetHeight: 400, boxes: [], cloneNode: () => stage(), replaceWith: (next) => { current = next; },
-    querySelectorAll: (sel) => { if (sel !== '*') throw new Error(sel); return s.boxes; } };
+    querySelectorAll: (sel) => (sel === '*' ? s.boxes : []) };
   stages.push(s);
   return s;
 }
@@ -33,7 +33,8 @@ const document = Object.assign(new Target(), {
 let mounted = null;
 const scrolls = [];
 Object.assign(globalThis, {
-  EventTarget: Target, window: globalThis, document, scrollY: 250, scrollTo: (...args) => scrolls.push(args),
+  EventTarget: Target, window: globalThis, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+  MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: (fn) => fn(), document, scrollY: 250, scrollTo: (...args) => scrolls.push(args),
   setTimeout: () => { timers.add(++timerIds); return timerIds; }, clearTimeout: (id) => timers.delete(id),
   setInterval: () => { timers.add(++timerIds); return timerIds; }, clearInterval: (id) => timers.delete(id),
   PrototypeSwitcher: { mount: (opts) => { mounted = { ...opts, first: opts.render(opts.initial) }; return {}; } },

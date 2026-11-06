@@ -25,9 +25,17 @@
   #protoToast[hidden] { display: none; }
   @media (max-width: 899px) { #protoToast { top: max(12px, env(safe-area-inset-top)); } }
 
-  /* A take's own panels (390px and 720px frames, side-by-side pairs) are capped to the stage at phone width, so a
-     flex-wrap row of them stacks in one column and nothing is cut off. */
-  @media (max-width: 599px) { #stage :where(div, section, article, aside, nav, header, footer, main, form, ul, ol, table, figure) { max-width: 100%; min-width: 0; } }
+  /* A take's own boxes are capped to the stage at phone width, so a fixed-width panel never cuts off. prototype-kit.js
+     (phoneFit) marks what the take lays side by side with data-stack, which stacks in one column whether the take used
+     grid, flex (wrapping or not) or inline-block, and a frame 600px or wider with data-wide: it keeps its own layout
+     and scrolls sideways inside its data-scroll box. */
+  @media (max-width: 599px) {
+    #stage :where(div, section, article, aside, nav, header, footer, main, form, ul, ol, table, figure):not([data-wide]) { max-width: 100%; min-width: 0; }
+    #stage [data-scroll] { overflow-x: auto; max-width: 100%; }
+    #stage [data-wide] { max-width: none; flex-shrink: 0; }
+    #stage [data-stack] { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; grid-template-columns: none !important; align-items: stretch !important; }
+    #stage [data-stack] > * { width: auto !important; flex: 0 0 auto !important; grid-column: auto !important; float: none !important; }
+  }
   /* iOS Safari zooms the page when it focuses a field under 16px. */
   #stage :where(input, select, textarea) { font-size: 16px; }
   #stage .kit-sidebar.sidebar { position: relative; inset: auto; z-index: auto; transform: none; visibility: visible; transition: none;
