@@ -71,6 +71,8 @@
   const icon = (body, size = 18, attrs = '') => `<svg${attrs} width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
   // An SVG, not ↗: iOS Safari can draw ↗ as an emoji tile even with U+FE0E.
   const LINK_ARROW = icon('<path d="M7 17 17 7"/><path d="M7 7h10v10"/>', '1em', ' class="link-arrow" style="vertical-align:-0.125em"');
+  // Escaped text with each ↗ (and a trailing U+FE0E) drawn as LINK_ARROW; for owner-facing text, never an attribute.
+  const escText = (s) => esc(s).replace(/\u2197\uFE0E?/g, LINK_ARROW);
   const EYE = icon('<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>');
   const TRASH = icon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
   const FIRE = icon('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>');
@@ -370,7 +372,7 @@
   }
 
   globalThis.BoardUI = {
-    LINK_ARROW,
+    LINK_ARROW, escText,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, boltButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
   };

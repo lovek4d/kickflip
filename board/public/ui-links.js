@@ -2,7 +2,7 @@
 // ref opens that card, a Linear id or PR opens its page, and a bare URL becomes a link. Needs ui.js; load it before
 // the ui-*.js files that render text.
 (function () {
-  const { esc, record } = globalThis.BoardUI;
+  const { esc, escText, record } = globalThis.BoardUI;
   // The Linear id shape, which an internal ref shares.
   const LINEAR_ID = /^([A-Z][A-Z0-9]*)-\d+$/;
   const LINEAR_ISSUE = /^https:\/\/linear\.app\/[^/]+\/issue\//;
@@ -73,13 +73,13 @@
   // The longest hyphen-prefix of a word that is a known ref or a Linear id, then the rest as text.
   function wordLink(word, ctx) {
     for (let w = word; w; w = w.includes('-') ? w.slice(0, w.lastIndexOf('-')) : '') {
-      const rest = esc(word.slice(w.length));
+      const rest = escText(word.slice(w.length));
       if (record(ctx.refs, w)) return cardLink(w, ctx) + rest;
       const team = LINEAR_ID.exec(w)?.[1];
       const prefix = team && team !== 'INT' && record(ctx.teams, team);
       if (prefix) return out(prefix + w, w) + rest;
     }
-    return esc(word);
+    return escText(word);
   }
 
   // A bare #n that reads as a hex colour stays text.
@@ -92,16 +92,16 @@
     let at = 0;
     for (const m of s.matchAll(TOKEN)) {
       const [all, url, owner, name, n, bare, word] = m;
-      html += esc(s.slice(at, m.index));
+      html += escText(s.slice(at, m.index));
       at = m.index + all.length;
       if (url) html += urlLink(url);
       else if (name) {
         const repo = owner ? `${owner}/${name}` : record(ctx.repos, name);
-        html += repo ? out(prUrl(repo, n), all) : esc(all);
-      } else if (bare) html += record(ctx.refs, all) ? cardLink(all, ctx) : ctx.repo && !colour(bare) ? out(prUrl(ctx.repo, bare), all) : esc(all);
+        html += repo ? out(prUrl(repo, n), all) : escText(all);
+      } else if (bare) html += record(ctx.refs, all) ? cardLink(all, ctx) : ctx.repo && !colour(bare) ? out(prUrl(ctx.repo, bare), all) : escText(all);
       else html += wordLink(word, ctx);
     }
-    return html + esc(s.slice(at));
+    return html + escText(s.slice(at));
   }
 
   const TAG = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w-]*)(?:[^>"']|"[^"]*"|'[^']*')*>/g;

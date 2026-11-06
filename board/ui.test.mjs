@@ -2195,3 +2195,10 @@ test('the Questions page bar docks on the keyboard while a field is focused', ()
   assert.match(view, /classList\.toggle\('kb-up', typing && kb > 0\)/);
   assert.match(view, /B\.on\(vv, 'resize', dock\)[\s\S]*B\.on\(vv, 'scroll', dock\)/);
 });
+
+test('a ↗ written in a question, its context and its options draws as the arrow icon, never the character', () => {
+  const q = { ...question, question: 'See Notes ↗ first?', context: 'Open take A↗︎ for more', options: [{ id: 'A', label: 'Notes ↗', detail: 'Open take B ↗' }, { id: 'B', label: 'Drop' }] };
+  const html = ui.questionCard(q);
+  assert.doesNotMatch(html, /[↗︎]/);
+  assert.equal(html.split('class="link-arrow"').length - 1, 4);
+});

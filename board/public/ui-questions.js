@@ -1,12 +1,12 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, time, ago, replyBody, attachments, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, escText, time, ago, replyBody, attachments, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
   // suggested: the line under a suggested option saying where the owner chose it before, as HTML.
   const option = (o, { type = 'radio', name, checked = false, numbered = true, locked = false, suggested = '' }) => `<label class="opt"><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
-        <span><span class="lbl">${numbered ? esc(lead(o)) : ''}${esc(o.label)}</span>${suggested ? badge('ready', 'suggested').replace('class="chip', 'class="chip suggested') : ''}${o.recommended ? '<span class="rec">recommended</span>' : ''}<div class="det">${esc(o.detail || '')}</div>${suggested ? `<div class="suggested-why">${suggested}</div>` : ''}</span></label>`;
+        <span><span class="lbl">${numbered ? escText(lead(o)) : ''}${escText(o.label)}</span>${suggested ? badge('ready', 'suggested').replace('class="chip', 'class="chip suggested') : ''}${o.recommended ? '<span class="rec">recommended</span>' : ''}<div class="det">${escText(o.detail || '')}</div>${suggested ? `<div class="suggested-why">${suggested}</div>` : ''}</span></label>`;
   // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.
@@ -39,7 +39,7 @@
   const RULE_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
   function answerHistory(q, links = {}) {
     if (!q.answers.length) return '';
-    const body = q.answers.map((a) => `<div class="ans"><div class="muted small">You · ${esc(time(a.ts))}</div>${esc(choiceLabel(q, a.choice))}${a.note ? `<div>${linkText(a.note, links)}</div>` : ''}${attachments(a.files)}</div>
+    const body = q.answers.map((a) => `<div class="ans"><div class="muted small">You · ${esc(time(a.ts))}</div>${escText(choiceLabel(q, a.choice))}${a.note ? `<div>${linkText(a.note, links)}</div>` : ''}${attachments(a.files)}</div>
       ${a.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(a.reply), links)}</div>` : a.acted ? '' : '<div class="muted small" style="margin-top:4px">Waiting for Claude…</div>'}`).join('');
     const last = q.answers[q.answers.length - 1];
     return q.state === 'open' || !last.reply ? body : `<details><summary>Your answer and Claude's reply</summary>${body}</details>`;
