@@ -512,7 +512,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 }
 @keyframes refresh-spin { to { transform: rotate(360deg); } }
 /* INT-55: the header's right group (the time then ↻, settings) sits one gap apart; each control paints disabled until app-header.js wires it */
-.top .nav { gap: 8px; }
+.top .nav { gap: 2px; }
 .top .nav .refresh { flex-direction: row-reverse; gap: 2px; }
 .top .nav #refresh, .top .nav a.icon { display: inline-flex; align-items: center; justify-content: center; margin: 0; padding: 4px; border: 0; line-height: 1; }
 .top .nav #status { line-height: 1.1; white-space: nowrap; }

@@ -10,7 +10,7 @@
   const BULB = icon(18, '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>');
   // The pages switch (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md): a bare ? and a bare check, drawn
   // like the bulb and gear.
-  const QUESTION = icon(18, '<path d="M8 8a4 4 0 1 1 5.5 3.7c-.9.4-1.5 1.2-1.5 2.2V15"/><path d="M12 19.5h.01"/>');
+  const QUESTION = icon(18, '<path d="M6.5 8.5a5.5 5.5 0 1 1 8.2 4.8c-1.6.9-2.7 1.8-2.7 3.2V17"/><path d="M12 21h.01"/>');
   const CHECK = icon(18, '<path d="M20 6 9 17l-5-5"/>');
   const id = (v) => (v ? ` id="${esc(v)}"` : '');
 
