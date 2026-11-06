@@ -1517,7 +1517,7 @@ test("a local board's Main has a refresh icon right of its timestamp that spins 
 });
 
 test('Todo offers Plan waves in the Show more style once two cards are free, with their keys', () => {
-  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'work' }, { key: 'v/B2', kind: 'work', blockedBy: [] }, { key: 'v/C3', kind: 'work', held: true }, { key: 'v/D4', kind: 'work', blockedBy: [{ ref: 'A1' }] }, { key: 'ask:n1', kind: 'ask' }];
+  const todo = [{ key: 'w/A1', kind: 'work' }, { key: 'w/ENG-1', kind: 'work' }, { key: 'v/B2', kind: 'work', blockedBy: [] }, { key: 'v/C3', kind: 'work', held: true }, { key: 'v/D4', kind: 'work', blockedBy: [{ ref: 'A1' }], blocked: true }, { key: 'v/E5', kind: 'work', blockedBy: [], blockedUntil: 'x', blocked: true }, { key: 'ask:n1', kind: 'ask' }];
   const html = ui.planButton(todo);
   assert.match(html, /^<button type="button" class="thread-more" data-plan="w\/A1 w\/ENG-1 v\/B2">/);
   assert.equal(text(html), 'Plan waves');
