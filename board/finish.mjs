@@ -1,9 +1,10 @@
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md
 // Finishing a board card's build, the one step behind `builder done` with no unverified calls, `builder verified` on a
-// handed-back build, and `land`. On a board on GitHub whose PRs setting is on (store.mjs opensPRs) it pushes the card's
-// branch, opens a draft PR and moves the card to it, or on a card whose PR is open force-pushes it there with a lease,
-// leaving the PR as it is; on a plain git remote it pushes the branch for the owner's merge.
-// Anywhere else, a local board (the hub board included) or a board on GitHub with PRs off, it verifies the worktree
+// handed-back build, and `land`. On a board on GitHub whose PRs setting is on (store.mjs opensPRs), the hub board on
+// Draft PR or Ready PR included, it pushes the card's branch, opens a draft PR and moves the card to it, or on a card
+// whose PR is open force-pushes it there with a lease, leaving the PR as it is; on a plain git remote it pushes the
+// branch for the owner's merge.
+// Anywhere else, a local board (the hub board on Merge included) or a board on GitHub with PRs off, it verifies the worktree
 // as a land does and, with Auto-merge off, stops there: the card waits in In Review for the owner's Merge
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). With Auto-merge on, or once the owner tapped Merge, it
 // lands the worktree (worktree.mjs land), closes the card and its ticket, and pushes the branch to origin when the

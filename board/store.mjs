@@ -912,9 +912,10 @@ export async function readBoardSettings(site) {
   return settingsOf(await readJSON(path.join(dir, 'board.json'), {}), listBoards().find((b) => samePath(b.dir, dir)));
 }
 // Whether cards on a board open PRs: a board on GitHub that builds from its shared clone, not its folder
-// (hub/boards.mjs buildsLocally), with its PRs setting on. board is a listBoards entry or hub/board-repo.mjs boardRepo's
-// answer, settings settingsOf's.
-export const opensPRs = (board, settings) => Boolean(board?.github) && !board.local && settings.prs;
+// (hub/boards.mjs buildsLocally), or the hub board, which builds from its folder, with its PRs setting on (Landing is
+// Draft PR or Ready PR; docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md). board is a
+// listBoards entry or hub/board-repo.mjs boardRepo's answer, settings settingsOf's.
+export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.local || board.hub === true) && settings.prs;
 
 // changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there

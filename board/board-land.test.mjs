@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { until } from '../shared/test-helpers.mjs';
 import { land as landWorktree } from './worktree.mjs';
+import { opensPRs, settingsOf } from './store.mjs';
 import { fakeGh, prView, writePR, writeReviews, writeMerge, calls } from '../shared/fake-gh.mjs';
 import { bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, restarts, land, branches, finishEnv, onOrch, record, itemOf, threadOf, remoteBoard, tapMerge, addEvents } from './board-fixture.mjs';
 
@@ -825,6 +826,71 @@ test("the hub board's settings default to Merge, prs off, until its owner picks 
   const cfgFile = site('orch', 'board.json');
   write(cfgFile, { ...read(cfgFile), prs: true });
   assert.equal(prs(), true);
+});
+
+// docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md: what decides whether the board's cards
+// show its reviewers.
+test('the hub board opens PRs, and so shows reviewers, only on Draft PR or Ready PR; no other local board ever does', () => {
+  const hub = { github: 'owner/project', local: true, hub: true };
+  const local = { github: 'owner/project', local: true };
+  assert.deepEqual([{}, { prs: true }, { prs: true, skip_draft: true }].map((cfg) => opensPRs(hub, settingsOf(cfg, hub))), [false, true, true]);
+  assert.equal(opensPRs(local, settingsOf({ prs: true }, local)), false);
+});
+
+// The hub board builds in its folder, a clone of origin whose main holds a commit origin doesn't have.
+const hubBoard = () => {
+  const origin = remoteBoard(() => ({ github: 'owner/project', local: true, hub: true }));
+  const folder = path.join(home, 'clone');
+  commit(folder, 'local.txt', 'only in the folder\n', 'local work');
+  return { origin, folder };
+};
+
+// docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md
+test('on Merge, a hub card branches from its folder\'s main and lands there, opening no PR and pushing nothing without Push main', () => {
+  const ghDir = path.join(home, 'gh');
+  const { origin, folder } = hubBoard();
+  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  const main = git(origin, 'rev-parse', 'main');
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  assert.equal(fs.existsSync(path.join(worktree(), 'local.txt')), true);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  const r = b('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
+  assert.equal(git(folder, 'show', 'main:work.txt'), 'built');
+  assert.equal(git(origin, 'rev-parse', 'main'), main);
+  assert.deepEqual([itemOf().status, itemOf().prs, calls(ghDir).filter((a) => a[0] === 'pr')], ['done', undefined, []]);
+});
+
+// docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md
+test("on Draft PR or Ready PR, a hub card branches from origin's main, and its finish pushes the branch and opens a draft PR holding only the card's commits, leaving main as it was", () => {
+  const ghDir = path.join(home, 'gh');
+  const { origin, folder } = hubBoard();
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }] });
+  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  const folderMain = git(folder, 'rev-parse', 'main');
+  const originMain = git(origin, 'rev-parse', 'main');
+  const finish = (id) => {
+    const tree = at('kickflip', 'worktrees', id);
+    assert.equal(b('builder', 'start', `w/${id}`, '--kind', 'build').code, 0);
+    assert.equal(fs.existsSync(path.join(tree, 'local.txt')), false);
+    commit(tree, `${id}.txt`, 'built\n', `${id}: work`);
+    const r = b('builder', 'done', `w/${id}`, '--text', `Checked ${id}.`);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, new RegExp(`\\n${id}: draft PR #\\d+ opened\\n`));
+    assert.equal(git(origin, 'rev-parse', id), git(tree, 'rev-parse', 'HEAD'));
+    assert.equal(git(origin, 'rev-list', '--count', `main..${id}`), '1');
+    assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr').at(-1), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', id, '--title', `${id}: ${itemOf(id).title}`, '--body', `Checked ${id}.`]);
+    assert.deepEqual([itemOf(id).status, itemOf(id).prs?.length], [undefined, 1]);
+  };
+  assert.deepEqual(b('settings', 'set', 'prs', 'on'), { code: 0, out: 'prs on\n', err: '' });
+  finish('A1');
+  // Ready PR opens the same draft; the hub's GitHub check marks it ready once its CI passes.
+  assert.equal(b('settings', 'set', 'skip-draft', 'on').code, 0);
+  finish('A2');
+  assert.deepEqual([git(folder, 'rev-parse', 'main'), git(origin, 'rev-parse', 'main')], [folderMain, originMain]);
 });
 
 test('PRs off on a GitHub board needs Push main granted; then a finish lands in the shared clone on main as origin has it, and pushes main', () => {

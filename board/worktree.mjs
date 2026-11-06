@@ -8,8 +8,8 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BoardError } from './store.mjs';
-import { boardAt, hubCode, listBoards, readManifest } from '../hub/boards.mjs';
+import { BoardError, opensPRs, settingsOf } from './store.mjs';
+import { boardAt, hubCode, listBoards, readJSON, readManifest } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { storedPath } from '../bin/install.mjs';
@@ -74,15 +74,19 @@ function removeLeftover(root, dir, id, { ref, base, busy }) {
 }
 
 // Where the board at site's builders branch from and land (hub/board-repo.mjs boardRepo): a board on GitHub or a plain
-// git remote from its branch of its shared clone, fetched first; a local board, the hub board included, from its repo's
-// local copy of its recorded branch (`kickflip join` saves the folder's default branch), else main. With no site, or a
-// site that isn't a board, the running kickflip clone's main. repo stands in for the board's folder. → {repo, base, remote}
+// git remote from its branch of its shared clone, fetched first; a local board from its repo's local copy of its
+// recorded branch (`kickflip join` saves the folder's default branch), else main. The hub board is local while its
+// Landing is Merge; on Draft PR or Ready PR (store.mjs opensPRs) it branches from origin's branch, fetched first, and
+// finishes with a PR, still in its folder (docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md).
+// With no site, or a site that isn't a board, the running kickflip clone's main. repo stands in for the board's folder.
+// → {repo, base, remote}
 export function builderRepo(site, { repo, manifest = readManifest() } = {}) {
   const board = site ? boardAt(site, manifest) : null;
   if (!board) return { repo: repo ?? skillRepo(), base: 'main', remote: false };
   const chosen = boardRepo(board.route, manifest);
   const folder = repo ?? (chosen.repo || fail(`/${board.route} has no folder recorded for its session; rejoin it from its repo folder`));
-  return { repo: folder, base: chosen.branch || 'main', remote: !chosen.local };
+  const prs = opensPRs(chosen, settingsOf(readJSON(path.join(board.dir, 'board.json'), {}), chosen));
+  return { repo: folder, base: chosen.branch || 'main', remote: !chosen.local || prs };
 }
 
 // The worktree of card id on the board at site, from builderRepo. → as makeWorktree

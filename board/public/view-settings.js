@@ -201,7 +201,7 @@
     let repo = {}, closeRepo = () => {};
     let tickets, savedTickets, savingTickets = null, ticketsTouched = false;
     // Landing shows on a board on GitHub that builds from its shared clone and on the hub board, which builds from its
-    // folder and starts on Merge; any other local board never opens PRs. Its choice is
+    // folder, starts on Merge and opens PRs on Draft PR or Ready PR; any other local board never opens PRs. Its choice is
     // the board's prs and skip_draft settings read together: Draft PR, prs on and skip_draft off; Ready PR, both on;
     // Merge, prs off. Reviewers show only while cards open PRs
     // (docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md).
@@ -213,7 +213,7 @@
     let landing = 'draft';
     const landingButtons = () => Object.keys(LANDING).map((value) => $(`[data-landing="${value}"]`));
     const landingOf = (settings) => (settings?.prs === false ? 'merge' : settings?.skip_draft === true ? 'ready' : 'draft');
-    const opensPRs = () => Boolean(repo.github) && !repo.local && landing !== 'merge';
+    const opensPRs = () => Boolean(repo.github) && (!repo.local || Boolean(repo.hub)) && landing !== 'merge';
     const syncPRs = () => {
       $('#landingSection').hidden = !repo.github || (Boolean(repo.local) && !repo.hub);
       $('#reviewersSection').hidden = !opensPRs();

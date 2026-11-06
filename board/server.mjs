@@ -515,7 +515,7 @@ async function readAgents(dir) {
 // manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
 async function outsideData() {
   const self = boardAt(here);
-  return { cfg: await config(), github: self?.github, local: self?.local, remote: self?.remote, branch: self?.branch, topicItems: topicItems() };
+  return { cfg: await config(), github: self?.github, local: self?.local, hub: self?.hub, remote: self?.remote, branch: self?.branch, topicItems: topicItems() };
 }
 
 // The wave files the board reads, each with its builder records.
@@ -541,7 +541,7 @@ async function withArchived(entries) {
 
 // A board that opens no PRs has no reviewers on its cards; its list stays in board.json
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
-async function itemSnapshot({ cfg, github, local, remote, branch }, waves) {
+async function itemSnapshot({ cfg, github, local, hub, remote, branch }, waves) {
   const fromWaves = cfg.items === 'waves';
   waves ??= await liveWaves();
 
@@ -549,7 +549,7 @@ async function itemSnapshot({ cfg, github, local, remote, branch }, waves) {
   await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { github, remote, branch, reviewers: opensPRs({ github, local }, settingsOf(cfg)) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
+  return { github, remote, branch, reviewers: opensPRs({ github, local, hub }, settingsOf(cfg, { hub })) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
     working: await readWorking(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
     reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
