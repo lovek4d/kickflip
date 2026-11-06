@@ -7,7 +7,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
 import { builderBrief, landerBrief, plannerBrief, rebaseBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
-import { briefFacts } from './store.mjs';
+import { briefFacts, archiveCards, readArchive } from './store.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
 // server and outlives it.
@@ -642,6 +642,30 @@ test("the owner's Hold kills the card's running builder, closes its record and s
     child.kill();
     if (pid) try { process.kill(pid, 'SIGKILL'); } catch {}
     fs.rmSync(b.home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a stale lander entry for an archived Done card is dropped, and the card stays archived', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-lander-stale-'));
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main' } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'D1', title: 'Landed', status: 'done' }, { id: 'T1', title: 'Other', status: 'todo' }] }));
+  await archiveCards(site, [{ key: 't/D1', closed_at: '2026-11-01T00:00:00.000Z' }]);
+  fs.writeFileSync(path.join(data, 'landers.json'), JSON.stringify({ 't/D1': { verified: 'v1', pid: 2 ** 22 + 12345 } }));
+  const [port] = await freePorts();
+  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1' } });
+  try {
+    await boardListening(child);
+    await until(() => !('t/D1' in JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))), 'the stale entry is dropped');
+    assert.deepEqual((await readArchive(site)).map((a) => a.key), ['t/D1']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items.map((i) => i.id), ['T1']);
+  } finally {
+    child.kill();
     fs.rmSync(home, { recursive: true, force: true });
   }
 });

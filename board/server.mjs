@@ -1431,7 +1431,7 @@ async function runAuto() {
     logCall({ call: 'released-start', key, result: startResult(started), reason: 'Its Implement message was folded in and it was released ready.', inputs: { cap: settings.max_implementers } });
     await handOff(started);
   }
-  if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'), stoppedKeys(items));
+  if (!heldByPause) await launchLanders(items, stoppedKeys(items));
   if (!heldByPause) await launchRebases(items);
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   if (await checkTriage(settings, log, items, ready)) return;
@@ -1589,20 +1589,30 @@ function runHeldMerge(key) {
 // process has gone while its card still reads building stopped partway (the usage pause ends a headless run): its card
 // goes back to checking (store.mjs relaunchLander) and gets a fresh lander in this pass. A lander is only ever due on a
 // checking card, so with none checking (anyChecking false) and none sent back, landable's read of the wave files is skipped.
-// A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor relaunched.
-async function launchLanders(anyChecking, stopped) {
+// A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor relaunched. A dead
+// lander whose card is neither building nor checking (landed, or archived) has its entry dropped; relaunchLander would restore an
+// archived card from the archive.
+async function launchLanders(items, stopped) {
+  const anyChecking = items.some((i) => i.status === 'checking');
+  const status = Object.fromEntries(items.map((i) => [i.key, i.status]));
   const file = path.join(data, 'landers.json');
   const sent = Object.fromEntries(Object.entries(await readJSON(file, {})).map(([k, v]) => [k, typeof v === 'string' ? { verified: v, pid: null } : v]));
   const pidGone = new Set();
+  const dropped = new Set();
   for (const [key, entry] of Object.entries(sent)) {
     if (!entry.pid || pidAlive(entry.pid) || stopped.has(key)) continue;
-    try {
-      await relaunchLander(here, key);
-      pidGone.add(key);
-      logCall({ call: 'lander', key, result: 'sent back to checking', reason: 'Its lander exited with the card still building.', inputs: entry });
-    } catch (e) { if (!(e instanceof BoardError)) throw e; }
+    if (status[key] === 'checking') continue;
+    if (status[key] !== 'building') { dropped.add(key); continue; }
+    await relaunchLander(here, key);
+    pidGone.add(key);
+    logCall({ call: 'lander', key, result: 'sent back to checking', reason: 'Its lander exited with the card still building.', inputs: entry });
   }
-  const kept = Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k)));
+  const kept = Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k) && !dropped.has(k)));
+  const save = async () => {
+    await fs.writeFile(file + '.tmp', JSON.stringify(kept) + '\n');
+    await fs.rename(file + '.tmp', file);
+  };
+  if (dropped.size) await save();
   if (!anyChecking && !pidGone.size) return;
   const due = (await landable(here)).filter((c) => kept[c.key]?.verified !== c.verified);
   if (!due.length) return;
@@ -1618,8 +1628,7 @@ async function launchLanders(anyChecking, stopped) {
       await appendThread(here, c.key, { text: `Couldn't launch the lander headless (${e.message}); land it with board.mjs land ${c.key}.` });
     }
   }
-  await fs.writeFile(file + '.tmp', JSON.stringify(kept) + '\n');
-  await fs.rename(file + '.tmp', file);
+  await save();
 }
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
