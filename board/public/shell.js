@@ -35,6 +35,10 @@ window.AppShell = (function () {
       channel.port1.onmessage = done;
       try { controller.postMessage({ forget: 'shell' }, [channel.port2]); } catch { done(); }
     });
+    // Only this reload starts at the top: iOS put the old offset back once the page had grown and left that area unpainted until a scroll
+    // (docs/adr/2026-11-06-1100-the-shell-turns-off-scroll-restoration.md). pagehide gives ordinary reloads their restore back.
+    history.scrollRestoration = 'manual';
+    addEventListener('pagehide', () => { history.scrollRestoration = 'auto'; }, { once: true });
     setTimeout(() => location.reload(), 0);
   }
 
@@ -44,9 +48,6 @@ window.AppShell = (function () {
   }
 
   async function start() {
-    // The shell sends every view to the top itself, so the browser's own scroll restore is off: after a reload iOS put the old
-    // offset back once the page had grown, and left that area unpainted until a scroll (docs/adr/2026-11-06-1100-the-shell-turns-off-scroll-restoration.md).
-    history.scrollRestoration = 'manual';
     // A frame that lands on a view's URL, such as a framed page's link back to its card, shows it in the shell around it.
     if (outer()?.open(location.href, { frames: false })) return;
     // The same URL and scope as hub-kit.js's push registration, so the one registration and its push subscription stay.

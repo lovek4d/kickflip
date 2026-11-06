@@ -1557,9 +1557,16 @@ async function shellPage(path, { fetch, sidebarData = { sites: [{ route: 'shop',
     entries: () => entries, position: () => at, boardUnmounts: () => boardUnmounts };
 }
 
-test("the shell turns off the browser's scroll restore, so a reload on a phone is not repainted at the old offset", async () => {
-  const { win } = await shellPage('/shop/');
+test("the browser's scroll restore stays on, and is off only for the reload an update triggers, until that page is left", async () => {
+  const { win, doc, page } = await shellPage('/shop/');
+  assert.notEqual(win.history.scrollRestoration, 'manual');
+  win.AppShell.codeSeen('boot');
+  win.AppShell.codeSeen('new');
+  page.fire(doc.getElementById('sidebar'), 'click', { target: doc.querySelector('[data-app-reload]') });
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(win.history.scrollRestoration, 'manual');
+  page.fire(win, 'pagehide');
+  assert.equal(win.history.scrollRestoration, 'auto');
 });
 
 test('a tap, key or scroll tells the hub the owner is here: at once while away, which drops the moon on this page, then at most once a minute', async () => {
