@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-phase-bars.js.
 (function () {
-  const { esc, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, phaseBars: bars } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, phaseBars: bars } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
@@ -299,19 +299,19 @@
     const ids = it.kind === 'ask' ? askChip(it) : chip;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
-      : it.orchestrator && !it.builder ? `${it.rebaseFailed ? `<div class="line3 sub">${esc(it.rebaseFailed)}</div>` : ''}${orchestratorStatus(it)}`
+      : it.orchestrator && !it.builder ? `${it.rebaseFailed ? `<div class="line3 sub">${escText(it.rebaseFailed)}</div>` : ''}${orchestratorStatus(it)}`
       : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
       : it.builder ? builderStatus(it)
       : it.grilling || it.prototyping ? '<div class="line3 sub asked">preheating</div>'
-      : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
-      : it.landStopped ? `<div class="line3 sub">${esc(`${it.landStopped.words} · ${lasted(it.landStopped.at)}`)}</div>`
+      : it.refusal ? `<div class="line3 sub refused">${escText(it.refusal)}</div>`
+      : it.landStopped ? `<div class="line3 sub">${escText(`${it.landStopped.words} · ${lasted(it.landStopped.at)}`)}</div>`
       : it.working ? `<div class="line3 sub agent">${thinkingLine()}</div>`
-      : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
-    const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
+      : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${escText(it.next)}</div>` : '';
+    const eta = it.eta && it.builder ? `<div class="line3 sub eta">${escText(etaLine(it.eta))}</div>` : '';
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-    const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${esc(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
-      : `<div class="line3 sub check">${esc(`Checks: ${it.ownerCheck.words}`)}</div>`;
-    return `${actions ?? cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${esc(it.title)}</div>
+    const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
+      : `<div class="line3 sub check">${escText(`Checks: ${it.ownerCheck.words}`)}</div>`;
+    return `${actions ?? cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
       ${status}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, phaseBars(phaseStrip(it)))}`;
@@ -340,11 +340,11 @@
   const reviewWhen = (c) => `${c.state === 'reviewing' ? 'started ' : ''}${ago(c.at)}`;
   function reviewCard(c, open) {
     return `<details class="rv-card" data-review="${c.number}"${open ? ' open' : ''}><summary><span class="status ${REVIEW_DOTS[c.state]}"></span><div class="title-wrap">
-      <div class="line1 title">${badge('normal', `PR #${c.number}`)} ${esc(c.title)}</div>
+      <div class="line1 title">${badge('normal', `PR #${c.number}`)} ${escText(c.title)}</div>
       <div class="line3 sub${c.state === 'reviewing' ? ' agent' : ''}">${c.state === 'reviewing' ? '<span class="working-dot" aria-hidden="true"></span>' : ''}<span class="rv-word s-${c.state}">${REVIEW_WORDS[c.state]}</span> · ${esc(reviewWhen(c))}</div>
       <div class="line2 meta">${reviewChipsOf(c)}</div></div></summary>${reviewDetail(c)}</details>`;
   }
-  const reviewLine = (c, open) => `<details class="rv-line" data-review="${c.number}"${open ? ' open' : ''}><summary><div class="title">${badge('normal', `PR #${c.number}`)} ${esc(c.title)}</div>
+  const reviewLine = (c, open) => `<details class="rv-line" data-review="${c.number}"${open ? ' open' : ''}><summary><div class="title">${badge('normal', `PR #${c.number}`)} ${escText(c.title)}</div>
     <div class="sub">${esc([c.author, c.state === 'posted' ? `posted ${ago(c.at)}` : 'not posted', c.open ? '' : 'closed'].filter(Boolean).join(' · '))}</div></summary>${reviewDetail(c)}</details>`;
   // reviews: the built board's reviews; open: {lane, earlier, cards: Set of open PR numbers}.
   function reviewLane(reviews, { open = {} } = {}) {

@@ -3,7 +3,7 @@
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
   const { $, store, state } = B;
-  const { esc, waitOn } = BoardUI;
+  const { esc, escText, waitOn } = BoardUI;
   const LANES = [
     { id: 'review', name: 'In Review', open: true },
     { id: 'stale', name: 'Stale', open: true, hideEmpty: true },
@@ -70,7 +70,7 @@ BoardView.part((B) => {
     return slugs.map((slug) => {
       const w = d.waves.find((x) => x.slug === slug);
       const { dropped } = w.finished;
-      return fold(`wave:${slug}`, items.filter((i) => i.fold === `wave:${slug}`), esc(w.title), dropped ? `${dropped} dropped` : '');
+      return fold(`wave:${slug}`, items.filter((i) => i.fold === `wave:${slug}`), escText(w.title), dropped ? `${dropped} dropped` : '');
     }).join('');
   }
 
@@ -130,7 +130,7 @@ BoardView.part((B) => {
     if (!grouped.length) return cards.map((it) => B.card(it)).join('');
     const loose = cards.filter((i) => !bands.some((b) => b.keys.includes(i.key)));
     const group = (cls, data, name, n, counts, list) => `<section class="${cls}"${data}><div class="wb-head wb-loosehead">${counts ? BoardUI.WAVE_ICON : ''}<span class="wb-label"><span class="lane-name">${name}</span> <span class="count">${n}</span></span>${counts}</div>${list.map((it) => B.card(it)).join('')}</section>`;
-    return grouped.map((b) => group('wb-lane', ` data-wave="${esc(b.slug)}"`, esc(b.title), inBand(b).length, waveCounts(b, laneId), inBand(b))).join('')
+    return grouped.map((b) => group('wb-lane', ` data-wave="${esc(b.slug)}"`, escText(b.title), inBand(b).length, waveCounts(b, laneId), inBand(b))).join('')
       + (loose.length ? group('wb-loose', '', 'No wave', loose.length, '', loose) : '');
   }
 
@@ -163,7 +163,7 @@ BoardView.part((B) => {
     const done = cards.filter((i) => i.lane === 'done');
     const now = cards.filter((i) => LANE_WORDS[i.lane]).map((i) => `${esc(i.ref)} ${LANE_WORDS[i.lane]}`);
     const progress = now.length ? ` <span class="count">· ${now.join(' · ')}</span>` : '';
-    const name = `<span class="lane-name wb-name"${band.goal ? ` title="${esc(band.goal)}" data-goal="${esc(band.slug)}"` : ''}>${esc(band.title)}</span>`;
+    const name = `<span class="lane-name wb-name"${band.goal ? ` title="${esc(band.goal)}" data-goal="${esc(band.slug)}"` : ''}>${escText(band.title)}</span>`;
     const notes = band.kind === 'lineup' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
     const next = band.next;
     const go = !next ? '' : next.ready

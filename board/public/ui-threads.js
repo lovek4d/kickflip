@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), its builders' asks, the owner's messages and
 // their replies. Needs ui.js, ui-links.js and ui-enums.js.
 (function () {
-  const { esc, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
+  const { esc, escText, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // A link to a card on this board (#item=<key>) or on another board (/<route>/#item=<key>, an ask's move), or ''.
   function cardLink(link) {
@@ -36,12 +36,12 @@
   // batched: an answer followed by another of the owner's answers in its state, which carries the batch's footer.
   const line = (m, links, edits, batched = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
-    : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${esc(m.text)} →</a></div>`
-    : m.request ? `<div class="msg request">${statusMark(m.text)}${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${esc(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
+    : m.request ? `<div class="msg request">${statusMark(m.text)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.kind === 'calls' ? `<details class="msg calls"><summary>${statusMark('judgment calls')}${esc(m.text)}'s judgment calls · ${m.calls.length} · ${m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet'}</summary><ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}</details>`
-    : m.kind === 'agent' ? `<div class="msg agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}">${mark('<span class="agent-dot"></span>')}${esc(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
+    : m.kind === 'calls' ? `<details class="msg calls"><summary>${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length} · ${m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet'}</summary><ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}</details>`
+    : m.kind === 'agent' ? `<div class="msg agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}">${mark('<span class="agent-dot"></span>')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
         ${m.canDelete || m.canEdit ? `<div class="ask-actions">${m.canEdit ? editButton(m.eventId) : ''}${m.canDelete ? withdrawButton(m.eventId) : ''}</div>` : ''}
         <div class="who">${m.who === 'love' ? 'You' : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
         <div class="body"${edits.has(m.eventId) ? ' hidden' : ''}>${m.html ? linkHtml(m.html, links) : linkText(m.text, links)}</div>${edits.has(m.eventId) ? editForm(m.eventId, edits.get(m.eventId).text) : ''}${attachments(m.files)}

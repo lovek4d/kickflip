@@ -81,7 +81,7 @@
   <div id="shareList"><p class="muted small">Loading…</p></div>
   <div id="shareRefused"></div>
   <form class="add" id="shareAdd"><input id="shareLogin" placeholder="Add by login, like name@github" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="submit">Add</button></form>
-  <div class="share-reach"><p class="muted small">They also need the host shared to them in Tailscale (<a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener">Tailscale’s Machines page ↗</a>). Then send them this link.</p><button type="button" id="shareCopy">Copy link</button></div>
+  <div class="share-reach"><p class="muted small">They also need the host shared to them in Tailscale (<a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener">Tailscale’s Machines page ${BoardUI.LINK_ARROW}</a>). Then send them this link.</p><button type="button" id="shareCopy">Copy link</button></div>
   <p class="muted small" id="shareStatus" role="status"></p>
   <h2>Rules</h2>
   <p class="muted small">Standing instructions for this board's Claude session. It sees them each time it wakes, and says what changes when you save.</p>

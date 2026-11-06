@@ -10,7 +10,7 @@
 // Needs app-core.js.
 BoardView.part((B) => {
   const { $, plural, state, toast } = B;
-  const { esc, promptItem, choiceLabel, isPrototype, getDraft, setDraft } = BoardUI;
+  const { esc, escText, promptItem, choiceLabel, isPrototype, getDraft, setDraft } = BoardUI;
 
   const prompts = PromptAnswers.wire(B, {
     list: () => (state.board?.needs || []).filter((line) => line.prompt).map((line) => line.prompt),
@@ -32,16 +32,16 @@ BoardView.part((B) => {
     const parts = (line) => [
       line.questions ? `<a href="${esc(line.questions.url)}">${plural(line.questions.open, 'question')}</a>` : '',
       line.ready ? `<a href="${esc(line.ready)}" target="_blank" rel="noopener">Ready on GitHub</a>` : '',
-      line.action ? `<a href="${esc(line.action.url)}">${esc(line.action.label)}</a>` : '',
+      line.action ? `<a href="${esc(line.action.url)}">${escText(line.action.label)}</a>` : '',
     ].filter(Boolean).join(' · ');
     const w = $('#waiting');
     w.hidden = needs.length === 0;
     w.innerHTML = needs.length ? `<h2 style="margin:0 0 6px">Needs you · ${needs.length}</h2>
       <ul>${needs.map((line) => (line.prompt ? promptItem(line.prompt, prompts.state(line.prompt))
-        : line.key ? `<li><a href="${esc(line.url)}">${esc(line.title)}</a> <span class="muted small">· ${parts(line)}</span></li>`
-          : line.review ? `<li><a href="${esc(line.url)}" data-review-open="${line.review}">${esc(line.title)}</a> <span class="muted small">· review held for you</span></li>`
-          : line.band ? `<li><a href="#" data-band-show="${esc(line.band)}">${esc(line.title)}</a> <span class="muted small">· ${parts(line)}</span></li>`
-          : `<li><a href="${esc(line.url)}">${esc(line.title)}</a> <span class="muted small">${plural(line.questions.open, 'question')}</span></li>`)).join('')}</ul>` : '';
+        : line.key ? `<li><a href="${esc(line.url)}">${escText(line.title)}</a> <span class="muted small">· ${parts(line)}</span></li>`
+          : line.review ? `<li><a href="${esc(line.url)}" data-review-open="${line.review}">${escText(line.title)}</a> <span class="muted small">· review held for you</span></li>`
+          : line.band ? `<li><a href="#" data-band-show="${esc(line.band)}">${escText(line.title)}</a> <span class="muted small">· ${parts(line)}</span></li>`
+          : `<li><a href="${esc(line.url)}">${escText(line.title)}</a> <span class="muted small">${plural(line.questions.open, 'question')}</span></li>`)).join('')}</ul>` : '';
   }
 
   // The deck's things, in Needs you order: a prompt; each open question of a line that asks some, in its topic's
@@ -64,14 +64,14 @@ BoardView.part((B) => {
         : ['Open', line.url, ''];
       const title = line.key ? line.title.slice(what.length + 1).trim() : line.title;
       return [{ id: `l:${line.key || line.review || line.band || line.url}`, what,
-        html: `<h3>${line.key ? `<a href="${esc(line.url)}">${esc(title)}</a>` : esc(title)}</h3>${line.review ? '<p class="ctx">review held for you</p>' : ''}<div class="deck-acts"><a class="button primary" href="${esc(href)}"${attrs}>${esc(label)}</a></div>` }];
+        html: `<h3>${line.key ? `<a href="${esc(line.url)}">${escText(title)}</a>` : escText(title)}</h3>${line.review ? '<p class="ctx">review held for you</p>' : ''}<div class="deck-acts"><a class="button primary" href="${esc(href)}"${attrs}>${esc(label)}</a></div>` }];
     });
   }
   const questionHtml = (q) => {
     const picked = getDraft(q.id).choice;
-    return `<h3>${esc(q.question)}</h3>${q.context ? `<p class="ctx">${esc(q.context)}</p>` : ''}
+    return `<h3>${escText(q.question)}</h3>${q.context ? `<p class="ctx">${escText(q.context)}</p>` : ''}
     ${isPrototype(q.url) ? `<a class="button deck-proto" href="${esc(q.url)}">View prototypes</a>` : ''}
-    <div class="deck-opts" role="group" aria-label="${esc(q.question)}">${q.options.map((o) => `<button type="button" class="${o.recommended ? 'rec' : ''}" aria-pressed="${o.id === picked}" data-deck-pick="${esc(o.id)}"><span class="lbl">${esc(choiceLabel(q, o.id))}${o.recommended ? ' <span class="rec-word">recommended</span>' : ''}</span>${o.detail ? `<small>${esc(o.detail)}</small>` : ''}</button>`).join('')}</div>`;
+    <div class="deck-opts" role="group" aria-label="${esc(q.question)}">${q.options.map((o) => `<button type="button" class="${o.recommended ? 'rec' : ''}" aria-pressed="${o.id === picked}" data-deck-pick="${esc(o.id)}"><span class="lbl">${esc(choiceLabel(q, o.id))}${o.recommended ? ' <span class="rec-word">recommended</span>' : ''}</span>${o.detail ? `<small>${escText(o.detail)}</small>` : ''}</button>`).join('')}</div>`;
   };
 
   // The thing on screen, by id, so an arrival or a repaint keeps it; once it is gone the deck shows what took its place.
@@ -88,7 +88,7 @@ BoardView.part((B) => {
     const open = (d.owner || []).filter((q) => q.state === 'open').length;
     const drafted = (d.owner || []).filter((q) => q.state === 'open' && 'choice' in getDraft(q.id)).length;
     BoardUI.setHTML(el, `<div class="deck-head"><h2>Needs you</h2><span class="deck-n">${deck.length}</span></div>
-      <div class="deck-card" data-deck="${esc(now.id)}"><p class="deck-what">${esc(now.what)}</p>${now.html}</div>
+      <div class="deck-card" data-deck="${esc(now.id)}"><p class="deck-what">${escText(now.what)}</p>${now.html}</div>
       ${deck.length > 1 ? `<div class="deck-bar"><span class="deck-dots" aria-hidden="true">${deck.map((x) => `<i${x === now ? ' class="on"' : ''}></i>`).join('')}</span><button type="button" class="ghost" data-deck-skip>Skip →</button></div>` : ''}
       ${open ? `<a class="deck-more" href="questions.html">All open questions · ${open}${drafted ? ` · ${drafted} drafted, Send there` : ''}</a>` : ''}`);
   }

@@ -5356,7 +5356,8 @@ test("Board settings' Sharing sits under Reviewers with one line to reach the ho
   const html = fakePage(memoryStorage().localStorage).win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   assert.ok(html.indexOf('<h2>Reviewers</h2>') < html.indexOf('<h2>Sharing</h2>') && html.indexOf('<h2>Sharing</h2>') < html.indexOf('<h2>Rules</h2>'));
   assert.match(html, /People listed here can look at this board, view only\. Nothing else on the host opens for them\./);
-  assert.match(html, /They also need the host shared to them in Tailscale \(<a href="https:\/\/login\.tailscale\.com\/admin\/machines" target="_blank" rel="noopener">Tailscale’s Machines page ↗<\/a>\)\. Then send them this link\./);
+  assert.match(html, /They also need the host shared to them in Tailscale \(<a href="https:\/\/login\.tailscale\.com\/admin\/machines" target="_blank" rel="noopener">Tailscale’s Machines page <svg[^>]*class="link-arrow"[^>]*>.*?<\/svg><\/a>\)\. Then send them this link\./);
+  assert.doesNotMatch(html, /↗/);
   assert.match(html, /<button type="button" id="shareCopy">Copy link<\/button>/);
 });
 

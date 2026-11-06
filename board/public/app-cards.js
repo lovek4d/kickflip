@@ -3,7 +3,7 @@
 // app-core.js and app-threads.js.
 BoardView.part((B) => {
   const { $, store, state, markSeen, seen, toast, links } = B;
-  const { esc, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, phaseStrip, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, installButton, tryButton, tryWords, waitOn, prName, BUTTON, LINK_ARROW } = BoardUI;
+  const { esc, escText, ago, REVIEW, reviewAge, unreadCount, workLines, BUILD_PHASES, phaseStrip, phaseMotion, heldUntilWords, holdPicker, linkText, mergeButton, installButton, tryButton, tryWords, waitOn, prName, BUTTON, LINK_ARROW } = BoardUI;
 
   const mainSheet = $('#mainLogSheet');
   const mainRetry = $('#mainLogRetry');
@@ -215,7 +215,7 @@ BoardView.part((B) => {
     const pr = it.pr;
     const ctx = links(it.key);
     const rows = [];
-    rows.push(['Wave', esc(it.waveTitle)]);
+    rows.push(['Wave', escText(it.waveTitle)]);
     if (pr) {
       const ci = pr.checks ? `${pr.checks.state}${pr.checks.fail ? ` (${pr.checks.fail} failing)` : pr.checks.pending ? ` (${pr.checks.pending} running)` : ''}` : 'unknown';
       if (pr.state === 'OPEN') {
