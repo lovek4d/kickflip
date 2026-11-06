@@ -917,7 +917,9 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
   .view-board .fab { right: calc(50% - var(--sidebar-w, 0px) / 2 + var(--fab-edge)); }
   body.has-sidebar { --sidebar-w: 272px; }
   html.sb-collapsed body.has-sidebar { --sidebar-w: 0px; }
-  .needs-pane { display: block; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px 24px; border-left: 1px solid var(--line); }
+  .needs-pane { display: block; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px 0; border-left: 1px solid var(--line); }
   .needs-pane .needs-questions main { padding: 0; max-width: none; }
   .needs-pane .waiting { margin: 0 0 12px; }
 }
+/* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
+body .view-questions main { padding-bottom: var(--app-bottom, 0px); }
