@@ -5,6 +5,7 @@ import { audit, hubAudit } from '../shared/audit.mjs';
 import { FOREVER } from './duration.mjs';
 
 const CODEX_FILES = 6;
+const CLAUDE_LOGS = 12;
 const SAME_WINDOW_S = 180;
 const WINDOW_MS = { five_hour: 5 * 3600_000, seven_day: 7 * 86400_000 };
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
@@ -17,7 +18,9 @@ const isoOf = (v) => {
 };
 const win = (pct, resets) => ({ used_percentage: num(pct), resets_at: isoOf(resets) });
 
-function lastRateLimits(file) {
+// The last line of file, from its end, that holds needle and that pick turns into a value, or null. It reads the last
+// 256KB first, then 2MB.
+function lastMatch(file, needle, pick) {
   let fd;
   try {
     fd = fs.openSync(file, 'r');
@@ -29,17 +32,100 @@ function lastRateLimits(file) {
       const lines = buf.toString('utf8').split('\n');
       if (start > 0) lines.shift();
       for (let i = lines.length - 1; i >= 0; i--) {
-        if (!lines[i].includes('rate_limits')) continue;
+        if (!lines[i].includes(needle)) continue;
         try {
-          const o = JSON.parse(lines[i]);
-          const rl = o?.payload?.rate_limits ?? o?.rate_limits;
-          if (rl?.primary) return { rl };
+          const found = pick(JSON.parse(lines[i]));
+          if (found) return found;
         } catch { /* a cut or odd line */ }
       }
       if (start === 0) break;
     }
   } catch { /* unreadable */ } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch {} }
   return null;
+}
+
+const lastRateLimits = (file) => lastMatch(file, 'rate_limits', (o) => {
+  const rl = o?.payload?.rate_limits ?? o?.rate_limits;
+  return rl?.primary ? { rl } : null;
+});
+
+// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
+// A headless Claude run's log (board/agents.mjs) is stream-json, one event a line, with a rate_limit_event on each turn:
+// {status, rateLimitType, resetsAt, unifiedWindows: {five_hour: {utilization 0..1, resetsAt, status}, seven_day}}, status
+// allowed, allowed_warning or rejected. A rejected window reads 100%.
+const lastRateLimitEvent = (file) => lastMatch(file, '"rate_limit_event"', (o) => (o?.type === 'rate_limit_event' && o.rate_limit_info ? o.rate_limit_info : null));
+function eventWindows(info) {
+  const window = (key) => {
+    const w = info.unifiedWindows?.[key];
+    if (!w || num(w.utilization) == null) return null;
+    const rejected = w.status === 'rejected' || (info.status === 'rejected' && info.rateLimitType === key);
+    return win(rejected ? 100 : Math.round(num(w.utilization) * 1000) / 10, w.resetsAt);
+  };
+  return { five_hour: window('five_hour'), seven_day: window('seven_day') };
+}
+
+// When a run whose log is file stopped on the limit: the reset of the window its last rate_limit_event rejected, while
+// that reset is after now, else null. → an ISO time or null.
+export function runLimit(file, now = Date.now()) {
+  const info = lastRateLimitEvent(file);
+  if (info?.status !== 'rejected') return null;
+  const rejected = Object.values(info.unifiedWindows || {}).find((w) => w?.status === 'rejected');
+  const at = isoOf(rejected?.resetsAt ?? info.resetsAt);
+  return at && Date.parse(at) > now ? at : null;
+}
+
+// The board's run logs, ~/.claude/kickflip/logs/<role>-<id>-<launch time>.log, newest written first: the CLAUDE_LOGS
+// newest, each with its launch time, whether it is a Claude run (its first line a stream-json event) and its newest
+// rate_limit_event's windows. A file is read again only once its size or mtime changes.
+const RUN_LOG = /-(\d{4}-\d\d-\d\dT\d\d)-(\d\d)-(\d\d)-(\d{3})Z\.log$/;
+function runLogs(dir, seen) {
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  const files = [];
+  for (const name of names) {
+    const m = name.match(RUN_LOG);
+    if (!m) continue;
+    try { const st = fs.statSync(path.join(dir, name)); files.push({ file: path.join(dir, name), started: `${m[1]}:${m[2]}:${m[3]}.${m[4]}Z`, mtime: st.mtimeMs, size: st.size }); } catch {}
+  }
+  return files.sort((a, b) => b.mtime - a.mtime).slice(0, CLAUDE_LOGS).map((f) => {
+    const key = `${f.size}:${f.mtime}`;
+    let parsed = seen.get(f.file);
+    if (parsed?.key !== key) {
+      const info = f.size ? lastRateLimitEvent(f.file) : null;
+      parsed = { key, claude: f.size > 0 && firstByte(f.file) === '{', windows: info ? eventWindows(info) : null };
+      seen.set(f.file, parsed);
+    }
+    return { ...f, claude: parsed.claude, windows: parsed.windows };
+  });
+}
+function firstByte(file) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); const b = Buffer.alloc(1); fs.readSync(fd, b, 0, 1, 0); return b.toString(); } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch {} }
+}
+
+// Claude's reading from the status line's usage.json (saved, its own {at, five_hour, seven_day}) and the run logs: per
+// window the highest in the newest window, as scanCodex does, at the newest reading's time. Each log's reading is at its
+// mtime. → a raw reading for readingOf, or null with none.
+function claudeReading(saved, logs) {
+  const readings = logs.filter((l) => l.windows).map((l) => ({ at: new Date(l.mtime).toISOString(), ...l.windows }));
+  if (saved && typeof saved === 'object' && !Array.isArray(saved)) readings.push(saved);
+  if (!readings.length) return null;
+  const window = (key) => {
+    const ws = readings.map((r) => r[key] && win(r[key].used_percentage, r[key].resets_at)).filter((w) => w?.used_percentage != null);
+    const current = Math.max(...ws.map((w) => (w.resets_at ? Date.parse(w.resets_at) : -Infinity)));
+    const same = ws.filter((w) => (w.resets_at ? Math.abs(Date.parse(w.resets_at) - current) <= SAME_WINDOW_S * 1000 : current === -Infinity));
+    return same.reduce((best, w) => (!best || w.used_percentage > best.used_percentage ? w : best), null);
+  };
+  const ats = readings.map((r) => isoOf(r.at)).filter(Boolean).sort();
+  return { at: ats.at(-1) ?? null, five_hour: window('five_hour'), seven_day: window('seven_day') };
+}
+
+// The newest Claude run's launch, {at, reported}: reported once its own log has a rate_limit_event or the status line saved
+// a reading after it. → null with no Claude run.
+function newestStart(logs, savedAt) {
+  const run = logs.filter((l) => l.claude).sort((a, b) => b.started.localeCompare(a.started))[0];
+  if (!run) return null;
+  return { at: run.started, reported: Boolean(run.windows) || Boolean(savedAt && Date.parse(savedAt) > Date.parse(run.started)) };
 }
 
 function newestRollouts(sessions) {
@@ -91,19 +177,26 @@ function readingOf(reading, now) {
 }
 
 // codexShare: the setting in effect (push.mjs readCodexShare), which is Off while Codex isn't usable.
+// Claude's reading is the status line's usage.json and every headless run's log together; start is the newest Claude
+// run's launch (newestStart), which the gate's one-at-a-time starts near the line wait on.
 export function usageReader({ home = os.homedir(), now = Date.now, cacheMs = 60_000 } = {}) {
   const sessions = path.join(home, '.codex', 'sessions');
+  const logDir = path.join(home, '.claude', 'kickflip', 'logs');
+  const seen = new Map();
   let cached = null;
   let checked = -Infinity;
   return ({ codexShare = 'off' } = {}) => {
     const time = now();
-    const claude = readingOf(readJson(path.join(home, '.claude', 'kickflip', 'usage.json'))?.claude, time);
-    if (codexShare === 'off') return { claude, codex: null };
+    const saved = readJson(path.join(home, '.claude', 'kickflip', 'usage.json'))?.claude;
+    const logs = runLogs(logDir, seen);
+    const claude = readingOf(claudeReading(saved, logs), time);
+    const start = newestStart(logs, isoOf(saved?.at));
+    if (codexShare === 'off') return { claude, codex: null, start };
     if (time - checked >= cacheMs) {
       cached = scanCodex(sessions);
       checked = time;
     }
-    return { claude, codex: readingOf(cached || { at: null }, time) };
+    return { claude, codex: readingOf(cached || { at: null }, time), start };
   };
 }
 

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
+import { usageReader, checkUsagePause, contextReading, runLimit } from './usage.mjs';
 
 const originalHome = process.env.HOME;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-'));
@@ -35,12 +35,12 @@ function fixture(t) {
 }
 
 test('missing files hide Claude; Codex with share on but without rollouts has no reading', (t) => {
-  assert.deepEqual(usageReader({ now: () => NOW })(), { claude: null, codex: null });
+  assert.deepEqual(usageReader({ now: () => NOW })(), { claude: null, codex: null, start: null });
   const f = fixture(t);
-  assert.deepEqual(f.read({ codexShare: 'always' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null } });
+  assert.deepEqual(f.read({ codexShare: 'always' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null }, start: null });
 });
 
-test('Claude comes only from usage.json, with window reset times and reading time', (t) => {
+test('Claude comes from usage.json without run logs, with window reset times and reading time', (t) => {
   const f = fixture(t);
   f.claude();
   const r = f.read();
@@ -116,7 +116,7 @@ test('malformed JSON, missing limits and partial rollout lines leave no reading'
   write(f.file('.claude', 'kickflip', 'usage.json'), '{');
   const file = f.log('invalid');
   write(file, '{"payload":{"rate_limits":{"primary":{"used_percent":42}}}}\n{"rate_limits":\n');
-  assert.deepEqual(f.read({ codexShare: 'auto' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null } });
+  assert.deepEqual(f.read({ codexShare: 'auto' }), { claude: null, codex: { at: null, five_hour: null, seven_day: null }, start: null });
   f.claude({ at: 'bad', five_hour: { used_percentage: 'bad' }, seven_day: null });
   assert.deepEqual(f.read().claude, { at: null, five_hour: null, seven_day: null });
 });
@@ -134,6 +134,68 @@ test('Codex readings become stale per window after their rollout mtime', (t) => 
   assert.equal(r.at, iso(NOW - 5 * HOUR - 1));
   assert.equal(r.five_hour.state, 'stale');
   assert.equal(r.seven_day.state, 'live');
+});
+
+// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
+const stamp = (time) => iso(time).replace(/[:.]/g, '-');
+function runLog(f, role, start, { events = [], mtime = start, codex = false } = {}) {
+  const target = f.file('.claude', 'kickflip', 'logs', `${role}-GH-1-${stamp(start)}.log`);
+  const event = ({ five = 0.5, seven = 0.3, status = 'allowed', fiveStatus = 'allowed', reset = NOW + HOUR, type = 'five_hour' }) => JSON.stringify({ type: 'rate_limit_event', rate_limit_info: {
+    status, rateLimitType: type, resetsAt: (type === 'seven_day' ? NOW + 24 * HOUR : reset) / 1000,
+    unifiedWindows: { five_hour: { utilization: five, resetsAt: reset / 1000, status: fiveStatus }, seven_day: { utilization: seven, resetsAt: (NOW + 24 * HOUR) / 1000, status: 'allowed' } },
+  } });
+  write(target, codex ? 'session id: abc\nworking\n' : [JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }), ...events.map(event), JSON.stringify({ type: 'assistant' })].join('\n') + '\n');
+  fs.utimesSync(target, new Date(mtime), new Date(mtime));
+  return target;
+}
+
+test("Claude also reads the newest rate_limit_event in the headless agents' run logs, the highest in the newest window", (t) => {
+  const f = fixture(t);
+  f.claude({ at: iso(NOW - 30 * 60_000), five_hour: { used_percentage: 42, resets_at: iso(NOW + HOUR) } });
+  runLog(f, 'builder', NOW - 20 * 60_000, { events: [{ five: 0.6 }, { five: 0.87, seven: 0.52 }], mtime: NOW - 60_000 });
+  runLog(f, 'planner', NOW - 10 * 60_000, { events: [{ five: 0.81 }], mtime: NOW - 120_000 });
+  runLog(f, 'builder', NOW - 3 * HOUR, { events: [{ five: 0.99, reset: NOW - HOUR }], mtime: NOW - 2 * HOUR });
+  write(f.file('.claude', 'kickflip', 'logs', 'hub-orchestrator.log'), JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { unifiedWindows: { five_hour: { utilization: 1, resetsAt: (NOW + HOUR) / 1000 } } } }) + '\n');
+  assert.deepEqual(f.read().claude, {
+    at: iso(NOW - 60_000),
+    five_hour: { used_percentage: 87, resets_at: iso(NOW + HOUR), state: 'live' },
+    seven_day: { used_percentage: 75, resets_at: iso(NOW + 24 * HOUR), state: 'live' },
+  });
+});
+
+test('a run the limit rejected reads 100% for that window, and the run logs alone make a reading', (t) => {
+  const f = fixture(t);
+  runLog(f, 'builder', NOW - 20 * 60_000, { events: [{ five: 0.97 }, { five: 0.98, status: 'rejected', fiveStatus: 'rejected' }] });
+  const r = f.read().claude;
+  assert.equal(r.five_hour.used_percentage, 100);
+  assert.equal(r.seven_day.used_percentage, 30);
+  assert.equal(r.at, iso(NOW - 20 * 60_000));
+});
+
+test("the newest Claude run's start says whether it has reported its usage yet, its own log or a later status line counting", (t) => {
+  const f = fixture(t);
+  assert.equal(f.read().start, null);
+  runLog(f, 'builder', NOW - 5 * 60_000, { events: [{ five: 0.8 }] });
+  assert.deepEqual(f.read().start, { at: iso(NOW - 5 * 60_000), reported: true });
+  runLog(f, 'planner', NOW - 60_000);
+  assert.deepEqual(f.read().start, { at: iso(NOW - 60_000), reported: false });
+  runLog(f, 'builder', NOW - 30_000, { codex: true });
+  assert.deepEqual(f.read().start, { at: iso(NOW - 60_000), reported: false });
+  f.claude({ at: iso(NOW - 2 * 60_000) });
+  assert.equal(f.read().start.reported, false);
+  f.claude({ at: iso(NOW - 30_000) });
+  assert.equal(f.read().start.reported, true);
+});
+
+test("runLimit gives the reset of a run whose last usage event the limit rejected, while that reset is ahead", (t) => {
+  const f = fixture(t);
+  const limited = runLog(f, 'builder', NOW - HOUR, { events: [{ five: 0.9 }, { five: 1, status: 'rejected', fiveStatus: 'rejected' }] });
+  assert.equal(runLimit(limited, NOW), iso(NOW + HOUR));
+  assert.equal(runLimit(limited, NOW + HOUR), null);
+  const weekly = runLog(f, 'lander', NOW - HOUR, { events: [{ five: 0.4, seven: 1, status: 'rejected', type: 'seven_day' }] });
+  assert.equal(runLimit(weekly, NOW), iso(NOW + 24 * HOUR));
+  assert.equal(runLimit(runLog(f, 'planner', NOW - HOUR, { events: [{ five: 0.98, status: 'rejected', fiveStatus: 'rejected' }, { five: 0.1, reset: NOW + 5 * HOUR }] }), NOW), null);
+  assert.equal(runLimit(f.file('missing.log'), NOW), null);
 });
 
 test('the hub remembers the gate across ticks and restarts, wakes after paused and never after going', async (t) => {

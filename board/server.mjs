@@ -334,7 +334,8 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
-import { readUsageGate, heldFor, holdsWork, pauseReasonFor, boardPausedUntil, MACHINE_HELD_LINE } from '../shared/usage-gate.mjs';
+import { readUsageGate, launchHeld, pauseReasonFor, boardPausedUntil, MACHINE_HELD_LINE } from '../shared/usage-gate.mjs';
+import { runLimit } from '../hub/usage.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
@@ -1464,8 +1465,10 @@ async function checkPickUps() {
 // With Auto implement on, each card that arrived in Todo gets its grill, up to max_planners at once (launchArrivals).
 // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
 // board. A triage sent or under way holds the pull until its reply, and a card pulled and not yet started holds the
-// review. None goes out while usage is paused or the Mac is busy (shared/usage-gate.mjs holdsWork); the minute check
-// runs the jobs again once the hold lifts, since it lives outside the board's data. A check asked for while one runs runs again after it.
+// review. None goes out while usage is paused or the Mac is busy, nor, near the line, while the last Claude start hasn't
+// reported its usage (shared/usage-gate.mjs launchHeld), each launch checking again (launchHeldNow), so near the line a
+// pass starts one agent; the minute check runs the jobs again once the hold lifts, since it lives outside the board's
+// data. A grill or prototype asked for during a hold launches first. A check asked for while one runs runs again after it.
 let checkingAuto = null;
 let autoAgain = false;
 let heldByPause = false;
@@ -1491,8 +1494,9 @@ async function runAuto() {
   const gate = readUsageGate({ dir: here });
   if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
   boardPaused = gate.manual === 'board';
-  heldByPause = holdsWork(gate);
+  heldByPause = launchHeld(gate, 'claude');
   const ready = idle && !heldByPause;
+  if (!heldByPause) await launchQueuedPlanners();
   if (!heldByPause) await launchRounds(roundsDue(items));
   if (!heldByPause) await launchLanders(items, stoppedKeys(items));
   if (!heldByPause) await launchRebases(items);
@@ -1501,17 +1505,27 @@ async function runAuto() {
   await sortIntake();
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   if (await checkTriage(settings, log, items, ready)) return;
+  // Near the line the pull starts one card a pass, and none once another launch is waiting on its first reading.
+  const pullNow = (gate) => (launchHeld(gate, 'claude') ? [] : gate.near && !gate.near.going ? pulls.slice(0, 1) : pulls);
   const startPull = async (key) => {
     const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
     logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready card in Todo.', inputs: { cap: settings.max_implementers, pullable, waiting } });
     return handOff(started);
   };
-  if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, startPull)) return;
+  if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pullNow(readUsageGate({ dir: here })), startPull)) return;
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
   const { due, repo } = reviews;
   if (!ready || !due) return;
   logCall({ call: 'pr-review', result: 'asked', reason: `The board is idle and PR #${due.number} touches its work.`, inputs: { repo, pr: due.number, head: due.head, touches: due.touches, asked: Boolean(due.asked) } });
   await appendEvent('pr-review', { pr: due.number, head: due.head, repo, title: due.title, author: due.author, url: due.url, touches: due.touches, asked: Boolean(due.asked) });
+}
+
+// Whether a launch of kind the board would make now is held (shared/usage-gate.mjs launchHeld). A hold found partway
+// through a pass marks the board held, so the minute check brings in the next pass once it lifts.
+function launchHeldNow(kind = 'claude') {
+  const held = launchHeld(readUsageGate({ dir: here }), kind);
+  if (held) heldByPause = true;
+  return held;
 }
 
 // What a start the server made came to, for the audit log: started, bumped behind its blockers, or refused.
@@ -1527,14 +1541,18 @@ async function handOff(started) {
   if (!started || started.bumped) return null;
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
-    // A pause on its kind, or a busy host, that began after the pull holds the launch; reviveHeadless launches it once
-    // the hold lifts. A busy Mac says so on the card (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
+    // A pause on its kind, a busy host, or a start near the line waiting on its first reading, that began after the pull
+    // or the tap, holds the launch; reviveHeadless launches it once the hold lifts. A busy Mac says so on the card
+    // (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
     const gate = readUsageGate({ dir: here });
-    if (heldFor(gate, started.kind)) {
+    if (launchHeld(gate, started.kind)) {
       logCall({ call: 'launch-held', key: started.key, result: 'held', reason: pauseReasonFor(gate, started.kind), inputs: { kind: started.kind, model: started.model ?? null, gate } });
       if (gate.machine.state === 'busy') await appendThread(here, started.key, { text: MACHINE_HELD_LINE });
       await trackLaunch(started.key, { ...entry, pid: null });
-    } else await trackLaunch(started.key, { ...entry, pid: (await launchBuilder(here, started)).pid });
+    } else {
+      const { pid, log } = await launchBuilder(here, started);
+      await trackLaunch(started.key, { ...entry, pid, log });
+    }
   } catch (e) {
     await abandonLaunch(here, started.key, `the launch failed (${e.message}). Tap Implement to try again.`);
   }
@@ -1547,6 +1565,7 @@ async function handOff(started) {
 // on, so the cached board is dropped, as handOff does, before the next pass reads it.
 async function launchArrivals(cards) {
   for (const { key, state } of cards) {
+    if (launchHeldNow()) return;
     const kind = state === 'prototyping' ? 'prototype' : 'grill';
     logCall({ call: 'arrival-planner', key, result: kind, reason: state === 'prototyping' ? 'It landed in Todo filed prototyping.' : 'It landed in Todo, not filed prototyping.', inputs: { state: state ?? null } });
     await appendThread(here, key, { text: `Landed in Todo, so the board started its ${kind}.` });
@@ -1560,6 +1579,7 @@ async function launchArrivals(cards) {
 // thread line saying so; its record keeps it off the list from then on.
 async function launchRounds(cards) {
   for (const { key, kind } of cards) {
+    if (launchHeldNow()) return;
     logCall({ call: 'round-planner', key, result: kind, reason: 'It was sent back from staging or ready for another round.', inputs: { kind } });
     await appendThread(here, key, { text: `Back to ${kind === 'grill' ? 'grilling' : 'prototyping'}, so the board started its ${kind}.` });
     await launchPlanner(key, kind);
@@ -1574,6 +1594,7 @@ async function launchRounds(cards) {
 // then on, so the cached board is dropped, as handOff does.
 async function launchHelpers(helpers) {
   for (const { key, name } of helpers) {
+    if (launchHeldNow()) return;
     dataVersion++;
     try {
       const started = await startHelper(here, key, name, (opts) => helperWorktree(key.split('/')[1], name, opts));
@@ -1603,6 +1624,7 @@ function launchVisuals(items, log) {
 }
 async function drawVisuals(items, log) {
   for (const { key, request } of visualsDue(items, log)) {
+    if (launchHeldNow()) return;
     try {
       const started = await startVisual(here, key, request);
       if (!started) continue;
@@ -1621,7 +1643,7 @@ async function drawVisuals(items, log) {
 // docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
 // data/intake-runs.json {<event id>: {key, pid, at, ended?}}: the intake triage runs, one at a time. Each pass marks a
 // run whose process has gone ended, hands the orchestrator each event a run ended without sorting (domain.mjs
-// intakeStranded), and, unless usage is paused or the Mac is busy, launches a run on the next due intake event
+// intakeStranded), and, unless the board's launches are held (launchHeldNow), launches a run on the next due intake event
 // (intakeDue) with the board's index: every open work card's label, key, title, lane, state and notes file. A run that
 // can't launch hands its event off at once, and one open 10 minutes (INTAKE_TIMEOUT_AFTER) after its launch is stopped
 // and ended with timedOut, its event handed off as timed out, with no relaunch. Passes run one at a time, on every board change and once a minute.
@@ -1667,7 +1689,7 @@ async function runIntake() {
     logCall({ call: 'intake-handoff', key: d.key, result: 'handed off', reason: timedOut ? 'Its intake triage run timed out.' : 'Its intake triage run ended without sorting it.', inputs: { event: d.event, kind: d.kind, run: runs[d.event] } });
     await intakeHandoff(here, d.event, why);
   }
-  if (holdsWork(readUsageGate({ dir: here }))) return;
+  if (launchHeldNow()) return;
   const due = intakeDue(items, log, runs);
   if (!due) return;
   runs[due.event] = { key: due.key, pid: null, at: now() };
@@ -1697,8 +1719,25 @@ async function runIntake() {
 
 // A planner, kind grill or prototype, the owner asked for or a card's arrival in Todo started, opens on the card and
 // launches headless in the board's repo (store.mjs startPlanner), unless an agent already works on it. One that can't
-// start or launch leaves a thread line and its record closed.
+// start or launch leaves a thread line and its record closed. One asked for while the board's launches are held
+// (launchHeld) waits in data/queued-planners.json {<key>: {kind, ask}}, with a thread line saying so, and launches
+// when the hold lifts (launchQueuedPlanners); asking again replaces it.
+// (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md)
+const queuedPlanners = path.join(data, 'queued-planners.json');
+async function saveQueuedPlanners(queued) {
+  await fs.mkdir(data, { recursive: true });
+  await fs.writeFile(queuedPlanners + '.tmp', JSON.stringify(queued) + '\n');
+  await fs.rename(queuedPlanners + '.tmp', queuedPlanners);
+}
 async function launchPlanner(key, kind, ask = {}) {
+  const gate = readUsageGate({ dir: here });
+  if (launchHeld(gate, 'claude')) {
+    heldByPause = true;
+    await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [key]: { kind, ask } });
+    logCall({ call: 'planner-queued', key, result: kind, reason: pauseReasonFor(gate, 'claude'), inputs: { kind, gate } });
+    await appendThread(here, key, { text: `The ${kind} waits and starts when the hold lifts. ${pauseReasonFor(gate, 'claude')}` });
+    return;
+  }
   try {
     const started = await startPlanner(here, key, kind);
     if (!started) return;
@@ -1724,8 +1763,21 @@ async function resumeRun(key) {
   else if (run.label === 'Builder') await handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
 }
 
+// The planners launchPlanner queued during a hold, oldest asked first, each once, until a launch is held again.
+async function launchQueuedPlanners() {
+  for (const [key, { kind, ask }] of Object.entries(await readJSON(queuedPlanners, {}))) {
+    if (launchHeldNow()) return;
+    const { [key]: _, ...rest } = await readJSON(queuedPlanners, {});
+    await saveQueuedPlanners(rest);
+    logCall({ call: 'planner-queued', key, result: 'launching', reason: 'The hold it waited on has lifted.', inputs: { kind } });
+    await launchPlanner(key, kind, ask);
+    dataVersion++;
+  }
+}
+
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
-// data/headless-builders.json {<key>: {kind, model, pid, relaunched}}: the headless builders launched, for reviveHeadless.
+// data/headless-builders.json {<key>: {kind, model, pid, log, relaunched, until?}}: the headless builders launched, with
+// their run logs, for reviveHeadless.
 // trackLaunch sets a key's entry, or with null drops it (a lander takes the card over from its builder).
 async function trackLaunch(key, entry) {
   const file = path.join(data, 'headless-builders.json');
@@ -1750,13 +1802,14 @@ async function launchCutOffBuilds() {
 // The cards whose run the orchestrator stopped (domain.mjs builderOf), which nothing relaunches.
 const stoppedKeys = (items) => new Set(items.filter((c) => c.builder?.stopped).map((c) => c.key));
 // Once a minute: a headless builder whose usage isn't held and whose process exited with its record open launches again
-// once, and after that leaves a thread line; its record stays open, so the stall alarm brings in the orchestrator.
+// once, and after that leaves a thread line; its record stays open, so the stall alarm brings in the orchestrator. One
+// whose run log ends on the usage limit (hub/usage.mjs runLimit) keeps its relaunch: it is held until the reset, with a
+// thread line, and launched then (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md).
 let revivingHeadless = false;
 async function reviveHeadless() {
   if (revivingHeadless) return;
   revivingHeadless = true;
   try {
-    const gate = readUsageGate({ dir: here });
     const file = path.join(data, 'headless-builders.json');
     const tracked = await readJSON(file, {});
     if (!Object.keys(tracked).length) return;
@@ -1769,18 +1822,23 @@ async function reviveHeadless() {
     const launch = async (card) => {
       const was = tracked[card.key];
       const entry = { call: 'relaunch', key: card.key, inputs: was,
-        reason: was.pid === null ? 'Its launch was held by a pause or a busy host, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
+        reason: was.until ? 'Its run stopped at the usage limit, which has reset.' : was.pid === null ? 'Its launch was held by a pause, a busy host or a start near the line, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
       try {
-        const { pid } = await launchBuilder(here, card);
+        const { pid, log } = await launchBuilder(here, card);
         logCall({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });
-        return { pid };
+        return { pid, log };
       } catch (e) {
         logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
         await appendThread(here, card.key, { text: `Couldn't relaunch the builder headless (${e.message}).` });
         return { pid: null };
       }
     };
-    const next = await reviveBuilders(tracked, open, { launch, handBack, held: (kind) => heldFor(gate, kind), stopped: stoppedKeys(items) });
+    const atLimit = async (card, until) => {
+      logCall({ call: 'relaunch', key: card.key, result: 'held', reason: `Its run stopped at the usage limit, which resets at ${until}.`, inputs: tracked[card.key] });
+      await appendThread(here, card.key, { text: `Its builder stopped at the usage limit; it starts again at the reset, ${until}.` });
+    };
+    const next = await reviveBuilders(tracked, open, { launch, handBack, held: (kind) => launchHeld(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items),
+      limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
     if (JSON.stringify(next) !== JSON.stringify(tracked)) {
       await fs.writeFile(file + '.tmp', JSON.stringify(next) + '\n');
       await fs.rename(file + '.tmp', file);
@@ -1839,6 +1897,7 @@ async function launchLanders(items, stopped) {
   const due = (await landable(here)).filter((c) => kept[c.key]?.verified !== c.verified);
   if (!due.length) return;
   for (const c of due) {
+    if (launchHeldNow(c.kind ?? 'claude')) break;
     const entry = { call: 'lander', key: c.key, reason: 'Its build was verified and waits to land.', inputs: { verified: c.verified, before: kept[c.key] ?? null } };
     try {
       kept[c.key] = { verified: c.verified, pid: (await launchBuilder(here, c, { lander: true })).pid };
@@ -1866,6 +1925,7 @@ async function launchRebases(items) {
   if (!due.length) return;
   try {
     for (const d of due) {
+      if (launchHeldNow()) break;
       const id = d.key.split('/')[1];
       const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
       sent[d.key] = { conflict: d.conflict, pid: null };
@@ -2161,7 +2221,7 @@ setInterval(() => {
   reviveHeadless();
   sortIntake();
   checkPickUps();
-  if (heldByPause && !holdsWork(readUsageGate({ dir: here }))) checkAuto();
+  if (heldByPause && !launchHeld(readUsageGate({ dir: here }), 'claude')) checkAuto();
   else triageDue().then((due) => { if (due) checkAuto(); }, (err) => console.error('Triage check failed:', err.message));
   checkActions();
   checkWaits();

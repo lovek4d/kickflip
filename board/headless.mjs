@@ -329,24 +329,30 @@ export async function stopRuns(leaders, { grace = 5000 } = {}) {
 export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
-// tracked is {<key>: {kind, model, pid, relaunched}}, the headless builds the server launched or meant to launch (pid null: held
-// by the usage pause, not yet launched). open is the set of keys whose builder record is still open. A tracked build whose
+// tracked is {<key>: {kind, model, pid, log, relaunched, until?}}, the headless builds the server launched or meant to launch (pid
+// null: held by the usage pause, not yet launched, or with until, held at the usage limit). open is the set of keys whose builder record is still open. A tracked build whose
 // record has closed drops. One with no pid yet launches; one whose process has exited with its record still open launches
 // again once, and the second time goes to handBack, once: it stays tracked, marked handedBack, so its card reads stopped
 // (server.mjs snapshot alive). One whose kind held(kind) says its usage holds waits as it is
 // (docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md). One the orchestrator stopped (stopped, the keys
-// whose card reads it) is handed back at once, with no line, since the stop wrote its own. launch({key, kind, model})
-// → {pid}. → the tracked map as it now stands.
-export async function reviveBuilders(tracked, open, { launch, handBack, alive = pidAlive, held = () => false, stopped = new Set() }) {
+// whose card reads it) is handed back at once, with no line, since the stop wrote its own. One whose process exited on the
+// usage limit (limitedUntil(entry), its reset, else null) doesn't spend its relaunch: it is held, pid null and until the
+// reset, after atLimit(card, until), and launches once the reset has come and held lets it, keeping relaunched as it was
+// (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md). launch({key, kind, model}) → {pid, log}.
+// → the tracked map as it now stands.
+export async function reviveBuilders(tracked, open, { launch, handBack, alive = pidAlive, held = () => false, stopped = new Set(), limitedUntil = () => null, atLimit = async () => {}, now = Date.now() }) {
   const next = {};
   for (const [key, entry] of Object.entries(tracked)) {
     if (!open.has(key)) continue;
     if (stopped.has(key)) { next[key] = { ...entry, handedBack: true }; continue; }
-    if ((entry.pid !== null && alive(entry.pid)) || held(entry.kind ?? 'claude') || entry.handedBack) { next[key] = entry; continue; }
+    if ((entry.pid !== null && alive(entry.pid)) || entry.handedBack) { next[key] = entry; continue; }
     const card = { key, ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.model ? { model: entry.model } : {}) };
+    const until = entry.pid !== null ? limitedUntil(entry) : null;
+    if (until) { await atLimit(card, until); next[key] = { ...entry, pid: null, until }; continue; }
+    if (held(entry.kind ?? 'claude') || (entry.until && now < Date.parse(entry.until))) { next[key] = entry; continue; }
     if (entry.pid !== null && entry.relaunched) { await handBack(card); next[key] = { ...entry, handedBack: true }; continue; }
     const { key: _, ...kept } = card;
-    next[key] = { ...kept, ...(await launch(card)), relaunched: entry.pid !== null };
+    next[key] = { ...kept, ...(await launch(card)), relaunched: entry.pid !== null || Boolean(entry.relaunched) };
   }
   return next;
 }

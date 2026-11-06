@@ -184,7 +184,9 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         answer(out, action) {
           if (['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
             last = out; flash = null; paint();
-            if (action.endsWith('/keep-going')) B.toast(out.pause.state === 'going' ? `Keep going: work runs past the buffer until ${BoardUI.usageClock(out.pause.resets_at)}.` : 'Stopped: new work waits again.');
+            if (action.endsWith('/keep-going')) B.toast(out.pause.state === 'going' ? `Keep going: work runs past the buffer until ${BoardUI.usageClock(out.pause.resets_at)}.`
+              : out.pause.near?.going ? `Keep going: agents start in parallel until ${BoardUI.usageClock(out.pause.near.resets_at)}.`
+              : out.pause.near ? 'Stopped: agents start one at a time again.' : 'Stopped: new work waits again.');
           } else if (action === '/_hub/push/flush') { flash = { text: out.message, error: !out.ok }; load(); } else { flash = null; load(); settings.B.refreshSettings?.(); }
           ctx.sidebarChanged?.();
         },

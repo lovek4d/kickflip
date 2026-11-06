@@ -428,6 +428,38 @@ test("a tracked builder whose kind its usage holds waits, launched or not, while
   assert.deepEqual(next, { 'w/A': tracked['w/A'], 'w/B': tracked['w/B'], 'w/C': { kind: 'claude', model: 'opus', pid: 901, relaunched: false } });
 });
 
+// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
+test('a builder that exited on the usage limit keeps its one relaunch: it is held until the reset, then launched', async () => {
+  const now = Date.parse('2026-11-06T10:12:00Z');
+  const reset = '2026-11-06T12:10:00.000Z';
+  const launched = [];
+  const limits = [];
+  const launch = async ({ key }) => { launched.push(key); return { pid: 900 + launched.length, log: `/logs/${key}-2` }; };
+  const tracked = {
+    'w/A': { kind: 'claude', model: 'opus', pid: 1, relaunched: false, log: '/logs/A' },
+    'w/B': { kind: 'claude', model: 'opus', pid: 2, relaunched: true, log: '/logs/B' },
+    'w/C': { kind: 'claude', model: 'opus', pid: 3, relaunched: false, log: '/logs/C' },
+  };
+  const limitedUntil = (entry) => (entry.log === '/logs/C' ? null : reset);
+  const opts = { launch, handBack: async () => assert.fail('nothing is handed back'), alive: () => false, limitedUntil, atLimit: async (card, at) => limits.push([card.key, at]) };
+  const held = await reviveBuilders(tracked, new Set(Object.keys(tracked)), { ...opts, held: () => true, now });
+  assert.deepEqual(launched, []);
+  assert.deepEqual(limits, [['w/A', reset], ['w/B', reset]]);
+  assert.deepEqual(held, {
+    'w/A': { ...tracked['w/A'], pid: null, until: reset },
+    'w/B': { ...tracked['w/B'], pid: null, until: reset },
+    'w/C': tracked['w/C'],
+  });
+  const early = await reviveBuilders(held, new Set(Object.keys(held)), { ...opts, now });
+  assert.deepEqual([launched, early['w/A']], [['w/C'], held['w/A']], 'Keep going lifts the gate, but not the limit the run hit');
+  const after = await reviveBuilders(early, new Set(Object.keys(early)), { ...opts, now: Date.parse(reset) });
+  assert.deepEqual(launched, ['w/C', 'w/A', 'w/B']);
+  assert.deepEqual([after['w/A'], after['w/B']], [
+    { kind: 'claude', model: 'opus', pid: 902, log: '/logs/w/A-2', relaunched: false },
+    { kind: 'claude', model: 'opus', pid: 903, log: '/logs/w/B-2', relaunched: true },
+  ]);
+});
+
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
 test("the server's minute check relaunches a tracked headless builder whose process died with its record open", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-revive-'));
@@ -519,7 +551,9 @@ test("a restarted server launches the builder of an In Progress card whose recor
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 // A local board over a git repo, its wave's items, and a fake claude at bin (by default one that logs each run).
-function oneLaunchBoard(items, bin) {
+// With init, the fake claude names its session as Claude's first stream-json line does, so its run log reads as a
+// Claude run's; start's fastMinute runs the server's minute check every 50ms.
+function oneLaunchBoard(items, bin, { init = false } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-one-'));
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
@@ -541,7 +575,7 @@ function oneLaunchBoard(items, bin) {
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = bin ?? path.join(home, 'claude');
   if (!bin) {
-    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n`);
+    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n${init ? "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }));\n" : ''}`);
     fs.chmodSync(fake, 0o755);
   }
   const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
@@ -549,9 +583,11 @@ function oneLaunchBoard(items, bin) {
   const thread = (id) => fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
   const record = (id) => JSON.parse(fs.readFileSync(path.join(data, 'agents', `${id}.json`), 'utf8'));
   const item = (id) => JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items.find((i) => i.id === id);
-  async function start() {
+  async function start({ fastMinute = false } = {}) {
     const [port] = await freePorts();
-    const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
+    const setup = path.join(home, 'setup.mjs');
+    if (fastMinute) fs.writeFileSync(setup, 'const interval = globalThis.setInterval;\nglobalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 50 : ms, ...args);\n');
+    const child = spawn(process.execPath, [...(fastMinute ? ['--import', setup] : []), path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
     await boardListening(child);
     const send = (kind, body) => fetch(`http://127.0.0.1:${port}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...body }) }).then((r) => r.json());
     return { child, send };
@@ -596,6 +632,57 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
     await send('grill-more', { key: 't/Q1' });
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 3);
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
+  }
+});
+
+// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
+const usageAt = (home, used) => {
+  const file = path.join(home, '.claude', 'kickflip', 'usage.json');
+  const resets = new Date(Date.now() + 3600_000).toISOString();
+  fs.writeFileSync(file, JSON.stringify({ claude: { at: new Date(Date.now() - 600_000).toISOString(), five_hour: { used_percentage: used, resets_at: resets }, seven_day: { used_percentage: 20, resets_at: resets } } }));
+};
+const reportUsage = (home, used) => {
+  const dir = path.join(home, '.claude', 'kickflip', 'logs');
+  const newest = fs.readdirSync(dir).filter((n) => n.endsWith('.log')).sort().at(-1);
+  const resetsAt = Math.round(Date.now() / 1000) + 3600;
+  fs.appendFileSync(path.join(dir, newest), JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: used / 100, resetsAt, status: 'allowed' }, seven_day: { utilization: 0.2, resetsAt, status: 'allowed' } } } }) + '\n');
+};
+
+test('a grill or prototype asked for during a pause waits on the card and launches when the pause lifts', async () => {
+  const b = oneLaunchBoard([{ id: 'G1', title: 'Grill me', state: 'grilling' }]);
+  usageAt(b.home, 95);
+  const { child, send } = await b.start({ fastMinute: true });
+  try {
+    await send('grill-more', { key: 't/G1', text: 'One more thing' });
+    await until(() => b.thread('G1').some((t) => /^The grill waits and starts when the hold lifts\. Work is paused: Claude's 5-hour usage is at 95%/.test(t.text)), 'the card says the grill waits');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(b.runs().length, 0, 'nothing launches while paused');
+    fs.rmSync(path.join(b.home, '.claude', 'kickflip', 'usage.json'));
+    await until(() => b.runs().length === 1, 'the grill launches once the pause lifts');
+    assert.match(b.runs()[0].argv[1], /builder start t\/G1 --kind grill/);
+    assert.match(b.runs()[0].argv[1], /One more thing/);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(b.runs().length, 1, 'it launches once');
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
+  }
+});
+
+test('within twice the buffer of the line the board starts one agent, and the next once that one has reported its usage', async () => {
+  const b = oneLaunchBoard([{ id: 'A1', title: 'First', state: 'grilling' }, { id: 'A2', title: 'Second', state: 'grilling' }], undefined, { init: true });
+  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', auto_pull: true, max_planners: 2 }));
+  usageAt(b.home, 85);
+  const { child } = await b.start({ fastMinute: true });
+  try {
+    await until(() => b.runs().length === 1, 'the first grill launches');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(b.runs().length, 1, 'the second waits for the first run to report');
+    reportUsage(b.home, 86);
+    await until(() => b.runs().length === 2, 'the second grill launches once the first has reported');
   } finally {
     child.kill();
     fs.rmSync(b.home, { recursive: true, force: true });

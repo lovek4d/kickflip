@@ -2177,6 +2177,17 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.match(text(going), /Past the buffer: spending usage until .* Stop/);
   assert.match(going, /name="value" value="off"/);
   assert.equal(hub.pauseBanner({ state: 'normal' }), '');
+  // docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
+  const near = { ...pause, state: 'normal', window: null, used: null, near: { window: 'five_hour', used: 84, resets_at: pause.resets_at, from: 80, going: false, waiting: true } };
+  const slowing = hub.pauseBanner(near);
+  assert.match(slowing, /hold-banner ub-banner ub-paused/);
+  assert.equal(text(slowing), 'Approaching usage limit, reducing parallel agents Keep going');
+  assert.match(slowing, /action="\/_hub\/settings\/keep-going"><button class="btn quiet" name="value" value="on">/);
+  const together = hub.pauseBanner({ ...near, near: { ...near.near, going: true } });
+  assert.match(together, /hold-banner ub-banner ub-going/);
+  assert.match(text(together), /^Approaching usage limit: agents start in parallel until .* Stop$/);
+  assert.match(together, /name="value" value="off"/);
+  assert.equal(hub.pauseBanner({ state: 'normal', near: null }), '');
   const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span><span class="lcs"><span class="lc">3 todo</span></span>' }];
   const sidebar = ui.sidebar({ pause, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.equal([...sidebar.matchAll(/class="word t-paused">paused/g)].length, 2);

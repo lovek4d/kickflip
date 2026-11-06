@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, pauseReasonFor, pauseReason, pausedLine, MACHINE_HELD_LINE } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, launchHeld, pauseReasonFor, pauseReason, pausedLine, MACHINE_HELD_LINE } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel } from '../hub/push.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
@@ -25,7 +25,7 @@ function fixture(t) {
 }
 
 test('the line defaults to 90, includes equality, checks the five-hour window first and Off never pauses either tool', () => {
-  assert.deepEqual(gate(), { pause_at: 90, state: 'paused', manual: null, window: 'five_hour', used: 90, resets_at: until, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null } });
+  assert.deepEqual(gate(), { pause_at: 90, state: 'paused', manual: null, window: 'five_hour', used: 90, resets_at: until, near: null, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null } });
   assert.equal(gate({ claude: reading(89, 89) }).state, 'normal');
   assert.equal(gate({ claude: reading(99, 99) }).window, 'five_hour');
   assert.equal(gate({ claude: reading(40, 95) }).window, 'seven_day');
@@ -68,11 +68,46 @@ test('each kind of agent is held by its own usage: Claude by the pause, Codex pa
   assert.equal(pauseReasonFor(codexPast, 'codex'), `Codex is paused: its weekly usage is at 92%, past the 90% line. Resumes at ${week}.`);
 });
 
+// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
+test('within twice the buffer of the line the gate is near, and a Claude start waits for its first reading for up to ten minutes', () => {
+  const started = (ago, reported = false) => ({ at: new Date(now - ago).toISOString(), reported });
+  assert.equal(gate({ claude: reading(79, 20) }).near, null);
+  assert.deepEqual(gate({ claude: reading(80, 20) }).near, { window: 'five_hour', used: 80, resets_at: until, from: 80, going: false, waiting: false });
+  assert.equal(gate({ claude: reading(40, 85) }).near.window, 'seven_day');
+  assert.equal(gate({ pauseAt: 80, claude: reading(60, 20) }).near.from, 60);
+  assert.equal(gate({ pauseAt: 100, claude: reading(99, 99) }).near, null, 'Off has no band');
+  assert.equal(gate().near, null, 'past the line it is paused, not near');
+  assert.equal(gate({ claude: { five_hour: win(85, until, 'stale') } }).near, null);
+  const near = (start, extra = {}) => gate({ claude: reading(85, 20), start, ...extra });
+  assert.equal(near(started(60_000)).near.waiting, true);
+  assert.equal(near(started(60_000, true)).near.waiting, false);
+  assert.equal(near(started(600_000)).near.waiting, false, 'a run that never reports holds the starts ten minutes at most');
+  assert.equal(near(null).near.waiting, false);
+  assert.equal(gate({ claude: reading(70, 20), start: started(60_000) }).near, null);
+  const waiting = near(started(60_000));
+  assert.equal(waiting.state, 'normal');
+  assert.deepEqual(['claude', 'grill', 'codex'].map((k) => launchHeld(waiting, k)), [true, true, false]);
+  assert.deepEqual([heldFor(waiting, 'claude'), holdsWork(waiting)], [false, false], 'only the board server waits: a start the owner or a session makes goes');
+  assert.equal(launchHeld(gate(), 'claude'), true);
+  assert.equal(launchHeld(gate({ claude: reading(20, 20) }), 'claude'), false);
+  assert.equal(pauseReasonFor(waiting, 'claude'), "Work is held: Claude's 5-hour usage is at 85%, near the 90% line, so agents start one at a time, each once the last one has reported its usage. The owner can tap Keep going on the Hub page.");
+});
+
+test("Keep going near the line lets agents start together until the window's reset, and never lifts the pause at the line", () => {
+  const start = { at: new Date(now - 60_000).toISOString(), reported: false };
+  const keepGoing = { window: 'five_hour', until, near: true };
+  const going = gate({ claude: reading(85, 20), start, keepGoing });
+  assert.deepEqual([going.near.going, going.near.waiting, launchHeld(going, 'claude')], [true, false, false]);
+  assert.equal(gate({ claude: reading(40, 85), start, keepGoing }).near.waiting, true, 'it covers only its own window');
+  assert.equal(gate({ keepGoing }).state, 'paused');
+  assert.equal(gate({ claude: reading(85, 20), start, keepGoing: { window: 'five_hour', until } }).near.waiting, true, "the line's Keep going isn't the band's");
+});
+
 // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
 test('a manual hub or board pause pauses all new work until its end, over the usage pause and Keep going, hub first', () => {
   const later = new Date(now + 7200_000).toISOString();
   const calm = { claude: reading(20, 20) };
-  assert.deepEqual(gate({ ...calm, hubPause: later }), { pause_at: 90, state: 'paused', manual: 'hub', window: null, used: null, resets_at: later, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null } });
+  assert.deepEqual(gate({ ...calm, hubPause: later }), { pause_at: 90, state: 'paused', manual: 'hub', window: null, used: null, resets_at: later, near: null, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null } });
   assert.equal(gate({ ...calm, boardPause: later }).manual, 'board');
   assert.equal(gate({ ...calm, hubPause: until, boardPause: later }).manual, 'hub', 'the hub pause covers every board');
   assert.equal(gate({ hubPause: later }).manual, 'hub', 'over the usage pause');
@@ -155,7 +190,13 @@ test('the file reader follows setting changes and resets while writes preserve o
   assert.equal(readUsageGate({ home: f.home, now }).state, 'paused');
   setPauseAt('95', { home: f.home });
   assert.equal(readUsageGate({ home: f.home, now }).state, 'normal');
+  setKeepGoing('on', { home: f.home, now });
+  assert.deepEqual(f.settings().keepGoing, { window: 'five_hour', until, near: true }, 'near the line, Keep going lifts the one-at-a-time starts');
+  assert.equal(readUsageGate({ home: f.home, now }).near.going, true);
+  setKeepGoing('off', { home: f.home });
+  setPauseAt('100', { home: f.home });
   assert.throws(() => setKeepGoing('on', { home: f.home, now }), { status: 409 });
+  setPauseAt('95', { home: f.home });
   assert.throws(() => setKeepGoing('wrong', { home: f.home, now }), { status: 400 });
   for (const value of [undefined, '', null, '90.0', ' 90', 91, 45, 105]) assert.throws(() => setPauseAt(value, { home: f.home }), { status: 400 });
   assert.deepEqual(f.settings(), { rules: ['kept'], notifications: { on: false }, pauseAt: 95 });

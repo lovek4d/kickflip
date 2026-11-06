@@ -34,14 +34,17 @@
   // hold: hub/views.mjs hubView's hold, or null for no banner. Its End form posts snooze=off, which view-hub.js sends.
   const holdBanner = (hold) => (hold ? `<div class="hold-banner"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TILE_PATHS.moon}</svg><span>${esc(hold.text)}</span>${hold.end ? '<form method="post" action="/_hub/settings/notifications"><button class="btn quiet" name="snooze" value="off">End snooze</button></form>' : ''}</div>` : '');
 
+  // pause: shared/usage-gate.mjs usageGate's gate. Near the line (its near), the banner says agents start one at a time,
+  // with Keep going (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md).
   function pauseBanner(pause) {
-    if (!pause || pause.state === 'normal') return '';
-    const going = pause.state === 'going';
-    const until = BoardUI.usageClock(pause.resets_at);
+    if (!pause || (pause.state === 'normal' && !pause.near)) return '';
+    const going = pause.state === 'going' || Boolean(pause.state === 'normal' && pause.near.going);
+    const until = BoardUI.usageClock(pause.state === 'normal' ? pause.near.resets_at : pause.resets_at);
     const icon = going ? '<path d="M3.34 19a10 10 0 1 1 17.32 0"/><path d="m12 14 4-4"/>' : '<circle cx="12" cy="12" r="9"/><path d="M10 9v6"/><path d="M14 9v6"/>';
     // Pause hub (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): Resume ends it, which view-hub.js posts.
     if (pause.manual) return `<div class="hold-banner ub-banner ub-paused" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(pause.resets_at === 'forever' ? 'Work paused: you paused the hub until you resume.' : `Work paused: you paused the hub. Resumes at ${until}.`)}</span><form method="post" action="/_hub/settings/hub-pause"><button class="btn quiet" name="pause" value="off">Resume</button></form></div>`;
-    const text = going ? `Past the buffer: spending usage until ${until}`
+    const text = pause.state === 'normal' ? going ? `Approaching usage limit: agents start in parallel until ${until}` : 'Approaching usage limit, reducing parallel agents'
+      : going ? `Past the buffer: spending usage until ${until}`
       : `Work paused: Claude’s ${pause.window === 'five_hour' ? '5‑hour' : 'weekly'} usage is at ${Math.round(pause.used)}%. Resumes ${pause.window === 'five_hour' ? 'at ' : ''}${until}.`;
     return `<div class="hold-banner ub-banner ub-${going ? 'going' : 'paused'}" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(text)}</span><form method="post" action="/_hub/settings/keep-going"><button class="btn${going ? '' : ' quiet'}" name="value" value="${going ? 'off' : 'on'}">${going ? 'Stop' : 'Keep going'}</button></form></div>`;
   }
