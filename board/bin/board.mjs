@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
-import { boardWorktree, builderRepo, joiningLand, landInTurn, worktreesDir } from '../worktree.mjs';
+import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, worktreesDir } from '../worktree.mjs';
+import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
 import { bump, queueLines, stopBuilder, stopForBlock, stopLand } from '../stop.mjs';
@@ -476,6 +477,8 @@ command fails and changes nothing.
                                                          owner's merge (item set --pushed). A finish that fails
                                                          refuses with the reason and leaves the record open; one
                                                          refused while another agent's record is open names it.
+                                                         A helper's done takes --text, its hand-back, which agent
+                                                         wait prints.
                                                          --next stops a build without finishing it. Closing the
                                                          last record of a card left In Progress with no Next is
                                                          refused without --next, which sets it
@@ -536,6 +539,24 @@ command fails and changes nothing.
                                                          ready-draft, session-resume, compact) as "<at> <call>
                                                          [<key>]: <result>. <reason>" and the inputs it read; with
                                                          a card, only that card's. The hub's own: kickflip audit
+  agent launch <wave>/<id> --name <n> --task <t>         any session's helper on an open card, an agent the board server
+         [--writes] [--model <opus|sonnet>]              launches headless with the task as its brief, under its own
+                                                         name (lowercase, "-", not main or visual-…), its record
+                                                         <id>@<name> requested until then. A read-only helper launches
+                                                         at once and takes no implementer slot; one with --writes
+                                                         takes one, waits while Maximum parallel implementers is
+                                                         reached, ahead of the pull and the topmost card's first,
+                                                         and works in its own worktree, branch <id>-<name> from the
+                                                         card's, so it needs the card's worktree. --model else
+                                                         builder pick's Claude model. Its lines carry its name
+  agent wait <wave>/<id> --name <n> [--agent <me>]       blocks until the helper's builder done, then prints its
+         [--timeout <minutes>]                           --text and, for one that writes, its branch. Meanwhile
+                                                         --agent's record (main by default) takes no slot. Refuses
+                                                         after --timeout (9) minutes, saying whether it runs or waits
+                                                         for a slot, and once its process is gone without done
+  agent merge <wave>/<id> --name <n>                     merges a done helper's branch into the card's worktree and
+                                                         removes the helper's worktree and branch; on a conflict it
+                                                         names the files: resolve, commit and run it again
   builder call <wave>/<id> <judgment call>             appends one line to the agent's open builder record: a
          [--agent <name>]                                judgment call as the builder makes it, or a "Question: …"
                                                          for the session; refused with no open record. A builder start
@@ -630,7 +651,7 @@ command fails and changes nothing.
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch']);
+const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch', 'writes']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -666,7 +687,7 @@ function flagsOf(name, allowed, flags) {
  * the path itself (a reply once read "/private/tmp/…/exp-reply.html"), so it is refused: one
  * token that names an existing file, or that looks like a path to a document.
  */
-const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked'];
+const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked', 'task'];
 const DOC_PATH = /^(?:\/|~\/|\.{1,2}\/)\S*\.(?:html?|md|json|txt)$/;
 
 function looksLikePath(value) {
@@ -716,7 +737,13 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ..
     if (text === undefined) throw new store.BoardError(`builder done finishes ${key}: pass --text "<what you checked>", or --next "<what happens next>" to stop without finishing`);
     return finishCard(site, key, { text, ownerStep });
   }
-  if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card: the main build, with a worktree and no --next');
+  // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md: a helper hands back its
+  // result as its record's closing note, which agent wait prints.
+  if (onBoard && await store.isHelper(site, key, f.agent)) {
+    if (text === undefined) throw new UsageError(`a helper hands back its result: pass --text "<what you did or found>"`);
+    return store.stopBuilder(site, key, { ...f, note: text });
+  }
+  if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card, the main build with a worktree and no --next, or on a helper\'s');
   return store.stopBuilder(site, key, { ...f, requireNext: true });
 }
 
@@ -834,6 +861,15 @@ const COMMANDS = {
     return out;
   }],
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
+  'agent launch': [['wave/id'], ['name', 'task', 'writes', 'model'], (site, [key], f) => store.requestHelper(site, key, f)],
+  'agent wait': [['wave/id'], ['name', 'agent', 'timeout'], (site, [key], f) => store.waitHelper(site, key, { ...f, alive: pidAlive })],
+  'agent merge': [['wave/id'], ['name'], async (site, [key], f) => {
+    const { record, card: tree } = await store.helperOf(site, key, f.name);
+    if (!record.done) throw new store.BoardError(`helper ${f.name} is still open; run agent wait ${key} --name ${f.name} first`);
+    if (!record.writes || !record.worktree) throw new store.BoardError(`helper ${f.name} writes no code, so there is nothing to merge`);
+    if (!tree) throw new store.BoardError(`${key} has no worktree to merge helper ${f.name} into`);
+    return mergeHelper(tree, record.worktree);
+  }],
   audit: [['...wave/id?'], [], (site, [key, ...more]) => {
     if (more.length) throw new UsageError('audit takes one <wave/id> at most');
     return store.auditLog(site, key);

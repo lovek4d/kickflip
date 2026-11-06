@@ -15,7 +15,7 @@ import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
 import { BoardError, appendThread, briefFacts, readBoardRules, recordSession } from './store.mjs';
-import { modelName, plans, VISUAL } from './domain.mjs';
+import { HELPER, modelName, plans, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
 const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
@@ -39,6 +39,12 @@ const finishSteps = ({ route, key, worktree, base }) => [
 ];
 const finishCommand = ({ route, key }) => `\`${cli(route)} builder done ${key} --text "<what you checked>"\``;
 
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+// How a builder hands part of its card to helpers running beside it, which the board launches and counts.
+const helperSteps = (b, key) => [
+  `5. To run a separate part of the work in parallel, ask the board for a helper: \`${b} agent launch ${key} --name <short-name> --task "<the whole task, with the files and what to hand back>"\`, adding --writes when it changes code or runs tests (it gets its own worktree off your branch, and waits for a free implementer slot). Then \`${b} agent wait ${key} --name <short-name>\`, which prints its hand-back; it returns within 10 minutes, so run it again while it says still running, and do the task yourself if it says the helper exited. Merge a writing helper's work with \`${b} agent merge ${key} --name <short-name>\` before you test and finish.`,
+];
+
 // The standard brief for a card's headless builder. card: {route, key, ref, title, notes, worktree, base, rules, links}.
 export function builderBrief({ route, key, ref, title, notes, worktree, base, rules = [], links = [] }) {
   const b = cli(route);
@@ -54,6 +60,7 @@ export function builderBrief({ route, key, ref, title, notes, worktree, base, ru
     '   - landing: set by the finish step itself; you never report it.',
     `3. To ask the orchestrator something, run \`${b} builder ask ${key} "<question>"\` and carry on; read its replies with \`${b} builder asks ${key}\`. Never block on a reply.`,
     `4. Record each judgment call the notes leave open with \`${b} builder call ${key} "<call>"\` instead of guessing silently.`,
+    ...helperSteps(b, key),
     '',
     notes ? `Spec: the card's notes, ${notes}, all sections, where later sections override earlier ones.` : `The card has no notes file: build from its title, and record what you had to decide as calls.`,
     '',
@@ -171,6 +178,34 @@ export function visualBrief({ route, key, ref, title, notes, repo, agent, rules 
   ].join('\n');
 }
 
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+// The brief for a helper another agent on the card asked for (store.mjs requestHelper): its task, in cwd, its own
+// worktree when it writes, else the card's or the board's repo read-only. card as builderBrief's, with agent its name,
+// task, writes and cwd. It reports and finishes as its own agent, and its done --text is what its spawner reads.
+export function helperBrief({ route, key, ref, title, notes, agent, task, writes, cwd, rules = [], links = [] }) {
+  const b = cli(route);
+  return [
+    `You are the headless helper ${agent} on card ${ref} (${key}, "${title}") on the kickflip board /${route}. Another agent working on the card asked the board for you to do one task beside it, and waits on your hand-back. Nobody watches this session, so never wait on a person. Never restart the hub or a board server, and never push.`,
+    writes
+      ? `Work only in ${cwd}, your own worktree, branched from the card's: commit your work there with \`git -c core.commentChar=';' commit -F <file>\`, the subject "${ref}: <what it does>". The card's builder merges your branch, so leave nothing uncommitted.`
+      : `Read and run in ${cwd}; change no files there and commit nothing.`,
+    '',
+    'The task:',
+    task,
+    '',
+    `1. Run \`${b} builder start ${key} --kind helper --agent ${agent}\`. If it refuses, stop.`,
+    `2. Report progress with \`${b} builder progress ${key} --agent ${agent} --phase reading|building|testing|checking "<plain, 80 characters or fewer>"\` at least every 10 minutes; the board adds your name and the phase word.`,
+    "3. Do only the task. Don't ask the orchestrator or the owner, record no judgment calls and post no questions: put any decision you had to make in your hand-back.",
+    notes ? `   The card's notes, for context: ${notes}.` : '',
+    '',
+    ...linkLines(links),
+    ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, restart the hub or a board server, or do the orchestrator's work, it isn't yours; you never push or restart:"),
+    `To finish, run \`${b} builder done ${key} --agent ${agent} --text "<your hand-back: what you did or found, ${writes ? 'what you committed, ' : ''}and any decision you made>"\`.`,
+    '',
+    'Never push.',
+  ].filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n');
+}
+
 // The agents launchBuilder started, of agents each {pid, at} as store.mjs openAgents reads them, whose process still
 // runs. Pids get reused, so a pid counts only while its process started within LAUNCH_WINDOW before the session was
 // recorded; with no answer from ps, none does.
@@ -255,19 +290,20 @@ const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'lo
 // adapter (agents.mjs launchAgent): a build or lander as its record's kind, a planner as Claude. The session id it names
 // goes on the agent's builder record and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', text, files, question, note, choice }, { lander = false } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', text, files, question, note, choice, task, writes, worktree }, { lander = false } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
   const { base, repo } = builderRepo(site);
   const planner = plans({ kind });
-  const rebase = !planner && !lander && facts.rebasePR !== null;
+  const helper = kind === HELPER;
+  const rebase = !planner && !helper && !lander && facts.rebasePR !== null;
   const visual = kind === VISUAL;
-  const card = { ...facts, route, base, repo, rules, kind, agent, text, files, question, note, choice, pr: facts.rebasePR };
-  const role = visual ? 'Visual agent' : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
-  const cwd = planner ? repo : facts.worktree;
-  const prompt = visual ? visualBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
-  const launched = await launchAgent({ kind: planner ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
+  const cwd = planner ? repo : helper ? worktree ?? facts.worktree ?? repo : facts.worktree;
+  const card = { ...facts, route, base, repo, rules, kind, agent, text, files, question, note, choice, task, writes, cwd, pr: facts.rebasePR };
+  const role = visual ? 'Visual agent' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
+  const prompt = visual ? visualBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
+  const launched = await launchAgent({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
   if (launched.sessionId) await recordSession(site, key, launched.sessionId, launched.pid, agent);
   const session = launched.sessionId ? `, session ${launched.sessionId}` : '';
   await appendThread(site, key, { text: `${role} launched on ${modelName({ kind, model })} in ${cwd}${session}.`, log: path.basename(launched.log) });

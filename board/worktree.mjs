@@ -92,6 +92,37 @@ export function builderRepo(site, { repo, manifest = readManifest() } = {}) {
 // The worktree of card id on the board at site, from builderRepo. → as makeWorktree
 export const boardWorktree = (site, id, { repo, busy } = {}) => makeWorktree(id, { ...builderRepo(site, { repo }), busy });
 
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+// The worktree of helper name on card id: branch <id>-<name> from base, the card's branch, in repo. → as makeWorktree
+export const helperWorktree = (id, name, { repo, base, busy }) => makeWorktree(`${id}-${name}`, { repo, base, busy });
+
+// `agent merge`: brings a helper's branch (helper {path, branch}) into the card's worktree (card {path}), then removes
+// the helper's worktree and branch. A branch already in the card's history skips the merge, so a run after a conflict
+// the builder resolved and committed only cleans up. A conflict is left for the builder, naming its files.
+// → {lines}
+export function mergeHelper(card, helper) {
+  const lines = [];
+  if (git(card.path, 'merge-base', '--is-ancestor', helper.branch, 'HEAD').ok) lines.push(`${helper.branch} is already merged`);
+  else {
+    const merged = git(card.path, 'merge', '--no-edit', helper.branch);
+    if (!merged.ok) {
+      const files = git(card.path, 'diff', '--name-only', '--diff-filter=U').out.split('\n').filter(Boolean);
+      fail(files.length
+        ? `merging ${helper.branch} conflicts in ${files.join(', ')}: resolve them, commit, and run agent merge again`
+        : `could not merge ${helper.branch}: ${merged.err}`);
+    }
+    lines.push(`merged ${helper.branch} into ${git(card.path, 'rev-parse', '--abbrev-ref', 'HEAD').out}`);
+  }
+  if (fs.existsSync(helper.path)) {
+    const removed = git(card.path, 'worktree', 'remove', helper.path);
+    if (!removed.ok) fail(`merged, but could not remove ${helper.path}: ${removed.err}`);
+    lines.push(`worktree removed: ${helper.path}`);
+  }
+  const deleted = git(card.path, 'branch', '--quiet', '-d', helper.branch);
+  if (deleted.ok) lines.push(`branch deleted: ${helper.branch}`);
+  return { lines };
+}
+
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
 // The worktree of card id for its open PR's branch, fetched from origin, for a rebase run on a PR no build of the board
 // made (a PR linked by hand). The local branch is made from origin's, or checked out as it is when it already exists.

@@ -1875,19 +1875,19 @@ test('only a running build keeps the board from being idle: a running planner le
 });
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-test('the pull fills every free implementer slot with the top ready cards; builds and Orchestrator review take a slot, planners and owner waits do not, and a card pulled but not started keeps its slot', () => {
+test('the pull fills every free implementer slot with the top ready cards; builds take a slot, Orchestrator review, planners and owner waits do not, and a card pulled but not started keeps its slot', () => {
   const run = (kind) => [{ kind, started: '2026-11-04T10:00:00Z', done: null }];
   const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const progress = (key, more) => card(key, { lane: 'progress', buildable: false, state: null, ...more });
   const todo = ['w/T1', 'w/T2', 'w/T3', 'w/T4'].map((k) => card(k));
   const busy = [progress('w/P1', { agents: run('claude') }), progress('w/P2', { waitsOn: 'checking' }), progress('w/P3', { waitsOn: 'owner' }), progress('w/P4', { agents: run('grill') })];
   assert.deepEqual(pullOf([...busy, ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3', 'w/T4'], 'the default cap leaves room for every ready card');
-  assert.deepEqual(pullOf([...busy, ...todo], { cap: 3 }).pulls, ['w/T1'], 'a build and a review take two of three slots');
-  assert.deepEqual(pullOf([...busy, ...todo], { cap: 2 }).pulls, []);
-  assert.deepEqual(pullOf([...busy, ...todo], { cap: 1 }).pulls, [], 'a cap already passed pulls nothing');
+  assert.deepEqual(pullOf([...busy, ...todo], { cap: 3 }).pulls, ['w/T1', 'w/T2'], 'a build takes one of three slots, a card in review none');
+  assert.deepEqual(pullOf([...busy, ...todo], { cap: 1 }).pulls, [], 'a cap already reached pulls nothing');
   assert.equal(pullOf([...busy, ...todo]).idle, false, 'the pull no longer waits for idle, but idle still means nothing building');
 
-  const sent = pullOf([...busy, ...todo], { cap: 4, pulled: ['w/T1'] });
+  assert.equal(pullOf([busy[1], ...todo]).idle, false, 'a card in review takes no slot, but the board is not idle while it waits');
+  const sent = pullOf([...busy, ...todo], { cap: 3, pulled: ['w/T1'] });
   assert.deepEqual([sent.waiting, sent.pulls], [['w/T1'], ['w/T2']], 'a pulled card not yet started keeps its slot and is not pulled again');
   const working = pullOf([busy[0], card('w/T1', { working: true }), ...todo.slice(1)], { cap: 3, pulled: ['w/T1'] });
   assert.deepEqual([working.waiting, working.pulls], [['w/T1'], ['w/T2']], 'while the session works on the pull the card keeps its slot');
@@ -1895,6 +1895,38 @@ test('the pull fills every free implementer slot with the top ready cards; build
   assert.deepEqual([started.waiting, started.pulls], [[], ['w/T2']], 'once it builds it counts as an implementer instead');
   const asked = pullOf([card('w/T1', { state: 'staging' }), ...todo.slice(1)], { cap: 1, pulled: ['w/T1'] });
   assert.deepEqual([asked.waiting, asked.pulls], [[], ['w/T2']], 'a pulled card that stops being pullable frees its slot');
+});
+
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+test('the limit counts running implementer agents, not cards: a helper that writes takes a slot, a read-only one none, and an agent waiting on its helper none', () => {
+  const at = '2026-11-06T10:00:00Z';
+  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const progress = (key, agents) => card(key, { lane: 'progress', buildable: false, state: null, agents });
+  const main = (more = {}) => ({ name: 'main', kind: 'claude', started: at, done: null, ...more });
+  const helper = (name, more = {}) => ({ name, kind: 'helper', writes: true, started: at, done: null, ...more });
+  const todo = ['w/T1', 'w/T2', 'w/T3'].map((k) => card(k));
+
+  const two = progress('w/P1', [main(), helper('tests')]);
+  assert.deepEqual(pullOf([two, ...todo], { cap: 3 }).pulls, ['w/T1'], 'a card with a build and a writing helper takes two slots');
+  const reader = progress('w/P1', [main(), helper('survey', { writes: false })]);
+  assert.deepEqual(pullOf([reader, ...todo], { cap: 3 }).pulls, ['w/T1', 'w/T2'], 'a read-only helper takes none');
+  const waiting = progress('w/P1', [main({ waits: 'tests' }), helper('tests')]);
+  assert.deepEqual(pullOf([waiting, ...todo], { cap: 3 }).pulls, ['w/T1', 'w/T2'], 'a build blocked on its open helper takes none');
+  const stale = progress('w/P1', [main({ waits: 'tests' }), helper('tests', { done: at })]);
+  assert.deepEqual(pullOf([stale, ...todo], { cap: 3 }).pulls, ['w/T1', 'w/T2'], 'once its helper is done the build counts again');
+  assert.equal(pullOf([reader]).idle, false);
+  assert.equal(pullOf([progress('w/P1', [helper('survey', { writes: false })])]).idle, true, 'a read-only helper alone leaves the board idle, as a planner does');
+
+  // A requested helper (no start yet) waits for a slot ahead of the pull, the topmost card's first.
+  const asked = (name, writes = true) => helper(name, { started: null, requested: at, writes });
+  const top = progress('w/P1', [main(), asked('a')]);
+  const lower = progress('w/P2', [main(), asked('b'), asked('look', false)]);
+  const full = pullOf([top, lower, ...todo], { cap: 3 });
+  assert.deepEqual([full.helpers, full.pulls], [[{ key: 'w/P2', name: 'look' }, { key: 'w/P1', name: 'a' }], []], 'one free slot: the top card\'s helper takes it, the next waits, and so does the pull; a read-only helper launches at once');
+  const room = pullOf([top, lower, ...todo], { cap: 5 });
+  assert.deepEqual([room.helpers.map((h) => h.name), room.pulls], [['look', 'a', 'b'], ['w/T1']], 'with room, every helper launches and the pull takes what is left');
+  assert.deepEqual(pullOf([progress('w/P1', [main(), asked('a', true)])], { cap: 1 }).helpers, [], 'a full board holds a writing helper');
+  assert.deepEqual(pullOf([{ ...top, lane: 'done' }], { cap: 5 }).helpers, [], 'a closed card launches none');
 });
 
 // docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md

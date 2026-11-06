@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until } from '../shared/test-helpers.mjs';
-import { home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, worktree, land, branches, record, toolUse, toolResult, stopHook, ago } from './board-fixture.mjs';
+import { home, at, site, write, read, lines, run, runAsync, board, onOrch, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, toolUse, toolResult, stopHook, ago } from './board-fixture.mjs';
 
 test('agent.mjs still writes builder records, beside the wave file it names', () => {
   assert.equal(run('agent.mjs', ['start', 'w/A1', '--label', 'Opus builder']).code, 0);
@@ -680,4 +680,79 @@ test('builder done on a record with judgment calls hands the card back as checki
   assert.equal(board('builder', 'call', 'w/A1', '--site', 'orch', 'Kept the old colour').code, 0);
   assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch').code, 0);
   assert.deepEqual([item().status, item().next], ['checking', "Answer the builder's questions"]);
+});
+
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+test('agent launch asks for a helper on an open card, which then starts, reports and hands back as its own agent; agent wait prints its hand-back and agent merge brings in its branch', () => {
+  const repo = scratchRepo();
+  write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
+  assert.equal(onOrch('item', 'set', 'w/A1', '--status', 'building').code, 0);
+  const main = onOrch('builder', 'start', 'w/A1', '--kind', 'build');
+  assert.equal(main.code, 0, main.err);
+  const helperFile = at('waves', 'w', 'agents', 'A1@tests.json');
+
+  for (const [args, err] of [
+    [['--name', 'main', '--task', 'x'], /--name takes a short lowercase name/],
+    [['--name', 'visual-e1', '--task', 'x'], /--name takes a short lowercase name/],
+    [['--name', 'Tests', '--task', 'x'], /--name takes a short lowercase name/],
+    [['--name', 'tests'], /--task must be non-empty text/],
+    [['--name', 'tests', '--task', 'x', '--model', 'haiku'], /--model takes opus or sonnet/],
+  ]) {
+    const r = onOrch('agent', 'launch', 'w/A1', ...args);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.err, err);
+  }
+  const asked = onOrch('agent', 'launch', 'w/A1', '--name', 'tests', '--task', 'Write the scroll tests', '--writes', '--model', 'sonnet');
+  assert.equal(asked.code, 0, asked.err);
+  assert.match(asked.out, /helper tests requested: the board launches it once an implementer slot is free/);
+  const record = read(helperFile);
+  assert.deepEqual([record.label, record.kind, record.task, record.writes, record.model, 'started' in record, typeof record.requested], ['tests', 'helper', 'Write the scroll tests', true, 'sonnet', false, 'string']);
+  assert.equal(threadOf().at(-1).text, 'Asked for helper tests, which writes code: Write the scroll tests');
+  assert.match(onOrch('agent', 'launch', 'w/A1', '--name', 'tests', '--task', 'Again').err, /already has an agent named tests/);
+  assert.match(onOrch('agent', 'launch', 'w/ENG-1', '--name', 'tests', '--task', 'x', '--writes').err, /branches from w\/ENG-1's worktree, and the card has none/);
+  assert.equal(onOrch('agent', 'launch', 'w/ENG-1', '--name', 'survey', '--task', 'Read the scroll code').code, 0, 'a read-only helper needs no worktree');
+  const wait = onOrch('agent', 'wait', 'w/ENG-1', '--name', 'survey', '--timeout', '0.0001');
+  assert.deepEqual([wait.code, wait.err], [1, 'helper survey is still waiting to launch after 0.0001 minutes; run agent wait again\n']);
+
+  // The board server opens the record in the helper's own worktree off the card's branch (store.mjs startHelper);
+  // here the test stands in for it.
+  const tree = at('kickflip', 'worktrees', 'A1-tests');
+  git(worktree(), 'worktree', 'add', '--quiet', '-b', 'A1-tests', tree, 'A1');
+  write(helperFile, { ...record, started: new Date().toISOString(), dispatched: 'hub', worktree: { path: tree, branch: 'A1-tests', repo } });
+  const start = onOrch('builder', 'start', 'w/A1', '--kind', 'helper', '--agent', 'tests');
+  assert.equal(start.code, 0, start.err);
+  const taken = read(helperFile);
+  assert.deepEqual([taken.label, taken.task, taken.writes, taken.model, taken.worktree.path, 'dispatched' in taken], ['tests', 'Write the scroll tests', true, 'sonnet', tree, false]);
+  assert.equal(onOrch('builder', 'progress', 'w/A1', '--agent', 'tests', '--phase', 'building', 'the first test').code, 0);
+  assert.equal(threadOf().filter((m) => m.kind === 'status').at(-1).text, 'Tests building: the first test', 'its lines carry its name');
+  commit(tree, 'scroll.test.mjs', 'test', '#1: scroll tests');
+  assert.equal(onOrch('builder', 'done', 'w/A1', '--agent', 'tests').code, 2, 'a helper hands back with --text');
+  assert.equal(onOrch('builder', 'done', 'w/A1', '--agent', 'tests', '--text', 'Added the scroll tests').code, 0);
+  assert.equal(typeof read(helperFile).done, 'string');
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).done, undefined, "the card's build runs on");
+
+  const done = onOrch('agent', 'wait', 'w/A1', '--name', 'tests');
+  assert.equal(done.code, 0, done.err);
+  assert.equal(done.out, `helper tests done: Added the scroll tests\nbranch A1-tests in ${tree}: merge it with agent merge w/A1 --name tests\n`);
+  assert.equal('waits' in read(at('waves', 'w', 'agents', 'A1.json')), false, 'the wait clears its mark');
+  const merged = onOrch('agent', 'merge', 'w/A1', '--name', 'tests');
+  assert.equal(merged.code, 0, merged.err);
+  assert.equal(merged.out, `merged A1-tests into A1\nworktree removed: ${tree}\nbranch deleted: A1-tests\n`);
+  assert.equal(fs.readFileSync(path.join(worktree(), 'scroll.test.mjs'), 'utf8'), 'test');
+  assert.deepEqual(branches(repo), ['A1', 'main']);
+});
+
+test("agent wait marks its spawner waiting while the helper is open, and refuses once the helper's process is gone without its done", async () => {
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--kind', 'claude').code, 0);
+  assert.equal(onOrch('agent', 'launch', 'w/A1', '--name', 'look', '--task', 'Read the code').code, 0);
+  const helperFile = at('waves', 'w', 'agents', 'A1@look.json');
+  // The helper's own builder start, after its launch recorded the session, keeps that session.
+  const launched = new Date(Date.now() - 2000).toISOString();
+  write(helperFile, { ...read(helperFile), started: new Date().toISOString(), session: { id: 's', pid: process.pid, at: launched } });
+  const waiting = runAsync('board.mjs', ['--site', 'orch', 'agent', 'wait', 'w/A1', '--name', 'look']);
+  await until(() => record().waits === 'look', 'the spawner reads waiting on its helper');
+  write(helperFile, { ...read(helperFile), session: { id: 's', pid: 2 ** 22 + 12345, at: launched } });
+  const gone = await waiting;
+  assert.deepEqual([gone.code, gone.err], [1, "helper look's process exited without builder done; do its task yourself\n"]);
+  assert.equal('waits' in record(), false);
 });

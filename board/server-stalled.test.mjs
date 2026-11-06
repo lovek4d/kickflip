@@ -301,16 +301,15 @@ test('with auto implement on the board starts and launches the build of the top 
   await until(() => pulls().length === 2, 'a freed slot is filled on the change');
   assert.deepEqual(pulls(), ['t/A5', 't/A4']);
 
-  // Changed while the server is down: Orchestrator review takes A0's slot back, so A5 finishing frees none.
+  // Changed while the server is down: A0 waits in Orchestrator review, which takes no slot, so A5 finishing frees one
+  // (docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md).
   await stop();
   setStatus('A0', 'checking');
   finish('A5');
   await start();
-  await tick();
-  assert.deepEqual(pulls(), ['t/A5', 't/A4']);
-  setStatus('A0', 'done');
-  await until(() => pulls().length === 3, 'the review ending frees a slot');
+  await until(() => pulls().length === 3, 'a card in review holds no slot');
   assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6']);
+  setStatus('A0', 'done');
 
   put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
   finish('A4');

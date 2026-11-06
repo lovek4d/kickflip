@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -2831,14 +2831,14 @@ const forAgent = (line, planner, name) => {
 
 // A status line lives only in the item's thread, as {kind: 'status'} (domain.mjs builderOf reads it). A progress line
 // keeps its phase and reads "Testing: <detail>", or "Codex testing: <detail>" for an agent other than main, named by
-// its kind; a line with no phase (builder done's note) reads "<detail>" or "Codex: <detail>". A line that repeats the
-// thread's last status line is skipped.
+// its kind, or by its name for a helper ("Tests testing: <detail>"); a line with no phase (builder done's note) reads
+// "<detail>" or "Codex: <detail>". A line that repeats the thread's last status line is skipped.
 // A planner's line is marked planner and led by its kind's word, whichever agent it runs as ("Prototyping: …")
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
 async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts) {
   const planner = plans(builder);
-  const who = planner || agent === 'main' ? '' : modelName(builder) || builder.kind || agent;
+  const who = planner || agent === 'main' ? '' : builder.kind === HELPER ? agent : modelName(builder) || builder.kind || agent;
   const head = planner ? PLANNER_WORD[builder.kind] : [who, phase].filter(Boolean).join(' ');
   const repeat = new RegExp(`^(?:${head}|${phase ?? head})\\s*:?\\s+`, 'i');
   const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail.replace(repeat, '')}` : detail;
@@ -2888,8 +2888,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const before = await readJSON(file, null);
   const tapOpen = (record) => ['tap', 'hub'].includes(record?.dispatched) && !record.done;
   if (dispatch === 'session' && tapOpen(before)) return { file, alreadyOpen: true, lines: [] };
-  // A visual agent runs beside any other, the tap's record included.
-  if (agent !== 'main' && given !== VISUAL && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
+  // A visual agent or a helper runs beside any other, the tap's record included.
+  if (agent !== 'main' && given !== VISUAL && given !== HELPER && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
   const takeUp = before?.dispatched && !before.done ? before : null;
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
@@ -2907,12 +2907,15 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const forced = k === 'claude' ? readClaudeModel() : 'auto';
   if (askedModel !== undefined && forced !== 'auto' && askedModel !== forced) fail(`--model ${askedModel}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
   const claude = k === 'claude' ? askedModel ?? pick?.model ?? (takeUp && providerOf(takeUp.kind) === 'claude' ? takeUp.model : undefined) ?? 'opus'
-    : plans({ kind: k }) ? askedModel ?? (takeUp?.kind === k ? takeUp.model : undefined) ?? PLANNER_MODEL[k] : undefined;
+    : plans({ kind: k }) ? askedModel ?? (takeUp?.kind === k ? takeUp.model : undefined) ?? PLANNER_MODEL[k]
+    : k === HELPER ? askedModel ?? before?.model : undefined;
   const record = {
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(dispatch ? { dispatched: dispatch } : {}),
     ...(resumed ? { calls: resumed.calls, ...(resumed.verified ? { verified: resumed.verified } : {}) } : {}),
     ...(launchedSession(before) ? { session: before.session } : {}),
+    // A helper's record keeps what agent launch asked of it.
+    ...(k === HELPER && before?.kind === HELPER ? { label: before.label, task: before.task, writes: before.writes, requested: before.requested } : {}),
   };
   const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
   const marked = marking ? await setItem(site, key, { status: 'building' }) : { lines: [] };
@@ -2946,7 +2949,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   }
   if (remade && site) await appendThread(site, key, { text: remade });
   if (line) await statusToThread(site, key, agent, record, line, now);
-  const resolved = given === VISUAL ? [] : await resolveAnswered(site, key, 'Acted on: builder started');
+  const resolved = given === VISUAL || given === HELPER ? [] : await resolveAnswered(site, key, 'Acted on: builder started');
   if (site && build) await clearNext(site, key);
   return {
     file, kind: k ?? null, model: claude ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
@@ -3187,6 +3190,115 @@ export async function startVisual(site, key, request) {
   if (await readJSON(await builderFile(site, key, undefined, agent), null)) return null;
   const started = await startBuilder(site, key, { kind: VISUAL, agent, dispatch: 'hub' });
   return { key, kind: VISUAL, model: started.model, agent };
+}
+
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+// A helper's name: lowercase words joined by "-", never main nor a visual agent's.
+const helperName = (name) => (typeof name === 'string' && /^[a-z][a-z0-9-]{0,29}$/.test(name) && name !== 'main' && !name.startsWith(`${VISUAL}-`) ? name
+  : fail('--name takes a short lowercase name such as tests or docs-pass: letters, digits and "-", not main or visual-…'));
+// The worktree the card's build works in, its main record's, else the one the card got on entering In Progress, while
+// it is on disk; null when it has none.
+async function cardWorktree(site, key) {
+  const { item } = await loadItem(site, key);
+  const main = await readJSON(await builderFile(site, key), null);
+  return [main?.worktree, item.worktree].find((w) => w?.path && existsSync(w.path)) ?? null;
+}
+
+// `agent launch <wave/id> --name <n> --task <t> [--writes] [--model opus|sonnet]`: any session asks for a helper on an
+// open card, which the board server launches headless (server.mjs launchHelpers) once domain.mjs pullOf lets it: a
+// read-only one at once, one that writes when an implementer slot is free, ahead of the pull. Its record,
+// agents/<id>@<name>.json, opens requested: {kind: helper, label: name, task, writes, model?, requested}, with no
+// start until the server's. --model is a Claude model, refused when the hub's Claude model rules it out; without one
+// the server takes builder pick's, as a build does. A helper that writes needs the card's worktree, since its own
+// branches from the card's branch. → {lines}
+export async function requestHelper(site, key, { name, task, writes, model }) {
+  needSite(site);
+  const agent = helperName(name);
+  const job = text(task, '--task');
+  if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
+  const forced = readClaudeModel();
+  if (model !== undefined && forced !== 'auto' && model !== forced) fail(`--model ${model}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
+  const { item } = await loadItem(site, key);
+  if (FINISHED.includes(item.status)) fail(`${await cardName(site, key)} is ${item.status}; a helper needs an open card`);
+  const file = await builderFile(site, key, undefined, agent);
+  if (existsSync(file)) fail(`${key} already has an agent named ${agent}; pick another --name`);
+  if (writes && !(await cardWorktree(site, key))) fail(`a helper that writes branches from ${key}'s worktree, and the card has none; start its build first, or drop --writes`);
+  await writeJSON(file, { label: agent, kind: HELPER, task: job, writes: Boolean(writes), ...(model ? { model } : {}), requested: new Date().toISOString() });
+  await appendThread(site, key, { text: `Asked for helper ${agent}${writes ? ', which writes code' : ''}: ${job}` });
+  return { lines: [`helper ${agent} requested: the board launches it ${writes ? 'once an implementer slot is free' : 'now'}`, `wait for it with agent wait ${key} --name ${agent}`] };
+}
+
+// The board server's start of helper name on the card, which domain.mjs pullOf let launch: its record opens dispatched
+// 'hub' on builder pick's Claude model unless agent launch gave one, and one that writes gets its own worktree, made by
+// make({repo, base, busy}) from the card's worktree's branch (board/worktree.mjs makeWorktree). → {key, kind, model,
+// agent, task, writes, worktree}, worktree the helper's own path or null, or null when the record is no longer a
+// requested helper.
+export async function startHelper(site, key, name, make) {
+  const file = await builderFile(site, key, undefined, name);
+  const asked = await readJSON(file, null);
+  if (asked?.kind !== HELPER || asked.started || asked.done) return null;
+  const { item } = await loadItem(site, key);
+  const pick = builderPick({ card: item });
+  const forced = readClaudeModel();
+  const model = asked.model ?? (forced !== 'auto' ? forced : pick.kind === 'claude' ? pick.model : 'opus');
+  const tree = asked.writes ? await cardWorktree(site, key) : null;
+  if (asked.writes && !tree) fail(`${key} has no worktree for helper ${name} to branch from`);
+  await writeJSON(file, { ...asked, model });
+  const started = await startBuilder(site, key, { agent: name, kind: HELPER, dispatch: 'hub', worktree: tree ? ({ busy }) => make({ repo: tree.repo, base: tree.branch, busy }) : undefined });
+  return { key, kind: HELPER, model, agent: name, task: asked.task, writes: asked.writes, worktree: started.worktree };
+}
+
+// What a helper's spawner reads of it: {record, card} with card the card's worktree (cardWorktree), refusing a name
+// that is no helper on the card.
+export async function helperOf(site, key, name) {
+  const record = await readJSON(await builderFile(site, key, undefined, helperName(name)), null);
+  if (record?.kind !== HELPER) fail(`${key} has no helper named ${name}`);
+  return { record, card: await cardWorktree(site, key) };
+}
+
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+// `agent wait <wave/id> --name <n> [--agent <spawner>] [--timeout <minutes>]`: blocks until helper name is done, then
+// prints its hand-back, and for one that writes its branch to merge. While it waits, the spawner's open record carries
+// waits: name, so the limit counts the spawner free (domain.mjs pullOf) and a full board can't deadlock on it. It
+// gives up after timeout minutes (9, under a Bash tool call's 10), saying what the helper is doing, and refuses once
+// the helper's process has gone without its done. alive(pid) says whether a process runs. → {lines}
+export async function waitHelper(site, key, { name, agent = 'main', timeout = 9, every = 2000, alive }) {
+  needSite(site);
+  const minutes = Number(timeout);
+  if (!(minutes > 0)) fail('--timeout takes minutes, a number above 0');
+  const helperFile = await builderFile(site, key, undefined, helperName(name));
+  const spawnerFile = await builderFile(site, key, undefined, agent);
+  const mark = async (waits) => {
+    const spawner = await readJSON(spawnerFile, null);
+    if (!spawner?.started || spawner.done) return;
+    const { waits: _, ...rest } = spawner;
+    await writeJSON(spawnerFile, waits ? { ...rest, waits } : rest);
+  };
+  const deadline = Date.now() + minutes * 60_000;
+  await mark(name);
+  try {
+    for (;;) {
+      const helper = await readJSON(helperFile, null);
+      if (helper?.kind !== HELPER) fail(`${key} has no helper named ${name}`);
+      if (helper.done) {
+        const tree = helper.writes && helper.worktree ? [`branch ${helper.worktree.branch} in ${helper.worktree.path}: merge it with agent merge ${key} --name ${name}`] : [];
+        return { lines: [`helper ${name} done: ${helper.note ?? 'no hand-back'}`, ...tree] };
+      }
+      // A helper's name is never reused, so the session on its record is its own launch's.
+      const pid = helper.session?.pid ?? null;
+      if (pid && !alive(pid)) fail(`helper ${name}'s process exited without builder done; do its task yourself`);
+      if (Date.now() >= deadline) fail(`helper ${name} is still ${helper.started ? 'running' : helper.writes ? 'waiting for an implementer slot' : 'waiting to launch'} after ${minutes} minutes; run agent wait again`);
+      await new Promise((resolve) => setTimeout(resolve, every));
+    }
+  } finally {
+    await mark(null);
+  }
+}
+
+// Whether agent's open record on the card is a helper, whose builder done hands back its --text.
+export async function isHelper(site, key, agent = 'main') {
+  if (agent === 'main') return false;
+  return (await readJSON(await builderFile(site, key, undefined, agent), null))?.kind === HELPER;
 }
 
 // `visual add <wave/id> --file <html> --title <t>`: the visual agent's page, copied to the site's

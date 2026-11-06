@@ -42,7 +42,7 @@
     <input type="checkbox" class="toggle" id="autoPull" disabled></label>
   <p class="muted small" id="autoPullStatus" role="status"></p>
   <label class="who" for="maxImplementers"><span><span>Maximum parallel implementers</span>
-    <span class="muted small sub">Cards building or waiting in Orchestrator review count. Grills and cards waiting on you don’t.</span></span>
+    <span class="muted small sub">Each agent that builds or runs tests counts, a card’s helpers included. Grills, read-only helpers and cards waiting in Orchestrator review or on you don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxImplementersStatus" role="status"></p>
   <label class="who" for="maxPlanners"><span><span>Maximum parallel planners</span>
@@ -608,7 +608,7 @@
         status.textContent = e.message || 'Could not save. Is the host awake?';
       }
     });
-    capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 card builds or waits' : `${n} cards build or wait`} in Orchestrator review at once.`);
+    capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 agent builds' : `${n} agents build`} at once.`);
     capInput('maxPlanners', 'max_planners', (n) => `Saved. Up to ${n === 1 ? '1 grill or prototype runs' : `${n} grills or prototypes run`} at once.`);
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));

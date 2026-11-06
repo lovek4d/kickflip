@@ -774,11 +774,11 @@ test('Board Settings shows Maximum parallel implementers beside Auto implement, 
   input.value = '4';
   page.fire(input, 'change');
   await tick();
-  assert.deepEqual([posts.at(-1), input.value, status.textContent], [{ max_implementers: 4 }, '4', 'Saved. Up to 4 cards build or wait in Orchestrator review at once.']);
+  assert.deepEqual([posts.at(-1), input.value, status.textContent], [{ max_implementers: 4 }, '4', 'Saved. Up to 4 agents build at once.']);
   input.value = '1';
   page.fire(input, 'change');
   await tick();
-  assert.equal(status.textContent, 'Saved. Up to 1 card builds or waits in Orchestrator review at once.');
+  assert.equal(status.textContent, 'Saved. Up to 1 agent builds at once.');
   for (const bad of ['0', '100', '2.5', '']) {
     input.value = bad;
     page.fire(input, 'change');

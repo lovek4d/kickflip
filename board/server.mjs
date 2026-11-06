@@ -193,7 +193,8 @@
 //                                cards), the server starts and launches the build of the top pullable Todo cards, one per
 //                                implementer slot max_implementers leaves free (domain.mjs pullOf), whether or not
 //                                the board is idle, each once, tracked in data/pulled.json, its record dispatched:
-//                                'hub'; and each card that arrives in Todo (domain.mjs arrivalsOf) gets a grill
+//                                'hub', after the helpers board.mjs agent launch asked for (launchHelpers), which come
+//                                first; and each card that arrives in Todo (domain.mjs arrivalsOf) gets a grill
 //                                launched, up to max_planners running at once, the rest waiting in board order, busy
 //                                board or not. Neither appends an event.
 //                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
@@ -296,7 +297,7 @@ async function tryLogTail(here, name) {
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
-import { boardWorktree, builderRepo, moveQueuedLand, prWorktree } from './worktree.mjs';
+import { boardWorktree, builderRepo, helperWorktree, moveQueuedLand, prWorktree } from './worktree.mjs';
 import { transcriptMovedAt, transcriptCommandRunning } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
@@ -318,7 +319,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1472,7 +1473,7 @@ async function runAuto() {
   const settings = settingsOf(await config());
   const log = await readLines(events);
   const { items, reviews } = await sharedBoard();
-  const { idle, pullable, waiting, pulls } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
+  const { idle, pullable, waiting, pulls, helpers } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
   const gate = readUsageGate({ dir: here });
   if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
   boardPaused = gate.manual === 'board';
@@ -1482,6 +1483,7 @@ async function runAuto() {
   if (!heldByPause) await launchLanders(items, stoppedKeys(items));
   if (!heldByPause) await launchRebases(items);
   if (!heldByPause) await launchVisuals(items, log);
+  if (!heldByPause) await launchHelpers(helpers);
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   if (await checkTriage(settings, log, items, ready)) return;
   const startPull = async (key) => {
@@ -1547,6 +1549,28 @@ async function launchRounds(cards) {
     await appendThread(here, key, { text: `Back to ${kind === 'grill' ? 'grilling' : 'prototyping'}, so the board started its ${kind}.` });
     await launchPlanner(key, kind);
     dataVersion++;
+  }
+}
+
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+// Each requested helper domain.mjs pullOf lets launch ({key, name}) opens its record (store.mjs startHelper), one that
+// writes in its own worktree off the card's branch, and launches headless. One that can't start or launch leaves a
+// thread line and its record closed, which its spawner's agent wait reports. Its open record keeps it off the list from
+// then on, so the cached board is dropped, as handOff does.
+async function launchHelpers(helpers) {
+  for (const { key, name } of helpers) {
+    dataVersion++;
+    try {
+      const started = await startHelper(here, key, name, (opts) => helperWorktree(key.split('/')[1], name, opts));
+      if (!started) continue;
+      logCall({ call: 'helper', key, result: 'launching', reason: 'A helper was asked for and pullOf let it launch.', inputs: { name, model: started.model, worktree: started.worktree } });
+      try { await launchBuilder(here, started); } catch (e) {
+        await abandonPlanner(here, key, `Couldn't launch helper ${name} (${e.message}).`, name);
+      }
+    } catch (e) {
+      if (!(e instanceof BoardError)) throw e;
+      await abandonPlanner(here, key, `Couldn't start helper ${name}: ${e.message}`, name);
+    }
   }
 }
 

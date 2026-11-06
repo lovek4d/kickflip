@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
-import { builderBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
+import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, readArchive } from './store.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
@@ -716,6 +716,56 @@ test("the owner's visual request launches a visual agent on Sonnet beside the ca
     await until(() => b.runs().length === 2, 'the second launches once the first is done');
     assert.match(b.runs()[1].argv[1], new RegExp(`--agent visual-${second.id}`));
     assert.match(b.runs()[1].argv[1], /what the thread was last discussing/);
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
+  }
+});
+
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+test("a helper's brief gives it the task as its own agent, in its worktree when it writes, read-only otherwise, and has it hand back with done --text", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  const writing = helperBrief({ ...card, agent: 'tests', task: 'Write the scroll tests in board/ui.test.mjs', writes: true, cwd: '/wt/A1-tests' });
+  for (const want of [
+    'ENG-1', 'Make it go', 'Write the scroll tests in board/ui.test.mjs', '/wt/A1-tests', `${b} builder start w/A1 --kind helper --agent tests`,
+    `${b} builder progress w/A1 --agent tests --phase`, 'commit your work there', `${b} builder done w/A1 --agent tests --text`, 'Never push',
+  ]) assert.ok(writing.includes(want), `the helper brief has ${want}`);
+  assert.ok(!writing.includes('builder call') && !writing.includes('question add'), 'a helper records no calls and asks no questions');
+  const reading = helperBrief({ ...card, agent: 'survey', task: 'Find every caller', writes: false, cwd: '/r/shop' });
+  assert.match(reading, /change no files there and commit nothing/);
+  assert.ok(!reading.includes('commit your work'));
+  const build = builderBrief(card);
+  for (const want of [`${b} agent launch w/A1 --name`, '--writes', `${b} agent wait w/A1 --name`, `${b} agent merge w/A1 --name`]) assert.ok(build.includes(want), `the builder brief has ${want}`);
+});
+
+test('a writing helper waits while the board has no implementer slot free, launches once its spawner waits on it, in its own worktree off the card branch', async () => {
+  const b = oneLaunchBoard([{ id: 'V1', title: 'Split me', status: 'building' }]);
+  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', max_implementers: 1 }));
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+  const cardTree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1');
+  git(b.clone, 'worktree', 'add', '--quiet', '-b', 'V1', cardTree, 'main');
+  fs.mkdirSync(path.join(b.data, 'agents'), { recursive: true });
+  const main = { kind: 'claude', model: 'opus', started: new Date().toISOString(), worktree: { path: cardTree, branch: 'V1', repo: b.clone } };
+  const write = (name, value) => fs.writeFileSync(path.join(b.data, 'agents', `${name}.json`), JSON.stringify(value));
+  write('V1', main);
+  const { child } = await b.start();
+  try {
+    write('V1@tests', { label: 'tests', kind: 'helper', task: 'Write the split tests', writes: true, model: 'sonnet', requested: new Date().toISOString() });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    assert.equal(b.runs().length, 0, 'the build holds the one slot, so the helper waits');
+    assert.equal(b.record('V1@tests').started, undefined);
+    write('V1', { ...main, waits: 'tests' });
+    await until(() => b.runs().length === 1, 'the build waiting on its helper frees the slot');
+    const [run] = b.runs();
+    const tree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1-tests');
+    assert.equal(run.cwd, fs.realpathSync(tree));
+    assert.match(run.argv[1], /builder start t\/V1 --kind helper --agent tests/);
+    assert.match(run.argv[1], /Write the split tests/);
+    assert.equal(run.argv[run.argv.indexOf('--model') + 1], 'sonnet');
+    const helper = b.record('V1@tests');
+    assert.deepEqual([helper.kind, helper.dispatched, helper.task, helper.writes, helper.worktree.branch], ['helper', 'hub', 'Write the split tests', true, 'V1-tests']);
+    assert.equal(git(tree, 'rev-parse', 'HEAD'), git(cardTree, 'rev-parse', 'HEAD'), "it branches from the card's branch");
+    await until(() => /^Helper tests launched on Claude Sonnet in /.test(b.thread('V1').at(-1)?.text || ''), 'the launch line follows the run');
   } finally {
     child.kill();
     fs.rmSync(b.home, { recursive: true, force: true });

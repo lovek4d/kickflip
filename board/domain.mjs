@@ -496,6 +496,10 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
 // card's work, so the card's status and its arrival for a grill pass it by
 // (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
 export const VISUAL = 'visual';
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+// A helper is an agent another agent on the card asked for (board.mjs agent launch), with a task, under its own name:
+// an implementer, which takes a slot only when it writes (in its own worktree off the card's branch).
+export const HELPER = 'helper';
 const PLANNERS = new Set(['grill', 'prototype', VISUAL]);
 export const plans = (agent) => PLANNERS.has(agent.kind);
 export const builds = (agent) => !plans(agent);
@@ -544,6 +548,7 @@ function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
     calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null,
+    ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
 // The worktree path the newest builder record keeping one names (board/worktree.mjs makeWorktree), or null. The board
@@ -585,7 +590,9 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
   const since = running.map((a) => String(a.started || '')).sort()[0];
   if (since === undefined) return null;
   const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since && (planner || !m.planner)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
-  const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : providerOf(running.at(-1).kind);
+  // A helper runs on Claude, and the card's own run names its kind while one runs.
+  const own = running.filter((a) => a.kind !== HELPER).at(-1);
+  const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : own ? providerOf(own.kind) : 'claude';
   const stop = planner ? null : running.find((a) => a.stopped && String(a.stopped.at) >= String(a.started))?.stopped;
   const quiet = line?.ts || since;
   const silentSince = stop ? stop.at : movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
@@ -1340,23 +1347,33 @@ const pullableCard = (i) => i.buildable && i.state === 'ready' && !i.held && !i.
 export const MAX_IMPLEMENTERS = 10;
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
+// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 // For built items in board order, cap the board's Maximum parallel implementers and pulled the cards the pull started
-// builds on: implementers counts the open cards with a running build or waiting in Orchestrator review, a running
-// planner and a card waiting on the owner counting as no work
-// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md); idle while there are none.
+// builds on: implementers counts the running implementer agents on open cards, each one slot: a build, a rebase run, a
+// lander and a helper that writes, but no planner, no read-only helper and no agent blocked on its own helper
+// (agent wait's waits mark, while that helper is open). A card waiting in Orchestrator review or on the owner takes
+// none, but a card in review keeps the board from idle, as a running implementer does
+// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
 // pullable lists the cards ready to build no message a session is working on, in board order, so bumped first and the
 // rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
 // waiting lists the pulled cards not yet started that still hold a slot: pullable, or still in Todo with a session
-// working on them. pulls lists the pullable cards not pulled that fit the free slots: the cap less the implementers and
-// waiting (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
+// working on them. helpers lists the requested helpers to launch now, {key, name}: every read-only one, then the
+// writing ones in board order up to the free slots, the cap less the implementers and waiting. Every writing helper
+// requested comes ahead of the pull, so pulls lists the pullable cards not pulled that fit the slots the helpers leave
+// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
-  const running = (i) => (i.agents || []).filter((a) => !a.done);
-  const implementers = open.filter((i) => i.waitsOn === 'checking' || running(i).some(builds)).length;
+  const counts = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes)
+    && !(a.waits && agents.some((h) => h.name === a.waits && !h.done));
+  const implementers = open.reduce((n, i) => n + (i.agents || []).filter((a, _, all) => counts(a, all)).length, 0);
   const pullable = open.filter((i) => pullableCard(i) && !i.working).map((i) => i.key);
   const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
-  const pulls = pullable.filter((k) => !waiting.includes(k)).slice(0, Math.max(0, cap - implementers - waiting.length));
-  return { idle: !implementers, pullable, waiting, pulls };
+  const requested = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name, writes: a.writes })));
+  const free = Math.max(0, cap - implementers - waiting.length);
+  const writing = requested.filter((h) => h.writes);
+  const helpers = [...requested.filter((h) => !h.writes), ...writing.slice(0, free)].map(({ key, name }) => ({ key, name }));
+  const pulls = pullable.filter((k) => !waiting.includes(k)).slice(0, Math.max(0, free - writing.length));
+  return { idle: !implementers && !open.some((i) => i.waitsOn === 'checking'), pullable, waiting, pulls, helpers };
 }
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
