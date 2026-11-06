@@ -255,6 +255,19 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 11, 'intake lines moved the cursor');
   assert.equal(child.exitCode, null);
   assert.equal(stdout, '');
+  // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap changes the card or starts
+  // an agent in the board server, so it wakes nobody; text typed with Grill, Prototype or Visual goes to that agent.
+  line('b1', 'card-hold', { key: 'w/A1', hold: true });
+  line('b2', 'card-hold', { key: 'w/A1', hold: false });
+  line('b3', 'card-done', { key: 'w/A3' });
+  line('b4', 'card-unbump', { key: 'w/A1' });
+  line('b5', 'card-unblocked', { key: 'w/A4' });
+  line('b6', 'grill-more', { key: 'w/A1', text: 'Ask about the footer' });
+  line('b7', 'prototype-request', { key: 'w/A1' });
+  line('b8', 'visual-request', { key: 'w/A1', text: 'Draw it' });
+  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 19, 'tap lines moved the cursor');
+  assert.equal(child.exitCode, null);
+  assert.equal(stdout, '');
   line('w1', 'item-message', { key: 'w/A1', text: 'Wake' });
   assert.equal(await exited, 0);
   const lines = stdout.split('\n');
@@ -266,4 +279,5 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$quietHeld, undefined);
   // Only the event that woke the session reads Working on it: the held intake lines are intake triage's.
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['w1']);
+  assert.ok(lines.findIndex((l) => l.includes('"id":"b8"')) < lines.findIndex((l) => l.includes('"id":"w1"')), 'the taps print ahead of the message');
 });

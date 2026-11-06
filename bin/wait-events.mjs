@@ -76,7 +76,10 @@ const QUIET = "quiet The owner doesn't read this session's terminal. Answer a pr
   + 'show, such as the hub being down, gets one line here. Each message to the owner stands alone in its card\'s thread: name cards '
   + 'by label (#96), and a pointer such as "above" or "here" must make sense in that thread, never point into this session.';
 
-const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello'];
+// docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap the board server applies
+// itself (Hold, Resume, Done, Unbump, a bare or worded Grill, Prototype or Visual) and an unblock wake nobody.
+const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
+  'card-hold', 'card-done', 'card-unbump', 'card-unblocked', 'grill-more', 'prototype-request', 'visual-request'];
 const parsed = (line) => { try { return JSON.parse(line); } catch { return null; } };
 // docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md: on a board, intake (a new task, the owner's
 // message in an ask's thread, an agent-added card) is intake triage's, and its hand-off reaches the session as an

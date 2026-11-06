@@ -134,7 +134,7 @@
 //                                (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md)
 //                                builder-nudge {key} asks the session to check a builder
 //                                item set appends card-unblocked {key} when a blocked card's last dep finishes,
-//                                including held cards, so the owning session hears it whoever ran the command.
+//                                including held cards, a record that wakes no session: the pull takes the card.
 //                                reviewers {add?: [{name, slack_user, github}], remove?: [name]} is Board settings' reviewers
 //                                Save: the server removes the names and adds the people itself (store.mjs removeReviewers,
 //                                addReviewers, with each DM opened through the hub's Slack token and each login checked on
@@ -180,7 +180,10 @@
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
 //                                card-hold and card-done are written to the wave file first, with the owner's thread
-//                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); one whose wave
+//                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); a Resume relaunches
+//                                the run its Hold stopped (resumeRun). Neither wakes a session, nor do card-unbump,
+//                                grill-more, prototype-request or visual-request
+//                                (docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md); one whose wave
 //                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
 //                                and no event (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
 //                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.
@@ -322,7 +325,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, launchIntake, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1241,8 +1244,9 @@ const server = http.createServer(async (req, res) => {
         if (!written) return json(res, 400, { error: `${key} is already in Done, so its wave file stays as it is.` });
         if (agents.length) {
           stopAgents(agents);
-          await appendThread(here, key, { text: 'Stopped its builder.', who: 'love', by: shared ? shared.by.name || shared.by.login : undefined });
+          await appendThread(here, key, { text: 'Stopped its builder.' });
         }
+        if (kind === 'card-hold' && !body.hold) await resumeRun(key);
       }
       // A Save's removes and adds are both written here, and recorded as reviewers-removed and reviewers-added, which the
       // session takes no action on (docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md).
@@ -1442,6 +1446,7 @@ async function checkPickUps() {
     const sent = due.length ? await readLines(events) : [];
     for (const { key, heldUntil: until } of due) {
       await pickUp(here, key, until, { announce: !sent.some((e) => e.kind === 'card-unblocked' && e.data?.key === key && e.data?.until === until) });
+      await resumeRun(key);
       logCall({ call: 'pick-up', key, result: 'resumed', reason: 'Its hold ended.', inputs: { heldUntil: until } });
     }
   } catch (err) {
@@ -1691,6 +1696,19 @@ async function launchPlanner(key, kind, ask = {}) {
     if (!(e instanceof BoardError)) throw e;
     await appendThread(here, key, { text: `Couldn't start the ${kind}: ${e.message}` });
   }
+}
+
+// docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
+// A resumed card (the owner's Resume, or its pick-up time) gets back the run its hold stopped, with no session: a grill
+// or prototype launches again, and a build starts afresh as the pull starts one. A card whose hold stopped nothing is
+// the pull's. A lander or rebase run is left to the board's own lander and rebase jobs. A start the board refuses is its
+// thread line, and a card left with nothing running is the orchestrator's wait (domain.mjs orchestratorWaitOf).
+async function resumeRun(key) {
+  const run = await takeHoldStopped(here, key);
+  if (!run) return;
+  logCall({ call: 'resume', key, result: run.kind, reason: 'Its hold stopped this run.', inputs: run });
+  if (run.kind === 'grill' || run.kind === 'prototype') await launchPlanner(key, run.kind);
+  else if (run.label === 'Builder') await handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
 }
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md

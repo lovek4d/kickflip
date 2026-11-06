@@ -640,7 +640,7 @@ test("the owner's Hold kills the card's running builder, closes its record and s
   fs.chmodSync(fake, 0o755);
   const b = oneLaunchBoard([{ id: 'H1', title: 'Hold me', state: 'ready', size: 'large' }], fake);
   const { child, send } = await b.start();
-  let pid;
+  let pid, resumed;
   try {
     await send('card-build', { key: 't/H1' });
     await until(() => b.record('H1').session?.pid, 'the launch records the agent pid');
@@ -649,12 +649,38 @@ test("the owner's Hold kills the card's running builder, closes its record and s
     await send('card-hold', { key: 't/H1', hold: true });
     await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'the hold stops the agent');
     assert.ok(b.record('H1').done, 'its record closed, so nothing relaunches it');
-    assert.deepEqual(b.thread('H1').slice(-2).map((t) => t.text), ['Held', 'Stopped its builder.']);
+    assert.deepEqual(b.thread('H1').slice(-2).map((t) => [t.text, t.who]), [['Held', 'love'], ['Stopped its builder.', 'claude']], "the stop is the board's status line, not the owner's message");
+    // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: Resume relaunches the run the hold
+    // stopped, with no orchestrator.
+    await send('card-hold', { key: 't/H1', hold: false });
+    await until(() => !b.record('H1').done && b.record('H1').session?.pid && b.record('H1').session.pid !== pid, 'the resume launches a fresh builder');
+    resumed = b.record('H1').session.pid;
+    assert.equal(b.item('H1').held, undefined);
   } finally {
     child.kill();
     if (pid) try { process.kill(pid, 'SIGKILL'); } catch {}
+    if (resumed) try { process.kill(resumed, 'SIGKILL'); } catch {}
     fs.rmSync(b.home, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
+test("Resume relaunches the grill a Hold stopped, and neither tap wakes a session", async () => {
+  const b = oneLaunchBoard([{ id: 'G2', title: 'Grill me', state: 'grilling' }]);
+  const { child, send } = await b.start();
+  try {
+    await send('grill-more', { key: 't/G2', text: 'Ask about the footer' });
+    await until(() => b.runs().length === 1, 'the grill launches');
+    assert.match(b.runs()[0].argv[1], /Ask about the footer/, 'the typed text goes to the planner');
+    await send('card-hold', { key: 't/G2', hold: true });
+    assert.ok(b.record('G2').done, 'the hold closed the grill');
+    await send('card-hold', { key: 't/G2', hold: false });
+    await until(() => b.runs().length === 2, 'the resume launches the grill again');
+    assert.match(b.runs()[1].argv[1], /builder start t\/G2 --kind grill/);
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
   }
 });
 

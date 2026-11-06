@@ -2242,7 +2242,7 @@ export async function recordOwnerTap(site, kind, data) {
   setHold(item, data.hold ? { until } : null);
   await writeJSON(source.file, wave);
   // A hold stops the card's builders, so their records close: an open record with an exited process is relaunched.
-  if (data.hold) { await closeBuilders(source.dir, id, false); await publishStaged(site, key); }
+  if (data.hold) { await closeBuilders(source.dir, id, false, { held: true }); await publishStaged(site, key); }
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   return appendThread(site, key, data.hold ? { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', by, command: 'hold' }
     : { text: COMMANDS.resume, who: 'love', by, command: 'resume' });
@@ -3809,8 +3809,8 @@ async function builderFiles(waveDir, id) {
 
 // Closes the card's open builder records, an install build only with the card finished. handedBack marks each record it
 // closes as handed back at that time (domain.mjs handedBackAt); endHandBack takes the mark off every record, so the
-// hand-back ends.
-async function closeBuilders(waveDir, id, cardFinished, { handedBack, endHandBack = false } = {}) {
+// hand-back ends. held marks each started record it closes hold_stopped, for the Resume that relaunches it (takeHoldStopped).
+async function closeBuilders(waveDir, id, cardFinished, { handedBack, endHandBack = false, held = false } = {}) {
   const now = new Date().toISOString();
   for (const file of await builderFiles(waveDir, id)) {
     const record = await readJSON(file, null);
@@ -3820,8 +3820,20 @@ async function closeBuilders(waveDir, id, cardFinished, { handedBack, endHandBac
       continue;
     }
     const { eta, handed_back, ...rest } = record;
-    await writeJSON(file, { ...rest, done: now, ...(handedBack ? { handed_back: handedBack } : {}) });
+    await writeJSON(file, { ...rest, done: now, ...(handedBack ? { handed_back: handedBack } : {}), ...(held && record.started ? { hold_stopped: true } : {}) });
   }
+}
+
+// docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
+// The run a Hold stopped on the card's main record, taken off it for the resume that relaunches it: → {kind, label}, or
+// null when the hold stopped none.
+export async function takeHoldStopped(site, key) {
+  const file = await builderFile(site, key);
+  const record = await readJSON(file, null);
+  if (!record?.hold_stopped) return null;
+  const { hold_stopped, ...rest } = record;
+  await writeJSON(file, rest);
+  return { kind: record.kind ?? null, label: record.label ?? null };
 }
 
 // The record stays, marked done, so the item's thread can show when the agent finished (domain.mjs threadOf).
