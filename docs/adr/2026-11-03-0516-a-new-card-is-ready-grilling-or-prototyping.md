@@ -4,7 +4,7 @@ An ask the session files as its own card (`item set --from-ask`) is in exactly o
 
 **The session sets it, the board holds it.** `item set <key> --state ready|grilling|prototyping` writes `state` on the wave entry, in the same call as `--from-ask` or later. It refuses any other state, and refuses ready while the card has an open question: ready means the notes leave the owner nothing to decide. The plan lives only in the card's notes (`--notes-file`), never on the card.
 
-**New until it has one.** An unstarted Todo card with `from_ask` and no state reads a New badge beside its ticket id (`board/domain.mjs` `unsorted`). Cards not made from an ask need no state.
+**New until it has one.** An unstarted Todo card with `from_ask` and no state is `unsorted` (`board/domain.mjs`) and shows its ticket id like any card; New is only on an ask ([New shows only on an ask](2026-11-05-1632-new-shows-only-on-an-ask.md)). Cards not made from an ask need no state.
 
 **ready on the time line.** The time line reads: time · held (until …) · blocked by #N · then Action needed (orange) or ready (green) · N new messages (blue). `ready` shows on an unstarted Ready card that nothing blocks and that has no Action needed; held may show beside it (`board/domain.mjs` `ready`, `board/public/ui-cards.js` `timeLine`).
 

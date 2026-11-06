@@ -289,9 +289,9 @@
   // its bump with the band's ⋯ menu.
   function workLines(it, { unread = 0, top = false, step = 0, actions = null } = {}) {
     const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
-    // A card from an ask reads New until its session sets ready, grilling or prototyping (domain.mjs unsorted).
+    // A work card always shows its ticket; New is only on an ask (askChip).
     const chip = step ? ticket.replace(/^<[^>]*>/, (open) => `${open}<span class="wn">${step}</span>`) : ticket;
-    const ids = it.kind === 'ask' ? askChip(it) : it.unsorted ? `${badge('notice', 'New')} ${chip}` : chip;
+    const ids = it.kind === 'ask' ? askChip(it) : chip;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.orchestrator && !it.builder ? `${it.rebaseFailed ? `<div class="line3 sub">${esc(it.rebaseFailed)}</div>` : ''}${orchestratorStatus(it)}`

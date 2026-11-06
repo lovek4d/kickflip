@@ -1400,15 +1400,15 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
 });
 
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-test("a ready card's time line reads ready in green after its hold and before its unread messages, and a card from an ask still unsorted reads New", () => {
+test("a ready card's time line reads ready in green after its hold and before its unread messages, and an unsorted work card shows its ticket, never New", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt };
   const html = ui.workLines({ ...card, held: true, ready: true }, { unread: 2 });
   assert.equal(lines(html).at(-1), `${ui.cardTime(sortAt)} · held · ready · 2 new messages`);
   assert.match(html, /<span class="card-ready">ready<\/span><span class="card-unread">/);
   assert.doesNotMatch(ui.workLines(card), /card-ready/);
-  assert.deepEqual(lines(ui.workLines({ ...card, unsorted: true }))[0], 'New ENG-1 Five');
-  assert.match(ui.workLines({ ...card, unsorted: true }), /<span class="chip tone-notice"[^>]*>New<\/span>/);
+  assert.deepEqual(lines(ui.workLines({ ...card, unsorted: true }))[0], 'ENG-1 Five');
+  assert.doesNotMatch(ui.workLines({ ...card, unsorted: true }), />New</);
   assert.doesNotMatch(ui.workLines(card), />New</);
 });
 

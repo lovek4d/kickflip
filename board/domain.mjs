@@ -831,7 +831,7 @@ function nextOf(cards) {
   if (!it) return null;
   const ready = it.ready && it.buildable;
   const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `waits on ${it.blockedBy.map((d) => d.ref).join(', ')}`
-    : it.action ? 'needs you' : it.unsorted ? 'new' : it.state || 'not ready';
+    : it.action ? 'needs you' : it.state || 'not ready';
   return { key: it.key, ref: it.ref, ready, word };
 }
 
@@ -1025,8 +1025,8 @@ export function buildBoard(snapshot) {
     if (it.unpicked && !it.action) it.next = PROTOTYPE_AGAIN;
     it.buildable = buildableOf(it);
     // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask, or one an agent
-    // added (docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md), reads New until its session
-    // sets its state, and ready once Ready with nothing blocking it or waiting on the owner.
+    // added (docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md), is unsorted until its session
+    // sets its state (shown as its ticket, never New), and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
     it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !it.state;
     it.ready = unstarted && it.state === 'ready' && !it.blockedBy.length && !it.action;
