@@ -509,7 +509,7 @@ test('join transfers the reserved repo and branch before or after the start resu
     run(['--template', 'board', '--items', 'data/wave.json', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);
     const siteDir = readManifest().sites[route].dir;
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'board.json'))).tickets, { source: 'internal', prefix: 'OPS' });
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'data', 'wave.json'))).items, []);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'data', 'wave.json'))).items.map((i) => i.ticket), ['OPS-1', 'OPS-2']);
     assert.deepEqual(boardRepo(route), { github: 'owner/project', branch: 'develop', repo: clone });
     assert.deepEqual(Object.keys(readManifest().starting), [route], 'the joined record stays until the board listens');
     assert.ok(readManifest().starting[route].joined_at);

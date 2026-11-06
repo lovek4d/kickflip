@@ -236,7 +236,13 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   );
   assert.deepEqual(entry.cmd.slice(1), [path.join(ROOT, 'board', 'server.mjs'), path.join(state, 'sites', 'my-app')]);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'board.json'), 'utf8')), { title: 'My app', items: 'data/wave.json' });
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'wave.json'), 'utf8')), { title: 'My app', items: [] });
+  const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'wave.json'), 'utf8'));
+  assert.equal(wave.title, 'My app');
+  assert.deepEqual(wave.items.map((i) => [i.id, i.state, i.ticket, i.plan]), [
+    ['onboard-build', 'grilling', 'INT-1', 'onboard-build-notes.md'],
+    ['onboard-context', 'grilling', 'INT-2', 'onboard-context-notes.md'],
+  ]);
+  assert.match(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'onboard-build-notes.md'), 'utf8'), /^# Prepare \.kickflip\/build/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(claudeConfig, '.claude.json'), 'utf8')), { theme: 'dark', projects: { [repo]: { hasTrustDialogAccepted: true } } });
   assert.equal(r.stdout, `Made My app at https://mac.tail.ts.net/my-app/, working in ${repo} (owner/my-app).\nIts session is starting in the background, and joins the board shortly.\n`);
 
@@ -250,6 +256,19 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   const taken = await cliIn(other, ['join', '--name', 'my app']);
   assert.deepEqual([taken.status, taken.stderr], [2, 'kickflip: /my-app is taken; pick another name.\n']);
   assert.equal(claudeCalls().length, 1);
+});
+
+test('a board for a repo whose main already has a build script starts without the build to-do', async () => {
+  const repo = gitRepo('built app');
+  fs.mkdirSync(path.join(repo, '.kickflip'));
+  fs.writeFileSync(path.join(repo, '.kickflip', 'build-web'), '#!/bin/sh\necho port 3000\n', { mode: 0o755 });
+  git(repo, 'add', '.');
+  git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'build');
+  const r = await cliIn(repo, ['join', '--name', 'Built app']);
+  assert.equal(r.status, 0, r.stderr);
+  const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'wave.json'), 'utf8'));
+  assert.deepEqual(wave.items.map((i) => [i.id, i.ticket]), [['onboard-context', 'INT-1']]);
+  assert.equal(fs.existsSync(path.join(state, 'sites', 'built-app', 'data', 'onboard-build-notes.md')), false);
 });
 
 test("kickflip join records origin's default branch over the checked-out one, and running it again picks up a renamed default", async () => {

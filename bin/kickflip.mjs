@@ -173,6 +173,7 @@ import { liveSessions } from '../hub/live.mjs';
 import { isBoardSite, writeManifest } from '../hub/boards.mjs';
 import { joinName, routeFromName, routeRecord, validRoute } from '../hub/routes.mjs';
 import { defaultBranch, githubFromOrigin } from '../hub/repos.mjs';
+import { hasBuildScript, onboardingItems } from '../board/onboarding.mjs';
 import { uninstallStatusLine, storedPath, nodeBin, watcherCommand, tailnetUrl } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
@@ -317,9 +318,10 @@ function named(existing = (route) => undefined) {
   return { route, title: (name === route && existing(route)?.title) || name };
 }
 
-// The board template's files in dir: board.json with its title, items ("waves" or a wave.json-format file, made with
-// no items when missing) and, when given, tickets. → the board server's cmd for dir
-function boardFiles(dir, { title, items, tickets }) {
+// The board template's files in dir: board.json with its title, items ("waves" or a wave.json-format file, made when
+// missing with the onboarding cards, board/onboarding.mjs) and, when given, tickets. repo and ref are where main's
+// build script is looked for. → the board server's cmd for dir
+function boardFiles(dir, { title, items, tickets, repo, ref }) {
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
   const cfgFile = path.join(dir, 'board.json');
   const cfg = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
@@ -330,7 +332,9 @@ function boardFiles(dir, { title, items, tickets }) {
   const itemsFile = cfg.items === 'waves' ? null : path.resolve(dir, cfg.items);
   if (itemsFile && !fs.existsSync(itemsFile)) {
     fs.mkdirSync(path.dirname(itemsFile), { recursive: true });
-    fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: [] }, null, 2) + '\n');
+    const prefix = cfg.tickets?.source === 'internal' ? cfg.tickets.prefix : undefined;
+    const cards = onboardingItems(itemsFile, { prefix, hasBuild: hasBuildScript(repo, ref) });
+    fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: cards }, null, 2) + '\n');
   }
   return [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), dir];
 }
@@ -409,7 +413,7 @@ async function joinFolder() {
     const dir = path.join(HOME, 'sites', route);
     const now = new Date().toISOString();
     const site = {
-      dir, port: await freePort(m), cmd: boardFiles(dir, { title, items: 'data/wave.json' }), watch: ['data/events.jsonl'], title,
+      dir, port: await freePort(m), cmd: boardFiles(dir, { title, items: 'data/wave.json', repo: folder, ref: branch || 'HEAD' }), watch: ['data/events.jsonl'], title,
       local: true, ...(github ? { github } : {}), ...(branch ? { branch } : {}), owner: { repo: folder }, created: now, updated: now,
     };
     m.sites = { ...m.sites, [route]: site };
@@ -610,7 +614,8 @@ const commands = {
       if (args.template === 'board') {
         const pending = routeRecord(m.starting, route);
         const tickets = !existing && pending?.tickets && (!pending.session || pending.session === args.session) ? pending.tickets : undefined;
-        site.cmd = boardFiles(site.dir, { title, items: args.items, tickets });
+        const repo = args.repo ? path.resolve(args.repo) : liveSessions()?.get(args.session)?.cwd || process.cwd();
+        site.cmd = boardFiles(site.dir, { title, items: args.items, tickets, repo, ref: pending?.branch || 'HEAD' });
         created = !existing;
       }
       site.title = title;
