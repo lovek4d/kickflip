@@ -1,6 +1,9 @@
 // docs/adr/2026-11-07-0900-a-prototype-question-publishes-only-when-every-take-renders.md
 // Loads every take of a recorded prototype in headless Chrome, at phone and desktop width, from the page the board
-// serves, and refuses naming each take that throws, logs a console error or leaves its stage empty.
+// serves, and refuses naming each take that throws, logs a console error or leaves its stage empty. A served round
+// (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md) is loaded straight from the
+// board's base prototype worktree, whose build script the check runs itself on a loopback port: every take at the
+// first state, and every state on the first take.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import http from 'node:http';
@@ -9,8 +12,12 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline';
 import { BoardError, readPrototypes } from './store.mjs';
 import { prototypePage } from './prototype-page.mjs';
+import { BASE_KEY, baseWorktreeOf } from './prototype-base.mjs';
+import { buildScriptError, buildScriptOf } from './build-script.mjs';
+import { boardAt } from '../hub/boards.mjs';
 
 const board = path.dirname(fileURLToPath(import.meta.url));
 export const WIDTHS = [390, 1280];
@@ -18,6 +25,10 @@ const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/M
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const SETTLE_MS = 3000;
 const LATE_MS = 300;
+const PORT_MS = 120_000;
+// What the page drew: a take file's stage, or a served page's body text.
+const STAGE = `(document.getElementById('stage')?.innerHTML || '').trim()`;
+const BODY = `(document.body?.innerText || '').trim()`;
 
 // The board server's static roots, minus the hub's.
 function serve(site, proto) {
@@ -76,48 +87,115 @@ async function launch(dir) {
 
 const described = (ex) => ex.exception?.description?.split('\n')[0] || ex.text;
 
-// → [problem] for the take at this width, [] when it draws.
-async function checkTake({ cdp, on }, url, key, width) {
+// → [problem] for the page at url at this width, [] when it draws.
+async function checkTake({ cdp, on }, url, width, drawn = STAGE) {
   const problems = [];
   const off = on((m) => {
     if (m.method === 'Runtime.exceptionThrown') problems.push(described(m.params.exceptionDetails));
     else if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') problems.push(`console error: ${m.params.args.map((a) => a.value ?? a.description).join(' ').split('\n')[0]}`);
-    else if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error' && m.params.entry.source !== 'javascript') problems.push(`${m.params.entry.text}${m.params.entry.url ? ` ${m.params.entry.url}` : ''}`);
+    // The browser asks every site for /favicon.ico on its own, so a site without one still draws.
+    else if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error' && m.params.entry.source !== 'javascript' && !/\/favicon\.ico$/.test(m.params.entry.url || '')) problems.push(`${m.params.entry.text}${m.params.entry.url ? ` ${m.params.entry.url}` : ''}`);
   });
   await cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
-  await cdp('Page.navigate', { url: `${url}?variant=${key}` });
-  const stage = async () => (await cdp('Runtime.evaluate', { expression: `(document.getElementById('stage')?.innerHTML || '').trim()`, returnByValue: true })).result.value;
+  await cdp('Page.navigate', { url });
+  const stage = async () => (await cdp('Runtime.evaluate', { expression: drawn, returnByValue: true })).result.value;
   let html = '';
   for (let waited = 0; waited < SETTLE_MS && !html; waited += 100) { await sleep(100); html = await stage(); }
   await sleep(LATE_MS);
   off();
-  if (!html) problems.push('renders an empty stage');
+  if (!html) problems.push(drawn === STAGE ? 'renders an empty stage' : 'renders an empty page');
   return [...new Set(problems)];
 }
 
-// Throws a BoardError listing each failing take and width, or returns when every take of prototype topic renders.
-export async function checkTakesRender(site, topic) {
-  const proto = (await readPrototypes(site)).find((p) => p.topic === topic);
-  const server = serve(site, proto);
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+// Runs the base worktree's build script as the hub does, on a loopback port. → {origin, stop}
+async function serveBase(site) {
+  const board = boardAt(site);
+  if (!board) throw new BoardError(`${site} is not a board in the hub's manifest, so it has no base prototype worktree to check`);
+  const dir = baseWorktreeOf(board.route);
+  const script = path.join(dir, buildScriptOf(board.build_target));
+  const invalid = buildScriptError(script);
+  if (invalid) throw new BoardError(`the base prototype worktree can't serve the round: ${invalid} (${script})`);
+  const child = spawn(script, [BASE_KEY, dir], { cwd: dir, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
+  const tail = [];
+  const keep = (line) => { tail.push(line); if (tail.length > 5) tail.shift(); };
+  createInterface({ input: child.stderr }).on('line', keep);
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  const stop = async () => {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { return; }
+    if (await Promise.race([exited.then(() => true), sleep(4000).then(() => false)])) return;
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ }
+    await exited;
+  };
+  const port = await new Promise((resolve) => {
+    const lines = createInterface({ input: child.stdout });
+    const done = (value) => { clearTimeout(timer); lines.close(); resolve(value); };
+    const timer = setTimeout(() => done(null), PORT_MS);
+    lines.on('line', (line) => { const m = /^port (\d{1,5})$/.exec(line); if (m) done(Number(m[1])); else keep(line); });
+    exited.then(() => done(null));
+  });
+  const answers = () => fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false);
+  let up = Boolean(port);
+  for (let waited = 0; up && !(await answers()); waited += 250) { if (waited >= 60_000) up = false; else await sleep(250); }
+  if (!up) {
+    await stop();
+    throw new BoardError(`the base prototype worktree's ${buildScriptOf(board.build_target)} didn't serve on a port, so the round's question is not published:\n${tail.join('\n')}`);
+  }
+  return { origin: `http://127.0.0.1:${port}`, dir, stop };
+}
+
+async function withChrome(fn) {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'render-check-'));
   let chrome;
   try {
     chrome = await launch(dir);
     await chrome.cdp('Runtime.enable');
     await chrome.cdp('Log.enable');
-    const url = `http://127.0.0.1:${server.address().port}/prototype-${topic}.html`;
-    const failures = [];
-    for (const take of proto.takes) {
-      for (const width of WIDTHS) {
-        const problems = await checkTake(chrome, url, take.key, width);
-        for (const p of problems) failures.push(`take ${take.key} at ${width}px: ${p}`);
-      }
-    }
-    if (failures.length) throw new BoardError(`prototype ${topic} does not render, so its question is not published; fix the take files and ask again:\n${failures.join('\n')}`);
+    return await fn(chrome);
   } finally {
     await chrome?.close();
-    server.close();
     await fsp.rm(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
   }
+}
+
+async function checkServedRender(site, proto) {
+  const base = await serveBase(site);
+  try {
+    const first = proto.takes[0].key;
+    const states = (proto.states || []).map((s) => s.key);
+    const loads = [...proto.takes.map((t) => [t.key, states[0] ?? null]), ...states.slice(1).map((s) => [first, s])];
+    const failures = await withChrome(async (chrome) => {
+      const found = [];
+      for (const [take, state] of loads) {
+        const url = new URL(proto.served, base.origin);
+        url.searchParams.set('variant', take);
+        if (state) url.searchParams.set('state', state);
+        for (const width of WIDTHS) {
+          for (const p of await checkTake(chrome, url.href, width, BODY)) found.push(`take ${take}${state ? `, state ${state}` : ''} at ${width}px: ${p}`);
+        }
+      }
+      return found;
+    });
+    if (failures.length) throw new BoardError(`prototype ${proto.topic} does not render, so its question is not published; fix its page in ${base.dir} and ask again:\n${failures.join('\n')}`);
+  } finally { await base.stop(); }
+}
+
+// Throws a BoardError listing each failing take and width, or returns when every take of prototype topic renders.
+export async function checkTakesRender(site, topic) {
+  const proto = (await readPrototypes(site)).find((p) => p.topic === topic);
+  if (proto.served) return checkServedRender(site, proto);
+  const server = serve(site, proto);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/prototype-${topic}.html`;
+    const failures = await withChrome(async (chrome) => {
+      const found = [];
+      for (const take of proto.takes) {
+        for (const width of WIDTHS) {
+          for (const p of await checkTake(chrome, `${url}?variant=${take.key}`, width)) found.push(`take ${take.key} at ${width}px: ${p}`);
+        }
+      }
+      return found;
+    });
+    if (failures.length) throw new BoardError(`prototype ${topic} does not render, so its question is not published; fix the take files and ask again:\n${failures.join('\n')}`);
+  } finally { server.close(); }
 }

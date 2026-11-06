@@ -2,8 +2,10 @@
 // docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md,
 // docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md).
 // Load it with a relative src after claude.js, on a page whose header leads with the back arrow, then call
-//   const sw = PrototypeSwitcher.mount({ takes: { A: 'A. Name', … }, initial: 'A', render(take) {…}, above: el? })
-// render runs at mount and on each switch; sw.take is the current key. The page's header is hidden: a ✕ at the top
+//   const sw = PrototypeSwitcher.mount({ takes: { A: 'A. Name', … }, states: { empty: 'No cards', … }?, initial: 'A', render(take, state) {…}, above: el? })
+// render runs at mount and on each switch of take or state; sw.take is the current key. A served round's named states
+// (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md) are a row of chips above the
+// pager, the state kept in ?state=, else the first. The page's header is hidden: a ✕ at the top
 // right goes back as its back arrow does, and the bottom bar holds the ‹ take › pager. ←/→ and a sideways swipe switch
 // unless a field has focus, and the take stays in ?variant=. With ?q=<owner question id>, the bar's second row offers
 // the take as that question's pick: a take is pickable when an option's id equals its key. Choose this drafts it, with
@@ -52,13 +54,15 @@
     if (!app?.open?.(String(url), { replace: true })) location.replace(url);
   }
 
-  // The bar: the ‹ name › pager, and below it on its own row the pick control, when there is one.
-  function pillHtml({ name, pick = { kind: 'none' } }) {
+  // The bar: the states' chips when the round has states, the ‹ name › pager, and below it on its own row the pick
+  // control, when there is one.
+  function pillHtml({ name, pick = { kind: 'none' }, states = null, state = null }) {
+    const chips = states ? `<div class="ps-row ps-states">${Object.entries(states).map(([key, label]) => `<button type="button" data-ps-state="${esc(key)}" aria-pressed="${key === state}">${esc(label)}</button>`).join('')}</div>` : '';
     const control = pick.kind === 'picked' ? '<span class="ps-picked">Picked</span>'
       : pick.kind === 'closed' ? '<span class="ps-closed">Round answered</span>'
       : pick.kind === 'pick' || pick.kind === 'change' ? '<button type="button" class="ps-pick" data-ps="pick">Choose this</button>'
       : '';
-    return `<div class="ps-row"><button type="button" data-ps="prev" aria-label="Previous take">‹</button><span class="ps-name" title="${esc(name)}">${esc(name)}</span><button type="button" data-ps="next" aria-label="Next take">›</button></div>${control ? `<div class="ps-row ps-act">${control}</div>` : ''}`;
+    return `${chips}<div class="ps-row"><button type="button" data-ps="prev" aria-label="Previous take">‹</button><span class="ps-name" title="${esc(name)}">${esc(name)}</span><button type="button" data-ps="next" aria-label="Next take">›</button></div>${control ? `<div class="ps-row ps-act">${control}</div>` : ''}`;
   }
 
   // rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds lists them
@@ -107,6 +111,9 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-pill button { flex-shrink:0; min-width:44px; min-height:44px; }
 .ps-name { flex:1 1 auto; padding:7px 6px; color:#fff; white-space:nowrap; min-width:0; text-align:center; overflow:hidden; text-overflow:ellipsis; }
 .ps-act > * { flex:1; text-align:center; }
+.ps-states { overflow-x:auto; scrollbar-width:none; gap:4px; }
+.ps-pill .ps-states button { background:#fff1; font-weight:500; }
+.ps-pill .ps-states button[aria-pressed="true"] { background:#fff; color:#000; font-weight:700; }
 .ps-pill .ps-pick { background:var(--accent, #fff); color:var(--on-accent, #000); font-weight:700; }
 .ps-closed { padding:12px 11px; border-radius:999px; color:#fffa; background:#fff1; white-space:nowrap; }
 .ps-switch .ps-text { width:min(420px, 100%); resize:none; border-radius:12px; border:1px solid #fff3; background:#000d; color:#fff;
@@ -119,9 +126,10 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 
   const typing = (el) => Boolean(el?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])'));
 
-  function mount({ takes, initial, render, above = null }) {
+  function mount({ takes, states = null, initial, render, above = null }) {
     const keys = Object.keys(takes);
     const params = new URLSearchParams(location.search);
+    let shownState = states ? startTake(Object.keys(states), params.get('state')) : null;
     const qid = params.get('q');
     const site = globalThis.ClaudeSite;
     if (!document.getElementById('ps-style')) document.head.insertAdjacentHTML('beforeend', `<style id="ps-style">${CSS}</style>`);
@@ -156,7 +164,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     const state = () => pickState(question, take, qid ? readDraft(qid).choice : null);
     function paint() {
       const now = state();
-      pill.innerHTML = pillHtml({ name: takes[take], pick: now });
+      pill.innerHTML = pillHtml({ name: takes[take], pick: now, states, state: shownState });
       text.hidden = !(now.kind === 'pick' || now.kind === 'change');
     }
     function go(next) {
@@ -164,7 +172,13 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
       const u = new URL(location.href); u.searchParams.set('variant', take); history.replaceState(null, '', u);
       note('');
       paint();
-      render(take);
+      render(take, shownState);
+    }
+    function show(next) {
+      shownState = next;
+      const u = new URL(location.href); u.searchParams.set('state', next); history.replaceState(null, '', u);
+      paint();
+      render(take, shownState);
     }
 
     async function load() {
@@ -204,6 +218,8 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     });
 
     pill.addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-ps-state]')?.dataset.psState;
+      if (chip) { show(chip); return; }
       const act = e.target.closest('[data-ps]')?.dataset.ps;
       if (act === 'prev') go(takeAt(keys, take, -1));
       else if (act === 'next') go(takeAt(keys, take, 1));
@@ -240,7 +256,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 
     go(take);
     load();
-    return { takes: keys, get take() { return take; }, go };
+    return { takes: keys, get take() { return take; }, get state() { return shownState; }, go, show };
   }
 
   globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, pillHtml, roundPill, roundSheet, swipeStep, mount };

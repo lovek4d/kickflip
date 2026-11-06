@@ -14,6 +14,7 @@ import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { checkTakesRender } from '../render-check.mjs';
+import { prototypeBase } from '../prototype-base.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -98,6 +99,17 @@ command fails and changes nothing.
                                                          public/prototypes/<topic>/<K>.js, which exports
                                                          render(stage, kit) (board/public/prototype-kit.js lists kit).
                                                          --card starts that card: it leaves Todo
+         [--served <path> [--state <key>:<label> …]]     a served round: no take files; the template frames <path>
+                                                         from the board's base prototype worktree (prototype base),
+                                                         passing ?variant=<K>&state=<key>, then each switch by
+                                                         message (shared/prototype-frame.js). The viewer bar lists
+                                                         the states; key: a-z, 0-9 and "-"
+  prototype base                                         makes the board's base prototype worktree, a detached
+                                                         checkout of its repo's main, or moves it to main's tip,
+                                                         keeping the rounds' pages; prints its path, whether its
+                                                         build script is there and the listener a page loads.
+                                                         The hub serves it while an open question links a served
+                                                         round (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md)
   prototype list                                         one line per recorded prototype
   prototype rm <topic>                                   drops the record, keeping its take files; refuses while an
                                                          open question links it
@@ -731,7 +743,8 @@ const COMMANDS = {
   }],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
   'question move': [['ids'], ['to', 'block'], (site, [ids], f) => store.moveQuestions(site, ids.split(',').filter(Boolean), f.to, (f.block || '').split(',').filter(Boolean))],
-  'prototype add': [['topic'], ['title', '...take', 'card'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take })],
+  'prototype add': [['topic'], ['title', '...take', 'card', 'served', '...state'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take, served: f.served, states: f.state })],
+  'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
   'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {

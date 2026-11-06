@@ -1161,6 +1161,9 @@ function checkSuggested(s, options, at) {
 
 // A prototype is a topic recorded here, served as prototype-<topic>.html from one template (board/public/prototype.html,
 // board/server.mjs), whose takes are the site's public/prototypes/<topic>/<KEY>.js (docs/adr/2026-11-01-1448-the-board-serves-every-prototype-from-one-template.md).
+// A served round (served: its page's path) has no take files: the template frames that page from the board's base
+// prototype worktree, which takes each take and state by message
+// (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md).
 const prototypesFile = (site) => path.join(site, 'data', 'prototypes.json');
 export const takeFile = (site, topic, key) => path.join(site, 'public', 'prototypes', topic, `${key}.js`);
 export async function readPrototypes(site) {
@@ -1175,31 +1178,55 @@ function prototypeTake(spec) {
   if (/^[A-Z]\.\s/.test(label)) fail(`--take ${m[1]}'s label starts with "${label.slice(0, 3)}"; the take pill shows the label alone, so drop the letter`);
   return { key: m[1], label };
 }
+function prototypeState(spec) {
+  const m = /^([^:]*):(.*)$/s.exec(spec);
+  if (!m || !/^[a-z0-9][a-z0-9-]*$/.test(m[1])) fail(`--state takes KEY:"Label" with KEY in a-z, 0-9 and "-", not "${spec}"`);
+  return { key: m[1], label: text(m[2], `--state ${m[1]}'s label`) };
+}
+const twiceIn = (list) => list.find((t, i) => list.findIndex((u) => u.key === t.key) !== i);
 const pageTopic = (url) => /^prototype-(.+)\.html$/.exec(path.posix.basename(String(url || '').split(/[?#]/)[0]))?.[1];
 
-export async function addPrototype(site, { topic, title, card, takes = [] }) {
+export async function addPrototype(site, { topic, title, card, takes = [], served, states = [] }) {
   needSite(site);
   prototypeTopic(topic);
   text(title, '--title');
   if (!takes.length) fail('prototype add needs a --take KEY:"Label" for each take');
   const parsed = takes.map(prototypeTake);
-  const twice = parsed.find((t, i) => parsed.findIndex((u) => u.key === t.key) !== i);
+  const twice = twiceIn(parsed);
   if (twice) fail(`--take ${twice.key} is given twice`);
+  if (served !== undefined && !/^\/\S*$/.test(served)) fail(`--served takes the page's path on the served site, starting with "/", not "${served}"`);
+  if (states.length && served === undefined) fail('--state goes with --served: only a served round re-renders its states in place');
+  const named = states.map(prototypeState);
+  const stateTwice = twiceIn(named);
+  if (stateTwice) fail(`--state ${stateTwice.key} is given twice`);
   if (card !== undefined) await loadItem(site, card);
   const list = await readPrototypes(site);
   if (list.some((p) => p.topic === topic)) fail(`prototype ${topic} is already recorded; run prototype rm ${topic} first, or pick another topic`);
   if (await fs.stat(path.join(site, 'public', `prototype-${topic}.html`)).then(() => true, () => false)) {
     fail(`public/prototype-${topic}.html is a hand-written page that questions may link; pick another topic`);
   }
-  const record = { topic, title: title.trim(), ...(card === undefined ? {} : { card }), takes: parsed, at: new Date().toISOString() };
+  const record = { topic, title: title.trim(), ...(card === undefined ? {} : { card }), ...(served === undefined ? {} : { served }), takes: parsed,
+    ...(named.length ? { states: named } : {}), at: new Date().toISOString() };
   await writeJSON(prototypesFile(site), { prototypes: [...list, record] });
-  return { file: prototypesFile(site), lines: [`page prototype-${topic}.html`, ...parsed.map((t) => `take ${t.key} ${takeFile(site, topic, t.key)}`)] };
+  const page = `page prototype-${topic}.html`;
+  if (served !== undefined) return { file: prototypesFile(site), lines: [page, `served ${served} from the base prototype worktree (board.mjs prototype base)`, ...(named.length ? [`states ${named.map((s) => s.key).join(', ')}`] : [])] };
+  return { file: prototypesFile(site), lines: [page, ...parsed.map((t) => `take ${t.key} ${takeFile(site, topic, t.key)}`)] };
 }
 
 export async function listPrototypes(site) {
   needSite(site);
   const list = await readPrototypes(site);
-  return { lines: list.length ? list.map((p) => `${p.topic} · ${p.title} · ${p.takes.map((t) => `${t.key}: ${t.label}`).join(', ')}${p.card ? ` · ${p.card}` : ''}`) : ['no prototypes recorded'] };
+  return { lines: list.length ? list.map((p) => [p.topic, p.title, p.takes.map((t) => `${t.key}: ${t.label}`).join(', '), p.card, p.served && `served ${p.served}`,
+    p.states && `states ${p.states.map((s) => s.key).join(', ')}`].filter(Boolean).join(' · ')) : ['no prototypes recorded'] };
+}
+
+// The served rounds an open question links, by topic: the hub serves the board's base prototype worktree while there
+// is one (hub/try.mjs tick).
+export async function servedRoundsOpen(site) {
+  const served = (await readPrototypes(site)).filter((p) => p.served).map((p) => p.topic);
+  if (!served.length) return [];
+  const owner = await readJSON(ownerFile(site), { items: [] });
+  return served.filter((topic) => (owner.items || []).some((q) => !q.resolved && pageTopic(q.url) === topic));
 }
 
 // The take files stay, so a topic recorded again keeps them.
@@ -1228,6 +1255,7 @@ async function checkPrototype(site, q, name) {
   const ids = q.options.map((o) => o.id);
   const order = ids.map((id) => keys.indexOf(id));
   if (order.some((i, n) => i < 0 || (n > 0 && i < order[n - 1]))) fail(`${name}.options ids ${ids.join(', ')} must be a non-empty subset of ${file}'s takes, in take order: ${keys.join(', ')}`);
+  if (recorded.served) return;
   for (const key of keys) {
     if (!(await fs.stat(takeFile(site, topic, key)).then((s) => s.isFile(), () => false))) fail(`${field} take ${key} has no file yet; write ${takeFile(site, topic, key)}`);
   }

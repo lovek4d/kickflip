@@ -14,13 +14,14 @@ export const versionOf = (st) => `${Math.floor(st.mtimeMs).toString(36)}-${st.si
 const scriptJSON = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
 export async function prototypePage(site, proto) {
-  const takes = await Promise.all(proto.takes.map(async (t) => {
+  const takes = proto.served ? proto.takes : await Promise.all(proto.takes.map(async (t) => {
     const src = `prototypes/${proto.topic}/${t.key}.js`;
     const st = await fs.stat(takeFile(site, proto.topic, t.key)).catch(() => null);
     return { key: t.key, label: t.label, src: st?.isFile() ? `${src}?v=${versionOf(st)}` : null, file: src };
   }));
   const title = `${proto.title} · prototype`;
   const header = { lead: 'back', backHref: proto.card ? `./#item=${encodeURIComponent(proto.card)}` : './', title, controls: false };
-  const fill = { prototypeTitle: esc(title), prototypeHeader: `<!--header ${scriptJSON(header).replace(/>/g, '\\u003e')}-->`, prototypeData: scriptJSON({ topic: proto.topic, title: proto.title, takes }) };
+  const fill = { prototypeTitle: esc(title), prototypeHeader: `<!--header ${scriptJSON(header).replace(/>/g, '\\u003e')}-->`, prototypeData: scriptJSON({ topic: proto.topic, title: proto.title, takes,
+    ...(proto.served ? { served: proto.served, states: proto.states || null } : {}) }) };
   return (await fs.readFile(PROTOTYPE_TEMPLATE, 'utf8')).replace(/\{\{(prototypeTitle|prototypeHeader|prototypeData)\}\}/g, (_, k) => fill[k]);
 }

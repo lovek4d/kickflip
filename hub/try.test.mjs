@@ -1020,3 +1020,47 @@ test('try builds refuse with 409 while waiting and main rebuilds wait without a 
   assert.deepEqual(thread(), []);
   assert.deepEqual(messages, []);
 });
+
+// docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md
+test("the board's base prototype worktree is served while an open question links a served round: never idle, back after a restart, stopped once resolved, and a failure waits for Try again", async (t) => {
+  fakeRelays(t);
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  const base = path.join(home, '.claude', 'kickflip', 'worktrees', 'orch-prototypes');
+  git(repo, 'worktree', 'add', '--quiet', '--detach', base, 'main');
+  t.after(() => git(repo, 'worktree', 'remove', '--force', base));
+  setScript("console.log('port 32125'); setInterval(() => {}, 1000);", base);
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const round = (extra = {}) => write(ownerFile, { topics: [], items: [{ id: 'q1', topic: 'item:w/A1', question: 'Which?', url: 'prototype-look.html?q=q1', options: [{ id: 'A', label: 'A' }], ...extra }] });
+  write(path.join(site, 'data', 'prototypes.json'), { prototypes: [{ topic: 'look', title: 'Look', served: '/proto/look', takes: [{ key: 'A', label: 'A' }] }] });
+  await tick();
+  assert.ok(!state().prototypes);
+  round();
+  await tick();
+  await until(() => state().prototypes?.state === 'ready');
+  assert.equal(state().prototypes.https, 8500);
+  clock += 2 * 60 * 60_000;
+  await tick();
+  assert.equal(manager.lookup('orch', 'prototypes', { manifest }).port, 32125);
+  await manager.stop();
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  await manager.initialize(manifest);
+  assert.ok(!state().prototypes?.state);
+  await tick();
+  await until(() => state().prototypes?.state === 'ready');
+  round({ resolved: '2026-11-06T10:00:00Z' });
+  await tick();
+  assert.ok(!state().prototypes);
+  assert.equal(manager.lookup('orch', 'prototypes', { manifest }), null);
+  round();
+  setScript('process.exit(3);', base);
+  await tick();
+  await until(() => state().prototypes?.state === 'failed');
+  setScript("console.log('port 32126'); setInterval(() => {}, 1000);", base);
+  await tick();
+  assert.equal(state().prototypes.state, 'failed');
+  await manager.start({ route: 'orch', key: 'prototypes' }, { manifest });
+  await until(() => state().prototypes?.state === 'ready');
+  assert.equal(manager.lookup('orch', 'prototypes', { manifest }).port, 32126);
+  assert.match(fs.readFileSync(path.join(site, 'data', 'try', 'prototypes.log'), 'utf8'), /port 32126/);
+  assert.deepEqual(thread(), []);
+});

@@ -1,3 +1,4 @@
+// A served round (prototype add --served) has no take files: start frames its page instead (served below).
 // What a prototype's take files get, on the page board/server.mjs serves from prototype.html for each topic recorded
 // with board.mjs prototype add (docs/adr/2026-11-01-1448-the-board-serves-every-prototype-from-one-template.md). A take file,
 // public/prototypes/<topic>/<KEY>.js, is a module:
@@ -184,7 +185,68 @@
   // place → [scrollTop, scrollLeft] of each box in stage scrolled away from its start.
   const scrolledBoxes = (stage) => new Map(placesIn(stage).filter(([el]) => el.scrollTop || el.scrollLeft).map(([el, place]) => [place, [el.scrollTop, el.scrollLeft]]));
 
+  // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md
+  // A served round frames its page from the board's base prototype worktree, at that serve's try port on this host, the
+  // take and state in its URL at first and then sent by message, which shared/prototype-frame.js hands the page.
+  function servedSrc({ https, path, take, state }) {
+    const url = new URL(path, `https://${location.hostname}:${https}`);
+    url.searchParams.set('variant', take);
+    if (state) url.searchParams.set('state', state);
+    return url.href;
+  }
+  // The stage while the serve isn't ready ({state, lines} from api/try/prototypes): Starting, or its failure with the
+  // log's last lines and Try again.
+  function servedStatus(run) {
+    if (run.state !== 'failed') return '<p class="kit-missing">Starting the prototype site…</p>';
+    return `<div class="kit-missing kit-served-failed"><p>The prototype site didn’t start.</p><pre>${esc((run.lines || []).join('\n'))}</pre><button type="button" data-kit-served="retry">Try again</button></div>`;
+  }
+  function served(data) {
+    const site = globalThis.ClaudeSite;
+    const stage = document.getElementById('stage');
+    let at = { take: null, state: null };
+    let frame = null;
+    let origin = null;
+    let started = false;
+    const serve = () => fetch(site.url('api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'prototypes' }) }).catch(() => {});
+    const post = () => frame.contentWindow.postMessage({ kickflip: 'prototype', ...at }, origin);
+    async function poll() {
+      let run = {};
+      try { run = await (await fetch(site.url('api/try/prototypes'), { cache: 'no-store' })).json(); } catch { /* the board is out of reach; ask again */ }
+      if (run.state === 'ready' && run.https) {
+        const src = servedSrc({ https: run.https, path: data.served, ...at });
+        origin = new URL(src).origin;
+        frame = document.createElement('iframe');
+        frame.className = 'kit-served';
+        frame.title = data.title;
+        frame.src = src;
+        // A switch made while the page loaded reaches it once it has.
+        nativeAdd.call(frame, 'load', post);
+        stage.replaceChildren(frame);
+        return;
+      }
+      stage.innerHTML = servedStatus(run);
+      // A serve that's down is started once from here; a failed one waits for Try again.
+      if (!run.state && !started) { started = true; serve(); }
+      if (run.state !== 'failed') wait(poll, 1500);
+    }
+    nativeAdd.call(stage, 'click', (e) => {
+      if (!e.target.closest?.('[data-kit-served="retry"]')) return;
+      stage.innerHTML = servedStatus({});
+      serve().then(() => wait(poll, 1500));
+    });
+    const takes = Object.fromEntries(data.takes.map((t) => [t.key, t.label]));
+    const states = data.states ? Object.fromEntries(data.states.map((s) => [s.key, s.label])) : null;
+    const sw = PrototypeSwitcher.mount({ takes, states, initial: data.takes[0].key, render(take, state) {
+      at = { take, state };
+      document.documentElement.dataset.take = take;
+      if (frame) post();
+    } });
+    poll();
+    return sw;
+  }
+
   function start(data) {
+    if (data.served) return served(data);
     const keys = data.takes.map((t) => t.key);
     const takes = Object.fromEntries(data.takes.map((t) => [t.key, t.label]));
     let cleanup = null;
@@ -257,5 +319,5 @@
     return PrototypeSwitcher.mount({ takes, initial: keys[0], render });
   }
 
-  globalThis.PrototypeKit = { ...kit, start };
+  globalThis.PrototypeKit = { ...kit, start, servedSrc, servedStatus };
 })();

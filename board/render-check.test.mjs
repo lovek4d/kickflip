@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { home, site, write, read, run, question, takePath, recordPrototype } from './board-fixture.mjs';
+import { home, at, site, write, read, run, question, takePath, recordPrototype } from './board-fixture.mjs';
 
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const skip = !fs.existsSync(CHROME) && 'no Chrome';
@@ -39,4 +39,39 @@ test('a prototype question is refused, naming each take that throws, logs an err
   }
   assert.ok(!/take A /.test(r.err), r.err);
   assert.equal(fs.existsSync(site('orch', 'data', 'owner.json')) ? read(site('orch', 'data', 'owner.json')).items.length : 0, 0);
+});
+
+// docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md
+// A served round's check runs the base worktree's build script itself and loads the page for each take and state.
+test("a served round's question is refused naming each take or state whose page throws, and publishes once they all draw", { skip }, () => {
+  const base = at('kickflip', 'worktrees', 'orch-prototypes');
+  write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), cmd: ['node', 'board/server.mjs'], owner: { repo: home } } } });
+  const page = (bad) => `<!doctype html><body><main id="app"></main><script>
+    const q = new URLSearchParams(location.search);
+    if (${JSON.stringify(bad)}.includes(q.get('variant') + '/' + q.get('state'))) null.missing;
+    document.getElementById('app').textContent = q.get('variant') + ' ' + q.get('state');
+  </script></body>`;
+  const serve = (bad) => {
+    write(path.join(base, 'page.html'), page(bad));
+    write(path.join(base, '.kickflip', 'build'), `#!${process.execPath}
+const http = require('node:http');
+const fs = require('node:fs');
+const server = http.createServer((req, res) => req.url.startsWith('/proto/look') ? res.writeHead(200, { 'content-type': 'text/html' }).end(fs.readFileSync('page.html')) : res.writeHead(404).end());
+server.listen(0, process.env.HOST, () => console.log('port ' + server.address().port));
+`);
+    fs.chmodSync(path.join(base, '.kickflip', 'build'), 0o700);
+  };
+  const r0 = run('board.mjs', ['prototype', 'add', 'look', '--site', 'orch', '--title', 'Look', '--served', '/proto/look', '--take', 'A:Chips', '--take', 'B:Stepper', '--state', 'empty:None', '--state', 'busy:Ten']);
+  assert.equal(r0.code, 0, r0.err);
+  write(path.join(home, 'q.json'), question('q1', { url: 'prototype-look.html?q=q1', options: [{ id: 'A', label: 'Chips' }, { id: 'B', label: 'Stepper' }] }));
+  const ask = () => run('board.mjs', ['question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')], undefined, { KICKFLIP_RENDER_CHECK: 'on' });
+  serve(['B/empty', 'A/busy']);
+  const refused = ask();
+  assert.equal(refused.code, 1);
+  for (const want of ['take B, state empty at 390px: ', 'take A, state busy at 1280px: ']) assert.ok(refused.err.includes(want), `${want} in ${refused.err}`);
+  assert.ok(!refused.err.includes('take A, state empty'), refused.err);
+  assert.match(refused.err, /fix its page in .*orch-prototypes and ask again/);
+  serve([]);
+  const r = ask();
+  assert.equal(r.code, 0, r.err);
 });

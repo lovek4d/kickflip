@@ -11,7 +11,8 @@ import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
 import { buildScriptError, buildScriptOf } from '../board/build-script.mjs';
-import { appendThread, recordedWorktree, setItem } from '../board/store.mjs';
+import { appendThread, recordedWorktree, servedRoundsOpen, setItem } from '../board/store.mjs';
+import { BASE_KEY, baseWorktreeOf } from '../board/prototype-base.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
@@ -27,6 +28,10 @@ const KEYCHAIN = /errSecInternalComponent|keychain[^\n]*\blocked\b|\blocked\b[^\
 export const TRY_PORTS = { first: 8500, last: 8599 };
 export const isTryPort = (port) => /^\d+$/.test(String(port)) && Number(port) >= TRY_PORTS.first && Number(port) <= TRY_PORTS.last;
 const IDLE_MS = 30 * 60_000;
+// Main and the board's base prototype worktree (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md)
+// are no card: each keeps its own entry in try.json, posts no thread line and never idles out.
+const OWN_ENTRY = { main: 'main', [BASE_KEY]: 'prototypes' };
+const isCard = (key) => !Object.hasOwn(OWN_ENTRY, key);
 const scriptAt = (dir, target) => path.join(dir, buildScriptOf(target));
 const exists = (file) => fs.existsSync(file);
 const logFileOf = (board, key) => path.join(board.dir, 'data', 'try', `${key.split('/').at(-1)}.log`);
@@ -107,6 +112,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       state.cards = Object.fromEntries(unfinished);
       if (state.main && state.main.state !== 'failed') { delete state.main.state; delete state.main.port; delete state.main.https; }
     } else if (state.main?.state === 'running') { delete state.main.state; delete state.main.sha; }
+    // The next tick serves the base worktree again; a failure stays until Try again.
+    if (saved.prototypes?.state === 'failed') state.prototypes = saved.prototypes;
     persist(board);
     return record;
   }
@@ -118,13 +125,15 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     record.written = value;
   }
   const runKey = (board, key) => `${board.dir}\0${key}`;
-  const entryOf = (state, key) => key === 'main' ? state.main : state.cards[key];
+  const entryOf = (state, key) => isCard(key) ? state.cards[key] : state[OWN_ENTRY[key]];
+  const setEntry = (state, key, entry) => { if (isCard(key)) state.cards[key] = entry; else state[OWN_ENTRY[key]] = entry; };
+  const dropEntry = (state, key) => { if (isCard(key)) delete state.cards[key]; else state[OWN_ENTRY[key]] = null; };
   function update(board, key, change) {
     const { state } = stateOf(board);
     const entry = entryOf(state, key);
     if (!entry) return;
     const changedState = Object.hasOwn(change, 'state') && change.state !== entry.state;
-    Object.assign(entry, change, key !== 'main' && changedState ? { at: stamp() } : {});
+    Object.assign(entry, change, isCard(key) && changedState ? { at: stamp() } : {});
     persist(board);
   }
   function reserveMains(manifest) {
@@ -249,7 +258,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   async function failure(run, code, signal, error) {
     const { board, key } = run;
     update(board, key, { state: 'failed', port: undefined, https: undefined });
-    if (key === 'main') return;
+    if (!isCard(key)) return;
     const tail = [];
     let keychain = false;
     try {
@@ -299,7 +308,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
     const { state } = stateOf(board);
     const previous = entryOf(state, key);
-    const entry = { ...(key === 'main' ? {} : previous), ...metadata, sha, script: true, state: 'running', ...(key === 'main' ? {} : { at: stamp(), head: sha }) };
+    const entry = { ...(isCard(key) ? previous : {}), ...metadata, sha, script: true, state: 'running', ...(isCard(key) ? { at: stamp(), head: sha } : {}) };
     delete entry.port;
     delete entry.https;
     const logFile = logFileOf(board, key);
@@ -308,7 +317,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     fs.fchmodSync(fd, 0o600);
     const child = spawn(script, [key, worktree], { cwd: worktree, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
-    if (key === 'main') state.main = entry; else state.cards[key] = entry;
+    setEntry(state, key, entry);
     persist(board);
     const id = runKey(board, key);
     const run = { child, board, key, logFile, visited: now(), stopped: false, port: null, ready: false };
@@ -363,10 +372,12 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         await closePort(run);
         run.finished = true;
         if (run.stopped) return;
-        if (failed || spawnError || code !== 0 || (run.port && !run.ready)) await failure(run, code ?? 1, signal, failed || spawnError || (run.port && !run.ready ? new Error('Build script exited before its port answered.') : null));
+        // The prototype site is a web page, so a script that ends without serving one failed.
+        const unserved = key === BASE_KEY && !run.port ? new Error('Build script exited without printing "port <n>".') : null;
+        if (failed || spawnError || code !== 0 || (run.port && !run.ready) || unserved) await failure(run, code ?? 1, signal, failed || spawnError || (run.port && !run.ready ? new Error('Build script exited before its port answered.') : unserved));
         else if (run.ready) {
           if (key === 'main') { delete state.main.state; delete state.main.port; delete state.main.https; }
-          else delete state.cards[key];
+          else dropEntry(state, key);
           persist(board);
         } else {
           state.kind = 'app';
@@ -410,15 +421,15 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key'].includes(k))
       || typeof input.route !== 'string' || typeof input.key !== 'string') throw new BuildError('Send only the board route and card key.');
     const { route, key } = input;
-    if (key !== 'main' && (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..'))) throw new BuildError('Card key must be <wave>/<id>.');
+    if (isCard(key) && (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..'))) throw new BuildError('Card key must be <wave>/<id>.');
     const board = listBoards(manifest).find((b) => b.route === route);
     if (!board) throw new BuildError(`/${route} is not a board.`, 404);
-    if (key !== 'main' && !board.waves.some(({ slug, wave }) => wave.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this card key.', 404);
+    if (isCard(key) && !board.waves.some(({ slug, wave }) => wave.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this card key.', 404);
     const reason = await waiting();
     if (reason) throw new BuildError(reason, 409);
     const id = runKey(board, key);
     const current = runs.get(id);
-    if (starting.has(id) || (current && !current.ready && !current.finished)) throw new BuildError(`A build is already running for ${key === 'main' ? 'main' : 'this card'}.`, 409);
+    if (starting.has(id) || (current && !current.ready && !current.finished)) throw new BuildError(`A build is already running for ${key === 'main' ? 'main' : key === BASE_KEY ? 'the prototype site' : 'this card'}.`, 409);
     if (key === 'main') {
       const entry = stateOf(board).state.main;
       if (entry?.state === 'running') throw new BuildError('A build is already running for main.', 409);
@@ -430,7 +441,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const resuming = interrupted.delete(id);
     try {
       if (runs.has(id)) await stopRun(runs.get(id), true);
-      const worktree = await installWorktree(board, key, manifest);
+      const worktree = key === BASE_KEY ? baseWorktree(board) : await installWorktree(board, key, manifest);
       return await launch(board, key, worktree);
     } catch (e) {
       cardPorts.delete(id);
@@ -438,6 +449,33 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       throw e;
     }
     finally { starting.delete(id); }
+  }
+  // The board's base prototype worktree, when it exists; launch refuses ''.
+  const baseWorktree = (board) => {
+    const dir = baseWorktreeOf(board.route);
+    return exists(dir) && fs.statSync(dir).isDirectory() ? fs.realpathSync(dir) : '';
+  };
+  // Serves the base worktree while an open question links a served round, and stops it once none does; a failed serve
+  // waits for Try again (start with BASE_KEY) while a round stays open.
+  async function serveBase(board, manifest) {
+    const { state } = stateOf(board);
+    const id = runKey(board, BASE_KEY);
+    const run = runs.get(id);
+    const open = (await servedRoundsOpen(board.dir)).length > 0 && baseWorktree(board);
+    if (!open) {
+      if (run) await stopRun(run);
+      if (state.prototypes) { state.prototypes = null; persist(board); }
+      return;
+    }
+    if (run || starting.has(id) || state.prototypes?.state === 'failed' || await waiting()) return;
+    try { await start({ route: board.route, key: BASE_KEY }, { manifest }); }
+    catch (e) {
+      if ([409, 503].includes(e.status)) return;
+      state.prototypes = { state: 'failed' };
+      failureLog(board, BASE_KEY, e);
+      persist(board);
+      throw e;
+    }
   }
   function lookup(route, id, { manifest = readManifest() } = {}) {
     const board = listBoards(manifest).find((b) => b.route === route);
@@ -468,10 +506,10 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       const listed = listBoards(manifest);
       const prs = readJSON(GITHUB_STATE, {}).prs || {};
       for (const run of [...runs.values()]) {
-        if (!listed.some((b) => b.dir === run.board.dir) || (run.key !== 'main' && run.ready && now() - run.visited >= IDLE_MS)) {
+        if (!listed.some((b) => b.dir === run.board.dir) || (isCard(run.key) && run.ready && now() - run.visited >= IDLE_MS)) {
           await stopRun(run);
           const { state } = stateOf(run.board);
-          if (run.key === 'main') state.main = null; else delete state.cards[run.key];
+          dropEntry(state, run.key);
           persist(run.board);
         }
       }
@@ -510,6 +548,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
             }
           } catch (e) { log(`try /${board.route} ${key}: ${e.message}`); }
         }
+        await serveBase(board, manifest).catch((e) => log(`try /${board.route} prototypes: ${e.message}`));
         try {
           if (!source.repo || await waiting()) continue;
           const sha = await git(source.repo, 'rev-parse', ref);

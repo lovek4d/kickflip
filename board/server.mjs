@@ -252,11 +252,33 @@
 //                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); 404 off the manifest
 //   POST /api/permissions        {id, on} → that rule written or removed, and the same answer; 400 {error} for a bad
 //                                body or settings file
-//   POST /api/try                {key}: forwards a card build or main retry to the hub's loopback /_hub/build
+//   POST /api/try                {key}: forwards a card build, main retry or the prototype site's start (key prototypes) to the hub's loopback /_hub/build
 //   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
 //   GET  /api/log?file=<name>.log {text, truncated, size}: the last 256 KiB of that file in ~/.claude/kickflip/logs, by name
 //                                only; the board's reader sheet (app-reader.js) and log.html show it and re-read it while it grows
 //   GET  /api/try/main/log      {lines}: last 40 lines of main's log, from at most its last 64 KiB
+//   GET  /api/try/prototypes    {state, https, lines}: the hub's serve of the board's base prototype worktree, which a
+//                                served round's viewer frames, with its log's last 40 lines once it failed
+//                                (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md)
+// The last 40 lines of a hub run's log, data/try/<name>.log, from at most its last 64 KiB; [] with no log.
+async function tryLogTail(here, name) {
+  let file;
+  try {
+    file = await fs.open(path.join(here, 'data', 'try', `${name}.log`), 'r');
+    const { size } = await file.stat();
+    const start = Math.max(0, size - 64 * 1024);
+    const buffer = Buffer.alloc(size - start);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
+    const lines = buffer.subarray(0, bytesRead).toString('utf8').split(/\r?\n/);
+    if (start) lines.shift();
+    if (lines.at(-1) === '') lines.pop();
+    return lines.slice(-40);
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  } finally { await file?.close(); }
+}
+
 // data/try.json is the hub's run state; data/main.json holds main's published install link.
 //   GET  /_claude/events         events not hidden, newest first, each with Claude's reply if written
 //   GET  /_claude/needs          {items: [{kind, text, url}], working, summary, lanes: {review, progress, todo}, building}:
@@ -1291,22 +1313,10 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, await permissionsView(folder, here));
       } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
     }
-    if (p === '/api/try/main/log' && req.method === 'GET') {
-      let file;
-      try {
-        file = await fs.open(path.join(here, 'data', 'try', 'main.log'), 'r');
-        const { size } = await file.stat();
-        const start = Math.max(0, size - 64 * 1024);
-        const buffer = Buffer.alloc(size - start);
-        const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
-        const lines = buffer.subarray(0, bytesRead).toString('utf8').split(/\r?\n/);
-        if (start) lines.shift();
-        if (lines.at(-1) === '') lines.pop();
-        return json(res, 200, { lines: lines.slice(-40) });
-      } catch (e) {
-        if (e.code === 'ENOENT') return json(res, 200, { lines: [] });
-        throw e;
-      } finally { await file?.close(); }
+    if (p === '/api/try/main/log' && req.method === 'GET') return json(res, 200, { lines: await tryLogTail(here, 'main') });
+    if (p === '/api/try/prototypes' && req.method === 'GET') {
+      const run = (await readJSON(path.join(here, 'data', 'try.json'), {}))?.prototypes || {};
+      return json(res, 200, { state: run.state || null, https: run.state === 'ready' ? run.https || null : null, lines: run.state === 'failed' ? await tryLogTail(here, 'prototypes') : [] });
     }
     if (p === '/api/log' && req.method === 'GET') {
       const name = url.searchParams.get('file') || '';

@@ -70,6 +70,13 @@ test("a headless planner's brief names its card and its notes so far, spells its
     assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
   }
   assert.ok(!proto.includes('/s/waves/w/a1.md'));
+  // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md: a web round is a page in the
+  // base prototype worktree, recorded --served, that takes ?variant= and ?state= and the viewer's message.
+  for (const want of [`${b} prototype base`, '--served <path>', '--state <key>:<label>', '?variant=', '?state=', 'KickflipPrototype.on', 'real components', 'mock data', 'prints "port <n>"']) {
+    assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
+  }
+  assert.match(proto, /write no output code in .*?\/r\/shop itself/);
+  assert.ok(grill.includes('write no output code there'));
   // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md: every grill ends with the gate.
   assert.match(grill, /End every grill with one more question, "Prototype round first\?", whose options are yes and no, with "prototype_gate": true/);
   assert.ok(grill.includes('Recommend yes when the card changes the hub\'s or a board\'s UI, no otherwise') && grill.includes('Ask it even when it is your only question'));
