@@ -103,7 +103,7 @@ const PLAIN = {
 };
 const ON_CARD = {
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-  'item-message': (c, e) => (e.data?.intent === 'build' ? `Implement asked on ${c}: fold the message into its notes, then item set --state ready starts the build` : `message received from ${c}'s thread`),
+  'item-message': (c, e) => (e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it, then item set --state ready, or --state grilling or prototyping` : `message received from ${c}'s thread`),
   'card-merge': (c) => `merge asked on ${c}`,
   'card-done': (c) => `${c} marked done`,
   'card-bump': (c) => `${c} bumped`,

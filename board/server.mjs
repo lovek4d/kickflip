@@ -100,10 +100,10 @@
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
 //                                Implement with no text or files on a ready card starts the build as card-build does,
-//                                with no event; any other on a Todo card records implement_at on the card (store.mjs
-//                                askImplement), which is In Progress waiting on the orchestrator until item set
-//                                --state ready has the server start its build at once, and appends the message
-//                                (docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md)
+//                                with no event; any other on a Todo card stages it there, its open questions skipped
+//                                and its words in its notes (store.mjs stageImplement), and appends the message. Any
+//                                other message on a ready Todo card stages it again with its words in the notes
+//                                (store.mjs stageReply; docs/adr/2026-11-07-0700-staging-then-ready.md)
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
 //                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype
@@ -119,7 +119,8 @@
 //                                question?, since} once per request still waiting on its prototype after
 //                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits).
 //                                Either one on a card launches a headless planner on it (startPlanner) unless an
-//                                agent already works on it, so the session acts only on prototype-overdue.
+//                                agent already works on it, so the session acts only on prototype-overdue; on a
+//                                ready or staging card it first moves the card to grilling or prototyping (store.mjs planAgain).
 //                                visual-request {key, text?, files?} asks for a visual: the server launches a
 //                                visual agent on the card beside any other agent, once no other visual runs there
 //                                (launchVisuals; docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md)
@@ -179,8 +180,8 @@
 //                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
 //                                and no event (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
 //                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.
-//                                An owner-answer that leaves an unstarted card with nothing stopping it appends
-//                                card-unblocked {key} (domain.mjs startedByAnswer).
+//                                An owner-answer goes into its card's notes verbatim, and one that leaves an unstarted
+//                                card with nothing open stages it (store.mjs settleAnswers).
 //                                Each new or changed Action needed, and each topic's new open questions, push the
 //                                owner, one tag per card (domain.mjs ownerActions), tracked in data/action-pushes.json;
 //                                a gone one drops its queued push.
@@ -287,14 +288,14 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, startVisual, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startRebase, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, startVisual, openAgents, isLanding, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -428,21 +429,17 @@ async function appendEvents(list) {
 
 // Owner answers [{id, ...}] → their event ids, appended in one write. An answer to a card's prototype question that
 // picks no take carries prototype_again: true, which asks the session for the next round
-// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md). A note with no take resolves its question, and an
-// answer that leaves an unstarted card with nothing stopping it appends card-unblocked for that card once.
+// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md). A note with no take resolves its
+// question, and the Send is acted on in code: gates settled, answers in the notes, cards left with nothing open staged.
 async function recordAnswers(answers) {
   const asked = new Map(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => [q.id, q]));
   const again = (a) => asked.has(String(a.id)) && picksNoTake(asked.get(String(a.id)), a.choice);
   const ids = await appendEvents(answers.map((a) => ['owner-answer', again(a) ? { ...a, prototype_again: true } : a]));
   await resolveNoteAnswers(here, answers);
-  // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
-  const { prototype } = await settleGates(here, answers);
+  // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md, docs/adr/2026-11-07-0700-staging-then-ready.md
+  const { prototype } = await settleAnswers(here, answers);
   dataVersion++;
   for (const key of prototype) await launchPlanner(key, 'prototype');
-  // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
-  const built = await sharedBoard();
-  const started = [...new Set(answers.map((a) => startedByAnswer(built, String(a.id))).filter(Boolean))];
-  if (started.length) await appendEvents(started.map((key) => ['card-unblocked', { key }]));
   return ids;
 }
 // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md
@@ -1153,19 +1150,18 @@ const server = http.createServer(async (req, res) => {
         const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
         return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
       }
-      // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-      if (kind === 'item-message' && body.intent === 'build') {
+      // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md, docs/adr/2026-11-07-0700-staging-then-ready.md
+      if (kind === 'item-message') {
         const key = String(body.key || '');
         const card = (await sharedBoard()).items.find((i) => i.key === key && i.kind === 'work');
         const bare = !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
-        if (card?.ready && bare) {
+        if (body.intent === 'build' && card?.state === 'ready' && card.lane === 'todo' && bare) {
           const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
           return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
         }
-        if (card?.lane === 'todo') {
-          await askImplement(here, key);
-          dataVersion++;
-        }
+        if (card?.lane === 'todo' && body.intent === 'build') await stageImplement(here, key, body);
+        else if (card?.lane === 'todo' && card.state === 'ready') await stageReply(here, key, body);
+        dataVersion++;
       }
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
       if (kind === 'lineup-move') {
@@ -1249,7 +1245,9 @@ const server = http.createServer(async (req, res) => {
           ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}),
           ...(body.question ? { question: String(body.question), note: body.note ? String(body.note) : undefined, choice: body.choice ?? undefined } : {}),
         };
-        await launchPlanner(String(body.key), kind === 'grill-more' ? 'grill' : 'prototype', ask);
+        const planner = kind === 'grill-more' ? 'grill' : 'prototype';
+        await planAgain(here, String(body.key), planner);
+        await launchPlanner(String(body.key), planner, ask);
       }
       if (kind === 'visual-request' && body.key) await launchVisuals((await sharedBoard()).items, await readLines(events));
       if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
@@ -1461,17 +1459,13 @@ async function runAuto() {
   const settings = settingsOf(await config());
   const log = await readLines(events);
   const { items, reviews } = await sharedBoard();
-  const { idle, pullable, waiting, starts, pulls } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
+  const { idle, pullable, waiting, pulls } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
   const gate = readUsageGate({ dir: here });
   if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
   boardPaused = gate.manual === 'board';
   heldByPause = gate.state === 'paused';
   const ready = idle && !heldByPause;
-  for (const key of heldByPause ? [] : starts) {
-    const started = await startReleasedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
-    logCall({ call: 'released-start', key, result: startResult(started), reason: 'Its Implement message was folded in and it was released ready.', inputs: { cap: settings.max_implementers } });
-    await handOff(started);
-  }
+  if (!heldByPause) await launchRounds(roundsDue(items));
   if (!heldByPause) await launchLanders(items, stoppedKeys(items));
   if (!heldByPause) await launchRebases(items);
   if (!heldByPause) await launchVisuals(items, log);
@@ -1479,7 +1473,7 @@ async function runAuto() {
   if (await checkTriage(settings, log, items, ready)) return;
   const startPull = async (key) => {
     const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
-    logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready card in Todo.', inputs: { cap: settings.max_implementers, pullable, waiting, starts } });
+    logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready card in Todo.', inputs: { cap: settings.max_implementers, pullable, waiting } });
     return handOff(started);
   };
   if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pulls, startPull)) return;
@@ -1524,6 +1518,18 @@ async function launchArrivals(cards) {
     const kind = state === 'prototyping' ? 'prototype' : 'grill';
     logCall({ call: 'arrival-planner', key, result: kind, reason: state === 'prototyping' ? 'It landed in Todo filed prototyping.' : 'It landed in Todo, not filed prototyping.', inputs: { state: state ?? null } });
     await appendThread(here, key, { text: `Landed in Todo, so the board started its ${kind}.` });
+    await launchPlanner(key, kind);
+    dataVersion++;
+  }
+}
+
+// docs/adr/2026-11-07-0700-staging-then-ready.md
+// Each card the orchestrator sent back from staging or ready (domain.mjs roundsDue) gets that round's planner, with a
+// thread line saying so; its record keeps it off the list from then on.
+async function launchRounds(cards) {
+  for (const { key, kind } of cards) {
+    logCall({ call: 'round-planner', key, result: kind, reason: 'It was sent back from staging or ready for another round.', inputs: { kind } });
+    await appendThread(here, key, { text: `Back to ${kind === 'grill' ? 'grilling' : 'prototyping'}, so the board started its ${kind}.` });
     await launchPlanner(key, kind);
     dataVersion++;
   }
@@ -1976,6 +1982,7 @@ async function archiveDone() {
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
 try { for (const line of await dropPlannedStatus(here)) console.log(line); } catch (e) { console.error('planned-status migration:', e.message); }
+try { for (const line of await stageImplementAsks(here)) console.log(line); } catch (e) { console.error('staging migration:', e.message); }
 try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
 await launchCutOffBuilds();
 await checkArchive();

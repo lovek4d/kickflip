@@ -1420,6 +1420,19 @@ test("a ready card's time line reads ready in green after its hold and before it
   assert.doesNotMatch(ui.workLines(card), />New</);
 });
 
+// docs/adr/2026-11-07-0700-staging-then-ready.md
+test("a staging card's time line reads staging in orange where ready reads, and its Status row says staging", () => {
+  const sortAt = ago(24 * 2);
+  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, staging: true };
+  const html = ui.workLines({ ...card, held: true }, { unread: 1 });
+  assert.equal(lines(html).at(-1), `${ui.cardTime(sortAt)} · held · staging · 1 new message`);
+  assert.match(html, /<span class="card-staging">staging<\/span><span class="card-unread">/);
+  assert.doesNotMatch(html, /card-ready/);
+  assert.equal(ui.statusWord(card), 'staging');
+  assert.equal(ui.statusWord({ ...card, staging: false, ready: true }), 'ready');
+  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.card-staging \{ color: var\(--color-notice\); \}/);
+});
+
 test("a card's time reads the time only today, adds the day before today, and adds the year past 365 days", () => {
   const now = new Date(2026, 10, 2, 16, 0);
   assert.match(ui.cardTime(new Date(2026, 10, 2, 14, 49).toISOString(), now), /^2:49\sPM$/);

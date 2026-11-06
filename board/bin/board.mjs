@@ -72,7 +72,7 @@ command fails and changes nothing.
          prototype-request this answers; the question needs a prototype url, takes the next round
          number, and resolves that one, noting "Followed by prototype round N".
          prototype_gate: true marks a grill's closing "Prototype round first?" question (options yes, no, on a card's
-         topic): the owner's yes moves the card to prototyping and starts its prototype planner, a no moves it to ready
+         topic): the owner's yes moves the card to prototyping and starts its prototype planner, a no stages it
          once no question on it is left open, the board doing both with no orchestrator step.
          reask_of names a resolved question on the same topic that the owner asked to ask again
          (reask-request): it resolves that one again, noting "Asked again as <new id>", printed as "resolved: <old id>".
@@ -132,14 +132,16 @@ command fails and changes nothing.
                                                          from another ask (use item relate-ask), and one with no
                                                          state when --state is missing
          [--state ready|grilling|prototyping]            what a card from an ask does next; it reads New until set.
-                                                         ready refuses while the card has an open question, and
+                                                         Staging is the board's: it stages a card on the owner's
+                                                         Send, Implement or Reply on a ready card, and refuses
+                                                         --state staging. ready refuses a card not staging or
+                                                         ready, bar --from-ask on a Quick build ask (its filing
+                                                         counts as staging), a card with an open question, and
                                                          a card without --size, a notes file, or the id of each
                                                          answered question in that file, since a builder starts
-                                                         from it; it resolves those answered questions. On a card
-                                                         an Implement message waits on you for, it releases the
-                                                         build: the board server starts it at once, and it prints
-                                                         "released: <key> starts building now"; one a dep still
-                                                         blocks is bumped to the top of Todo instead ("bumped: …")
+                                                         from it; it resolves those answered questions.
+                                                         grilling or prototyping on a staging or ready card sends
+                                                         it back, and the board starts that round's planner
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board
                                                          server records the owner's own Hold and Resume taps. A later
                                                          --held/--unheld overrides a tap; --unheld also clears a held status.
@@ -212,15 +214,13 @@ command fails and changes nothing.
          [--notes-file <file>]                           --plan is an alias of --notes-file
          [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
          [--size small|large] [--model opus|sonnet]      as item set's
-         [--state ready]                                 a Quick build: the pull takes it as it is, so it needs
-                                                         --size and --notes-file. Without it the board grills the
-                                                         card as soon as it lands in Todo
          [--parent <wave>/<id>]                          the card it was spun out of, such as one filed from
                                                          another card's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A card
                                                          from the + or New task has none
-         [--state ready|grilling|prototyping]            files it at once, as item set's --state; the session's
+         [--state grilling|prototyping]                  files it at once, as item set's --state; the session's
          [--relate <id>,<wave>/<id>]                     own form, linking it with --relate in the same call.
+                                                         Never ready: a card reaches ready through staging.
                                                          Without --state it reads New and a card-added event
                                                          wakes the board's session, which links and files it
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
@@ -362,8 +362,8 @@ command fails and changes nothing.
                                                          ready Todo cards nothing blocks, holds or asks about, one
                                                          per free implementer slot (see max-implementers), each
                                                          once, and launches a grill on each card that arrives in
-                                                         Todo, up to max-planners at a time (an arrival: not ready
-                                                         or held, with no planner record and no questions
+                                                         Todo, up to max-planners at a time (an arrival: not ready,
+                                                         staging or held, with no planner record and no questions
                                                          yet). Off by default.
                                                          Only on the owner's word
   settings set max-implementers <1..99>                  Maximum parallel implementers, 10 by default: the cards
@@ -516,7 +516,7 @@ command fails and changes nothing.
                                                          --kind, and launch that model
   audit [<wave>/<id>]                                    the board's audit log of the last 30 days, data/audit.jsonl:
                                                          each call the code made on its own (builder-pick, pull,
-                                                         released-start, launch-held, arrival-planner, relaunch,
+                                                         round-planner, launch-held, arrival-planner, relaunch,
                                                          lander, triage, pr-review, push, pick-up, auto-merge,
                                                          ready-draft, session-resume, compact) as "<at> <call>
                                                          [<key>]: <result>. <reason>" and the inputs it read; with

@@ -325,26 +325,24 @@ test('with auto implement on the board starts and launches the build of the top 
   assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
 });
 
-// docs/adr/2026-11-05-0802-todo-has-no-queue.md
-test('a card an Implement message released starts at once though In Progress is at Maximum parallel implementers', async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'queue-cap-'));
+// docs/adr/2026-11-07-0700-staging-then-ready.md
+test('a starting server turns a waiting Implement ask into staging, starts nothing for it, and launches the round of a card sent back from staging, once', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'staging-round-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
   const waveFile = path.join(dataDir, 'wave.json');
-  const agentFile = path.join(dataDir, 'agents', 'A0.json');
   const setup = path.join(dir, 'setup.mjs');
   const iso = (ms) => new Date(ms).toISOString();
   const now = Date.now();
   let worker;
-  fs.mkdirSync(path.dirname(agentFile), { recursive: true });
+  fs.mkdirSync(path.join(dataDir, 'agents'), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', max_implementers: 1 }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
   put(waveFile, JSON.stringify({ items: [
-    { id: 'A0', title: 'Running', status: 'building' },
-    { id: 'A9', title: 'Blocker', status: 'done' },
-    { id: 'Q1', title: 'Released', state: 'ready', deps: ['A9'], implement_at: iso(now - 60000) },
+    { id: 'Q1', title: 'Asked', state: 'grilling', implement_at: iso(now - 60000) },
+    { id: 'G1', title: 'Again', state: 'grilling', round_at: iso(now - 30000) },
   ] }));
-  put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
+  put(path.join(dataDir, 'agents', 'G1.json'), JSON.stringify({ kind: 'grill', started: iso(now - 120000), done: iso(now - 90000) }));
   fs.writeFileSync(setup, "import http from 'node:http'; http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };");
   const { claude, launched } = launchingBoard(dir, siteDir);
   t.after(async () => {
@@ -353,9 +351,13 @@ test('a card an Implement message released starts at once though In Progress is 
   });
   worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], { env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, KICKFLIP_CLAUDE: claude } });
   await boardListening(worker);
-  await until(() => launched('build').length === 1, 'the released card starts past the cap');
-  assert.deepEqual(launched('build'), ['t/Q1']);
-  assert.equal(JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1').implement_at, undefined);
+  await until(() => launched('grill').length === 1, 'the round sent back from staging launches');
+  assert.deepEqual(launched('grill'), ['t/G1']);
+  const thread = fs.readFileSync(path.join(dataDir, 'threads', 't__G1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l).text);
+  assert.equal(thread[0], 'Back to grilling, so the board started its grill.');
+  const q1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1');
+  assert.deepEqual([q1.state, q1.staged_at, q1.implement_at], ['staging', iso(now - 60000), undefined]);
+  assert.deepEqual(launched('claude', 'codex', 'prototype'), [], 'a staging card starts nothing');
 });
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md

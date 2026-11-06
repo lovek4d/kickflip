@@ -237,7 +237,7 @@
     if (it.waitsOn === 'checking') return 'Orchestrator review';
     if (it.lane === 'done') return 'done';
     if (it.grilling || it.prototyping) return 'preheating';
-    if (it.lane === 'todo') return it.ready ? 'ready' : 'to do';
+    if (it.lane === 'todo') return it.staging ? 'staging' : it.ready ? 'ready' : 'to do';
     if (it.lane === 'progress') return it.reachedPhase ? `stopped at ${it.reachedPhase}` : 'in progress';
     return 'in review';
   }
@@ -259,15 +259,15 @@
       : `Held until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
-  // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed
-  // or ready, then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
+  // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed,
+  // staging in orange or ready in green (docs/adr/2026-11-07-0700-staging-then-ready.md), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
   // takes away when the card opens (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
   const newWords = (n, word) => n && `${n} new ${word}${n === 1 ? '' : 's'}`;
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
-    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.ready && '<span class="card-ready">ready</span>'].filter(Boolean);
+    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.staging && '<span class="card-staging">staging</span>', it.ready && '<span class="card-ready">ready</span>'].filter(Boolean);
     const news = newWords(unread, 'message');
     const count = news ? `<span class="card-unread">${parts.length || bars ? SEP : ''}${news}</span>` : '';
     const tail = bars ? `${parts.length ? SEP : ''}${bars}` : '';

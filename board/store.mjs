@@ -1349,6 +1349,7 @@ async function publishQuestions(site, owner, items, questions, lines) {
   }
   const written = { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at }))] };
   await writeJSON(ownerFile(site), written);
+  for (const key of new Set(questions.map((q) => cardOfTopic(q.topic)).filter(Boolean))) await grillAgain(site, key);
   return { file: ownerFile(site), lines: [...lines, ...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
 }
 
@@ -1361,15 +1362,15 @@ function checkGate(flag, q, name) {
   if (q.options?.map((o) => o.id).join() !== 'yes,no') fail(`${name}.prototype_gate takes exactly the options yes and no, in that order`);
 }
 
-// docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
-// The owner's answers acted on with no orchestrator step. A prototype_gate question answered yes resolves and moves its
-// card to prototyping; answered no it resolves, and the card moves to ready once no question on it is left open, as a
-// grill with nothing left to ask ends ready. Either only while the card still reads grilling.
-// → {prototype: [keys]}, the cards whose prototype planner the server starts.
-export async function settleGates(site, answers) {
+// docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md,
+// docs/adr/2026-11-07-0700-staging-then-ready.md
+// The owner's Send acted on with no orchestrator step. A prototype_gate question resolves; answered yes it moves its
+// card, while still grilling, to prototyping. Every answer on a card goes into the card's notes verbatim. A card the
+// Send leaves with nothing open is staged (stageable), but not one yes just moved to prototyping.
+// → {prototype: [keys], staged: [keys]}: the cards whose prototype planner the server starts, and the cards staged.
+export async function settleAnswers(site, answers) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const asked = new Map((owner.items || []).map((q) => [q.id, q]));
-  const touched = new Set(answers.map((a) => asked.get(String(a.id))?.topic).filter((t) => t?.startsWith('item:')));
   const prototype = [];
   for (const a of answers) {
     const q = asked.get(String(a.id));
@@ -1377,27 +1378,123 @@ export async function settleGates(site, answers) {
     setResolved(owner, [q.id], `Prototype round: ${a.choice}. The board moved the card on.`);
     await writeJSON(ownerFile(site), owner);
     if (a.choice === 'no') continue;
-    touched.delete(q.topic);
     const key = q.topic.slice(5);
     if ((await loadItem(site, key)).item.state !== 'grilling') continue;
     await setItem(site, key, { state: 'prototyping' });
     await appendThread(site, key, { text: 'You asked for a prototype round, so the board moved the card to prototyping.' });
     prototype.push(key);
   }
-  for (const topic of touched) {
-    const { asked: views } = await topicQuestions(site, topic);
-    const gate = views.find((v) => v.prototype_gate && v.answers.at(-1)?.choice === 'no');
-    const key = topic.slice(5);
-    if (!gate || views.some((v) => v.state === 'open') || (await loadItem(site, key)).item.state !== 'grilling') continue;
-    try {
-      await setItem(site, key, { state: 'ready' });
-      await appendThread(site, key, { text: 'No prototype round, and nothing left to answer, so the board moved the card to ready.' });
-    } catch (e) {
-      if (!(e instanceof BoardError)) throw e;
-      await appendThread(site, key, { text: `No prototype round, but the card isn't ready yet: ${e.message}` });
-    }
+  const byCard = new Map();
+  for (const a of answers) {
+    const q = asked.get(String(a.id));
+    const key = cardOfTopic(q?.topic);
+    if (key) byCard.set(key, [...(byCard.get(key) || []), answerLine(q, a)]);
   }
-  return { prototype };
+  const staged = [];
+  for (const [key, said] of byCard) {
+    if (!(await loadItem(site, key).catch(() => null))) continue;
+    await addToNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
+    if (prototype.includes(key) || !(await stageable(site, key))) continue;
+    await stage(site, key, 'answers');
+    staged.push(key);
+  }
+  return { prototype, staged };
+}
+
+// docs/adr/2026-11-07-0700-staging-then-ready.md
+// A card's key from a question topic, item:<wave>/<id>, or null for any other topic, an ask's included.
+const cardOfTopic = (topic) => (typeof topic === 'string' && topic.startsWith('item:') && !topic.startsWith('item:ask:') ? topic.slice(5) : null);
+const pad2 = (n) => String(n).padStart(2, '0');
+// The owner's time on a notes heading, MM/DD HH:MM in the Mac's local time.
+const noteStamp = (d = new Date()) => `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+// One answer as its notes line: the question, the option picked by its label, and the owner's note verbatim.
+function answerLine(q, a) {
+  const picked = a.choice === null || a.choice === undefined || a.choice === '' ? null : (q.options || []).find((o) => o.id === a.choice)?.label ?? String(a.choice);
+  const note = String(a.note || '').trim();
+  return `- ${q.id} (${q.question}): ${picked ? `${picked}.` : 'no option picked.'}${note ? ` Note, verbatim: "${note}"` : ''}`;
+}
+// Appends a section, ## heading then body, to the card's notes file, first making <id>-notes.md beside its wave file
+// when the card has none.
+async function addToNotes(site, key, heading, body) {
+  const { source, wave, item } = await loadItem(site, key);
+  let file;
+  if (item.plan) file = await planPath(source.dir, item.plan);
+  else {
+    const base = String(item.id).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+    let name = `${base}-notes.md`;
+    for (let n = 2; existsSync(path.join(source.dir, name)); n++) name = `${base}-notes-${n}.md`;
+    file = path.join(source.dir, name);
+    await fs.writeFile(file, `# ${item.title}\n`, { flag: 'wx' });
+    item.plan = name;
+    await writeJSON(source.file, wave);
+  }
+  const notes = await fs.readFile(file, 'utf8');
+  await fs.writeFile(file, `${notes.replace(/\n*$/, '\n')}\n## ${heading}\n${body}\n`);
+}
+// Whether a Send leaves the card stageable: unstarted, with no PR, no planner or build running, no question open and a
+// take picked on its prototypes.
+async function stageable(site, key) {
+  const { source, item } = await loadItem(site, key);
+  if (![...UNSTARTED, 'held'].includes(item.status) || hasPR(item) || item.pushed) return false;
+  const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
+  if (records.some((r) => r?.started && !r.done && r.kind !== VISUAL)) return false;
+  if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open')) return false;
+  return !(await unpickedPrototype(site, key));
+}
+// The thread line of each owner action that stages a card.
+const STAGED_LINES = {
+  answers: 'Staging: your answers are in its notes; the orchestrator judges them next.',
+  implement: 'Staging: your Implement is in its notes; the orchestrator judges it next.',
+  reply: 'Back to staging: your reply is in its notes; the orchestrator judges it before it goes ready again.',
+};
+// Stages the card, keeping the time of a stage it is already in, with why's thread line when it newly stages.
+async function stage(site, key, why) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (item.state === 'staging') return;
+  Object.assign(item, { state: 'staging', staged_at: new Date().toISOString() });
+  delete item.unfiled;
+  await writeJSON(source.file, wave);
+  await appendThread(site, key, { text: STAGED_LINES[why] });
+}
+// The owner's words from a thread message, text then any attached files, as one notes body, or '' when it carried none.
+const messageWords = ({ text: said, files }) => [String(said || '').trim(), ...(Array.isArray(files) ? files : []).map((f) => `Attached: ${f?.path || f?.name || f}`)].filter(Boolean).join('\n');
+
+// An Implement message on a Todo card, in the board server before its event: a held card is resumed, as the Build tap
+// does; its open questions resolve as skipped; its words go into the notes; and it is staged in Todo.
+export async function stageImplement(site, key, message) {
+  const { item } = await loadItem(site, key);
+  if (item.held || item.status === 'held') await recordOwnerTap(site, 'card-hold', { key, hold: false });
+  const { owner, asked } = await cardQuestions(site, key);
+  const open = asked.filter((q) => q.state === 'open').map((q) => q.id);
+  if (open.length) await markResolved(site, owner, open, 'Skipped: you tapped Implement');
+  const words = messageWords(message);
+  if (words) await addToNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
+  await stage(site, key, 'implement');
+}
+// A Reply on a ready Todo card: its words go into the notes, and it is staged again.
+export async function stageReply(site, key, message) {
+  const words = messageWords(message);
+  if (words) await addToNotes(site, key, `Reply (owner, ${noteStamp()}), verbatim`, words);
+  await stage(site, key, 'reply');
+}
+// The owner's Grill or Prototype tap (kind grill or prototype) on a ready or staging card takes it out of that state,
+// to grilling or prototyping; the tap launches the planner itself.
+export async function planAgain(site, key, kind) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (!['ready', 'staging'].includes(item.state) || item.status) return;
+  item.state = kind === 'prototype' ? 'prototyping' : 'grilling';
+  delete item.staged_at;
+  await writeJSON(source.file, wave);
+}
+// A question published on a ready or staging card leaves the owner something to decide, so the card is grilling until
+// the answer's Send stages it again.
+async function grillAgain(site, key) {
+  const loaded = await loadItem(site, key).catch(() => null);
+  if (!loaded || !['ready', 'staging'].includes(loaded.item.state) || loaded.item.status) return;
+  loaded.item.state = 'grilling';
+  delete loaded.item.staged_at;
+  await writeJSON(loaded.source.file, loaded.wave);
+  await appendThread(site, key, { text: 'A new question on it, so it is grilling until you answer.' });
 }
 
 // The ids of a topic's answered questions that Claude acting on the card resolves.
@@ -1602,8 +1699,20 @@ async function checkAsk(site, eventId, name = '--from-ask') {
 // docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md
 const FINISHED = ['done', 'merged', 'dropped'];
 export const isFinished = async (site, key) => FINISHED.includes((await loadItem(site, key)).item.status);
-// docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-const CARD_STATES = ['ready', 'grilling', 'prototyping'];
+// docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-07-0700-staging-then-ready.md:
+// a card's state. Staging is the board's alone, set on an owner action; --state takes the rest.
+const AGENT_STATES = ['ready', 'grilling', 'prototyping'];
+function checkState(state) {
+  if (state === 'staging') fail('--state staging is set by the board, on an owner action; pass ready, grilling or prototyping');
+  if (state !== undefined && !AGENT_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
+}
+const NOT_STAGED = "a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
+// Whether ask eventId asked for a Quick build: the New task sheet's Quick build, or an Implement on its New card. Filing
+// it counts as its staging.
+async function quickAsk(site, eventId) {
+  const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));
+  return events.some((e) => (e.kind === 'ask' && e.id === eventId && e.data?.quick === true) || (e.kind === 'item-message' && e.data?.key === `ask:${eventId}` && e.data?.intent === 'build'));
+}
 // A Next asking the owner to mark the card ready ("Mark ready", "mark it ready").
 const ASKS_READY = /^mark (?:it |this |the card )?ready\b/i;
 function clearBuildingStatus(item) {
@@ -1744,7 +1853,7 @@ function closingLine(site, key, item, status, text, repo) {
 async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, ownerStep, ownerDone, check }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
-  if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
+  checkState(state);
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
@@ -1760,6 +1869,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
+  if (state === 'ready' && !['staging', 'ready'].includes(item.state) && !(ask && await quickAsk(site, ask))) fail(`${key} reads ${item.state || 'no state'}, not staging; ${NOT_STAGED}`);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
   if (ask && state === undefined && !item.state) fail('--from-ask files a card, which reads New until it has a state: pass --state ready, grilling or prototyping');
@@ -1812,9 +1922,6 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
     if (item.blocked_until) fail(`${key} is blocked until ${item.blocked_until}; start it once that holds and the block is cleared with --blocked-until ""`);
   }
-  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: a build that starts, or a card
-  // that closes, ends an Implement message's wait.
-  if (status === 'building' || FINISHED.includes(status)) delete item.implement_at;
   const unpicked = status === 'building' && site ? await unpickedPrototype(site, key) : null;
   if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
   const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
@@ -1862,14 +1969,15 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
     await checkNotesComplete(site, key, source.dir, item);
   }
-  if (state !== undefined) { item.state = state; delete item.unfiled; }
+  if (state !== undefined) {
+    // docs/adr/2026-11-07-0700-staging-then-ready.md: sent back from staging or ready, the card gets its round from the board (domain.mjs roundsDue).
+    if (state !== 'ready' && ['staging', 'ready'].includes(item.state)) item.round_at = new Date().toISOString();
+    item.state = state;
+    delete item.staged_at;
+    delete item.unfiled;
+  }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the state the card is in.
   if (item.state === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the state it is already in; pass --next with what happens next, or --clear-next`);
-  // docs/adr/2026-11-05-0802-todo-has-no-queue.md: ready releases an Implement message's card, keeping implement_at, so
-  // the board server starts its build at once (domain.mjs pullOf starts). One an unfinished dep still blocks drops
-  // implement_at and is bumped instead (bumpBlocked), back in Todo for the pull. released: the blockers' names, or null.
-  const released = state === 'ready' && site && item.implement_at ? await blockerNames(site, key, item) : null;
-  if (released?.length) delete item.implement_at;
   if (built) item.install = built;
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
@@ -1882,7 +1990,6 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
   if (notesFile !== undefined || (state === 'ready' && site)) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
-  if (released) resolved.push(released.length ? (await bumpBlocked(site, key, released)).line : `released: ${key} starts building now`);
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who, by })).lines);
   // The ticket stays open while the card waits on its owner step.
@@ -2248,7 +2355,8 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model, state, relate, intake = false }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
-  if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
+  checkState(state);
+  if (state === 'ready') fail("item add files a card grilling or prototyping; it reaches ready through staging, on the owner's Send, Implement or Reply");
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const item = { id, title: text(title, '--title'), created: new Date().toISOString() };
@@ -2259,8 +2367,6 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
-  // A new card has no questions, so ready needs only its size and notes file, checked before its ticket is made.
-  if (state === 'ready') checkSizeAndNotes(id === undefined ? 'the card' : key, item);
   if (state !== undefined) item.state = state;
   // Without a site there is no board session to file it.
   else if (intake && site) item.unfiled = true;
@@ -2364,6 +2470,26 @@ export const dropPlannedStatus = (site) => ticketWrite(site, async () => {
     for (const it of planned) delete it.status;
     await writeJSON(entry.file, wave);
     lines.push(`${entry.slug}: ${planned.length} planned or waiting cards now have no status`);
+  }
+  return lines;
+});
+
+// docs/adr/2026-11-07-0700-staging-then-ready.md
+// An Implement message's wait from before staging, implement_at, becomes staging, keeping its time as staged_at; a card
+// already ready, which the old release would have started, stays ready. Run by the board server as it starts. → one
+// line per wave file changed.
+export const stageImplementAsks = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  for (const entry of await itemSources(site)) {
+    const wave = await readJSON(entry.file, null);
+    const asked = (Array.isArray(wave?.items) ? wave.items : []).filter((it) => it.implement_at);
+    if (!asked.length) continue;
+    for (const it of asked) {
+      if (it.state !== 'ready') Object.assign(it, { state: 'staging', staged_at: it.implement_at });
+      delete it.implement_at;
+    }
+    await writeJSON(entry.file, wave);
+    lines.push(`${entry.slug}: ${asked.length} Implement asks moved to staging or ready`);
   }
   return lines;
 });
@@ -2855,20 +2981,6 @@ async function tapRefusals(site, key) {
   return { held, blockers: await blockerNames(site, key, item) };
 }
 
-// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-// An Implement message on a Todo card, in the board server before its event: the card's wave entry records implement_at,
-// so it is In Progress waiting on the orchestrator to fold the message into its notes, until item set --state ready
-// releases it to the board server, which starts its build. A held card is resumed, as the Build tap does. A second message while it waits keeps the
-// first's time.
-export async function askImplement(site, key) {
-  const { item } = await loadItem(site, key);
-  if (item.implement_at) return;
-  if (item.held || item.status === 'held') await recordOwnerTap(site, 'card-hold', { key, hold: false });
-  const { source, wave, item: resumed } = await loadItem(site, key);
-  resumed.implement_at = new Date().toISOString();
-  await writeJSON(source.file, wave);
-}
-
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md
 // An Implement on a card that can't start while blockers (their names) are unfinished: the card is bumped to the top of
 // Todo (card-bump), where the pull takes it once nothing blocks it, and its thread says so. → {key, ref, bumped, line}.
@@ -2877,23 +2989,6 @@ async function bumpBlocked(site, key, blockers) {
   await appendEvent({ dir: site }, 'card-bump', { key });
   await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Can’t start yet: waits on ${names}. Bumped to the top of Todo.` });
   return { key, ref: await cardName(site, key), bumped: blockers, line: `bumped: ${key} waits on ${names}, so it stays in Todo, bumped to the top` };
-}
-
-// A build ready released (an Implement message's card) starts as the owner's Build tap does. One the start refuses, or
-// that fails, loses implement_at and goes back to Todo with the reason, so it isn't tried again on every check.
-// → startTappedBuild's result.
-export async function startReleasedBuild(site, key, worktree) {
-  let started;
-  try { started = await startTappedBuild(site, key, worktree); } catch (e) {
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${e.message}` });
-    started = null;
-  }
-  if (!started) {
-    const { source, wave, item } = await loadItem(site, key);
-    delete item.implement_at;
-    await writeJSON(source.file, wave);
-  }
-  return started;
 }
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
