@@ -5619,3 +5619,9 @@ test("the thread's image button, after the eye and fire and before attach, asks 
   ]);
   b.view.unmount();
 });
+
+// The deck's footer link keeps no underline on hover: the global a:hover rule outranks .deck-more alone.
+test('deck-more link is not underlined in any state', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.deck-more:hover \{ text-decoration: none; \}/);
+});

@@ -924,6 +924,7 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
 .deck-more { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 10px 14px; border-top: 1px solid color-mix(in srgb, var(--color-notice) 28%, var(--line));
   background: color-mix(in srgb, var(--color-notice) 14%, var(--panel)); color: var(--text); font-weight: 600; font-size: 14px; text-decoration: none; }
 .deck-more::after { content: '›'; color: var(--accent); font-size: 18px; }
+.deck-more:hover { text-decoration: none; }
 @media (min-width: 900px) {
   .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
   .split > main { max-width: none; margin: 0; }
