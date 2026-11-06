@@ -298,7 +298,7 @@ BoardView.part((B) => {
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.held ? ask('resume', 'Unhold', 'unhold') : ask('hold', 'Hold');
     // A Todo card's Implement is in its thread box (app-threads.js; docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${mergeButton(it)}${hold}${actionButton(it)}${tryButton(it)}${notesButton(it)}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${hold}${notesButton(it)}${tryButton(it)}${actionButton(it)}${mergeButton(it)}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).

@@ -2530,7 +2530,7 @@ test("an open card shows its workflow buttons below a final details line of Note
   const external = row('w/D1').querySelector('.grid .external-links');
   assert.deepEqual(external.querySelectorAll('a').map((a) => a.getAttribute('href')), [install.url, draft.url]);
   assert.equal(external.textContent, 'Install  · Review draft on GitHub ');
-  const notes = row('w/D1').querySelectorAll('.action-row.workflow a').at(-1);
+  const notes = row('w/D1').querySelector('.action-row.workflow a');
   assert.deepEqual([notes.textContent, notes.getAttribute('href'), notes.getAttribute('class')], ['Notes', 'notes.html?item=w%2FD1', 'button']);
   assert.equal(external.parentNode.children.at(-1), external);
   assert.equal(b.root.querySelector('.action-row.external'), null);
@@ -5276,4 +5276,21 @@ test("the + is on the board's left pane on desktop and gone from the Open questi
   assert.doesNotMatch(shell, /BoardNewTask/);
   assert.doesNotMatch(css, /view-questions[^{]*\.fab/);
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(50% /);
+});
+
+test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Open questions or Mark as done, then Merge", async () => {
+  const ready = { state: 'OPEN', isDraft: false, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
+  const full = {
+    lane: 'review', holdable: true, hasNotes: true, pr: ready, try: { kind: 'web', script: true, changes: true },
+    action: { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' }, resolvedBy: 'merge',
+  };
+  const cards = [
+    workCard('F1', { ...full, actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' } }),
+    workCard('F2', { ...full, actionButton: null }),
+  ];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
+  await b.settle();
+  const order = (key) => b.root.querySelector(`details.item[data-key="${key}"] .action-row.workflow`).querySelectorAll('a, button').map((el) => el.textContent.trim());
+  assert.deepEqual(order('w/F1'), ['Hold', 'Notes', 'Serve', 'Open questions', 'Merge']);
+  assert.deepEqual(order('w/F2'), ['Hold', 'Notes', 'Serve', 'Merge']);
 });
