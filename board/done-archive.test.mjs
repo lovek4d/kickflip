@@ -167,7 +167,7 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
     const archived = `t/D${count - 4}`;
     assert.ok((await readArchive(site)).some((a) => a.key === archived));
     const thread = await (await fetch(`${base}/api/thread?key=${encodeURIComponent(archived)}`)).json();
-    assert.deepEqual(thread.map((m) => m.text), ['Make a badge', 'Which badge?\n→ The dot', 'Landed.'], "an archived card's thread reads whole, its ask and its answers with their questions");
+    assert.deepEqual(thread.map((m) => m.text), ['Make a badge', 'Question 1 · Which badge?\n→ The dot', 'Landed.'], "an archived card's thread reads whole, its ask and its answers with their questions");
   } finally {
     child.kill();
     fs.rmSync(home, { recursive: true, force: true });

@@ -226,8 +226,8 @@ test("a re-ask request on a resolved question is recorded, marks it pending in t
 test("a reopen of a sent question is recorded and opens it on the board, with 'Question N was reopened' in the card's thread; one on a question with no answer sent records nothing", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'K1', title: 'Again' }] }));
-  const ask = (id, extra = {}) => ({ id, topic: 'item:t/K1', question: `${id}?`, options: [{ id: 'A', label: 'This' }], ...extra });
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'K7', title: 'Reopen' }] }));
+  const ask = (id, extra = {}) => ({ id, topic: 'item:t/K7', question: `${id}?`, options: [{ id: 'A', label: 'This' }], ...extra });
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('live'), ask('sent')] }));
   const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -235,17 +235,17 @@ test("a reopen of a sent question is recorded and opens it on the board, with 'Q
     assert.equal((await send({ kind: 'owner-answer', id: 'sent', choice: 'A', label: 'A. This' })).status, 200);
     const before = lines().length;
     for (const question of ['live', 'gone']) {
-      const r = await send({ kind: 'question-reopen', key: 't/K1', question });
+      const r = await send({ kind: 'question-reopen', key: 't/K7', question });
       assert.equal(r.status, 400);
       assert.match((await r.json()).error, /no answer sent|no longer asked here/);
     }
     assert.equal(lines().length, before);
-    const r = await send({ kind: 'question-reopen', key: 't/K1', question: 'sent' });
+    const r = await send({ kind: 'question-reopen', key: 't/K7', question: 'sent' });
     assert.equal(r.status, 200);
-    assert.deepEqual([lines().at(-1).kind, lines().at(-1).data], ['question-reopen', { key: 't/K1', question: 'sent' }]);
+    assert.deepEqual([lines().at(-1).kind, lines().at(-1).data], ['question-reopen', { key: 't/K7', question: 'sent' }]);
     const b = (await r.json()).board;
     assert.deepEqual(b.owner.map((q) => [q.id, q.state, q.reopened]), [['live', 'open', false], ['sent', 'open', true]]);
-    const thread = (await (await fetch(`${base}/api/thread?key=t%2FK1`)).json()).map((m) => [m.text, Boolean(m.request)]);
+    const thread = (await (await fetch(`${base}/api/thread?key=t%2FK7`)).json()).map((m) => [m.text, Boolean(m.request)]);
     assert.deepEqual(thread, [['Question 2 · sent?\n→ A. This', false], ['Question 2 was reopened', true]]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
