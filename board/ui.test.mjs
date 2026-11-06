@@ -1106,15 +1106,34 @@ test('a side page request that keeps failing carries its state, and each wait na
   await assert.rejects(ui.fetchJSON('x', { fetch: async () => { throw new TypeError('Failed to fetch'); }, sleep: async () => {}, limit: 0 }), (e) => e.down.state === 'unreachable');
 });
 
-test("offline, the board neither dims nor blocks reading: only the buttons that send are held, each saying it waits for the board", () => {
+test("offline, the board neither dims nor blocks reading: only the buttons that send are held, each keeping its label", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.doesNotMatch(css, /\.offline main > \*\s*\{\s*opacity/);
   assert.doesNotMatch(css, /\.offline[^{]*\{[^}]*pointer-events:\s*none/);
   assert.doesNotMatch(css, /\.offline #compose\s*\{\s*display:\s*none/);
   assert.ok(css.includes(`.offline :is(${ui.SENDS})`), 'every sending button is held');
-  assert.ok(css.includes(`.offline :is(${ui.SENDS_LABELLED})::after { content: " · Waits for the board"`), 'a labelled one says why');
-  for (const sel of ui.SENDS_LABELLED.split(', ')) assert.ok(ui.SENDS.includes(sel), sel);
+  assert.doesNotMatch(css, /Waits for the board/);
+  assert.equal(ui.SENDS_LABELLED, undefined);
   for (const sel of ['button[data-edit]', 'a.button', 'button[data-lane-more]', 'button[data-thread-more]']) assert.equal(ui.SENDS.includes(sel), false, sel);
+});
+
+test('a tap on a held sending button tells onHeld and goes nowhere; a live board lets it through', () => {
+  const handlers = {};
+  const on = (root, type, fn) => { handlers[type] = fn; };
+  let held = true;
+  const told = [];
+  ui.holdSends(on, {}, () => held, () => told.push('held'));
+  const tap = (matches) => {
+    const ev = { type: 'click', target: { closest: () => matches }, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopImmediatePropagation() {} };
+    handlers.click(ev);
+    return ev.defaultPrevented;
+  };
+  assert.equal(tap(true), true);
+  assert.equal(tap(false), false);
+  held = false;
+  assert.equal(tap(true), false);
+  assert.deepEqual(told, ['held']);
+  assert.equal(ui.WAITING, 'Waiting for the board to reconnect');
 });
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md

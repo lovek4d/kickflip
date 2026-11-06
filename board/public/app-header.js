@@ -101,7 +101,7 @@ BoardView.part((B) => {
     applyControls();
     renderStatus();
   }
-  BoardUI.holdSends(B.on, B.root, () => state.link !== 'online');
+  BoardUI.holdSends(B.on, B.root, () => state.link !== 'online', () => B.toast(BoardUI.WAITING));
   const linkUp = () => setLink('online');
   const linkDown = () => { if (state.link !== 'reconnecting') setLink('offline'); };
   B.on($('#settingsLink'), 'click', (ev) => {

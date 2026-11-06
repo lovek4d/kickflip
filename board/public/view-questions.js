@@ -237,7 +237,7 @@
     // While the board can't be reached, the page holds its sending buttons and shows the board's copy here, painted live,
     // or with none and nothing landed the landing for why (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md).
     let copy = null;
-    BoardUI.holdSends(B.on, root, () => root.classList.contains('offline'));
+    BoardUI.holdSends(B.on, root, () => root.classList.contains('offline'), () => B.toast(BoardUI.WAITING));
     const out = (down) => {
       root.classList.add('offline');
       copy ||= BoardUI.boardCopy(site.url(''), document.documentElement.dataset.build);
