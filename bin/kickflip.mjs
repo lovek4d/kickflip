@@ -116,7 +116,7 @@
 //   kickflip update [--no-restart]
 //               installs @lovek4d/kickflip@latest globally with npm. When the version changed it prints
 //               "<old> > <new>" and restarts the hub; otherwise it prints "no new version available" and leaves the hub running.
-//               --no-restart leaves the hub running on its old code (the hub pulls this way, and offers Restart).
+//               --no-restart leaves the hub running on its old code (the hub pulls this way, then restarts itself).
 //               A clone refuses (exit 2); update it with git pull
 //   kickflip push --kind action|prompt|fault|reminder --title <t> [--body <b>] [--url </route/path>] [--tag <tag>]
 //               [--now | --urgent]

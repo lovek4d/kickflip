@@ -1580,11 +1580,9 @@ test('an open shell shows new hub code before the next Hub paint and reloads onl
   const sidebarData = await sidebar.json();
   assert.ok(sidebarData.code);
   assert.equal(sidebar.headers.get('x-hub-code'), sidebarData.code);
-  // The hub runs from this clone, which never asks npm, so nothing is offered and Upgrade is refused.
-  assert.equal(sidebarData.upgrade, null);
-  const upgrade = await fetch(`${base}/_hub/upgrade`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-  assert.deepEqual([upgrade.status, await upgrade.json()], [409, { error: 'kickflip is up to date.' }]);
-  assert.equal((await fetch(`${base}/_hub/upgrade`, { method: 'POST', body: '{}' })).status, 403);
+  // The sidebar carries no npm update state, and the hub has no upgrade route.
+  assert.equal('upgrade' in sidebarData, false);
+  assert.equal((await fetch(`${base}/_hub/upgrade`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 404);
   const html = await (await fetch(`${base}/_hub/`)).text();
   assert.match(html, /<div class="sb-update" role="status"><\/div>/);
   let reloads = 0;
@@ -4786,71 +4784,6 @@ test('a slim Done card draws as the whole card does, closed and open', async () 
   const whole = await draw(built.items);
   assert.match(whole, /Restart the hub/);
   assert.equal(await draw(built.items.map((i) => (i.lane === 'done' ? slimDone(i) : i))), whole);
-});
-
-// docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test('Update after a failed pull posts to the hub and shows only what the hub answers', async () => {
-  const page = repoPage();
-  const { win, doc } = page;
-  const posted = [];
-  let answer;
-  win.fetch = (url, options = {}) => {
-    posted.push([url, options.method, options.headers?.['content-type']]);
-    return new Promise((resolve) => { answer = resolve; });
-  };
-  const sidebar = win.Sidebar.mount({ data: { sites: [], upgrade: { state: 'failed', version: '0.4.0', error: 'npm update failed' } } });
-  const aside = doc.getElementById('sidebar');
-  const button = () => aside.querySelector('[data-app-upgrade]');
-  const title = () => aside.querySelector('.sb-update .sb-title').textContent;
-  assert.equal(title(), 'Update failed');
-  assert.ok(doc.documentElement.classList.contains('sb-update'));
-  page.fire(aside, 'click', { target: button() });
-  page.fire(aside, 'click', { target: button() });
-  assert.deepEqual(posted, [['/_hub/upgrade', 'POST', 'application/json']]);
-  answer(repoResponse({ upgrade: { state: 'updating', version: '0.4.0' } }));
-  await tick(); await tick();
-  assert.equal(title(), 'Updating');
-  assert.equal(button().disabled, true);
-  sidebar.setData({ sites: [], upgrade: { state: 'failed', version: '0.4.0', error: 'npm update failed' } });
-  page.fire(aside, 'click', { target: button() });
-  answer({ ok: false, status: 409, text: async () => JSON.stringify({ error: 'kickflip is up to date.' }), json: async () => ({ error: 'kickflip is up to date.' }) });
-  await tick(); await tick();
-  assert.equal(title(), 'Update failed');
-  assert.match(aside.querySelector('.sb-update').textContent, /kickflip is up to date\./);
-  assert.equal(button().disabled, false);
-  sidebar.setData({ sites: [], upgrade: null });
-  assert.equal(button(), null);
-  assert.equal(doc.documentElement.classList.contains('sb-update'), false);
-  sidebar.close();
-});
-
-test('Restart on the sidebar restarts the hub, reads Restarting, and reloads the page once the hub answers with other code', async () => {
-  const page = repoPage();
-  const { win, doc } = page;
-  const calls = [];
-  let hubCode = 'old';
-  let down = false;
-  win.setTimeout = (fn) => setImmediate(fn);
-  win.fetch = async (url, options = {}) => {
-    calls.push([url, options.method || 'GET']);
-    if (url === '/_hub/restart-hub') { down = true; return { ...repoResponse({ restarting: true, command: 'launchctl kickstart' }), headers: { get: () => hubCode } }; }
-    if (down && calls.filter(([u]) => u === '/_hub/api/hub').length < 3) throw new Error('down');
-    if (down) hubCode = 'new';
-    return { ...repoResponse({ sites: [], upgrade: null }), headers: { get: () => hubCode } };
-  };
-  let reloads = 0;
-  const sidebar = win.Sidebar.mount({ data: { sites: [], upgrade: { state: 'updated', version: '0.4.0' } }, reload: () => reloads++ });
-  const aside = doc.getElementById('sidebar');
-  const row = () => `${aside.querySelector('.sb-update .sb-title').textContent} ${aside.querySelector('.sb-update .sb-go').textContent}`;
-  assert.equal(row(), 'Updated to v0.4.0 Restart');
-  page.fire(aside, 'click', { target: aside.querySelector('[data-app-restart]') });
-  page.fire(aside, 'click', { target: aside.querySelector('[data-app-restart]') });
-  await tick();
-  assert.equal(row(), 'Restarting to v0.4.0 Restart');
-  assert.equal(calls.filter(([u]) => u === '/_hub/restart-hub').length, 1);
-  for (let i = 0; i < 20 && !reloads; i++) await new Promise((resolve) => setTimeout(resolve, 5));
-  assert.equal(reloads, 1);
-  sidebar.close();
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

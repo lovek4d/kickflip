@@ -58,9 +58,6 @@
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
     let device = null;
     let update = null;
-    // While Restart waits for the hub: null | {version} | {version, error}, which replaces the hub's upgrade field in the row.
-    let restart = null;
-    const upgradeShown = () => (restart ? { state: restart.error ? 'updated' : 'restarting', ...restart } : data?.upgrade);
     let updateHTML = '';
     const rail = matchMedia(RAIL);
     const html = document.documentElement;
@@ -73,7 +70,7 @@
       const logo = [...document.querySelectorAll('.top a.hub')].find(pageLogo);
       if (!logo) return;
       const n = othersWaiting(data, here);
-      logo.setAttribute('aria-label', `Boards${update ? ', new version ready' : upgradeShown() ? ', update available' : ''}${n ? `, ${n} waiting on other boards` : ''}`);
+      logo.setAttribute('aria-label', `Boards${update ? ', new version ready' : ''}${n ? `, ${n} waiting on other boards` : ''}`);
     }
     // switching: {opened, started, timer} while switch mode shows, opened when it opened the drawer, started on performance.now().
     let switching = null;
@@ -104,7 +101,7 @@
     }
     // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
     function paint() {
-      html.classList.toggle('sb-update', Boolean(update || upgradeShown()));
+      html.classList.toggle('sb-update', Boolean(update));
       if (!data) return;
       const scroll = aside.querySelector('.sb-scroll');
       const top = painted ? scroll?.scrollTop : undefined;
@@ -120,7 +117,7 @@
       const fresh = aside.querySelector('.sb-update');
       if (fresh) {
         if (held) fresh.replaceWith(held);
-        const row = updateRow(update, upgradeShown());
+        const row = updateRow(update);
         if (!held || row !== updateHTML) (held || fresh).innerHTML = row;
         updateHTML = row;
       }
@@ -198,64 +195,10 @@
         if (!refreshApp.disabled && update !== 'reloading') { setUpdate('reloading'); reload(); }
         return;
       }
-      const restartApp = e.target.closest?.('[data-app-restart]');
-      if (restartApp) { if (!restartApp.disabled) restartHub(); return; }
-      const upgradeApp = e.target.closest?.('[data-app-upgrade]');
-      if (upgradeApp) { if (!upgradeApp.disabled) upgrade(upgradeApp); return; }
       if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }
       const failed = e.target.closest?.('[data-failed-start]');
       if (failed) openFailed(failed.dataset.failedStart);
     });
-    // Restart asks the hub to restart (POST /_hub/restart-hub), then polls until it answers with other code than it ran (its
-    // x-hub-code) and reloads the page (docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md).
-    // Past RESTART_TRIES polls the row goes back to Restart with how to restart by hand.
-    const RESTART_TRIES = 120;
-    async function restartHub() {
-      if (restart) return;
-      const version = data.upgrade.version;
-      restart = { version };
-      paint();
-      let before, command;
-      try {
-        const response = await fetch('/_hub/restart-hub', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: '{}' });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || 'The hub didn’t restart.');
-        before = response.headers.get('x-hub-code');
-        command = body.command;
-      } catch (e) {
-        restart = { version, error: e.message || 'The hub didn’t answer.' };
-        paint();
-        restart = null;
-        return;
-      }
-      for (let i = 0; i < RESTART_TRIES; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        try {
-          const response = await fetch('/_hub/api/hub', { cache: 'no-store', headers: { accept: 'application/json' } });
-          const code = response.headers.get('x-hub-code');
-          if (response.ok && code && code !== before) { reload(); return; }
-        } catch { /* the hub is down while it restarts */ }
-      }
-      restart = { version, error: `The hub hasn’t come back. On the host, run ${command}` };
-      paint();
-      restart = null;
-    }
-    // Update pulls again after a failed pull (docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md). The row
-    // waits (ui.js waitOn) until the hub answers with what it did, then while that pull runs (ui-sidebar.js
-    // updateRow), and a refusal shows as a failed update.
-    function upgrade(button) {
-      BoardUI.waitOn(button, (async () => {
-        let next;
-        try {
-          const response = await fetch('/_hub/upgrade', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-          const body = await response.json().catch(() => ({}));
-          next = response.ok ? body.upgrade : { ...data.upgrade, state: 'failed', error: body.error || 'The hub didn’t answer.' };
-        } catch {
-          next = { ...data.upgrade, state: 'failed', error: 'The hub didn’t answer.' };
-        }
-        setData({ ...data, upgrade: next });
-      })());
-    }
     // A failed start's sheet (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). Dismiss deletes its Starting
     // record; Retry starts it again, and its row reads starting… until the hub's next copy says otherwise.
     function openFailed(route) {

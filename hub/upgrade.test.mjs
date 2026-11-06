@@ -29,92 +29,45 @@ test('newer compares versions by their numbers', () => {
   assert.equal(newer('0.2.9', '0.3.0'), false);
 });
 
-test('an installed version as new as latest offers nothing, and a registry that fails keeps the last answer', async () => {
+test('an installed version as new as latest pulls nothing, and a registry that fails logs and pulls nothing', async () => {
   const root = install({ version: '0.4.0' });
   let answer = { ok: true, status: 200, json: async () => ({ version: '0.4.0' }) };
   const logs = [];
-  const up = upgrader({ root, running: '0.4.0', fetch: async () => answer, run: () => new Promise(() => {}), log: (...a) => logs.push(a.join(' ')) });
+  let runs = 0;
+  const up = upgrader({ root, fetch: async () => answer, run: async () => { runs++; return { ok: true }; }, log: (...a) => logs.push(a.join(' ')) });
   await up.check();
-  assert.equal(up.state(), null);
-  answer = { ok: true, status: 200, json: async () => ({ version: '0.5.0' }) };
-  await up.check();
-  assert.equal(up.state().version, '0.5.0');
   answer = { ok: false, status: 503, json: async () => ({}) };
   await up.check();
-  assert.equal(up.state().version, '0.5.0');
+  assert.equal(runs, 0);
   assert.match(logs.join('\n'), /503/);
 });
 
-test('a clone never asks npm and never shows the update', async () => {
+test('a clone never asks npm and never pulls', async () => {
   const root = install({ version: '0.1.0', clone: true });
   const { fetch, asked } = registry('9.0.0');
-  const up = upgrader({ root, running: '0.1.0', fetch, run: async () => ({ ok: true }) });
+  let runs = 0;
+  const up = upgrader({ root, fetch, run: async () => { runs++; return { ok: true }; } });
   await up.check();
   assert.deepEqual(asked, []);
-  assert.equal(up.state(), null);
-  await assert.rejects(up.request(), { status: 409 });
+  assert.equal(runs, 0);
 });
 
-// The hub pulls the new version itself, then offers Restart (docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md).
-const install2 = (version) => (root) => fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: '@lovek4d/kickflip', version }));
-
-test('a check that finds a newer version pulls it at once, with no builder wait, and then offers Restart until the hub runs it', async () => {
+// docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md
+test('a check that finds a newer version pulls it at once, once while it runs, and calls pulled only when the pull finished OK', async () => {
   const root = install({ version: '0.3.0' });
-  const runs = [];
   let finish;
-  let changes = 0;
-  const up = upgrader({ root, running: '0.3.0', fetch: registry('0.4.0').fetch, run: () => { runs.push(1); return new Promise((resolve) => { finish = resolve; }); }, changed: () => changes++ });
-  assert.equal(up.state(), null);
-  await up.check();
-  assert.equal(runs.length, 1);
-  assert.deepEqual(up.state(), { state: 'updating', version: '0.4.0' });
-  await up.check();
-  assert.equal(runs.length, 1);
-  install2('0.4.0')(root);
-  finish({ ok: true });
-  await new Promise(setImmediate);
-  assert.deepEqual(up.state(), { state: 'updated', version: '0.4.0' });
-  assert.ok(changes >= 2);
-  const again = upgrader({ root, running: '0.4.0', fetch: registry('0.4.0').fetch, run: async () => ({ ok: true }) });
-  await again.check();
-  assert.equal(again.state(), null);
-});
-
-test('a version installed on disk newer than the running hub is offered for Restart even before a check', () => {
-  const root = install({ version: '0.4.0' });
-  const up = upgrader({ root, running: '0.3.0', fetch: registry('0.4.0').fetch, run: async () => ({ ok: true }) });
-  assert.deepEqual(up.state(), { state: 'updated', version: '0.4.0' });
-});
-
-test('a failed pull shows as failed with its error, a tap pulls again, and the next check retries too', async () => {
-  const root = install({ version: '0.3.0' });
   const runs = [];
-  let result = { ok: false, error: 'npm update failed' };
-  const up = upgrader({ root, running: '0.3.0', fetch: registry('0.4.0').fetch, run: async () => { runs.push(1); return result; } });
-  await assert.rejects(up.request(), { status: 409, message: /up to date/ });
-  await up.check();
-  await new Promise(setImmediate);
-  assert.deepEqual(up.state(), { state: 'failed', version: '0.4.0', error: 'npm update failed' });
-  result = { ok: false, error: 'still down' };
-  await up.request();
-  await new Promise(setImmediate);
-  assert.equal(runs.length, 2);
-  assert.equal(up.state().error, 'still down');
-  await up.check();
-  await new Promise(setImmediate);
-  assert.equal(runs.length, 3);
-});
-
-test('a pull that finishes OK calls pulled, and a failed pull does not', async () => {
-  const root = install({ version: '0.3.0' });
-  let result = { ok: false, error: 'down' };
   let pulled = 0;
-  const up = upgrader({ root, running: '0.3.0', fetch: registry('0.4.0').fetch, run: async () => result, pulled: () => pulled++ });
+  const up = upgrader({ root, fetch: registry('0.4.0').fetch, run: () => { runs.push(1); return new Promise((resolve) => { finish = resolve; }); }, pulled: () => pulled++ });
   await up.check();
+  await up.check();
+  assert.equal(runs.length, 1);
+  finish({ ok: false, error: 'down' });
   await new Promise(setImmediate);
   assert.equal(pulled, 0);
-  result = { ok: true };
-  await up.request();
+  await up.check();
+  assert.equal(runs.length, 2);
+  finish({ ok: true });
   await new Promise(setImmediate);
   assert.equal(pulled, 1);
 });

@@ -178,21 +178,14 @@
     return `<span class="sb-steps">${phaseBars(strip, STEP_KEYS)}</span>`;
   }
 
-  // The New version row. update: the app's reload, null | 'ready' | 'reloading', which comes first. upgrade:
-  // /_hub/sidebar.json's npm update, null | {state: available | updating | updated | restarting | failed, version, error}
-  // (hub/upgrade.mjs; docs/adr/2026-11-05-2200-the-hub-pulls-a-new-version-itself-and-offers-restart.md). The hub pulls a new
-  // version itself, so the row reads Updated to v<version> with Restart; restarting is the sidebar's own state while the hub
-  // restarts. A reload, a pull and a restart wait (ui.js BUSY): the pill keeps its blue with a spinner in place of its word.
-  function updateRow(update, upgrade) {
-    const button = (attr, busy, title, sub, go) => `<button type="button" class="sb-row sb-update-row" ${attr}${busy ? globalThis.BoardUI.BUSY : ''}>${tile('up', 'var(--accent)')}`
-      + `<span class="sb-text"><span class="sb-title">${title}</span>${sub ? `<span class="sb-sub">${esc(sub)}</span>` : ''}</span><span class="sb-go">${go}</span></button>`;
-    if (update) return button('data-app-reload', update === 'reloading', 'New version', '', 'Reload');
-    if (!upgrade) return '';
-    if (upgrade.state === 'updated') return button('data-app-restart', false, `Updated to v${esc(upgrade.version)}`, upgrade.error, 'Restart');
-    if (upgrade.state === 'restarting') return button('data-app-restart', true, `Restarting to v${esc(upgrade.version)}`, '', 'Restart');
-    if (upgrade.state === 'updating') return button('data-app-upgrade', true, 'Updating', '', 'Update');
-    if (upgrade.state === 'failed') return button('data-app-upgrade', false, 'Update failed', upgrade.error, 'Update');
-    return button('data-app-upgrade', false, 'Update available', '', 'Update');
+  // The New version row, only while the app's code is old. update: the app's reload, null | 'ready' | 'reloading'. Nothing
+  // else draws a row: the hub pulls a new version and restarts itself, and a pull or restart that fails shows nothing
+  // (docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md). A reload waits (ui.js BUSY): the pill keeps
+  // its blue with a spinner in place of its word.
+  function updateRow(update) {
+    if (!update) return '';
+    return `<button type="button" class="sb-row sb-update-row" data-app-reload${update === 'reloading' ? globalThis.BoardUI.BUSY : ''}>${tile('up', 'var(--accent)')}`
+      + `<span class="sb-text"><span class="sb-title">New version</span></span><span class="sb-go">Reload</span></button>`;
   }
 
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push
@@ -243,7 +236,7 @@
     const boardsLabel = `<div class="sb-label ks-label"><span class="ks-label-text">Boards</span>${hint}</div>`;
     if (data?.shared) return `${top}<div class="sb-scroll"><section class="sb-boards" aria-label="Boards">${boardsLabel}<div class="sb-group">${boards.map(siteRow).join('')}</div></section></div>`;
     return top
-      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update, data?.upgrade)}</div><div class="sb-group">`
+      + `<div class="sb-scroll"><section class="sb-utility" aria-label="Hub"><div class="sb-update" role="status">${updateRow(update)}</div><div class="sb-group">`
       + UTILITY.map((f) => row({ ...f, on: f.href.replace(/\/$/, '') === selected, sub: subs[f.href], mark: f.href === '/_hub/' ? moon : '', ...(f.href === '/_hub/' && usage ? { extra: usage, cls: 'sb-hub-usage' } : {}), key: keys?.get(f.href) })).join('')
       + `</div>${turnOn}</section>`
       + (pages.length ? `<section class="sb-pages" aria-label="Pages"><div class="sb-label">Pages</div><div class="sb-group">${pages.map(siteRow).join('')}</div></section>` : '')

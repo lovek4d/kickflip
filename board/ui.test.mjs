@@ -2034,31 +2034,18 @@ test('a Forever Pause hub or Pause board reads until you resume on the banner, t
   assert.equal(ui.statusLine(null, { pause: forever('board') }), '<span class="fresh hold" title="Paused until you resume"></span>');
 });
 
-test('the New version row reads Updated to the pulled version with Restart, spins while the pull or the restart runs, and gives Reload priority', () => {
-  const row = (update, upgrade) => ui.updateRow(update, upgrade);
-  assert.equal(row(null, null), '');
-  const available = row(null, { state: 'available', version: '0.4.0' });
-  assert.match(available, /<button type="button" class="sb-row sb-update-row" data-app-upgrade>/);
-  assert.equal(text(available), 'Update available Update');
-  const updating = row(null, { state: 'updating', version: '0.4.0' });
-  assert.match(updating, /data-app-upgrade disabled aria-busy="true"/);
-  assert.equal(text(updating), 'Updating Update');
-  const updated = row(null, { state: 'updated', version: '0.4.0' });
-  assert.match(updated, /<button type="button" class="sb-row sb-update-row" data-app-restart>/);
-  assert.equal(text(updated), 'Updated to v0.4.0 Restart');
-  assert.doesNotMatch(updated, /sb-sub/);
-  const restarting = row(null, { state: 'restarting', version: '0.4.0' });
-  assert.match(restarting, /data-app-restart disabled aria-busy="true"/);
-  assert.equal(text(restarting), 'Restarting to v0.4.0 Restart');
-  const failed = row(null, { state: 'failed', version: '0.4.0', error: 'npm <update> failed' });
-  assert.doesNotMatch(failed, /disabled/);
-  assert.equal(text(failed), 'Update failed npm <update> failed Update');
-  assert.equal(text(row('ready', { state: 'updated', version: '0.4.0' })), 'New version Reload');
-  const reloading = row('reloading', null);
+// docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md
+test('the update row reads New version with Reload only, shows nothing otherwise, and spins while reloading', () => {
+  assert.equal(ui.updateRow(null), '');
+  const ready = ui.updateRow('ready');
+  assert.match(ready, /<button type="button" class="sb-row sb-update-row" data-app-reload>/);
+  assert.equal(text(ready), 'New version Reload');
+  const reloading = ui.updateRow('reloading');
   assert.match(reloading, /data-app-reload disabled aria-busy="true"/);
   assert.equal(text(reloading), 'New version Reload');
-  const html = ui.sidebar({ sites: [], upgrade: { state: 'available', version: '0.4.0' } });
-  assert.match(html, /<div class="sb-update" role="status"><button[^>]*data-app-upgrade>/);
+  // The hub's npm pull state is no part of the sidebar's data, so a stale field draws nothing.
+  const html = ui.sidebar({ sites: [], upgrade: { state: 'failed', version: '0.4.0' } });
+  assert.match(html, /<div class="sb-update" role="status"><\/div>/);
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
@@ -2215,7 +2202,7 @@ test('pending.within settles with its work, and past 60 seconds runs onLate and 
 
 // docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
 test("a shared person's sidebar lists only their boards: no Hub row, no New board, no update or notification rows", () => {
-  const data = { shared: { by: 'Love' }, sites: [{ route: 'orch', title: 'Orch', board: true, icon: '<span class="icon"></span>', sub: 'idle' }], starting: [], upgrade: { state: 'available' } };
+  const data = { shared: { by: 'Love' }, sites: [{ route: 'orch', title: 'Orch', board: true, icon: '<span class="icon"></span>', sub: 'idle' }], starting: [] };
   const html = ui.sidebar(data, { here: 'orch', device: 'off', update: 'ready' });
   assert.match(html, /<a class="sb-row on" href="\/orch\/" aria-current="page">/);
   assert.doesNotMatch(html, /sb-row[^"]*" href="\/_hub\/"|data-new-board|sb-utility|data-app-reload|Turn on notifications/);
