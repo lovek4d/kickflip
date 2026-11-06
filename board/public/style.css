@@ -403,6 +403,9 @@ button.sub.agent.stalled.nudging { color: var(--color-notice); cursor: default; 
 /* docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a quiet builder and a request no planner
    has picked up are grey, after the lane colours so they win. */
 .sub.agent.quiet, .sub.asked { color: var(--muted); }
+.sub.agent.waiting-gray { color: var(--muted); }
+/* The one class every paused status takes, gray: the card and thread line, the header, the hub banner. */
+.paused { color: var(--muted); font-weight: 600; }
 .phase-bars.plan { --bar-fill: var(--accent); }
 @keyframes pulse-fill-plan { 50% { background-color: color-mix(in srgb, var(--accent) 35%, transparent); } }
 @media (prefers-reduced-motion: no-preference) { .phase-bars.plan:not(.dim) i.now { animation-name: pulse-fill-plan; } }

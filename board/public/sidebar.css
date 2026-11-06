@@ -180,6 +180,7 @@ html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-side
 .sidebar .t-building { --tone: var(--color-notice); }
 .sidebar .t-ok { --tone: var(--color-success); }
 .sidebar .t-wait { --tone: var(--color-notice); }
+.sidebar .t-paused { --tone: var(--muted); }
 
 @media (min-width: 900px) {
   body.has-sidebar { padding-left: 272px; }

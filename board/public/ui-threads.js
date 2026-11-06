@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), its builders' asks, the owner's messages and
 // their replies. Needs ui.js, ui-links.js and ui-enums.js.
 (function () {
-  const { esc, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, workingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
+  const { esc, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // A link to a card on this board (#item=<key>) or on another board (/<route>/#item=<key>, an ask's move), or ''.
   function cardLink(link) {
@@ -15,9 +15,9 @@
   const stateOf = (m) => m.state || (m.reply ? 'replied' : 'waiting');
   // A message's footer: the tap it came from (m.status, such as "answers submitted"), then, to its right, Claude's
   // pick-up while it waits (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
-  const PICK_UP = { working: workingLine, waiting: 'Waiting for Claude…' };
+  const PICK_UP = { working: thinkingLine, waiting: () => 'Waiting for Claude…' };
   const msgFooter = (m) => {
-    const parts = [m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, PICK_UP[stateOf(m)]].filter(Boolean);
+    const parts = [m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, PICK_UP[stateOf(m)]?.()].filter(Boolean);
     return parts.length ? `<div class="reply muted small">${parts.join('')}</div>` : '';
   };
   // Each reply becomes Claude's own message at the time it was written, quoting the owner's message

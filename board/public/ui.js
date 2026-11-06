@@ -112,6 +112,12 @@
     ? `<button class="ghost icon bumped" data-card-bump="${esc(key)}" data-bumped aria-pressed="true" aria-label="Unbump" title="Bumped. Tap to unbump">${BUMP}</button>`
     : `<button class="ghost icon" data-card-bump="${esc(key)}" aria-pressed="false" aria-label="Bump to top" title="Bump to top">${BUMP}</button>`);
   const workingLine = '<span class="thinking"><span class="working-dot" aria-hidden="true"></span>thinking</span>';
+  // Every paused status, whatever its place, is this one class (style.css .paused); BoardUI.usagePause is set by the
+  // board view (app.js) to read the hub's usage pause.
+  const PAUSED = '<span class="paused">paused</span>';
+  const isPaused = () => BoardUI.usagePause?.()?.state === 'paused';
+  // The orchestrator's "thinking" while its usage allows, else paused.
+  const thinkingLine = () => (isPaused() ? PAUSED : workingLine);
   // html is markup the caller has escaped; href, title and attrs values are escaped here.
   const BADGE_TONES = Object.freeze(['quiet', 'normal', 'notice', 'danger', 'ready', 'merged']);
   function badge(tone, html, { href, title, button = false, attrs = {} } = {}) {
@@ -374,6 +380,6 @@
   globalThis.BoardUI = {
     LINK_ARROW, escText,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, boltButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, boltButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
   };
 })();

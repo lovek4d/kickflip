@@ -1282,21 +1282,27 @@ test("a planner's line on a card is marked planner, keeping its dot, orange in I
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 test("a card idle on the orchestrator reads waiting for orchestrator with how long, then orchestrator review with its dot once picked up, in its lane's colour", () => {
   const minutes = (n) => new Date(Date.now() - n * 60000).toISOString();
-  const status = (it) => /<div class="line3 sub agent ([\w-]+)">(.*?)<\/div>/.exec(ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.slice(1);
+  const status = (it) => /<div class="line3 sub agent ([\w -]+)">(.*?)<\/div>/.exec(ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.slice(1);
   const waiting = { kind: 'calls', since: minutes(14), picked: null, next: 'x' };
-  assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: waiting }), ['in-progress', 'waiting for orchestrator · 14m']);
+  assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: waiting }), ['in-progress waiting-gray', 'waiting for orchestrator · 14m']);
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
     ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review · 3m']);
-  assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo', 'waiting for orchestrator · 14m']);
+  // A usage pause reads paused in gray, picked up or not, on the card and in a thread's pick-up line.
+  ui.usagePause = () => ({ state: 'paused' });
+  assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
+    ['in-progress waiting-gray', '<span class="paused">paused</span> · 3m']);
+  assert.match(ui.threadMessages([{ ts: '2020-01-01T10:00:00Z', who: 'love', kind: 'item-message', text: 'x', eventId: 'e1', state: 'working' }]), /<span class="paused">paused<\/span>/);
+  ui.usagePause = null;
+  assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo waiting-gray', 'waiting for orchestrator · 14m']);
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: an Implement message's card waits like any other.
-  assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress', 'waiting for orchestrator · 14m']);
+  assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress waiting-gray', 'waiting for orchestrator · 14m']);
   // A running builder keeps its own line while its ask waits.
   assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Testing · x', phase: 'testing', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
     ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Testing · x · 2m']);
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: a rebase run's hand-back, In
   // Review, reads its own failure line above the wait.
   const failed = ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'review', waitsOn: 'checking', orchestrator: waiting, rebaseFailed: 'Rebase failed in 2 files · <both sides>' });
-  assert.match(failed, /<div class="line3 sub">Rebase failed in 2 files · &lt;both sides&gt;<\/div><div class="line3 sub agent">waiting for orchestrator · 14m<\/div>/);
+  assert.match(failed, /<div class="line3 sub">Rebase failed in 2 files · &lt;both sides&gt;<\/div><div class="line3 sub agent waiting-gray">waiting for orchestrator · 14m<\/div>/);
 });
 
 test("a builder line shows the progress and its age, not who is building", () => {
@@ -1992,11 +1998,11 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.equal(hub.pauseBanner({ state: 'normal' }), '');
   const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span><span class="lcs"><span class="lc">3 todo</span></span>' }];
   const sidebar = ui.sidebar({ pause, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
-  assert.equal([...sidebar.matchAll(/class="word t-wait">paused/g)].length, 2);
+  assert.equal([...sidebar.matchAll(/class="word t-paused">paused/g)].length, 2);
   assert.ok(text(sidebar).includes(`until ${until}`));
   assert.match(text(sidebar), /paused 3 todo/);
   assert.doesNotMatch(sidebar, />working</);
-  assert.equal(ui.statusLine(null, { pause }), `<span class="late">paused until ${until}</span>`);
+  assert.equal(ui.statusLine(null, { pause }), `<span class="paused">paused until ${until}</span>`);
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });
 

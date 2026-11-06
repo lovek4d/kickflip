@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-phase-bars.js.
 (function () {
-  const { esc, ago, lasted, clock, cardTime, etaLine, workingLine, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, phaseBars: bars } = globalThis.BoardUI;
+  const { esc, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, phaseBars: bars } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
@@ -206,7 +206,8 @@
   // review with its dot once the session picks it up, each with how long ago.
   function orchestratorStatus(it) {
     const { since, picked } = it.orchestrator;
-    return `<div class="line3 sub agent${tone(it)}">${picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`}</div>`;
+    const words = isPaused() ? `${PAUSED} · ${esc(lasted(picked || since))}` : picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`;
+    return `<div class="line3 sub agent${tone(it)}${picked && !isPaused() ? '' : ' waiting-gray'}">${words}</div>`;
   }
   // A stale or stopped build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
   // A quiet one is grey, with no dot.
@@ -284,7 +285,7 @@
   const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep}`)}">${CHECK}</button>`;
   const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.ownerStep ? `<div class="ask-actions">${ownerDoneButton(it)}</div>`
     : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
-  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && workingLine].filter(Boolean).join(' · ');
+  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && thinkingLine()].filter(Boolean).join(' · ');
   // In a wave band (app-lanes.js), step is the number of the card's phase in its wave, shown inside its id chip, and actions replace
   // its bump with the band's ⋯ menu.
   function workLines(it, { unread = 0, top = false, step = 0, actions = null } = {}) {
@@ -299,7 +300,7 @@
       : it.builder ? builderStatus(it)
       : it.grilling || it.prototyping ? '<div class="line3 sub asked">preheating</div>'
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
-      : it.working ? `<div class="line3 sub agent">${workingLine}</div>`
+      : it.working ? `<div class="line3 sub agent">${thinkingLine()}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
