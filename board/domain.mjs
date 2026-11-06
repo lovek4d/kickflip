@@ -152,7 +152,7 @@ const TAP_DONE = 'Tap Done once it is settled';
 // Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's; never the owner's lines,
 // their answers included, nor status, agent or ask-link lines, nor the orchestrator's answer to a builder's ask, which
 // leaves the card quiet (ui-threads.js unread; docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md).
-const QUIET_KINDS = ['status', 'agent', 'ask-link', MOVE, BUILDER_ASK.answer];
+const QUIET_KINDS = ['status', 'agent', 'ask-link', 'command', MOVE, BUILDER_ASK.answer];
 const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET_KINDS.includes(m.kind);
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
@@ -224,7 +224,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const bumpStands = bumpedAt && !(firstBuild && String(bumpedAt) < firstBuild);
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   // A held Merge handed to a lander (finish.mjs landHeld) is still merging: the card leaves In Review once the lander starts.
-  const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', MOVE].includes(m.kind) && !LANDER_HANDOFF.test(m.text || '')).map((m) => String(m.ts)).sort().pop() || '';
+  const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'command', MOVE].includes(m.kind) && !LANDER_HANDOFF.test(m.text || '')).map((m) => String(m.ts)).sort().pop() || '';
   // A held card's tap is recorded on it (store.mjs tapMerge), and the board server's land writes its outcome there.
   const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
   const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;
@@ -295,7 +295,7 @@ function waitFactsOf(it, { agents, thread, events, refusedAt }) {
   const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
   const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
   const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
-  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', MOVE, BUILD_REFUSED].includes(m.kind)).map((m) => m.ts);
+  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', 'command', MOVE, BUILD_REFUSED].includes(m.kind)).map((m) => m.ts);
   return {
     handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt,
@@ -477,7 +477,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const onClaude = answered && !closed && !inProgress && !asked && pending.answered > 0;
   const done = closed || (answered && !inProgress && !asked && !onClaude);
   const answerAt = answered && !linked && !mark?.moved
-    ?[...msgs.filter((m) => m.who === 'claude' && m.kind !== 'ask-link' && m.kind !== 'status').map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort().pop() || null
+    ?[...msgs.filter((m) => m.who === 'claude' && m.kind !== 'ask-link' && m.kind !== 'status' && m.kind !== 'command').map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort().pop() || null
     : null;
   const handled = done || inProgress || asked || onClaude;
   // An owner message Claude hasn't answered puts the next step back with Claude.
@@ -755,6 +755,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 export const COMMANDS = {
   implement: 'Implementation requested', prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
   reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done',
+  related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
 };
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'reask-request': 'reask' };
 export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };
@@ -783,6 +784,12 @@ const REOPENED = 'question reopened';
 // its status); a thread message has its button's label as its status (intentLabel).
 // A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
+// A link's line (store.mjs postLinkLines) names the other card by its stored key; its words are the command's, then that
+// card's ref and title as they stand now, and it links to the card.
+const linkLine = (m, cards) => {
+  const other = cards.get(m.card);
+  return { ...m, text: `${COMMANDS[m.command]} ${other ? `${other.ref}: ${other.title}` : m.card}`, link: `#item=${encodeURIComponent(m.card)}` };
+};
 // A thread line a button wrote: its words can vary (Held until a time), so it names its mark.
 const commandLine = (command) => ({ kind: 'command', command, request: true, mark: COMMANDS[command] });
 const requestOf = (e, asked) => {
@@ -792,7 +799,7 @@ const requestOf = (e, asked) => {
   return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : command;
 };
 // A Claude line answers the owner's messages before it; an agent's lines and the orchestrator's answer to a builder don't.
-const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', MOVE, BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
+const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', 'command', MOVE, BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
   ...msgs.filter((m) => m.kind === 'ask').map((m) => m.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
 // The event log and owner questions grouped once per build, so each card's thread picks its own instead of scanning
@@ -838,7 +845,7 @@ function agentOfLine(agentList, m) {
     : agentList.filter((a) => plans(a) === Boolean(m.planner) && a.started && String(a.started) <= String(m.ts) && (!a.done || String(m.ts) <= String(a.done))).pop();
   return own ? { agent: agentName(own), run: own.started, running: !own.done } : {};
 }
-export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], index = threadIndex(events, owner) }) {
+export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
   const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
@@ -860,7 +867,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.command ? commandLine(m.command) : {}),
+    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
@@ -1008,6 +1015,8 @@ export function buildBoard(snapshot) {
   const tickets = snapshot.tickets;
   const cardHolds = new Map(events.filter((e) => e.kind === 'card-hold').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.key, e]));
   const madeFrom = new Map();
+  // Every work card's ref and title by key, for the lines that name another card.
+  const cards = new Map(snapshot.waves.flatMap(({ slug, wave }) => wave.items.map((it) => [`${slug}/${it.id}`, { ref: refOf(wave, it, tickets), title: it.title }])));
   const askLinks = snapshot.askLinks || {};
   // The asks folded into each work item (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md).
   const foldedInto = new Map();
@@ -1033,7 +1042,7 @@ export function buildBoard(snapshot) {
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it, tickets), became: true }]);
-      const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded, index });
+      const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded, cards, index });
       for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
       claudeAt.set(key, claudeAtOf(msgs));
       items.push(workItem({

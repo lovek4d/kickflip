@@ -40,6 +40,7 @@
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
     : m.kind === 'visual' ? `<div class="msg link visual">${statusMark('visual')}<a href="${esc(m.link)}">${escText(m.text)} →</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
+    : m.request && m.card ? `<div class="msg request">${statusMark(m.mark)}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.request ? `<div class="msg request">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? `<div class="msg request move">${statusMark('move')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
@@ -84,7 +85,7 @@
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
   // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount); the
   // orchestrator's answer to a builder's ask never is.
-  const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github') && String(m.ts) > seenAt;
+  const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && m.kind !== 'command' && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github') && String(m.ts) > seenAt;
   // The window opens from the oldest unread message, at most UNREAD_CAP messages back; a message being edited always shows.
   function threadWindow(lines, { seenAt = null, more = 0, upto = null }, edits) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));

@@ -352,14 +352,15 @@ export async function readUpload(site, file) {
 const VIA = ['github', 'slack'];
 // key is <wave>/<id>, or ask:<event id> for an ask's thread. by: the shared person whose tap an owner line is, by name
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
-// command is a button's key (domain.mjs COMMANDS), which makes the line its status line.
-export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by, command }) {
+// command is a button's key (domain.mjs COMMANDS), which makes the line its status line; card, on a link's line, the other
+// card's key, whose ref and title the thread draws when it renders (domain.mjs threadOf).
+export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by, command, card }) {
   needSite(site);
   if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
   else await loadItem(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by, command };
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by, command, card };
   const file = threadFile(site, key);
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
@@ -2004,6 +2005,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
     const to = await parentKey(site, parseKey(key).wave, key, parent);
     if (to) item.parent = to; else delete item.parent;
   }
+  const linked = parent !== undefined || related !== undefined || relate !== undefined || unrelate !== undefined ? await linksOf(site, key) : null;
   let unlink = related === undefined ? null : await setRelated(site, key, item, related);
   if (relate !== undefined) item.related = [...new Set([...(item.related || []).map((r) => depKey(parseKey(key).wave, r)), ...await relatedKeys(site, key, relate, '--relate')])];
   if (unrelate !== undefined) unlink = await unrelateCards(site, key, item, await relatedKeys(site, key, unrelate, '--unrelate'));
@@ -2096,6 +2098,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: back to Todo. It starts again once nothing blocks it.` });
   }
   if (unlink) await unlink();
+  if (linked) await postLinkLines(site, key, linked, await linksOf(site, key));
   const resolved = [...stops, ...await resolve()];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
@@ -2290,6 +2293,34 @@ const dropLinksTo = (site, key, drop) => async () => {
     if (changed) await writeJSON(entry.file, wave);
   }
 };
+
+// docs/adr/2026-11-06-1130-linking-two-cards-posts-a-keyed-line-in-both-threads.md
+// The links card key has, whichever card stores them: the cards it is Related to and its Parent (keys).
+async function linksOf(site, key) {
+  const related = new Set();
+  let parent = null;
+  for (const entry of await itemSources(site)) {
+    for (const it of (await readJSON(entry.file, null))?.items || []) {
+      const own = `${entry.slug}/${it.id}`;
+      const stored = (it.related || []).map((r) => depKey(entry.slug, r));
+      if (own === key) { stored.forEach((r) => related.add(r)); if (it.parent) parent = depKey(entry.slug, it.parent); }
+      else if (stored.includes(key)) related.add(own);
+    }
+  }
+  return { related, parent };
+}
+
+// A keyed line in each thread (domain.mjs COMMANDS) for every link key gained or lost between before and after
+// (linksOf): Related to or Unrelated from, and Follow-up in the Parent's thread with Follow-up of in the child's.
+async function postLinkLines(site, key, before, after) {
+  const both = async (command, other, mine = command, theirs = command) => {
+    await appendThread(site, key, { text: COMMANDS[mine], command: mine, card: other });
+    await appendThread(site, other, { text: COMMANDS[theirs], command: theirs, card: key });
+  };
+  for (const other of after.related) if (!before.related.has(other)) await both('related', other);
+  for (const other of before.related) if (!after.related.has(other)) await both('unrelated', other);
+  if (after.parent && after.parent !== before.parent) await both('followup-of', after.parent, 'followup-of', 'followup');
+}
 
 // --related for card key: the list replaces the cards it is related to; "" is none. Each card the list leaves out
 // loses its own link to key too.
@@ -2502,6 +2533,7 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   wave.items.push(item);
   await writeJSON(source.file, wave);
   if (item.unfiled) await appendEvent(listBoards().find((b) => samePath(b.dir, site)) || { dir: site }, 'card-added', { key: added, title: item.title });
+  if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added));
   return { file: source.file, key: added, lines: [] };
 }
 

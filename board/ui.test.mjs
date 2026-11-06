@@ -2477,3 +2477,10 @@ test('a held card reads gray while blocked and action stay orange', () => {
   assert.match(colour('card-blocked'), /--color-notice/);
   assert.doesNotMatch(colour('card-blocked'), /card-hold/);
 });
+
+test("a link's thread line is one link icon and a plain link to the other card, and is never unread", () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'followup', request: true, mark: 'Follow-up', text: 'Follow-up #12: Tidy', link: '#item=w%2FA2', card: 'w/A2' }], { seenAt: ago(5) });
+  assert.match(html, /^<div class="msg request"><span class="mark" aria-hidden="true"><svg class="mark-icon"/);
+  assert.ok(html.includes('<a href="#item=w%2FA2">Follow-up #12: Tidy</a>'));
+  assert.doesNotMatch(html, /unread/);
+});

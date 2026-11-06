@@ -92,6 +92,7 @@
   // code brackets, Hold's pause, Resume's play, Done's circled check), Reply's arrow, answers' check, a reopened
   // question's turn-back arrow, new questions' plain question mark, a builder's dot.
   const mini = (body, cls = '') => `<svg class="mark-icon${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  const LINK = mini('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>');
   const MARK_ICONS = {
     'Prototype requested': mini('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
     'Grill requested': mini('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>'),
@@ -103,6 +104,7 @@
     'Implementation requested': mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
     Held: mini('<path d="M9 5v14"/><path d="M15 5v14"/>'),
     Resumed: mini('<path d="M7 4v16l13-8z"/>'),
+    'Related to': LINK, 'Unrelated from': LINK, 'Follow-up': LINK, 'Follow-up of': LINK,
     'Marked done': mini('<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>'),
     Reply: mini('<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>'),
     Implement: mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),

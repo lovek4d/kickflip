@@ -1871,7 +1871,11 @@ test("a thread-file line a button wrote is a request line carrying its command k
   assert.deepEqual(threadOf('w/A1', { lines }).map((m) => [m.kind ?? null, m.command ?? null, Boolean(m.request), m.mark ?? null, m.by ?? null]), [
     ['command', 'implement', true, 'Implementation requested', null], ['command', 'hold', true, 'Held', 'Dana Reyes'], [null, null, false, null, null],
   ]);
-  assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done']);
+  // A link's line names the other card by key, drawn with its ref and title as they stand, and links to it.
+  const cards = new Map([['w/A2', { ref: '#12', title: 'Renamed' }]]);
+  const linked = threadOf('w/A1', { lines: [{ ts: '2026-11-06T10:00:00Z', who: 'claude', text: 'Related to', command: 'related', card: 'w/A2' }], cards });
+  assert.deepEqual(linked.map((m) => [m.text, m.link, m.card, m.mark]), [['Related to #12: Renamed', '#item=w%2FA2', 'w/A2', 'Related to']]);
+  assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done', 'related', 'unrelated', 'followup', 'followup-of']);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
