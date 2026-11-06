@@ -730,7 +730,7 @@ test("a new task launches an intake triage run on Sonnet in the board's repo, on
     assert.match(run.argv[1], /Make the header blue/);
     assert.match(run.argv[1], new RegExp(`intake handoff ${id} --text`));
     const askThread = () => fs.readFileSync(path.join(b.data, 'threads', `ask__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
-    await until(() => fs.existsSync(path.join(b.data, 'threads', `ask__${id}.jsonl`)) && /^Intake triage launched on Claude Sonnet in /.test(askThread()[0].text), 'the launch line');
+    await until(() => fs.existsSync(path.join(b.data, 'threads', `ask__${id}.jsonl`)) && askThread()[0].text === 'Claude Sonnet intake triage', 'the launch line');
     // The fake run exits without sorting it: the board hands it to the orchestrator, and launches no second run.
     await until(() => b.events().includes('intake-handoff'), 'the stranded task is handed off');
     assert.match(askThread().at(-1).text, /^Intake triage handed this to the orchestrator: the intake triage run ended without sorting it/);

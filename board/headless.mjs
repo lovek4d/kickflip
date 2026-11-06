@@ -272,7 +272,7 @@ export async function launchIntake(site, intake) {
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
   const { repo } = builderRepo(site);
   const launched = await launchAgent({ kind: 'claude', model: 'sonnet', cwd: repo, site, prompt: intakeBrief({ ...intake, route, repo, rules }), log: logFile(intake.event, 'intake') });
-  await appendThread(site, intake.key, { text: `Intake triage launched on ${modelName({ kind: 'claude', model: 'sonnet' })} in ${repo}.`, kind: 'status', log: path.basename(launched.log) });
+  await appendThread(site, intake.key, { text: `${modelName({ kind: 'claude', model: 'sonnet' })} intake triage`, kind: 'status', log: path.basename(launched.log) });
   return launched;
 }
 
