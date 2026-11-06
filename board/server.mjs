@@ -305,7 +305,7 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
-import { readUsageGate, heldFor, pauseReasonFor, boardPausedUntil } from '../shared/usage-gate.mjs';
+import { readUsageGate, heldFor, holdsWork, pauseReasonFor, boardPausedUntil, MACHINE_HELD_LINE } from '../shared/usage-gate.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
@@ -1439,8 +1439,8 @@ async function checkPickUps() {
 // With Auto implement on, each card that arrived in Todo gets its grill, up to max_planners at once (launchArrivals).
 // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
 // board. A triage sent or under way holds the pull until its reply, and a card pulled and not yet started holds the
-// review. None goes out while usage is paused; the minute check runs the jobs again once a pause lifts,
-// since the pause lives outside the board's data. A check asked for while one runs runs again after it.
+// review. None goes out while usage is paused or the Mac is busy (shared/usage-gate.mjs holdsWork); the minute check
+// runs the jobs again once the hold lifts, since it lives outside the board's data. A check asked for while one runs runs again after it.
 let checkingAuto = null;
 let autoAgain = false;
 let heldByPause = false;
@@ -1466,7 +1466,7 @@ async function runAuto() {
   const gate = readUsageGate({ dir: here });
   if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
   boardPaused = gate.manual === 'board';
-  heldByPause = gate.state === 'paused';
+  heldByPause = holdsWork(gate);
   const ready = idle && !heldByPause;
   if (!heldByPause) await launchRounds(roundsDue(items));
   if (!heldByPause) await launchLanders(items, stoppedKeys(items));
@@ -1500,10 +1500,12 @@ async function handOff(started) {
   if (!started || started.bumped) return null;
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
-    // A pause on its kind that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.
+    // A pause on its kind, or a busy Mac, that began after the pull holds the launch; reviveHeadless launches it once
+    // the hold lifts. A busy Mac says so on the card (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
     const gate = readUsageGate({ dir: here });
     if (heldFor(gate, started.kind)) {
       logCall({ call: 'launch-held', key: started.key, result: 'held', reason: pauseReasonFor(gate, started.kind), inputs: { kind: started.kind, model: started.model ?? null, gate } });
+      if (gate.machine.state === 'busy') await appendThread(here, started.key, { text: MACHINE_HELD_LINE });
       await trackLaunch(started.key, { ...entry, pid: null });
     } else await trackLaunch(started.key, { ...entry, pid: (await launchBuilder(here, started)).pid });
   } catch (e) {
@@ -1628,7 +1630,7 @@ async function reviveHeadless() {
     const launch = async (card) => {
       const was = tracked[card.key];
       const entry = { call: 'relaunch', key: card.key, inputs: was,
-        reason: was.pid === null ? 'Its launch was held by the usage pause, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
+        reason: was.pid === null ? 'Its launch was held by a pause or a busy Mac, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
       try {
         const { pid } = await launchBuilder(here, card);
         logCall({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });
@@ -1996,7 +1998,7 @@ setInterval(() => {
   checkPrototypeWaits();
   reviveHeadless();
   checkPickUps();
-  if (heldByPause && readUsageGate({ dir: here }).state !== 'paused') checkAuto();
+  if (heldByPause && !holdsWork(readUsageGate({ dir: here }))) checkAuto();
   else triageDue().then((due) => { if (due) checkAuto(); }, (err) => console.error('Triage check failed:', err.message));
   checkActions();
   checkWaits();

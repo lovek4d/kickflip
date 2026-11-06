@@ -2110,6 +2110,32 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
   assert.equal(ui.statusLine(null, { pause: manual('board') }), `<span class="fresh hold" title="Paused until ${until}"></span>`);
 });
 
+// docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
+test('a busy Mac reads busy on the Hub row, every board and the header, a pause first, and Health has a Machine row', () => {
+  const machine = { state: 'busy', reason: 'memory pressure critical' };
+  const working = '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span>';
+  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: `${working}<span class="lcs"><span class="lc">3 todo</span></span>` }, { route: 'p', title: 'P', board: false, icon: '', sub: '' }];
+  const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  assert.equal([...busy.matchAll(/class="word t-wait">busy/g)].length, 2, 'the Hub row and the board');
+  assert.match(text(busy), /busy Mac is busy/);
+  assert.match(text(busy), /busy 3 todo/);
+  assert.doesNotMatch(busy, />working</);
+  const both = ui.sidebar({ pause: { state: 'paused', resets_at: new Date(Date.now() + 3600_000).toISOString(), machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  assert.doesNotMatch(both, />busy</, 'a pause reads first');
+  assert.equal([...both.matchAll(/class="word t-paused">paused/g)].length, 2);
+  const calm = ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal', reason: null } }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  assert.doesNotMatch(calm, />busy</);
+  assert.match(calm, />working</);
+  assert.match(ui.statusLine(ago(0), { pause: { state: 'normal', machine } }), /^<span class="fresh hold" title="This Mac is busy: new work waits until it eases\. Updated [^"]*">busy<\/span>$/);
+  assert.equal(ui.statusLine(null, { pause: { state: 'normal', machine } }), '<span class="fresh hold" title="This Mac is busy: new work waits until it eases">busy</span>');
+  assert.equal(text(ui.statusLine(ago(0), { pause: { state: 'normal', machine: { state: 'normal', reason: null } } })), 'now');
+  const row = context.HubUI.machineRow(machine);
+  assert.equal(text(row), 'Machine busy · memory pressure critical');
+  assert.match(row, /<span class="st wait">busy<\/span>/);
+  assert.equal(text(context.HubUI.machineRow({ state: 'normal', reason: null })), 'Machine normal');
+  assert.match(context.HubUI.machineRow({ state: 'normal', reason: null }), /<span class="st ok">normal<\/span>/);
+});
+
 test('a Forever Pause hub or Pause board reads until you resume on the banner, the Hub row and the header', () => {
   const forever = (scope) => ({ pause_at: 90, state: 'paused', manual: scope, window: null, used: null, resets_at: 'forever' });
   assert.equal(text(context.HubUI.pauseBanner(forever('hub'))), 'Work paused: you paused the hub until you resume. Resume');

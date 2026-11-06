@@ -46,6 +46,14 @@
     return `<div class="hold-banner ub-banner ub-${going ? 'going' : 'paused'}" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(text)}</span><form method="post" action="/_hub/settings/keep-going"><button class="btn${going ? '' : ' quiet'}" name="value" value="${going ? 'off' : 'on'}">${going ? 'Stop' : 'Keep going'}</button></form></div>`;
   }
 
+  // Health's Machine row: the gate's machine (shared/machine-gate.mjs), busy with its reason or normal, in words only
+  // (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
+  const machineRow = (machine) => {
+    const busy = machine.state === 'busy';
+    return row({ icon: tile('power', busy ? '#f59e0b' : '#22c55e'), title: 'Machine', wrap: true,
+      sub: busy ? `<span class="st wait">busy</span> · ${esc(machine.reason)}` : '<span class="st ok">normal</span>' });
+  };
+
   // builder: the word for who builds Codex's work, hub/views.mjs hubView's claude.builder.
   function bufferControl(pause, builder) {
     const at = pause.pause_at;
@@ -111,5 +119,5 @@
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}${buffer}</div></section>`;
   }
 
-  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, nowRow, deviceRow, usageCard };
+  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, nowRow, deviceRow, usageCard };
 })();

@@ -153,6 +153,8 @@
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // It runs caffeinate while Keep awake is on, and starts it again as it starts while time is left (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
+// It reads the Mac and keeps machine-state.json, which holds every board's new work while the Mac is busy
+// (shared/machine-gate.mjs; docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
 // Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs) that passes the same
 // owner gate, and admits its board's shared people by GET or HEAD; its build script gets HOST=127.0.0.1 to listen on.
 // Every 15 seconds try.mjs refreshes card heads, auto-builds cards and rebuilds main; polls fetch non-hub branches and
@@ -196,6 +198,7 @@ import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shel
 import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing, setHubPause, boardPausedUntil } from '../shared/usage-gate.mjs';
+import { checkMachine } from '../shared/machine-gate.mjs';
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
@@ -563,6 +566,7 @@ async function checkUsageGate() {
 setInterval(() => {
   tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message));
   checkUsageGate().catch((e) => log('usage gate failed:', e.message));
+  try { checkMachine(); } catch (e) { log('machine check failed:', e.message); }
   owner.check().then(presenceChanged, (e) => log('presence check failed:', e.message)).finally(() => {
     if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
   });

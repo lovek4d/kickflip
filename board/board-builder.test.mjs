@@ -623,6 +623,19 @@ test('builder start refuses a Claude pause before making records or a worktree, 
   assert.match(board('--site', 'orch', 'builder', 'start', 'w/A1').err, /Claude's weekly usage is at 96%/);
 });
 
+// docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
+test('builder start refuses every kind while the Mac is busy, and starts once it eases', () => {
+  write(at('kickflip', 'machine-state.json'), { state: 'busy', reason: 'load high' });
+  for (const kind of ['build', 'grill']) {
+    const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', kind);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Work is held: this Mac is busy \(load high\)\. It starts again when the Mac eases\./);
+  }
+  assert.equal(fs.existsSync(at('waves', 'w', 'agents')), false);
+  write(at('kickflip', 'machine-state.json'), { state: 'normal', reason: null });
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1').code, 0);
+});
+
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
 test('builder start saves a planner\'s model, Sonnet for a prototype and Opus for a grill by default, and its status lines are marked planner, read its kind\'s word and keep no builder phase', () => {
   const record = (agent) => read(at('waves', 'w', 'agents', agent === 'main' ? 'A1.json' : `A1@${agent}.json`));

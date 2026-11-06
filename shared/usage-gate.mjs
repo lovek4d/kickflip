@@ -5,6 +5,7 @@ import { usageReader } from '../hub/usage.mjs';
 import { readSettingsFile, writeSettingsFile, readCodexShare, readClaudeModel } from '../hub/push.mjs';
 import { FOREVER, durationEnd, storedEnd } from '../hub/duration.mjs';
 import { codexStatus, codexStatusReader, effectiveCodexShare } from './codex.mjs';
+import { MACHINE_NORMAL, readMachineState } from './machine-gate.mjs';
 
 export const validPauseAt = (value) => Number.isInteger(value) && value >= 50 && value <= 100 && value % 5 === 0;
 const timeOf = (now) => Number(now);
@@ -29,7 +30,9 @@ export const pauseUntilWords = (end) => (end === FOREVER ? 'until the owner resu
 
 // hubPause and boardPause are the manual pauses' stored ends (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md):
 // either, while ahead, pauses Claude and Codex work alike, over the usage pause and Keep going, the hub's first.
-export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, boardPause, now = Date.now() } = {}) {
+// machine is the Mac's state (machine-gate.mjs readMachineState), which the gate carries as it is: a busy Mac holds
+// all new work (holdsWork, heldFor) and leaves state, the usage pause's, alone.
+export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, boardPause, machine = MACHINE_NORMAL, now = Date.now() } = {}) {
   const line = validPauseAt(pauseAt) ? pauseAt : 90;
   const past = (reading) => line === 100 ? null : windows.find((key) => {
     const w = reading?.[key];
@@ -45,8 +48,8 @@ export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, bo
   const codexWindow = past(codex);
   const codexDetails = { past: Boolean(codexWindow), ...details(codex, codexWindow) };
   const manual = pausedUntil(hubPause, now) ? 'hub' : pausedUntil(boardPause, now) ? 'board' : null;
-  if (manual) return { pause_at: line, state: 'paused', manual, window: null, used: null, resets_at: pausedUntil(manual === 'hub' ? hubPause : boardPause, now), codex: codexDetails };
-  return { pause_at: line, state: window ? going ? 'going' : 'paused' : 'normal', manual: null, ...hit, codex: codexDetails };
+  if (manual) return { pause_at: line, state: 'paused', manual, window: null, used: null, resets_at: pausedUntil(manual === 'hub' ? hubPause : boardPause, now), codex: codexDetails, machine };
+  return { pause_at: line, state: window ? going ? 'going' : 'paused' : 'normal', manual: null, ...hit, codex: codexDetails, machine };
 }
 
 const readBoardJson = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'board.json'), 'utf8')) || {}; } catch { return {}; } };
@@ -66,7 +69,7 @@ export function readUsageGate({ home = os.homedir(), now = Date.now(), dir = nul
   reader.now = timeOf(now);
   const settings = readSettingsFile(home);
   return usageGate({ ...reader.usage({ codexShare: readCodexShare(reader.codex(), home) }), pauseAt: settings.pauseAt, keepGoing: settings.keepGoing,
-    hubPause: settings.paused_until, boardPause: dir ? boardPausedUntil(dir, now) : null, now });
+    hubPause: settings.paused_until, boardPause: dir ? boardPausedUntil(dir, now) : null, machine: readMachineState(home), now });
 }
 
 // Pause hub: a pauseEnd choice, or off. Settings writes keep other keys. → the stored end, or null.
@@ -126,18 +129,25 @@ function claudePick(setting, card) {
 }
 
 const MANUAL_WORDS = { hub: ['the hub', 'Pause hub in Hub settings'], board: ['this board', 'Pause board in Board settings'] };
+// A pause is worded before a busy Mac.
 export const pauseReason = (gate) => (gate.manual
   ? `Work is paused: the owner paused ${MANUAL_WORDS[gate.manual][0]} ${pauseUntilWords(gate.resets_at)}. ${MANUAL_WORDS[gate.manual][1]} resumes it.`
-  : usagePauseReason(gate));
+  : gate.state === 'paused' ? usagePauseReason(gate) : busyReason(gate));
+// docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md: the refusal, and the thread line on a card whose launch it holds.
+const busyReason = (gate) => `Work is held: this Mac is busy (${gate.machine.reason}). It starts again when the Mac eases.`;
+export const MACHINE_HELD_LINE = 'Held: this Mac is busy. It starts again when the Mac eases.';
+// Whether gate holds all new work: a pause (usage or manual) or a busy Mac.
+export const holdsWork = (gate) => gate.state === 'paused' || gate.machine.state === 'busy';
 // The watcher's line while paused: `usage paused <iso> <window> <used>%`, or `usage paused <iso|forever> manual hub|board`.
 export const pausedLine = (gate) => `usage paused ${gate.resets_at} ${gate.manual ? `manual ${gate.manual}` : `${gate.window} ${gate.used}%`}`;
 const usagePauseReason = (gate) => `Work is paused: Claude's ${windowWord(gate.window)} usage is at ${Math.round(gate.used)}%. Resumes at ${gate.resets_at}. The owner can tap Keep going on the Hub page.`;
 
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
 // Whether gate holds an agent of kind: Codex while past its line, any other kind (Claude, and the planners, which run
-// as Claude) while Claude's work is paused; every kind while the owner paused it by hand. pauseReasonFor words the hold.
-export const heldFor = (gate, kind) => Boolean(gate.manual) || (kind === 'codex' ? gate.codex.past : gate.state === 'paused');
+// as Claude) while Claude's work is paused; every kind while the owner paused it by hand or the Mac is busy, with no
+// override. pauseReasonFor words the hold.
+export const heldFor = (gate, kind) => Boolean(gate.manual) || gate.machine.state === 'busy' || (kind === 'codex' ? gate.codex.past : gate.state === 'paused');
 const windowWord = (window) => (window === 'five_hour' ? '5-hour' : 'weekly');
-export const pauseReasonFor = (gate, kind) => (kind === 'codex' && !gate.manual
+export const pauseReasonFor = (gate, kind) => (kind === 'codex' && !gate.manual && gate.codex.past
   ? `Codex is paused: its ${windowWord(gate.codex.window)} usage is at ${Math.round(gate.codex.used)}%, past the ${gate.pause_at}% line. Resumes at ${gate.codex.resets_at}.`
-  : pauseReason(gate));
+  : kind === 'codex' && !gate.manual ? busyReason(gate) : pauseReason(gate));

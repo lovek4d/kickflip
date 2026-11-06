@@ -9,7 +9,7 @@ import path from 'node:path';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { samePath } from '../hub/boards.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
-import { readUsageGate, pauseReason } from '../shared/usage-gate.mjs';
+import { readUsageGate, pauseReason, holdsWork } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { BoardError, addItem, appendThread, boardConfig, cardName, changeLineup, createLineup, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
 
@@ -63,7 +63,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   const waits = reviewWaits(home);
   if (waits) throw Object.assign(new BoardError(waits), { status: 409 });
   const gate = readUsageGate({ home, dir: site });
-  if (gate.state === 'paused') throw Object.assign(new BoardError(pauseReason(gate)), { status: 409 });
+  if (holdsWork(gate)) throw Object.assign(new BoardError(pauseReason(gate)), { status: 409 });
   const target = boardRepo(board.route);
   const name = repoName(target);
   const title = `Architecture ${dayOf(now)}`;

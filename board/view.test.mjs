@@ -964,7 +964,7 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   const { Element } = miniDom(page.Target, page.win.document);
   const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '2 sites', host: 'mac',
-    groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }] };
+    groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }], pause: { state: 'normal', machine: { state: 'normal', reason: null } } };
   const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, closed: [] };
   const confirms = [];
   page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push([text, labels?.ok]); return true; };
@@ -1024,7 +1024,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   const choices = (on) => ['half', 'auto', 'off'].map((value) => ({ value, label: value, on: value === on }));
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '0 sites', host: 'mac', groups: [],
     usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', description: '', choices: choices('auto') },
-    pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date().toISOString() } };
+    pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date().toISOString(), machine: { state: 'normal', reason: null } } };
   const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, closed: [], snooze: { choices: [] } };
   const posts = [];
   let answer;

@@ -8,6 +8,9 @@ import { durationEnd } from './duration.mjs';
 import { hubView, settingsView, pollLine, siteHealth, flushView } from './views.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 
+// The gate as readUsageGate reads it with no pause and a calm Mac, which every hub page carries.
+const CALM_GATE = { pause_at: 90, state: 'normal', manual: null, window: null, used: null, resets_at: null, machine: { state: 'normal', reason: null } };
+
 const t = (h, m = 0, day = 14, s = 0) => new Date(2026, 9, day, h, m, s);
 const ON = { on: true, weekends_off: false, snoozed_until: null };
 const notify = (s, n) => ({ ...s, notifications: { ...ON, ...n } });
@@ -583,7 +586,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
       { id: 'other', kind: 'iPhone', browser: '', added: new Date(Date.now() - 5 * 60_000).toISOString() }] },
   ];
   const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), integrations,
-    sidebar: { sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
+    sidebar: { pause: CALM_GATE, sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
       usage: { claude: { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null }, codex: null } },
     rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]), code: { running: 'abc', onDisk: 'abc' },
   });
@@ -671,7 +674,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
   context.AppViews.hub.create(root, '/_hub', {});
   const now = t(19);
   const view = (code) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], code,
-    sidebar: { sites: [], hub: { tone: 'wait', word: 'degraded', detail: '0 of 0 sites up · runs older code than its files; restart it' }, notifications: {}, total: 0 } });
+    sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'wait', word: 'degraded', detail: '0 of 0 sites up · runs older code than its files; restart it' }, notifications: {}, total: 0 } });
   const click = (target) => listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -737,7 +740,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
   const hub = (codexShare, codex = USABLE) => plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], codexShare, codex,
-    sidebar: { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: reading, codex: codex.usable && codexShare !== 'off' ? reading : null } } }));
+    sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: reading, codex: codex.usable && codexShare !== 'off' ? reading : null } } }));
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
@@ -814,7 +817,7 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
   const hub = (claudeModel, claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], codexShare: 'off', codex: USABLE, claudeModel,
-    sidebar: { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
+    sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
@@ -882,7 +885,7 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
   let sidebarChanges = 0;
   let settingsCtx;
   const now = t(10);
-  const page = (n) => plain(hubView({ now, st: status(now, notify(DEFAULTS, n)), poll: poll(now), rows: [], sidebar: { sites: [], hub: {}, notifications: {}, total: 0 } }));
+  const page = (n) => plain(hubView({ now, st: status(now, notify(DEFAULTS, n)), poll: poll(now), rows: [], sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0 } }));
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
@@ -901,7 +904,7 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
   live.paint(page({}));
   assert.equal(banner(), null);
 
-  const weekend = plain(hubView({ now: t(12, 0, 17), st: status(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), poll: poll(now), rows: [], sidebar: { sites: [], hub: {}, notifications: {}, total: 0 } }));
+  const weekend = plain(hubView({ now: t(12, 0, 17), st: status(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), poll: poll(now), rows: [], sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0 } }));
   live.paint(weekend);
   assert.equal(banner().textContent, 'Notifications held for the weekend until 8:00am Mon Oct 19');
   assert.equal(banner().querySelectorAll('button, form').length, 0);
@@ -929,7 +932,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   const toasts = [];
   let live;
   let changed = 0;
-  let gate = { pause_at: 90, state: 'paused', used: 91, window: 'five_hour', resets_at: new Date(Date.now() + 3600_000).toISOString() };
+  let gate = { pause_at: 90, state: 'paused', used: 91, window: 'five_hour', resets_at: new Date(Date.now() + 3600_000).toISOString(), machine: CALM_GATE.machine };
   const data = () => ({ integrations: [], pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], polling: { title: '', lines: [] } });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },

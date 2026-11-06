@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
-import { readUsageGate, pauseReason, pauseReasonFor, heldFor, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
+import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -3008,7 +3008,7 @@ const onlyRebased = (item, approved, head) => {
 // → {held: its hold or null, blockers: the names of its unfinished deps and its blocked-until condition (blockerNames)}.
 async function tapRefusals(site, key) {
   const gate = readUsageGate({ dir: site });
-  if (gate.state === 'paused') fail(pauseReason(gate));
+  if (holdsWork(gate)) fail(pauseReason(gate));
   const { item } = await loadItem(site, key);
   const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
   if (held && ![...UNSTARTED, 'held'].includes(item.status)) fail("it's held. Unhold it, then tap Implement.");

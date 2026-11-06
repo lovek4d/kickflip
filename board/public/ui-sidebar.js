@@ -200,9 +200,12 @@
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
     const paused = data?.pause?.state === 'paused';
+    // A busy Mac holds every board's new work, and a pause reads before it (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
+    const busy = data?.pause?.machine?.state === 'busy';
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
+    const holdWord = (s) => (paused || s.pause?.state === 'paused' ? word('paused', 'paused') : busy ? word('wait', 'busy') : '');
     const siteRow = (s) => {
-      const sub = (paused || s.pause?.state === 'paused') && s.board ? word('paused', 'paused') + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
+      const sub = s.board && holdWord(s) ? holdWord(s) + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
       return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? `<span class="sb-status">${sub}</span>` : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
     };
     const boards = sites.filter((s) => s.board);
@@ -218,7 +221,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage);
-    const hub = paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : data?.hub;
+    const hub = paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: 'Mac is busy' } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')

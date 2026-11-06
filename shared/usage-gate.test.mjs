@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, pauseReasonFor, pauseReason, pausedLine, MACHINE_HELD_LINE } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel } from '../hub/push.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
@@ -25,7 +25,7 @@ function fixture(t) {
 }
 
 test('the line defaults to 90, includes equality, checks the five-hour window first and Off never pauses either tool', () => {
-  assert.deepEqual(gate(), { pause_at: 90, state: 'paused', manual: null, window: 'five_hour', used: 90, resets_at: until, codex: { past: false, window: null, used: null, resets_at: null } });
+  assert.deepEqual(gate(), { pause_at: 90, state: 'paused', manual: null, window: 'five_hour', used: 90, resets_at: until, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null } });
   assert.equal(gate({ claude: reading(89, 89) }).state, 'normal');
   assert.equal(gate({ claude: reading(99, 99) }).window, 'five_hour');
   assert.equal(gate({ claude: reading(40, 95) }).window, 'seven_day');
@@ -72,7 +72,7 @@ test('each kind of agent is held by its own usage: Claude by the pause, Codex pa
 test('a manual hub or board pause pauses all new work until its end, over the usage pause and Keep going, hub first', () => {
   const later = new Date(now + 7200_000).toISOString();
   const calm = { claude: reading(20, 20) };
-  assert.deepEqual(gate({ ...calm, hubPause: later }), { pause_at: 90, state: 'paused', manual: 'hub', window: null, used: null, resets_at: later, codex: { past: false, window: null, used: null, resets_at: null } });
+  assert.deepEqual(gate({ ...calm, hubPause: later }), { pause_at: 90, state: 'paused', manual: 'hub', window: null, used: null, resets_at: later, codex: { past: false, window: null, used: null, resets_at: null }, machine: { state: 'normal', reason: null } });
   assert.equal(gate({ ...calm, boardPause: later }).manual, 'board');
   assert.equal(gate({ ...calm, hubPause: until, boardPause: later }).manual, 'hub', 'the hub pause covers every board');
   assert.equal(gate({ hubPause: later }).manual, 'hub', 'over the usage pause');
@@ -86,6 +86,29 @@ test('a manual hub or board pause pauses all new work until its end, over the us
   assert.equal(pauseReasonFor(board, 'codex'), `Work is paused: the owner paused this board until ${later}. Pause board in Board settings resumes it.`);
   assert.equal(pausedLine(board), `usage paused ${later} manual board`);
   assert.equal(pausedLine(gate()), `usage paused ${until} five_hour 90%`);
+});
+
+// docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
+test('a busy Mac holds every kind of new work, with no override, and words it after a pause', (t) => {
+  const busy = { state: 'busy', reason: 'memory pressure critical' };
+  const calm = { claude: reading(20, 20) };
+  const held = gate({ ...calm, machine: busy });
+  assert.deepEqual([held.state, held.machine], ['normal', busy], 'the usage pause stays its own state');
+  assert.deepEqual(gate(calm).machine, { state: 'normal', reason: null });
+  assert.deepEqual(['claude', 'codex', 'grill'].map((k) => heldFor(held, k)), [true, true, true]);
+  assert.deepEqual([holdsWork(held), holdsWork(gate(calm)), holdsWork(gate())], [true, false, true]);
+  assert.equal(heldFor(gate({ machine: busy, keepGoing: { window: 'five_hour', until } }), 'claude'), true, 'Keep going lifts only the usage pause');
+  const words = 'Work is held: this Mac is busy (memory pressure critical). It starts again when the Mac eases.';
+  assert.equal(pauseReason(held), words);
+  assert.equal(pauseReasonFor(held, 'claude'), words);
+  assert.equal(pauseReasonFor(held, 'codex'), words);
+  assert.match(pauseReason(gate({ machine: busy })), /^Work is paused: Claude's 5-hour usage/, 'a pause is worded first');
+  assert.match(pauseReasonFor(gate({ claude: reading(20), codex: reading(20, 92), machine: busy }), 'codex'), /^Codex is paused/);
+  assert.equal(MACHINE_HELD_LINE, 'Held: this Mac is busy. It starts again when the Mac eases.');
+  const f = fixture(t);
+  assert.deepEqual(readUsageGate({ home: f.home, now }).machine, { state: 'normal', reason: null });
+  f.write('machine-state.json', { state: 'busy', reason: 'load high', at: new Date(now).toISOString() });
+  assert.deepEqual(readUsageGate({ home: f.home, now }).machine, { state: 'busy', reason: 'load high' });
 });
 
 test('a Forever manual pause lasts until it is lifted and says so', () => {
