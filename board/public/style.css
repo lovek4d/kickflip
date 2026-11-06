@@ -82,7 +82,8 @@ button.chip { border: 0; }
 .status.review { border-color: var(--color-info); background: conic-gradient(var(--color-info) 0 75%, transparent 75% 100%); }
 .sub.agent { color: var(--color-notice); }
 .sub.next { color: var(--color-notice); }
-.card-hold, .card-blocked, .card-action { color: var(--color-notice); }
+.card-hold { color: var(--color-quiet); }
+.card-blocked, .card-action { color: var(--color-notice); }
 .card-ready { color: var(--color-success); }
 .card-staging { color: var(--color-notice); }
 .sub.next.idle { color: var(--muted); }

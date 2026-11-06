@@ -2462,3 +2462,11 @@ test('every kind of thread status or system line leads with an icon, so a new ki
     assert.match(html, /<span class="mark" aria-hidden="true"><svg class="mark-icon/, `${text} request line has an icon`);
   }
 });
+
+test('a held card reads gray while blocked and action stay orange', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const colour = (cls) => css.split('\n').find((l) => new RegExp(`^(\\.[\\w-]+, )*\\.${cls}( |,)`).test(l) && l.includes('color:'));
+  assert.match(colour('card-hold'), /^\.card-hold \{ color: var\(--color-quiet\); \}/);
+  assert.match(colour('card-blocked'), /--color-notice/);
+  assert.doesNotMatch(colour('card-blocked'), /card-hold/);
+});
