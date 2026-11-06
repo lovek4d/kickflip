@@ -2183,7 +2183,6 @@ test('a ↗ written in a question, its context and its options draws as the arro
   assert.equal(html.split('class="link-arrow"').length - 1, 4);
 });
 
-<<<<<<< HEAD
 test("a Todo thread message's footer and a bare Implement request lead with an icon for Reply and Implement, as Quick build's does", () => {
   const html = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'hello', status: 'Reply', eventId: 'm1', state: 'waiting', files: [] },
@@ -2195,7 +2194,8 @@ test("a Todo thread message's footer and a bare Implement request lead with an i
     assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`), words);
   }
   assert.ok(html.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implement`));
-=======
+});
+
 test('a ↗ in a card title, a card details line, a thread line and a question draws as the arrow icon, never the character', () => {
   const card = ui.workLines({ key: 'w/A1', ref: 'A1', title: 'Fix ↗ link', next: 'Open ↗', lane: 'todo' });
   const thread = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'agent', text: 'Started ↗', finished: false }]);
@@ -2204,5 +2204,4 @@ test('a ↗ in a card title, a card details line, a thread line and a question d
     assert.doesNotMatch(html, /↗/);
     assert.match(html, /class="link-arrow"/);
   }
->>>>>>> 77bce9b (#351: Every owner-facing text path draws ↗ as the arrow icon)
 });
