@@ -318,7 +318,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeStranded, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeHung, intakeStranded, INTAKE_TIMEOUT_AFTER, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -1623,7 +1623,8 @@ async function drawVisuals(items, log) {
 // run whose process has gone ended, hands the orchestrator each event a run ended without sorting (domain.mjs
 // intakeStranded), and, unless usage is paused or the Mac is busy, launches a run on the next due intake event
 // (intakeDue) with the board's index: every open work card's label, key, title, lane, state and notes file. A run that
-// can't launch hands its event off at once. Passes run one at a time, on every board change and once a minute.
+// can't launch hands its event off at once, and one open 10 minutes (INTAKE_TIMEOUT_AFTER) after its launch is stopped
+// and ended with timedOut, its event handed off as timed out, with no relaunch. Passes run one at a time, on every board change and once a minute.
 let intakePass = Promise.resolve();
 function sortIntake() {
   const pass = intakePass.then(runIntake).catch((err) => console.error('Intake check failed:', err.message));
@@ -1641,7 +1642,17 @@ async function runIntake() {
   const now = () => new Date().toISOString();
   const gone = Object.values(runs).filter((r) => !r.ended && !(r.pid && pidAlive(r.pid)));
   for (const r of gone) r.ended = now();
-  if (gone.length) await save();
+  // A run open past INTAKE_TIMEOUT_AFTER is stopped (its process group: SIGTERM, then SIGKILL after 5s) and ended, so
+  // the next event's run can start on this pass, and its event goes to the orchestrator as timed out.
+  const hung = intakeHung(runs, Date.now()).map((event) => runs[event]);
+  for (const r of hung) {
+    r.ended = now();
+    r.timedOut = true;
+    if (!r.pid) continue;
+    try { process.kill(-r.pid, 'SIGTERM'); } catch { continue; }
+    setTimeout(() => { try { process.kill(-r.pid, 'SIGKILL'); } catch {} }, 5000).unref();
+  }
+  if (gone.length || hung.length) await save();
   const log = await readLines(events);
   let { items } = await sharedBoard();
   // A run that looks to have left its event unsorted is checked on a board built afresh, so a sort it wrote just
@@ -1651,8 +1662,10 @@ async function runIntake() {
     ({ items } = await sharedBoard());
   }
   for (const d of intakeStranded(items, log, runs)) {
-    logCall({ call: 'intake-handoff', key: d.key, result: 'handed off', reason: 'Its intake triage run ended without sorting it.', inputs: { event: d.event, kind: d.kind, run: runs[d.event] } });
-    await intakeHandoff(here, d.event, 'the intake triage run ended without sorting it');
+    const timedOut = runs[d.event].timedOut;
+    const why = timedOut ? `the intake triage run timed out after ${INTAKE_TIMEOUT_AFTER / 60000} minutes` : 'the intake triage run ended without sorting it';
+    logCall({ call: 'intake-handoff', key: d.key, result: 'handed off', reason: timedOut ? 'Its intake triage run timed out.' : 'Its intake triage run ended without sorting it.', inputs: { event: d.event, kind: d.kind, run: runs[d.event] } });
+    await intakeHandoff(here, d.event, why);
   }
   if (holdsWork(readUsageGate({ dir: here }))) return;
   const due = intakeDue(items, log, runs);

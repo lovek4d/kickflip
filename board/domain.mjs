@@ -1485,6 +1485,12 @@ export function intakeDue(items, events, runs) {
   if (Object.values(runs).some((r) => !r.ended)) return null;
   return intakeOpen(items, events).find((d) => !routeRecord(runs, d.event)) ?? null;
 }
+// How long an intake triage run may stay open from its launch before it counts as hung, whatever it is doing.
+export const INTAKE_TIMEOUT_AFTER = BUILDER_STALLED_AFTER;
+// The intake events whose run is open at least INTAKE_TIMEOUT_AFTER after its launch (`at`), for the runs and now in ms.
+export function intakeHung(runs, now) {
+  return Object.entries(runs).filter(([, r]) => !r.ended && now - Date.parse(r.at) >= INTAKE_TIMEOUT_AFTER).map(([event]) => event);
+}
 // The intake events whose run has ended with the event still open, each for the orchestrator's hand-off.
 // → [{event, key, kind}]
 export function intakeStranded(items, events, runs) {

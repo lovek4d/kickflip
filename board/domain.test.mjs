@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue, intakeDue, intakeStranded } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue, intakeDue, intakeStranded, intakeHung, INTAKE_TIMEOUT_AFTER } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -2243,6 +2243,16 @@ test('an intake run that ended with its event unsorted and not handed off strand
   assert.deepEqual(stranded([ask('e1', { reply: { at: at(2) } })], ended), [], 'sorted');
   const handoff = { id: 'h1', ts: at(3), kind: 'intake-handoff', data: { event: 'e1', key: 'ask:e1', text: 'Unsure' }, reply: null };
   assert.deepEqual(stranded([ask('e1'), handoff], ended), [], 'already handed off');
+});
+
+// docs/adr/2026-11-06-1200-a-hung-intake-run-times-out-and-hands-its-ask-to-the-orchestrator.md
+test('an intake run still open 10 minutes after it launched is hung, whatever it is doing', () => {
+  assert.equal(INTAKE_TIMEOUT_AFTER, 10 * 60000);
+  const at = (m) => `2026-11-06T10:${String(m).padStart(2, '0')}:00Z`;
+  const runs = { e1: { key: 'ask:e1', pid: 5, at: at(0) }, e2: { key: 'ask:e2', pid: 6, at: at(5) }, e3: { key: 'ask:e3', pid: 7, at: at(0), ended: at(2) } };
+  assert.deepEqual(intakeHung(runs, Date.parse(at(9))), []);
+  assert.deepEqual(intakeHung(runs, Date.parse(at(10))), ['e1'], 'exactly the limit');
+  assert.deepEqual(intakeHung(runs, Date.parse(at(16))), ['e1', 'e2'], 'an ended run is never hung');
 });
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
