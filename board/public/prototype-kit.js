@@ -3,7 +3,7 @@
 // public/prototypes/<topic>/<KEY>.js, is a module:
 //   export function render(stage, kit) { stage.innerHTML = kit.hub(); return () => {…} }   // the cleanup is optional
 // render runs on every switch to that take with a fresh, empty stage; it may be async. The stage contains its layout
-// and paint, so nothing in it, position: fixed included, can cover the header, the take pill or the app shell.
+// and paint, so nothing in it, position: fixed included, can cover the viewer's bar, its ✕ or the app shell.
 //   kit.sidebar(data?, {here, switching, device, head, height})  ui-sidebar.js sidebar() as an open drawer card in the
 //                                       page's flow, rail width from 900px; head shows its Kickflip header
 //   kit.hub(data?)                      the Hub page (view-hub.js) in flow: {usage, usageCard (HTML in its place),

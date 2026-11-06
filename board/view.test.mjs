@@ -2484,7 +2484,7 @@ test('a tap anywhere on an asleep board, refresh included, asks the hub to wake 
   b.view.unmount();
 });
 
-test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Open questions links to its first question, a grill request no planner has picked up reads preheating in grey, and an ask's Mark as done confirms and sends ask-done", async () => {
+test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Questions links to its first question, a grill request no planner has picked up reads preheating in grey, and an ask's Mark as done confirms and sends ask-done", async () => {
   const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const ready = { ...draft, isDraft: false };
   const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', label: null, older: false };
@@ -2516,12 +2516,12 @@ test("an open card shows its workflow buttons below a final details line of Note
   const labels = (els) => els.map((el) => el.textContent.trim());
   const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
   assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, shown(c.key)])), {
-    'w/A1': [['Open questions'], [], ['Open questions']],
+    'w/A1': [['Questions'], [], ['Questions']],
     'w/A2': [[], [], []],
     'w/A3': [[], [], []],
     'w/A4': [[], [], []],
-    'w/A5': [['Unhold', 'Open questions'], [], []],
-    'w/P1': [['Open questions'], [], ['Open questions']],
+    'w/A5': [['Unhold', 'Questions'], [], []],
+    'w/P1': [['Questions'], [], ['Questions']],
     'w/D1': [['Notes'], ['Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
     'w/R1': [[], ['Install', 'Review on GitHub'], []],
     'w/S1': [[], ['Review on GitHub'], ['Review on GitHub']],
@@ -3423,8 +3423,10 @@ test("every owner action kind the board derives makes exactly one of the open ca
   const without = await mounted(built.items.map((i) => ({ ...i, actionButton: null })));
   for (const i of built.items) {
     const [controls, orange] = shown.counts[i.key];
-    // Grill draws with its Prototype twin.
-    assert.deepEqual([controls - without.counts[i.key][0], orange], [i.actionButton ? 1 : 0, i.action ? 1 : 0], `${i.key}: ${i.actionButton}, ${i.action?.kind}`);
+    // Grill draws with its Prototype twin. A pick's round is also unresolved on Prototypes, which is orange beside it
+    // (docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md).
+    assert.deepEqual([controls - without.counts[i.key][0], orange], [i.actionButton ? 1 : 0, (i.action ? 1 : 0) + (i.prototypes?.open ? 1 : 0)], `${i.key}: ${i.actionButton}, ${i.action?.kind}`);
+    assert.equal(Boolean(i.prototypes?.open), i.action?.kind === ACTION_KIND.pick, i.key);
   }
 
   for (const [name, values] of Object.entries({ BUTTON, ACTION_KIND })) {
@@ -5284,7 +5286,7 @@ test("the + is on the board's left pane on desktop and gone from the Open questi
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(50% /);
 });
 
-test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Open questions or Mark as done, then Merge", async () => {
+test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Questions or Mark as done, then Prototypes, then Merge", async () => {
   const ready = { state: 'OPEN', isDraft: false, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const full = {
     lane: 'review', holdable: true, hasNotes: true, pr: ready, try: { kind: 'web', script: true, changes: true },
@@ -5293,10 +5295,32 @@ test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Open q
   const cards = [
     workCard('F1', { ...full, actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' } }),
     workCard('F2', { ...full, actionButton: null }),
+    workCard('F3', { ...full, actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' }, prototypes: { open: false, rounds: [{ n: 1, q: 'q6', url: 'prototype-x.html?q=q6', confirm: false, state: 'resolved' }] } }),
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const order = (key) => b.root.querySelector(`details.item[data-key="${key}"] .action-row.workflow`).querySelectorAll('a, button').map((el) => el.textContent.trim());
-  assert.deepEqual(order('w/F1'), ['Hold', 'Notes', 'Serve', 'Open questions', 'Merge']);
+  assert.deepEqual(order('w/F1'), ['Hold', 'Notes', 'Serve', 'Questions', 'Merge']);
   assert.deepEqual(order('w/F2'), ['Hold', 'Notes', 'Serve', 'Merge']);
+  assert.deepEqual(order('w/F3'), ['Hold', 'Notes', 'Serve', 'Questions', 'Prototypes', 'Merge']);
+});
+
+// docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md
+test("a card with prototypes always shows Prototypes, opening its latest round, solid orange while a round waits on the owner's pick and plain once none does", async () => {
+  const round = (n, q, state) => ({ n, q, url: `prototype-x${n}.html?q=${q}`, confirm: false, state });
+  const cards = [
+    workCard('P1', { actionButton: 'openQuestions', questions: { first: 'q2', open: 1, state: 'open' }, action: { kind: 'pick', url: 'questions.html#q2', label: 'Prototypes ready: pick a take' }, resolvedBy: 'openQuestions',
+      prototypes: { open: true, rounds: [round(1, 'q1', 'resolved'), round(2, 'q2', 'open')] } }),
+    workCard('P2', { actionButton: null, prototypes: { open: false, rounds: [round(1, 'q1', 'resolved')] } }),
+    workCard('P3', { actionButton: null, lane: 'done', prototypes: { open: false, rounds: [round(1, 'q1', 'resolved')] } }),
+  ];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {} });
+  await b.settle();
+  const button = (key) => [...b.root.querySelectorAll(`details.item[data-key="${key}"] .action-row.workflow a`)].find((a) => a.textContent.trim() === 'Prototypes');
+  assert.equal(button('w/P1').getAttribute('href'), 'prototype-x2.html?q=q2');
+  assert.equal(button('w/P1').getAttribute('class'), 'button resolves');
+  assert.equal(button('w/P2').getAttribute('href'), 'prototype-x1.html?q=q1');
+  assert.equal(button('w/P2').getAttribute('class'), 'button');
+  assert.ok(button('w/P3'));
+  b.view.unmount();
 });

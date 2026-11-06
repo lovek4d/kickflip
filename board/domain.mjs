@@ -640,6 +640,16 @@ function roundState(qs) {
   return qs.some((q) => roundOf(q) === n && q.state !== 'resolved') ? { n, state: 'back' } : null;
 }
 
+// docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md
+// A card's prototypes, for its Prototypes button (app-cards.js) and the viewer's rounds (prototype-switcher.js): each of
+// its questions (ownerQuestion views) on a prototype page, oldest round first, and open while one of them waits on the
+// owner's pick. null when it has none.
+function prototypesOf(qs) {
+  const rounds = qs.filter((q) => PROTOTYPE_URL.test(q.url || '')).map((q) => ({ n: roundOf(q), q: q.id, url: q.url, confirm: Boolean(q.confirm_of), state: q.state }))
+    .sort((a, b) => a.n - b.n);
+  return rounds.length ? { open: rounds.some((r) => r.state === 'open'), rounds } : null;
+}
+
 const add = (map, key, value) => { const list = map.get(key); if (list) list.push(value); else map.set(key, [value]); };
 // list grouped by keyOf, each group in the list's order. → Map
 const groupBy = (list, keyOf) => { const map = new Map(); for (const x of list) add(map, keyOf(x), x); return map; };
@@ -1004,7 +1014,7 @@ export function buildBoard(snapshot) {
   const itemTopics = new Map(topicsOf().map((t) => [t.id, t]));
   for (const it of items) {
     const t = itemTopics.get(`item:${it.key}`);
-    if (!t) { it.questions = null; continue; }
+    if (!t) { it.questions = null; it.prototypes = null; continue; }
     const pending = t.questions.filter((id) => questionById.get(id)?.state !== 'resolved');
     const first = t.questions.find((id) => questionById.get(id)?.state === 'open') || pending[0] || t.questions[0];
     // askedAt: when each open question was asked, which the card counts as new questions; fromAsks: every open one is a
@@ -1012,6 +1022,7 @@ export function buildBoard(snapshot) {
     const open = t.questions.map((id) => questionById.get(id)).filter((q) => q?.state === 'open');
     it.questions = { topic: t.id, state: t.state, open: t.open, answered: t.answered, replied: t.replied, resolved: t.resolved, first,
       askedAt: open.map((q) => q.asked_at).filter(Boolean).sort(), fromAsks: open.length > 0 && open.every((q) => q.ask) };
+    it.prototypes = prototypesOf(t.questions.map((id) => questionById.get(id)));
   }
   // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md).
   const byKey = new Map(items.map((i) => [i.key, i]));
@@ -1300,10 +1311,10 @@ export function triageOf(items) {
 // The board keeps its newest DONE_KEPT Done cards, and GET /api/done pages the archive in as many at a time.
 export const DONE_KEPT = 100;
 // The fields of a Done card the page draws: the Done lane's card and its open detail (ui-cards.js workLines,
-// app-cards.js), the wave bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes and Open questions
-// links, and ui-snapshot.js updateSign. No page file reads `agents`, and the rest are set on a Done card only to be sent.
+// app-cards.js), the wave bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes, Questions and
+// Prototypes buttons, and ui-snapshot.js updateSign. No page file reads `agents`, and the rest are set on a Done card only to be sent.
 export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'status', 'wave', 'waveTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
-  'review', 'reviewers', 'risky', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
+  'review', 'reviewers', 'risky', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
 

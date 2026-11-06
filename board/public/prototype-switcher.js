@@ -1,11 +1,15 @@
-// The floating ‹ take › pill of a question's full-page prototype viewer (docs/adr/2026-10-29-1639-prototypes-come-on-request.md,
-// docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md).
+// The full-bleed prototype viewer's floating controls (docs/adr/2026-10-29-1639-prototypes-come-on-request.md,
+// docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md,
+// docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md).
 // Load it with a relative src after claude.js, on a page whose header leads with the back arrow, then call
 //   const sw = PrototypeSwitcher.mount({ takes: { A: 'A. Name', … }, initial: 'A', render(take) {…}, above: el? })
-// render runs at mount and on each switch; sw.take is the current key. ←/→ switch unless a field has focus, and the
-// take stays in ?variant=. With ?q=<owner question id>, the pill offers the take as that question's pick: a take is
-// pickable when an option's id equals its key. Pick drafts it, with the note typed above the pill, in the {choice, note}
-// questions.html keeps for that question, and goes back to the question, whose Send sends it.
+// render runs at mount and on each switch; sw.take is the current key. The page's header is hidden: a ✕ at the top
+// right goes back as its back arrow does, and the bottom bar holds the ‹ take › pager. ←/→ and a sideways swipe switch
+// unless a field has focus, and the take stays in ?variant=. With ?q=<owner question id>, the bar's second row offers
+// the take as that question's pick: a take is pickable when an option's id equals its key. Choose this drafts it, with
+// the note typed above the bar, in the {choice, note} questions.html keeps for that question, and goes back to the
+// question, whose Send sends it. A card with more than one prototype round gets a Round pill at the top left, which
+// opens a sheet of its rounds (/api/board's card prototypes.rounds, board/domain.mjs).
 (function () {
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -24,15 +28,16 @@
   const shownPick = (question, drafted) => question.state === 'requested' ? question.request?.choice ?? null
     : question.state === 'resolved' ? pickedChoice(question)
     : drafted ?? pickedChoice(question) ?? question.suggested?.option ?? null;
-  // none: no question, the take is not one of its options, or the question is locked and the take isn't its pick.
-  // pick: nothing picked yet. picked: this take is the pick. change: another take is.
+  // none: no question, the take is not one of its options, or the question waits on a requested prototype and the take
+  // isn't its pick. closed: the question is resolved and the take isn't its pick. pick: nothing picked yet. picked: this
+  // take is the pick. change: another take is.
   function pickState(question, take, drafted = null) {
     if (!question) return { kind: 'none' };
     const option = (question.options || []).find((o) => o.id === take);
     const picked = shownPick(question, drafted);
     if (!option) return { kind: 'none', picked };
     if (picked === take) return { kind: 'picked', option, picked };
-    if (locked(question)) return { kind: 'none', picked };
+    if (locked(question)) return { kind: question.state === 'resolved' ? 'closed' : 'none', picked };
     return picked ? { kind: 'change', option, picked } : { kind: 'pick', option };
   }
   // questions.html keeps each question's unsent {choice, note} under this key (ui-questions.js getDraft).
@@ -47,30 +52,68 @@
     if (!app?.open?.(String(url), { replace: true })) location.replace(url);
   }
 
+  // The bar: the ‹ name › pager, and below it on its own row the pick control, when there is one.
   function pillHtml({ name, pick = { kind: 'none' } }) {
     const control = pick.kind === 'picked' ? '<span class="ps-picked">Picked</span>'
-      : pick.kind === 'pick' || pick.kind === 'change'
-        ? `<button type="button" class="ps-pick" data-ps="pick">${pick.kind === 'pick' ? 'Pick this' : 'Change pick'}</button>`
-        : '';
-    return `<button type="button" data-ps="prev" aria-label="Previous take">‹</button><span class="ps-name" title="${esc(name)}">${esc(name)}</span><button type="button" data-ps="next" aria-label="Next take">›</button>${control}`;
+      : pick.kind === 'closed' ? '<span class="ps-closed">Round answered</span>'
+      : pick.kind === 'pick' || pick.kind === 'change' ? '<button type="button" class="ps-pick" data-ps="pick">Choose this</button>'
+      : '';
+    return `<div class="ps-row"><button type="button" data-ps="prev" aria-label="Previous take">‹</button><span class="ps-name" title="${esc(name)}">${esc(name)}</span><button type="button" data-ps="next" aria-label="Next take">›</button></div>${control ? `<div class="ps-row ps-act">${control}</div>` : ''}`;
   }
 
+  // rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds lists them
+  // ({n, q, url, confirm, state}). The pill names the round qid is in, out of the newest round's number; a card with a
+  // single round gets none.
+  function roundPill(rounds, qid) {
+    const at = (rounds || []).find((r) => r.q === qid);
+    if (!at || rounds.length < 2) return '';
+    return `<button type="button" class="ps-chip" data-ps-top="rounds">Round ${at.n} of ${Math.max(...rounds.map((r) => r.n))} · earlier</button>`;
+  }
+  const ROUND_WORD = { open: 'open', requested: 'prototype requested' };
+  function roundSheet({ ref, rounds, qid }) {
+    const rows = [...rounds].reverse().map((r) => `<button type="button" data-ps-round="${esc(r.url)}"><span>Round ${r.n}${r.confirm ? ' confirm' : ''}${r.q === qid ? ' · showing' : ''}</span><span>${ROUND_WORD[r.state] || 'answered'}</span></button>`);
+    return `<div class="ps-sheet" role="dialog" aria-label="Rounds"><h3>Rounds on ${esc(ref)}</h3>${rows.join('')}</div>`;
+  }
+
+  // A touch from start to end: 1 for a swipe left (the next take), -1 for a swipe right, 0 for anything else: under
+  // 50px sideways, more down than across, or starting at the left edge, where the drawer's and the browser's swipes are.
+  const swipeStep = (start, end) => {
+    const dx = end.x - start.x;
+    return start.x < 24 || Math.abs(dx) < 50 || Math.abs(end.y - start.y) * 2 > Math.abs(dx) ? 0 : dx < 0 ? 1 : -1;
+  };
+
   const CSS = `
-.ps-switch { position:fixed; left:16px; right:16px; bottom:calc(var(--app-bottom, 0px) + 14px + env(safe-area-inset-bottom)); z-index:30;
+body > header.top { display:none; }
+main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
+.ps-top { position:fixed; left:10px; right:10px; top:calc(10px + env(safe-area-inset-top)); z-index:31; display:flex; justify-content:space-between;
+  align-items:flex-start; pointer-events:none; font:600 13px -apple-system, system-ui, sans-serif; }
+.ps-top > * { pointer-events:auto; }
+.ps-chip, .ps-close { color:#fff; background:#000a; border:1px solid #fff4; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); font:inherit; cursor:pointer; }
+.ps-chip { border-radius:999px; padding:0 14px; min-height:40px; }
+.ps-close { margin-left:auto; width:40px; height:40px; border-radius:50%; font-size:17px; line-height:1; }
+.ps-sheet { position:fixed; left:0; right:0; bottom:0; z-index:32; padding:14px 16px calc(22px + env(safe-area-inset-bottom)); border-radius:18px 18px 0 0;
+  background:#26262c; color:#fff; box-shadow:0 -8px 30px #0009; }
+.ps-sheet h3 { margin:0 0 8px; font-size:14px; }
+.ps-sheet button { display:flex; justify-content:space-between; gap:12px; width:100%; border:0; border-top:1px solid #fff2; background:transparent; color:#fff;
+  padding:12px 2px; font:inherit; font-weight:500; text-align:left; cursor:pointer; }
+.ps-sheet button span + span { opacity:.7; }
+.ps-switch { position:fixed; left:10px; right:10px; bottom:calc(var(--app-bottom, 0px) + 12px + env(safe-area-inset-bottom)); z-index:30;
   display:flex; flex-direction:column; align-items:center; gap:6px; pointer-events:none; }
 .ps-switch > * { pointer-events:auto; max-width:100%; min-width:0; box-sizing:border-box; }
-.ps-switch .pill, .ps-pill { display:flex; align-items:center; gap:2px; background:#000d; border:1px solid #fff3; border-radius:999px; padding:4px;
-  -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); font:600 13px -apple-system, system-ui, sans-serif; }
-.ps-switch .pill button, .ps-pill button { color:#fff; background:transparent; border:0; border-radius:999px; padding:7px 11px; font:inherit; white-space:nowrap; cursor:pointer; }
+.ps-pill { display:flex; flex-direction:column; gap:6px; width:min(460px, 100%); background:#202026eb; border:1px solid #fff3; border-radius:18px; padding:6px;
+  box-shadow:0 6px 24px #0008; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); font:600 13px -apple-system, system-ui, sans-serif; }
+.ps-row { display:flex; align-items:center; gap:2px; min-width:0; }
+.ps-pill button { color:#fff; background:transparent; border:0; border-radius:999px; padding:7px 11px; font:inherit; white-space:nowrap; cursor:pointer; }
 .ps-pill button { flex-shrink:0; min-width:44px; min-height:44px; }
-.ps-switch .pill button.on { background:#fff; color:#000; }
-.ps-name { flex:0 1 auto; padding:7px 6px; color:#fff; white-space:nowrap; min-width:0; text-align:center; overflow:hidden; text-overflow:ellipsis; }
-.ps-pill .ps-pick { background:#fff; color:#000; margin-left:2px; }
+.ps-name { flex:1 1 auto; padding:7px 6px; color:#fff; white-space:nowrap; min-width:0; text-align:center; overflow:hidden; text-overflow:ellipsis; }
+.ps-act > * { flex:1; text-align:center; }
+.ps-pill .ps-pick { background:var(--accent, #fff); color:var(--on-accent, #000); font-weight:700; }
+.ps-closed { padding:12px 11px; border-radius:999px; color:#fffa; background:#fff1; white-space:nowrap; }
 .ps-switch .ps-text { width:min(420px, 100%); resize:none; border-radius:12px; border:1px solid #fff3; background:#000d; color:#fff;
   padding:7px 10px; font:400 14px -apple-system, system-ui, sans-serif; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); }
 .ps-switch .ps-text::placeholder { color:#fffa; }
 .ps-switch .ps-text[hidden] { display:none; }
-.ps-picked { margin-left:2px; padding:7px 11px; border-radius:999px; color:#fff; background:#1f9d55; white-space:nowrap; }
+.ps-picked { padding:12px 11px; border-radius:999px; color:#fff; background:#1f9d55; white-space:nowrap; }
 .ps-note { background:#000d; color:#fff; border-radius:8px; padding:5px 10px; font:500 12px -apple-system, system-ui, sans-serif; text-align:center; }
 .ps-note[hidden] { display:none; }`;
 
@@ -97,6 +140,17 @@
     const pill = box.querySelector('.ps-pill');
     const noteEl = box.querySelector('.ps-note');
     const text = box.querySelector('.ps-text');
+    // The ✕ and, on a card with earlier rounds, the Round pill and its sheet. boardCard: /api/board's card the question is on.
+    const top = document.createElement('div');
+    top.className = 'ps-top';
+    document.body.append(top);
+    let boardCard = null;
+    let sheet = false;
+    const paintTop = () => {
+      const rounds = boardCard?.prototypes?.rounds;
+      top.innerHTML = `${roundPill(rounds, qid)}<button type="button" class="ps-close" data-ps-top="close" aria-label="Close">✕</button>${sheet && rounds ? roundSheet({ ref: boardCard.ref, rounds, qid }) : ''}`;
+    };
+    paintTop();
 
     const note = (text) => { noteEl.textContent = text || ''; noteEl.hidden = !text; };
     const state = () => pickState(question, take, qid ? readDraft(qid).choice : null);
@@ -124,6 +178,8 @@
           || (topic && (await (await fetch(site.url('api/questions?topic=' + encodeURIComponent(topic.id)), { cache: 'no-store' })).json()).questions.find((q) => q.id === qid))
           || null;
         if (!question) note('This prototype’s question is gone, so there is nothing to pick.');
+        boardCard = topic && board.items.find((i) => i.questions?.topic === topic.id) || null;
+        paintTop();
       } catch { /* keep the last question shown */ }
       if (fromPush && pickedChoice(question)) {
         const card = /^item:(.+)$/.exec(question.topic || '')?.[1];
@@ -153,11 +209,33 @@
       else if (act === 'next') go(takeAt(keys, take, 1));
       else if (act === 'pick') pick();
     });
+    // ✕ follows the hidden header's back arrow, so it goes where back goes (router.js page tree).
+    top.addEventListener('click', (e) => {
+      const round = e.target.closest('[data-ps-round]')?.dataset.psRound;
+      if (round) { replaceWith(site.url(round)); return; }
+      const act = e.target.closest('[data-ps-top]')?.dataset.psTop;
+      if (act === 'close') document.querySelector('header.top a.back').click();
+      else if (act === 'rounds') { sheet = !sheet; paintTop(); }
+    });
     document.addEventListener('keydown', (e) => {
       if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'ArrowLeft') go(takeAt(keys, take, -1));
       else if (e.key === 'ArrowRight') go(takeAt(keys, take, 1));
+      else if (e.key === 'Escape' && sheet) { sheet = false; paintTop(); }
     });
+    // A swipe that starts in a box scrolling sideways is that box's own scroll.
+    let touch = null;
+    document.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      const scrolls = (el) => el && el !== document.body && (el.scrollWidth > el.clientWidth && /auto|scroll/.test(getComputedStyle(el).overflowX) ? true : scrolls(el.parentElement));
+      touch = e.touches.length === 1 && !typing(e.target) && !e.target.closest?.('.ps-sheet') && !scrolls(e.target) ? { x: t.clientX, y: t.clientY } : null;
+    }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      const t = e.changedTouches[0];
+      const step = touch && t ? swipeStep(touch, { x: t.clientX, y: t.clientY }) : 0;
+      touch = null;
+      if (step) go(takeAt(keys, take, step));
+    }, { passive: true });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 
     go(take);
@@ -165,5 +243,5 @@
     return { takes: keys, get take() { return take; }, go };
   }
 
-  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, pillHtml, mount };
+  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, pillHtml, roundPill, roundSheet, swipeStep, mount };
 })();

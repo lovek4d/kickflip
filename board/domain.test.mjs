@@ -370,6 +370,26 @@ test("a prototype request is its question's input until the round arrives: the q
   assert.deepEqual(leaning.map((m) => m.text), ['Where does search sit?\n→ B. Behind an icon\n→ show it on a phone']);
 });
 
+// docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md
+test("a card's prototypes are its questions on prototype pages, oldest round first, open while one of them waits on the owner's pick", () => {
+  const plain = { id: 'plain', topic: 'item:w/A1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }] };
+  const takes = { id: 'takes', topic: 'item:w/A1', question: 'Which take?', url: 'prototype-search.html?q=takes', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }], round: 1, round_of: 'plain' };
+  const confirm = { id: 'takes-confirm', topic: 'item:w/A1', question: 'Is this it?', url: 'prototype-search.html?q=takes-confirm', options: [{ id: 'B', label: 'Icon' }], round: 1, confirm_of: 'takes' };
+  const again = { id: 'takes-2', topic: 'item:w/A1', question: 'Which now?', url: 'prototype-search-2.html?q=takes-2', options: [{ id: 'A', label: 'Big' }], round: 2, round_of: 'takes' };
+  const resolved = (q, at) => ({ ...q, resolved: 'Followed by the next round', resolved_at: at });
+  const answer = (id, choice, ts) => ({ id: `a-${id}`, ts, kind: 'owner-answer', data: { id, choice, note: '' }, reply: null });
+  const card = (items, events = []) => board({ owner: { items }, events }).items.find((i) => i.key === 'w/A1').prototypes;
+
+  assert.equal(card([plain]), null);
+  assert.equal(board({}).items.find((i) => i.key === 'w/A1').prototypes, null);
+  assert.deepEqual(card([resolved(plain, '2026-10-23T11:00:00Z'), takes]),
+    { open: true, rounds: [{ n: 1, q: 'takes', url: 'prototype-search.html?q=takes', confirm: false, state: 'open' }] });
+  assert.deepEqual(card([resolved(plain, '2026-10-23T11:00:00Z'), takes], [answer('takes', 'B', '2026-10-23T12:00:00Z')]).open, false);
+  const later = card([again, resolved(plain, '2026-10-23T11:00:00Z'), resolved(takes, '2026-10-23T12:00:01Z'), resolved(confirm, '2026-10-23T13:00:01Z')]);
+  assert.deepEqual(later.rounds.map((r) => [r.n, r.q, r.confirm, r.state]), [[1, 'takes', false, 'resolved'], [1, 'takes-confirm', true, 'resolved'], [2, 'takes-2', false, 'open']]);
+  assert.equal(later.open, true);
+});
+
 test("an answer to an item's question joins that item's thread", () => {
   const shot = { name: 'shot.png', url: 'uploads/1-shot.png', path: '/s/data/uploads/1-shot.png', type: 'image/png', size: 3 };
   const owner = { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Keep it?' }, { id: 'q2', topic: 'site', question: 'Other?' }] };
