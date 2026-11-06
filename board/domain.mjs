@@ -250,7 +250,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
     // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
     implementAt: lane !== 'done' ? it.implement_at || null : null,
-    deps: it.deps || [], held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
+    deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
@@ -564,7 +564,9 @@ function reachedPhaseOf(agents, lines = []) {
 
 // A run's silence is the time since its newest progress line or movement in its worktree's Claude transcript (moved
 // {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone. alive is
-// whether the card's headless process lives (server.mjs snapshot alive), null when the board tracks none for it.
+// whether the card's headless process lives (server.mjs snapshot alive), null when the board tracks none for it, or
+// 'held' while the board holds its launch for a usage pause: held, never stalled, since the board launches it once the
+// pause lifts (server.mjs reviveHeadless), so it is no wait on the orchestrator.
 // commandRunning is whether its transcript ends on a tool call with no result (server.mjs snapshot commandRunning).
 // A live one reads quiet after BUILDER_QUIET_AFTER of silence with no command running, and is never stalled; a gone one is stalled at once; an
 // untracked one is stalled after BUILDER_STALLED_AFTER of silence
@@ -584,9 +586,10 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
   const silentSince = stop ? stop.at : movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
   const progress = line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
   const silent = now - Date.parse(silentSince);
-  const live = planner ? null : stop ? false : alive;
-  const stalled = live === null ? silent >= BUILDER_STALLED_AFTER : !live;
-  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled, alive: live, quiet: live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER, stopped: stop ? stoppedWords(stop.run) : null };
+  const held = !planner && !stop && alive === 'held';
+  const live = planner || held ? null : stop ? false : alive;
+  const stalled = held ? false : live === null ? silent >= BUILDER_STALLED_AFTER : !live;
+  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled, alive: live, held, quiet: live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER, stopped: stop ? stoppedWords(stop.run) : null };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
@@ -888,7 +891,7 @@ function nextOf(cards) {
   const it = todo.find((i) => i.ready && i.buildable) || todo[0];
   if (!it) return null;
   const ready = it.ready && it.buildable;
-  const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `waits on ${it.blockedBy.map((d) => d.ref).join(', ')}`
+  const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `waits on ${it.blockedBy.map((d) => d.ref).join(', ')}` : it.blockedUntil ? `blocked until ${it.blockedUntil}`
     : it.action ? 'needs you' : it.state || 'not ready';
   return { key: it.key, ref: it.ref, ready, word };
 }
@@ -1076,10 +1079,16 @@ export function buildBoard(snapshot) {
     it.prototypes = prototypesOf(t.questions.map((id) => questionById.get(id)));
   }
   // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md).
+  // It also waits on its blocked-until condition until an agent clears it, and a block, by either, carries its reason
+  // (docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md). blocked: either holds it.
   const byKey = new Map(items.map((i) => [i.key, i]));
   for (const it of items) {
-    it.blockedBy = it.kind !== 'work' || it.lane === 'done' ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.wave}/${d}`))
+    const open = it.kind === 'work' && it.lane !== 'done';
+    it.blockedBy = !open ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.wave}/${d}`))
       .filter((d) => d && d.lane !== 'done' && !d.reopened).map(linkOf);
+    it.blockedUntil = open ? it.blockedUntil ?? null : null;
+    it.blockReason = open ? it.blockReason ?? null : null;
+    it.blocked = it.blockedBy.length > 0 || Boolean(it.blockedUntil);
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
@@ -1091,7 +1100,7 @@ export function buildBoard(snapshot) {
     // sets its state (shown as its ticket, never New), and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
     it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !it.state;
-    it.ready = unstarted && it.state === 'ready' && !it.blockedBy.length && !it.action;
+    it.ready = unstarted && it.state === 'ready' && !it.blocked && !it.action;
   }
   linkCards(items, byKey, storedLinks);
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
@@ -1283,7 +1292,7 @@ export function needsAnswer(b) {
 
 // A card ready to build: an unstarted work card that isn't held, with state ready, nothing blocking it, no question
 // open or waiting on Claude and no grill under way.
-const pullableCard = (i) => i.buildable && i.state === 'ready' && !i.held && !i.unsorted && !i.blockedBy.length && !i.questions?.open && !i.questions?.answered && !i.grilling && !i.prototyping;
+const pullableCard = (i) => i.buildable && i.state === 'ready' && !i.held && !i.unsorted && !i.blocked && !i.questions?.open && !i.questions?.answered && !i.grilling && !i.prototyping;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum parallel implementers when board.json sets none.
@@ -1307,7 +1316,7 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const implementers = open.filter((i) => i.waitsOn === 'checking' || running(i).some(builds)).length;
   const pullable = open.filter((i) => pullableCard(i) && !i.working).map((i) => i.key);
   const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
-  const starts = open.filter((i) => i.implementAt && i.state === 'ready' && !i.blockedBy.length).map((i) => i.key);
+  const starts = open.filter((i) => i.implementAt && i.state === 'ready' && !i.blocked).map((i) => i.key);
   const pulls = pullable.filter((k) => !waiting.includes(k)).slice(0, Math.max(0, cap - implementers - waiting.length - starts.length));
   return { idle: !implementers, pullable, waiting, starts, pulls };
 }
@@ -1334,7 +1343,7 @@ export const MAX_PLANNERS = 3;
 export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
-  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.unsorted && !i.blockedBy.length && !i.held && !i.working && !i.grilling && !i.prototyping
+  const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.unsorted && !i.blocked && !i.held && !i.working && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL));
   return arrived.slice(0, Math.max(0, cap - planners)).map((i) => i.key);
 }
@@ -1427,7 +1436,7 @@ export function startedByAnswer(built, id) {
   const q = built.owner.find((x) => x.id === id);
   const key = /^item:([^/:]+\/[^/]+)$/.exec(q?.topic || '')?.[1];
   const it = key && built.items.find((i) => i.key === key);
-  if (!it || it.kind !== 'work' || it.lane === 'done' || it.held || it.blockedBy.length || it.action || it.unpicked || it.pr || it.pushed) return null;
+  if (!it || it.kind !== 'work' || it.lane === 'done' || it.held || it.blocked || it.action || it.unpicked || it.pr || it.pushed) return null;
   if (it.status !== null || it.agents.some((a) => !a.done)) return null;
   return built.owner.some((x) => x.topic === q.topic && x.state === 'open') ? null : key;
 }
@@ -1481,6 +1490,45 @@ export function orchestratorWaits(built) {
 }
 // How long a card waits on the orchestrator, not picked up, before the board pushes the owner about it once.
 export const ORCHESTRATOR_PUSH_AFTER = 30 * 60000;
+
+// docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
+// How long a wait nobody picked up goes between wakes, and how long a picked-up one that stays open goes, from its pickup.
+export const REWAKE_AFTER = 15 * 60000;
+export const PICKED_REWAKE_AFTER = 60 * 60000;
+// One check of the cards idle on the orchestrator, for the stored list (data/orchestrator-waits.json) and the current
+// waits (orchestratorWaits) at now: each entry carries bumped, its last wake, and keeps pushed. A wait joins the list when
+// its key, kind and since are new, and wakes the session then unless it is already picked up. After that it wakes again
+// once REWAKE_AFTER passes since its last wake (or its since, for an entry stored before bumped), and once picked up,
+// once PICKED_REWAKE_AFTER passes since the later of its pickup and its last wake.
+// → {waits, added: [key], again: [{key, ref, kind, since, next}]}
+export function waitsStep(previous, current, now) {
+  const at = now.toISOString();
+  const added = [];
+  const again = [];
+  const waits = current.map((w) => {
+    const was = previous.find((p) => p.key === w.key && p.kind === w.kind && p.since === w.since);
+    if (!was) {
+      if (!w.picked) added.push(w.key);
+      return { ...w, bumped: at };
+    }
+    const last = w.picked ? [w.picked, was.bumped].filter(Boolean).sort().pop() : was.bumped || w.since;
+    const due = now - Date.parse(last) >= (w.picked ? PICKED_REWAKE_AFTER : REWAKE_AFTER);
+    if (due) again.push({ key: w.key, ref: w.ref, kind: w.kind, since: w.since, next: w.next });
+    return { ...w, bumped: due ? at : was.bumped || w.since, ...(was.pushed ? { pushed: true } : {}) };
+  });
+  return { waits, added, again };
+}
+// The plain line the watcher prints for a re-wake's cards at time at (ms):
+// "still waiting on you: <ref> <kind> for <age>: <next>", the cards joined by "; ".
+export function waitsAgainLine(again, at) {
+  const age = (since) => {
+    const minutes = Math.floor((at - Date.parse(since)) / 60000);
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
+  };
+  return `still waiting on you: ${again.map((w) => `${w.ref} ${w.kind} for ${age(w.since)}: ${w.next}`).join('; ')}`;
+}
 
 // How long a board stays strictly idle before the idle notification pushes.
 export const IDLE_MINUTES = 15;

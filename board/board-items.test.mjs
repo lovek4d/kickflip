@@ -938,3 +938,45 @@ test('item set --status done refuses a done card the owner reopened with a messa
   assert.deepEqual([r.code, r.err], [1, "the owner reopened A1 with a message; it closes on the owner's Done\n"]);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status_at, closed);
 });
+
+// docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
+test('item set blocks a card until a condition with a reason, refuses its start while it holds, and clearing it threads and emits card-unblocked once', () => {
+  write(at('waves', 'd', 'wave.json'), { items: [
+    { id: 'A1', title: 'One', status: 'building' },
+    { id: 'A2', title: 'Two', state: 'ready' },
+    { id: 'A3', title: 'Three', deps: ['A1'] },
+  ] });
+  const item = (id) => read(at('waves', 'd', 'wave.json')).items.find((i) => i.id === id);
+  const events = () => (fs.existsSync(site('orch', 'data', 'events.jsonl')) ? lines(site('orch', 'data', 'events.jsonl')) : []).filter((e) => e.kind === 'card-unblocked');
+  const thread = (id) => (fs.existsSync(site('orch', 'data', 'threads', `d__${id}.jsonl`)) ? lines(site('orch', 'data', 'threads', `d__${id}.jsonl`)) : []).map((m) => m.text);
+
+  const lonely = board('item', 'set', 'd/A2', '--site', 'orch', '--block-reason', 'why');
+  assert.equal(lonely.code, 1);
+  assert.match(lonely.err, /--block-reason goes with a block: --deps or --blocked-until/);
+  assert.equal(board('item', 'set', 'd/A2', '--site', 'orch', '--blocked-until', 'the CI run on main is green', '--block-reason', 'the suite is red on main').code, 0);
+  assert.deepEqual([item('A2').blocked_until, item('A2').block_reason], ['the CI run on main is green', 'the suite is red on main']);
+  const start = board('item', 'set', 'd/A2', '--site', 'orch', '--status', 'building');
+  assert.equal(start.code, 1);
+  assert.match(start.err, /d\/A2 is blocked until the CI run on main is green; start it once that holds and the block is cleared with --blocked-until ""/);
+
+  // A dep finishing leaves a card its condition still blocks blocked: no unblocking.
+  assert.equal(board('item', 'set', 'd/A3', '--site', 'orch', '--blocked-until', 'the API is deployed').code, 0);
+  assert.doesNotMatch(board('item', 'set', 'd/A1', '--site', 'orch', '--status', 'done', '--text', 'Done.').out, /unblocked/);
+  assert.deepEqual(events(), []);
+
+  const cleared = board('item', 'set', 'd/A2', '--site', 'orch', '--blocked-until', '');
+  assert.equal(cleared.code, 0);
+  assert.match(cleared.out, /^unblocked: d\/A2$/m);
+  assert.deepEqual([item('A2').blocked_until, item('A2').block_reason], [undefined, undefined], 'the reason goes with the block');
+  assert.deepEqual(thread('A2'), ['Unblocked: the CI run on main is green.']);
+  assert.deepEqual(events().map((e) => e.data), [{ key: 'd/A2' }]);
+  assert.equal(board('item', 'set', 'd/A2', '--site', 'orch', '--blocked-until', '').code, 0);
+  assert.equal(events().length, 1, 'clearing nothing emits nothing');
+
+  // A reason rides a dep block too, and goes when the deps are cleared.
+  assert.equal(board('item', 'set', 'd/A2', '--site', 'orch', '--deps', 'A3', '--block-reason', 'shares the send bar').code, 0);
+  assert.deepEqual([item('A2').deps, item('A2').block_reason], [['A3'], 'shares the send bar']);
+  assert.equal(board('item', 'set', 'd/A2', '--site', 'orch', '--deps', '').code, 0);
+  assert.equal(item('A2').block_reason, undefined);
+  assert.equal(events().length, 1, 'clearing deps by hand is no unblocking event, as before');
+});

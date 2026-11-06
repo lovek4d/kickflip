@@ -57,11 +57,16 @@
     return `<a class="card-action" href="${esc(it.action.url)}" title="${esc(it.action.label)}" aria-label="${esc(`Action needed: ${it.action.label}`)}"${external}>Action needed</a>`;
   }
   // Each unfinished dep, linking to its card: "blocked by #53, #54", or "waits on #53" on a bumped card not held, which
-  // the pull takes once nothing blocks it (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
+  // the pull takes once nothing blocks it (docs/adr/2026-11-05-0802-todo-has-no-queue.md); then its condition, "blocked
+  // until <condition>" ("and until <condition>" after deps), then ", <reason>"
+  // (docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md).
   function blockedWords(it) {
     const deps = it.blockedBy || [];
-    const lead = it.bumpedAt && !it.held ? 'waits on ' : 'blocked by ';
-    return deps.map((d, i) => `<a class="card-blocked" href="#item=${encodeURIComponent(d.key)}">${i ? '' : lead}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
+    const waits = it.bumpedAt && !it.held;
+    const refs = deps.map((d, i) => `<a class="card-blocked" href="#item=${encodeURIComponent(d.key)}">${i ? '' : waits ? 'waits on ' : 'blocked by '}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
+    const until = it.blockedUntil ? `${deps.length ? ' and until' : waits ? 'waits until' : 'blocked until'} ${it.blockedUntil}` : '';
+    const tail = until + (it.blockReason && (refs || until) ? `, ${it.blockReason}` : '');
+    return refs + (tail ? `<span class="card-blocked">${esc(tail)}</span>` : '');
   }
   const tryWords = (kind) => kind === 'app' ? {
     go: 'Serve', going: 'serving…', done: 'Install', failed: 'serve failed',
@@ -319,7 +324,7 @@
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => (it.isNew ? badge('notice', 'New') : '');
   function planButton(items) {
-    const keys = items.filter((i) => i.kind === 'work' && !i.held && !i.blockedBy?.length).map((i) => i.key);
+    const keys = items.filter((i) => i.kind === 'work' && !i.held && !i.blocked).map((i) => i.key);
     return keys.length > 1 ? `<button type="button" class="thread-more" data-plan="${esc(keys.join(' '))}"${BoardUI.pending.has('todo:plan') ? BoardUI.BUSY : ''}>Plan waves</button>` : '';
   }
 

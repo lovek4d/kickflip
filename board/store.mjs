@@ -1625,13 +1625,18 @@ async function unfinishedDeps(site, slug, item) {
   const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
   return keys.filter((k, i) => deps[i] && !FINISHED.includes(deps[i].status));
 }
-// → the keys of the blocked cards whose last unfinished dep was key.
+// The names of what blocks item (at key) from starting: each unfinished dep's card name, then its blocked-until condition.
+async function blockerNames(site, key, item) {
+  const deps = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
+  return item.blocked_until ? [...deps, item.blocked_until] : deps;
+}
+// → the keys of the blocked cards whose last unfinished dep was key and no condition blocks.
 async function unblockedBy(site, key) {
   const out = [];
   for (const s of await itemSources(site)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
-      if (![undefined, 'held'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      if (![undefined, 'held'].includes(it.status) || it.blocked_until || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
       if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
     }
   }
@@ -1733,7 +1738,7 @@ function closingLine(site, key, item, status, text, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, ownerStep, ownerDone, check }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, ownerStep, ownerDone, check }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
@@ -1748,7 +1753,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
+  if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const { source, wave, item } = await loadItem(site, key);
@@ -1773,6 +1778,17 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     const list = await depList(site, parseKey(key).wave, deps);
     if (list.length) item.deps = list; else delete item.deps;
   }
+  // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md: a block waits on cards (deps) or a condition,
+  // with one reason for either, which goes when the block does. lifted: the condition this call cleared, if any.
+  const lifted = blockedUntil === '' ? item.blocked_until : undefined;
+  if (blockedUntil !== undefined) {
+    if (blockedUntil === '') delete item.blocked_until; else item.blocked_until = text(blockedUntil, '--blocked-until');
+  }
+  if (blockReason) {
+    if (!item.deps?.length && !item.blocked_until) fail('--block-reason goes with a block: --deps or --blocked-until');
+    item.block_reason = text(blockReason, '--block-reason');
+  }
+  if (blockReason === '' || (!item.deps?.length && !item.blocked_until)) delete item.block_reason;
   if (parent !== undefined) {
     const to = await parentKey(site, parseKey(key).wave, key, parent);
     if (to) item.parent = to; else delete item.parent;
@@ -1791,6 +1807,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (status === 'building') {
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
+    if (item.blocked_until) fail(`${key} is blocked until ${item.blocked_until}; start it once that holds and the block is cleared with --blocked-until ""`);
   }
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: a build that starts, or a card
   // that closes, ends an Implement message's wait.
@@ -1848,7 +1865,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: ready releases an Implement message's card, keeping implement_at, so
   // the board server starts its build at once (domain.mjs pullOf starts). One an unfinished dep still blocks drops
   // implement_at and is bumped instead (bumpBlocked), back in Todo for the pull. released: the blockers' names, or null.
-  const released = state === 'ready' && site && item.implement_at ? await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k))) : null;
+  const released = state === 'ready' && site && item.implement_at ? await blockerNames(site, key, item) : null;
   if (released?.length) delete item.implement_at;
   if (built) item.install = built;
   if (built === null) delete item.install;
@@ -1875,6 +1892,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
+  if (lifted && !FINISHED.includes(item.status) && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) {
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Unblocked: ${lifted}.` });
+    await appendEvent({ dir: site }, 'card-unblocked', { key });
+    resolved.unshift(`unblocked: ${key}`);
+  }
   if (!FINISHED.includes(status) || wasFinished) return { file: source.file, lines: resolved };
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
@@ -1927,14 +1949,14 @@ function setHold(item, hold) {
 }
 
 // A held card whose pick-up time `until` has passed, as board/server.mjs checkPickUps finds it: resumed in its wave
-// file. announce first adds a thread line and, unless a dep is unfinished, card-unblocked {key, until}, as a finished
+// file. announce first adds a thread line and, unless a dep is unfinished or a condition blocks it, card-unblocked {key, until}, as a finished
 // dep does; it is false when those were sent before a restart cut the write short.
 export async function pickUp(site, key, until, { announce = true } = {}) {
   const { source, wave, item } = await loadItem(site, key);
   if (announce) {
     const at = new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Resumed: its hold until ${at} ended.` });
-    if (!(await unfinishedDeps(site, parseKey(key).wave, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
+    if (!item.blocked_until && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
   }
   setHold(item, null);
   await writeJSON(source.file, wave);
@@ -2819,7 +2841,7 @@ const onlyRebased = (item, approved, head) => {
 // The refusals of a build's start that the owner can act on, worded for the card; startBuilder still makes every check.
 // A held card that hasn't started is no refusal: the tap unholds it (docs/adr/2026-11-03-0234-a-held-todo-card-shows-build-in-place-of-unhold.md),
 // and nor is a blocked one: the tap bumps it (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
-// → {held: its hold or null, blockers: the names of its unfinished deps}.
+// → {held: its hold or null, blockers: the names of its unfinished deps and its blocked-until condition (blockerNames)}.
 async function tapRefusals(site, key) {
   const gate = readUsageGate({ dir: site });
   if (gate.state === 'paused') fail(pauseReason(gate));
@@ -2827,8 +2849,7 @@ async function tapRefusals(site, key) {
   const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
   if (held && ![...UNSTARTED, 'held'].includes(item.status)) fail("it's held. Unhold it, then tap Implement.");
   if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes, so it prototypes again. Pick a take from the next round, then tap Implement.');
-  const blockers = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
-  return { held, blockers };
+  return { held, blockers: await blockerNames(site, key, item) };
 }
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md

@@ -275,8 +275,8 @@ BoardView.part((B) => {
       : openPRs(it).length > 1
       ? `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join(', ')} in turn if they are still approved, green and clean.`
       : `Merge ${ref}? Claude squash-merges ${openPRs(it).map(prName).join('')} if it is still approved, green and clean.`),
-    'card-build': (it, ref) => (it.blockedBy?.length
-      ? `${it.held ? 'Unhold and implement' : 'Implement'} ${ref} once ${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done? It is bumped to the top of Todo until then.`
+    'card-build': (it, ref) => (it.blocked
+      ? `${it.held ? 'Unhold and implement' : 'Implement'} ${ref} once ${[it.blockedBy.length && `${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done`, it.blockedUntil].filter(Boolean).join(' and ')}? It is bumped to the top of Todo until then.`
       : `${it.held ? `Unhold and implement ${ref}?` : `Implement ${ref}?`} Claude starts its implementer now with the notes as they stand.`),
     finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
       : it.ownerStep ? `Done with "${it.ownerStep}"? ${ref} moves to Done and its ticket closes.`

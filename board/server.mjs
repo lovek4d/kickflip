@@ -207,8 +207,10 @@
 //                                on a review held for them
 //                                Each card that joins the list of cards idle on the orchestrator (domain.mjs
 //                                orchestratorWaits), kept in data/orchestrator-waits.json for the watcher, appends
-//                                orchestrator-waits {added: [key]}, and one left 30 minutes not picked up pushes the
-//                                owner once (checkWaits), checked on every board change and each minute
+//                                orchestrator-waits {added: [key], again}, again naming each still waiting 15 minutes
+//                                on from its last wake, or an hour once picked up (domain.mjs waitsStep), and one left
+//                                30 minutes not picked up pushes the owner once (checkWaits), checked on every board
+//                                change and each minute
 //                                With idle_notification on, a board strictly idle for 15 minutes (domain.mjs
 //                                strictlyIdle) pushes "<board> has gone idle" once per idle stretch, checked on every
 //                                board change and each minute, tracked in data/idle.json (checkIdle)
@@ -285,7 +287,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -645,11 +647,13 @@ async function snapshot(outside, archived = []) {
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md
   // alive {<key>: whether its headless process lives}: a card's tracked builder, else its lander (domain.mjs builderOf).
   // A gone process reads false only once the board has stopped relaunching it (handedBack, reviveHeadless); before that
-  // the next minute's pass relaunches it, as launchLanders does a lander, so it reads as untracked.
+  // the next minute's pass relaunches it, as launchLanders does a lander, so it reads as untracked. A builder whose launch
+  // a usage pause holds (pid null, handOff) reads 'held' until reviveHeadless launches it.
   const alive = Object.create(null);
   const headless = await readJSON(path.join(data, 'headless-builders.json'), {});
   const landers = await readJSON(path.join(data, 'landers.json'), {});
   for (const [key, entry] of [...Object.entries(landers), ...Object.entries(headless)]) {
+    if (entry?.pid === null && routeRecord(headless, key) === entry) alive[key] = 'held';
     if (!Number.isInteger(entry?.pid)) continue;
     if (pidAlive(entry.pid)) alive[key] = true;
     else if (entry.handedBack) alive[key] = false;
@@ -1879,12 +1883,14 @@ async function pushActions() {
 }
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-// data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, picked, next, pushed?}]}: the cards idle on the
-// orchestrator (domain.mjs orchestratorWaits), lanes top-down, which bin/wait-events.mjs prints on every wake. Each card
-// that joins it not picked up, or waits again with a new kind or since, is named in one orchestrator-waits {added: [key]}
-// event, appended once the file is written. One waiting ORCHESTRATOR_PUSH_AFTER, not picked up, pushes the owner once,
-// and its entry keeps pushed while that wait lasts. Checked on every board change and each minute; a check asked for
-// while one runs runs again after it.
+// docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
+// data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, picked, next, bumped, pushed?}]}: the cards idle on
+// the orchestrator (domain.mjs orchestratorWaits), lanes top-down, which bin/wait-events.mjs prints on every wake. Each
+// check appends at most one orchestrator-waits {added: [key], again: [{key, ref, kind, since, next}]} event once the file
+// is written: added names each card that joins it not picked up, or waits again with a new kind or since; again each
+// one still waiting past its re-wake time (domain.mjs waitsStep), so reading the event lines alone misses no wait. One
+// waiting ORCHESTRATOR_PUSH_AFTER, not picked up, pushes the owner once, and its entry keeps pushed while that wait
+// lasts. Checked on every board change and each minute; a check asked for while one runs runs again after it.
 let checkingWaits = null;
 let waitsAgain = false;
 function checkWaits() {
@@ -1901,25 +1907,21 @@ async function stepWaits() {
   const file = path.join(data, 'orchestrator-waits.json');
   const stored = await readJSON(file, null);
   const previous = stored?.waits || [];
-  const was = (w) => previous.find((p) => p.key === w.key && p.kind === w.kind && p.since === w.since);
-  const added = [];
+  const step = waitsStep(previous, orchestratorWaits(await sharedBoard()), new Date());
   const waits = [];
-  for (const w of orchestratorWaits(await sharedBoard())) {
-    let pushed = was(w)?.pushed === true;
-    if (!w.picked && !was(w)) added.push(w.key);
-    if (!w.picked && !pushed && Date.now() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
-      pushed = true;
+  for (const w of step.waits) {
+    if (!w.picked && !w.pushed && Date.now() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
       await sendOwnPush({ kind: 'reminder', title: `${w.ref} waits on the orchestrator`, body: `${w.title}: ${w.next}`, url: `/${route}/#item=${encodeURIComponent(w.key)}`, tag: `wait-${w.key}`, now: true },
         { key: w.key, reason: `It has waited on the orchestrator since ${w.since} and nobody picked it up.`, inputs: { kind: w.kind, since: w.since } });
-    }
-    waits.push(pushed ? { ...w, pushed } : w);
+      waits.push({ ...w, pushed: true });
+    } else waits.push(w);
   }
   if (!stored || JSON.stringify(waits) !== JSON.stringify(previous)) {
     await fs.mkdir(data, { recursive: true });
     await fs.writeFile(file + '.tmp', JSON.stringify({ waits }) + '\n');
     await fs.rename(file + '.tmp', file);
   }
-  if (added.length) await appendEvent('orchestrator-waits', { added });
+  if (step.added.length || step.again.length) await appendEvent('orchestrator-waits', { added: step.added, again: step.again });
 }
 
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md

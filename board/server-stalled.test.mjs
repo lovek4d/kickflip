@@ -753,7 +753,8 @@ test("a question's prototype request still waiting 30 minutes on with no prototy
 });
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-test('a card that comes to wait on the orchestrator wakes the session once, and pushes the owner once 30 minutes on, across a restart', async (t) => {
+// docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
+test('a card that comes to wait on the orchestrator wakes the session, again every 15 minutes until picked up and hourly after, and pushes the owner once 30 minutes on, across a restart', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestrator-waits-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -815,27 +816,46 @@ test('a card that comes to wait on the orchestrator wakes the session once, and 
   // builder done hands it back with its calls: no event of its own, yet the list wakes the session.
   put(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'checking', status_at: handedAt, next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two' }] }));
   await until(() => wakes().length === 1, 'the hand-back wakes the session');
-  assert.deepEqual(wakes(), [{ added: ['t/A1'] }]);
-  assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since, w.picked]), [['t/A1', 'calls', handedAt, null]]);
+  assert.deepEqual(wakes(), [{ added: ['t/A1'], again: [] }]);
+  assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since, w.picked, w.bumped]), [['t/A1', 'calls', handedAt, null, new Date(now).toISOString()]]);
   assert.equal(pushes().length, 0, 'five minutes in, no push');
   await tick();
   assert.equal(wakes().length, 1, 'once');
-  now += 26 * 60000;
-  put(clockFile, String(now));
+  const again = { key: 't/A1', ref: 'A1', kind: 'calls', since: handedAt, next: "Verify the builder's judgment calls" };
+  const advance = (minutes) => { now += minutes * 60000; put(clockFile, String(now)); };
+  advance(14);
+  await tick();
+  assert.equal(wakes().length, 1, 'not yet 15 minutes since the wake');
+  advance(1);
+  await until(() => wakes().length === 2, 'woken again 15 minutes on');
+  assert.deepEqual(wakes()[1], { added: [], again: [again] });
+  advance(11);
   await until(() => pushes().length === 1, 'pushed 30 minutes on');
   assert.equal(flag(pushes()[0], 'title'), 'A1 waits on the orchestrator');
   assert.equal(flag(pushes()[0], 'body'), "One: Verify the builder's judgment calls");
   assert.equal(flag(pushes()[0], 'tag'), 'wait-t/A1');
   await until(() => waits()[0].pushed === true, 'the push is kept');
+  assert.equal(wakes().length, 2, 'the push is no wake');
   await stop();
   await start();
   await tick();
   await tick();
-  assert.equal(wakes().length, 1, 'no second wake after a restart');
+  assert.equal(wakes().length, 2, 'no wake after a restart before its time');
   assert.equal(pushes().length, 1, 'no second push after a restart');
-  // The session's thread line picks it up: it stays on the list, picked, and wakes nothing.
+  advance(4);
+  await until(() => wakes().length === 3, 'the restart kept the last wake: woken 15 minutes after it');
+  assert.deepEqual(wakes()[2], { added: [], again: [again] });
+  // The session's thread line picks it up: it stays on the list, picked, and wakes nothing for an hour from the pickup.
   const picked = new Date(now).toISOString();
   put(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: picked, who: 'claude', text: 'Checking the calls.' }) + '\n');
   await until(() => waits()[0].picked === picked, 'picked up');
-  assert.equal(wakes().length, 1);
+  advance(59);
+  await tick();
+  assert.equal(wakes().length, 3, 'picked up: quiet for the hour');
+  advance(1);
+  await until(() => wakes().length === 4, 'still open an hour after the pickup');
+  assert.deepEqual(wakes()[3], { added: [], again: [again] });
+  await tick();
+  await tick();
+  assert.equal(wakes().length, 4, 'one wake per due time');
 });

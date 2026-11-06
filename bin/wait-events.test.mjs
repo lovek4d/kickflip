@@ -49,6 +49,8 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.equal(first.stdout(), '');
   add('item-message', { key: 'w/A1' });
   add('item-message', { key: 'w/A1', text: 'Use the blue', intent: 'build' });
+  // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md: a re-wake wakes a paused session too.
+  add('orchestrator-waits', { added: ['w/A3'], again: [{ key: 'w/A1', ref: 'A1', kind: 'calls', since: new Date(Date.now() - 2 * 3600_000 - 30_000).toISOString(), next: "Verify the builder's judgment calls" }] });
   add('builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Stay orange?' });
   const out = await first.done;
   assert.deepEqual([out.code, out.stderr], [0, '']);
@@ -57,12 +59,13 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: fold the message into its notes, then item set --state ready starts the build$/m);
   // A builder's ask wakes the session while usage is paused: the builder is mid-build.
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"builder-ask".*\nask1 from A1's builder: Stay orange\?$/m);
+  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"orchestrator-waits".*\nwaiting on you now: w\/A3 · still waiting on you: A1 calls for 2h: Verify the builder's judgment calls$/m);
   assert.doesNotMatch(out.stdout, /"kind":"github-change"|"kind":"check-github"|"kind":"card-unblocked"/);
   // Every wake walks the cards idle on the orchestrator, lanes top-down, after the events and before the rules.
   assert.match(out.stdout, /Stay orange\?\nwaits calls A1 w\/A1 since 2026-11-04T10:00:00.000Z: Verify the builder's judgment calls\nwaits answer A2 w\/A2 since 2026-11-04T10:05:00.000Z, picked up 2026-11-04T10:06:00.000Z: Act on the owner's answer\nrule hub /);
   assert.match(out.stdout, new RegExp(`rule hub Hub rule[^]*rule board Board rule[^]*setting auto-merge off[^]*\\nquiet [^\\n]*AskUserQuestion[^]*usage paused ${reset} five_hour 91%`));
   const saved = JSON.parse(fs.readFileSync(cursor, 'utf8'));
-  assert.equal(saved['data/events.jsonl'], 6);
+  assert.equal(saved['data/events.jsonl'], 7);
   assert.equal(saved.$usageHeld['data/events.jsonl'].length, 3);
   const second = start();
   // The watcher writes its file in place, so a read can land between the truncate and the write.

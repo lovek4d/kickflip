@@ -1352,6 +1352,13 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(ui.workLines(blocked), /<div class="line6 sub card-time"><a class="card-blocked" href="#item=site%2FS2">blocked by INT-2<\/a><\/div>/);
   assert.match(ui.workLines({ ...blocked, blockedBy: [{ key: 'site/S1', ref: 'INT-1' }, { key: 'site/S2', ref: 'INT-2' }] }), />blocked by INT-1<\/a><span class="sep">, <\/span><a class="card-blocked" href="#item=site%2FS2">INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five']);
+  // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md: a condition and a reason read on the time line.
+  const until = { ...blocked, blockedBy: [], blockedUntil: 'the CI run on main is green', blockReason: 'the suite is red <now>' };
+  assert.deepEqual(lines(ui.workLines(until)), ['INT-3 Five', 'blocked until the CI run on main is green, the suite is red <now>']);
+  assert.match(ui.workLines(until), /<div class="line6 sub card-time"><span class="card-blocked">blocked until the CI run on main is green, the suite is red &lt;now&gt;<\/span><\/div>/);
+  assert.deepEqual(lines(ui.workLines({ ...until, blockReason: null })), ['INT-3 Five', 'blocked until the CI run on main is green']);
+  assert.match(ui.workLines({ ...blocked, blockReason: 'shares the send bar' }), />blocked by INT-2<\/a><span class="card-blocked">, shares the send bar<\/span><\/div>/);
+  assert.match(ui.workLines({ ...until, blockedBy: blocked.blockedBy }), />blocked by INT-2<\/a><span class="card-blocked"> and until the CI run on main is green, the suite is red &lt;now&gt;<\/span><\/div>/);
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: a bumped blocked card waits for the pull; held, it is blocked as before (below).
   assert.match(ui.workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#item=site%2FS2">waits on INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),

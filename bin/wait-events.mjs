@@ -47,6 +47,7 @@ import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mj
 import { parentOf, sessionGone } from '../hub/live.mjs';
 import { ackPing, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
+import { waitsAgainLine } from '../board/domain.mjs';
 
 const [route, session] = process.argv.slice(2);
 if (!route || !session) { console.error('usage: wait-events.mjs <route> <session-id>'); process.exit(2); }
@@ -95,7 +96,9 @@ const PLAIN = {
   hello: (e) => `ping ${e.id} from the hub answered`,
   'overnight-triage': (e) => `Overnight triage ${e.data?.date} asked: ${e.data?.cards?.length} cards wait on your answers`,
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle`,
-  'orchestrator-waits': (e) => `waiting on you now: ${(e.data?.added || []).join(', ')}`,
+  // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
+  'orchestrator-waits': (e) => [e.data?.added?.length && `waiting on you now: ${e.data.added.join(', ')}`,
+    e.data?.again?.length && waitsAgainLine(e.data.again, Date.parse(e.ts))].filter(Boolean).join(' · '),
   'review-answer': (e) => `${e.data?.answer === 'skip' ? 'skip' : 'post'} answered on the review of PR #${e.data?.pr}`,
 };
 const ON_CARD = {
