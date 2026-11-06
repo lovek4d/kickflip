@@ -86,14 +86,16 @@
     return (hidden ? moreButton(hidden) : '') + shown.map((m, i) => line(m, links, edits, batchedAt(lines, start + i))).join('');
   }
 
-  // The reply form's Done sends ask-done or card-done; the board applies it before the session follows up.
-  // docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md
+  // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
+  // An In Review card's Done, the second of its thread box's pair after Reply, on ⌥↵. It confirms and sends ask-done or
+  // card-done (app-cards.js); the board applies it before the session follows up
+  // (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
   // Orange while it clears an ask's Action needed, primary while a reopened card waits only on it
   // (docs/adr/2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
+  const doneTone = (it) => (it.resolvedBy === BUTTON.done ? 'resolves' : it.awaitsDone ? 'closes' : '');
   function doneButton(it) {
-    if (!it?.finishable) return '';
-    const tone = it.resolvedBy === BUTTON.markDone ? 'resolves' : it.awaitsDone ? 'closes' : '';
-    return `<button type="button"${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}">Done</button>`;
+    const tone = doneTone(it);
+    return sendButton('Done', 1, `${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}"`);
   }
 
   // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
@@ -105,5 +107,5 @@
     return [{ ts: fresh.at(-1), who: 'claude', kind: 'questions', text: `${fresh.length} new question${fresh.length === 1 ? '' : 's'}`, link: `questions.html#${encodeURIComponent(questions.first)}` }];
   }
 
-  Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton, newQuestionsLine });
+  Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton, doneTone, newQuestionsLine });
 })();

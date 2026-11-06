@@ -919,16 +919,14 @@ test('a pending upload shows its progress and a remove button naming the file', 
   assert.match(text(html), /big\.mov Over 20 MB/);
 });
 
-test("a thread's Done reads Done and is never disabled on a finishable card, orange while it clears an ask's Action needed and orange while a card waits only on it", () => {
-  const done = (it) => { const html = ui.doneButton(it); return html && [text(html), /disabled/.test(html)]; };
-  assert.deepEqual(done({ key: 'ask:a1', kind: 'ask', finishable: true }), ['Done', false]);
-  assert.match(ui.doneButton({ key: 'ask:a1', kind: 'ask', finishable: true, resolvedBy: 'markDone' }), /^<button type="button" class="resolves"/);
+test("a thread's Done is the box's second send button, on ⌥↵, never disabled, orange while it clears an ask's Action needed and orange while a card waits only on it", () => {
+  const done = (it) => { const html = ui.doneButton(it); return [text(html), /disabled/.test(html), /data-nth="1"/.test(html), /data-confirm="finish"/.test(html)]; };
+  assert.deepEqual(done({ key: 'ask:a1', kind: 'ask', finishable: true }).slice(1), [false, true, true]);
+  assert.match(text(ui.doneButton({ key: 'ask:a1', kind: 'ask' })), /^Done/);
+  assert.match(ui.doneButton({ key: 'ask:a1', kind: 'ask', finishable: true, resolvedBy: 'done' }), /^<button type="submit" data-nth="1" class="resolves"/);
   assert.doesNotMatch(ui.doneButton({ key: 'ask:a1', kind: 'ask', finishable: true }), /resolves/);
-  assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true, awaitsDone: true }), /^<button type="button" class="closes"/);
-  assert.doesNotMatch(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true }), /class=/);
-  assert.deepEqual(done({ key: 'w/A1', kind: 'work', finishable: true }), ['Done', false]);
-  assert.equal(done({ key: 'w/A1', kind: 'work', finishable: false }), '');
-  assert.equal(done(undefined), '');
+  assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true, awaitsDone: true }), /^<button type="submit" data-nth="1" class="closes"/);
+  assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true }), /^<button type="submit" data-nth="1" data-confirm/);
 });
 
 test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a ready card's Implement is filled orange", () => {
@@ -2199,7 +2197,7 @@ test('while typing, the header collapses to a strip at the top of what shows and
     assert.match(rule(bar), /position: fixed;[^]*bottom: var\(--keyboard, 0px\);/, bar);
   }
   // The docked thread row carries the What's left? chip and the send buttons, as take B drew.
-  assert.match(css, /:root\.kb-up form\[data-reply\]\.docked > \.row :is\(\.tools, \[data-confirm="finish"\]\) \{ display: none; \}/);
+  assert.match(css, /:root\.kb-up form\[data-reply\]\.docked > \.row :is\(\.icons, \[data-confirm="finish"\]\) \{ display: none; \}/);
   assert.doesNotMatch(css, /\.view-questions\.kb-up/);
 });
 

@@ -218,8 +218,8 @@ command fails and changes nothing.
                                                          thread marked Moved, then the summary line. Again with
                                                          another item moves it there
   ask progress <eventId> [--next <text>]                 keeps an answered ask in In Review, --next as its next
-                                                         line, until the owner's ask-done (Mark as done, or the Done
-                                                         beside Send in its thread) or ask done is newer. Use it when the answer
+                                                         line, until the owner's ask-done (the Done beside Reply
+                                                         in its thread) or ask done is newer. Use it when the answer
                                                          waits on the owner, such as a pick between prototypes
   ask done <eventId>                                     moves the ask to Done, as the owner's Done button does
   ask unfold <eventId>                                   moves a folded ask back out to a card of its own

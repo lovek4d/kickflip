@@ -53,8 +53,9 @@
   const CLIP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
   const attachButton = () => `<label class="attach" title="Attach files"><input type="file" multiple data-attach aria-label="Attach files">${CLIP}</label>`;
   // A composer's text box with its attach button inside at the bottom right, which attach.js outlines with Drop to
-  // attach while files are dragged over the composer.
-  const dropZone = (textarea) => `<div class="dz">${textarea}${attachButton()}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
+  // attach while files are dragged over the composer. attach: false leaves the button out, for a composer that puts it
+  // on its row (app-threads.js).
+  const dropZone = (textarea, { attach = true } = {}) => `<div class="dz${attach ? '' : ' bare'}">${textarea}${attach ? attachButton() : ''}<div class="dz-hint" aria-hidden="true">Drop to attach</div></div>`;
   // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
   // A composer's send buttons: the one with nth 0 presses on ⌘↵ and the one with nth 1, where there is one, on ⌥↵,
   // wherever each sits in the row (Ctrl+↵ and
@@ -76,14 +77,11 @@
   const EYE = icon('<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>');
   const TRASH = icon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
   const FIRE = icon('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>');
-  const BOLT = icon('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>');
   // Asks Claude for throwaway prototypes of one item (docs/adr/2026-10-29-1639-prototypes-come-on-request.md): a
   // question's eye sends at once; a thread's eye is a toggle that Send carries (app-threads.js).
   const protoButton = (id, { label = 'Ask for prototypes' } = {}) => `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" aria-label="${esc(label)}" title="${esc(label)}">${EYE}</button>`;
   // The thread's fire, the eye's twin for a grill.
   const grillButton = (id) => `<button type="button" class="attach proto-ask" data-grill="${esc(id)}" aria-label="Ask for a grill" title="Ask for a grill">${FIRE}</button>`;
-  // A Todo card's thread footer lightning: starts a quick build of the card at once (app-threads.js).
-  const boltButton = (id) => `<button type="button" class="attach proto-ask" data-bolt="${esc(id)}" aria-label="Quick build" title="Quick build">${BOLT}</button>`;
   // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
   // A thread status line's leading mark, its icon or dot centred in one fixed box so every line's text starts at the
   // same place: the request's eye, fire or quick build's lightning, Reply's arrow, Implement's code brackets, answers' check, new questions' plain question mark, a builder's dot.
@@ -382,6 +380,6 @@
   globalThis.BoardUI = {
     LINK_ARROW, escText,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, boltButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
   };
 })();

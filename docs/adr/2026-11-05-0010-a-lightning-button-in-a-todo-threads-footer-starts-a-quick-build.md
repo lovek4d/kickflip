@@ -1,5 +1,7 @@
 # A lightning button in a Todo thread's footer starts a quick build
 
+Superseded by [Done shows only in In Review, beside Reply](2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md): the lightning is gone, and an empty Implement on a card not yet ready sends the same quick build.
+
 The owner (#265, from #257's thread) asked for the lightning in the thread footer, left of the prototype eye, to start a quick build of the card whatever its grill or prototype status. Picked as take A of `prototypes/bolt-button`: lightning, eye and fire on the left, #256's Reply and Reply and build on the right.
 
 - The bolt shows only on a Todo card and follows the card's lane on each board load, as the send buttons do (app-threads.js `syncDone`).

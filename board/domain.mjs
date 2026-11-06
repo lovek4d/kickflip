@@ -343,12 +343,12 @@ const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved'
 const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 
 // The open card's one workflow button, which board/public/app-cards.js only labels: openQuestions while it has open
-// questions, held or not, markDone for an ask waiting on the owner's Done, and none otherwise. A grill or prototype is
-// asked for from the thread's fire and eye (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
+// questions, held or not, and none otherwise. An ask waiting on the owner's Done has it in its thread box, beside Reply
+// (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md). A grill or prototype is asked for from the
+// thread's fire and eye (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 function actionButtonOf(it) {
   if (closedLane(it)) return null;
-  if (asking(it)) return BUTTON.openQuestions;
-  return it.action?.kind === ACTION_KIND.done ? BUTTON.markDone : null;
+  return asking(it) ? BUTTON.openQuestions : null;
 }
 
 // docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md
@@ -379,7 +379,7 @@ export const PROTOTYPE_AGAIN = 'Prototype again';
 // PR's Review on GitHub, or Merge.
 const RESOLVED_BY = Object.freeze({
   [ACTION_KIND.pick]: BUTTON.openQuestions, [ACTION_KIND.questions]: BUTTON.openQuestions, [ACTION_KIND.ready]: BUTTON.github,
-  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.done]: BUTTON.markDone,
+  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.done]: BUTTON.done,
 });
 
 // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md

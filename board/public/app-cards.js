@@ -297,14 +297,16 @@ BoardView.part((B) => {
     const ask = (act, label, cls = '') => `<button${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${key}">${label}</button>`;
     const hold = it.kind !== 'work' || !it.holdable ? ''
       : it.held ? ask('resume', 'Unhold', 'unhold') : ask('hold', 'Hold');
+    // A Todo card's Close, right of Hold; an In Review card's Done is in its thread box
+    // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
+    const close = it.lane === 'todo' && it.finishable ? ask('finish', 'Close') : '';
     // A Todo card's Implement is in its thread box (app-threads.js; docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${hold}${notesButton(it)}${tryButton(it)}${actionButton(it)}${prototypesButton(it)}${mergeButton(it)}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${hold}${close}${notesButton(it)}${tryButton(it)}${actionButton(it)}${prototypesButton(it)}${mergeButton(it)}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).
   const ACTION_BUTTONS = {
     [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Questions</a>`,
-    [BUTTON.markDone]: (it) => `<button${classes(it, BUTTON.markDone)} data-confirm="finish" data-key="${esc(it.key)}">Mark as done</button>`,
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
   // docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md
@@ -465,10 +467,14 @@ BoardView.part((B) => {
     catch (e) { B.failed(e); }
   });
 
-  B.on(B.root, 'click', async (ev) => {
+  B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('button[data-confirm]');
     if (!b) return;
     ev.preventDefault();
+    confirmTap(b);
+  });
+  // A data-confirm button's tap: Hold's sheet, or its confirm, then its event. The thread box's Done comes here on ⌥↵ too.
+  async function confirmTap(b) {
     const { key, confirm: act } = b.dataset;
     if (b.classList.contains('nudging')) return;
     const it = state.board.items.find((i) => i.key === key);
@@ -498,7 +504,7 @@ BoardView.part((B) => {
         if (pend) { BoardUI.pending.drop(pend); B.render(); }
         B.failed(e);
       }
-      if (act === 'finish') B.syncDone(key);
+      if (act === 'finish') B.syncSends(key);
       return;
     }
     // A stalled line's nudge calms it to orange with a ripple, not a spinner, until a board shows the card's status line
@@ -512,7 +518,7 @@ BoardView.part((B) => {
       BoardUI.pending.answered(id, out.board.generatedAt); toast('Nudge sent');
     } catch { BoardUI.pending.drop(id); toast('Could not send. Is the host awake?'); }
     B.render();
-  });
+  }
 
-  Object.assign(B, { captureStrips, moveStrips, detail, card });
+  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap });
 });

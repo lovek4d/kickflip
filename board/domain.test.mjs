@@ -705,7 +705,7 @@ test("the board lists asks answered without becoming work, newest Claude line fi
   ]);
 });
 
-test("an ask Claude marks in progress waits on the owner in In Review with its next line, an action and a Done button until the newer of the owner's ask-done and Claude's marks says done", () => {
+test("an ask Claude marks in progress waits on the owner in In Review with its next line, an action and no workflow button (Done is in its thread box) until the newer of the owner's ask-done and Claude's marks says done", () => {
   const ask = askAt('a1', '2026-10-23T09:00:00Z', { reply: { html: 'Two takes.', at: '2026-10-23T09:10:00Z' } });
   const done = (ts) => ({ id: 'd' + ts, ts, kind: 'ask-done', data: { id: 'a1' }, reply: null });
   const at = (events, askProgress) => {
@@ -715,9 +715,9 @@ test("an ask Claude marks in progress waits on the owner in In Review with its n
   const progress = { a1: { state: 'progress', at: '2026-10-23T09:20:00Z', next: 'Pick a take' } };
   const action = { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' };
   assert.deepEqual(at([], {}), ['asks', null, null, false, null, null, null]);
-  assert.deepEqual(at([], progress), ['review', null, 'Pick a take', true, action, 'markDone', 'markDone']);
+  assert.deepEqual(at([], progress), ['review', null, 'Pick a take', true, action, null, 'done']);
   assert.deepEqual(at([done('2026-10-23T09:30:00Z')], progress), ['asks', null, null, false, null, null, null]);
-  assert.deepEqual(at([done('2026-10-23T09:10:00Z')], progress), ['review', null, 'Pick a take', true, action, 'markDone', 'markDone']);
+  assert.deepEqual(at([done('2026-10-23T09:10:00Z')], progress), ['review', null, 'Pick a take', true, action, null, 'done']);
   const reply = { id: 'm1', ts: '2026-10-23T09:30:00Z', kind: 'item-message', data: { key: 'ask:a1', text: 'Take B' }, reply: null };
   assert.deepEqual(at([reply], progress), ['progress', null, 'Pick a take', true, null, null, null]);
   assert.deepEqual(at([], { a1: { state: 'done', at: '2026-10-23T09:40:00Z' } }), ['asks', null, null, false, null, null, null]);

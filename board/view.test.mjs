@@ -2687,7 +2687,7 @@ test('a tap anywhere on an asleep board, refresh included, asks the hub to wake 
   b.view.unmount();
 });
 
-test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Questions links to its first question, a grill request no planner has picked up reads preheating in grey, and an ask's Mark as done confirms and sends ask-done", async () => {
+test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Questions links to its first question, a grill request no planner has picked up reads preheating in grey, and an ask's Done in its thread box confirms and sends ask-done", async () => {
   const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const ready = { ...draft, isDraft: false };
   const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', label: null, older: false };
@@ -2703,7 +2703,7 @@ test("an open card shows its workflow buttons below a final details line of Note
     workCard('R1', { lane: 'review', actionButton: null, pr: ready, install }),
     workCard('S1', { lane: 'review', actionButton: null, pr: ready, manualSteps: ['Run the backfill'], action: { kind: 'steps', url: '#item=w%2FS1', label: 'Run the manual steps, then merge' }, resolvedBy: 'github' }),
     workCard('M1', { lane: 'review', actionButton: null, pr: ready, action: { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }),
-    { ...askCard('a1', 'review'), ref: '10:00', actionButton: 'markDone', finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'markDone' },
+    { ...askCard('a1', 'review'), ref: '10:00', actionButton: null, finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'done' },
     { ...askCard('a2', 'done'), ref: '10:00', actionButton: null },
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
@@ -2717,7 +2717,7 @@ test("an open card shows its workflow buttons below a final details line of Note
   }
   const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`);
   const labels = (els) => els.map((el) => el.textContent.trim());
-  const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
+  const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves, form[data-reply] .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
   assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, shown(c.key)])), {
     'w/A1': [['Questions'], [], ['Questions']],
     'w/A2': [[], [], []],
@@ -2729,7 +2729,7 @@ test("an open card shows its workflow buttons below a final details line of Note
     'w/R1': [[], ['Install', 'Review on GitHub'], []],
     'w/S1': [[], ['Review on GitHub'], ['Review on GitHub']],
     'w/M1': [['Merge'], ['Review on GitHub'], ['Merge']],
-    'ask:a1': [['Mark as done'], [], ['Mark as done']],
+    'ask:a1': [[], [], ['Done⌥↵']],
     'ask:a2': [[], [], []],
   });
   assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
@@ -2743,7 +2743,7 @@ test("an open card shows its workflow buttons below a final details line of Note
   assert.equal(row('w/D1').querySelector('.actions .install, .actions a[target="_blank"]'), null);
   assert.equal(row('w/R1').querySelector('.external-links .resolves'), null);
 
-  b.page.fire(b.root, 'click', { target: row('ask:a1').querySelector('button') });
+  b.page.fire(b.root, 'click', { target: row('ask:a1').querySelector('form [data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual(b.confirms, ['Mark this task done? "Task a1" moves to Done.']);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-done', { id: 'a1' }]]);
@@ -2837,7 +2837,11 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
     ['item-message', { key: 'w/T1', text: 'Use the blue', intent: 'build' }], ['item-message', { key: 'w/T1', text: 'Just a reply', intent: 'reply' }], ['item-message', { key: 'w/P1', text: 'Later' }],
   ]);
-  // An empty box still sends Implement.
+  // An empty box still sends Implement: a quick build on a card not yet ready, and bare on a ready one, which the board
+  // server builds at once.
+  await send('w/T1', '', 'build');
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: 'Quick build', intent: 'build' }]);
+  await b.change({ board: boardOf([workCard('T1', { ready: true }), workCard('P1', { lane: 'progress' })]) });
   await send('w/T1', '', 'build');
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   const pressed = [];
@@ -2850,21 +2854,67 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   b.view.unmount();
 });
 
-// docs/adr/2026-11-05-0010-a-lightning-button-in-a-todo-threads-footer-starts-a-quick-build.md
-test("a Todo card's thread footer has a lightning left of the eye and fire that sends a quick build at once, whatever is typed; a card past Todo has none", async () => {
+// docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
+test("a thread box's row has What's left? at the left and the eye, fire and attach at its right, with no lightning and no attach in the text box, and the send pair below", async () => {
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
-  const tools = (key) => [...form(key).querySelectorAll('.tools button')].map((el) => ['bolt', 'proto', 'grill'].find((k) => el.hasAttribute('data-' + k)));
-  assert.deepEqual(tools('w/T1'), ['bolt', 'proto', 'grill']);
-  assert.deepEqual(tools('w/P1'), ['proto', 'grill']);
-  form('w/T1').querySelector('textarea').value = 'half typed';
-  b.page.fire(b.root, 'click', { target: form('w/T1').querySelector('button[data-bolt]') });
+  const row = (key) => [...form(key).querySelector('.row').children].map((el) => el.matches('.quick') ? 'chip' : el.matches('.icons') ? 'icons' : el.dataset.sends);
+  const icons = (key) => [...form(key).querySelector('.icons').children].map((el) => ['proto', 'grill'].find((k) => el.hasAttribute('data-' + k)) || (el.matches('label.attach') ? 'attach' : '?'));
+  assert.deepEqual(row('w/T1'), ['chip', 'icons', 'todo']);
+  assert.deepEqual(row('w/P1'), ['chip', 'icons', 'one']);
+  for (const key of ['w/T1', 'w/P1']) {
+    assert.deepEqual(icons(key), ['proto', 'grill', 'attach']);
+    assert.equal(form(key).querySelector('.dz .attach'), null);
+    assert.ok(form(key).querySelector('.dz .dz-hint'));
+  }
+  assert.equal(b.root.querySelector('[data-bolt]'), null);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
+test("Done shows only on an In Review card, as Reply (⌘↵) then Done (⌥↵) in its thread box; a Todo card has Close right of Hold in its actions, and an In Progress card neither", async () => {
+  const cards = [
+    workCard('T1', { finishable: true, holdable: true, hasNotes: true }),
+    workCard('P1', { lane: 'progress', finishable: true, holdable: true }),
+    workCard('R1', { lane: 'review', finishable: true, holdable: true, awaitsDone: true }),
+    workCard('S1', { lane: 'stale', finishable: true, holdable: true }),
+    { ...askCard('a1', 'review'), ref: '10:00', finishable: true, resolvedBy: 'done', action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Tap Done' } },
+  ];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: Object.fromEntries(cards.map((c) => [c.key, []])), confirm: true });
   await b.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['item-message', { key: 'w/T1', text: 'Quick build', intent: 'build' }]]);
-  assert.equal(form('w/T1').querySelector('textarea').value, 'half typed');
-  await b.change({ board: boardOf([workCard('T1', { lane: 'progress' }), workCard('P1', { lane: 'progress' })]) });
-  assert.deepEqual(tools('w/T1'), ['proto', 'grill']);
+  const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
+  const sends = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => el.textContent);
+  const actions = (key) => b.root.querySelector(`details.item[data-key="${key}"] .action-row.workflow`)?.querySelectorAll('a, button').map((el) => el.textContent.trim()) ?? [];
+  assert.deepEqual(sends('w/R1'), ['Reply⌘↵', 'Done⌥↵']);
+  assert.deepEqual(sends('w/S1'), ['Reply⌘↵', 'Done⌥↵']);
+  assert.deepEqual(sends('ask:a1'), ['Reply⌘↵', 'Done⌥↵']);
+  assert.deepEqual(sends('w/P1'), ['Send⌘↵']);
+  assert.deepEqual(sends('w/T1'), ['Implement⌥↵', 'Reply⌘↵']);
+  assert.equal(form('w/R1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
+  assert.equal(form('ask:a1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'resolves');
+  for (const key of ['w/T1', 'w/P1']) assert.equal(form(key).querySelector('[data-confirm="finish"]'), null);
+  assert.deepEqual(actions('w/T1'), ['Hold', 'Close', 'Notes']);
+  assert.deepEqual(actions('w/P1'), ['Hold']);
+  assert.deepEqual(actions('ask:a1'), []);
+  // Reply sends the message; Done, tapped or on ⌥↵, confirms and closes the card.
+  form('w/R1').querySelector('textarea').value = 'Looks good';
+  b.page.fire(b.root, 'submit', { target: form('w/R1'), submitter: form('w/R1').querySelector('button[data-intent="reply"]') });
+  await b.settle();
+  const pressed = [];
+  form('w/R1').requestSubmit = (s) => pressed.push(s.textContent);
+  const box = form('w/R1').querySelector('textarea');
+  b.page.fire(b.root, 'keydown', { key: 'Enter', target: box, altKey: true });
+  assert.deepEqual(pressed, ['Done⌥↵']);
+  b.page.fire(b.root, 'submit', { target: form('w/R1'), submitter: form('w/R1').querySelector('[data-confirm="finish"]') });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T1"] .workflow [data-confirm="finish"]') });
+  await b.settle();
+  assert.deepEqual(b.confirms.slice(-2), ['Close R1? It moves to Done and Claude stops work on it.', 'Close T1? It moves to Done and Claude stops work on it.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['item-message', { key: 'w/R1', text: 'Looks good', intent: 'reply' }], ['card-done', { key: 'w/R1' }], ['card-done', { key: 'w/T1' }]]);
+  // The box follows the card's lane.
+  await b.change({ board: boardOf([{ ...cards[1], lane: 'review' }, ...cards.slice(2)]) });
+  assert.deepEqual(sends('w/P1'), ['Reply⌘↵', 'Done⌥↵']);
   b.view.unmount();
 });
 
@@ -3420,7 +3470,7 @@ test("a thread's Send and the New task sheet's Send each wait, disabled with the
 });
 
 test("Done lands from the events POST's board in one round trip, with no reload of its own, and the change signal after it reloads the board once", async () => {
-  const b = boardOnDom({ open: ['w/D1'], board: boardOf([workCard('D1', { actionButton: 'markDone', finishable: true })]), threads: {}, confirm: true });
+  const b = boardOnDom({ open: ['w/D1'], board: boardOf([workCard('D1', { actionButton: 'done', finishable: true })]), threads: {}, confirm: true });
   await b.settle();
   const loads = boardGets(b);
   b.server.board = boardOf([workCard('D1', { lane: 'done', actionButton: null })]);
@@ -3469,7 +3519,7 @@ test("an edit's Save waits for the server with the edit box open and the old tex
 // #137: every text box the owner sends from attaches through attach.js: its button inside the box (#256), a file list, and a drop zone round the box.
 const composerParts = (form) => form && {
   composer: Boolean(form.closest('[data-composer]')),
-  button: Boolean(form.querySelector('.dz > .attach input[type="file"][data-attach]')),
+  button: Boolean(form.querySelector('.attach input[type="file"][data-attach]')),
   files: Boolean(form.querySelector('[data-files]')),
   drop: Boolean(form.querySelector('.dz > textarea') && form.querySelector('.dz > .dz-hint')),
 };
@@ -3619,7 +3669,7 @@ test("every owner action kind the board derives makes exactly one of the open ca
     const b = boardOnDom({ open: items.map((i) => i.key), board: { ...built, items, title: 'A', generatedAt: '2026-10-30T10:00:00.000Z' }, threads: {} });
     await b.settle();
     const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`);
-    const counts = Object.fromEntries(items.map((i) => [i.key, [row(i.key)?.querySelectorAll('.action-row.workflow a, .action-row.workflow button').length ?? 0, row(i.key)?.querySelectorAll('.actions .resolves, .external-links .resolves').length ?? 0]]));
+    const counts = Object.fromEntries(items.map((i) => [i.key, [row(i.key)?.querySelectorAll('.action-row.workflow a, .action-row.workflow button').length ?? 0, row(i.key)?.querySelectorAll('.actions .resolves, .external-links .resolves, form[data-reply] .resolves').length ?? 0]]));
     return { counts, ui: b.page.win.BoardUI };
   };
   const shown = await mounted(built.items);
@@ -3639,7 +3689,7 @@ test("every owner action kind the board derives makes exactly one of the open ca
       assert.deepEqual(Object.entries(e).filter(([k, v]) => k !== v), [], name);
     }
   }
-  assert.throws(() => { BUTTON.merge = 'markDone'; }, TypeError);
+  assert.throws(() => { BUTTON.merge = 'done'; }, TypeError);
 });
 
 test("Needs you shows each pending prompt with its details and answers it from the line: Allow once and Deny on the tap, Always allow after a confirmation naming its rule, one question's option on the tap, and several questions with Send once each has a pick", async () => {
@@ -3861,8 +3911,8 @@ test("a lane repaint while the owner types in a card's reply box moves the other
   assert.deepEqual([lane('e1'), top(TITLE)], ['review', titleTop]);
 });
 
-test("Mark as done closes the card and leaves the page where it is as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves, or a work card that takes a New task's place, flashes once, and a card another hand updates takes the tint in its place", async () => {
-  const board = boardOf([askCard('b1', 'progress'), { ...askCard('a1', 'progress'), actionButton: 'markDone', finishable: true }]);
+test("Done closes the card and leaves the page where it is as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves, or a work card that takes a New task's place, flashes once, and a card another hand updates takes the tint in its place", async () => {
+  const board = boardOf([askCard('b1', 'progress'), { ...askCard('a1', 'review'), finishable: true }]);
   const b = boardOnDom({ open: ['ask:a1'], board, threads: {}, confirm: true });
   await b.settle();
   const view = layOut(b);
@@ -3883,7 +3933,7 @@ test("Mark as done closes the card and leaves the page where it is as the card m
     open.set.call(this, v);
     if (was !== this.open) queueMicrotask(() => b.page.fire(b.root, 'toggle', { target: this }));
   } });
-  board.items[1] = { ...board.items[1], lane: 'done', actionButton: null, finishable: false };
+  board.items[1] = { ...board.items[1], lane: 'done', finishable: false };
   b.page.fire(b.root, 'click', { target: card().querySelector('.detail button[data-confirm="finish"]') });
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
@@ -5485,7 +5535,7 @@ test("the + is on the board's left pane on desktop and gone from the Open questi
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(50% /);
 });
 
-test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Questions or Mark as done, then Prototypes, then Merge", async () => {
+test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Questions, then Prototypes, then Merge", async () => {
   const ready = { state: 'OPEN', isDraft: false, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const full = {
     lane: 'review', holdable: true, hasNotes: true, pr: ready, try: { kind: 'web', script: true, changes: true },

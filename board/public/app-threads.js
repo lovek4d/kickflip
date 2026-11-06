@@ -1,7 +1,7 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
-  const { $, store, state, toast, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, boltButton, doneButton, waitOn, newQuestionsLine } = BoardUI;
+  const { $, store, state, quieted, sendDraft, links } = B;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, attachButton, doneButton, doneTone, waitOn, newQuestionsLine } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more' };
   // A /prototype or /grill word in a message, the last one winning, and the message without it.
@@ -12,31 +12,25 @@ BoardView.part((B) => {
 
   // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md,
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
+  // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
   // A Todo card's reply box sends with Reply (intent: 'reply') or Implement (intent: 'build'), which is the card's build
-  // action: builder orange once the card is ready, quiet before. Any other card's box sends with Send, carrying no intent.
-  // The pair wraps onto its own line under the row.
-  const sendsOf = (item) => (item?.lane !== 'todo' ? 'one' : item.ready ? 'todo-ready' : 'todo');
-  const sends = (kind) => (kind === 'one'
-    ? `<span data-sends="one">${sendButton('Send', 0)}</span>`
-    : `<span class="send-actions" data-sends="${kind}">${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}${sendButton('Reply', 0, ' data-intent="reply"')}</span>`);
-  // The board, not the thread, decides the Done button and the send buttons, so they follow each board load even when
-  // the thread is unchanged.
-  function syncDone(el, key) {
+  // action: builder orange once the card is ready, quiet before. An In Review card's box has Reply then Done
+  // (ui-threads.js doneButton), Done in its tone. Any other card's box sends with Send, carrying no intent. A pair wraps
+  // onto its own line under the row.
+  const REVIEW = new Set(['review', 'stale']);
+  const sendsOf = (item) => (item?.lane === 'todo' ? (item.ready ? 'todo-ready' : 'todo')
+    : REVIEW.has(item?.lane) ? ['review', doneTone(item)].filter(Boolean).join(' ') : 'one');
+  const pair = (kind, html) => `<span class="send-actions" data-sends="${kind}">${html}</span>`;
+  const sends = (kind, item) => (kind === 'one' ? `<span data-sends="one">${sendButton('Send', 0)}</span>`
+    : kind.startsWith('review') ? pair(kind, `${sendButton('Reply', 0, ' data-intent="reply"')}${doneButton(item)}`)
+    : pair(kind, `${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}${sendButton('Reply', 0, ' data-intent="reply"')}`));
+  // The board, not the thread, decides the send buttons, so they follow each board load even when the thread is unchanged.
+  function syncSends(el, key) {
     const at = el.querySelector('form [data-sends]');
     if (!at) return;
     const item = state.board?.items.find((i) => i.key === key);
     const kind = sendsOf(item);
-    const todo = item?.lane === 'todo';
-    if (at.dataset.sends !== kind) { at.insertAdjacentHTML('afterend', sends(kind)); at.remove(); }
-    const tools = el.querySelector('form .tools');
-    const bolt = tools.querySelector('[data-bolt]');
-    if (todo && !bolt) tools.insertAdjacentHTML('afterbegin', boltButton(key));
-    else if (!todo) bolt?.remove();
-    const html = doneButton(item);
-    const current = el.querySelector('form [data-confirm="finish"]');
-    if (current?.outerHTML === html) return;
-    current?.remove();
-    if (html) el.querySelector('form [data-sends]').insertAdjacentHTML('beforebegin', html);
+    if (at.dataset.sends !== kind) { at.insertAdjacentHTML('afterend', sends(kind, item)); at.remove(); }
   }
 
   // Each open card's ui-threads.js threadMessages view. Opening a card marks it seen (app-core.js markSeen) before its
@@ -67,7 +61,7 @@ BoardView.part((B) => {
   function renderThread(key, msgs) {
     const el = $(`[data-thread="${CSS.escape(key)}"]`);
     if (!el) return;
-    syncDone(el, key);
+    syncSends(el, key);
     const edits = editsIn(key);
     if (!firstDrawn.has(key) && msgs.length) firstDrawn.set(key, newestTs(msgs));
     const view = viewOf(key);
@@ -79,12 +73,14 @@ BoardView.part((B) => {
     // The reply form is built once per card, so a refresh never drops what is being typed.
     if (!el.querySelector('.msgs')) {
       const draft = store.get('draft:' + key, '');
-      el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`)}
+      // The row: What's left? at the left, the eye, fire and attach at its right, and the send buttons
+      // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
+      el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`, { attach: false })}
         <div class="pending-files" data-files></div>
-        <div class="row"><span class="tools">${protoButton(key)}${grillButton(key)}</span><button class="chip quick" type="button" data-quick="What's left?">What's left?</button>${sends('one')}</div></form>`;
+        <div class="row"><button class="chip quick" type="button" data-quick="What's left?">What's left?</button><span class="icons">${protoButton(key)}${grillButton(key)}${attachButton()}</span>${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
-    syncDone(el, key);
+    syncSends(el, key);
     B.steady(() => setHTML(el.querySelector('.msgs'), threadMessages(lines, links(key), edits, view)));
     for (const id of edits.keys()) BoardAttach.paint('edit:' + id, B.site.root);
     B.flashChanged?.(el);
@@ -94,6 +90,7 @@ BoardView.part((B) => {
   // The composer's eye asks for a prototype and its fire for a grill: a tap sends the request at once, with whatever is
   // typed, as /prototype or /grill in the text does on Reply. Nothing typed sends the bare request.
   const PLACEHOLDER = 'Reply in this thread… (/prototype or /grill asks for one)';
+  const QUICK_BUILD = 'Quick build';
 
   // A load while one for the same thread runs shares it, so a card the page inserts open isn't fetched twice; force
   // starts a new one, after a send. maxAge skips a thread that loaded that recently. from is a load already started
@@ -136,14 +133,6 @@ BoardView.part((B) => {
     try { await waitOn(b, BoardUI.pending.within(B.sentHere(key, () => B.send('item-message', { key, text: b.dataset.quick })).then(() => loadThread(key, { force: true })), B.stillWaiting)); }
     catch (e) { B.failed(e); }
   });
-  // docs/adr/2026-11-05-0010-a-lightning-button-in-a-todo-threads-footer-starts-a-quick-build.md
-  B.on(B.root, 'click', async (ev) => {
-    const b = ev.target.closest('form[data-reply] button[data-bolt]');
-    if (!b) return;
-    const key = b.dataset.bolt;
-    try { await waitOn(b, B.sentHere(key, () => B.send('item-message', { key, text: 'Quick build', intent: 'build' }))); loadThread(key, { force: true }); }
-    catch { toast('Could not send'); }
-  });
   // Sends the composer's draft as one message, or as a request when flag names one; button spins until the thread has it.
   async function post(f, flag, button) {
     const ta = f.querySelector('textarea');
@@ -151,11 +140,13 @@ BoardView.part((B) => {
     const text = flag ? slashOf(ta.value).text : ta.value.trim();
     const id = f.dataset.composer;
     const files = BoardAttach.files(id, B.site.root);
-    // An empty box still sends Implement, the card's build action.
+    // An empty box still sends Implement, the card's build action: on a card not yet ready it is a quick build, which the
+    // session marks ready and builds; on a ready one it goes bare, and the board server starts the build at once.
     const intent = flag ? null : button.dataset.intent || null;
     if ((!flag && !text && !files.length && intent !== 'build') || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;
-    const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(intent ? { intent } : {}) };
+    const quick = intent === 'build' && !text && !files.length && !state.board?.items.find((i) => i.key === key)?.ready;
+    const data = { key, ...(text || !flag ? { text: quick ? QUICK_BUILD : text } : {}), ...(files.length ? { files } : {}), ...(intent ? { intent } : {}) };
     // Spins until the thread shows the message (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
     const sending = (async () => {
       await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
@@ -173,6 +164,8 @@ BoardView.part((B) => {
     const f = ev.target.closest('form[data-reply]');
     if (!f) return;
     ev.preventDefault();
+    // Done on ⌥↵ (app-asks.js) confirms and closes the card as its tap does (app-cards.js).
+    if (ev.submitter?.dataset.confirm) { B.confirmTap(ev.submitter); return; }
     post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
   });
   // A composer's send buttons wait while its files upload, the ask's included (attach.js attach-change).
@@ -184,6 +177,6 @@ BoardView.part((B) => {
   Object.assign(B, {
     thread, renderThread, loadThread,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
-    syncDone: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncDone(el, key); },
+    syncSends: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncSends(el, key); },
   });
 });

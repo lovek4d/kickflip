@@ -332,14 +332,17 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 }
 .working-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-notice); margin-right: 5px; vertical-align: 1px; }
 @media (prefers-reduced-motion: no-preference) { .working-dot { animation: pulse 1.4s ease-in-out infinite; } }
-form[data-reply] .row .quick { margin-left: auto; margin-right: 6px; }
-form[data-reply] .row [data-confirm="finish"] { margin-right: 6px; }
+/* A thread box's row: What's left? at the left, the eye, fire and attach at the right, then Send, or a pair below
+   (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md). */
+form[data-reply] .row .quick { margin: 0; }
+form[data-reply] .icons { display: inline-flex; flex: none; margin-left: auto; }
+.dz.bare > textarea { padding-bottom: 12px; }
 /* A composer's send buttons (ui.js sendButton), each with its key as a small gray hint where there is a keyboard and
    room. A pair takes a row of two halves; a Todo card's reply box wraps its pair under the row. */
 .send-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .send-actions button, [data-sends] button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .send-actions button { min-height: 44px; }
-form[data-reply] .row { flex-wrap: wrap; }
+form[data-reply] .row { flex-wrap: wrap; gap: 6px; }
 form[data-reply] .row > .send-actions { flex: 0 0 100%; margin-top: 4px; }
 .key-hint { display: none; font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; }
 button.primary .key-hint { color: color-mix(in srgb, var(--on-accent) 62%, transparent); }
@@ -433,7 +436,6 @@ button.sub.agent.stalled.nudging { color: var(--color-notice); cursor: default; 
 .msg .reply { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 2px; }
 .msg-foot .foot-status { display: inline-flex; align-items: center; }
 /* The thread's eye and fire are toggles: pressed reads as chosen, and the hint under the box says what Send posts. */
-form[data-reply] .tools { display: inline-flex; flex: none; }
 button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chip); }
 /* INT-30: card line order */
 .line6 { margin-top: 4px; }
@@ -744,9 +746,8 @@ main > * { transition: opacity .25s ease; }
 :root.kb-up .view-questions.docked .bar .send-hint { display: none; }
 :root.kb-up form[data-reply].docked > .row { position: fixed; left: 0; right: 0; bottom: var(--keyboard, 0px); z-index: 7; margin: 0; padding: 6px 16px;
   flex-wrap: nowrap; background: var(--bg); border-top: 1px solid var(--line); box-shadow: 0 -6px 14px rgba(0,0,0,.12); }
-:root.kb-up form[data-reply].docked > .row :is(.tools, [data-confirm="finish"]) { display: none; }
+:root.kb-up form[data-reply].docked > .row :is(.icons, [data-confirm="finish"]) { display: none; }
 :root.kb-up form[data-reply].docked > .row > .send-actions { display: flex; flex: none; margin: 0; }
-:root.kb-up form[data-reply].docked > .row .quick { margin-left: 0; }
 :root.kb-up form[data-reply].docked > .row > [data-sends] { margin-left: auto; }
 
 .settings-modal { position: fixed; inset: max(12px, env(safe-area-inset-top)) 0 calc(12px + max(var(--kb, 0px), var(--app-bottom, 0px))); margin: auto; width: min(680px, calc(100% - 24px));
