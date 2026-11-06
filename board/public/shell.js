@@ -6,8 +6,8 @@
 // view in place through router.js; a link to anything that isn't a page loads it. Leaving a view whose root holds
 // [data-dirty], an unsaved edit, asks first. The shell holds the hub's one stream, /_hub/stream
 // (hub/stream.mjs): `change {route}` signals the open board, and `sidebar` repaints the sidebar. A board the shell
-// leaves is unmounted; one left fresh whose stream sent no change since paints live when it comes back, and any other
-// paints dimmed from its last visit (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md).
+// leaves is unmounted, and paints live from its saved copy when it comes back
+// (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
 // A push tap reaches it from hub/sw.js as {open: url}, and a page framed inside it hands it a view's URL through
 // AppShell.open(url, {replace, frames}) → true when the shell shows it in place; frames false refuses a frame view.
 // AppShell.reload() reloads the app past the shell the service worker keeps.
@@ -72,13 +72,8 @@ window.AppShell = (function () {
       listeners.get(route).add(fn);
       return () => listeners.get(route)?.delete(fn);
     };
-    // route → {fresh, generatedAt} for each board left fresh with no change since. Trusted only while the stream is up:
-    // a dropped stream may have missed a change, so its return forgets them all.
-    const left = new Map();
-    let streamUp = false;
     let current = null;
     function changed(route) {
-      left.delete(route);
       for (const fn of listeners.get(route) || []) fn();
     }
 
@@ -94,8 +89,7 @@ window.AppShell = (function () {
       const cur = es = new EventSource('/_hub/stream');
       cur.addEventListener('open', () => {
         tries = 0;
-        streamUp = true;
-        if (opened) { left.clear(); if (current) changed(current.route); }
+        if (opened && current) changed(current.route);
         opened = true;
       });
       cur.addEventListener('change', (e) => {
@@ -110,7 +104,6 @@ window.AppShell = (function () {
         current?.v?.B?.renderStatus?.();
       });
       cur.addEventListener('error', () => {
-        streamUp = false;
         if (cur.readyState !== EventSource.CLOSED || es !== cur) return;
         retry = setTimeout(openStream, Math.min(30000, 1000 * 2 ** tries++));
       });
@@ -179,12 +172,7 @@ window.AppShell = (function () {
       const board = view.kind === 'board';
       const hub = route === undefined;
       const siteTitle = hub ? 'Hub' : titleOf(route);
-      if (current) {
-        const st = current.v.B.state;
-        const keep = streamUp && st?.view === 'fresh' && st.board ? { fresh: st.fresh, generatedAt: st.board.generatedAt } : null;
-        current.v.unmount();
-        if (keep) left.set(current.route, keep);
-      }
+      if (current) current.v.unmount();
       const page = board ? null : AppViews[view.kind];
       const root = document.createElement('div');
       root.className = board ? 'view-board' : page.className;
@@ -193,9 +181,7 @@ window.AppShell = (function () {
       const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;
       if (board) {
-        const live = streamUp ? left.get(route) || null : null;
-        left.delete(route);
-        v = BoardView.create(root, siteRoot, { signal: signalFor(route), live, pause: () => data?.pause, away: () => data?.away });
+        v = BoardView.create(root, siteRoot, { signal: signalFor(route), pause: () => data?.pause, away: () => data?.away });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
           reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close, up: () => router.up(),
@@ -329,7 +315,6 @@ window.AppShell = (function () {
     addEventListener('pagehide', (e) => {
       if (!e.persisted || !es) return;
       clearTimeout(retry);
-      streamUp = false;
       es.close();
     });
   }

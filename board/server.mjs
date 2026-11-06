@@ -51,14 +51,18 @@
 //                                (../hub/boards.mjs linksOf), null when the manifest has no board here; setup:
 //                                {events, github} while the join handshake's checklist shows, else null
 //                                arch: the header bulb's {repo, waits, last} (arch-review.mjs archOf), null off the manifest
-//                                onHost: whether this request's browser runs on the hub's machine (on-host.mjs fromHost);
+//                                onHost: whether this request's browser runs on the hub's machine (on-host.mjs fromHost),
+//                                beside the board, so it moves no change number;
 //                                a work card's worktree is its builder's worktree path while that folder exists, else null.
 //                                owner leaves resolved questions out; ownerTopics still lists and counts them (pageBoard).
-//                                version tags everything but generatedAt and is the ETag: a request whose If-None-Match
-//                                names it answers 304 with no body (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md)
-//                                ?since=<version>: while the server keeps that version's board, the answer is a patch
-//                                from it, {since, version, generatedAt, set, unset, lists} (public/ui-patch.js); else the
-//                                whole board. A card's question topic names its card as card and leaves its title to it
+//                                version is the board's change number and its ETag, and each card, question and topic
+//                                carries its last change's number as changed (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md):
+//                                a request whose If-None-Match names it answers 304 with no body
+//                                (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md)
+//                                ?since=<n>: the answer is a patch of what changed after n, {since, version, generatedAt,
+//                                set, unset, lists, onHost} (sync.mjs patchSince, public/ui-patch.js); the whole board when
+//                                n is older than the oldest removal kept, or no number this board counted. A card's question
+//                                topic names its card as card and leaves its title to it
 //                                (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md)
 //                                Done cards come slim (domain.mjs slimDone), the newest 100 and the ones the Done
 //                                archive keeps back; doneArchived: how many Done cards data/done-archive.json holds
@@ -89,7 +93,7 @@
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
 //                                event's id and /api/board's answer as the tap left it, version included, so the page draws the tap from
 //                                the one round trip (docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md);
-//                                with since: <version>, which isn't recorded, that board is a patch from it as ?since= gives;
+//                                with since: <n>, which isn't recorded, that board is a patch since n as ?since= gives;
 //                                ?board=0, as the hub posts, answers with no board, so the answer builds nothing after the line is written
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
@@ -248,6 +252,7 @@ import { topicItems } from './review.mjs';
 import { boardWorktree, builderRepo, prWorktree } from './worktree.mjs';
 import { transcriptMovedAt, transcriptCommandRunning } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
+import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
@@ -316,7 +321,7 @@ const types = {
 const gzip = promisify(zlib.gzip);
 const COMPRESSIBLE = /^(text\/|application\/json|image\/svg\+xml)/;
 async function send(res, code, headers, body) {
-  if (!['GET', 'HEAD'].includes(res.req?.method)) dataVersion++;
+  if (!['GET', 'HEAD'].includes(res.req?.method) && !res.req.boardRead) dataVersion++;
   const h = { ...headers };
   let out = Buffer.isBuffer(body) ? body : Buffer.from(body ?? '');
   if (COMPRESSIBLE.test(h['content-type'] || '')) {
@@ -371,8 +376,9 @@ async function appendEvents(list) {
   await fs.mkdir(replies, { recursive: true });
   await fs.appendFile(events, lines.map((e) => JSON.stringify(e) + '\n').join(''));
   // A check that runs again before the watcher reports this write would otherwise read the board without it and send
-  // the same event twice.
+  // the same event twice. So the watcher's report of this write moves no data version: it signals pages alone.
   dataVersion++;
+  ownAppend = statOf(events);
   return lines.map((e) => e.id);
 }
 
@@ -625,10 +631,13 @@ async function archivedCards(entries) {
 const route = prefix.slice(1) || path.basename(here);
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
-// The version of the board's data: it steps on each write the watcher sees (changed) and on each event the server
-// appends itself (appendEvents); in a request that may write as it starts, so it reads the files as they are, before
-// each read after its writes (pageBoard, recordAnswers) and as it answers (send); each minute, since the board reads
-// the clock; and each time gh brings back a changed PR state.
+// The version of the board's data: it steps on each write the watcher sees (changed), but not its report of the
+// server's own append (appendEvents), which stepped it already; in a request that may write as it starts, so it
+// reads the files as they are, before each read after its writes (pageBoard, recordAnswers) and as it answers (send),
+// unless its answer carries a board built after its writes (answerBoard); each minute, since the board reads the
+// clock; and each time gh brings back a changed PR state. So a tap builds the board once, for its answer, and the
+// change signal its write sends reloads pages from that build
+// (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
 // sharedBoard builds the board once per data version and outsideData, read on each call, and every reader of
 // that pair shares the one build, which none of them changes. The hub's side, the session's prompts and whether it
 // listens, is board()'s to add (withHub).
@@ -727,60 +736,61 @@ async function board() {
 }
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
-// The board a page reads, from /api/board or an events POST's answer: board() with this request's onHost, leaving out
-// the resolved questions (GET /api/questions answers a topic's), with its Done cards slim and how many older ones wait in
-// the archive (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md), and its version, a tag of
-// everything in it but generatedAt, which GET /api/board also sends as its ETag. A card's question topic leaves its
-// title, summary and askedAt to its card while the card is on the board: the page names the topic from the card
+// The board a page reads, from /api/board or an events POST's answer: board(), leaving out the resolved questions
+// (GET /api/questions answers a topic's), with its Done cards slim and how many older ones wait in the archive
+// (docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md). A card's question topic leaves its title,
+// summary and askedAt to its card while the card is on the board: the page names the topic from the card
 // (view-questions.js), so a card's change patches the card alone (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
-async function pageBoard(req) {
+// It holds nothing of the request's, so every page reads the same board at the same change number.
+async function buildPageBoard(req) {
   if (!['GET', 'HEAD'].includes(req.method)) dataVersion++;
-  const b = { ...(await board()), onHost: await fromHost(req), doneArchived: await archiveCount(here) };
+  const b = { ...(await board()), doneArchived: await archiveCount(here) };
   b.owner = b.owner.filter((q) => q.state !== 'resolved');
   const marks = await readMarks(here);
   b.items = b.items.map((i) => ({ ...(i.lane === 'done' ? slimDone(i) : i), readAt: marks[i.key] || null }));
   const shown = new Set(b.items.map((i) => i.key));
   b.ownerTopics = b.ownerTopics.map(({ title, summary, askedAt, ...t }) => (shown.has(t.card) ? t : { ...t, title, summary, ...(askedAt ? { askedAt } : {}) }));
-  const { generatedAt: _, ...content } = b;
-  const page = { ...b, version: crypto.createHash('sha1').update(JSON.stringify(content)).digest('base64url').slice(0, 20) };
-  kept.delete(page.version);
-  kept.set(page.version, page);
-  for (const v of [...kept.keys()].slice(0, -BOARDS_KEPT)) kept.delete(v);
-  return page;
+  return b;
 }
 
-// docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md: the page boards this server built last, by version, so a page naming the version it holds gets a
-// patch from it (ui-patch.js boardPatch); one naming a version no longer kept, or none, gets the whole board.
-const BOARDS_KEPT = 8;
-const kept = new Map();
-const patches = vm.createContext({});
-vm.runInContext(await fs.readFile(new URL('./public/ui-patch.js', import.meta.url), 'utf8'), patches);
-const { boardPatch } = patches.BoardUI;
-// data/since-counts.json {since, patch, missed, none, restarts}, which #204 reads: how each board answer went, a patch
-// from a kept board, missed (a since naming a board no longer kept), or none (no since). A start bumps restarts, since
-// a restart forgets the kept boards. Written at most every SINCE_COUNTS_EVERY ms.
-const SINCE_COUNTS_EVERY = 3000;
-const sinceFile = path.join(data, 'since-counts.json');
-const sinceCounts = { since: new Date().toISOString(), patch: 0, missed: 0, none: 0, restarts: 0, ...(await readJSON(sinceFile, {})) };
-sinceCounts.restarts++;
-async function saveSinceCounts() {
-  await fs.mkdir(data, { recursive: true });
-  await fs.writeFile(sinceFile + '.tmp', JSON.stringify(sinceCounts) + '\n');
-  await fs.rename(sinceFile + '.tmp', sinceFile);
+// docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md: the change numbers (sync.mjs), kept in data/sync.json,
+// and latest, the newest page board stamped with them. A board built before latest leaves both as they are, so a slow
+// build can't undo a newer one. No answer names a number before data/sync.json holds it, so a restart never counts a
+// number twice. data/sync.json's writes send no change signal (quiet).
+const syncFile = path.join(data, 'sync.json');
+let sync = await readSync(syncFile);
+let syncSaved = sync.n;
+let syncWrites = Promise.resolve();
+let latest = null;
+function saveSync() {
+  syncWrites = syncWrites.then(async () => {
+    const s = sync;
+    if (s.n === syncSaved) return;
+    await fs.mkdir(data, { recursive: true });
+    await writeSync(syncFile, s);
+    syncSaved = s.n;
+  });
+  return syncWrites;
 }
-await saveSinceCounts();
-let sinceWrite = null;
-function countAnswer(kind) {
-  sinceCounts[kind]++;
-  sinceWrite ??= setTimeout(() => { sinceWrite = null; saveSinceCounts(); }, SINCE_COUNTS_EVERY).unref();
+// → {sync, board}: latest and the state that stamped it, taken together.
+async function pageBoard(req) {
+  const b = await buildPageBoard(req);
+  if (!latest || b.generatedAt >= latest.generatedAt) ({ sync, board: latest } = stamp(sync, b));
+  while (syncSaved < sync.n) await saveSync();
+  return { sync, board: latest };
 }
-// → undefined for a POST /_claude/events?board=0, so its answer carries no board key.
+
+// → undefined for a POST /_claude/events?board=0, so its answer carries no board key. since is the change number the
+// page holds: the answer is a patch of what changed after it (sync.mjs patchSince), or the whole board when there is
+// none or the board can't answer from it. onHost, whether this request's browser runs on the hub's machine
+// (on-host.mjs fromHost), rides beside the board.
 async function answerBoard(req, since) {
   if (new URL(req.url, 'http://site').searchParams.get('board') === '0') return undefined;
-  const from = since && kept.get(since);
-  countAnswer(from ? 'patch' : since ? 'missed' : 'none');
-  const b = await pageBoard(req);
-  return from ? boardPatch(from, b) : b;
+  const onHost = await fromHost(req);
+  const { sync: at, board: b } = await pageBoard(req);
+  req.boardRead = true;
+  const patch = /^\d+$/.test(since) ? patchSince(at, b, Number(since)) : null;
+  return { ...(patch || b), onHost };
 }
 
 // docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md: one review at a time, so a second Run while
@@ -927,8 +937,10 @@ const CHANGE_QUIET = 100;
 const CHANGE_MAX = 500;
 let changeTimer = null;
 let changeFirst = 0;
-function changed() {
-  dataVersion++;
+// read: every build from now on has read the write already, so the data version stays and the signal's reloads share
+// the last build.
+function changed({ read = false } = {}) {
+  if (!read) dataVersion++;
   const now = Date.now();
   if (!changeTimer) changeFirst = now;
   clearTimeout(changeTimer);
@@ -947,6 +959,20 @@ function changed() {
 // named for build output, or a .tmp file, sends no change, and the per-folder watch never watches such a folder.
 const BUILD_OUTPUT = new Set(['node_modules', 'dd', 'DerivedData']);
 const ignored = (name) => String(name).endsWith('.tmp') || String(name).split(/[\\/]/).some((s) => s.startsWith('.') || BUILD_OUTPUT.has(s));
+// The events file's size and time after the server's own last append (appendEvents), which bumped the data version
+// itself, so a tap's answer built after it has read it (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
+// The file still reading so when the watcher reports it means no one else wrote it since.
+let ownAppend = null;
+const statOf = (file) => { try { const st = statSync(file); return `${st.size}:${st.mtimeMs}`; } catch { return null; } };
+// A write the watcher reports in root, named name: data/sync.json, the server's own record of its change numbers,
+// signals nothing.
+function heard(root, name) {
+  if (!name) return changed();
+  if (ignored(name)) return;
+  const file = path.join(root, String(name));
+  if (file === syncFile) return;
+  changed({ read: file === events && statOf(events) === ownAppend });
+}
 const isFolder = (dir) => { try { return statSync(dir).isDirectory(); } catch { return false; } };
 // On macOS and Windows one recursive watch covers the tree; on Linux each folder has its own watch, since Node's
 // recursive watch there loses a file once a rename replaces it (docs/adr/2026-11-03-1952-the-board-watches-each-folder-only-on-linux.md).
@@ -970,7 +996,7 @@ function watchTree(root) {
 }
 function watchRecursive(root, retry) {
   const w = watchFiles(root, { recursive: true }, (_, name) => {
-    if (!name || !ignored(name)) changed();
+    heard(root, name);
     if (!isFolder(root)) retry();
   });
   w.on('error', retry);
@@ -986,7 +1012,7 @@ function watchEachFolder(root, retry) {
   const watchFolder = (folder) => {
     if (watches.has(folder)) return;
     const w = watchFiles(folder, (_, name) => {
-      if (!name || !ignored(name)) changed();
+      heard(folder, name);
       if (folder === root && !isFolder(root)) return retry();
       if (!name || ignored(name)) return;
       const entry = path.join(folder, String(name));

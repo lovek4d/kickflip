@@ -9,6 +9,15 @@ import { spawn } from 'node:child_process';
 import { freePorts, until } from '../shared/test-helpers.mjs';
 import { miniDom } from './mini-dom.mjs';
 import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
+import { freshSync, stamp, patchSince } from './sync.mjs';
+
+// The patch the server sends a page holding from once the board reads to, as board/sync.mjs makes it, between the
+// versions the two boards name.
+function boardPatch(from, to) {
+  const held = stamp(freshSync(0), from);
+  const now = stamp(held.sync, to);
+  return { ...patchSince(now.sync, now.board, held.sync.n), since: from.version, version: to.version };
+}
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-needs.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-banner.js', 'app-snapshot.js',
@@ -1056,34 +1065,91 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
   assert.deepEqual(page.left(), loaded);
 });
 
-test("a board the app shell leaves keeps its fresh board as its last visit, dropping the least recent boards' past the storage budget, and paints live when the shell says nothing changed since, dimmed otherwise, and not at all under another build", () => {
-  const { storage, localStorage } = memoryStorage([['boardSnapshot:https://mac.ts.net/old/', 'x'.repeat(2_000_000)],
-    ['boardSnapshot:https://mac.ts.net/recent/', 'y'.repeat(1_000_000)], ['boardSnapshots', JSON.stringify(['boardSnapshot:https://mac.ts.net/recent/', 'boardSnapshot:https://mac.ts.net/old/'])]]);
+// One object store in memory, as IndexedDB answers: asynchronously, each value a copy. broken: every open fails, as in
+// a browser that refuses storage.
+function memoryIndexedDB({ broken = false } = {}) {
+  const rows = new Map();
+  let made = false;
+  const later = (fn) => Promise.resolve().then(fn);
+  const db = {
+    close() {},
+    createObjectStore() { made = true; },
+    transaction() {
+      const tx = {};
+      const ask = (fn) => { const req = {}; later(() => { req.result = fn(); tx.oncomplete?.(); }); return req; };
+      tx.objectStore = () => ({ get: (k) => ask(() => structuredClone(rows.get(k))), put: (v, k) => ask(() => { rows.set(k, structuredClone(v)); }) });
+      return tx;
+    },
+  };
+  return {
+    rows,
+    open() {
+      const req = {};
+      later(() => {
+        if (broken) { req.error = new Error('refused'); req.onerror?.(); return; }
+        req.result = db;
+        if (!made) req.onupgradeneeded?.();
+        req.onsuccess?.();
+      });
+      return req;
+    },
+  };
+}
+
+// docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md
+test("a board view keeps the board and its change number in IndexedDB, and the next mount paints that copy live and asks only for the changes since", async () => {
+  const { storage, localStorage } = memoryStorage([['boardSnapshot:https://mac.ts.net/old/', 'x'], ['boardSnapshots', '[]']]);
   const page = fakePage(localStorage);
+  const idb = memoryIndexedDB();
+  page.win.indexedDB = idb;
   const site = 'https://mac.ts.net/board-a';
+  const asked = [];
+  const board = { title: 'A', version: 1762400000005, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 1762400000005 }], waves: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  page.win.fetch = async (url) => { asked.push(url); return { ok: true, status: 200, json: async () => board }; };
   const left = page.win.BoardView.create(new page.El(), site);
   left.mount();
-  const board = { title: 'A', generatedAt: '2026-10-29T10:00:00.000Z', items: [], waves: [], needs: [], answers: [] };
-  Object.assign(left.B.state, { board });
-  left.B.setView('fresh');
+  await until(() => left.B.state.board?.version === board.version, 'the first load lands');
+  assert.deepEqual(asked.filter((u) => u.includes('/api/board')), [`${site}/api/board`]);
   left.unmount();
-  assert.equal(JSON.parse(storage.get(`boardSnapshot:${site}/`)).board.generatedAt, board.generatedAt);
-  assert.deepEqual([...storage.keys()].filter((k) => k.startsWith('boardSnapshot:')).sort(), [`boardSnapshot:${site}/`, 'boardSnapshot:https://mac.ts.net/recent/']);
+  await until(() => idb.rows.size === 1, 'the copy saved');
+  assert.equal([...idb.rows.values()][0].board.version, board.version);
+  assert.deepEqual(JSON.parse(storage.get('site:board-a:copyVersion')), { build: 'build-1', version: board.version }, "app.html's boot asks since this number");
+  assert.equal([...storage.keys()].some((k) => k.startsWith('boardSnapshot')), false, "the last visit's old copies in localStorage go");
 
-  const back = (live) => {
-    const root = new page.El();
-    const view = page.win.BoardView.create(root, site, { live });
-    view.mount();
-    view.unmount();
-    return root.dataset.board;
-  };
-  assert.equal(back({ fresh: { at: board.generatedAt, sig: 's' }, generatedAt: board.generatedAt }), 'fresh');
-  assert.equal(back({ fresh: { at: board.generatedAt, sig: 's' }, generatedAt: '2026-10-29T09:00:00.000Z' }), 'snapshot');
-  assert.equal(back(null), 'snapshot');
+  asked.length = 0;
+  page.win.fetch = async (url) => { asked.push(url); return new Promise(() => {}); };
+  const root = new page.El();
+  const back = page.win.BoardView.create(root, site);
+  back.mount();
+  await until(() => asked.some((u) => u.includes('/api/board')), 'the catch-up asked');
+  assert.equal(root.dataset.board, 'fresh', 'the copy paints live, not dimmed');
+  assert.equal(back.B.state.board.items[0].title, 'Kept');
+  assert.deepEqual(asked.filter((u) => u.includes('/api/board')), [`${site}/api/board?since=${board.version}`]);
+  back.unmount();
 
   page.win.document.documentElement.dataset.build = 'build-2';
-  assert.equal(back({ fresh: { at: board.generatedAt, sig: 's' }, generatedAt: board.generatedAt }), undefined);
-  assert.equal(back(null), undefined);
+  asked.length = 0;
+  const other = new page.El();
+  const rebuilt = page.win.BoardView.create(other, site);
+  rebuilt.mount();
+  await until(() => asked.some((u) => u.includes('/api/board')), 'the load asked');
+  assert.deepEqual([other.dataset.board, asked.filter((u) => u.includes('/api/board'))], [undefined, [`${site}/api/board`]], 'a copy saved under another build is no copy');
+  rebuilt.unmount();
+});
+
+test("where IndexedDB refuses or is missing, the board view loads the whole board and paints nothing until it lands", async () => {
+  for (const indexedDB of [memoryIndexedDB({ broken: true }), undefined]) {
+    const page = fakePage(memoryStorage().localStorage);
+    if (indexedDB) page.win.indexedDB = indexedDB;
+    const asked = [];
+    page.win.fetch = async (url) => { asked.push(url); return new Promise(() => {}); };
+    const root = new page.El();
+    const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a');
+    view.mount();
+    await until(() => asked.length > 0, 'the load asked');
+    assert.deepEqual([root.dataset.board, asked.filter((u) => u.includes('/api/board'))], [undefined, ['https://mac.ts.net/board-a/api/board']]);
+    view.unmount();
+  }
 });
 
 test("two boards' stores never share a key: a New task draft stays on its board, the old shared keys move to the first board opened, and a card's draft keeps its key", () => {
@@ -2398,7 +2464,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
     if (u.pathname.endsWith('/api/board') && server.board.version && opts.headers?.['if-none-match'] === `"${server.board.version}"`) return { ok: false, status: 304, json: async () => { throw new Error('a 304 has no body'); } };
     // A reload naming a version the server holds gets a patch from it, as board/server.mjs answerBoard does.
     const since = u.pathname.endsWith('/api/board') && server.held?.[u.searchParams.get('since')];
-    if (since) { patched.push(u.searchParams.get('since')); return { ok: true, status: 200, json: async () => structuredClone(page.win.BoardUI.boardPatch(since, server.board)) }; }
+    if (since) { patched.push(u.searchParams.get('since')); return { ok: true, status: 200, json: async () => structuredClone(boardPatch(since, server.board)) }; }
     if (u.pathname.endsWith('/api/board')) downloads.push(server.board.version);
     if (u.pathname.endsWith('/api/done')) return { ok: true, status: 200, json: async () => structuredClone(server.done(u.searchParams)) };
     const body = u.pathname.endsWith('/api/board') ? server.board : server.threads[u.searchParams.get('key')] || [];
@@ -2446,7 +2512,7 @@ test("a changed board comes as a patch from the version on screen, a reload's an
   const v1 = { ...boardOf([T1, T2]), version: 'v1' };
   const v2 = { ...boardOf([{ ...T1, title: 'Renamed T1' }, T2]), generatedAt: '2026-10-30T10:00:01.000Z', version: 'v2' };
   const v3 = { ...boardOf([{ ...T2, bumpedAt: '2026-10-30T10:00:02.000Z' }, { ...T1, title: 'Renamed T1' }]), generatedAt: '2026-10-30T10:00:02.000Z', version: 'v3' };
-  const b = boardOnDom({ board: v1, threads: {}, send: (kind, data, server) => { server.board = v3; return { id: 'e1', board: structuredClone(b.page.win.BoardUI.boardPatch(server.held[data.since], v3)) }; } });
+  const b = boardOnDom({ board: v1, threads: {}, send: (kind, data, server) => { server.board = v3; return { id: 'e1', board: structuredClone(boardPatch(server.held[data.since], v3)) }; } });
   b.server.held = { v1, v2 };
   await b.settle();
   const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
@@ -4917,7 +4983,7 @@ test("a tap whose POST board cannot land because a reload won the race keeps its
     await b.change({ board: raced });
     server.board = bumped;
     hold = new Promise((resolve) => { b.release = resolve; });
-    return { id: 'e1', board: structuredClone(b.page.win.BoardUI.boardPatch(v1, bumped)) };
+    return { id: 'e1', board: structuredClone(boardPatch(v1, bumped)) };
   } });
   await b.settle();
   const fetched = b.page.win.fetch;

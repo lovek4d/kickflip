@@ -114,7 +114,7 @@ BoardView.part((B) => {
         loadedAt.set(key, Date.now());
         state.threadCache.set(key, msgs);
         renderThread(key, msgs);
-        B.saveSnapshotSoon?.();
+        B.saveCopySoon?.();
       })
       .catch(() => {})
       .finally(() => { if (inflight.get(key) === p) inflight.delete(key); });

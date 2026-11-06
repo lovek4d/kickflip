@@ -1,72 +1,55 @@
-// The last visit's board on the board view: reading and saving it, holding the controls that send until the fresh
-// board lands, flashing the lines the fresh board changed (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md), and
-// the sign on a card that changed lanes or was updated (docs/adr/2026-11-02-2354-an-updated-card-takes-a-brief-tint.md).
+// The board view's saved copy: reading it from IndexedDB and saving it there with its change number
+// (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md), flashing the lines the catch-up changed, and the sign
+// on a card that changed lanes or was updated (docs/adr/2026-11-02-2354-an-updated-card-takes-a-brief-tint.md).
 // Needs app-core.js and ui-snapshot.js; app.js paints it.
 BoardView.part((B) => {
   const { $$, state } = B;
-  const { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines, updateSign, SNAPSHOT_MAX } = BoardUI;
-  // The hub serves every site from one origin, so each board keeps its own key.
-  const KEY = 'boardSnapshot:' + B.site.url('');
-  // Every board's snapshots together stay within three at ui-snapshot.js's cap, the boards saved least recently
-  // dropping first, so they leave room in the browser's 5 MB of storage for the drafts, which would otherwise fail to
-  // save.
-  const BUDGET = 3 * SNAPSHOT_MAX;
-  const ORDER = 'boardSnapshots';
+  const { copyOf, readCopy: checkCopy, preloadKeys, changedLines, updateSign } = BoardUI;
+  // The hub serves every site from one origin, so each board keeps its own key in the one store.
+  const KEY = B.site.url('');
   const BUILD = document.documentElement.dataset.build;
 
-  function readSnapshot() {
-    let raw = null;
-    try { raw = localStorage.getItem(KEY); } catch {}
-    return raw ? unpackSnapshot(raw, BUILD) : null;
+  // One transaction on the copies' store: fn(store) → the request whose result it resolves with. Rejects where
+  // IndexedDB is missing or refuses, and the board then loads whole.
+  function copies(mode, fn) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open('kickflip-boards', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('boards');
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction('boards', mode);
+        const req = fn(tx.objectStore('boards'));
+        tx.oncomplete = () => { db.close(); resolve(req.result); };
+        tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+      };
+    });
   }
-  // Makes room for this board's raw snapshot.
-  function keepRecent(raw) {
-    let order = [];
-    try { order = JSON.parse(localStorage.getItem(ORDER) || '[]'); } catch {}
-    const stored = [];
-    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith('boardSnapshot:') && k !== KEY) stored.push(k); }
-    const recent = [...order.filter((k) => stored.includes(k)), ...stored.filter((k) => !order.includes(k))];
-    let used = raw.length;
-    const kept = [KEY];
-    for (const k of recent) {
-      const size = localStorage.getItem(k)?.length || 0;
-      if (used + size <= BUDGET) { used += size; kept.push(k); } else localStorage.removeItem(k);
-    }
-    localStorage.setItem(ORDER, JSON.stringify(kept));
-  }
+
+  // → {savedAt, board, threads} or null.
+  const readCopy = () => copies('readonly', (store) => store.get(KEY)).then((s) => checkCopy(s, BUILD), () => null);
+
+  // Saves the board on screen. app.html's boot reads copyVersion before any script loads, so its first board request
+  // asks since the copy's number; it names no number when the save failed.
   let saveTimer = null;
-  function saveSnapshot() {
+  async function saveCopy() {
     saveTimer?.();
     saveTimer = null;
     if (state.view !== 'fresh' || !state.board) return;
-    const raw = packSnapshot(state.board, state.threadCache, {
-      build: BUILD,
-      savedAt: state.board.generatedAt || new Date().toISOString(),
-      keep: [...state.openItems, ...preloadKeys(state.board.items, [])],
-    });
+    const copy = copyOf(state.board, state.threadCache, { build: BUILD, savedAt: state.board.generatedAt || new Date().toISOString() });
     try {
-      if (!raw) { localStorage.removeItem(KEY); return; }
-      keepRecent(raw);
-      localStorage.setItem(KEY, raw);
-    } catch { try { localStorage.removeItem(KEY); } catch {} }
+      await copies('readwrite', (store) => store.put(copy, KEY));
+      B.store.set('copyVersion', { build: BUILD, version: copy.board.version });
+    } catch { B.store.set('copyVersion', null); }
   }
-  const saveSnapshotSoon = () => { if (!saveTimer) saveTimer = B.later(1000, saveSnapshot); };
-  B.on(window, 'pagehide', () => { if (saveTimer) saveSnapshot(); });
-  // The app shell paints a board it comes back to from this, live when nothing changed since (shell.js).
-  B.atUnmount(saveSnapshot);
+  const saveCopySoon = () => { if (!saveTimer) saveTimer = B.later(1000, saveCopy); };
+  B.on(window, 'pagehide', () => { if (saveTimer) saveCopy(); });
+  B.atUnmount(saveCopy);
 
-  // view is ui-snapshot.js liveControls' view; style.css dims the snapshot and its held controls from the view root's data-board.
+  // view is null until a board paints, then 'fresh'.
   function setView(view) {
     state.view = view;
     B.root.dataset.board = view;
-  }
-  for (const type of ['click', 'submit']) {
-    B.on(B.root, type, (ev) => {
-      const { blocked } = liveControls(state.view);
-      if (!blocked) return;
-      const control = type === 'submit' ? ev.target.querySelector?.('button[type=submit]') : ev.target.closest?.(blocked);
-      if (control?.matches(blocked)) { ev.preventDefault(); ev.stopImmediatePropagation(); }
-    }, true);
   }
 
   // The lines a fresh board can change: each lane count, Needs you line and thread message. A card shows its own sign below.
@@ -132,5 +115,5 @@ BoardView.part((B) => {
     }
   }
 
-  Object.assign(B, { readSnapshot, saveSnapshotSoon, setView, holdForFlash, flashChanged, endFlash, highlight, sentHere, signCards });
+  Object.assign(B, { readCopy, saveCopySoon, setView, holdForFlash, flashChanged, endFlash, highlight, sentHere, signCards });
 });

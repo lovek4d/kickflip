@@ -6,11 +6,8 @@
 // them all and no board's state outlives its view but what B.keep keeps for its next mount in this page.
 // BoardView.markup({title}) is the root's inner HTML. BoardView.page(root, site, run) gives a board's other views
 // (view-*.js) the same site, $ and recorders.
-// opts, both from the app shell (shell.js):
+// opts, from the app shell (shell.js):
 //   signal(fn) → off   calls fn on each change signal for this board, from the hub's one stream
-//   live {fresh, generatedAt}
-//                      this board was left fresh and hasn't changed since, so a stored last visit whose board has
-//                      that generatedAt paints live, with the header time `fresh`, rather than dimmed
 // Load this after ui-*.js, attach.js and toasts.js, and before the app-*.js files.
 window.BoardView = (function () {
   const parts = [];
@@ -29,6 +26,8 @@ window.BoardView = (function () {
       for (let i = 0; i < localStorage.length; i++) old.push(localStorage.key(i));
       // Read marks moved to the board (docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md), so this browser's old copies go.
       for (const k of old.filter((k) => /^(site:[\w-]+:)?(seenThreads|dismissedAnswers)$/.test(k))) localStorage.removeItem(k);
+      // The saved copy moved to IndexedDB (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
+      for (const k of old.filter((k) => k === 'boardSnapshots' || k.startsWith('boardSnapshot:'))) localStorage.removeItem(k);
       for (const k of old.filter((k) => /^(openItems|wave|lanes|draft:ask|foldOpen:.+)$/.test(k))) {
         if (localStorage.getItem(keyOf(k)) != null) continue;
         localStorage.setItem(keyOf(k), localStorage.getItem(k));
@@ -146,7 +145,7 @@ window.BoardView = (function () {
     const keep = (fn) => { if (B.alive()) keepers.push(fn); };
     const place = places.get(B.route) || null;
     places.delete(B.route);
-    Object.assign(B, { store, state, signal, live: opts.live || null, pause: opts.pause, away: opts.away, place, keep });
+    Object.assign(B, { store, state, signal, pause: opts.pause, away: opts.away, place, keep });
     BoardUI.usagePause = opts.pause;
 
     function mount() {
@@ -267,24 +266,22 @@ window.BoardView = (function () {
       ta.focus({ preventScroll: true });
     }
 
-    // The last visit's board paints dimmed while the first load runs; it doesn't count as landed, so refresh keeps
-    // spinning, and the header's time is the snapshot's until a load lands (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md).
-    // → true when it painted live (B.live), so the controls turn on at once.
-    function paintSnapshot() {
-      const snap = B.readSnapshot();
-      if (!snap) return false;
-      const live = Boolean(B.live) && snap.board?.generatedAt === B.live.generatedAt;
-      state.board = snap.board;
-      for (const [key, msgs] of Object.entries(snap.threads)) state.threadCache.set(key, msgs);
-      state.fresh = live ? B.live.fresh : { at: snap.savedAt, sig: null };
-      B.setView(live ? 'fresh' : 'snapshot');
+    // The saved copy paints live before the first load, which asks only for the changes since its number; the lines
+    // that catch-up changes flash (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). A board that landed
+    // meanwhile stays.
+    function paintCopy(copy) {
+      if (!copy || !B.alive() || state.view === 'fresh') return;
+      state.board = copy.board;
+      for (const [key, msgs] of Object.entries(copy.threads)) state.threadCache.set(key, msgs);
+      state.fresh = { at: copy.savedAt, sig: null };
+      B.setView('fresh');
       readHash();
       hashRead = true;
       render();
       scrollToFocus(false);
       returnToPlace();
-      if (!live) B.holdForFlash();
-      return live;
+      B.holdForFlash();
+      B.linkUp();
     }
 
     // The first load takes over app.html's BoardBoot fetches, so only the first view mounted takes them, and only for
@@ -302,9 +299,9 @@ window.BoardView = (function () {
       const threads = [...state.openItems].map((k) => B.loadThread(k, { from: started?.threads.get(k) || null, force: via !== 'poll' }));
       let landed = false;
       try {
-        // A reload names the version of the board on screen: an unchanged board answers 304 with no body
-        // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md), and a changed one a patch from it
-        // (docs/adr/2026-11-04-0332-the-board-sends-per-card-patches.md).
+        // A reload names the change number of the board on screen: an unchanged board answers 304 with no body
+        // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md), and a changed one a patch of what
+        // changed after it (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md).
         const tag = state.view === 'fresh' ? state.board.version : null;
         const board = await (started?.board || fetch(B.site.url('api/board' + (tag ? '?since=' + encodeURIComponent(tag) : '')), { cache: 'no-store', ...(tag ? { headers: { 'if-none-match': `"${tag}"` } } : {}) })
           .then((r) => (r.status === 304 ? null : r.ok ? r.json() : Promise.reject(new Error(`board ${r.status}`)))));
@@ -338,7 +335,7 @@ window.BoardView = (function () {
       scrollToFocus();
       returnToPlace();
       B.site.syncBadge();
-      B.saveSnapshotSoon();
+      B.saveCopySoon();
       return true;
     }
 
@@ -386,16 +383,14 @@ window.BoardView = (function () {
       render();
     }
     Object.assign(B, { render, focusOnBoard, loadBoard, send, failed, stillWaiting, reload: signalled });
-    const live = paintSnapshot();
     B.headerWired();
-    if (live) B.linkUp();
     const sent = BoardUI.sentNotice.take(B.route);
     if (sent) B.toast(sent);
     B.on(document, 'visibilitychange', () => {
       if (document.hidden) return;
       if (signalMissed) { signalMissed = false; signalled(); } else loadBoard();
     });
-    loadBoard();
+    B.readCopy().then(paintCopy).then(() => { if (B.alive()) loadBoard(); });
     B.signal?.(signalled);
     B.every(30000, () => { if (!document.hidden) { loadBoard(); } });
   }

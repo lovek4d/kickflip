@@ -215,67 +215,25 @@ test('header controls turn on together once the first board load lands, refresh 
   assert.deepEqual(on({ wired: true, boardSettled: true, link: 'reconnecting', reloading: true }), { refresh: false, settings: false, spin: true });
 });
 
-test("a snapshot keeps the board and the threads of its cards, open cards' first, dropping threads past the size cap", () => {
+// docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md
+test("the saved copy keeps the board whole, its change number included, and the threads of the cards still on it", () => {
   const savedAt = '2026-10-23T08:00:00.000Z';
-  const board = { generatedAt: savedAt, items: [{ key: 'w/A', lane: 'todo' }, { key: 'w/B', lane: 'done' }, { key: 'w/C', lane: 'progress' }] };
-  const threads = new Map([['w/B', [{ text: 'b' }]], ['w/A', [{ text: 'a' }]], ['w/gone', [{ text: 'x' }]], ['w/C', [{ text: 'c'.repeat(200) }]]]);
-  const raw = ui.packSnapshot(board, threads, { build: 'b1', savedAt, keep: ['w/A'] });
-  const back = plain(ui.unpackSnapshot(raw, 'b1'));
-  assert.deepEqual([back.savedAt, back.board], [savedAt, board]);
-  assert.deepEqual(Object.keys(back.threads), ['w/A', 'w/B', 'w/C']);
-  assert.deepEqual(back.threads['w/A'], [{ text: 'a' }]);
-  const capped = plain(ui.unpackSnapshot(ui.packSnapshot(board, threads, { build: 'b1', savedAt, keep: ['w/A'], max: raw.length - 100 }), 'b1'));
-  assert.deepEqual(Object.keys(capped.threads), ['w/A', 'w/B']);
-  assert.equal(ui.packSnapshot(board, threads, { build: 'b1', savedAt, max: 50 }), null);
+  const board = { version: 1762400000123, generatedAt: savedAt, items: [{ key: 'w/A', lane: 'todo', changed: 1762400000120 }, { key: 'w/B', lane: 'done', changed: 1762400000123 }] };
+  const threads = new Map([['w/B', [{ text: 'b' }]], ['w/A', [{ text: 'a' }]], ['w/gone', [{ text: 'x' }]]]);
+  const copy = ui.copyOf(board, threads, { build: 'b1', savedAt });
+  assert.deepEqual(plain(copy), { build: 'b1', savedAt, board, threads: { 'w/B': [{ text: 'b' }], 'w/A': [{ text: 'a' }] } });
+  const back = plain(ui.readCopy(plain(copy), 'b1'));
+  assert.deepEqual([back.savedAt, back.board, Object.keys(back.threads)], [savedAt, board, ['w/B', 'w/A']]);
 });
 
-// A board of today's shape and size, as /api/board answers it: its 100 Done cards slim (board/domain.mjs slimDone), a few
-// open cards and their open question.
-function bigBoard() {
-  const done = (n) => ({ key: `hub/GH-${n}`, kind: 'work', id: `GH-${n}`, ref: `#${n}`, title: `Done card ${n}`, lane: 'done', status: 'done', wave: 'hub', waveTitle: 'Hub', internal: true,
-    ticket: { id: `#${n}`, source: 'github' }, ticketSource: 'github', prs: [], threadCount: 9, othersAt: [ago(3), ago(2), ago(1)], hasNotes: true, sortAt: ago(1),
-    questions: { topic: `item:hub/GH-${n}`, state: 'resolved', open: 0, answered: 0, replied: 0, resolved: 3, first: 'q1' }, manualSteps: [] });
-  const open = [{ key: 'hub/GH-1', lane: 'todo', ref: '#1', title: 'Todo', questions: { state: 'open', open: 1, answered: 0, replied: 0, first: 'live' }, agents: [{ name: 'main' }] },
-    { key: 'hub/GH-2', lane: 'progress', ref: '#2', title: 'Progress', builder: { progress: 'building' }, prs: [{ state: 'OPEN' }] }];
-  return { generatedAt: ago(0), title: 'Hub', items: [...open, ...Array.from({ length: 100 }, (_, n) => done(100 + n))],
-    owner: [{ id: 'live', topic: 'item:hub/GH-1', state: 'open', question: 'Which?' }], waveBands: [{ slug: 'hub', keys: ['hub/GH-1', 'hub/GH-100'] }] };
-}
-const packed = (board, o = {}) => ui.packSnapshot(board, new Map(), { build: 'b1', savedAt: board.generatedAt, ...o });
-
-test('a snapshot keeps no version, and keeps every card as the board sent it', () => {
-  const board = bigBoard();
-  const back = plain(ui.unpackSnapshot(packed({ ...board, version: 'v1' }), 'b1'));
-  assert.equal(back.board.version, undefined, "a reload names no version for a snapshot's board, so it downloads the whole one");
-  assert.deepEqual(back.board.items, board.items);
-  assert.deepEqual(back.board.owner, board.owner);
-});
-
-test("a snapshot of a board at today's size fits under the cap and draws open lanes as the live board does", () => {
-  const board = bigBoard();
-  const raw = packed(board);
-  assert.ok(raw && raw.length < ui.SNAPSHOT_MAX, String(raw?.length));
-  const back = plain(ui.unpackSnapshot(raw, 'b1'));
-  assert.deepEqual(back.board.items.filter((i) => i.lane !== 'done'), board.items.filter((i) => i.lane !== 'done'));
-  assert.deepEqual(back.board.waveBands, board.waveBands);
-});
-
-test('a board whose trimmed form is still over the cap saves its open lanes alone rather than nothing', () => {
-  const board = bigBoard();
-  const back = plain(ui.unpackSnapshot(packed(board, { max: packed(board).length - 1000 }), 'b1'));
-  assert.deepEqual(back.board.items.map((i) => i.key), ['hub/GH-1', 'hub/GH-2']);
-  assert.equal(packed(board, { max: 50 }), null);
-});
-
-test('a stored snapshot that is damaged, saved under another build or undated reads as none', () => {
-  const good = ui.packSnapshot({ items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), { build: 'b1', savedAt: '2026-10-23T08:00:00.000Z' });
-  assert.ok(ui.unpackSnapshot(good, 'b1'));
-  assert.equal(ui.unpackSnapshot(good, 'b2'), null);
-  for (const raw of [null, '', 'not json', good.slice(0, -3), good.replace('"build":"b1"', '"v":2'), good.replace('"items":[', '"cards":['), good.replace('2026-10-23T08:00:00.000Z', 'soon')]) {
-    assert.equal(ui.unpackSnapshot(raw, 'b1'), null, String(raw));
+test('a stored copy that is damaged, saved under another build, undated or holding no change number reads as none', () => {
+  const good = plain(ui.copyOf({ version: 7, items: [{ key: 'w/A', lane: 'todo' }] }, new Map(), { build: 'b1', savedAt: '2026-10-23T08:00:00.000Z' }));
+  assert.ok(ui.readCopy(good, 'b1'));
+  assert.equal(ui.readCopy(good, 'b2'), null);
+  for (const odd of [null, undefined, 'text', { ...good, build: undefined }, { ...good, board: { ...good.board, items: undefined } }, { ...good, savedAt: 'soon' }, { ...good, board: { ...good.board, version: 'v1' } }]) {
+    assert.equal(ui.readCopy(odd, 'b1'), null, JSON.stringify(odd));
   }
-  const odd = JSON.parse(good);
-  odd.threads = { 'w/A': 'text', 'w/B': [{ text: 'b' }] };
-  assert.deepEqual(Object.keys(ui.unpackSnapshot(JSON.stringify(odd), 'b1').threads), ['w/B']);
+  assert.deepEqual(Object.keys(ui.readCopy({ ...good, threads: { 'w/A': 'text', 'w/B': [{ text: 'b' }] } }, 'b1').threads), ['w/B']);
 });
 
 test('threads load in the background for every In Review, Stale, In Progress and Todo card that is not already open', () => {
@@ -284,14 +242,7 @@ test('threads load in the background for every In Review, Stale, In Progress and
   assert.deepEqual([...ui.preloadKeys(items, [])], ['w/0', 'w/1', 'w/2', 'w/3', 'w/7']);
 });
 
-test('while the last visit shows, reading and asking work but card buttons and thread sends wait for the fresh board', () => {
-  const live = (view) => { const { blocked, ...rest } = ui.liveControls(view); return { ...rest, blocks: Boolean(blocked) }; };
-  assert.deepEqual(live('snapshot'), { read: true, ask: true, cards: false, send: false, blocks: true });
-  assert.deepEqual(live('fresh'), { read: true, ask: true, cards: true, send: true, blocks: false });
-  assert.deepEqual(live(null), { read: true, ask: true, cards: true, send: true, blocks: false });
-});
-
-test('when the fresh board replaces the last visit, only lines whose text changed or that are new flash', () => {
+test('when the catch-up lands on the saved copy, only lines whose text changed or that are new flash', () => {
   assert.deepEqual([...ui.changedLines({ a: 'Running tests', b: '2', c: 'gone' }, { a: 'Running tests', b: '3', d: 'new' })], ['b', 'd']);
   assert.deepEqual([...ui.changedLines({}, {})], []);
 });

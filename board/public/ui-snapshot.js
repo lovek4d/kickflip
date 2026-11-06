@@ -1,46 +1,19 @@
-// The last board this device showed, which the board page paints dimmed until the fresh board lands, and what the
-// page may do meanwhile (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md). Needs ui.js.
+// The board this device last held, saved in IndexedDB with its change number, which the board page paints live on open
+// and catches up from (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). Needs ui.js.
 (function () {
-  // Characters, one board's most; app-snapshot.js keeps every board's within three of these.
-  const SNAPSHOT_MAX = 900000;
   const ACTIVE_LANES = ['review', 'stale', 'progress', 'todo'];
 
-  // What a first paint shows of board: every card as the board sent it, Done cards already slim (board/domain.mjs
-  // slimDone), or the open lanes alone when openOnly. It keeps no version, since it isn't the board that version names,
-  // so the first reload downloads the whole board (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
-  const firstPaint = ({ version: _, ...board }, openOnly) => ({ ...board, items: openOnly ? board.items.filter((it) => it.lane !== 'done') : board.items });
+  // threads maps item keys to thread messages (app.js state.threadCache). → {build, savedAt, board, threads} with the
+  // threads of the cards on the board; build is the saving page's (app.html data-build).
+  const copyOf = (board, threads, { build, savedAt }) => {
+    const onBoard = new Set(board.items.map((i) => i.key));
+    return { build, savedAt, board, threads: Object.fromEntries([...threads].filter(([key]) => onBoard.has(key))) };
+  };
 
-  // threads maps item keys to thread messages (app.js state.threadCache). The board goes in as firstPaint, then threads of
-  // `keep` first and the rest while they fit under max; threads of items no longer on the board are dropped. When the
-  // board still won't fit, Done cards go too. build is the saving page's (app.html data-build). Null when open lanes alone won't fit.
-  function packSnapshot(board, threads, { build, savedAt, keep = [], max = SNAPSHOT_MAX } = {}) {
-    const headOf = (b) => `{"build":${JSON.stringify(build)},"savedAt":${JSON.stringify(savedAt)},"board":${JSON.stringify(b)},"threads":{`;
-    let shown = firstPaint(board, false);
-    let head = headOf(shown);
-    if (head.length + 2 > max) {
-      shown = firstPaint(board, true);
-      head = headOf(shown);
-      if (head.length + 2 > max) return null;
-    }
-    const onBoard = new Set(shown.items.map((i) => i.key));
-    let out = head;
-    let n = 0;
-    for (const key of new Set([...keep, ...threads.keys()])) {
-      if (!onBoard.has(key) || !threads.has(key)) continue;
-      const part = `${n ? ',' : ''}${JSON.stringify(key)}:${JSON.stringify(threads.get(key))}`;
-      if (out.length + part.length + 2 > max) continue;
-      out += part;
-      n++;
-    }
-    return `${out}}}`;
-  }
-
-  // → {savedAt, board, threads: {key: messages}}, or null for anything packSnapshot didn't write under this build: code
-  // from another build may read the board's shape differently, and a paint that throws stops the live load.
-  function unpackSnapshot(raw, build) {
-    let s;
-    try { s = JSON.parse(raw); } catch { return null; }
-    if (s?.build !== build || !Array.isArray(s.board?.items) || typeof s.savedAt !== 'string' || !Number.isFinite(Date.parse(s.savedAt))) return null;
+  // → {savedAt, board, threads}, or null for anything copyOf didn't write under this build: code from another build may
+  // read the board's shape differently, and a paint that throws stops the live load.
+  function readCopy(s, build) {
+    if (s?.build !== build || !Array.isArray(s.board?.items) || !Number.isInteger(s.board.version) || typeof s.savedAt !== 'string' || !Number.isFinite(Date.parse(s.savedAt))) return null;
     const threads = Object.fromEntries(Object.entries(s.threads && typeof s.threads === 'object' ? s.threads : {}).filter(([, m]) => Array.isArray(m)));
     return { savedAt: s.savedAt, board: s.board, threads };
   }
@@ -51,16 +24,6 @@
     return items.filter((i) => ACTIVE_LANES.includes(i.lane) && !opened.has(i.key)).map((i) => i.key);
   };
 
-  // What the board page takes taps on. view is 'snapshot' while the last visit shows, 'fresh' once a board load landed,
-  // and null before either. blocked selects the controls that send to the host and wait for the fresh board; style.css's
-  // INT-61 block dims the same list.
-  const SNAPSHOT_BLOCKED = ['.actions button', 'button[data-plan]', 'button[data-bump]', 'button[data-card-bump]', 'button[data-edit]', 'button[data-withdraw]',
-    'button[data-check-github]', 'form[data-reply] button[type=submit]', 'form[data-reply] button[data-quick]', 'form[data-reply] button[data-proto]', 'form[data-reply] button[data-confirm]', '.prompt button'].join(', ');
-  const liveControls = (view) => {
-    const fresh = view !== 'snapshot';
-    return { read: true, ask: true, cards: fresh, send: fresh, blocked: fresh ? '' : SNAPSHOT_BLOCKED };
-  };
-
   // before and after map a line's id to its text; the ids of the lines that are new or read differently flash once.
   const changedLines = (before, after) => Object.keys(after).filter((id) => globalThis.BoardUI.record(before, id) !== after[id]);
 
@@ -69,5 +32,5 @@
   const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.status ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
     it.next ?? null, it.ask?.state ?? null, ...(it.prs || []).map((pr) => [pr.state, pr.isDraft, pr.reviewDecision, pr.checks?.state ?? null])]);
 
-  Object.assign(globalThis.BoardUI, { packSnapshot, unpackSnapshot, preloadKeys, liveControls, changedLines, updateSign, SNAPSHOT_MAX });
+  Object.assign(globalThis.BoardUI, { copyOf, readCopy, preloadKeys, changedLines, updateSign });
 })();

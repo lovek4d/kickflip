@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-05-1819-the-board-syncs-by-change-number
+---
+
 # The board sends per-card patches instead of the whole board on every change
+
+Superseded in part by [the board syncs by change number](2026-11-05-1819-the-board-syncs-by-change-number.md): patches are answered from the current board by change number, the kept boards and `boardPatch` are gone, and `onHost` rides beside the board.
 
 Every change signal made an open board download `GET /api/board` whole, and every owner tap's POST answered with the whole board too. Since #103 an unchanged board answers 304, but any change, even one card's progress line, sent every card again. The owner asked for patches by work item: a card's data can be updated, removed, or moved to a new lane (#191).
 

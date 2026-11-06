@@ -65,7 +65,7 @@ export const colorsVersion = () => fileVersion(COLORS) || '0';
 // app.html, read on each call so an edit is live on the next load, with its /_hub/app/ links versioned. sidebar is the
 // sidebar's rows and sidebarData their data as JSON for a script; a server with neither leaves the sidebar empty, and
 // shell.js fetches /_hub/sidebar.json. touchIcon is the Home Screen icon's URL. The page's build hashes every linked
-// file's version, so an edit to any of them changes it; a board's last visit paints only under the build that saved it
+// file's version, so an edit to any of them changes it; a board's saved copy paints only under the build that saved it
 // (board/public/ui-snapshot.js).
 export function shellHtml({ sidebar = '', sidebarData = 'null', touchIcon = '/_hub/icon-180.png' } = {}) {
   const versions = [];

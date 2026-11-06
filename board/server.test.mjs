@@ -1387,18 +1387,19 @@ const cardsMarkedRead = (prefix) => until(async () => {
   return mine.length > 0 && mine.every((i) => i.readAt);
 }, `the ${prefix} cards are marked read`);
 
-test("/api/board carries its version as its ETag: a reload naming it answers 304 with no body until the board changes, and an events POST's board carries the version the next reload has", async () => {
+test("/api/board carries its change number as its version and ETag: a reload naming it answers 304 with no body until the board changes, and an events POST's board carries the number the next reload has", async () => {
   await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'E1', title: 'Tagged' }, { id: 'E2', title: 'Other' }] })));
   await cardsMarkedRead('t/E');
   const first = await raw('/api/board', { 'accept-encoding': 'gzip' });
   const tag = first.headers.etag;
   const body = JSON.parse(zlib.gunzipSync(first.body));
   assert.equal(tag, `W/"${body.version}"`);
-  assert.match(body.version, /^[\w-]{8,}$/);
+  assert.ok(Number.isInteger(body.version));
+  assert.ok(body.items.every((i) => Number.isInteger(i.changed) && i.changed <= body.version));
   const again = await raw('/api/board', { 'accept-encoding': 'gzip', 'if-none-match': `"${body.version}"` });
   assert.deepEqual([again.status, again.body.length, again.headers.etag, again.headers['cache-control']], [304, 0, tag, 'no-store']);
   const posted = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-bump', key: 't/E2' }) })).json();
-  assert.notEqual(posted.board.version, body.version);
+  assert.ok(posted.board.version > body.version);
   assert.equal(posted.board.onHost, true);
   const stale = await raw('/api/board', { 'if-none-match': tag });
   assert.equal(stale.status, 200);
@@ -1406,7 +1407,16 @@ test("/api/board carries its version as its ETag: a reload naming it answers 304
   assert.equal((await raw('/api/board', { 'if-none-match': `"${posted.board.version}"` })).status, 304);
 });
 
-test("a reload naming its version since gets a patch of the cards that changed, a tap naming it gets one too, and a version the server no longer holds gets the whole board", async () => {
+test("onHost rides beside the board: a phone and the host's browser read the same change number, each with its own onHost", async () => {
+  const host = await (await fetch(`${base}/api/board`)).json();
+  const phone = await (await fetch(`${base}/api/board`, { headers: { 'x-forwarded-for': '100.64.0.9' } })).json();
+  assert.deepEqual([host.onHost, phone.onHost], [true, false]);
+  assert.equal(phone.version, host.version);
+  const patch = await (await fetch(`${base}/api/board?since=${host.version}`, { headers: { 'x-forwarded-for': '100.64.0.9' } })).json();
+  assert.deepEqual([patch.since, patch.onHost], [host.version, false]);
+});
+
+test("a reload naming the number it holds as since gets a patch of the cards changed after it, a tap naming it gets one too, and a since the board can't answer gets the whole board", async () => {
   const vmContext = (await import('node:vm')).createContext({});
   (await import('node:vm')).runInContext(fs.readFileSync(new URL('./public/ui-patch.js', import.meta.url), 'utf8'), vmContext);
   const { applyPatch } = vmContext.BoardUI;
@@ -1431,9 +1441,11 @@ test("a reload naming its version since gets a patch of the cards that changed, 
   assert.equal('since' in event.data, false);
   assert.deepEqual(content(applyPatch(whole, posted.board)), content(await get()));
 
-  const unknown = await get('?since=nothing-kept');
-  assert.equal(unknown.since, undefined);
-  assert.ok(Array.isArray(unknown.items));
+  for (const since of ['nothing', String(whole.version + 1000), '1']) {
+    const unknown = await get(`?since=${since}`);
+    assert.equal(unknown.since, undefined, since);
+    assert.ok(Array.isArray(unknown.items));
+  }
 });
 
 test('an event posted with board=0, as the hub posts, is answered with its id alone, building no board', async () => {
@@ -1550,37 +1562,39 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-// data/since-counts.json, which #204 reads
-test("board answers are counted as patch, missed or none in data/since-counts.json, and the counts survive a restart that bumps restarts", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'since-counts-'));
+// docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md
+test("data/sync.json keeps the change numbers across a restart: the counter carries on, and a page holding a number from before catches up with a patch", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'board-sync-'));
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
   fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 's' }));
   fs.writeFileSync(path.join(at, 'data', 'owner.json'), '{"items":[]}');
-  const file = path.join(at, 'data', 'since-counts.json');
-  const counts = () => JSON.parse(fs.readFileSync(file, 'utf8'));
+  const wave = (titles) => fs.writeFileSync(path.join(at, 'data', 'wave.json'), JSON.stringify({ items: titles.map((title, i) => ({ id: `S${i + 1}`, title })) }));
+  wave(['One', 'Two']);
+  const file = path.join(at, 'data', 'sync.json');
   const start = async () => {
     const [port] = await freePorts();
     const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), at], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PORT: String(port), PREFIX: '' } });
     await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', reject); });
     return { server, get: async (q = '') => (await fetch(`http://127.0.0.1:${port}/api/board${q}`)).json() };
   };
+  const stop = async (s) => { s.server.kill(); await new Promise((r) => s.server.once('exit', r)); };
   const first = await start();
+  let held;
   try {
-    const board = await first.get();
-    await first.get(`?since=${board.version}`);
-    await first.get('?since=gone');
-    await first.get('?since=gone');
-    await until(() => fs.existsSync(file) && counts().none === 1 && counts().patch === 1 && counts().missed === 2, 'the counts written');
-    const { since } = counts();
-    assert.equal(counts().restarts, 1);
-    first.server.kill();
-    await new Promise((r) => first.server.once('exit', r));
-    const second = await start();
-    try {
-      assert.deepEqual(counts(), { since, patch: 1, missed: 2, none: 1, restarts: 2 });
-    } finally { second.server.kill(); }
-  } finally { first.server.kill(); fs.rmSync(dir, { recursive: true, force: true }); }
+    await until(async () => (held = await first.get()).items.length === 2 && held.items.every((i) => i.readAt), 'the board reads both cards');
+    held = await first.get();
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).n, held.version);
+  } finally { await stop(first); }
+  wave(['One', 'Two, renamed while the server was down']);
+  const second = await start();
+  try {
+    const patch = await second.get(`?since=${held.version}`);
+    assert.equal(patch.since, held.version);
+    assert.ok(patch.version > held.version);
+    assert.deepEqual(patch.lists.items.set.map((i) => [i.key, i.title, i.changed]), [['s/S2', 'Two, renamed while the server was down', patch.version]]);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).n, patch.version);
+  } finally { await stop(second); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 // docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md

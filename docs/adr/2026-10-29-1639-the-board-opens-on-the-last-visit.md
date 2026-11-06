@@ -1,11 +1,12 @@
 ---
-status: superseded in part by 2026-11-01-1817-colour-says-whos-waiting, 2026-11-02-2354-an-updated-card-takes-a-brief-tint
+status: superseded in part by 2026-11-01-1817-colour-says-whos-waiting, 2026-11-02-2354-an-updated-card-takes-a-brief-tint, 2026-11-05-1819-the-board-syncs-by-change-number
 ---
 
 # The board opens on the last visit
 
 Superseded in part by [colour says who's waiting](2026-11-01-1817-colour-says-whos-waiting.md): a changed line flashes blue, news for the owner to see.
 Superseded in part by [an updated card takes a brief tint](2026-11-02-2354-an-updated-card-takes-a-brief-tint.md): a changed card takes its own sign, not the flash round the card.
+Superseded in part by [the board syncs by change number](2026-11-05-1819-the-board-syncs-by-change-number.md): the last visit lives in IndexedDB with its change number and paints live, not dimmed, with no controls held.
 
 Each device keeps the last board page it showed, and the next visit paints it at first paint, dimmed, while the first load runs.
 
