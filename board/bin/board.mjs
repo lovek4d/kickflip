@@ -9,6 +9,7 @@ import * as store from '../store.mjs';
 import { boardWorktree, builderRepo, joiningLand, landInTurn, worktreesDir } from '../worktree.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
+import { bump, queueLines, stopBuilder, stopLand } from '../stop.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
@@ -465,6 +466,28 @@ command fails and changes nothing.
                                                          mark it broken and append owner-check-broken {key, check,
                                                          error}; fix it with item set --check. land takes it too
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
+  builder stop <wave>/<id>                               the orchestrator's stop of the card's run the board launched,
+                                                         its headless builder, lander or rebase run, with every process
+                                                         under it: the record stays open, marked stopped, so the server
+                                                         relaunches nothing and the card stays In Progress reading
+                                                         "build stopped by orchestrator" ("land …" while it lands),
+                                                         waiting on the orchestrator; the same words go in its thread.
+                                                         Prints what it stopped, one process a line. Refuses a planner,
+                                                         a builder a session started itself, or none running
+  land stop <wave>/<id>                                  the orchestrator's stop of the card's land and its suite: one a
+                                                         headless builder or lander runs stops that agent as builder
+                                                         stop does; the land a held card's Merge tap started stops
+                                                         alone, leaving the land queue, and the card's Merge shows
+                                                         again, reading "land stopped by orchestrator". Refuses while
+                                                         the land fast-forwards main, or a land in a session the board
+                                                         didn't launch
+  land queue                                             the host's land queue in order: the land running, then each
+                                                         waiting, "(bumped)" on one a bump moved
+  item bump <wave>/<id>                                  the card's bump, as the owner's bump icon sends it (card-bump;
+  item unbump <wave>/<id>                                card-unbump). A bumped card's land goes ahead in the land queue
+                                                         of every land not bumped since, the latest bump first, without
+                                                         stopping the one running; a bump of a queued land says so in
+                                                         its thread ("land moved first by orchestrator")
   lander <wave>/<id>                                     relaunch the headless lander of a card it stopped on (a usage
                                                          pause ends one): the card goes back to checking and the
                                                          server launches a fresh lander; refused unless it is building
@@ -807,6 +830,11 @@ const COMMANDS = {
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
   }],
+  'builder stop': [['wave/id'], [], (site, [key]) => stopBuilder(needSite(site, 'builder stop'), key)],
+  'land stop': [['wave/id'], [], (site, [key]) => stopLand(needSite(site, 'land stop'), key)],
+  'land queue': [[], [], () => queueLines()],
+  'item bump': [['wave/id'], [], (site, [key]) => bump(needSite(site, 'item bump'), key, true)],
+  'item unbump': [['wave/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],
   lander: [['wave/id'], [], async (site, [key]) => {
     if (!site) throw new UsageError('lander needs --site <route>');
     await store.relaunchLander(site, key);
@@ -823,6 +851,11 @@ const COMMANDS = {
 };
 
 COMMANDS.install = COMMANDS.build;
+
+function needSite(site, name) {
+  if (!site) throw new UsageError(`${name} needs --site <route>`);
+  return site;
+}
 
 const card = (site, key) => store.cardName(site, key);
 const plural = (list, word) => `${word}${list.length === 1 ? '' : 's'} ${list.join(', ')}`;

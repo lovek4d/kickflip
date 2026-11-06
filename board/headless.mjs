@@ -10,11 +10,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchAgent } from './agents.mjs';
-import { processStarts } from '../hub/live.mjs';
+import { processStarts, ps } from '../hub/live.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
-import { appendThread, briefFacts, readBoardRules, recordSession } from './store.mjs';
+import { BoardError, appendThread, briefFacts, readBoardRules, recordSession } from './store.mjs';
 import { modelName, plans } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
@@ -145,22 +145,54 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
   ].join('\n');
 }
 
-// Stops the agents launchBuilder started, each {pid, at} as store.mjs openAgents reads it: SIGTERM to the agent's process
-// group (it leads its own, so its children go too), SIGKILL after killAfter ms. Pids get reused, so a pid is signalled
-// only while its process started within LAUNCH_WINDOW before the session was recorded. → how many it signalled.
+// The agents launchBuilder started, of agents each {pid, at} as store.mjs openAgents reads them, whose process still
+// runs. Pids get reused, so a pid counts only while its process started within LAUNCH_WINDOW before the session was
+// recorded; with no answer from ps, none does.
 const LAUNCH_WINDOW = 60_000;
-export function stopAgents(agents, { starts = processStarts, kill = (pid, sig) => process.kill(-pid, sig), killAfter = 5000 } = {}) {
+export function launchedAgents(agents, { starts = processStarts } = {}) {
   const pids = agents.filter((a) => a.pid && a.at).map((a) => a.pid);
   const started = (pids.length && starts(pids)) || new Map();
-  const mine = agents.filter((a) => {
+  return agents.filter((a) => {
     const at = started.get(a.pid);
     return at !== undefined && at <= Date.parse(a.at) && at >= Date.parse(a.at) - LAUNCH_WINDOW;
   });
+}
+
+// Stops the agents launchBuilder started (launchedAgents): SIGTERM to each agent's process group (it leads its own, so
+// its children go too), SIGKILL after killAfter ms. → how many it signalled.
+export function stopAgents(agents, { starts = processStarts, kill = (pid, sig) => process.kill(-pid, sig), killAfter = 5000 } = {}) {
+  const mine = launchedAgents(agents, { starts });
   for (const { pid } of mine) {
     try { kill(pid, 'SIGTERM'); } catch { continue; }
     setTimeout(() => { try { kill(pid, 'SIGKILL'); } catch {} }, killAfter).unref();
   }
   return mine.length;
+}
+
+// docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md
+// Stops the runs whose processes lead the process groups leaders, with every process under them: each group holding a
+// leader's process or one descended from it, so a land's suite, which runs detached in a group of its own, goes too.
+// SIGTERM to each group, then SIGKILL to what still runs after grace ms. → the processes it stopped, each {pid, args}.
+export async function stopRuns(leaders, { grace = 5000 } = {}) {
+  const table = ps(['-A', '-o', 'pid=,ppid=,pgid=,args=']);
+  if (table === null) throw new BoardError('ps gave no answer, so nothing was stopped; run it again');
+  const rows = table.split('\n').map((l) => /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
+    .map(([, pid, ppid, pgid, args]) => ({ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), args }));
+  const members = new Set(rows.filter((r) => leaders.includes(r.pgid)).map((r) => r.pid));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const r of rows) if (!members.has(r.pid) && members.has(r.ppid)) { members.add(r.pid); grew = true; }
+  }
+  // Never this process's own group, nor init's: a group of 1 would be every process.
+  const own = rows.find((r) => r.pid === process.pid)?.pgid;
+  const stopped = rows.filter((r) => members.has(r.pid) && r.pgid > 1 && r.pgid !== own);
+  const groups = [...new Set(stopped.map((r) => r.pgid))];
+  const signal = (sig) => { for (const g of groups) try { process.kill(-g, sig); } catch {} };
+  signal('SIGTERM');
+  const deadline = Date.now() + grace;
+  while (stopped.some((r) => pidAlive(r.pid)) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+  if (stopped.some((r) => pidAlive(r.pid))) signal('SIGKILL');
+  return stopped.map(({ pid, args }) => ({ pid, args }));
 }
 
 export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
@@ -171,12 +203,14 @@ export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } ca
 // record has closed drops. One with no pid yet launches; one whose process has exited with its record still open launches
 // again once, and the second time goes to handBack, once: it stays tracked, marked handedBack, so its card reads stopped
 // (server.mjs snapshot alive). One whose kind held(kind) says its usage holds waits as it is
-// (docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md). launch({key, kind, model}) → {pid}.
-// → the tracked map as it now stands.
-export async function reviveBuilders(tracked, open, { launch, handBack, alive = pidAlive, held = () => false }) {
+// (docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md). One the orchestrator stopped (stopped, the keys
+// whose card reads it) is handed back at once, with no line, since the stop wrote its own. launch({key, kind, model})
+// → {pid}. → the tracked map as it now stands.
+export async function reviveBuilders(tracked, open, { launch, handBack, alive = pidAlive, held = () => false, stopped = new Set() }) {
   const next = {};
   for (const [key, entry] of Object.entries(tracked)) {
     if (!open.has(key)) continue;
+    if (stopped.has(key)) { next[key] = { ...entry, handedBack: true }; continue; }
     if ((entry.pid !== null && alive(entry.pid)) || held(entry.kind ?? 'claude') || entry.handedBack) { next[key] = entry; continue; }
     const card = { key, ...(entry.kind ? { kind: entry.kind } : {}), ...(entry.model ? { model: entry.model } : {}) };
     if (entry.pid !== null && entry.relaunched) { await handBack(card); next[key] = { ...entry, handedBack: true }; continue; }

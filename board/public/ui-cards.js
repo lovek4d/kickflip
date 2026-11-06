@@ -152,7 +152,10 @@
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on, and
   // ends with how long ago that line was set. One whose process is gone leads with stopped; one whose live process
   // went quiet keeps its words and only turns grey (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
-  const builderLine = (b) => [b.alive === false && 'stopped', b.progress || (b.alive === false ? null : 'starting'), b.at && lasted(b.at)].filter(Boolean).join(' · ');
+  // One the orchestrator stopped reads the stop's words and how long ago it stopped
+  // (docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md).
+  const builderLine = (b) => (b.stopped ? `${b.stopped} · ${lasted(b.silentSince)}`
+    : [b.alive === false && 'stopped', b.progress || (b.alive === false ? null : 'starting'), b.at && lasted(b.at)].filter(Boolean).join(' · '));
   // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
   // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
@@ -210,10 +213,11 @@
     return `<div class="line3 sub agent${tone(it)}${picked && !isPaused() ? '' : ' waiting-gray'}">${words}</div>`;
   }
   // A stale or stopped build's status line is the needs-you red, and a tap on it nudges Claude to check the implementer.
-  // A quiet one is grey, with no dot.
+  // A quiet one is grey, with no dot, and one the orchestrator stopped plain, since the orchestrator already knows.
   function builderStatus(it) {
     const { quiet } = it.builder;
     const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}${quiet ? ' quiet' : ''}`;
+    if (it.builder.stopped) return `<div class="${classes}">${esc(builderLine(it.builder))}</div>`;
     const words = `${quiet ? '' : DOT}${esc(builderLine(it.builder))}`;
     if (!it.builder.stalled || it.lane === 'done') return `<div class="${classes}">${words}</div>`;
     const nudging = BoardUI.pending.has(`${it.key}:nudge`) ? ' nudging' : '';
@@ -224,7 +228,7 @@
   function statusWord(it) {
     const b = it.builder;
     if (b?.planner) return b.kind === 'prototype' ? 'prototyping' : 'grilling';
-    if (b && b.kind !== BUILDER_KIND.install) return b.alive === false ? 'stopped' : b.phase === 'landing' ? 'landing' : 'implementing';
+    if (b && b.kind !== BUILDER_KIND.install) return b.stopped || (b.alive === false ? 'stopped' : b.phase === 'landing' ? 'landing' : 'implementing');
     if (it.waitsOn === 'checking') return 'Orchestrator review';
     if (it.lane === 'done') return 'done';
     if (it.grilling || it.prototyping) return 'preheating';
@@ -300,6 +304,7 @@
       : it.builder ? builderStatus(it)
       : it.grilling || it.prototyping ? '<div class="line3 sub asked">preheating</div>'
       : it.refusal ? `<div class="line3 sub refused">${esc(it.refusal)}</div>`
+      : it.landStopped ? `<div class="line3 sub">${esc(`${it.landStopped.words} · ${lasted(it.landStopped.at)}`)}</div>`
       : it.working ? `<div class="line3 sub agent">${thinkingLine()}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${esc(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${esc(etaLine(it.eta))}</div>` : '';

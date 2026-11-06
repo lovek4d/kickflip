@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BoardError, opensPRs, settingsOf } from './store.mjs';
-import { boardAt, hubCode, listBoards, readJSON, readManifest } from '../hub/boards.mjs';
+import { boardAt, hubCode, listBoards, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { storedPath } from '../bin/install.mjs';
@@ -239,48 +239,75 @@ export function restartRunner(what, route) {
 // site), test files aside; removes the worktree and branch.
 // Never pushes. A restart that fails is reported after the rest is done.
 // One land at a time on the host, since a land can restart the hub and every board server: ~/.claude/kickflip/land.lock
-// {card, pid, at} names the card landing. A land that finds it held waits its turn, first in first out across every
-// process (a file per ask in ~/.claude/kickflip/land.queue, named <asked ms>-<count>-<pid>), calling onWait(card) with
-// the card it waits for. asked is when the land was asked for, so a land that lets go of the lock to test again keeps
-// its place. A waiter wakes when the one file it waits on goes: the lock, or the nearest ask ahead of it. A lock or ask
-// whose process is gone is taken over, found by a slow recheck since a process that dies removes neither.
+// {card, pid, at} names the card landing. A land that finds it held waits its turn across every process, in a file per
+// ask in ~/.claude/kickflip/land.queue, named <asked ms>-<count>-<pid> and holding {card, site, key, first}, calling
+// onWait(card) with the card it waits for. The queue goes bumped first, the latest bump (first) ahead, then first in
+// first out by asked, when the land was asked for, so a land that lets go of the lock to test again keeps its place
+// (docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md). A bump never stops the land holding the
+// lock. A waiter wakes when its own ask is moved or the one file it waits on goes: the lock, or the nearest ask ahead
+// of it. A lock or ask whose process is gone is taken over, found by a slow recheck since a process that dies removes
+// neither.
 const kickflipDir = () => path.join(os.homedir(), '.claude', 'kickflip');
 const landing = () => path.join(kickflipDir(), 'landing');
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const RECHECK_MS = 5000;
-// Resolves once file is removed or replaced, or after RECHECK_MS; at once if it's already gone. On macOS a file's watch
-// is a kqueue note the event loop registers on its next poll, so the file is checked again once a poll has run (two
-// immediates on, since one can fall in the check phase right after the poll that ran this): a file removed before the
-// note was live is caught there (docs/adr/2026-11-05-2159-a-land-waits-on-one-file-and-a-hub-event-is-written-once.md).
-async function untilGone(file) {
-  let ino;
-  let watcher;
-  try { ino = fs.statSync(file).ino; watcher = fs.watch(file); } catch { return; }
+// Resolves once any of files is removed or replaced, or after RECHECK_MS; at once if one is already gone. On macOS a
+// file's watch is a kqueue note the event loop registers on its next poll, so the files are checked again once a poll
+// has run (two immediates on, since one can fall in the check phase right after the poll that ran this): a file removed
+// before the note was live is caught there (docs/adr/2026-11-05-2159-a-land-waits-on-one-file-and-a-hub-event-is-written-once.md).
+async function untilGone(files) {
+  const watched = [];
   let timer;
   try {
+    for (const file of files) {
+      try { watched.push({ file, ino: fs.statSync(file).ino, watcher: fs.watch(file) }); } catch { return; }
+    }
     await new Promise((resolve) => {
-      watcher.on('change', resolve).on('error', resolve);
+      for (const { watcher } of watched) watcher.on('change', resolve).on('error', resolve);
       timer = setTimeout(resolve, RECHECK_MS);
       setImmediate(() => setImmediate(() => {
-        let now = null;
-        try { now = fs.statSync(file).ino; } catch {}
-        if (now !== ino) resolve();
+        for (const { file, ino } of watched) {
+          let now = null;
+          try { now = fs.statSync(file).ino; } catch {}
+          if (now !== ino) resolve();
+        }
       }));
     });
-  } finally { clearTimeout(timer); watcher.close(); }
+  } finally { clearTimeout(timer); for (const { watcher } of watched) watcher.close(); }
 }
+const queueDir = (name) => path.join(kickflipDir(), `${name}.queue`);
+const ticketPid = (ticket) => Number(ticket.split('-')[2]);
+const readTicket = (queue, ticket) => { try { return JSON.parse(fs.readFileSync(path.join(queue, ticket), 'utf8')); } catch { return {}; } };
+// Where an ask stands in the queue: bumped asks first, the latest bump ahead, then by name, which starts with asked.
+const rank = (ticket, { first }) => `${first ? `0${String(1e15 - Date.parse(first)).padStart(16, '0')}` : '1'}-${ticket}`;
+// The live asks of queue name, in queue order, each {ticket, card, site, key, first}.
+function queuedAsks(name) {
+  const queue = queueDir(name);
+  let tickets = [];
+  try { tickets = fs.readdirSync(queue).filter((t) => !t.endsWith('.tmp')); } catch {}
+  return tickets.filter((t) => alive(ticketPid(t))).map((ticket) => ({ ticket, ...readTicket(queue, ticket) }))
+    .sort((a, b) => (rank(a.ticket, a) < rank(b.ticket, b) ? -1 : 1));
+}
+const writeTicket = (queue, ticket, content) => {
+  const tmp = path.join(queue, `${ticket}.tmp`);
+  fs.writeFileSync(tmp, JSON.stringify(content));
+  fs.renameSync(tmp, path.join(queue, ticket));
+};
 let asks = 0;
 // The lock named name (<name>.lock, queue in <name>.queue) held while fn runs; onWait(card) names who it waits for.
-async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now() } = {}) {
+// site and key name the board card the ask is for, and first its standing bump, so a bump can move it.
+async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now(), site = null, key = null, first = null } = {}) {
   const file = path.join(kickflipDir(), `${name}.lock`);
-  const queue = path.join(kickflipDir(), `${name}.queue`);
+  const queue = queueDir(name);
   fs.mkdirSync(queue, { recursive: true });
   const ticket = `${String(asked).padStart(15, '0')}-${String(asks++).padStart(6, '0')}-${process.pid}`;
-  fs.writeFileSync(path.join(queue, ticket), '');
+  writeTicket(queue, ticket, { card, site, key, first });
   let waitingFor = null;
   try {
     for (;;) {
-      const ahead = fs.readdirSync(queue).sort().filter((t) => t < ticket && alive(Number(t.split('-')[2])));
+      const all = queuedAsks(name);
+      const mine = all.findIndex((a) => a.ticket === ticket);
+      const ahead = all.slice(0, mine);
       let held = null;
       if (!ahead.length) {
         try { fs.writeFileSync(file, JSON.stringify({ card, pid: process.pid, at: new Date().toISOString() }), { flag: 'wx' }); break; }
@@ -292,7 +319,7 @@ async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now() } 
       }
       const who = held?.card ?? (ahead.length ? `the ${name} ahead` : null);
       if (who && who !== waitingFor) { waitingFor = who; await onWait?.(who); }
-      await untilGone(ahead.length ? path.join(queue, ahead.at(-1)) : file);
+      await untilGone([ahead.length ? path.join(queue, ahead.at(-1).ticket) : file, path.join(queue, ticket)]);
     }
   } finally {
     fs.rmSync(path.join(queue, ticket), { force: true });
@@ -303,27 +330,73 @@ async function holdingQueuedLock(name, card, fn, { onWait, asked = Date.now() } 
 }
 export const holdingLandLock = (card, fn, opts) => holdingQueuedLock('land', card, fn, opts);
 
-// One land per card: ~/.claude/kickflip/landing/<card> {pid} while fn runs. A land asked for a card already landing
-// joins that land instead: it waits for it to end and → {joined: true}, so the caller reads what became of the card.
-// A marker whose process is gone is taken over.
-export async function joiningLand(card, fn) {
+// A bump of the card key on the board at site moves its queued lands: first, the bump's time, puts them ahead of every
+// ask not bumped since; null puts them back in ask order. → how many it moved
+export function moveQueuedLand(site, key, first) {
+  const queue = queueDir('land');
+  const mine = queuedAsks('land').filter((a) => a.key === key && a.site && samePath(a.site, site));
+  for (const { ticket, ...content } of mine) writeTicket(queue, ticket, { ...content, first });
+  return mine.length;
+}
+
+// The host's land queue in its order: the land holding the lock, running, then the asks waiting, each {card, running,
+// first}.
+export function landQueue() {
+  const holder = landLock();
+  return [
+    ...(holder ? [{ card: holder.card, running: true, first: null }] : []),
+    ...queuedAsks('land').map(({ card, first }) => ({ card, running: false, first: first ?? null })),
+  ];
+}
+
+// The live land lock {card, pid, at}, or null.
+export function landLock() {
+  try {
+    const held = JSON.parse(fs.readFileSync(path.join(kickflipDir(), 'land.lock'), 'utf8'));
+    return Number.isInteger(held?.pid) && alive(held.pid) ? held : null;
+  } catch { return null; }
+}
+
+// One land per card: ~/.claude/kickflip/landing/<card> {pid, at, merge?} while fn runs, merge marking the land a held
+// card's Merge tap started (finish.mjs landHeld). A land asked for a card already landing joins that land instead: it
+// waits for it to end and → {joined: true}, so the caller reads what became of the card. A marker whose process is gone
+// is taken over.
+export async function joiningLand(card, fn, { merge = false } = {}) {
   const dir = landing();
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, encodeURIComponent(card));
   let joined = false;
   for (;;) {
     if (joined && !fs.existsSync(file)) return { joined: true };
-    try { fs.writeFileSync(file, JSON.stringify({ pid: process.pid }), { flag: 'wx' }); break; }
+    try { fs.writeFileSync(file, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), ...(merge ? { merge } : {}) }), { flag: 'wx' }); break; }
     catch (e) {
       if (e.code !== 'EEXIST') throw e;
       let held = null;
       try { held = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
       if (!(Number.isInteger(held?.pid) && alive(held.pid))) { fs.rmSync(file, { force: true }); continue; }
       joined = true;
-      await untilGone(file);
+      await untilGone([file]);
     }
   }
   try { return await fn(); } finally { fs.rmSync(file, { force: true }); }
+}
+
+// The live land of card, its landing marker {pid, at, merge?}, or null.
+export function runningLand(card) {
+  try {
+    const held = JSON.parse(fs.readFileSync(path.join(landing(), encodeURIComponent(card)), 'utf8'));
+    return Number.isInteger(held?.pid) && alive(held.pid) ? held : null;
+  } catch { return null; }
+}
+
+// After a stop: card's landing marker and the queued asks whose process was one of pids leave, so neither reads as
+// waiting.
+export function clearStoppedLand(card, pids) {
+  const marker = path.join(landing(), encodeURIComponent(card));
+  try { if (pids.includes(JSON.parse(fs.readFileSync(marker, 'utf8')).pid)) fs.rmSync(marker, { force: true }); } catch {}
+  let tickets = [];
+  try { tickets = fs.readdirSync(queueDir('land')); } catch {}
+  for (const t of tickets.filter((t) => pids.includes(ticketPid(t)))) fs.rmSync(path.join(queueDir('land'), t), { force: true });
 }
 
 // An ADR is named by the minute it was written, docs/adr/YYYY-MM-DD-HHMM-<slug>.md, so parallel builds never take the same name.
@@ -414,14 +487,15 @@ function onBase(repo, base) {
 // A whole land: prepareLand, then, under the land lock, the fast-forward (landPrepared). When base moved while the
 // branch was prepared, the lock is let go and the branch is prepared again. hold stops once the tests pass, before the
 // fast-forward: the verified branch waits in its worktree for the owner's Merge
-// (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward.
-export async function landInTurn(tree, { hold = false, onWait, sync = () => {}, ...opts } = {}) {
+// (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md). sync runs under the lock before the fast-forward. queue
+// {site, key, first} names the board card the land is for and its standing bump, for its place in the land queue.
+export async function landInTurn(tree, { hold = false, onWait, sync = () => {}, queue = {}, ...opts } = {}) {
   const { say = console.log } = opts;
   const asked = Date.now();
   for (;;) {
     const tested = await prepareLand(tree, opts);
     if (hold) return;
-    const landed = await holdingLandLock(tree.ref ?? tree.branch, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked });
+    const landed = await holdingLandLock(tree.ref ?? tree.branch, () => { sync(); return landPrepared(tree, tested, opts); }, { onWait, asked, ...queue });
     if (landed) return;
     say(`${tree.base} moved while ${tree.branch} was tested; testing it on ${tree.base} again`);
   }

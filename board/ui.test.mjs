@@ -1129,6 +1129,17 @@ test('a stalled builder has no Stalled badge: its status line turns the needs-yo
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /stalled|data-confirm="nudge"/);
 });
 
+// docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md
+test("a run the orchestrator stopped reads the stop's words as its status, plain, with no dot or nudge, and a stopped Merge land reads them in In Review", () => {
+  const builder = { progress: 'Running tests', at: ago(1), stalled: true, alive: false, silentSince: ago(0.05), stopped: 'build stopped by orchestrator' };
+  const html = ui.workLines({ ...workCard, lane: 'progress', builder });
+  assert.match(html, /<div class="line3 sub agent in-progress">build stopped by orchestrator · \d+m<\/div>/);
+  assert.doesNotMatch(html, /working-dot|data-confirm="nudge"|Running tests/);
+  assert.equal(ui.statusWord({ ...workCard, lane: 'progress', builder }), 'build stopped by orchestrator');
+  const review = ui.workLines({ ...workCard, lane: 'review', builder: null, next: 'Verified: tap Merge to land it on main', landStopped: { words: 'land stopped by orchestrator', at: ago(0.05) } });
+  assert.match(review, /<div class="line3 sub">land stopped by orchestrator · \d+m<\/div>/);
+});
+
 test('a tap on the red status line calms it to orange with a ripple, no spinner, until the card has a new status line', () => {
   const builder = { progress: 'Running tests', at: null, stalled: true };
   const card = { ...workCard, lane: 'progress', builder };

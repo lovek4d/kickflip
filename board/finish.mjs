@@ -24,8 +24,8 @@ const fail = (msg) => { throw new store.BoardError(msg); };
 const said = (text) => (typeof text === 'string' && text.trim() ? text.trim() : fail('--text must be non-empty text'));
 
 // text is the card's closing line ("<what was checked>"), ownerStep land's and builder done's --owner-step, check its
-// --check, repo --repo. → {said: what became of the card, lines}
-export async function finishCard(site, key, { text, ownerStep, check, repo: given, onWait }) {
+// --check, repo --repo, merge whether the land is the one a held card's Merge tap started. → {said: what became of the card, lines}
+export async function finishCard(site, key, { text, ownerStep, check, repo: given, onWait, merge = false }) {
   const id = key.split('/')[1];
   const recorded = await store.recordedWorktree(site, key);
   const { repo, base, remote } = builderRepo(site, { repo: given ?? recorded?.repo });
@@ -36,10 +36,10 @@ export async function finishCard(site, key, { text, ownerStep, check, repo: give
   if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, ref, text: said(text) });
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a finish asked for a card already landing joins
   // that land, then finishes what it left, if anything.
-  const ran = await joiningLand(ref, () => landCard(site, key, { tree, ref, base, remote, repo, settings, text, ownerStep, check, onWait }));
+  const ran = await joiningLand(ref, () => landCard(site, key, { tree, ref, base, remote, repo, settings, text, ownerStep, check, onWait }), { merge });
   if (!ran.joined) return ran;
   if (await store.isFinished(site, key)) return { said: 'landed and done', lines: [] };
-  return finishCard(site, key, { text, ownerStep, check, repo: given, onWait });
+  return finishCard(site, key, { text, ownerStep, check, repo: given, onWait, merge });
 }
 
 async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, ownerStep, check, onWait }) {
@@ -54,7 +54,9 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   if (go) await store.landingLine(site, key);
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: only the fast-forward waits for the land lock,
   // and base is brought up to origin's again under it.
-  await landInTurn({ ...tree, ref }, { hold: !go, onWait, sync: () => remote && syncBase(tree.repo, base) });
+  // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bumped card's land goes ahead in the queue.
+  const queue = { site, key, first: await store.landFirst(site, key) };
+  await landInTurn({ ...tree, ref }, { hold: !go, onWait, queue, sync: () => remote && syncBase(tree.repo, base) });
   if (!go) {
     const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
     await store.appendThread(site, key, { text });
@@ -78,7 +80,7 @@ export async function landHeld(site, key, { launch = launchBuilder } = {}) {
   try {
     const { base } = builderRepo(site, { repo: (await store.recordedWorktree(site, key))?.repo });
     const onWait = (card) => store.appendThread(site, key, { text: `Waiting for ${card} to land`, kind: 'status' });
-    return await finishCard(site, key, { text: `Landed on ${base} on your Merge.`, onWait });
+    return await finishCard(site, key, { text: `Landed on ${base} on your Merge.`, onWait, merge: true });
   } catch (e) {
     if (!(e instanceof store.BoardError)) throw e;
     const why = e.message.split('\n')[0];

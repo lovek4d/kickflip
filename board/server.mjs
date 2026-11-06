@@ -132,7 +132,9 @@
 //                                {error} and nothing recorded.
 //   GET  /api/reviewer-people    {slack: [{id, name}] | null, slackProblem?, github: [login], githubProblem?}: what Board
 //                                settings' Reviewers picks from, fetched with the hub's Slack token and gh.
-//                                card-bump {key} and card-unbump {key} are a work card's bump icon, sent with no confirm.
+//                                card-bump {key} and card-unbump {key} are a work card's bump icon, sent with no confirm;
+//                                a bump moves the card's queued lands first, an unbump back in ask order (worktree.mjs
+//                                moveQueuedLand).
 //                                card-hold {key, hold: true, for} is a Hold sheet chip or its Custom time
 //                                (../hub/duration.mjs durationEnd), stored as {key, hold: true, until} or, for
 //                                Forever, {key, hold: true}; a choice that ends in the past or past 30 days → 400 {error}.
@@ -249,7 +251,7 @@
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
-import { boardWorktree, builderRepo, prWorktree } from './worktree.mjs';
+import { boardWorktree, builderRepo, moveQueuedLand, prWorktree } from './worktree.mjs';
 import { transcriptMovedAt, transcriptCommandRunning } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
@@ -1191,6 +1193,8 @@ const server = http.createServer(async (req, res) => {
         if (refused) return json(res, 400, { error: refused });
       }
       const id = await appendEvent(kind, body);
+      // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bump moves the card's queued lands.
+      if (kind === 'card-bump' || kind === 'card-unbump') moveQueuedLand(here, String(body.key || ''), kind === 'card-bump' ? new Date().toISOString() : null);
       if ((kind === 'grill-more' || kind === 'prototype-request') && body.key) {
         const ask = {
           ...(body.text ? { text: String(body.text) } : {}),
@@ -1396,7 +1400,7 @@ async function runAuto() {
     logCall({ call: 'released-start', key, result: startResult(started), reason: 'Its Implement message was folded in and it was released ready.', inputs: { cap: settings.max_implementers } });
     await handOff(started);
   }
-  if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'));
+  if (!heldByPause) await launchLanders(items.some((i) => i.status === 'checking'), stoppedKeys(items));
   if (!heldByPause) await launchRebases(items);
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   if (await checkTriage(settings, log, items, ready)) return;
@@ -1491,6 +1495,8 @@ async function launchCutOffBuilds() {
     }
   } catch (e) { console.error('Cut-off launch check failed:', e.message); }
 }
+// The cards whose run the orchestrator stopped (domain.mjs builderOf), which nothing relaunches.
+const stoppedKeys = (items) => new Set(items.filter((c) => c.builder?.stopped).map((c) => c.key));
 // Once a minute: a headless builder whose usage isn't held and whose process exited with its record open launches again
 // once, and after that leaves a thread line; its record stays open, so the stall alarm brings in the orchestrator.
 let revivingHeadless = false;
@@ -1502,7 +1508,8 @@ async function reviveHeadless() {
     const file = path.join(data, 'headless-builders.json');
     const tracked = await readJSON(file, {});
     if (!Object.keys(tracked).length) return;
-    const open = new Set(buildBoard(await itemSnapshot(await outsideData())).items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
+    const { items } = buildBoard(await itemSnapshot(await outsideData()));
+    const open = new Set(items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
     const handBack = async (card) => {
       logCall({ call: 'relaunch', key: card.key, result: 'handed back', reason: 'Its builder exited twice with its record open.', inputs: tracked[card.key] });
       await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads stopped until the orchestrator takes it up.' });
@@ -1521,7 +1528,7 @@ async function reviveHeadless() {
         return { pid: null };
       }
     };
-    const next = await reviveBuilders(tracked, open, { launch, handBack, held: (kind) => heldFor(gate, kind) });
+    const next = await reviveBuilders(tracked, open, { launch, handBack, held: (kind) => heldFor(gate, kind), stopped: stoppedKeys(items) });
     if (JSON.stringify(next) !== JSON.stringify(tracked)) {
       await fs.writeFile(file + '.tmp', JSON.stringify(next) + '\n');
       await fs.rename(file + '.tmp', file);
@@ -1551,12 +1558,13 @@ function runHeldMerge(key) {
 // process has gone while its card still reads building stopped partway (the usage pause ends a headless run): its card
 // goes back to checking (store.mjs relaunchLander) and gets a fresh lander in this pass. A lander is only ever due on a
 // checking card, so with none checking (anyChecking false) and none sent back, landable's read of the wave files is skipped.
-async function launchLanders(anyChecking) {
+// A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor relaunched.
+async function launchLanders(anyChecking, stopped) {
   const file = path.join(data, 'landers.json');
   const sent = Object.fromEntries(Object.entries(await readJSON(file, {})).map(([k, v]) => [k, typeof v === 'string' ? { verified: v, pid: null } : v]));
   const pidGone = new Set();
   for (const [key, entry] of Object.entries(sent)) {
-    if (!entry.pid || pidAlive(entry.pid)) continue;
+    if (!entry.pid || pidAlive(entry.pid) || stopped.has(key)) continue;
     try {
       await relaunchLander(here, key);
       pidGone.add(key);

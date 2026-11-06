@@ -253,6 +253,10 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     rebaseFailed,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
     mergeReady: lane === 'review' ? mergeReady : null,
+    // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a Merge tap's land the orchestrator
+    // stopped reads so until the next tap.
+    landStopped: lane === 'review' && mergeReady && it.merge_ready.stopped && String(it.merge_ready.stopped) > String(it.merge_ready.tapped || '')
+      ? { words: stoppedWords('land'), at: it.merge_ready.stopped } : null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
       : ticketOf(tickets, it.ticket, it.ticket || (wave.internal ? refOf(wave, it, tickets) : it.linear?.[0]), { repo, key }),
     ticketSource: tickets?.source || null,
@@ -485,6 +489,12 @@ export const builds = (agent) => !plans(agent);
 // it (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md). A request no planner has picked up
 // reads preheating instead (ui-cards.js; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
 export const PLANNER_WORD = { grill: 'grilling', prototype: 'prototyping' };
+
+// docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md
+// The words for what the orchestrator did to a card's run (build, land), as its status line and thread line read:
+// "land stopped by orchestrator".
+export const orchestratorDid = (run, act) => `${run} ${act} by orchestrator`;
+export const stoppedWords = (run) => orchestratorDid(run, 'stopped');
 // The owner's request of a planner kind on a card: a Grill tap (grill-more) or a card's Prototype tap (prototype-request
 // with no question). Under way while a planner of that kind runs, or while the newest request has no reply, no
 // question was posted after it and no planner of that kind that started with or after it has finished; the board
@@ -519,7 +529,7 @@ export function prototypeWaits(built, events) {
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
-    calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null,
+    calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null,
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
 // The worktree path the newest builder record keeping one names (board/worktree.mjs makeWorktree), or null. The board
@@ -550,6 +560,8 @@ function reachedPhaseOf(agents, lines = []) {
 // A live one reads quiet after BUILDER_QUIET_AFTER of silence with no command running, and is never stalled; a gone one is stalled at once; an
 // untracked one is stalled after BUILDER_STALLED_AFTER of silence
 // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+// A run the orchestrator stopped (a record's stopped {run, at}, written since that record last started) reads stopped
+// with its words from the stop, gone and waiting on the orchestrator from then.
 function builderOf(agents, lines = [], now, movedAt = null, alive = null, commandRunning = false) {
   const open = agents.filter((a) => a.started && !a.done);
   const planner = open.every(plans);
@@ -558,13 +570,14 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
   if (since === undefined) return null;
   const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since && (planner || !m.planner)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : providerOf(running.at(-1).kind);
+  const stop = planner ? null : running.find((a) => a.stopped && String(a.stopped.at) >= String(a.started))?.stopped;
   const quiet = line?.ts || since;
-  const silentSince = movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
+  const silentSince = stop ? stop.at : movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
   const progress = line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
   const silent = now - Date.parse(silentSince);
-  const live = planner ? null : alive;
+  const live = planner ? null : stop ? false : alive;
   const stalled = live === null ? silent >= BUILDER_STALLED_AFTER : !live;
-  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled, alive: live, quiet: live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER };
+  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stalled, alive: live, quiet: live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER, stopped: stop ? stoppedWords(stop.run) : null };
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
@@ -1390,6 +1403,7 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
     : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
     : it.implementAt ? (it.state === 'ready' ? null : { kind: 'implement', since: it.implementAt, next: IMPLEMENT_NEXT })
     : ASKING.has(it.action?.kind) ? null
+    : it.builder?.stopped ? { kind: 'stalled', since: it.builder.silentSince, next: `${it.builder.stopped}: start it again when it should run, or drop the card` }
     : it.builder?.stalled ? { kind: 'stalled', since: it.builder.silentSince, next: 'Find out why the builder went silent or stopped, then restart or finish its run' }
     : it.lane === 'stale' && it.inReviewSince ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), next: 'Find out why the review went stale and fix what you can: rebase, CI, comments, a silent reviewer' }
     : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.statusAt, next: facts.next || "Verify the builder's judgment calls" }

@@ -2803,6 +2803,50 @@ export async function openAgents(site, key) {
   return records.filter((r) => r && r.started && !r.done).map((r) => ({ pid: r.session?.pid ?? null, at: r.session?.at ?? null }));
 }
 
+// docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md
+// The card's open builder records, each {kind, pid, at} as openAgents reads them.
+export async function openRuns(site, key) {
+  const { source } = await loadItem(site, key);
+  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
+  return records.filter((r) => r && r.started && !r.done).map((r) => ({ kind: r.kind ?? null, pid: r.session?.pid ?? null, at: r.session?.at ?? null }));
+}
+// The orchestrator's stop of the card's run (build, land), on each open build record as stopped {run, at}: the card
+// reads the stop's words, and the server relaunches neither its builder nor its lander.
+export async function markStopped(site, key, run) {
+  const { source } = await loadItem(site, key);
+  const at = new Date().toISOString();
+  for (const file of await builderFiles(source.dir, parseKey(key).id)) {
+    const record = await readJSON(file, null);
+    if (record?.started && !record.done && builds(record)) await writeJSON(file, { ...record, stopped: { run, at } });
+  }
+}
+// The orchestrator's stop of the land a held card's Merge tap started: merge_ready.stopped, read until the next tap.
+export async function stopHeldMerge(site, key) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (!item.merge_ready) return;
+  item.merge_ready.stopped = new Date().toISOString();
+  await writeJSON(source.file, wave);
+}
+// The bump the card's land queues with: its latest card-bump when no card-unbump came after it and it was made once the
+// card's first build had started, as the board reads a bump (domain.mjs workItem), else null.
+export async function landFirst(site, key) {
+  const { source } = await loadItem(site, key);
+  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const latest = (kind) => events.filter((e) => e.kind === kind && e.data?.key === key).map((e) => String(e.ts)).sort().pop() || '';
+  const bump = latest('card-bump');
+  if (!bump || latest('card-unbump') > bump) return null;
+  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
+  const firstBuild = records.filter((r) => r && builds(r)).map((r) => String(r.started || '')).filter(Boolean).sort()[0] || '';
+  return firstBuild && bump < firstBuild ? null : bump;
+}
+// The orchestrator's bump (on) or unbump of a card, the event the owner's bump icon sends. → the event's time
+export async function bumpCard(site, key, on) {
+  const { item } = await loadItem(site, key);
+  if (FINISHED.includes(item.status)) fail(`${await cardName(site, key)} is ${item.status}; there is nothing to bump`);
+  const id = await appendEvent({ dir: site }, on ? 'card-bump' : 'card-unbump', { key });
+  return (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === id).ts;
+}
+
 // Whether the card's latest status line is the finish step's landing line.
 export async function isLanding(site, key) {
   return (await readLines(threadFile(site, key))).filter((m) => m.kind === 'status').pop()?.phase === 'landing';
