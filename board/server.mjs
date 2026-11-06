@@ -1316,6 +1316,7 @@ const server = http.createServer(async (req, res) => {
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).join() !== 'pause' || typeof body.pause !== 'string') return json(res, 400, { error: 'Send only {pause: a duration, a date and time, or off}.' });
       let pausedUntil;
       try { pausedUntil = await setBoardPause(here, body.pause); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+      if (pausedUntil) boardPaused = true;
       checkAuto();
       return json(res, 200, { paused_until: pausedUntil });
     }
@@ -1476,7 +1477,8 @@ let autoAgain = false;
 let heldByPause = false;
 // Whether the last check found this board's own pause in force: once it lifts with nothing else pausing, the board wakes
 // its session with usage-resumed {window: 'manual'}, as the hub does every board when a hub-wide pause lifts
-// (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
+// (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md). Setting a pause marks it at once, so a
+// lift that follows before any check ran still wakes the session.
 let boardPaused = false;
 function checkAuto() {
   if (checkingAuto) { autoAgain = true; return checkingAuto; }
@@ -1648,7 +1650,8 @@ async function drawVisuals(items, log) {
 // intakeStranded), and, unless the board's launches are held (launchHeldNow), launches a run on the next due intake event
 // (intakeDue) with the board's index: every open work card's label, key, title, lane, state and notes file. A run that
 // can't launch hands its event off at once, and one open 10 minutes (INTAKE_TIMEOUT_AFTER) after its launch is stopped
-// and ended with timedOut, its event handed off as timed out, with no relaunch. Passes run one at a time, on every board change and once a minute.
+// and ended with timedOut, its event handed off as timed out, with no relaunch. KICKFLIP_INTAKE=off skips the pass (the
+// server tests set it). Passes run one at a time, on every board change and once a minute.
 let intakePass = Promise.resolve();
 function sortIntake() {
   const pass = intakePass.then(runIntake).catch((err) => console.error('Intake check failed:', err.message));
@@ -1656,6 +1659,7 @@ function sortIntake() {
   return pass;
 }
 async function runIntake() {
+  if (process.env.KICKFLIP_INTAKE === 'off') return;
   const file = path.join(data, 'intake-runs.json');
   const runs = await readJSON(file, {});
   const save = async () => {

@@ -35,7 +35,7 @@ before(async () => {
   ghDir = path.join(home, 'gh-fixtures');
   const ghBin = fakeGh(ghDir);
   const slackEnv = { KICKFLIP_SLACK_URL: slackServer.url, PATH: `${ghBin}:${process.env.PATH}` };
-  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv, ...slackEnv } });
+  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', KICKFLIP_INTAKE: 'off', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv, ...slackEnv } });
   await boardListening(child);
   await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
 });
@@ -756,7 +756,7 @@ test('a watcher that just exited on an event still counts as listening, until it
   await until(() => {
     try { return JSON.parse(fs.readFileSync(path.join(site, 'data', 'watcher.json'), 'utf8')).pid === watcher.pid && fs.existsSync(path.join(site, 'data', '.watch-cursor-s1.json')); } catch { return false; }
   }, 'watcher did not initialize its cursor');
-  await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask', text: 'Wake' }) });
+  await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/A1', text: 'Wake' }) });
   assert.equal(await exited, 0);
   assert.match(out.join(''), /^event data\/events\.jsonl /);
   const w = JSON.parse(fs.readFileSync(path.join(site, 'data', 'watcher.json'), 'utf8'));
@@ -1293,10 +1293,10 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     const asked = JSON.parse(lines[0].replace(/^event data\/events\.jsonl /, '')).id;
     assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events[asked]));
     // The watcher marks it working from outside the server, which sees the mark once its file watcher does.
-    await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A1').working, 'the board shows the message working');
-    assert.deepEqual((await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w), [{ id: asked, kind: 'item-message', card: 'A1' }]);
+    const workingOn = async () => (await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w);
+    await until(async () => (await workingOn()).length === 1, 'the board shows the message working');
+    assert.deepEqual(await workingOn(), [{ id: asked, kind: 'item-message', card: 'A1' }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    // Earlier tests' new tasks on this site, handed off by their intake runs, may print their waits first.
     assert.deepEqual(lines.slice(-13, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
