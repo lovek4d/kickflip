@@ -271,21 +271,19 @@ command fails and changes nothing.
   slack                                                 Slack identity as JSON; imports slack-bridge config once
   slack set [--self-dm D..] [--user U..]                 sets hub Slack identity in ~/.claude/kickflip/slack.json
             [--domain x] [--timezone Area/City]
-  review sent <wave>/<id> <reviewer> --ts <ts>           records the PR link's message in the item
-              --channel <dm>
-  review react <wave>/<id> <reviewer> <emoji>            records a reaction once on that reviewer's link
   integrations                                          readiness rows as one JSON line
-  review updated <wave>/<id> --text "<what changed>"     posts “🤖 Updated: <what changed>” under each recorded link
-                                                         of a reviewer who hasn't approved, as you, through Hub's
-                                                         Slack token
-  review due                                            one JSON line of the Slack sends the hub owes, from local state:
-                                                         {dms: [{key, reviewer, slack_user, channel, text, record}], reactions:
-                                                         [{key, reviewer, channel, ts, emoji, record}], digest:
-                                                         review digest's answer while due (with record), else null}.
-                                                         dms: a PR link to each reviewer of an open, non-draft PR with
-                                                         no link recorded; reactions: git_merged on each recorded link
-                                                         of a merged card. record is the command to run once sent.
-                                                         While Slack isn't ready: {waiting} and nothing owed
+  review updated <wave>/<id> --text "<what changed>"     queues “🤖 Updated: <what changed>” in the thread of every
+                                                         posted link on the card's PRs; the hub's next poll sends it
+  review due                                            one JSON line of the Slack sends the hub owes, from local state
+                                                         and data/pr-slack.json: {links: [{pr, key, reviewer,
+                                                         slack_user, head, text}], replies: [{pr, id, reviewer,
+                                                         channel, thread_ts, text}], reactions: [{pr, reviewer,
+                                                         channel, ts, emoji}], digest: review digest's answer while
+                                                         due, else null}. links: each open, non-draft PR's link to
+                                                         each reviewer without one; reactions: git_approved once
+                                                         anyone approved, git_merged on merge, x on close. The hub
+                                                         sends and records each. While Slack isn't ready: {waiting}
+                                                         and nothing owed
   review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
           --read-at <time>                               approval or a request for changes) on an incoming PR at
                                                          its listed head, as the board's github-login (else gh's
@@ -300,9 +298,9 @@ command fails and changes nothing.
                                                          it chose to say nothing on, needs while it waits on the
                                                          owner, which puts it in Needs you and pushes. Same PRs as
                                                          review post
-  review digest                                         pending reviews as JSON; due weekday mornings from 09:00
-  review digest sent <reviewer> --ts <ts>               records a digest in data/review-digests.json;
-              --channel <dm> --items <key,key>           marks today sent in the Slack identity timezone
+  review digest                                         pending reviews as JSON, one item per PR; a reviewer is
+                                                         owed the day's digest weekdays 09:00-17:00 in the Slack
+                                                         identity timezone until data/review-digests.json has it all
   rules list                                             the hub rules, then with --site the board's, one
                                                          "<hub|board> <id> <owner|claude> <text>" line each
   rules add --text <t> [--hub] [--by claude]             a rule in board.json, or with --hub in the hub's
@@ -468,6 +466,11 @@ command fails and changes nothing.
                                                          arguments are refused. Three runs in a row that can't run
                                                          mark it broken and append owner-check-broken {key, check,
                                                          error}; fix it with item set --check. land takes it too
+         [--updated "<what changed>" | --updated none]   on a card whose PR link a reviewer already has, done
+                                                         refuses without it: the text queues “🤖 Updated: <what
+                                                         changed>” in each link's thread, as review updated does;
+                                                         none sends nothing, for a change only to comments, names,
+                                                         docs or tests
          builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
   builder stop <wave>/<id>                               the orchestrator's stop of the card's run the board launched,
                                                          its headless builder, lander or rebase run, with every process
@@ -675,6 +678,21 @@ function noteOf(f) {
 }
 
 // name: [positional args, allowed flags (...<flag> may repeat, and run gets its values as a list), run(site, args, flags) → message]
+async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ...f }) {
+  if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board card: pass --site, not --dir');
+  if (check !== undefined && ownerStep === undefined) throw new UsageError('--check goes with --owner-step: it is the code check that closes the card once the step is done');
+  if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep, check });
+  const onBoard = site && !f.dir;
+  const handed = onBoard && await store.handBackCalls(site, key, f);
+  if (handed) return handed;
+  if (onBoard && f.next === undefined && await store.finishesCard(site, key, f)) {
+    if (text === undefined) throw new store.BoardError(`builder done finishes ${key}: pass --text "<what you checked>", or --next "<what happens next>" to stop without finishing`);
+    return finishCard(site, key, { text, ownerStep });
+  }
+  if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card: the main build, with a worktree and no --next');
+  return store.stopBuilder(site, key, { ...f, requireNext: true });
+}
+
 const COMMANDS = {
   pr: [['wave/id'], [], async (site, [key]) => ({ lines: (await store.prReport(site, key)).map((r) => JSON.stringify(r)) })],
   'pr comment': [['pr'], ['body'], (site, [pr], f) => {
@@ -727,8 +745,6 @@ const COMMANDS = {
   }],
   integrations: [[], [], async () => ({ lines: [JSON.stringify(await readiness.rows())] })],
   'review updated': [['wave/id'], ['text'], (site, [key], f) => store.reviewUpdated(site, key, f.text)],
-  'review sent': [['wave/id', 'reviewer'], ['ts', 'channel'], (site, [key, name], f) => store.reviewSent(site, key, name, f)],
-  'review react': [['wave/id', 'reviewer', 'emoji'], [], (site, [key, name, emoji]) => store.reviewReact(site, key, name, emoji)],
   'review record': [['pr'], ['state', 'text', 'file'], (site, [pr], f) => {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('review record takes --text or --file');
     return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file) });
@@ -740,7 +756,6 @@ const COMMANDS = {
   }],
   'review digest': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDigest(site, options))] })],
   'review due': [[], [], async (site, _, f, options) => ({ lines: [JSON.stringify(await store.reviewDue(site, options))] })],
-  'review digest sent': [['reviewer'], ['ts', 'channel', 'items'], (site, [name], f, options) => store.reviewDigestSent(site, name, f, options)],
   'reviewers set': [[], ['file'], (site, _, f) => store.setReviewers(site, readJSONInput(f.file))],
   'reviewers add': [[], ['file'], (site, _, f) => store.addReviewers(site, readJSONInput(f.file))],
   'reviewers remove': [['...name'], [], (site, names) => store.removeReviewers(site, names)],
@@ -780,19 +795,14 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['wave/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text'], async (site, [key], { 'owner-step': ownerStep, check, text, ...f }) => {
-    if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board card: pass --site, not --dir');
-    if (check !== undefined && ownerStep === undefined) throw new UsageError('--check goes with --owner-step: it is the code check that closes the card once the step is done');
-    if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep, check });
+  'builder done': [['wave/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'updated'], async (site, [key], { updated, ...f }) => {
+    // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md: the Updated decision is made
+    // before anything runs, and its reply queued only once done has gone through.
     const onBoard = site && !f.dir;
-    const handed = onBoard && await store.handBackCalls(site, key, f);
-    if (handed) return handed;
-    if (onBoard && f.next === undefined && await store.finishesCard(site, key, f)) {
-      if (text === undefined) throw new store.BoardError(`builder done finishes ${key}: pass --text "<what you checked>", or --next "<what happens next>" to stop without finishing`);
-      return finishCard(site, key, { text, ownerStep });
-    }
-    if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card: the main build, with a worktree and no --next');
-    return store.stopBuilder(site, key, { ...f, requireNext: true });
+    if (onBoard && updated === undefined && await store.cardLinked(site, key)) throw new store.BoardError(`a reviewer has ${key}'s PR link: pass --updated "<what changed>" for its thread, or --updated none for a change only to comments, names, docs or tests`);
+    const out = await builderDone(site, key, f);
+    if (onBoard && updated !== undefined && updated.trim().toLowerCase() !== 'none') await store.reviewUpdated(site, key, updated);
+    return out;
   }],
   'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   audit: [['...wave/id?'], [], (site, [key, ...more]) => {
@@ -911,9 +921,6 @@ const SAID = {
   'lineup remove': async (site, [slug, key]) => `${await card(site, key)} taken out of lineup ${slug}`,
   'lineup set': (site, [slug]) => `lineup ${slug} updated`,
   'lineup finish': (site, [slug]) => `lineup ${slug} finished`,
-  'review sent': async (site, [key, name]) => `review link to ${name} recorded on ${await card(site, key)}`,
-  'review react': async (site, [key, name, emoji]) => `${emoji} on ${name}'s review link recorded on ${await card(site, key)}`,
-  'review digest sent': (site, [name]) => `digest to ${name} recorded`,
   'review record': (site, [pr], f) => `review of PR #${pr} recorded: ${f.state === 'needs' ? 'needs you' : 'posted'}`,
   'reviewers set': () => 'reviewers replaced',
   'reviewers add': () => 'reviewers added',

@@ -94,7 +94,9 @@ export async function fetchPR({ repo, pr, since }) {
 // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). GraphQL has no `since`,
 // so each PR brings its last 50 comments, reviews and review threads of 20 comments, and reportOf filters them by time.
 const AUTHOR = 'author { __typename login }';
-const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus headRefOid'
+// Title, size, whether anyone approved and the newest commits are for the PR's Slack link and push replies.
+const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus headRefOid title additions deletions changedFiles'
+  + ' latestReviews(first: 50) { nodes { state } } recent: commits(last: 20) { nodes { commit { oid messageHeadline } } }'
   + ' commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes { __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }'
   + ` comments(last: 50) { nodes { databaseId ${AUTHOR} createdAt body url } }`
   + ` reviews(last: 50) { nodes { databaseId ${AUTHOR} submittedAt body state url } }`
@@ -140,7 +142,10 @@ export async function fetchPRs(prs, repos = []) {
     const comment = (c) => ({ id: c.databaseId ?? null, user: user(c.author), created_at: c.createdAt ?? null, body: c.body ?? null, html_url: c.url ?? null });
     return {
       view: { state: p.state, isDraft: p.isDraft, reviewDecision: p.reviewDecision, mergeable: p.mergeable, mergeStateStatus: p.mergeStateStatus, headRefOid: p.headRefOid,
-        statusCheckRollup: p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [] },
+        statusCheckRollup: p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [],
+        title: p.title ?? null, additions: p.additions ?? null, deletions: p.deletions ?? null, changedFiles: p.changedFiles ?? null,
+        approved: (p.latestReviews?.nodes ?? []).some((r) => r.state === 'APPROVED'),
+        commits: (p.recent?.nodes ?? []).map((n) => ({ oid: n.commit.oid.slice(0, 10), subject: n.commit.messageHeadline })) },
       issueComments: (p.comments?.nodes ?? []).map(comment),
       reviewComments: (p.reviewThreads?.nodes ?? []).flatMap((t) => t.comments?.nodes ?? []).map((c) => ({ ...comment(c), path: c.path ?? null, line: c.line ?? null, in_reply_to_id: c.replyTo?.databaseId ?? null })),
       reviews: (p.reviews?.nodes ?? []).map((r) => ({ id: r.databaseId ?? null, user: user(r.author), submitted_at: r.submittedAt ?? null, body: r.body ?? null, state: r.state ?? null, html_url: r.url ?? null })),
@@ -165,6 +170,8 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
     mergeable: view.mergeable ?? null, mergeStateStatus: view.mergeStateStatus ?? null, head: view.headRefOid?.slice(0, 10) ?? null,
     failing: checks.filter((c) => /FAILURE|ERROR/.test(c.conclusion ?? c.state ?? '')).map((c) => c.name ?? c.context ?? null),
     pending: checks.filter((c) => (c.status ?? 'COMPLETED') !== 'COMPLETED').length, events,
+    title: view.title ?? null, additions: view.additions ?? null, deletions: view.deletions ?? null, files: view.changedFiles ?? null,
+    approved: Boolean(view.approved), commits: view.commits ?? [],
   };
 }
 

@@ -43,12 +43,14 @@ export function slackDay(now = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
     timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', hourCycle: 'h23',
   }).formatToParts(now).map(({ type, value }) => [type, value]));
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, morning: !['Sat', 'Sun'].includes(parts.weekday) && Number(parts.hour) >= 9 };
+  // open: a weekday from 09:00 until 17:00, when a digest may go out
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, open: !['Sat', 'Sun'].includes(parts.weekday) && Number(parts.hour) >= 9 && Number(parts.hour) < 17 };
 }
 
 // Slack through the owner's user token (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md):
 // the hub sends as the owner, in the owner's DMs with each reviewer. The token lives in secrets.json's `slack`
-// {token, team, team_id, user, user_id, saved_at}, plus refused_at once Slack refused it; only slackStatus's
+// {token, team, team_id, user, user_id, saved_at}, plus refused_at once Slack refused it and refusal_pushed_at once
+// the owner's phone was told; only slackStatus's
 // {set, refused, team, user} leaves this module for a page. Every call goes to KICKFLIP_SLACK_URL when it is set, else
 // Slack's Web API, through the fetch passed in.
 export class SlackError extends Error {
@@ -132,8 +134,15 @@ export function removeSlackToken() {
 function markChecked(token, works) {
   const saved = savedToken();
   if (saved?.token !== token || Boolean(saved.refused_at) === !works) return;
-  const { refused_at: _, ...rest } = saved;
+  const { refused_at: _, refusal_pushed_at: __, ...rest } = saved;
   writeSecret('slack', works ? rest : { ...rest, refused_at: new Date().toISOString() });
+}
+
+// Whether Slack's refusal of the saved token is yet to be pushed to the owner; markRefusalPushed records the push.
+export const refusalUnpushed = () => { const s = savedToken(); return Boolean(s?.refused_at && !s.refusal_pushed_at); };
+export function markRefusalPushed() {
+  const saved = savedToken();
+  if (saved?.refused_at) writeSecret('slack', { ...saved, refusal_pushed_at: new Date().toISOString() });
 }
 
 // A client over the saved token, or null when none is saved. Its calls keep the token's refused_at up to date.

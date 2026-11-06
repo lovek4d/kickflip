@@ -324,9 +324,12 @@ test("pr comment and pr reply post Claude's words through gh with the robot pref
   const cli = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
   const posts = () => tokens(dir).filter((c) => c.args[0] === 'api').map(({ args, token }) => [args[1], args[3], token]);
 
+  // A comment on a PR whose link a reviewer has also goes in that link's Slack thread.
+  write(site('orch', 'data', 'pr-slack.json'), { 'o/r#7': { head: 'a', links: { Ann: { channel: 'D1', ts: '1.1', reactions: [] } }, replies: [] } });
   const comment = cli('pr', 'comment', '7', '--body', 'Fixed in abc1234.');
   assert.equal(comment.code, 0, comment.err);
-  assert.equal(comment.out, 'posted on PR #7: https://github.com/o/r/issues/7/comments\n');
+  assert.equal(comment.out, 'posted on PR #7: https://github.com/o/r/issues/7/comments\nqueued for Ann\'s Slack thread\n');
+  assert.deepEqual(read(site('orch', 'data', 'pr-slack.json'))['o/r#7'].replies, [{ id: 'comment-1', text: 'Comment on #7: Fixed in abc1234.', to: { Ann: {} } }]);
   assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
   assert.equal(cli('pr', 'reply', '7', '901', '--body', 'Not changed: the owner kept it.').code, 0);
   const elsewhere = cli('pr', 'comment', 'o/site#1', '--body', 'Linked from #7.');
@@ -623,7 +626,7 @@ test('item set records a UTC gh-since and pr prints the board report through gh'
   assert.deepEqual(both.out.trim().split('\n').map((l) => JSON.parse(l)).map((r) => [r.repo, r.pr, r.isDraft]), [['wave/repo', 7, false], ['o/site', 1, true]]);
 });
 
-test('review sent and the topic fallback drive the same card age, Stale lane and hub Slack link', () => {
+test("a PR's posted links and the topic fallback drive the same card age, Stale lane and hub Slack link", () => {
   const sent = String(Math.floor((Date.now() - 8 * 86400000) / 1000)) + '.000100';
   const w = { ...wave(), repo: 'o/r', reviewers: [annReviewer, bobReviewer] };
   w.items[0].pr = 7;
@@ -634,31 +637,17 @@ test('review sent and the topic fallback drive the same card age, Stale lane and
   assert.equal(fallback.slack.ok, true);
   assert.equal(fallback.card.lane, 'stale');
   fs.rmSync(at('slack-bridge'), { recursive: true });
-  assert.equal(board('review', 'sent', 'w/A1', 'Unknown', '--ts', sent, '--channel', 'D1', '--site', 'orch').code, 1);
-  assert.equal(board('review', 'sent', 'w/A1', 'Ann', '--ts', sent, '--site', 'orch').code, 1);
-  for (const r of w.reviewers) {
-    const result = board('review', 'sent', 'w/A1', r.name, '--ts', sent, '--channel', r.dm, '--site', 'orch');
-    assert.equal(result.code, 0, result.err);
-  }
-  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items[0].review_link_ts.Ann, { ts: sent, channel: 'D1' });
+  const link = (channel) => ({ channel, ts: sent, reactions: [] });
+  write(site('orch', 'data', 'pr-slack.json'), { 'o/r#7': { head: 'abc', links: { Ann: link('D1'), Bob: { channel: 'D2', posting_at: '2026-11-02T00:00:00Z', reactions: [] } }, replies: [] } });
+  const posting = reviewState();
+  assert.equal(posting.card.review.Bob.state, 'unsent');
+  assert.equal(posting.slack.ok, false);
+  write(site('orch', 'data', 'pr-slack.json'), { 'o/r#7': { head: 'abc', links: { Ann: link('D1'), Bob: link('D2') }, replies: [] } });
   const recorded = reviewState();
   assert.deepEqual(recorded.card.review, fallback.card.review);
   assert.equal(recorded.card.inReviewSince, fallback.card.inReviewSince);
   assert.equal(recorded.card.lane, 'stale');
   assert.equal(recorded.slack.ok, true);
-  for (let i = 0; i < 2; i++) assert.equal(board('review', 'react', 'w/A1', 'Ann', 'git_merged', '--site', 'orch').code, 0);
-  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items[0].review_link_ts.Ann.reactions, ['git_merged']);
-  assert.equal(board('review', 'react', 'w/A1', 'Ann', 'bad emoji', '--site', 'orch').code, 1);
-  assert.equal(board('review', 'react', 'w/A1', 'Nobody', 'git_merged', '--site', 'orch').code, 1);
-  write(at('waves', 'w', 'wave.json'), w);
-  assert.equal(board('review', 'react', 'w/A1', 'Ann', 'git_merged', '--site', 'orch').code, 1);
-});
-
-test('review sent accepts board reviewers on a file board and concurrent writes keep both links', async () => {
-  write(site('audit', 'board.json'), { items: 'data/wave.json', slug: 'audit', reviewers: [annReviewer, bobReviewer] });
-  const results = await Promise.all([annReviewer, bobReviewer].map((r) => runAsync('board.mjs', ['--site', 'audit', 'review', 'sent', 'audit/A1', r.name, '--ts', '1792800000.1', '--channel', r.dm])));
-  for (const r of results) assert.equal(r.code, 0, r.err);
-  assert.deepEqual(read(site('audit', 'data', 'wave.json')).items[0].review_link_ts, { Ann: { ts: '1792800000.1', channel: 'D1' }, Bob: { ts: '1792800000.1', channel: 'D2' } });
 });
 
 test('slack identity imports config once, protects the saved file and lets the session override it', () => {
@@ -676,7 +665,7 @@ test('slack identity imports config once, protects the saved file and lets the s
   assert.equal(board('slack', 'set', '--self-dm', 'UWRONG').code, 1);
 });
 
-test('review digest lists the hub-checked PRs awaiting review, dates old links and turns due off after a sent digest', () => {
+test('review digest lists one item per hub-checked PR awaiting review, dates old links and stays due until every reviewer has the day’s digest', () => {
   const now = '2026-11-02T17:00:00Z';
   slackToken();
   assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
@@ -684,25 +673,31 @@ test('review digest lists the hub-checked PRs awaiting review, dates old links a
   write(site('orch', 'board.json'), { items: 'waves', reviewers: [bobReviewer] });
   const item = (id, pr, extra = {}) => ({ id, title: id, pr, ...extra });
   write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer], items: [
-    item('old', 1, { review_link_ts: { Ann: { ts: ts(73), channel: 'D1' } } }),
+    item('old', 1),
     item('edge', 2, { review_link_ts: { Ann: ts(48) } }),
     item('recent', 3, { review_sent: { Ann: ts(47) } }),
-    item('approved', 4), item('draft', 5), item('closed', 6), item('unknown', 7), item('done', 10, { status: 'merged' }), item('ci', 13),
+    item('approved', 4), item('draft', 5), item('closed', 6), item('unknown', 7), item('done', 10, { status: 'merged' }), item('ci', 13), item('liked', 14),
   ] });
+  write(site('orch', 'data', 'pr-slack.json'), { 'o/r#1': { head: 'a', links: { Ann: { channel: 'D1', ts: ts(73), reactions: [] } }, replies: [] } });
   write(at('waves', 'empty', 'wave.json'), { reviewers: [{ name: 'Cy', slack_user: 'U3', dm: 'D3' }], items: [] });
-  write(at('kickflip', 'github-state.json'), { prs: Object.fromEntries([1, 2, 3, 4, 5, 6, 10, 13].map((pr) => [`o/r#${pr}`, { state: pr === 6 ? 'CLOSED' : 'OPEN', isDraft: pr === 5, reviewDecision: pr === 4 ? 'APPROVED' : 'REVIEW_REQUIRED', ...(pr === 13 ? { failing: ['lint'] } : {}) }])) });
+  write(at('kickflip', 'github-state.json'), { prs: Object.fromEntries([1, 2, 3, 4, 5, 6, 10, 13, 14].map((pr) => [`o/r#${pr}`, { state: pr === 6 ? 'CLOSED' : 'OPEN', isDraft: pr === 5, reviewDecision: pr === 4 ? 'APPROVED' : 'REVIEW_REQUIRED', approved: pr === 14, ...(pr === 13 ? { failing: ['lint'] } : {}) }])) });
   const digest = digestCommand([], now);
-  assert.deepEqual([digest.date, digest.due, digest.reviewers.map((r) => r.name)], ['2026-11-02', true, ['Bob', 'Ann']]);
+  assert.deepEqual([digest.date, digest.due, digest.reviewers.map((r) => [r.name, r.owed])], ['2026-11-02', true, [['Bob', true], ['Ann', true]]]);
   assert.deepEqual(digest.reviewers[0].items.map((i) => i.key), ['w/old', 'w/edge', 'w/recent']);
   const ann = digest.reviewers.find((r) => r.name === 'Ann');
   assert.deepEqual([ann.slack_user, ann.dm, ann.items.map((i) => i.key)], ['U1', 'D1', ['w/old', 'w/edge', 'w/recent']]);
-  assert.deepEqual(ann.items[0], { key: 'w/old', title: 'old', pr: 1, url: 'https://github.com/o/r/pull/1', sent_ts: ts(73), days_old: 3 });
+  assert.deepEqual(ann.items[0], { key: 'w/old', pr: 'o/r#1', title: 'old', url: 'https://github.com/o/r/pull/1', sent_ts: ts(73), days_old: 3, text: 'https://github.com/o/r/pull/1 · old (3 days old)' });
   for (const item of ann.items.slice(1)) assert.equal(Object.hasOwn(item, 'days_old'), false);
   assert.equal(digestCommand([], '2026-11-02T16:59:00Z').due, false);
   assert.equal(digestCommand([], '2026-11-01T17:00:00Z').due, false);
+  assert.equal(digestCommand([], '2026-11-03T01:00:00Z').due, false);
   assert.equal(digestCommand([], '2026-11-03T07:30:00Z').date, '2026-11-02');
-  digestCommand(['sent', 'Ann', '--ts', ts(0), '--channel', 'D1', '--items', 'w/old,w/edge,w/recent'], now);
-  assert.deepEqual(read(site('orch', 'data', 'review-digests.json')), { last_date: '2026-11-02', digests: [{ reviewer: 'Ann', dm: 'D1', ts: ts(0), items: ['w/old', 'w/edge', 'w/recent'], reactions: [] }] });
+  const sent = (reviewer, channel) => ({ date: '2026-11-02', reviewer, channel, ts: ts(0), replies: [{ pr: 'o/r#1', text: 'x', ts: ts(0) }] });
+  write(site('orch', 'data', 'review-digests.json'), { digests: [sent('Ann', 'D1')] });
+  assert.deepEqual([digestCommand([], now).due, digestCommand([], now).reviewers.map((r) => [r.name, r.owed])], [true, [['Bob', true], ['Ann', false]]]);
+  write(site('orch', 'data', 'review-digests.json'), { digests: [sent('Ann', 'D1'), { ...sent('Bob', 'D2'), replies: [{ pr: 'o/r#1', text: 'x' }] }] });
+  assert.equal(digestCommand([], now).due, true, "Bob's digest still owes a reply");
+  write(site('orch', 'data', 'review-digests.json'), { digests: [sent('Ann', 'D1'), sent('Bob', 'D2')] });
   assert.equal(digestCommand([], now).due, false);
   assert.equal(digestCommand([], '2026-11-03T17:00:00Z').due, true);
   const realClock = board('review', 'digest', '--site', 'orch');
@@ -710,7 +705,7 @@ test('review digest lists the hub-checked PRs awaiting review, dates old links a
   assert.ok(Array.isArray(JSON.parse(realClock.out).reviewers));
 });
 
-test('review due lists the reviewer DMs, git_merged reactions and digest still owed, each with the command that records it, and waits while Slack is not ready', () => {
+test("review due lists each PR's owed links, thread replies and reactions, and the digest, and waits while Slack is not ready", () => {
   const now = '2026-11-02T17:00:00Z';
   const due = () => {
     const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
@@ -722,21 +717,25 @@ test('review due lists the reviewer DMs, git_merged reactions and digest still o
   slackToken();
   assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
   write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer, bobReviewer], items: [
-    { id: 'A1', title: 'Open', pr: 1, review_link_ts: { Ann: { ts: '1.1', channel: 'D1' } } },
+    { id: 'A1', title: 'Open', pr: 1 },
     { id: 'A2', title: 'Draft', pr: 2 },
-    { id: 'A3', title: 'Merged', pr: 3, status: 'merged', review_link_ts: { Ann: { ts: '3.1', channel: 'D1', reactions: ['git_merged'] }, Bob: { ts: '3.2', channel: 'D2' } } },
-    { id: 'A4', title: 'Done', pr: 4, status: 'done', review_link_ts: { Bob: { ts: '4.2', channel: 'D2' } } },
+    { id: 'A3', title: 'Merged', pr: 3, status: 'merged' },
+    { id: 'A4', title: 'Done', pr: 4, status: 'done' },
   ] });
-  write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
+  const link = (channel, ts, reactions = []) => ({ channel, ts, reactions });
+  write(site('orch', 'data', 'pr-slack.json'), {
+    'o/r#1': { head: 'h1', links: { Ann: link('D1', '1.1') }, replies: [{ id: 'comment-1', text: 'Comment on #1: fixed', to: { Ann: {} } }] },
+    'o/r#3': { head: 'h3', links: { Ann: link('D1', '3.1', ['git_merged']), Bob: link('D2', '3.2') }, replies: [] },
+    'o/r#4': { head: 'h4', links: { Bob: link('D2', '4.2') }, replies: [] },
+  });
+  write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false, head: 'h1', title: 'Open PR', additions: 1, deletions: 2, files: 3 }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
   const owed = due();
-  assert.deepEqual(owed.dms, [{ key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', channel: 'D2', text: 'https://github.com/o/r/pull/1', record: 'board.mjs --site orch review sent w/A1 Bob --ts <ts> --channel D2' }]);
-  assert.deepEqual(owed.reactions, [{ key: 'w/A3', reviewer: 'Bob', channel: 'D2', ts: '3.2', emoji: 'git_merged', record: 'board.mjs --site orch review react w/A3 Bob git_merged' }]);
-  assert.deepEqual([owed.digest.due, owed.digest.reviewers.map((r) => r.name), owed.digest.record], [true, ['Ann', 'Bob'], 'board.mjs --site orch review digest sent <reviewer> --ts <ts> --channel <dm> --items <key,key>']);
-  assert.equal(board('--site', 'orch', 'review', 'sent', 'w/A1', 'Bob', '--ts', '1.2', '--channel', 'D2').code, 0);
-  assert.equal(board('--site', 'orch', 'review', 'react', 'w/A3', 'Bob', 'git_merged').code, 0);
-  assert.deepEqual([due().dms, due().reactions], [[], []]);
+  assert.deepEqual(owed.links, [{ pr: 'o/r#1', key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', head: 'h1', text: 'Open PR\nhttps://github.com/o/r/pull/1\n+1/-2, 3 files' }]);
+  assert.deepEqual(owed.replies, [{ pr: 'o/r#1', id: 'comment-1', reviewer: 'Ann', channel: 'D1', thread_ts: '1.1', text: 'Comment on #1: fixed' }]);
+  assert.deepEqual(owed.reactions, [{ pr: 'o/r#3', reviewer: 'Bob', channel: 'D2', ts: '3.2', emoji: 'git_merged' }]);
+  assert.deepEqual([owed.digest.due, owed.digest.reviewers.map((r) => r.name)], [true, ['Ann', 'Bob']]);
   slackToken({ refused_at: '2026-11-02T00:00:00Z' });
-  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', dms: [], reactions: [], digest: null });
+  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], replies: [], reactions: [], digest: null });
 });
 
 test('review digest waits without changing the record while Slack is not ready', () => {
@@ -754,6 +753,6 @@ test('review digest waits without changing the record while Slack is not ready',
   slackToken({ refused_at: '2026-11-02T00:00:00Z' });
   assert.match(digestCommand([], now).waiting, /Slack refused the token/);
   slackToken();
-  assert.equal(digestCommand([], now).due, true);
+  assert.equal(digestCommand([], now).waiting, undefined);
   assert.deepEqual(read(file), record);
 });

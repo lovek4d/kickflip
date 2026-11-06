@@ -204,8 +204,8 @@ export function reviewState() {
   return reviewProbe(`
     const wave = await store.readJSON(${JSON.stringify(at('waves', 'w', 'wave.json'))}, {});
     const prs = { 'o/r#7': { state: 'OPEN', isDraft: false } };
-    const card = buildBoard({ waves: [{slug: 'w', wave}], prs, topicItems: topicItems() }).items[0];
-    const board = { reviewers: ['Ann', 'Bob'], waves: [{slug: 'w', wave}], prs: [{wave: 'w', id: 'A1', pr: 7, repo: 'o/r'}] };
+    const card = buildBoard({ waves: [{slug: 'w', wave}], prs, topicItems: topicItems(), prSlack: await store.readPRSlack(site) }).items[0];
+    const board = { dir: site, reviewers: ['Ann', 'Bob'], waves: [{slug: 'w', wave}], prs: [{wave: 'w', id: 'A1', pr: 7, repo: 'o/r'}] };
     console.log(JSON.stringify({ card, slack: linksOf(board, { github: {prs}, listen: 'listening', settings: { quiet: { start: '22:00', end: '08:00', hold: true } }, wakes: {}, faults: {} }).find((l) => l.link === 'slack') }));
   `);
 }

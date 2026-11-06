@@ -13,7 +13,7 @@
 import { routeRecord } from '../hub/routes.mjs';
 import fs from 'node:fs';
 import { ticketBadge, ticketIn } from './tickets.mjs';
-import { reviewLinks, reviewTime, reviewersOf } from './review.mjs';
+import { prLinks, reviewLinks, reviewTime, reviewersOf } from './review.mjs';
 import { remoteFromInput } from '../hub/repos.mjs';
 import { reviewsOf, reviewNeeds, reviewActions } from './auto-review.mjs';
 import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.mjs';
@@ -150,7 +150,7 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 const LANDER_HANDOFF = /^(?:Not merged yet: |Lander launched headless )/;
-function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets }) {
+function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets }) {
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || {}), status: prStateOf(p.gh, it) }));
   const least = leastReady(prs.map((p) => p.gh));
   const pr = prs[least]?.gh || null;
@@ -174,7 +174,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const ownerPending = Boolean(reopenAt) && said.some((m) => String(m.ts) > doneAt && (m.state === 'waiting' || m.state === 'working'));
   const key = `${slug}/${it.id}`;
   const reviewers = reviewersOf(wave, boardReviewers);
-  const sentAt = Object.fromEntries(Object.entries(reviewLinks(wave, it, key, topicItems)).map(([name, link]) => [name, reviewTime(link.ts)]));
+  const sentAt = Object.fromEntries(Object.entries(reviewLinks(wave, it, key, topicItems, prLinks(prSlack, prs))).map(([name, link]) => [name, reviewTime(link.ts)]));
   const inReviewSince = Object.values(sentAt).filter(Boolean).sort()[0] || null;
   const lastTs = [...thread.map((m) => m.ts), ...events.map((e) => e.ts)].sort().pop() || null;
   // A builder status line is progress, not a message: it is never unread and answers no owner message.
@@ -894,7 +894,7 @@ export const lineupPhases = (lineup) => lineup.phases || lineup.items.map((id) =
 //   autoBuild: board.json's auto_build (true leaves card runs to the hub, so no card gets the owner's Serve / Build),
 //   threads also holds each ask's lines under ask:<event id>; github: the board's owner/name, or remote: its git link
 //   on another host, and branch: the board's branch;
-//   topicItems: merged topic items, prompts: this board's pending prompts (../hub/prompts.mjs shown), now: ms}
+//   topicItems: merged topic items, prSlack: data/pr-slack.json, prompts: this board's pending prompts (../hub/prompts.mjs shown), now: ms}
 // moved maps ask:<event id> to the work item whose thread holds that ask.
 // An event marked working needs its reply loaded, or it counts as still working.
 export function buildBoard(snapshot) {
@@ -952,7 +952,7 @@ export function buildBoard(snapshot) {
         working: msgs.some((m) => m.state === 'working'),
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
         askedAt: (index.questions.get(`item:${key}`) || []).filter((q) => q.asked_at).map((q) => q.asked_at),
-        topicItems, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
+        topicItems, prSlack: snapshot.prSlack || {}, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
         mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets,
       }));
       const card = items[items.length - 1];

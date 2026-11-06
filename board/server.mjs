@@ -14,8 +14,8 @@
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
 // github}] (board.mjs reviewers), which the settings page lists and new waves copy. items is "waves" (every ~/.claude/waves/*/wave.json,
 // the default) or a wave.json-format file relative to the site dir; slug names a file's items
-// (its keys are <slug>/<id>), defaulting to the file's basename. An item's review_link_ts maps
-// reviewer names to {ts, channel, reactions?}; review.mjs also reads older sent-link records. from_ask names the ask event that created the item,
+// (its keys are <slug>/<id>), defaulting to the file's basename. Reviewer links live per PR in
+// data/pr-slack.json (store.mjs); review.mjs also reads an item's older review_link_ts. from_ask names the ask event that created the item,
 // and next is Claude's next step for it. install {url, label?, built_at, sha?} is a device build the card's Install
 // button opens (board.mjs item set --install); public/installs/ holds its files, served without a login like all of
 // public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
@@ -39,7 +39,8 @@
 //   GET  /api/board              the board's title (board.json's, as the page shows it), its reviewers' names, the Hold sheet's
 //                                holdChoices [{value, label, ms}] (../hub/duration.mjs CHOICES, ms each one's length, null for Forever;
 //                                the page words when it ends), and lanes of those items, with
-//                                per-item review_link_ts and legacy ~/.claude/slack-bridge/topics/*.json fallbacks,
+//                                data/pr-slack.json's PR links, with per-item review_link_ts and legacy
+//                                ~/.claude/slack-bridge/topics/*.json fallbacks,
 //                                data/owner.json and GitHub (gh, cached for 45 s).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
 //                                question, context, url, options, urgent, asked_at, resolved, resolved_at, round, round_of, confirm_of}]};
@@ -617,7 +618,7 @@ async function snapshot(outside, archived = []) {
     ...items, moved, commandRunning, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
-    topicItems: outside.topicItems,
+    topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}),
   };
 }
 

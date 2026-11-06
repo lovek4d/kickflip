@@ -10,17 +10,12 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'slack-'));
 process.env.HOME = home;
 process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));
 const { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack } = await import('./slack.mjs');
-const { sendReviews } = await import('./review-send.mjs');
-const { reviewUpdated } = await import('../board/store.mjs');
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const site = kf('sites', 'orch');
-const waveFile = path.join(home, '.claude', 'waves', 'w', 'wave.json');
 const ann = { name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' };
-const bob = { name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'bob' };
-const saveToken = (world, extra = {}) => write(kf('secrets.json'), { slack: { token: world.token, team: world.team, team_id: world.team_id, user: world.user, user_id: world.user_id, saved_at: '2026-11-02T00:00:00Z', ...extra } });
 
 beforeEach(() => {
   fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
@@ -82,79 +77,6 @@ test('the token is saved in secrets.json once Slack answers, as refused when Sla
   assert.deepEqual(removeSlackToken(), { set: false });
   assert.deepEqual(read(file), { linear: { key: 'lin_api_kept' } });
   assert.equal(savedSlack({ fetch }), null);
-});
-
-test('the hub sends each owed review link in a DM it opens, each git_merged reaction and the weekday digest, records each once, and sends nothing without a working token', async () => {
-  const now = new Date('2026-11-02T17:00:00Z');
-  const world = { ...slackWorld(), dms: { U1: 'D1', U2: 'D9' } };
-  const slack = fakeSlack(world);
-  write(waveFile, { repo: 'o/r', reviewers: [bob], items: [
-    { id: 'A1', title: 'Open', pr: 1 },
-    { id: 'A3', title: 'Merged', pr: 3, status: 'merged', review_link_ts: { Ann: { ts: '1792700000.1', channel: 'D1' } } },
-  ] });
-  write(kf('github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED' }, 'o/r#3': { state: 'MERGED' } } });
-  const boards = [{ route: 'orch', dir: site, title: 'Orch' }];
-
-  assert.deepEqual(await sendReviews({ boards, fetch: slack.fetch, now }), { sent: [], failed: [] });
-  assert.equal(slack.calls.length, 0);
-
-  saveToken(world);
-  const first = await sendReviews({ boards, fetch: slack.fetch, now });
-  assert.deepEqual(first.failed, []);
-  const top = world.messages.filter((m) => !m.thread_ts);
-  assert.deepEqual(top.map((m) => [m.channel, m.text]), [
-    ['D1', 'https://github.com/o/r/pull/1'], ['D9', 'https://github.com/o/r/pull/1'],
-    ['D1', '🤖 Orch digest: 1 PR pending your review'], ['D9', '🤖 Orch digest: 1 PR pending your review'],
-  ]);
-  const replies = world.messages.filter((m) => m.thread_ts);
-  assert.deepEqual(replies.map((m) => [m.channel, m.text, m.thread_ts]), [['D1', 'https://github.com/o/r/pull/1 · Open', top[2].ts], ['D9', 'https://github.com/o/r/pull/1 · Open', top[3].ts]]);
-  assert.deepEqual(world.reactions, [{ channel: 'D1', timestamp: '1792700000.1', name: 'git_merged' }]);
-  const items = read(waveFile).items;
-  assert.deepEqual(items[0].review_link_ts, { Ann: { ts: top[0].ts, channel: 'D1' }, Bob: { ts: top[1].ts, channel: 'D9' } });
-  assert.deepEqual(items[1].review_link_ts.Ann.reactions, ['git_merged']);
-  assert.deepEqual(read(path.join(site, 'data', 'review-digests.json')).digests.map((d) => [d.reviewer, d.dm, d.ts, d.items]), [['Ann', 'D1', top[2].ts, ['w/A1']], ['Bob', 'D9', top[3].ts, ['w/A1']]]);
-  assert.equal(first.sent.length, 5);
-
-  const calls = slack.calls.length;
-  assert.deepEqual(await sendReviews({ boards, fetch: slack.fetch, now }), { sent: [], failed: [] });
-  assert.equal(slack.calls.length, calls);
-
-  write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'A5', title: 'Fresh', pr: 5 }] });
-  write(kf('github-state.json'), { prs: { ...read(kf('github-state.json')).prs, 'o/r#5': { state: 'OPEN', isDraft: false } } });
-  world.token = 'xoxp-revoked';
-  const refused = await sendReviews({ boards, fetch: slack.fetch, now });
-  assert.deepEqual([refused.sent, refused.failed], [[], ['orch: Slack refused the token.']]);
-  assert.equal(slackStatus().refused, true);
-  assert.equal(read(waveFile).items[2].review_link_ts, undefined);
-});
-
-test('one reviewer Slack refuses leaves the others sent and the refused one owed', async () => {
-  const world = { ...slackWorld(), dms: { U2: 'D2' } };
-  const slack = fakeSlack(world);
-  saveToken(world);
-  write(waveFile, { repo: 'o/r', reviewers: [bob], items: [{ id: 'A1', title: 'Open', pr: 1 }] });
-  write(kf('github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false } } });
-  const out = await sendReviews({ boards: [{ route: 'orch', dir: site, title: 'Orch' }], fetch: slack.fetch, now: new Date('2026-11-01T17:00:00Z') });
-  assert.deepEqual(out.failed, ['orch: link to Ann on w/A1: Slack: user_not_found']);
-  assert.deepEqual(Object.keys(read(waveFile).items[0].review_link_ts), ['Bob']);
-});
-
-test('review updated posts “🤖 Updated: …” under each recorded link of a reviewer who has not approved', async () => {
-  const world = slackWorld();
-  const slack = fakeSlack(world);
-  write(waveFile, { repo: 'o/r', reviewers: [bob], items: [
-    { id: 'A1', title: 'Open', pr: 1, review_link_ts: { Ann: { ts: '1792700000.1', channel: 'D1' }, Bob: { ts: '1792700000.2', channel: 'D2' } } },
-    { id: 'A2', title: 'Unsent', pr: 2 },
-  ] });
-  const asked = [];
-  const reviews = async (repo, number) => { asked.push(`${repo}#${number}`); return { bob: 'APPROVED', ann: 'COMMENTED' }; };
-  await assert.rejects(reviewUpdated(site, 'w/A1', 'retries now back off', { fetch: slack.fetch, reviews }), /Hub’s Slack token/);
-  saveToken(world);
-  await assert.rejects(reviewUpdated(site, 'w/A1', '  ', { fetch: slack.fetch, reviews }), /non-empty/);
-  assert.deepEqual((await reviewUpdated(site, 'w/A1', 'retries now back off', { fetch: slack.fetch, reviews })).lines, ['🤖 Updated sent to Ann on w/A1']);
-  assert.deepEqual(world.messages, [{ channel: 'D1', text: '🤖 Updated: retries now back off', thread_ts: '1792700000.1', ts: world.messages[0].ts }]);
-  assert.deepEqual(asked, ['o/r#1']);
-  assert.deepEqual((await reviewUpdated(site, 'w/A2', 'x', { fetch: slack.fetch, reviews })).lines, ['no reviewer waiting on a sent link for w/A2']);
 });
 
 test('the hub saves the Slack token from its settings form and serves only the workspace and user', async (t) => {

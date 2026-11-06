@@ -402,6 +402,23 @@ test('land --owner-step lands the code and leaves the card open on its owner ste
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
 });
 
+test("builder done on a card whose PR link a reviewer has asks for the Updated decision, and queues Updated once done goes through", () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7 }] });
+  const record = () => read(site('orch', 'data', 'pr-slack.json'))['o/r#7'];
+  write(site('orch', 'data', 'pr-slack.json'), { 'o/r#7': { head: 'a', links: { Ann: { channel: 'D1', ts: '1.1', reactions: [] } }, replies: [] } });
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
+  const bare = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it');
+  assert.deepEqual([bare.code, bare.err], [1, 'a reviewer has w/A1\'s PR link: pass --updated "<what changed>" for its thread, or --updated none for a change only to comments, names, docs or tests\n']);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, undefined);
+  const done = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it', '--updated', 'limits reset per key');
+  assert.equal(done.code, 0, done.err);
+  assert.deepEqual(record().replies, [{ id: 'updated-1', text: '🤖 Updated: limits reset per key', to: { Ann: {} } }]);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
+  const quiet = board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Wait for review', '--updated', 'none');
+  assert.equal(quiet.code, 0, quiet.err);
+  assert.equal(record().replies.length, 1);
+});
+
 test('builder done --owner-step records the step on the card, and refuses one on a card already closed, naming land', () => {
   const items = (extra) => write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', pr: 7, ...extra }] });
   items({});

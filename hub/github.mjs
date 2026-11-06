@@ -39,6 +39,9 @@ export function summarize(out) {
     mergeable: out.mergeable || null, mergeStateStatus: out.mergeStateStatus || null, head: out.head || null,
     failing: [...new Set(out.failing || [])].sort(), pending: Number(out.pending) || 0,
     eventId: newest ? String(newest.id) : null, eventAt: newest?.at || null,
+    // For the PR's Slack link and push replies (board/store.mjs reviewDue, queuePushes)
+    title: out.title ?? null, additions: out.additions ?? null, deletions: out.deletions ?? null, files: out.files ?? null,
+    approved: Boolean(out.approved), commits: Array.isArray(out.commits) ? out.commits : [],
   };
 }
 

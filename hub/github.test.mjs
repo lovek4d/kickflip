@@ -24,10 +24,13 @@ const gh = (over = {}) => ({
 const sum = (over) => summarize(gh(over));
 
 test('summarize keeps the state fields, sorted failing names and the newest event', () => {
-  const s = sum({ failing: ['lint', 'build', 'lint'], pending: 2, reviewDecision: '', events: [{ id: 11, at: '2026-10-23T10:00:00Z' }, { id: 12, at: '2026-10-23T11:00:00Z' }] });
+  const commits = [{ oid: 'abc1234567', subject: 'Fix' }];
+  const s = sum({ failing: ['lint', 'build', 'lint'], pending: 2, reviewDecision: '', events: [{ id: 11, at: '2026-10-23T10:00:00Z' }, { id: 12, at: '2026-10-23T11:00:00Z' }],
+    title: 'Fix', additions: 3, deletions: 1, files: 2, approved: true, commits });
   assert.deepEqual(s, {
     state: 'OPEN', isDraft: false, reviewDecision: null, mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: 'abc1234567',
     failing: ['build', 'lint'], pending: 2, eventId: '12', eventAt: '2026-10-23T11:00:00Z',
+    title: 'Fix', additions: 3, deletions: 1, files: 2, approved: true, commits,
   });
 });
 

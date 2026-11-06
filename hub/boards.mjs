@@ -23,7 +23,7 @@ import { storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { githubFromOrigin } from './repos.mjs';
-import { reviewLinks, topicItems } from '../board/review.mjs';
+import { prLinks, reviewLinks, topicItems } from '../board/review.mjs';
 import { cardPRs } from '../shared/card-prs.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -395,6 +395,7 @@ function wakesLink(board, settings, wakeState) {
 }
 
 function slackLink(board, state, topics) {
+  const record = readJSON(path.join(board.dir, 'data', 'pr-slack.json'), {});
   const missing = [];
   let inReview = 0;
   for (const p of board.prs) {
@@ -403,7 +404,7 @@ function slackLink(board, state, topics) {
     inReview++;
     const { wave } = board.waves.find((w) => w.slug === p.wave);
     const item = wave.items.find((it) => it.id === p.id);
-    const links = reviewLinks(wave, item, `${p.wave}/${p.id}`, topics);
+    const links = reviewLinks(wave, item, `${p.wave}/${p.id}`, topics, prLinks(record, [{ repo: p.repo, number: p.pr }]));
     const lacking = [...new Set([...board.reviewers, ...names(wave.reviewers)])].filter((n) => !Object.hasOwn(links, n));
     if (lacking.length) missing.push(`#${p.pr} has no link for ${lacking.join(', ')}`);
   }
