@@ -66,7 +66,7 @@
       return `<div class="topics" role="group" aria-label="Topics">${list.map((t) => pillHtml(t)).join('')}</div>`;
     }
     // An arrival (arrive) slides in with a glow and settles (style.css .arrived).
-    const pillHtml = (t, arrived = false) => `<button${arrived ? ' class="arrived"' : ''} data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
+    const pillHtml = (t, arrived = false) => `<button class="${arrived ? 'arrived ' : ''}${t.progress ? 'progress' : ''}" data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
     const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
 
     // Only open questions changed here since their last answer, with files attached, or with a suggested option

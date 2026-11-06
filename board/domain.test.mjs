@@ -460,6 +460,22 @@ test("needs sorts each card's line by its card's created time, and a topic with 
   assert.deepEqual(pills(newer), ['site', 'item:w/A1']);
 });
 
+test("questions on In Progress cards come first, oldest card first, then the other cards the same way, and their pills carry progress", () => {
+  const card = (id, created, status) => ({ id, title: id, created, status, branch: id });
+  const q = (id, topic) => ({ id: `q-${id}`, topic: `item:w/${id}`, question: 'Keep it?', asked_at: '2026-10-23T20:00:00Z' });
+  const ids = ['P-old', 'P-new', 'T-old', 'T-new'];
+  const b = buildBoard({ fromWaves: true, github: 'o/r', waves: [{ slug: 'w', agents: {}, wave: { repo: 'o/r', items: [
+    card('T-old', '2026-10-01T00:00:00Z'), card('P-new', '2026-10-05T00:00:00Z', 'checking'), card('T-new', '2026-10-06T00:00:00Z'), card('P-old', '2026-10-03T00:00:00Z', 'checking')] } }],
+  owner: { items: ids.map((id) => q(id)) } });
+  const lanes = Object.fromEntries(b.items.map((i) => [i.id, i.lane]));
+  assert.deepEqual([lanes['P-old'], lanes['P-new']], ['progress', 'progress']);
+  assert.notEqual(lanes['T-old'], 'progress');
+  assert.deepEqual(b.needs.map((l) => l.title.split(':')[1].trim()), ['P-old', 'P-new', 'T-old', 'T-new']);
+  const pills = b.ownerTopics.filter((t) => t.open > 0);
+  assert.deepEqual(pills.map((t) => t.id), ['P-old', 'P-new', 'T-old', 'T-new'].map((id) => `item:w/${id}`));
+  assert.deepEqual(pills.map((t) => Boolean(t.progress)), [true, true, false, false]);
+});
+
 test("the board session's pending prompts lead Needs you, each a Prompt line carrying its details, and the summary and the hub's needs count them", () => {
   const perm = { id: 'p1', tool: 'Bash', action: 'run npm test', detail: 'npm test', rule: 'Bash(npm test)', questions: null, cwd: '~/r', at: '2026-10-30T10:00:00Z' };
   const ask = { id: 'p2', tool: 'AskUserQuestion', action: null, detail: '', rule: null, cwd: '~/r', at: '2026-10-30T10:01:00Z', questions: [{ question: 'Colour?', options: [{ label: 'Red' }] }, { question: 'Size?', options: [{ label: 'S' }] }] };
