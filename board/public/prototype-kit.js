@@ -14,7 +14,7 @@
 //   kit.on(target, type, fn, opts)      a listener removed on the next switch
 //   kit.fake                            made-up data: at(ms), sites(), usage({claude, codex}), sidebar(), hub(), items()
 //   kit.esc                             HTML escaping
-// BoardUI and HubUI, the real renderers, are globals too. A link in the stage never navigates and a form never
+// The page loads every script app.html does, in its order, so BoardUI and HubUI, every real renderer included, are globals too. A link in the stage never navigates and a form never
 // submits: each toasts unless the take's own handler shows a toast. Listeners a take adds to document or window,
 // and its timers, end on the next switch. Interactions must work on a tap: a phone has no hover.
 // At phone width (under 600px) the page caps every box in the stage to the stage's width and stacks a take's side-by-side

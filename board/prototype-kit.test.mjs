@@ -157,3 +157,9 @@ test("the kit draws the real sidebar, Hub page, cards and a sheet in the stage's
   assert.doesNotMatch(kit.cards(kit.fake.items(), { lanes: false }), /data-lane/);
   assert.match(kit.sheet('<p>Body</p>', { title: 'New <card>' }), /<section class="kit-sheet" role="group" aria-label="New &lt;card&gt;"><div class="sheet-head"><h2>New &lt;card&gt;<\/h2>[\s\S]*<div class="kit-sheet-body"><p>Body<\/p><\/div>/);
 });
+
+test('the prototype template loads every script app.html does, in its order, then the switcher and the kit', () => {
+  const srcs = (file) => [...fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8').matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  const app = srcs('app.html').map((src) => src.replace('/_hub/app/', ''));
+  assert.deepEqual(srcs('prototype.html'), [...app, 'prototype-switcher.js', 'prototype-kit.js']);
+});
