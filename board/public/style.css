@@ -737,23 +737,8 @@ main > * { transition: opacity .25s ease; }
   .sheet.keyboard-sheet { --sheet-limit: max(80px, calc(var(--vh, 100dvh) + var(--kb, 0px) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - max(12px, env(safe-area-inset-top)))); }
 }
 
-/* Typing, a text field focused with the keyboard up (shell.js dock sets :root.kb-up, --keyboard and --keyboard-top): the
-   header collapses to a 26px strip naming the page at the top of what shows, and the field's send bar docks on the
-   keyboard as one compact row: the Questions page's count and Send, or a reply form's What's left? chip and its send buttons. */
-:root.kb-up :is(body > .top, body.has-sidebar > :not(.sidebar) > .top) { position: fixed; top: var(--keyboard-top, 0px); bottom: auto; left: 0; right: 0; z-index: 7;
-  height: 26px; padding: 0 14px; justify-content: flex-start; border-top: 0; border-bottom: 1px solid var(--line); background: var(--bg); backdrop-filter: none; }
-:root.kb-up :is(body > .top, body.has-sidebar > :not(.sidebar) > .top) > :not(.brand),
-:root.kb-up :is(body > .top, body.has-sidebar > :not(.sidebar) > .top) .brand > :not(h1, h2) { display: none; }
-:root.kb-up :is(body > .top, body.has-sidebar > :not(.sidebar) > .top) .brand { min-height: 0; align-items: center; gap: 8px; min-width: 0; }
-:root.kb-up :is(body > .top, body.has-sidebar > :not(.sidebar) > .top) .brand :is(h1, h2) { font-size: 12px; line-height: 26px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-:root.kb-up :is(body > .top, body.has-sidebar > :not(.sidebar) > .top) .brand::after { content: '· typing'; flex: none; font-size: 12px; color: var(--muted); }
-:root.kb-up .view-questions.docked .bar { position: fixed; left: 0; right: 0; bottom: var(--keyboard, 0px); z-index: 7; padding: 6px 16px; box-shadow: 0 -6px 14px rgba(0,0,0,.12); }
-:root.kb-up .view-questions.docked .bar .send-hint { display: none; }
-:root.kb-up form[data-reply].docked > .row { position: fixed; left: 0; right: 0; bottom: var(--keyboard, 0px); z-index: 7; margin: 0; padding: 6px 16px;
-  flex-wrap: nowrap; background: var(--bg); border-top: 1px solid var(--line); box-shadow: 0 -6px 14px rgba(0,0,0,.12); }
-:root.kb-up form[data-reply].docked > .row :is(.icons, [data-confirm="finish"]) { display: none; }
-:root.kb-up form[data-reply].docked > .row > .send-actions { display: flex; flex: none; margin: 0; }
-:root.kb-up form[data-reply].docked > .row > [data-sends] { margin-left: auto; }
+/* Typing, a text field focused (shell.js sets :root.typing): the floating + is disabled and the page stays as it is. */
+:root.typing .fab { opacity: .35; pointer-events: none; }
 
 .settings-modal { position: fixed; inset: max(12px, env(safe-area-inset-top)) 0 calc(12px + max(var(--kb, 0px), var(--app-bottom, 0px))); margin: auto; width: min(680px, calc(100% - 24px));
   height: fit-content; max-width: none; max-height: max(120px, calc(var(--vh, 100dvh) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - 24px - env(safe-area-inset-top)));

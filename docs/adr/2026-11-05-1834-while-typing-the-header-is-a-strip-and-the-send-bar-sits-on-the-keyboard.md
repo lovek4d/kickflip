@@ -9,3 +9,5 @@
 - Other text fields (a card's edit box, settings, a sheet's fields) collapse the header too but dock no bar; a sheet already sits on the keyboard (dialogs.js fitSheet).
 
 Not checked on a phone: the tests cover the dock's state from a faked visualViewport and the CSS rules by text. iOS reports visualViewport late while scrolling, so the strip and the bar may still lag a scroll there; only the phone can show it.
+
+**Reversed by #360** (2026-11-07-0600-typing-only-disables-the-plus-button.md): the owner dropped the dock and strip; typing now only disables the + button.

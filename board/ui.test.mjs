@@ -2196,19 +2196,10 @@ test("a Full person's line in a thread is named as them, the owner's stays You",
   assert.match(html, /<div class="who">You · /);
 });
 
-test('while typing, the header collapses to a strip at the top of what shows and the field\'s send bar docks on the keyboard', () => {
+test('while typing, only the floating + is disabled: no header strip or docked bar', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const rule = (sel) => css.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
-  const header = ':root.kb-up :is(body > .top, body.has-sidebar > :not(.sidebar) > .top)';
-  assert.match(rule(header), /position: fixed;[^]*top: var\(--keyboard-top, 0px\);[^]*height: 26px;/);
-  assert.match(css, /:root\.kb-up :is\(body > \.top, body\.has-sidebar > :not\(\.sidebar\) > \.top\) > :not\(\.brand\)/);
-  assert.match(rule(`${header} .brand::after`), /content: '· typing'/);
-  for (const bar of [':root.kb-up .view-questions.docked .bar', ':root.kb-up form[data-reply].docked > .row']) {
-    assert.match(rule(bar), /position: fixed;[^]*bottom: var\(--keyboard, 0px\);/, bar);
-  }
-  // The docked thread row carries the What's left? chip and the send buttons, as take B drew.
-  assert.match(css, /:root\.kb-up form\[data-reply\]\.docked > \.row :is\(\.icons, \[data-confirm="finish"\]\) \{ display: none; \}/);
-  assert.doesNotMatch(css, /\.view-questions\.kb-up/);
+  assert.match(css, /:root\.typing \.fab \{[^}]*pointer-events: none;/);
+  assert.doesNotMatch(css, /kb-up|\.docked|--keyboard/);
 });
 
 test('a ↗ written in a question, its context and its options draws as the arrow icon, never the character', () => {

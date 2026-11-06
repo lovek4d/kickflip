@@ -136,38 +136,12 @@ window.AppShell = (function () {
     for (const type of ['pointerdown', 'keydown', 'scroll']) addEventListener(type, beat, { capture: true, passive: true });
 
     // docs/adr/2026-11-05-1834-while-typing-the-header-is-a-strip-and-the-send-bar-sits-on-the-keyboard.md
-    // Typing on any page, a text field focused with the keyboard up, sets :root.kb-up: style.css collapses the header
-    // to a strip at the top of what shows and docks the field's send bar (its reply form's row, or the Questions page's
-    // bar) on the keyboard. iOS keeps fixed elements on the layout viewport, so --keyboard (the part its keyboard covers)
-    // and --keyboard-top (how far the visible part has scrolled) come from visualViewport. Once up, it stays until the
-    // keyboard goes: a tap on the docked bar blurs the field first, and the bar must not move from under that tap.
-    const vv = window.visualViewport;
-    const html = document.documentElement;
-    let typing = false;
-    // The typed-in field's reply form or Questions page, and the one docked now.
-    let bar = null;
-    let docked = null;
-    const dock = () => {
-      const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
-      html.style.setProperty('--keyboard', kb + 'px');
-      html.style.setProperty('--keyboard-top', (vv ? Math.round(vv.offsetTop) : 0) + 'px');
-      const up = kb > 0 && (typing || html.classList.contains('kb-up'));
-      html.classList.toggle('kb-up', up);
-      if (!up && !typing) bar = null;
-      const next = up ? bar : null;
-      if (next === docked) return;
-      docked?.classList.toggle('docked', false);
-      next?.classList.toggle('docked', true);
-      docked = next;
-    };
+    // While a text field has focus :root.typing is set and style.css disables the floating + (New task); nothing else
+    // on the page moves.
     document.addEventListener('focusin', (ev) => {
-      typing = ev.target.matches?.('textarea, input[type="text"], input:not([type])') ?? false;
-      if (typing) bar = ev.target.closest('form[data-reply], .view-questions');
-      dock();
+      document.documentElement.classList.toggle('typing', ev.target.matches?.('textarea, input[type="text"], input:not([type])') ?? false);
     });
-    document.addEventListener('focusout', () => { typing = false; });
-    vv?.addEventListener('resize', dock);
-    vv?.addEventListener('scroll', dock);
+    document.addEventListener('focusout', () => document.documentElement.classList.remove('typing'));
 
     // A view that changed what the sidebar's foot rows say, such as notifications, asks for a fresh copy
     // rather than waiting for the stream's next one.
