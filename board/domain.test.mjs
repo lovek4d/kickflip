@@ -1802,9 +1802,12 @@ test("a thread's status line names the agent it belongs to: the newest started o
   const status = (ts, planner) => ({ ts, who: 'claude', kind: 'status', text: `at ${ts}`, ...(planner ? { planner: true } : {}) });
   const lines = [status('2026-10-23T09:00:00Z'), status('2026-10-23T10:05:00Z'), status('2026-10-23T10:16:00Z', true), status('2026-10-23T10:25:00Z'), status('2026-10-23T10:26:00Z', true)];
   const got = threadOf('w/A1', { lines, agents }).filter((m) => m.kind === 'status').map((m) => [m.ts.slice(11, 16), m.run || null, m.running ?? null]);
-  assert.deepEqual(got, [['09:00', null, null], ['10:05', 'old', false], ['10:16', 'proto', true], ['10:25', 'build', true], ['10:26', 'proto', true]]);
+  assert.deepEqual(got, [['09:00', null, null], ['10:05', '2026-10-23T10:00:00Z', false], ['10:16', '2026-10-23T10:15:00Z', true], ['10:25', '2026-10-23T10:20:00Z', true], ['10:26', '2026-10-23T10:15:00Z', true]]);
   const ends = threadOf('w/A1', { lines, agents }).filter((m) => m.kind === 'agent').map((m) => [m.text.split(' ').pop(), m.run, m.agent]);
-  assert.deepEqual(ends.filter(([, run]) => run === 'old'), [['started', 'old', 'Claude Opus implementer'], ['finished', 'old', 'Claude Opus implementer']]);
+  assert.deepEqual(ends.filter(([, run]) => run === '2026-10-23T10:00:00Z'), [['started', '2026-10-23T10:00:00Z', 'Claude Opus implementer'], ['finished', '2026-10-23T10:00:00Z', 'Claude Opus implementer']]);
+  // A line's own run id wins over the time guess: this one falls in both runs' time but names the older.
+  const tagged = threadOf('w/A1', { lines: [{ ...status('2026-10-23T10:25:00Z'), run: '2026-10-23T10:00:00Z' }], agents }).find((m) => m.kind === 'status');
+  assert.deepEqual([tagged.run, tagged.running], ['2026-10-23T10:00:00Z', false]);
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md

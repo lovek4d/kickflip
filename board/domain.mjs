@@ -793,12 +793,14 @@ const withLog = (m) => {
   const legacy = !m.log && typeof m.text === 'string' ? LEGACY_LOG.exec(m.text) : null;
   return legacy ? { ...m, text: `${m.text.slice(0, legacy.index)}.`, log: legacy[1] } : m;
 };
-// The agent a status line belongs to: of the agents of its kind of work (planners for a planner line, implementers for
-// the rest) that had started by its time and not finished before it, the newest started. A status line carries no
-// agent id. → {agent: its name, run: its record name, running}, or {} for a line no agent covers.
+// The agent a status line belongs to, and its run: the line's own run id (the started time of the agent record it was
+// written under) names it. A line with no run id, from before lines carried one, falls to the agents of its kind of work
+// (planners for a planner line, implementers for the rest) that had started by its time and not finished before it, the
+// newest started. → {agent: its name, run: its started time, running}, or {} for a line no agent covers.
 function agentOfLine(agentList, m) {
-  const own = agentList.filter((a) => plans(a) === Boolean(m.planner) && a.started && String(a.started) <= String(m.ts) && (!a.done || String(m.ts) <= String(a.done))).pop();
-  return own ? { agent: agentName(own), run: own.name, running: !own.done } : {};
+  const own = m.run ? agentList.find((a) => a.started === m.run)
+    : agentList.filter((a) => plans(a) === Boolean(m.planner) && a.started && String(a.started) <= String(m.ts) && (!a.done || String(m.ts) <= String(a.done))).pop();
+  return own ? { agent: agentName(own), run: own.started, running: !own.done } : {};
 }
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
@@ -816,8 +818,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     // First, so a start sorts above the status line `builder start` writes at the same moment.
     // A planner's lines are marked planner, which the thread draws in the owner's blue.
     ...agentsOf(agents).flatMap((a) => [
-      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: a.name, finished: false, eta: a.done ? null : a.eta, ...(plans(a) ? { planner: true } : {}) }] : []),
-      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: a.name, finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: a.started, finished: false, eta: a.done ? null : a.eta, ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: a.started, finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
       // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),

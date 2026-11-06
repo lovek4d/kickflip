@@ -2781,7 +2781,7 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
   const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail.replace(repeat, '')}` : detail;
   const file = threadFile(site, key);
   if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
-  await appendLine(file, { ts, who: 'claude', kind: 'status', ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), text: body });
+  await appendLine(file, { ts, who: 'claude', kind: 'status', run: builder.started, ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), text: body });
 }
 
 // The model a planner runs without --model (owner, #111's grill).
