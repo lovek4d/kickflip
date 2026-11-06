@@ -1832,6 +1832,15 @@ test("a thread's status line names the agent it belongs to: the newest started o
   assert.deepEqual([tagged.run, tagged.running], ['2026-10-23T10:00:00Z', false]);
 });
 
+test("a run's started line carries the log its launch recorded on the agent's session, and a record with none carries none", () => {
+  const agents = {
+    main: { kind: 'claude', model: 'opus', label: 'Builder', started: '2026-10-23T10:00:00Z', session: { id: 's1', pid: 1, log: 'builder-A1-x.log', at: '2026-10-23T10:00:01Z' } },
+    bare: { kind: 'claude', model: 'opus', label: 'Builder', started: '2026-10-23T10:05:00Z' },
+  };
+  const started = threadOf('w/A1', { agents }).filter((m) => m.kind === 'agent' && !m.finished).map((m) => [m.run, m.log ?? null]);
+  assert.deepEqual(started, [['2026-10-23T10:00:00Z', 'builder-A1-x.log'], ['2026-10-23T10:05:00Z', null]]);
+});
+
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
 test("a card's bare Grill and Prototype taps are muted request entries in its thread carrying their command key, one with text is the owner's message with the request as its footer status, an answer's status is answers submitted, and an ask sent with Implement reads Implementation requested under it", () => {

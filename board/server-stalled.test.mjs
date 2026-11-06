@@ -277,10 +277,10 @@ test('with auto implement on the board starts and launches the build of the top 
   });
   // At start the running build takes one of the two slots; the top pullable card takes the other.
   await start();
-  await until(() => pulls().length === 1 && thread('A5').length >= 3, 'the board pulls in a card at start');
+  await until(() => pulls().length === 1 && thread('A5').length >= 2, 'the board pulls in a card at start');
   assert.deepEqual(pulls(), ['t/A5']);
   // The fake builder exits at once, so the minute check may relaunch it after these two lines.
-  assert.deepEqual(thread('A5').slice(0, 3).map((t) => t.replace(/ in .*/, '')), ['Pulled in: an implementer slot was free.', 'Moved to In Progress: a build started', 'Builder launched on Claude Opus']);
+  assert.deepEqual(thread('A5').slice(0, 2).map((t) => t.replace(/ in .*/, '')), ['Pulled in: an implementer slot was free.', 'Moved to In Progress: a build started']);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'A5.json'), 'utf8')).dispatched, 'hub');
   assert.ok(!fs.readFileSync(eventsFile, 'utf8').includes('card-pull'), 'no event wakes the session');
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pull and
@@ -322,7 +322,7 @@ test('with auto implement on the board starts and launches the build of the top 
   assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6', 't/A7']);
   assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
   // The follow-up, filed with no state, is no pull but arrived in Todo, so it got its grill.
-  assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
+  assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.']);
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
@@ -577,7 +577,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being oldest first');
   assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
   assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
-  assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
+  assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.']);
   const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
   assert.deepEqual([record.kind, record.dispatched], ['grill', 'hub']);
   await stop();

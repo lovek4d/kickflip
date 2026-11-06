@@ -1872,10 +1872,14 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
   assert.deepEqual(waits(acted), ['Q10']);
 });
 
-test('a thread line with a log field links to open the log', () => {
-  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Builder launched headless on Claude Sonnet in /wt/A1.', log: 'builder-A1-2026.log' }]);
-  assert.match(html, /<a href="log\.html\?file=builder-A1-2026\.log">Open the log<\/a>/);
-  assert.doesNotMatch(html, /its log is/);
+test("a run's fold ends its summary with a log link, running or finished, and a run with no log has none", () => {
+  const started = (extra = {}) => ({ ts: ago(3), who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Opus grill', text: 'Claude Opus grill started', finished: false, planner: true, ...extra });
+  const status = { ts: ago(2), who: 'claude', kind: 'status', run: 'r1', agent: 'Claude Opus grill', planner: true, text: 'Reading' };
+  const done = { ts: ago(1), who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Opus grill', text: 'Claude Opus grill finished', finished: true, planner: true };
+  const running = ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status]);
+  assert.match(running, /<summary>.*running · Reading <a class="fold-log" href="log\.html\?file=planner-A1-2026\.log">log<\/a><\/summary>/);
+  assert.match(ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status, done]), /finished <a class="fold-log" href="log\.html\?file=planner-A1-2026\.log">log<\/a><\/summary>/);
+  assert.doesNotMatch(ui.threadMessages([started(), status]), /fold-log/);
 });
 
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {

@@ -432,7 +432,6 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal(git(worktree, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
     assert.equal(wave().items.find((i) => i.id === 'B1').next, undefined);
     assert.deepEqual(log().slice(before), []);
-    assert.match(thread('B1').at(-1).text, new RegExp(`^Builder launched on Claude Opus in ${worktree}\\.$`));
     const started = await card('B1');
     assert.deepEqual([started.lane, started.storedLane, started.buildable, started.builder.progress, started.refusal], ['progress', 'progress', false, null, null]);
 
@@ -442,14 +441,14 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const unheld = await card('B2');
     assert.deepEqual([unheld.held, unheld.lane, unheld.storedLane, unheld.builder.progress, unheld.refusal], [false, 'progress', 'progress', null, null]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
-    assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed'], ['claude', 'Moved to In Progress: a build started'], ['claude', 'Builder launched on Claude Opus']]);
+    assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed'], ['claude', 'Moved to In Progress: a build started']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
     // docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md: a held card that has an unstarted status is unheld by Implement too.
     for (const id of ['B8', 'B9']) {
       assert.equal((await post({ kind: 'card-build', key: `t/${id}` })).status, 200);
       const resumed = await card(id);
       assert.deepEqual([resumed.held, resumed.lane, resumed.storedLane, resumed.refusal], [false, 'progress', 'progress', null], id);
-      assert.deepEqual(thread(id).map((m) => m.text.replace(/ in .*/, '')), ['Resumed', 'Moved to In Progress: a build started', 'Builder launched on Claude Opus'], id);
+      assert.deepEqual(thread(id).map((m) => m.text.replace(/ in .*/, '')), ['Resumed', 'Moved to In Progress: a build started'], id);
     }
     // Grill leaves the hold alone.
     assert.equal((await post({ kind: 'grill-more', key: 't/B10' })).status, 200);
@@ -491,7 +490,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const remade = await card('B6');
     assert.deepEqual([remade.lane, remade.storedLane, remade.refusal], ['progress', 'progress', null]);
     assert.equal(git(leftover6, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
-    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', 'Moved to In Progress: a build started'], ['claude', `Remade the leftover worktree ${leftover6} from main: it held no commits or changes.`], ['claude', `Builder launched on Claude Opus in ${leftover6}.`]]);
+    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', 'Moved to In Progress: a build started'], ['claude', `Remade the leftover worktree ${leftover6} from main: it held no commits or changes.`]]);
     assert.equal((await post({ kind: 'card-build', key: 't/B7' })).status, 200);
     const kept = await card('B7');
     assert.deepEqual([kept.lane, kept.storedLane, kept.refusal], ['todo', 'todo', `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
@@ -506,7 +505,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
       assert.deepEqual([tapped.lane, tapped.storedLane, tapped.orchestrator], ['progress', 'progress', null], id);
       assert.deepEqual([wave().items.find((i) => i.id === id).state, 'unfiled' in wave().items.find((i) => i.id === id)], ['ready', false], id);
       assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', `${id}.json`), 'utf8')).dispatched, 'tap');
-      assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text.replace(/ in .*/, '')]), [['love', 'implement', 'Implementation requested'], ['claude', undefined, 'Moved to In Progress: a build started'], ['claude', undefined, 'Builder launched on Claude Opus']], id);
+      assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text.replace(/ in .*/, '')]), [['love', 'implement', 'Implementation requested'], ['claude', undefined, 'Moved to In Progress: a build started']], id);
     }
     assert.deepEqual(log().slice(events).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
     // One the tap refuses keeps the state it had.

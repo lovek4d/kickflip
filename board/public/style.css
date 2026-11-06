@@ -966,3 +966,4 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
 }
 /* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
 body .view-questions main { padding-bottom: var(--app-bottom, 0px); }
+.msg.calls.status-fold summary .fold-log { margin-left: 6px; color: var(--accent); text-decoration: underline; }

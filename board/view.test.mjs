@@ -5180,7 +5180,7 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
 
 // docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md
 function readerOnDom(logText) {
-  const launch = { ts: '2026-10-30T09:00:00.000Z', who: 'claude', eventId: 'e-1', text: 'Builder launched headless on Claude Sonnet in /wt/A1.', log: 'builder-A1-1.log' };
+  const launch = { ts: '2026-10-30T09:00:00.000Z', who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Sonnet implementer', text: 'Claude Sonnet implementer started', finished: false, log: 'builder-A1-1.log' };
   const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1', { lane: 'progress', hasNotes: true })]), threads: { 'w/A1': [launch] } });
   const log = { text: logText };
   const moves = [];
@@ -5206,7 +5206,7 @@ test("a builder's log opens in a sheet over the board: readable lines of its str
     + called('Bash', { command: 'node --test board/view.test.mjs', description: 'Run the tests' }) + answered([{ type: 'text', text: 'ℹ pass 6' }]));
   await r.settle();
   const link = r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]');
-  assert.equal(link.textContent, 'Open the log');
+  assert.equal(link.textContent, 'log');
   assert.equal(r.tap(link).defaultPrevented, true, 'the link opens the sheet in place of the log page');
   await r.settle();
   assert.equal(r.sheet().open, true);

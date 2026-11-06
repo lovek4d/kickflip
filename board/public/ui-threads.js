@@ -59,13 +59,15 @@
 
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
   // closed details line at its started line's place: the agent, running with its newest status text or finished, and
-  // no line count; expanding it shows the run's lines.
+  // no line count, and ending with a log link beside the summary when the run has a log; expanding it shows the run's lines.
   function foldedRun(m, links, edits) {
     const statuses = m.folded.filter((f) => f.kind === 'status');
     const running = !m.folded.some((f) => f.finished);
     const newest = statuses.at(-1);
     const tail = running ? (newest ? `running · ${escText(newest.text)}` : 'running') : 'finished';
-    return `<details class="msg calls status-fold${running ? '' : ' finished'}${m.planner ? ' planner' : ''}"><summary>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`;
+    const log = m.folded.find((f) => f.log)?.log;
+    const logLink = log ? ` <a class="fold-log" href="log.html?file=${encodeURIComponent(log)}">log</a>` : '';
+    return `<details class="msg calls status-fold${running ? '' : ' finished'}${m.planner ? ' planner' : ''}"><summary>${statusMark('status lines')}${escText(m.agent)} · ${tail}${logLink}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`;
   }
   function foldStatus(lines) {
     const runs = new Map();

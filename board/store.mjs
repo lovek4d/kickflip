@@ -3222,11 +3222,11 @@ export async function abandonPlanner(site, key, text, agent = 'main') {
 
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
 // The session id of the agent the board server just launched on a card (headless.mjs launchBuilder), on its builder
-// record, the main one unless agent names another, as session {id, at}. The agent's own builder start keeps it (launchedSession).
-export async function recordSession(site, key, id, pid, agent = 'main') {
+// record, the main one unless agent names another, as session {id, pid, log: the log file's name, at}. The agent's own builder start keeps it (launchedSession).
+export async function recordSession(site, key, id, pid, agent = 'main', log = null) {
   const file = await builderFile(site, key, undefined, agent);
   const record = await readJSON(file, null);
-  await writeJSON(file, { ...record, session: { id, pid, at: new Date().toISOString() } });
+  await writeJSON(file, { ...record, session: { id, pid, log, at: new Date().toISOString() } });
 }
 
 // The card's open builder records, each as {pid, at}: the process the board server launched (null for an agent a

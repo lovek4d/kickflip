@@ -190,7 +190,6 @@ test("the server launches the builder for a tap and a pull instead of waking the
     const [landing] = runs();
     assert.equal(landing.cwd, fs.realpathSync(lander));
     assert.match(landing.argv[1], /builder done t\/H3 --text/);
-    assert.equal(thread('H3').at(-1).text.startsWith('Lander launched on '), true);
 
     const tapped = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-build', key: 't/H1' }) }).then((r) => r.json());
     assert.equal(tapped.id, null);
@@ -201,12 +200,12 @@ test("the server launches the builder for a tap and a pull instead of waking the
     assert.deepEqual([built.argv[0], built.argv[2], built.argv[3], built.argv[4]], ['-p', '--permission-mode', 'auto', '--model']);
     assert.ok(built.argv[1].includes(path.join(data, 'h1.md')) && built.argv[1].includes('builder start t/H1 --kind build'));
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H1.json'), 'utf8')).dispatched, 'tap');
-        const launch = thread('H1').at(-1);
-    assert.match(launch.text, /^Builder launched on Claude (Opus|Sonnet) in .*H1\.$/);
-    assert.match(launch.log, /^builder-H1-.*\.log$/);
+    const launchLog = JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H1.json'), 'utf8')).session.log;
+    assert.match(launchLog, /^builder-H1-.*\.log$/);
+    assert.ok(!thread('H1').some((m) => /launched on/.test(m.text)), 'no launch message');
     const logs = path.join(home, '.claude', 'kickflip', 'logs');
-    fs.writeFileSync(path.join(logs, launch.log), 'x'.repeat(300_000) + '\nlast line\n');
-    const tail = await fetch(`${base}/api/log?file=${launch.log}`).then((r) => r.json());
+    fs.writeFileSync(path.join(logs, launchLog), 'x'.repeat(300_000) + '\nlast line\n');
+    const tail = await fetch(`${base}/api/log?file=${launchLog}`).then((r) => r.json());
     assert.equal(tail.truncated, true);
     assert.ok(tail.text.endsWith('last line\n') && tail.text.length < 262_144);
     for (const bad of ['../../site/board.json', '..%2F..%2Fsite%2Fboard.json', 'a/b.log', '.hidden.log', 'notes.txt', '']) assert.equal((await fetch(`${base}/api/log?file=${bad}`)).status, 400, bad);
@@ -467,9 +466,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
     assert.match(JSON.parse(fs.readFileSync(seen, 'utf8').trim().split('\n')[0]).argv[1], /builder start t\/R1 --kind build/);
     await until(() => JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/R1']?.relaunched === true, 'the relaunch is tracked');
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.id, 'sess-R1');
-    const lines = fs.readFileSync(path.join(data, 'threads', 't__R1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    // Found among the lines, since past the fake builder's 5 s the check hands the build back with a line of its own.
-    assert.match(lines.find((l) => l.text.startsWith('Builder launched'))?.text ?? '', new RegExp(`^Builder launched on Claude Opus in ${wt}, session sess-R1\\.$`));
+    assert.match(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.log, /^builder-R1-.*\.log$/);
     // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
     const logged = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.call === 'relaunch');
     assert.deepEqual({ ...logged, at: undefined }, { at: undefined, call: 'relaunch', key: 't/R1', result: 'relaunched', reason: 'Its builder exited with its record open, for the first time.', inputs: { model: 'opus', pid: dead.pid, relaunched: false } });
@@ -578,7 +575,7 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
     assert.match(grill.argv[1], /grilling skill/);
     assert.equal(grill.argv[grill.argv.indexOf('--model') + 1], 'opus');
     assert.deepEqual([b.record('G1').kind, b.record('G1').dispatched], ['grill', 'hub']);
-    assert.match(b.thread('G1').at(-1).text, /^Planner launched on Claude Opus in .*clone\.$/);
+    assert.match(b.record('G1').session.log, /^planner-G1-.*\.log$/);
     assert.equal(b.item('G1').lane, 'todo', 'a planner never starts the card');
 
     await send('prototype-request', { key: 't/P1' });
@@ -592,8 +589,8 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
     fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', auto_pull: true }));
     await until(() => b.runs().length === 3, 'the arrival launches a grill');
     assert.match(b.runs()[2].argv[1], /builder start t\/Q1 --kind grill/);
-    await until(() => b.thread('Q1').length === 2, 'the launch line follows the run');
-    assert.deepEqual(b.thread('Q1').map((t) => t.text.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.', 'Planner launched on Claude Opus']);
+    await until(() => b.record('Q1').session?.log, 'the launch records the run');
+    assert.deepEqual(b.thread('Q1').map((t) => t.text), ['Landed in Todo, so the board started its grill.']);
     assert.ok(!b.events().includes('card-plan'), 'the grill wakes no session');
     // A tap while the card's planner is open launches nothing more.
     await send('grill-more', { key: 't/Q1' });
@@ -763,7 +760,7 @@ test("the owner's visual request launches a visual agent on Sonnet beside the ca
     const visual = b.record(`V1@visual-${id}`);
     assert.deepEqual([visual.kind, visual.model, visual.dispatched], ['visual', 'sonnet', 'hub']);
     assert.deepEqual(b.record('V1'), build, "the build's record is untouched");
-    await until(() => /^Visual agent launched on Claude Sonnet in /.test(b.thread('V1').at(-1)?.text || ''), 'the launch line follows the run');
+    await until(() => b.record(`V1@visual-${id}`).session?.log, 'the launch records the run');
 
     const second = await send('visual-request', { key: 't/V1' });
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -821,7 +818,7 @@ test('a writing helper waits while the board has no implementer slot free, launc
     const helper = b.record('V1@tests');
     assert.deepEqual([helper.kind, helper.dispatched, helper.task, helper.writes, helper.worktree.branch], ['helper', 'hub', 'Write the split tests', true, 'V1-tests']);
     assert.equal(git(tree, 'rev-parse', 'HEAD'), git(cardTree, 'rev-parse', 'HEAD'), "it branches from the card's branch");
-    await until(() => /^Helper tests launched on Claude Sonnet in /.test(b.thread('V1').at(-1)?.text || ''), 'the launch line follows the run');
+    await until(() => b.record('V1@tests').session?.log, 'the launch records the run');
   } finally {
     child.kill();
     fs.rmSync(b.home, { recursive: true, force: true });

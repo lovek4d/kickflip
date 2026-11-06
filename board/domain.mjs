@@ -559,7 +559,7 @@ export function prototypeWaits(built, events) {
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
-    calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null,
+    log: r.session?.log || null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null,
     ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
@@ -861,7 +861,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     // First, so a start sorts above the status line `builder start` writes at the same moment.
     // A planner's lines are marked planner, which the thread draws in the owner's blue.
     ...agentsOf(agents).flatMap((a) => [
-      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: a.started, finished: false, eta: a.done ? null : a.eta, ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: a.started, finished: false, eta: a.done ? null : a.eta, ...(a.log ? { log: a.log } : {}), ...(plans(a) ? { planner: true } : {}) }] : []),
       ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: a.started, finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
       // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
