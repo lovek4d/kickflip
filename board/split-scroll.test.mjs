@@ -19,3 +19,8 @@ test('the Send bar ends its page and its pane: no padding runs on below it', () 
   assert.match(page, /padding-bottom: var\(--app-bottom, 0px\)/);
   assert.ok(css.indexOf(page) > css.indexOf('body.has-sidebar > :not(.sidebar) > main {'), 'it comes after the phone rule it overrides');
 });
+
+test('the desktop hide of the question mark beats the header icon display rule', () => {
+  const wide = css.slice(css.indexOf('@media (min-width: 900px) {\n  .split'));
+  assert.match(wide, /\.top \.nav a\.pages-switch \{ display: none; \}/);
+});

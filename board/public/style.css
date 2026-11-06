@@ -944,6 +944,7 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
   .needs-deck { display: none; }
   /* Waiting on you is the board's pane here, so neither page shows the switch to the other. */
   .top .pages-switch { display: none; }
+  .top .nav a.pages-switch { display: none; }
   /* The board's + sits at the bottom right of the left pane: the pane ends at the middle of the space right of the sidebar. */
   .view-board .fab { right: calc(50% - var(--sidebar-w, 0px) / 2 + var(--fab-edge)); }
   body.has-sidebar { --sidebar-w: 272px; }
