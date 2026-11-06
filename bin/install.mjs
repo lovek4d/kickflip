@@ -5,6 +5,7 @@ import { SKILLS_SOURCE, addArgv, addCommand, missingSkills } from '../shared/ski
 import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 import { tailscaleBin, tailscaleInstallHint } from '../shared/tailscale.mjs';
+import { keepSpotlightOut } from '../shared/spotlight.mjs';
 
 // Homebrew's node link survives `brew upgrade`, which removes the versioned folder process.execPath names.
 export const nodeBin = () => (fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath);
@@ -150,14 +151,30 @@ export async function tailscaleState({ run = runCommand, platform = process.plat
   return { installed, signedIn, dns, operatorChecked, operator, username, pointsAtHub, prereqs, root, serveConfig };
 }
 
-export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, tailscale = tailscaleBin({ env, platform }), wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log } = {}) {
+// The open builder records on every board in home's manifest, a line naming each: `/<route> <key> (<label>)`.
+export async function liveBoardRuns(home = os.homedir()) {
+  const [{ openBoardBuilders }, { isBoardSite }] = await Promise.all([import('../board/store.mjs'), import('../hub/boards.mjs')]);
+  let sites = {};
+  try { sites = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), 'utf8')).sites || {}; } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  const runs = [];
+  for (const [route, site] of Object.entries(sites)) {
+    if (!isBoardSite(site) || !fs.existsSync(site.dir)) continue;
+    for (const builder of await openBoardBuilders(site.dir)) runs.push(`/${route} ${builder.key} (${builder.label})`);
+  }
+  return runs;
+}
+
+// On macOS, after the links and settings, it moves the checkout folders out of Spotlight's reach (../shared/spotlight.mjs), unless liveRuns(home) names a live board run.
+export async function runInstall({ home = os.homedir(), cloneRoot = runningClone(), port = Number(process.env.KICKFLIP_HUB_PORT || 4500), uid = process.getuid(), env = process.env, run = runCommand, platform = process.platform, tailscale = tailscaleBin({ env, platform }), wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), fetch = globalThis.fetch, dryRun = false, log = console.log, liveRuns = liveBoardRuns } = {}) {
   const state = path.join(home, '.claude', 'kickflip');
   const service = hubService({ platform, home, uid, env, run });
+  const spotlight = async () => { if (platform === 'darwin') for (const note of keepSpotlightOut({ home, runs: await liveRuns(home), dryRun })) log(note); };
   if (dryRun) {
     try {
       for (const { link, target, created, replaced } of installLinks({ home, cloneRoot, dryRun })) log(`would ${created || replaced ? 'link' : 'check'} ${link} -> ${target}`);
     } catch (e) { log(`would refuse: ${e.message}`); }
     log(`would merge statusLine and the watcher Stop hook, turn on autoCompactEnabled and remove stale hooks in ${path.join(home, '.claude', 'settings.json')}`);
+    await spotlight();
     const missing = missingSkills(home);
     if (missing.length) log(`would add ${missing.join(', ')} from ${SKILLS_SOURCE} with ${addCommand(missing)}`);
     for (const note of await service.install(null, { wait, dryRun })) log(note);
@@ -166,6 +183,7 @@ export async function runInstall({ home = os.homedir(), cloneRoot = runningClone
   }
   for (const { link, target, created, replaced } of installLinks({ home, cloneRoot })) log(`${created || replaced ? 'linked' : 'checked'} ${link} -> ${target}`);
   for (const note of installClaudeSettings({ home })) log(note);
+  await spotlight();
   const missing = missingSkills(home);
   if (missing.length) {
     const added = run('npx', addArgv(missing), { env, timeout: 300_000 });

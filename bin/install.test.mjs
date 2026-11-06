@@ -8,6 +8,7 @@ import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, s
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
+import { checkoutsDir, keepSpotlightOut } from '../shared/spotlight.mjs';
 
 let home;
 let root;
@@ -446,6 +447,7 @@ function reviewSkills(names = Object.keys(SKILL_FOLDERS)) {
 function healthyDoctor() {
   install();
   configure();
+  keepSpotlightOut({ home, runs: [] });
   const tree = reviewSkills();
   fs.mkdirSync(path.join(home, '.codex'));
   fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}');
@@ -504,7 +506,7 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   const items = await doctorReport(options);
   assert.deepEqual(items.map(({ group, item }) => `${group} ${item}`), [
     'prereqs git', 'prereqs node on Claude’s PATH', 'prereqs gh', 'prereqs gh signed in', 'prereqs GitHub clone', 'prereqs Tailscale', 'prereqs Tailscale signed in', 'prereqs tmux', 'prereqs Codex', 'prereqs mattpocock skills',
-    'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup settings.json watcher Stop hook', 'setup settings.json autoCompactEnabled', 'setup hub login item',
+    'setup kickflip skill link', 'setup kickflip-hooks link', 'setup ~/.claude/statusline.sh', 'setup settings.json statusLine', 'setup settings.json watcher Stop hook', 'setup settings.json autoCompactEnabled', 'setup hub login item', 'setup Spotlight',
     'hub hub', 'hub tailscale /', 'hub try ports', 'hub /shop', 'hub /app repo',
   ]);
   assert.ok(items.every((item) => item.state === 'ok' && item.fix === null));
@@ -520,6 +522,21 @@ test('doctor reports every healthy item and the old hub, Tailscale and site deta
   assert.equal(pick(items, 'GitHub clone').detail, 'git reaches owner/private over https');
   assert.ok(!calls.some((call) => /^(?:codex|claude) | login$| bootstrap | bootout /.test(call)));
   assert.deepEqual(await runDoctor({ ...options, write: () => {} }), { items, exitCode: 0 });
+  assert.equal(pick(items, 'Spotlight').detail, `skips repos, worktrees, try in ${checkoutsDir(home)}`);
+});
+
+test('doctor marks Spotlight fixable while a checkout folder is still indexed, yours when another link holds its place, and skips it off macOS', async () => {
+  const { options } = healthyDoctor();
+  const state = path.join(home, '.claude', 'kickflip');
+  fs.unlinkSync(path.join(state, 'worktrees'));
+  fs.renameSync(path.join(checkoutsDir(home), 'worktrees'), path.join(state, 'worktrees'));
+  assert.deepEqual(pick(await doctorReport(options), 'Spotlight'), { group: 'setup', item: 'Spotlight', state: 'fixable',
+    detail: `indexes worktrees; kickflip doctor --fix moves it into ${checkoutsDir(home)} once no board run is live`, fix: 'kickflip doctor --fix' });
+  fs.unlinkSync(path.join(state, 'try'));
+  fs.symlinkSync(path.join(home, 'elsewhere'), path.join(state, 'try'));
+  assert.deepEqual(pick(await doctorReport(options), 'Spotlight'), { group: 'setup', item: 'Spotlight', state: 'yours',
+    detail: `${path.join(state, 'try')} links to ${path.join(home, 'elsewhere')}, not ${path.join(checkoutsDir(home), 'try')}`, fix: 'move it aside, then kickflip doctor --fix' });
+  assert.equal(pick(await doctorReport({ ...options, platform: 'linux' }), 'Spotlight'), undefined);
 });
 
 // Board clones in the old places: the running clone's .repos, and another clone's .repos a closed board recorded; one
@@ -852,6 +869,26 @@ test('the shared install steps run links, settings, launchd and Tailscale once w
   const plist = fs.readFileSync(path.join(home, 'Library', 'LaunchAgents', 'local.claude.kickflip-hub.plist'), 'utf8');
   assert.ok(plist.includes(path.join(skills, 'kickflip', 'hub', 'hub.mjs')));
   assert.match(plist, /<key>KICKFLIP_HUB_PORT<\/key><string>19460<\/string>/);
+  assert.ok(logs.includes(`made ${path.join(checkoutsDir(home), 'worktrees')}; ${path.join(state, 'worktrees')} links to it`));
+  for (const name of ['repos', 'worktrees', 'try']) assert.equal(fs.readlinkSync(path.join(state, name)), path.join(checkoutsDir(home), name));
+});
+
+test('install leaves the checkout folders where they are while a board has an open builder record, and names it', async () => {
+  const state = path.join(home, '.claude', 'kickflip');
+  const board = path.join(home, 'sites', 'shop');
+  fs.mkdirSync(path.join(board, 'data', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(board, 'board.json'), JSON.stringify({ items: 'data/wave.json' }));
+  fs.writeFileSync(path.join(board, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1' }, { id: 'A2' }] }));
+  fs.writeFileSync(path.join(board, 'data', 'agents', 'A1.json'), JSON.stringify({ started: '2026-11-06T12:00:00Z', label: 'Builder' }));
+  fs.writeFileSync(path.join(board, 'data', 'agents', 'A2.json'), JSON.stringify({ started: '2026-11-06T12:00:00Z', done: '2026-11-06T13:00:00Z' }));
+  fs.mkdirSync(path.join(state, 'worktrees', 'A1'), { recursive: true });
+  fs.writeFileSync(path.join(state, 'manifest.json'), JSON.stringify({ sites: { shop: { dir: board, cmd: ['node', path.join(root, 'board', 'server.mjs')] }, page: { port: 19461 } } }));
+  const logs = [];
+  await runInstall({ home, cloneRoot: root, port: 19460, uid: 501, platform: 'darwin', tailscale: null, wait: async () => {}, log: (line) => logs.push(line),
+    fetch: async () => ({ ok: true, json: async () => ({ sites: [] }) }), run: () => ({ status: 0 }) });
+  assert.ok(logs.includes(`not moving repos, worktrees and try into ${checkoutsDir(home)} while these board runs are live: /shop wave/A1 (Builder); kickflip doctor --fix moves them once they finish`), logs.join('\n'));
+  assert.ok(fs.statSync(path.join(state, 'worktrees', 'A1')).isDirectory());
+  assert.ok(!fs.lstatSync(path.join(state, 'worktrees')).isSymbolicLink());
 });
 
 test('on Linux the shared install steps start a systemd user unit in place of a login item', async () => {

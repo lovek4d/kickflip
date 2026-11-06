@@ -10,7 +10,7 @@ process.env.HOME = home;
 process.env.KICKFLIP_CLAUDE = '/usr/bin/false';
 process.env.CLAUDE_CONFIG_DIR = home;
 fs.writeFileSync(path.join(home, '.claude.json'), '{}');
-const { repoService, runRepo, githubFromInput, githubFromOrigin, repoLookupRoute, remoteFromInput, isClone, gitReachFault, cloneMeter } = await import('./repos.mjs');
+const { repoService, repoPath, runRepo, githubFromInput, githubFromOrigin, repoLookupRoute, remoteFromInput, isClone, gitReachFault, cloneMeter } = await import('./repos.mjs');
 const { requestBoard } = await import('./new-board.mjs');
 const { changeBoardRepo } = await import('./board-repo.mjs');
 const { saveJSON, readManifest } = await import('./boards.mjs');
@@ -121,6 +121,21 @@ for (const reachable of [true, false]) {
     if (!reachable) await assert.rejects(repos.branches('outside/public'), { status: 502, message: 'secret detail' });
   });
 }
+
+test('the clone folder may be the link into checkouts.noindex, while a link inside it or above it is still refused', () => {
+  const kickflip = path.join(home, 'linked-root', '.claude', 'kickflip');
+  const moved = path.join(kickflip, 'checkouts.noindex', 'repos');
+  fs.mkdirSync(moved, { recursive: true });
+  const base = path.join(kickflip, 'repos');
+  fs.symlinkSync(moved, base);
+  assert.equal(repoPath('owner/app', base), path.join(base, 'owner', 'app'));
+  assert.equal(isClone(path.join(base, 'owner', 'app'), base), false);
+  fs.symlinkSync(path.join(home, 'elsewhere'), path.join(moved, 'owner'));
+  assert.throws(() => repoPath('owner/app', base), /symlinks are refused/);
+  const above = path.join(home, 'linked-above');
+  fs.symlinkSync(path.join(home, 'linked-root'), above);
+  assert.throws(() => repoPath('other/app', path.join(above, '.claude', 'kickflip', 'repos')), /symlinks are refused/);
+});
 
 test('an unlisted public repo lists branches and prepares a verified clone with Git when gh cannot reach it', async () => {
   const calls = [];

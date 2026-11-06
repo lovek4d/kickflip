@@ -20,9 +20,12 @@ function endsOnToolCall(file, size) {
 }
 
 // → the newest .jsonl ({file, stat}) in a run's Claude Code transcript folder
-// (<home>/.claude/projects/<the worktree path with / and . turned into ->), or undefined when it holds none; throws when the folder can't be read.
+// (<home>/.claude/projects/<the worktree's real path with / and . turned into ->, as Claude Code names it from its cwd>),
+// or undefined when it holds none; throws when the folder can't be read.
 function newestTranscript(worktree, home) {
-  const folder = path.join(home, '.claude', 'projects', worktree.replace(/[/.]/g, '-'));
+  let real = worktree;
+  try { real = fs.realpathSync(worktree); } catch {}
+  const folder = path.join(home, '.claude', 'projects', real.replace(/[/.]/g, '-'));
   return fs.readdirSync(folder).filter((f) => f.endsWith('.jsonl')).map((f) => ({ file: path.join(folder, f), stat: fs.statSync(path.join(folder, f)) }))
     .reduce((a, b) => (a && a.stat.mtimeMs >= b.stat.mtimeMs ? a : b), undefined);
 }

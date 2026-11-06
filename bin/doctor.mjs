@@ -6,6 +6,7 @@ import { githubGitArgv, gitReachFault } from '../hub/repos.mjs';
 import { buildsLocally, isBoardSite } from '../hub/boards.mjs';
 import { cloneRoot as runningClone, reposDir } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
+import { CHECKOUTS, checkoutFolders, checkoutsDir } from '../shared/spotlight.mjs';
 import { REVIEW_SKILLS, SKILLS_SOURCE, addCommand, skillsState, updateCommand } from '../shared/skills.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
@@ -129,6 +130,14 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   const login = service.status();
   add(service.item, login.running ? 'ok' : service.manager ? 'fixable' : 'yours', login.detail, service.manager ? FIX : `run ${service.restartCommand} under a service manager of your own`);
   for (const note of service.notes()) add(note.item, note.state, note.detail, note.fix);
+  if (platform === 'darwin') {
+    const folders = checkoutFolders(home);
+    const yours = folders.filter((f) => f.state === 'yours');
+    const indexed = folders.filter((f) => f.state !== 'ok').map((f) => f.name);
+    if (yours.length) add('Spotlight', 'yours', yours.map((f) => `${f.link} ${f.why}`).join('; '), `move ${yours.length > 1 ? 'them' : 'it'} aside, then ${FIX}`);
+    else if (indexed.length) add('Spotlight', 'fixable', `indexes ${indexed.join(', ')}; ${FIX} moves ${indexed.length > 1 ? 'them' : 'it'} into ${checkoutsDir(home)} once no board run is live`, FIX);
+    else add('Spotlight', 'ok', `skips ${CHECKOUTS.join(', ')} in ${checkoutsDir(home)}`);
+  }
 
   group = 'hub';
   const hub = await hubStatus({ port, fetch });

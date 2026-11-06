@@ -180,6 +180,20 @@ test('worktree resolution keeps traversal, boundary, symlink and repo checks, an
   assert.equal(await installWorktree({ ...listBoards(manifest)[0], github: 'other/repo' }, 'w/A1', manifest), '');
 });
 
+test('a worktree recorded under the worktrees link into checkouts.noindex resolves to its folder there', async () => {
+  const worktrees = path.dirname(worktree);
+  const moved = path.join(home, '.claude', 'kickflip', 'checkouts.noindex', 'worktrees');
+  fs.mkdirSync(path.dirname(moved), { recursive: true });
+  fs.renameSync(worktrees, moved);
+  fs.symlinkSync(moved, worktrees);
+  try {
+    assert.equal(await installWorktree(listBoards(manifest)[0], 'w/A1', manifest), path.join(moved, path.basename(worktree)));
+  } finally {
+    fs.unlinkSync(worktrees);
+    fs.renameSync(moved, worktrees);
+  }
+});
+
 test('a failed run writes one failure with its exit, keychain hint and last five log lines, a retry once it shows failed starts, and successful runs write no message', async (t) => {
   write(path.join(site, 'data/wave.json'), { items: [{ id: 'A1', install: { url: 'https://example.com/app.apk' } }] });
   setScript("console.error('errSecInternalComponent'); console.log('one\\ntwo\\nthree\\nfour\\nfive'); process.exit(7);");

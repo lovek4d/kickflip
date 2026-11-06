@@ -1,0 +1,19 @@
+# Checkouts live in a .noindex folder
+
+On 11/06 the load average reached 87 while builders made and rebased worktrees: corespotlightd and spotlightknowledged were reindexing `~/.claude/kickflip/worktrees`, and the board held new work as "host busy". The owner asked on #377 that `kickflip init` keep Spotlight off kickflip's checkouts. The answers were settled on #402.
+
+- **Where.** On macOS, `kickflip init` and `kickflip doctor --fix` (the same steps, `bin/install.mjs` `runInstall`) move `~/.claude/kickflip/repos`, `worktrees` and `try` into one folder, `~/.claude/kickflip/checkouts.noindex`, and leave a link at each old path into it (`shared/spotlight.mjs`). A missing folder is made there and linked, so a first install starts with the links in place. Site data, logs and the manifest stay where they were and stay indexed. Linux has no step and no doctor item.
+- **Why links.** The old paths are hardcoded across the code and stored in builder records, manifests and git's worktree metadata. With a link at each, every stored path still reaches its files, so no record is rewritten.
+- **While runs are live.** The move refuses while any board has an open builder record (`liveBoardRuns`, through `board/store.mjs` `openBoardBuilders`), naming each run, and the next `doctor --fix` moves the folders once none is open. The move runs after the skill links and settings, so an init that refuses a link changes nothing.
+- **Doctor.** On macOS, a setup item **Spotlight** is ok when each old path links to its folder in checkouts.noindex, fixable while a folder is still a real folder or missing, and yours when another link, a file, or a folder already in checkouts.noindex holds its place.
+- **Real paths.** Git and Claude Code see the real path (Claude Code names a session's projects folder from its real cwd), while stored paths name the link. So `hub/try.mjs` `installWorktree` accepts a recorded path under the link or the real folder and checks the real path is under the real folder; `hub/repos.mjs` `repoPath` lets the clone folder itself be a link only to its namesake in the `checkouts.noindex` beside it, still refusing any other link there, inside it or above it; and `board/transcript.mjs` looks up a run's transcript under the worktree's real path. The other real-path comparisons already resolve both sides.
+
+Considered:
+- a `.metadata_never_index` file in each folder: the grill found Spotlight ignores it on macOS 26.4;
+- Spotlight's privacy list, or `mdutil -i off`: both need sudo;
+- renaming each folder to a `.noindex` name: the owner chose one parent folder;
+- moving with the hub stopped during the fix's restart: the owner chose to refuse while runs are live.
+
+Not covered: a board whose clone is under `repos/` resumes its recorded Claude Code session from its real cwd, which after the move names a different `~/.claude/projects` folder.
+
+Measured on 11/06 (macOS 26.4, load around 20 from other builders): eight checkouts of this repo extracted into a plain folder under `~/.claude` drew Spotlight CPU (mds, mdworker, corespotlightd, spotlightknowledged) to a 196% peak and a 23% mean over 40 s, and into a folder under a `.noindex` folder a 61% peak and a 14% mean. The index held the files under the `.noindex` folder all the same: `mdfind -onlyin ~/.claude` listed all 1,504 `.mjs` files in each tree. A second probe wrote one uniquely named file into a plain folder, directly into a `.noindex` folder, and two levels below it, and all three were in the index within five minutes. `mdfind -onlyin <a folder deep under ~/.claude>` returned 0 for every tree, the indexed ones too, so a check made that way reads as excluded. On this Mac, a `.noindex` folder does not keep its files out of Spotlight's index; the lower CPU of the second burst may be noise from the other builders' load.
