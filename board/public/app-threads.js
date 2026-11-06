@@ -14,7 +14,7 @@ BoardView.part((B) => {
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
   // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
   // A Todo card's reply box sends with Reply (intent: 'reply') or Implement (intent: 'build'), which is the card's build
-  // action: builder orange once the card is ready, quiet before. An In Review card's box has Reply then Done
+  // action: builder orange once the card is ready, quiet before. An In Review card's box has Done then Reply
   // (ui-threads.js doneButton), Done in its tone. Any other card's box sends with Send, carrying no intent. A pair wraps
   // onto its own line under the row.
   const REVIEW = new Set(['review', 'stale']);
@@ -22,7 +22,7 @@ BoardView.part((B) => {
     : REVIEW.has(item?.lane) ? ['review', doneTone(item)].filter(Boolean).join(' ') : 'one');
   const pair = (kind, html) => `<span class="send-actions" data-sends="${kind}">${html}</span>`;
   const sends = (kind, item) => (kind === 'one' ? `<span data-sends="one">${sendButton('Send', 0)}</span>`
-    : kind.startsWith('review') ? pair(kind, `${sendButton('Reply', 0, ' data-intent="reply"')}${doneButton(item)}`)
+    : kind.startsWith('review') ? pair(kind, `${doneButton(item)}${sendButton('Reply', 0, ' data-intent="reply"')}`)
     : pair(kind, `${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}${sendButton('Reply', 0, ' data-intent="reply"')}`));
   // The board, not the thread, decides the send buttons, so they follow each board load even when the thread is unchanged.
   function syncSends(el, key) {

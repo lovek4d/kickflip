@@ -3026,7 +3026,7 @@ test("a thread box's row has What's left? at the left and the eye, fire, image a
 });
 
 // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-test("Done shows only on an In Review card, as Reply (⌘↵) then Done (⌥↵) in its thread box; a Todo card has Close right of Hold in its actions, and an In Progress card neither", async () => {
+test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵) in its thread box; a Todo card has Close right of Hold in its actions, and an In Progress card neither", async () => {
   const cards = [
     workCard('T1', { finishable: true, holdable: true, hasNotes: true }),
     workCard('P1', { lane: 'progress', finishable: true, holdable: true }),
@@ -3039,9 +3039,9 @@ test("Done shows only on an In Review card, as Reply (⌘↵) then Done (⌥↵)
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
   const sends = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => el.textContent);
   const actions = (key) => b.root.querySelector(`details.item[data-key="${key}"] .action-row.workflow`)?.querySelectorAll('a, button').map((el) => el.textContent.trim()) ?? [];
-  assert.deepEqual(sends('w/R1'), ['Reply⌘↵', 'Done⌥↵']);
-  assert.deepEqual(sends('w/S1'), ['Reply⌘↵', 'Done⌥↵']);
-  assert.deepEqual(sends('ask:a1'), ['Reply⌘↵', 'Done⌥↵']);
+  assert.deepEqual(sends('w/R1'), ['Done⌥↵', 'Reply⌘↵']);
+  assert.deepEqual(sends('w/S1'), ['Done⌥↵', 'Reply⌘↵']);
+  assert.deepEqual(sends('ask:a1'), ['Done⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/P1'), ['Send⌘↵']);
   assert.deepEqual(sends('w/T1'), ['Implement⌥↵', 'Reply⌘↵']);
   assert.equal(form('w/R1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
@@ -3067,7 +3067,7 @@ test("Done shows only on an In Review card, as Reply (⌘↵) then Done (⌥↵)
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['item-message', { key: 'w/R1', text: 'Looks good', intent: 'reply' }], ['card-done', { key: 'w/R1' }], ['card-done', { key: 'w/T1' }]]);
   // The box follows the card's lane.
   await b.change({ board: boardOf([{ ...cards[1], lane: 'review' }, ...cards.slice(2)]) });
-  assert.deepEqual(sends('w/P1'), ['Reply⌘↵', 'Done⌥↵']);
+  assert.deepEqual(sends('w/P1'), ['Done⌥↵', 'Reply⌘↵']);
   b.view.unmount();
 });
 
@@ -4075,7 +4075,7 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   board.items[1] = { ...board.items[1], threadCount: 1 };
   const form = card().querySelector('form[data-reply="ask:a1"]');
   form.querySelector('textarea').value = 'On it';
-  b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[type="submit"]') });
+  b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[data-intent="reply"]') });
   await b.settle();
   await b.change({ board });
   assert.deepEqual([b.sent.map(([kind]) => kind), tinting()], [['item-message'], []]);
