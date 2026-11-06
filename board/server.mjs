@@ -2184,7 +2184,7 @@ function settleLanes() {
 
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
 // The Done cards past the newest DONE_KEPT move to the archive with their resolved questions (domain.mjs archivedOf,
-// store.mjs archiveCards), as the server starts and after each board change, each with when it closed. A check asked
+// store.mjs archiveCards), as the server starts and after each board change, each with when it closed and its PRs as last read. A check asked
 // for while one runs runs again after it.
 let archiving = null;
 let archiveAgain = false;
@@ -2207,7 +2207,7 @@ async function markNewCards() {
 async function archiveDone() {
   if (!archivedOf(await sharedBoard()).length) return;
   const picks = archivedOf(await board());
-  const moved = picks.length ? await archiveCards(here, picks.map((c) => ({ key: c.key, closed_at: c.sortAt }))) : [];
+  const moved = picks.length ? await archiveCards(here, picks.map((c) => ({ key: c.key, closed_at: c.sortAt, prs: c.prs }))) : [];
   if (moved.length) console.log(`Done archive: ${moved.length} card${moved.length === 1 ? '' : 's'} moved`);
 }
 

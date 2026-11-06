@@ -9,9 +9,10 @@ const REF = /^(?:([\w.-]+\/[\w.-]+)#)?([1-9]\d*)$/;
 // The stored list, an older pr: <n> read as [{number: n}].
 export const storedPRs = (item) => (Array.isArray(item?.prs) ? item.prs : Number.isInteger(item?.pr) ? [{ number: item.pr }] : []);
 
-// A wave entry → [{repo, number, merged_at?}]. boardRepo is the board's GitHub repo or its wave's repo, which a PR
-// stored without one is in; with no board repo that PR has no repo to read, so it is left out.
-export const cardPRs = (item, boardRepo) => storedPRs(item).map((p) => ({ repo: p.repo || boardRepo, number: p.number, ...(p.merged_at ? { merged_at: p.merged_at } : {}) })).filter((p) => p.repo);
+// A wave entry → [{repo, number, merged_at?, kept?}], kept being an archived PR's last badges (store.mjs keptPRs).
+// boardRepo is the board's GitHub repo or its wave's repo, which a PR stored without one is in; with no board repo that
+// PR has no repo to read, so it is left out.
+export const cardPRs = (item, boardRepo) => storedPRs(item).map((p) => ({ repo: p.repo || boardRepo, number: p.number, ...(p.merged_at ? { merged_at: p.merged_at } : {}), ...(p.kept ? { kept: p.kept } : {}) })).filter((p) => p.repo);
 
 // Whether the wave entry has a PR at all, whatever its repo.
 export const hasPR = (item) => storedPRs(item).length > 0;

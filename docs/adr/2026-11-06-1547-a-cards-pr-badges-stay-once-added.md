@@ -1,0 +1,9 @@
+# A card's PR badges stay once added
+
+#379. The owner: "it can keep the new badges for pr ci etc. once those are added they should not go away, even when moved to done." Asked which (gh379-badges): "CI, reviewers and codex stay at their last state; Install/Visit still leaves in Done." Asked how they look once the PR is merged (gh379-kept-look, prototype-review-back-379), they picked B, Gray.
+
+**The chips** (ui-cards.js `prChip`, `reviewChips`). A PR's CI and Codex chips, and the card's reviewer chips, used to draw only while the PR was open. Now a merged or closed PR keeps them: the same mark and title (CI ✗, a reviewer's ✓), in the quiet gray tone. A kept reviewer chip drops its waiting age, since nobody waits once the PR is not open. This holds in every lane, so a reopened card with a merged PR keeps them too. A PR GitHub hasn't been read for draws none, as before. The PR badge itself already stayed, with its Merged or Closed look. Install and Visit still leave in Done (domain.mjs `install`, ui-cards.js `tryOf`).
+
+**Where the last state comes from.** A live card asks GitHub for its PRs whatever their state, and `gh pr view` gives a merged PR's checks and latest reviews, so a live Done card reads them from GitHub. An archived card (past the newest 100 Done cards) is never asked about: it reads only the PR view the server last cached, which is gone after a restart. So archiving keeps it: the server passes each archived card's PR views to store.mjs `archiveCards`, and `keptPRs` writes `kept: {checks, reviews, codexOpen}` on each stored PR GitHub was read for. domain.mjs draws a PR from `kept` when it has no GitHub state, and reads the reviewer states from it.
+
+This is recorded when the card is archived, not every time the board reads an open PR, so the board's read path doesn't write the wave files.

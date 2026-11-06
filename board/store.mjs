@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANES, MOVE, handedBackAt, intakeKeyOf, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, handedBackAt, intakeKeyOf, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -2843,9 +2843,11 @@ async function writeArchive(site, cards) {
   await writeJSON(archiveCountFile(site), { count: cards.length });
 }
 
-// Moves picks [{key, closed_at}] (server.mjs from domain.mjs archivedOf) from their wave files to the archive,
+// Moves picks [{key, closed_at, prs?}] (server.mjs from domain.mjs archivedOf) from their wave files to the archive,
 // with their resolved questions; a pick no longer finished in its wave file stays. The archive is written first, so
-// a stop part way leaves a card in both, and the next run moves it again. → the keys moved.
+// a stop part way leaves a card in both, and the next run moves it again. prs is the card's PR views as the board
+// last read them: each PR GitHub was read for keeps its CI, reviews and Codex count on the archived item (keptPRs).
+// → the keys moved.
 export const archiveCards = (site, picks) => archiveWrite(site, async () => {
   const wanted = new Map(picks.map((p) => [p.key, p]));
   const at = new Date().toISOString();
@@ -2856,7 +2858,10 @@ export const archiveCards = (site, picks) => archiveWrite(site, async () => {
     if (!Array.isArray(wave?.items)) continue;
     const leaving = wave.items.filter((it) => wanted.has(`${source.slug}/${it.id}`) && it.lane === 'done');
     if (!leaving.length) continue;
-    for (const item of leaving) moved.push({ ...wanted.get(`${source.slug}/${item.id}`), wave: source.slug, archived_at: at, item });
+    for (const item of leaving) {
+      const pick = wanted.get(`${source.slug}/${item.id}`);
+      moved.push({ ...pick, wave: source.slug, archived_at: at, item: pick.prs ? keptPRs(item, pick.prs) : item });
+    }
     writes.push([source.file, { ...wave, items: wave.items.filter((it) => !leaving.includes(it)) }]);
   }
   if (!moved.length) return [];
@@ -2873,6 +2878,19 @@ export const archiveCards = (site, picks) => archiveWrite(site, async () => {
   if (kept.length !== (owner.items || []).length) await writeJSON(ownerFile(site), { ...owner, items: kept });
   return [...keys];
 });
+
+// docs/adr/2026-11-06-1547-a-cards-pr-badges-stay-once-added.md
+// item with each stored PR that a view in views [{repo, number, state, checks, reviews, codexOpen}] read from GitHub
+// marked kept: {checks, reviews, codexOpen}, the last state its badges draw once the board no longer asks GitHub.
+function keptPRs(item, views) {
+  if (!hasPR(item)) return item;
+  const prs = storedPRs(item).map((p) => {
+    const v = views.find((w) => w.state && w.number === p.number && (!p.repo || p.repo === w.repo));
+    return v ? { ...p, kept: { checks: v.checks, reviews: v.reviews, codexOpen: v.codexOpen } } : p;
+  });
+  const { pr, ...rest } = item;
+  return { ...rest, prs };
+}
 
 // Puts archived card key back in its wave file, with its questions, for a command that names it. → whether it was
 // archived.
@@ -3196,7 +3214,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: any other main build, not the
   // rebase run nor the lander of its hand-back, ends the card's rebase run, so its push isn't counted as one.
-  if (was?.rebase_run && agent === 'main' && ![REBASE_LABEL, 'Lander'].includes(record.label)) await endRebaseRun(site, key);
+  if (was?.rebase_run && agent === 'main' && ![REBASE_LABEL, LANDER].includes(record.label)) await endRebaseRun(site, key);
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: the pick a build
   // started on, with what it read; a start taking up a dispatched record reuses the pick its dispatch recorded.
   if (pick?.inputs && site) {

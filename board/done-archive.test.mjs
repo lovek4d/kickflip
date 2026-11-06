@@ -93,6 +93,26 @@ test('an archived card leaves the wave file with its resolved questions, its thr
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+// docs/adr/2026-11-06-1547-a-cards-pr-badges-stay-once-added.md
+test("an archived card keeps each PR's last CI, reviews and Codex count, and draws them with no GitHub state", async () => {
+  const { home, site, read } = siteOf(DONE_KEPT + 6);
+  try {
+    const wave = read('wave.json');
+    wave.items.find((it) => it.id === 'D102').prs = [{ number: 7, merged_at: at(102) }, { repo: 'o/site', number: 1 }];
+    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify(wave));
+    const view = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'MERGED', status: 'merged', checks: { state: 'fail', fail: 1 }, reviews: { 'jamie-gh': 'APPROVED' }, codexOpen: 2, title: 'T' };
+    await archiveCards(site, [{ key: 't/D102', closed_at: at(102), prs: [view, { repo: 'o/site', number: 1, status: null }] }]);
+    const [entry] = await readArchive(site);
+    assert.deepEqual(entry.item.prs, [
+      { number: 7, merged_at: at(102), kept: { checks: { state: 'fail', fail: 1 }, reviews: { 'jamie-gh': 'APPROVED' }, codexOpen: 2 } },
+      { repo: 'o/site', number: 1 },
+    ], 'a PR GitHub was never read for keeps nothing');
+    const card = buildBoard({ waves: [{ slug: 't', wave: { items: [entry.item] }, agents: {} }], owner: { items: [] }, threads: {}, events: [], github: 'o/repo',
+      reviewers: [{ name: 'Jamie', github: 'jamie-gh' }] }).items[0];
+    assert.deepEqual([card.lane, card.pr.status, card.pr.checks.state, card.pr.codexOpen, card.review.Jamie.state], ['done', 'merged', 'fail', 2, 'approved']);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test("the strip drops what nothing reads: an archive entry's page card for its closing time, an item's summary, a question's push_tag and no_change", async () => {
   const { home, site, read } = siteOf(3);
   const write = (f, v) => fs.writeFileSync(path.join(site, 'data', f), JSON.stringify(v));

@@ -175,7 +175,7 @@ test("a card keeps the phase its latest build reached after the build ends, from
   assert.equal(card({}, lines).reachedPhase, null);
 });
 
-test('an install builder exposes its kind and keeps drafts and ready PRs In Progress until the install lands', () => {
+test('an install builder exposes its kind and leaves drafts and ready PRs In Review while the install runs', () => {
   const install = { url: 'https://m/app.apk', sha: 'old' };
   const record = { kind: 'install', started: '2026-10-30T10:00:00Z' };
   const card = (pr, records, item = {}) => board({ pr, agents: { A1: records }, item: { install, ...item } }).items.find((i) => i.key === 'w/A1');
@@ -183,7 +183,9 @@ test('an install builder exposes its kind and keeps drafts and ready PRs In Prog
     const pr = { ...greenDraft, isDraft, headRefOid: 'new' };
     const running = card(pr, { install: record, review: { kind: 'codex', started: '2026-10-30T10:01:00Z' } });
     assert.equal(running.builder.kind, 'install');
-    assert.deepEqual([running.lane, running.waitsOn, running.action, running.install.older], ['progress', 'builder', null, true]);
+    assert.deepEqual([running.lane, running.waitsOn, running.action, running.install.older], ['progress', 'builder', null, true], 'the other agent can change code');
+    const alone = card(pr, { install: record });
+    assert.deepEqual([alone.lane, alone.waitsOn, alone.action], ['review', 'builder', null]);
     assert.equal(card(pr, { install: record }, { install: null }).builder.kind, 'install');
     assert.equal(card(pr, { install: record, main: { started: '2026-10-30T09:00:00Z', done: '2026-10-30T09:30:00Z', handed_back: '2026-10-30T09:30:00Z' } }).builder.kind, 'install');
     const finished = card(pr, { install: { ...record, done: '2026-10-30T10:10:00Z' } }, { install: { ...install, sha: 'new' } });
@@ -191,6 +193,24 @@ test('an install builder exposes its kind and keeps drafts and ready PRs In Prog
   }
   const other = card(greenDraft, { install: { ...record, done: '2026-10-30T10:10:00Z' }, main: { kind: 'opus', started: '2026-10-30T10:01:00Z' } });
   assert.equal(other.builder.kind, 'claude');
+});
+
+// docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md
+test('only a run that can change its code moves an In Review card to In Progress: an install run or a lander, running or handed back, leaves it there', () => {
+  const ready = { ...greenDraft, isDraft: false, reviewDecision: 'REVIEW_REQUIRED' };
+  const lane = (records, pr = ready, item = {}) => board({ pr, agents: { A1: records }, item }).items.find((i) => i.key === 'w/A1').lane;
+  const built = { kind: 'claude', started: '2026-11-06T09:00:00Z', done: '2026-11-06T09:30:00Z' };
+  const at = '2026-11-06T10:00:00Z';
+  assert.equal(lane({ main: built }), 'review');
+  assert.equal(lane({ main: built, install: { kind: 'install', started: at } }), 'review');
+  assert.equal(lane({ main: { kind: 'claude', label: 'Lander', started: at } }), 'review');
+  assert.equal(lane({ main: { kind: 'claude', label: 'Lander', started: at, done: '2026-11-06T10:10:00Z', handed_back: '2026-11-06T10:10:00Z', calls: [{ at, text: 'main moved' }] } }), 'review');
+  // A fix builder sent back after review changes code.
+  assert.equal(lane({ main: { kind: 'claude', started: at } }), 'progress');
+  assert.equal(lane({ main: { kind: 'claude', started: at, done: '2026-11-06T10:10:00Z', handed_back: '2026-11-06T10:10:00Z', calls: [{ at, text: 'a call' }] } }), 'progress');
+  // A card with no PR or held branch is In Progress while any run works on it.
+  assert.equal(lane({ install: { kind: 'install', started: at } }, null, { lane: 'progress' }), 'progress');
+  assert.equal(lane({ main: { kind: 'claude', label: 'Lander', started: at } }, null, { lane: 'progress' }), 'progress');
 });
 
 test('a builder goes stale after 10 minutes without progress or transcript movement, clears on either or done, and ignores ordinary thread lines', () => {
@@ -818,8 +838,12 @@ test("a verified branch held for the owner's Merge waits In Review on it with Me
     { ts: '2026-11-04T11:01:01Z', who: 'claude', text: 'Lander launched headless on Claude Opus in /w/A1.' },
   ] } });
   assert.deepEqual([handedOff.merging, handedOff.action], [true, null]);
-  const landing = card({ item: { merge_ready: tapped }, agents: runningBuilders('A1') });
-  assert.deepEqual([landing.lane, landing.waitsOn, landing.action], ['progress', 'builder', null]);
+  // docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md: the lander stays In Review; a
+  // builder changing the branch's code moves it.
+  const landing = card({ item: { merge_ready: tapped }, agents: { A1: { main: { kind: 'claude', label: 'Lander', started: '2026-11-04T11:02:00Z' } } } });
+  assert.deepEqual([landing.lane, landing.waitsOn, landing.action], ['review', 'builder', null]);
+  const fixing = card({ item: { merge_ready: tapped }, agents: runningBuilders('A1') });
+  assert.deepEqual([fixing.lane, fixing.waitsOn, fixing.action], ['progress', 'builder', null]);
   const done = card({ item: { lane: 'done' } });
   assert.deepEqual([done.lane, done.mergeReady, done.action], ['done', null, null]);
 });

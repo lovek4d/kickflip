@@ -100,8 +100,24 @@ test('a review chip shows the reviewer\'s GitHub login, its age once it has wait
   assert.equal(text(ui.reviewChips({ pr: openPR, reviewers: ['Jamie'], review: { Jamie: { state: 'approved', since: null, github: null } } })), 'Jamie ✓');
 });
 
-test('a merged PR shows no review chips', () => {
-  assert.equal(ui.reviewChips({ pr: { ...openPR, state: 'MERGED' }, reviewers: ['Jamie'], review: {} }), '');
+test('a merged or closed PR keeps its review chips at their last state, gray; a PR GitHub has not been read for shows none', () => {
+  const review = { Jamie: { state: 'approved', since: null, github: 'jamie-gh' }, Sam: { state: 'changes', since: null, github: null } };
+  for (const state of ['MERGED', 'CLOSED']) {
+    const chips = ui.reviewChips({ pr: { ...openPR, state, status: state.toLowerCase() }, reviewers: ['Jamie', 'Sam'], review });
+    assert.equal(text(chips), 'jamie-gh ✓ Sam ✗');
+    assert.deepEqual([...chips.matchAll(/class="chip (tone-\w+)"/g)].map((m) => m[1]), ['tone-quiet', 'tone-quiet']);
+    assert.match(chips, /title="Sam: asked for changes"/);
+  }
+  assert.equal(ui.reviewChips({ pr: { ...openPR, state: undefined, checks: undefined, status: null }, reviewers: ['Jamie'], review }), '');
+});
+
+test('a merged PR keeps its CI and Codex chips at their last state, gray, beside its Merged badge', () => {
+  const chips = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', checks: { state: 'fail' }, codexOpen: 2 }] });
+  assert.equal(text(chips), 'repo#7 ✓ CI ✗ codex 2');
+  assert.deepEqual([...chips.matchAll(/class="chip (tone-\w+)"/g)].map((m) => m[1]), ['tone-merged', 'tone-quiet', 'tone-quiet']);
+  assert.match(chips, /title="CI fail"/);
+  // An archived card read only from what it kept, with no GitHub state, draws the same.
+  assert.equal(text(ui.prChips({ prs: [{ ...openPR, state: undefined, status: 'merged', checks: { state: 'pass' } }] })), 'repo#7 ✓ CI ✓');
 });
 
 test('PR chips show the repo with an orange dot for a draft or a green check once ready, then CI and unanswered Codex findings', () => {
@@ -122,7 +138,7 @@ test("a card with several PRs shows a badge for each, in its order, with that PR
   const site = { ...openPR, number: 1, url: 'https://github.com/o/site/pull/1', isDraft: true, status: 'draft', checks: { state: 'fail' } };
   const merged = { ...openPR, state: 'MERGED', status: 'merged' };
   const chips = ui.prChips({ prs: [merged, site] });
-  assert.equal(text(chips), 'repo#7 ✓ site#1 ● CI ✗');
+  assert.equal(text(chips), 'repo#7 ✓ CI ✓ site#1 ● CI ✗');
   assert.deepEqual([...chips.matchAll(/<a class="chip (tone-\w+)" href="([^"]+)"/g)].map((m) => [m[1], m[2]]), [
     ['tone-merged', 'https://github.com/o/repo/pull/7'], ['tone-notice', 'https://github.com/o/site/pull/1'],
   ]);
@@ -131,10 +147,10 @@ test("a card with several PRs shows a badge for each, in its order, with that PR
 
 test("the PR badge alone shows the PR's state, linking to the PR: a purple check once merged, a red cross once closed, a plain name before GitHub is read", () => {
   assert.deepEqual(plain(ui.PR_STATE), { open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' });
-  const merged = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', codexOpen: 2 }] });
+  const merged = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', checks: undefined }] });
   assert.equal(text(merged), 'repo#7 ✓');
   assert.match(merged, /^<a class="chip tone-merged" href="https:\/\/github\.com\/o\/repo\/pull\/7" title="Merged" [^>]*aria-label="repo#7: Merged">[^<]*<\/a>$/);
-  const closed = ui.prChips({ prs: [{ ...openPR, state: 'CLOSED', status: 'closed' }] });
+  const closed = ui.prChips({ prs: [{ ...openPR, state: 'CLOSED', status: 'closed', checks: undefined }] });
   assert.equal(text(closed), 'repo#7 ✗');
   assert.match(closed, /^<a class="chip tone-danger" [^>]*title="Closed" [^>]*aria-label="repo#7: Closed">[^<]*<\/a>$/);
   assert.match(ui.prChips({ prs: [{ ...openPR, state: undefined, checks: undefined, status: null }] }), /^<a class="chip tone-quiet" href="[^"]+" target="_blank" rel="noopener">repo#7<\/a>$/);

@@ -76,14 +76,24 @@ const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? {
 // from red CI on a PR the board marks ready itself, which goes back to Claude: one out of draft, or a draft while the
 // board skips the draft (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md). A card the board's rebase run works on
 // (rebasing) stays in its open PR's lane while the run builds and once it hands back
-// (docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
-function laneOf(item, pr, running, checking, pushed, reopened, skipDraft, rebasing) {
+// (docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md). running and checking are the
+// card's runs that can change its code, and busy is any run or hand-back: one that can't (an install run, a lander)
+// leaves a card with an open PR or a held branch In Review, and puts any other in In Progress
+// (docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md).
+function laneOf(item, pr, running, checking, pushed, reopened, skipDraft, rebasing, busy) {
   if (!reopened && (item.lane === 'done' || pr?.state === 'MERGED' || pr?.state === 'CLOSED')) return 'done';
   if ((running || checking) && !rebasing) return 'progress';
   if (pushed) return 'review';
   if (pr?.state === 'OPEN') return pr.checks?.state === 'fail' && (!pr.isDraft || skipDraft) ? 'progress' : 'review';
-  return pr ? 'progress' : 'todo';
+  return pr || busy ? 'progress' : 'todo';
 }
+
+// The label a lander's builder record carries (headless.mjs landerBrief): it lands a verified build.
+export const LANDER = 'Lander';
+// docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md
+// Whether a build agent's run can change the card's code: not an install run, which builds the app from the branch,
+// nor a lander.
+const changesCode = (agent) => agent.kind !== BUILDER_KIND.install && agent.label !== LANDER;
 
 // The state of one of a card's PRs (ui-enums.js PR_STATE): merged once GitHub or the PR's merge mark on the card says
 // so, or null before GitHub is read.
@@ -105,10 +115,11 @@ const finishedOf = (cards) => cards.some((i) => i.kind === 'work') && cards.ever
 // When the card's newest build handed back for the orchestrator's check (store.mjs handBackCalls, relaunchLander): that
 // record closed with handed_back, and no build has started since. Install builds don't count. → the time, or null.
 export function handedBackAt(agents) {
-  const newest = agents.filter((a) => a?.started && builds(a) && a.kind !== BUILDER_KIND.install)
-    .sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
+  const newest = newestBuild(agents);
   return newest?.done && newest.handed_back ? newest.handed_back : null;
 }
+const newestBuild = (agents) => agents.filter((a) => a?.started && builds(a) && a.kind !== BUILDER_KIND.install)
+  .sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
 
 // Each reviewer's state, and since when the link has waited on them.
 function reviewOf(reviewers, pr, sentAt) {
@@ -162,7 +173,8 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 const LANDER_HANDOFF = /^(?:Not merged yet: |Lander launched headless )/;
 function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets }) {
-  const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || {}), status: prStateOf(p.gh, p.merged_at) }));
+  // An archived PR the board no longer asks GitHub about draws what it kept (store.mjs keptPRs).
+  const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || p.kept || {}), status: prStateOf(p.gh, p.merged_at) }));
   const least = leastReady(prs.map((p) => p.gh));
   const pr = prs[least]?.gh || null;
   const prStatus = views[least]?.status ?? null;
@@ -203,7 +215,9 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   // (rebase_run) until its push, and the push it made (rebased), while that is still the PR's head.
   const rebasing = Boolean(it.rebase_run) && pr?.state === 'OPEN';
   const lastRebase = (it.rebased || []).at(-1);
-  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), Boolean(checkingAt), pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing);
+  const runs = agents.filter((a) => a.started && !a.done && builds(a));
+  const checkingCode = Boolean(checkingAt) && changesCode(newestBuild(agents));
+  let lane = laneOf(it, pr, runs.some(changesCode), checkingCode, pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing, runs.length > 0 || Boolean(checkingAt));
   if (reopenAt && lane === 'todo') lane = 'progress';
   // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
   const staleReview = lane === 'review' && Boolean(inReviewSince) && now - Date.parse(inReviewSince) > STALE_AFTER;
@@ -226,7 +240,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const firstBuild = agents.filter(builds).map((a) => String(a.started || '')).filter(Boolean).sort()[0] || '';
   const bumpStands = bumpedAt && !(firstBuild && String(bumpedAt) < firstBuild);
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
-  // A held Merge handed to a lander (finish.mjs landHeld) is still merging: the card leaves In Review once the lander starts.
+  // A held Merge handed to a lander (finish.mjs landHeld) is still merging; the card stays In Review while it runs.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'command', MOVE].includes(m.kind) && !LANDER_HANDOFF.test(m.text || '')).map((m) => String(m.ts)).sort().pop() || '';
   // A held card's tap is recorded on it (store.mjs tapMerge), and the board server's land writes its outcome there.
   const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
@@ -282,7 +296,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     ticketSource: tickets?.source || null,
     linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { key, repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
     pr: views[least] || null, prs: views,
-    reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr, sentAt), inReviewSince,
+    reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr || prs[least]?.kept, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: planningOf('grill', events, agents, askedAt), prototyping: planningOf('prototype', events, agents, askedAt),
     state: it.state || null,
