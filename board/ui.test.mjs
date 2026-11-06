@@ -1261,7 +1261,7 @@ test("one progress bar draws every bar: count steps, done of them filled, the on
     '<span class="phase-bars" role="img" aria-label="B &lt;2&gt;" title="B &lt;2&gt;"><i class="done"></i><i class="now"></i><i class=""></i></span>');
   assert.equal(ui.progressBar({ count: 3, done: 0, percent: 30, label: 'x' }),
     '<span class="phase-bars" role="img" aria-label="x" title="x"><i class="fill" style="--p:30%"></i><i class=""></i><i class=""></i></span>');
-  assert.equal(ui.progressBar({ count: 5, done: 2, now: 1, tone: 'plan', label: 'Prototyping' }).slice(0, 30), '<span class="phase-bars plan" ');
+  assert.equal(ui.progressBar({ count: 5, done: 2, now: 1, tone: 'in-todo', label: 'Prototyping' }).slice(0, 33), '<span class="phase-bars in-todo" ');
   assert.equal(bar({ count: 4, done: 4, label: 'x' }), '<i class="done"></i>'.repeat(4));
   assert.equal(bar({ count: 4, done: 0, label: 'x' }), '<i class=""></i>'.repeat(4));
   // A dimmed bar is written without its pulse, so the markup, not CSS, says nothing pulses.
@@ -1284,7 +1284,7 @@ test("one progress bar draws every bar: count steps, done of them filled, the on
 // docs/adr/2026-11-06-0038-a-progress-bar-pulses-one-step-at-a-time.md
 test("every pulse beats on one clock: a pulse animation starting anywhere on the page is set to the document timeline's origin, so the bar's running step and its card's status dot blink together and a redraw never restarts the beat", () => {
   const anim = (animationName) => ({ animationName, startTime: 812 });
-  for (const name of ['pulse', 'pulse-fill', 'pulse-fill-plan', 'sb-pulse', 'reader-pulse']) {
+  for (const name of ['pulse', 'pulse-fill', 'sb-pulse', 'reader-pulse']) {
     const own = anim(name);
     const other = anim('nudge-ping');
     ui.onePulse({ animationName: name, target: { getAnimations: () => [own, other] } });
@@ -1335,14 +1335,14 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-test("a planner's line on a card is marked planner, keeping its dot, orange in In Progress and blue in Todo, where a running grill or prototype draws blue dashes; a Grill or Prototype request no planner has picked up reads preheating in grey, with no dot, until the planner's line takes it", () => {
+test("a planner's line on a card is marked planner, keeping its dot, orange in In Progress and grey in Todo, where a running grill or prototype draws grey dashes; a Grill or Prototype request no planner has picked up reads preheating in grey, with no dot, until the planner's line takes it", () => {
   const planner = { progress: 'Prototyping · the takes', kind: 'prototype', phase: null, at: null, planner: true };
   for (const [lane, tone] of [['todo', 'in-todo'], ['progress', 'in-progress']]) {
     const html = ui.workLines({ ...workCard, lane, sortAt: '2020-01-01T10:00:00.000Z', builder: planner });
     assert.match(html, new RegExp(`<div class="line3 sub agent planner ${tone}"><span class="working-dot" aria-hidden="true"></span>Prototyping · the takes</div>`));
     assert.doesNotMatch(html, /Building/);
   }
-  const dashes = (builder) => /<span class="phase-bars plan" role="img" aria-label="(\w+)"[^>]*>((?:<i class="\w*"><\/i>){5})<\/span>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', builder }));
+  const dashes = (builder) => /<span class="phase-bars in-todo" role="img" aria-label="(\w+)"[^>]*>((?:<i class="\w*"><\/i>){5})<\/span>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', builder }));
   assert.deepEqual(dashes(planner).slice(1), ['Prototyping', '<i class="done"></i><i class="now"></i><i class=""></i><i class=""></i><i class=""></i>']);
   assert.deepEqual(dashes({ ...planner, kind: 'grill' }).slice(1), ['Grilling', '<i class="now"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i>']);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'progress', sortAt: '2020-01-01T10:00:00.000Z', builder: planner }), /phase-bars/, 'no dashes in In Progress');
@@ -1378,7 +1378,26 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: a rebase run's hand-back, In
   // Review, reads its own failure line above the wait.
   const failed = ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'review', waitsOn: 'checking', orchestrator: waiting, rebaseFailed: 'Rebase failed in 2 files · <both sides>' });
-  assert.match(failed, /<div class="line3 sub">Rebase failed in 2 files · &lt;both sides&gt;<\/div><div class="line3 sub agent waiting-gray">waiting for orchestrator · 14m<\/div>/);
+  assert.match(failed, /<div class="line3 sub">Rebase failed in 2 files · &lt;both sides&gt;<\/div><div class="line3 sub agent in-review waiting-gray">waiting for orchestrator · 14m<\/div>/);
+});
+
+// docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md
+test("a run's line, dot and bar take its card's lane colour: grey in Todo, orange in In Progress, blue in In Review, where a rebase run is a line with no bar", () => {
+  const at = new Date(Date.now() - 2 * 60000).toISOString();
+  const lineClass = (it) => /<div class="line3 sub agent([\w -]*)">/.exec(ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1].trim();
+  const rebase = { ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'review', builder: { progress: 'Rebasing onto main', phase: null, at } };
+  assert.equal(lineClass(rebase), 'in-review');
+  assert.doesNotMatch(ui.workLines(rebase), /phase-bars/);
+  assert.equal(lineClass({ lane: 'review', waitsOn: 'checking', orchestrator: { kind: 'calls', since: at, picked: at, next: 'x' } }), 'in-review');
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const rule = (selector) => new RegExp(`(^|\\n)${selector.replace(/[.()]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)?.[2].trim();
+  assert.equal(rule('.sub.agent.in-todo'), 'color: var(--muted);');
+  assert.equal(rule('.sub.agent.in-progress'), 'color: var(--color-notice);');
+  assert.equal(rule('.sub.agent.in-review'), 'color: var(--color-info);');
+  assert.equal(rule('.phase-bars.in-todo'), '--bar-fill: var(--muted);');
+  // One pulse for every bar, in the bar's own fill, so a Todo bar pulses grey and an In Progress one orange.
+  assert.match(css, /@keyframes pulse-fill \{ 50% \{ background-color: color-mix\(in srgb, var\(--bar-fill\) 35%, transparent\); \} \}/);
+  assert.doesNotMatch(css, /pulse-fill-plan|\.phase-bars\.plan/);
 });
 
 test("a builder line shows the progress and its age, not who is building", () => {

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Progress bars</title>
+<link rel="stylesheet" href="colors.css">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* The progress-bar review (progress-review.js): the board's lanes, each card one bar or status line drawn by the real
+     renderers, its colour the lane's --lane, which the lane's colour pick sets; the open card's editor beneath. */
+  .pr-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 799px) { .pr-lanes { grid-template-columns: minmax(0, 1fr); } }
+  .pr-lane > h2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; font-size: 13px; color: var(--lane); border-bottom: 2px solid var(--lane); padding-bottom: 4px; }
+  .pr-lane input[type="color"] { width: 32px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+  .pr-lane .sub.agent:not(.waiting-gray, .quiet) { color: var(--lane); }
+  .pr-lane .phase-bars:not(.dim) { --bar-fill: var(--lane); }
+  .pr-lane .item[data-open] > summary { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .pr-lane .card-time .sb-steps .phase-bars { gap: 2px; }
+  .pr-editor { margin-top: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px; }
+  .pr-editor h2 { margin: 0 0 8px; font-size: 15px; }
+  .pr-editor label { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .pr-editor :where(input, select) { font-size: 16px; }
+  .pr-editor ol { margin: 8px 0 0; padding: 0; list-style: none; }
+  .pr-editor li { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  .pr-editor li.over { outline: 2px dashed var(--accent); }
+  .pr-editor .grip { cursor: grab; color: var(--muted); }
+  .pr-send { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+</style>
+</head>
+<body>
+<!--header {"lead":"back","title":"Progress bars","backHref":"./","controls":false}-->
+<main>
+  <p class="muted">Every progress bar and status line the board draws, in the lane it shows in. Tap one to rename it, move it to another lane or rename and reorder its steps; pick each lane's colour; then Send.</p>
+  <div id="review"></div>
+</main>
+<script src="ui.js"></script>
+<script src="ui-links.js"></script>
+<script src="ui-enums.js"></script>
+<script src="ui-progress-bar.js"></script>
+<script src="ui-cards.js"></script>
+<script src="ui-sidebar.js"></script>
+<script src="claude.js"></script>
+<script src="progress-review.js"></script>
+</body>
+</html>

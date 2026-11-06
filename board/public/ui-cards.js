@@ -175,13 +175,14 @@
   // questions, a blocker or queue, a reopening) or its build is stale, and its label. An install is no build: its card keeps the phase its
   // build reached, undimmed
   // (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md).
-  // A Todo card a grill or prototype runs on draws the planner's dashes instead, in blue, the grill's first and the
-  // prototype's second running (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md).
+  // A Todo card a grill or prototype runs on draws the planner's dashes instead, in Todo's grey, the grill's first and the
+  // prototype's second running (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md,
+  // docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md).
   function phaseStrip(it) {
     if (it.lane === 'todo' && it.builder?.planner) {
       const prototype = it.builder.kind === 'prototype';
       const done = prototype ? 2 : 1;
-      return { count: BUILD_PHASES.length, done, now: done - 1, tone: 'plan', label: prototype ? 'Prototyping' : 'Grilling' };
+      return { count: BUILD_PHASES.length, done, now: done - 1, tone: 'in-todo', label: prototype ? 'Prototyping' : 'Grilling' };
     }
     if (it.lane !== 'progress' || it.builder?.planner) return null;
     const all = BUILD_PHASES.length;
@@ -209,10 +210,9 @@
     if (had !== has) return has ? 'enter' : 'leave';
     return has && next > prev ? 'fill' : null;
   }
-  // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-  // Every status line on an In Progress card is the phase-bar orange, and every build or plan line on a Todo card the
-  // owner's blue (style.css).
-  const tone = (it) => (it.lane === 'progress' ? ' in-progress' : it.lane === 'todo' ? ' in-todo' : '');
+  // A run's status line takes its card's lane colour (style.css): grey in Todo, the phase-bar orange in In Progress, blue in
+  // In Review (docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md). A Done card's line keeps the plain orange.
+  const tone = (it) => (['todo', 'progress', 'review'].includes(it.lane) ? ` in-${it.lane}` : '');
   const DOT = '<span class="working-dot" aria-hidden="true"></span>';
   // A card idle on the orchestrator (domain.mjs orchestratorWaitOf) reads waiting for orchestrator, then orchestrator
   // review with its dot once the session picks it up, each with how long ago.

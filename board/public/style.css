@@ -371,7 +371,8 @@ button.attach:disabled { opacity: .35; }
 .phase-bars i.done, .phase-bars i.now { background: var(--bar-fill); }
 /* A bar part way, to --p: a starting board's clone (ui-sidebar.js). */
 .phase-bars i.fill { background: linear-gradient(to right, var(--bar-fill) var(--p), var(--line) var(--p)); }
-@keyframes pulse-fill { 50% { background-color: color-mix(in srgb, var(--color-notice) 35%, transparent); } }
+/* The pulse dims the bar's own fill, so it pulses in its lane's colour. */
+@keyframes pulse-fill { 50% { background-color: color-mix(in srgb, var(--bar-fill) 35%, transparent); } }
 /* Every pulse beats on one clock (ui-progress-bar.js onePulse), so a card's running bar and its status dot blink together. */
 @media (prefers-reduced-motion: no-preference) { .phase-bars i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
 /* A stale build's status line, dot included, is the needs-you red, and a tap on it nudges Claude (ui-cards.js builderStatus). */
@@ -400,25 +401,24 @@ button.sub.agent.stalled.nudging { color: var(--color-notice); cursor: default; 
 .msg.agent { padding: 0 10px; margin: 4px 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .msg.agent.started { color: var(--color-notice); } .msg.agent.finished { color: var(--color-success); }
 .msg.agent .muted { font-weight: 400; }
-/* A planner's line, dot included, is the owner's blue, on the card and in the thread; its finish stays green
-   (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md). */
-.sub.agent.planner, .msg.builder-status.planner, .msg.agent.started.planner { color: var(--accent); }
+/* A planner's line in the thread, dot included, is the owner's blue; its finish stays green
+   (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md). On the card it takes the lane's colour below. */
+.msg.builder-status.planner, .msg.agent.started.planner { color: var(--accent); }
 .planner .working-dot { background: currentColor; }
-/* Every status line on an In Progress card is the phase-bar orange, a planner's too, and every build or plan line on a
-   Todo card the owner's blue, dot included; a Todo card's planner dashes are that blue, the running one pulsing
-   (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md). */
+/* A run's status line, dot included, takes its card's lane colour, a planner's too: grey in Todo, the phase-bar orange in
+   In Progress, blue in In Review; a Todo card's planner dashes are its grey, the running one pulsing
+   (docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md). */
+.sub.agent.in-todo { color: var(--muted); }
 .sub.agent.in-progress { color: var(--color-notice); }
-.sub.agent.in-todo { color: var(--accent); }
-.sub.agent.in-progress .working-dot, .sub.agent.in-todo .working-dot { background: currentColor; }
+.sub.agent.in-review { color: var(--color-info); }
+.sub.agent.in-todo .working-dot, .sub.agent.in-progress .working-dot, .sub.agent.in-review .working-dot { background: currentColor; }
 /* docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a quiet builder and a request no planner
    has picked up are grey, after the lane colours so they win. */
 .sub.agent.quiet, .sub.asked { color: var(--muted); }
 .sub.agent.waiting-gray { color: var(--muted); }
 /* The one class every paused status takes, gray: the card and thread line, the header, the hub banner. */
 .paused { color: var(--muted); font-weight: 600; }
-.phase-bars.plan { --bar-fill: var(--accent); }
-@keyframes pulse-fill-plan { 50% { background-color: color-mix(in srgb, var(--accent) 35%, transparent); } }
-@media (prefers-reduced-motion: no-preference) { .phase-bars.plan i.now { animation-name: pulse-fill-plan; } }
+.phase-bars.in-todo { --bar-fill: var(--muted); }
 .msg.calls { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
 .msg.calls summary { cursor: pointer; color: var(--muted); list-style: none; }
 .msg.calls summary::-webkit-details-marker { display: none; }
