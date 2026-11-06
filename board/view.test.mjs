@@ -1557,6 +1557,11 @@ async function shellPage(path, { fetch, sidebarData = { sites: [{ route: 'shop',
     entries: () => entries, position: () => at, boardUnmounts: () => boardUnmounts };
 }
 
+test("the shell turns off the browser's scroll restore, so a reload on a phone is not repainted at the old offset", async () => {
+  const { win } = await shellPage('/shop/');
+  assert.equal(win.history.scrollRestoration, 'manual');
+});
+
 test('a tap, key or scroll tells the hub the owner is here: at once while away, which drops the moon on this page, then at most once a minute', async () => {
   const beats = [];
   let statusPaints = 0;
