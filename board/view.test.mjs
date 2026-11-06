@@ -3664,16 +3664,15 @@ test("Mark as done closes the card and leaves the page where it is as the card m
   await b.settle();
   const view = layOut(b);
   const card = () => b.root.querySelector('details.item[data-key="ask:a1"]');
-  const flashing = () => [...b.root.querySelectorAll('details.item.flash')].map((el) => el.dataset.key);
   const tinting = () => [...b.root.querySelectorAll('details.item.tint')].map((el) => el.dataset.key);
-  assert.deepEqual(flashing(), []);
+  assert.deepEqual(tinting(), []);
   board.items[1] = { ...board.items[1], threadCount: 1 };
   const form = card().querySelector('form[data-reply="ask:a1"]');
   form.querySelector('textarea').value = 'On it';
   b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[type="submit"]') });
   await b.settle();
   await b.change({ board });
-  assert.deepEqual([b.sent.map(([kind]) => kind), flashing(), tinting()], [['item-message'], [], []]);
+  assert.deepEqual([b.sent.map(([kind]) => kind), tinting()], [['item-message'], []]);
   const open = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(b.root), 'open');
   const el = card();
   Object.defineProperty(el, 'open', { get: open.get, set(v) {
@@ -3686,27 +3685,28 @@ test("Mark as done closes the card and leaves the page where it is as the card m
   await b.settle();
   assert.deepEqual([card().closest('details.lane').dataset.lane, card().open, b.page.win.localStorage.getItem('site:board-a:openItems'), view.scrolls],
     ['done', false, '[]', []]);
-  assert.deepEqual(flashing(), []);
+  assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
   board.items.push(askCard('n1', 'todo'));
   await b.change({ board });
-  assert.deepEqual(flashing(), ['ask:b1']);
+  assert.deepEqual(tinting(), ['ask:b1']);
   board.items[2] = workCard('C1', { fromAsk: 'n1' });
   await b.change({ board });
-  assert.deepEqual(flashing(), ['ask:b1', 'w/C1']);
+  assert.deepEqual(tinting(), ['ask:b1', 'w/C1']);
   board.items[0] = { ...board.items[0], threadCount: 1 };
   board.items[2] = { ...board.items[2], builder: { progress: 'Tests pass' } };
   await b.change({ board });
-  assert.deepEqual([flashing(), tinting()], [[], ['ask:b1', 'w/C1']]);
+  assert.deepEqual(tinting(), ['ask:b1', 'w/C1'], 'an update takes the same tint a move does');
+  assert.equal(b.root.querySelectorAll('.flash').length, 0, 'no border variant is left');
   // docs/adr/2026-11-05-2345-new-todo-cards-join-the-bottom.md
   board.items.push(workCard('C2'));
   await b.change({ board });
-  assert.deepEqual(flashing(), ['w/C2'], 'a work card that joins Todo flashes once');
+  assert.deepEqual(tinting(), ['ask:b1', 'w/C1', 'w/C2'], 'a work card that joins Todo takes the tint');
   // docs/adr/2026-11-06-0300-a-new-task-lands-at-the-bottom-of-todo-and-flashes-blue.md
   board.items.push({ ...askCard('n2', 'todo'), isNew: true, ref: 'New', sortAt: '2026-10-30T08:00:00.000Z', ask: { eventId: 'n2', state: 'waiting', askedAt: '2026-10-30T08:00:00.000Z', text: 'Task n2', files: [], canEdit: true } });
   await b.change({ board });
-  assert.deepEqual(flashing(), ['w/C2', 'ask:n2'], 'a New task that lands in Todo flashes once');
+  assert.deepEqual(tinting(), ['ask:b1', 'w/C1', 'w/C2', 'ask:n2'], 'a New task that lands in Todo takes the tint');
 });
 
 function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }) {

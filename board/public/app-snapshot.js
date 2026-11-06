@@ -79,31 +79,39 @@ BoardView.part((B) => {
   }
   const texts = (els) => Object.fromEntries([...els].map(([id, el]) => [id, el.textContent.replace(/\s+/g, ' ').trim()]));
   let before = null;
+  // The one highlight: every changed line, moved card and updated card takes the full tint of style.css .tint. Re-adding
+  // the class after a layout read restarts the animation, from the delay's point.
+  function highlight(el, elapsed = 0) {
+    el.classList.remove('tint');
+    el.style.setProperty('--sign-delay', `-${elapsed}ms`);
+    void el.offsetWidth;
+    el.classList.add('tint');
+  }
   const holdForFlash = () => { before = texts(lines()); };
   function flashChanged() {
     if (!before || state.view !== 'fresh') return;
     const els = lines();
     const after = texts(els);
     for (const id of changedLines(before, after)) {
-      els.get(id).classList.add('flash');
+      highlight(els.get(id));
       before[id] = after[id];
     }
   }
   const endFlash = () => { before = null; };
 
   // Since the page last drew it, a last visit's board included, a card that changed lanes, a work card that takes
-  // the place of a drawn New task (its fromAsk), or a work card or New task that joins Todo at the bottom, flashes once; any other card whose updateSign changed takes a brief
-  // tint on its title row. Neither shows for a change the owner sent from this page: sentHere(key, send) holds the
-  // card's next change unsigned until the first board load started after send settles.
+  // the place of a drawn New task (its fromAsk), a work card or New task that joins Todo at the bottom, or any other
+  // card whose updateSign changed takes the same tint. It does not show for a change the owner sent from this page:
+  // sentHere(key, send) holds the card's next change unsigned until the first board load started after send settles.
   let drawn = new Map();
   const ownChanges = new Map();
   async function sentHere(key, send) {
     ownChanges.set(key, Infinity);
     try { return await send(); } finally { ownChanges.set(key, B.boardLoad || 0); }
   }
-  // Each sign's style.css animation length. A lane repaint resets a card's classes, so a sign still running is put back
+  // The tint's style.css animation length. A lane repaint resets a card's classes, so a tint still running is put back
   // as far into its animation as it was.
-  const SIGNS = { flash: 1600, tint: 2400 };
+  const TINT_MS = 2400;
   const running = new Map();
   function signCards(load = null) {
     const now = Date.now();
@@ -114,19 +122,15 @@ BoardView.part((B) => {
       const updated = Boolean(was) && was.sign !== updateSign(it);
       const own = ownChanges.get(it.key);
       if (own !== undefined) { if (moved || updated || (load !== null && load > own)) ownChanges.delete(it.key); continue; }
-      if ((moved || updated) && state.view === 'fresh') running.set(it.key, { sign: moved ? 'flash' : 'tint', at: now });
+      if ((moved || updated) && state.view === 'fresh') running.set(it.key, now);
     }
     drawn = new Map(state.board.items.map((i) => [i.key, { lane: i.lane, sign: updateSign(i) }]));
-    for (const [key, { sign, at }] of running) {
-      const card = now - at < SIGNS[sign] && B.root.querySelector(`details.item[data-key="${CSS.escape(key)}"]`);
+    for (const [key, at] of running) {
+      const card = now - at < TINT_MS && B.root.querySelector(`details.item[data-key="${CSS.escape(key)}"]`);
       if (!card) { running.delete(key); continue; }
-      // Re-adding the class after a layout read restarts the animation, from the delay's point.
-      card.classList.remove('flash', 'tint');
-      card.style.setProperty('--sign-delay', `-${now - at}ms`);
-      void card.offsetWidth;
-      card.classList.add(sign);
+      highlight(card, now - at);
     }
   }
 
-  Object.assign(B, { readSnapshot, saveSnapshotSoon, setView, holdForFlash, flashChanged, endFlash, sentHere, signCards });
+  Object.assign(B, { readSnapshot, saveSnapshotSoon, setView, holdForFlash, flashChanged, endFlash, highlight, sentHere, signCards });
 });
