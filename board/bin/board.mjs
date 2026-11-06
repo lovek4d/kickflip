@@ -9,7 +9,7 @@ import * as store from '../store.mjs';
 import { boardWorktree, builderRepo, joiningLand, landInTurn, worktreesDir } from '../worktree.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
-import { bump, queueLines, stopBuilder, stopLand } from '../stop.mjs';
+import { bump, queueLines, stopBuilder, stopForBlock, stopLand } from '../stop.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
@@ -174,6 +174,9 @@ command fails and changes nothing.
                                                          card-unblocked {key} once nothing else blocks it
          [--block-reason "<reason>"]                     why it is blocked, by its deps or its condition, which
                                                          goes when the block does; --block-reason "" clears it
+                                                         A block on a card In Progress sends it back to Todo,
+                                                         stopping its board-launched builder (refused for a
+                                                         session's own builder); one In Review stays, unlanded
          [--parent <wave>/<id>]                          sets its Parent, refusing itself or a card below it;
                                                          --parent "" clears it
          [--related <id>,<wave>/<id>]                    replaces the cards it is Related to, which both cards
@@ -736,7 +739,7 @@ const COMMANDS = {
     // docs/adr/2026-11-05-0000-a-card-in-progress-has-its-worktree-until-done.md
     if (f.status === 'building' && site && boardAt(site)) await store.ensureWorktree(site, key, (opts) => boardWorktree(site, key.split('/')[1], opts));
     return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check }, options);
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check, stopRun: () => stopForBlock(site, key) }, options);
   }],
   'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model', 'state', 'relate'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model, state: f.state, relate: f.relate, intake: true }, options)],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],

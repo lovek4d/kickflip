@@ -1083,6 +1083,15 @@ test("an open card waiting on the owner's Merge shows a Merge button that confir
   assert.equal(merge(undefined), '');
 });
 
+// docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md
+test('a blocked card shows its Merge disabled, its tooltip naming what blocks it', () => {
+  const html = ui.mergeButton({ key: 'w/A1', action: null, merging: false, mergeBlocked: 'Blocked by #53' });
+  assert.equal(text(html), 'Merge');
+  assert.match(html, / disabled[ >]/);
+  assert.match(html, /title="Blocked by #53"/);
+  assert.doesNotMatch(html, /data-confirm/);
+});
+
 test("the Merge button keeps its colour from idle through the tap and the merge", () => {
   const cls = (it) => /class="([^"]*)"/.exec(ui.mergeButton(it))[1];
   const idle = { key: 'w/A1', action: { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, resolvedBy: 'merge', merging: false };

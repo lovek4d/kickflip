@@ -403,7 +403,7 @@ A work card the owner paused with its Hold button, which opens the shared durati
 _Avoid_: paused, frozen, on hold (as a status name)
 
 **Blocked**:
-A work card that waits on something concrete before it can start: other cards (its deps, until each reaches Done), or a condition an agent can check, which the orchestrator clears with `item set --blocked-until ""` once it holds, either with a reason. Its time line reads "blocked by #53" or "blocked until <condition>", then ", <reason>". A time is a hold, never a block ([nothing waiting on the orchestrator is missed](docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md)).
+A work card that waits on something concrete before it can start: other cards (its deps, until each reaches Done), or a condition an agent can check, which the orchestrator clears with `item set --blocked-until ""` once it holds, either with a reason. Its time line reads "blocked by #53" or "blocked until <condition>", then ", <reason>". A time is a hold, never a block ([nothing waiting on the orchestrator is missed](docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md)). Blocked In Progress, a card goes back to Todo with its builder stopped; blocked In Review, it stays but can't land, its Merge disabled ([a block past Todo bumps a build and holds a land](docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md)).
 _Avoid_: held (a pause, not a dependency), waits on (who the card waits for)
 
 **Pick-up time**:

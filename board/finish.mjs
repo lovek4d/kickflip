@@ -43,6 +43,10 @@ export async function finishCard(site, key, { text, ownerStep, check, repo: give
 }
 
 async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, ownerStep, check, onWait }) {
+  const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
+  // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md
+  const blocked = go && await store.blockWords(site, key);
+  if (blocked) fail(`${ref} is blocked ${blocked}, so it can't land; it lands once nothing blocks it`);
   await store.checkClose(site, key, text, ownerStep, check);
   await store.checkCallsVerified(site, key);
   // The branch was made from origin's base, which it tracks, and land deletes it before main reaches origin.
@@ -50,7 +54,6 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
     syncBase(tree.repo, base);
     git(tree.repo, 'branch', '--unset-upstream', tree.branch);
   }
-  const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
   if (go) await store.landingLine(site, key);
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: only the fast-forward waits for the land lock,
   // and base is brought up to origin's again under it.

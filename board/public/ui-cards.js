@@ -148,7 +148,10 @@
   // server records it (app-cards.js), and waits (ui.js BUSY) while the session merges it, or the board server lands a
   // card with no PR, and from the tap until a board shows the card left In Review or its merge refused (ui.js pending) (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md,
   // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
+  // A blocked card's Merge shows disabled, its tooltip naming what blocks it
+  // (docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md).
   function mergeButton(it) {
+    if (it?.mergeBlocked) return `<button class="primary" disabled title="${esc(it.mergeBlocked)}">Merge</button>`;
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
     const busy = it.merging || BoardUI.pending.has(`${it.key}:merge`);
     // A merging card has no Action needed left, so resolvedBy is null by then: merging keeps the colour resolvedBy gave it.

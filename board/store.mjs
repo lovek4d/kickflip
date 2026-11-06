@@ -1743,6 +1743,17 @@ async function blockerNames(site, key, item) {
   const deps = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
   return item.blocked_until ? [...deps, item.blocked_until] : deps;
 }
+// What blocks the card at key (item, else its wave entry) as words after "blocked": "by #53, #54 and until <condition>",
+// or '' when nothing does.
+export async function blockWords(site, key, item) {
+  item ??= (await loadItem(site, key)).item;
+  const deps = await Promise.all((await unfinishedDeps(site, parseKey(key).wave, item)).map((k) => cardName(site, k)));
+  return [deps.length && `by ${deps.join(', ')}`, item.blocked_until && `until ${item.blocked_until}`].filter(Boolean).join(' and ');
+}
+// docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a card In Progress is one started with
+// none of a PR, a pushed branch or a held Merge, which keep it In Review.
+const inProgress = (item, records) => !hasPR(item) && !item.pushed && !item.merge_ready
+  && (['building', 'fixing', 'checking'].includes(item.status) || records.some((r) => r?.started && !r.done && builds(r)));
 // → the keys of the blocked cards whose last unfinished dep was key and no condition blocks.
 async function unblockedBy(site, key) {
   const out = [];
@@ -1851,7 +1862,7 @@ function closingLine(site, key, item, status, text, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   checkState(state);
@@ -1983,10 +1994,23 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
   if (!owedBefore && !['building', 'fixing'].includes(status) && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
+  // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a block on a card In Progress sends
+  // it back to Todo. stopRun, item set's, stops its board-launched build first and refuses a session's; the worktree and
+  // branch stay on its records, and its state stays, so the pull starts it again once nothing blocks it.
+  const blocked = (deps !== undefined || blockedUntil) && status === undefined && !clearStatus && inProgress(item, records) ? await blockWords(site, key, item) : '';
+  const stops = blocked && records.some((r) => r?.started && !r.done && builds(r)) ? await stopRun() : [];
+  if (blocked) {
+    delete item.status;
+    item.status_at = new Date().toISOString();
+  }
   if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, wave, item, ticket, options, source.dir);
   await writeJSON(source.file, wave);
+  if (blocked) {
+    await closeBuilders(source.dir, item.id, false);
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: back to Todo. It starts again once nothing blocks it.` });
+  }
   if (unlink) await unlink();
-  const resolved = await resolve();
+  const resolved = [...stops, ...await resolve()];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
   if (notesFile !== undefined || (state === 'ready' && site)) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
@@ -2242,6 +2266,12 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   const { wave, item } = await loadItem(site, key);
   if (!hasPR(item)) fail(`${key} has no PR`);
   if (FINISHED.includes(item.status)) fail(`${key} is ${item.status}`);
+  // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: auto-merge's refusal too.
+  const blocked = await blockWords(site, key, item);
+  if (blocked) {
+    if (tapped) await appendThread(site, key, { text: `Not merged: blocked ${blocked}.` });
+    fail(`Not merged: blocked ${blocked}.`);
+  }
   const repo = boardRepoOf(site, wave);
   const prs = cardPRs(item, repo);
   if (!prs.length) fail(`${key} has no repo`);
@@ -2305,6 +2335,8 @@ export async function heldMerge(site, key) {
 export async function tapMerge(site, key) {
   const { source, wave, item } = await loadItem(site, key);
   if (!item.merge_ready || FINISHED.includes(item.status)) fail(`${key} isn't waiting for its Merge`);
+  const blocked = await blockWords(site, key, item);
+  if (blocked) fail(`${key} is blocked ${blocked}, so its Merge waits until nothing blocks it`);
   item.merge_ready.tapped = new Date().toISOString();
   await writeJSON(source.file, wave);
   return item.merge_ready;
@@ -3379,7 +3411,7 @@ async function cardLinks(site, key) {
 }
 
 // The cards a headless lander lands: checking, every call on their records verified, none of their questions open,
-// and their worktree still there. → [{key, verified, kind, model}], verified the newest verification's time, and kind and
+// nothing blocking them, and their worktree still there. → [{key, verified, kind, model}], verified the newest verification's time, and kind and
 // model the newest record's, so the lander runs as the agent that built the card.
 export async function landable(site) {
   const out = [];
@@ -3391,7 +3423,7 @@ export async function landable(site) {
       const verified = records.map((r) => r.verified?.at).filter(Boolean).sort().at(-1);
       if (!verified || records.some((r) => unverifiedCalls(r).length)) continue;
       const key = `${source.slug}/${item.id}`;
-      if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open')) continue;
+      if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open') || await blockWords(site, key, item)) continue;
       const newest = records.filter((r) => r.worktree?.path).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
       if (newest && existsSync(newest.worktree.path)) out.push({ key, verified, kind: providerOf(newest.kind), model: newest.model });
     }

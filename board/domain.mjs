@@ -394,8 +394,14 @@ const RESOLVED_BY = Object.freeze({
 // (docs/adr/2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
 // A card whose only open questions are its builder's deferred asks waits on the owner from where it is, with Open
 // questions and no Action needed (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md).
+// docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a blocked card's Merge shows disabled,
+// mergeBlocked its tooltip naming what blocks it, with no Action needed.
+const MERGE_BLOCKED_NEXT = 'Merges once unblocked';
+const mergeBlockedWords = (it) => `Blocked ${[it.blockedBy.length && `by ${it.blockedBy.map((d) => d.ref).join(', ')}`, it.blockedUntil && `until ${it.blockedUntil}`].filter(Boolean).join(' and ')}`;
 function placeOwnerWait(it, questionById, autoMerge) {
   it.action = actionOf(it, questionById, autoMerge);
+  it.mergeBlocked = it.action?.kind === ACTION_KIND.merge && it.blocked ? mergeBlockedWords(it) : null;
+  if (it.mergeBlocked) Object.assign(it, { action: null, next: MERGE_BLOCKED_NEXT });
   if (it.action?.kind === ACTION_KIND.questions && it.questions.fromAsks) {
     Object.assign(it, { action: null, waitsOn: 'owner', next: it.action.label, actionButton: actionButtonOf(it), resolvedBy: null });
     return;

@@ -778,6 +778,21 @@ test("a ready PR on a card no reviewer is on waits on the merge with no approval
   assert.deepEqual([reviewed.waitsOn, reviewed.next, reviewed.action], ['reviewers', 'Waiting for PR reviewers', null]);
 });
 
+// docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md
+test('a blocked card waiting on its Merge stays In Review with no Action needed, its Merge disabled and naming what blocks it', () => {
+  const clean = { state: 'OPEN', isDraft: false, reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', checks: { state: 'pass' }, reviews: {} };
+  const card = (item, { autoMerge } = {}) => buildBoard({
+    fromWaves: true, autoMerge, branch: 'trunk', prs: { 'o/r#7': clean },
+    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }, { id: 'B2', title: 'Two' }] } }],
+  }).items.find((i) => i.id === 'A1');
+  const byDep = card({ pr: 7, deps: ['B2'] });
+  assert.deepEqual([byDep.lane, byDep.waitsOn, byDep.action, byDep.mergeBlocked, byDep.next], ['review', 'merge', null, 'Blocked by B2', 'Merges once unblocked']);
+  const held = card({ branch: 'A1', merge_ready: { branch: 'A1', at: '2026-11-04T10:00:00Z' }, deps: ['B2'], blocked_until: 'the API ships' }, { autoMerge: true });
+  assert.deepEqual([held.lane, held.action, held.mergeBlocked], ['review', null, 'Blocked by B2 and until the API ships']);
+  const free = card({ pr: 7 });
+  assert.deepEqual([free.action?.kind, free.mergeBlocked], ['merge', null]);
+});
+
 test("a verified branch held for the owner's Merge waits In Review on it with Merge, Auto-merge on or not, reads merging from the tap until Claude writes, and is Done once it lands", () => {
   const heldAt = '2026-11-04T10:00:00Z';
   const card = ({ item = {}, autoMerge, threads = {}, agents = {} } = {}) => buildBoard({

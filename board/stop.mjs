@@ -32,13 +32,28 @@ async function launchedBuild(site, key, ref) {
   return launchedAgents(builds)[0] ?? fail(`${ref}'s builder isn't running`);
 }
 
-export async function stopBuilder(site, key) {
-  const ref = await store.cardName(site, key);
-  const agent = await launchedBuild(site, key, ref);
+async function stopAgent(site, key, ref, agent) {
   const run = await store.isLanding(site, key) ? 'land' : 'build';
   const processes = await stopped(site, key, run, agent.pid);
   clearStoppedLand(ref, processes.map((p) => p.pid));
-  return { lines: stoppedLines(ref, run, processes) };
+  return stoppedLines(ref, run, processes);
+}
+
+export async function stopBuilder(site, key) {
+  const ref = await store.cardName(site, key);
+  return { lines: await stopAgent(site, key, ref, await launchedBuild(site, key, ref)) };
+}
+
+// docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md
+// item set's stop of a card's open build as a block sends the card back to Todo: its board-launched builder, lander or
+// rebase run stops as builder stop stops it, and one whose process is already gone has nothing to stop. A session's own
+// builder is refused, since the board can't stop it. → the stop's lines
+export async function stopForBlock(site, key) {
+  const ref = await store.cardName(site, key);
+  const builds = (await store.openRuns(site, key)).filter((r) => !plans(r));
+  if (builds.every((r) => !r.pid)) fail(`${ref}'s builder runs in a session the board didn't launch, so blocking it can't stop it; finish or stop it in that session with builder done --next, then block it`);
+  const agent = launchedAgents(builds)[0];
+  return agent ? stopAgent(site, key, ref, agent) : [];
 }
 
 const pgidOf = (pid) => Number(spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim()) || null;
