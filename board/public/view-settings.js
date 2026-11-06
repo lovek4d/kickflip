@@ -14,6 +14,10 @@
   <h2>Repo</h2>
   <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small" id="boardRepoChange">Change ›</span></button>
   <p class="muted small" id="boardRepoStatus"></p>
+  <label class="who" for="buildTarget"><span><span>Build target</span>
+    <span class="muted small sub" id="buildTargetSub">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</span></span>
+    <select id="buildTarget" disabled><option value="">Default</option></select></label>
+  <p class="muted small" id="buildTargetStatus" role="status"></p>
   <h2>Tickets</h2>
   <p class="muted small">Every card on this board has a ticket from here. A new card gets a new ticket unless you name one.</p>
   <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div></form>
@@ -61,7 +65,6 @@
     <span class="muted small sub">Pushes once when the board has been idle for 15 minutes, with what closed since the last one.</span></span>
     <input type="checkbox" class="toggle" id="idleNotification" disabled></label>
   <p class="muted small" id="idleNotificationStatus" role="status"></p>
-  <p class="muted small">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</p>
   <h2>Permissions</h2>
   <div id="permissions"><p class="muted small">Loading…</p></div>
   <div id="reviewersSection" hidden>
@@ -242,6 +245,7 @@
         tickets?.render();
         if (tickets) syncTickets();
         showRepo();
+        loadBuildTargets();
         $('#boardRepoStatus').textContent = 'Saved. The board’s session has been told.';
       } });
     });
@@ -384,6 +388,7 @@
     const autoMerge = $('#autoMerge');
     const autoMergeStatus = $('#autoMergeStatus');
     const savedCaps = {};
+    let buildTarget = null, buildTargets = null;
     get(site.url('api/settings'), waitIn('#autoMergeStatus')).then(({ body: d }) => {
       if (!B.alive()) return;
       savedTickets = d.settings?.tickets || null;
@@ -404,6 +409,8 @@
       autoMerge.disabled = false;
       $('#autoBuild').checked = d.settings?.auto_build === true;
       $('#autoBuild').disabled = false;
+      buildTarget = d.settings?.build_target || '';
+      showBuildTargets();
       $('#autoPull').checked = d.settings?.auto_pull === true;
       $('#autoPull').disabled = false;
       for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxPlanners', 'max_planners']]) {
@@ -444,6 +451,43 @@
       } catch (e) {
         autoMerge.checked = !want;
         autoMergeStatus.textContent = e.message || 'Could not save. Is the host awake?';
+      }
+    });
+
+    // Build target lists the repo's .kickflip/build-* scripts at main's tip and saves a pick at once, null for the
+    // default .kickflip/build (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
+    // A saved target the tip no longer has stays listed, marked, so the picker shows what the hub runs.
+    const buildScriptOf = (target) => (target ? `.kickflip/build-${target}` : '.kickflip/build');
+    const buildTargetSub = (target) => `The hub runs <code>${esc(buildScriptOf(target))}</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.`;
+    const showBuildTargets = () => {
+      if (buildTarget === null || buildTargets === null) return;
+      const select = $('#buildTarget');
+      const names = buildTargets.includes(buildTarget) || !buildTarget ? buildTargets : [...buildTargets, buildTarget];
+      select.innerHTML = [['', 'Default'], ...names.map((t) => [t, buildTargets.includes(t) ? t : `${t} (not on main)`])]
+        .map(([value, label]) => `<option value="${esc(value)}"${value && value === buildTarget ? ' selected' : ''}>${esc(label)}</option>`).join('');
+      select.value = buildTarget;
+      select.disabled = false;
+      $('#buildTargetSub').innerHTML = buildTargetSub(buildTarget);
+    };
+    // A new repo brings its own scripts, so a repo save lists them again.
+    const loadBuildTargets = () => get(site.url('api/build-targets')).then(({ body }) => {
+      if (!B.alive()) return;
+      buildTargets = body.targets;
+      showBuildTargets();
+    }).catch(() => { $('#buildTargetStatus').textContent = 'Could not list the repo’s build scripts. Is the host awake?'; });
+    loadBuildTargets();
+    B.on($('#buildTarget'), 'change', async () => {
+      const select = $('#buildTarget');
+      try {
+        const settings = await saveToggle(select, { build_target: select.value || null });
+        if (!B.alive()) return;
+        buildTarget = settings.build_target || '';
+        showBuildTargets();
+        $('#buildTargetStatus').textContent = `Saved. The hub runs ${buildScriptOf(buildTarget)} for each card and main.`;
+      } catch (e) {
+        if (!B.alive()) return;
+        select.value = buildTarget;
+        $('#buildTargetStatus').textContent = e.message || 'Could not save. Is the host awake?';
       }
     });
 

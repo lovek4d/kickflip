@@ -329,7 +329,7 @@ command fails and changes nothing.
                                                          pushed, which needs Push main after a land granted.
                                                          A local board never opens PRs. Without auto-merge, a
                                                          card with no PR waits in In Review for the owner's Merge
-  build <wave>/<id> --site <route>                       asks the hub to run this card's .kickflip/build; prints
+  build <wave>/<id> --site <route>                       asks the hub to run this card's build script; prints
          --asked "<owner's words>"                       started and exits. install is an alias. Only the owner's
                                                          Serve / Build and Auto-build start a card run, so --asked
                                                          must quote the owner's ask, card message or answer note on
@@ -344,6 +344,9 @@ command fails and changes nothing.
                                                          the hub asks gh api user. Pass "" to clear it
   settings set auto-build on|off                         on: each push builds its card. Off by default.
                                                          Main builds after every merge either way
+  settings set build-target <target>|default            the script the hub runs for each card and main:
+                                                         .kickflip/build-<target>, or .kickflip/build with
+                                                         default (unset). Board Settings' Build target picks it
   settings set auto-pull on|off                          Auto implement Todo cards. on: on every board change the
                                                          board server starts and launches the build of the top
                                                          ready Todo cards nothing blocks, holds or asks about, one

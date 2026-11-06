@@ -101,7 +101,7 @@
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`kickflip poll-now`)
 //   /_hub/build       POST {route, key}, key <wave>/<id> or main (retry failed tip), loopback only:
-//                     runs <worktree>/.kickflip/build <key> <worktree>
+//                     runs <worktree>/.kickflip/build[-<board's build target>] <key> <worktree>
 //                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs)
 //   /_hub/pull        POST {route}, loopback only: Main's refresh icon on a local board. Fast-forwards the board's
 //                     branch from origin now and rebuilds Main when that brought commits → {commits, error?} (try.mjs)

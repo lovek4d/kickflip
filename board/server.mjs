@@ -6,8 +6,9 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
 //   lineup create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login}. auto_build asks the hub to
-// run each card's .kickflip/build after each push, and hides the cards' Serve / Build; main always builds after a merge.
+// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
+// run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
+// build_target names the script, .kickflip/build-<target>, else .kickflip/build.
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
@@ -220,8 +221,9 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs} (store.mjs readBoardSettings)
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean} → board.json, keeping its other keys, and when a value other
+//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings)
+//   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets)
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   POST /api/share              {add: login} | {remove: login} → board.json's share, the logins the board is shared with
@@ -283,7 +285,8 @@ import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { readUsageGate, heldFor, pauseReasonFor } from '../shared/usage-gate.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
-import { boardRepo } from '../hub/board-repo.mjs';
+import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
+import { listBuildTargets } from './build-script.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, savedSlack, slackStatus } from '../hub/slack.mjs';
 import { collaborators, githubUser } from '../hub/pr-report.mjs';
@@ -1216,6 +1219,13 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { rules: saved.rules, id });
     }
     if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here) });
+    // Board Settings' Build target picker (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
+    if (p === '/api/build-targets' && req.method === 'GET') {
+      const self = boardAt(here);
+      if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
+      const source = boardRepo(self.route);
+      return json(res, 200, { targets: await listBuildTargets(source.repo, mainRefOf(source)) });
+    }
     if (p === '/api/permissions') {
       const self = boardAt(here);
       if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
@@ -1291,7 +1301,8 @@ const server = http.createServer(async (req, res) => {
       try { saved = await saveBoardSettings(here, body); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
       // The board server alone acts on idle_notification (checkIdle), so it wakes no session.
       const told = saved.changed.filter((k) => k !== 'idle_notification');
-      const id = told.length ? await appendEvent('settings', Object.fromEntries(told.map((k) => [k, saved.settings[k]]))) : null;
+      // A setting cleared back to its default, such as build_target, reads null.
+      const id = told.length ? await appendEvent('settings', Object.fromEntries(told.map((k) => [k, saved.settings[k] ?? null]))) : null;
       // An approved PR merges on the session's GitHub tick once auto-merge is on (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md).
       if (saved.changed.includes('auto_merge') && saved.settings.auto_merge) await appendEvent('check-github', { reason: 'auto-merge' });
       return json(res, 200, { settings: saved.settings, id });

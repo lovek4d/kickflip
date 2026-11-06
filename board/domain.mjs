@@ -19,6 +19,7 @@ import { reviewsOf, reviewNeeds, reviewActions } from './auto-review.mjs';
 import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.mjs';
 import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
+import { buildScriptOf } from './build-script.mjs';
 
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
 const enums = vm.createContext({});
@@ -980,7 +981,9 @@ export function buildBoard(snapshot) {
   const main = run?.script && run.sha ? { slug: run.slug, branch: run.branch || 'main', sha: run.sha.slice(0, 7), at: run.at,
     kind, state: run.state || null, url: kind === 'web' ? null : snapshot.main?.install?.url || null, port: kind === 'web' && run.state === 'ready' ? run.https || null : null,
     // A local board's pull from origin (hub/try.mjs pullMain), which Main's refresh icon shows.
-    pull: tries.pull ? { running: tries.pull.running === true, error: tries.pull.error || null } : null } : null;
+    pull: tries.pull ? { running: tries.pull.running === true, error: tries.pull.error || null } : null,
+    // The script main's run used: its board's build target (build-script.mjs buildScriptOf).
+    script: buildScriptOf(run.target) } : null;
 
   const askProgress = snapshot.askProgress || {};
   const askDones = latest('ask-done', 'id');

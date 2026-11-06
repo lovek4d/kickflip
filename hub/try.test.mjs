@@ -343,6 +343,49 @@ setInterval(() => { if (!require('node:fs').existsSync('hold')) process.exit(8);
   assert.deepEqual(thread(), []);
 });
 
+test('a board’s build target runs .kickflip/build-<target> for its cards and main, and switching it rebuilds main', async () => {
+  const setTarget = (name, body, dir) => {
+    const file = path.join(dir, '.kickflip', `build-${name}`);
+    write(file, `#!${process.execPath}\n${body}\n`);
+    fs.chmodSync(file, 0o700);
+  };
+  const record = (name) => `require('node:fs').writeFileSync('ran.json', JSON.stringify({ target: ${JSON.stringify(name)}, args: process.argv.slice(2), board: process.env.KICKFLIP_BOARD, host: process.env.HOST }));`;
+  for (const dir of [repo, worktree]) {
+    setScript(record('default'), dir);
+    setTarget('web', record('web'), dir);
+    setTarget('ios', record('ios'), dir);
+  }
+  const sha = commit(repo, 'targets');
+  git(repo, 'update-ref', 'refs/remotes/origin/main', sha);
+  fs.rmSync(path.join(worktree, '.kickflip', 'build'));
+  commit(worktree, 'card targets');
+  config({ build_target: 'web' });
+  await tick();
+  assert.equal(state().cards['w/A1'].script, true);
+  await until(() => state().main?.state === 'ready');
+  const dir = path.join(home, '.claude/kickflip/try/orch-main');
+  assert.deepEqual(read(path.join(dir, 'ran.json')), { target: 'web', args: ['main', dir], board: 'orch', host: '127.0.0.1' });
+  assert.equal(state().main.target, 'web');
+  await start();
+  await until(() => state().cards['w/A1']?.state === 'ready');
+  assert.deepEqual(read(path.join(worktree, 'ran.json')), { target: 'web', args: ['w/A1', worktree], board: 'orch', host: '127.0.0.1' });
+  config({ build_target: 'ios' });
+  await tick();
+  await until(() => state().main?.state === 'ready' && state().main.target === 'ios');
+  assert.equal(read(path.join(dir, 'ran.json')).target, 'ios');
+  assert.equal(state().main.sha, sha);
+  config({ build_target: 'android' });
+  await tick();
+  assert.equal(state().cards['w/A1'].script, false);
+  assert.equal(state().main, null);
+  config();
+  await tick();
+  assert.equal(state().cards['w/A1'].script, false);
+  await until(() => state().main?.state === 'ready');
+  assert.equal(read(path.join(dir, 'ran.json')).target, 'default');
+  assert.equal(state().main.target, undefined);
+});
+
 test('a restart clears dead web cards and stops main so the next tick serves it again', async () => {
   write(path.join(site, 'data/try.json'), { kind: 'web', cards: { 'w/A1': { state: 'ready', port: 1 } }, main: { state: 'ready', port: 2, sha: 'old', script: true } });
   await manager.initialize(manifest);

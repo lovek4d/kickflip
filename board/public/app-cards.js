@@ -41,7 +41,7 @@ BoardView.part((B) => {
     if (!mainSheet.open || mainSheet.classList.contains('closing') || !main) return;
     const words = tryWords(main.kind);
     $('#mainLogTitle').textContent = `Main’s ${words.failed.toLowerCase()}`;
-    $('#mainLogSource').innerHTML = `<code>.kickflip/build</code> stopped at main@<code>${esc(main.sha)}</code> · last lines of <code>data/try/main.log</code>`;
+    $('#mainLogSource').innerHTML = `<code>${esc(main.script)}</code> stopped at main@<code>${esc(main.sha)}</code> · last lines of <code>data/try/main.log</code>`;
     // Only a load begun after the POST resolved can settle this retry.
     const fresh = !postingMain && load !== null && (followMainAfter === null || load >= followMainAfter);
     if (fresh) {

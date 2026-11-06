@@ -18,6 +18,10 @@ export function boardRepo(route, manifest = readManifest()) {
   return { github: site.github || '', ...(site.remote ? { remote: site.remote } : {}), branch: site.branch || '', repo: storedPath(site.owner?.repo || ''), ...(local ? { local: true } : {}), ...(site.hub === true ? { hub: true } : {}) };
 }
 
+// The ref a board's main builds from: the local branch for a board building from its folder, else the fetched origin
+// branch. source is boardRepo's answer.
+export const mainRefOf = (source) => (source.local ? `refs/heads/${source.branch || 'main'}` : `refs/remotes/origin/${source.branch || 'main'}`);
+
 export async function changeBoardRepo(route, input, { repos = repoService(), event = appendEvent } = {}) {
   boardRepo(route);
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((k) => !['github', 'remote', 'branch'].includes(k))) refuse('Send only github or remote, and branch.');

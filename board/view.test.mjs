@@ -450,6 +450,53 @@ test('Board Settings saves auto-build immediately, uses kind-specific words and 
   }
 });
 
+// docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md
+test("Board Settings' Build target lists the repo's build scripts with a default, names the script it runs and saves a pick at once", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  let saved = 'gone', refuse = false;
+  const posts = [];
+  page.win.fetch = async (url, opts = {}) => {
+    let body = url.endsWith('/api/board') ? { kind: 'web' } : {};
+    if (url.endsWith('/api/build-targets')) body = { targets: ['ios', 'web'] };
+    if (url.endsWith('/api/settings')) {
+      if (opts.method === 'POST') {
+        posts.push(JSON.parse(opts.body));
+        if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
+        saved = JSON.parse(opts.body).build_target;
+      }
+      body = { settings: saved ? { build_target: saved } : {} };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick();
+  const select = root.querySelector('#buildTarget');
+  assert.equal(select.disabled, false);
+  assert.equal(select.innerHTML, '<option value="">Default</option><option value="ios">ios</option><option value="web">web</option><option value="gone" selected>gone (not on main)</option>');
+  assert.match(root.querySelector('#buildTargetSub').innerHTML, /<code>\.kickflip\/build-gone<\/code>/);
+  select.value = 'ios';
+  page.fire(select, 'change');
+  await tick();
+  assert.deepEqual(posts.at(-1), { build_target: 'ios' });
+  assert.match(root.querySelector('#buildTargetSub').innerHTML, /<code>\.kickflip\/build-ios<\/code>/);
+  assert.equal(root.querySelector('#buildTargetStatus').textContent, 'Saved. The hub runs .kickflip/build-ios for each card and main.');
+  assert.doesNotMatch(select.innerHTML, /gone/);
+  select.value = '';
+  page.fire(select, 'change');
+  await tick();
+  assert.deepEqual(posts.at(-1), { build_target: null });
+  assert.match(root.querySelector('#buildTargetSub').innerHTML, /<code>\.kickflip\/build<\/code>/);
+  refuse = true;
+  select.value = 'web';
+  page.fire(select, 'change');
+  await tick();
+  assert.equal(select.value, '');
+  assert.equal(root.querySelector('#buildTargetStatus').textContent, 'Cannot save');
+  view.unmount();
+});
+
 // docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md
 test("Board Settings' reviewers Add picks a Slack member and a GitHub login, stays off until both are chosen, and Save sends the person and draws the server's list", async () => {
   const page = fakePage(memoryStorage().localStorage);
@@ -2808,7 +2855,7 @@ test('a card try button confirms, posts through the site URL and reloads; disabl
 });
 
 test('main paints above the lanes, card failures scroll to their thread and main failures open a log and retry sheet', async () => {
-  const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500 } };
+  const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500, script: '.kickflip/build-web' } };
   const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });
   await b.settle();
   assert.equal(b.root.querySelector('#tryMain a').getAttribute('href'), 'https://mac.ts.net:8500/');
@@ -2864,7 +2911,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   const retry = b.root.querySelector('#mainLogRetry');
   assert.equal(sheet.open, true);
   assert.equal(b.root.querySelector('#mainLogTitle').textContent, 'Main’s serve failed');
-  assert.match(b.root.querySelector('#mainLogSource').textContent, /main@abcdef1/);
+  assert.match(b.root.querySelector('#mainLogSource').textContent, /^\.kickflip\/build-web stopped at main@abcdef1/);
   assert.match(b.root.querySelector('#mainLogLines').innerHTML, /&lt;script&gt;bad &amp; worse&lt;\/script&gt;/);
   b.page.fire(retry, 'click');
   await b.settle();

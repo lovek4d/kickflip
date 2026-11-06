@@ -1385,7 +1385,8 @@ test('main maps the recorded branch, commit time and short sha to its web or pub
   const run = { slug: 'o/r', branch: 'develop', sha: 'abcdef123456', at: '2026-11-01T00:00:00Z', script: true, state: 'ready', https: 8501 };
   for (const kind of ['web', 'app']) {
     const snapshot = { waves: [], route: 'orch', try: { kind, main: run }, main: { install: { url: 'https://m/main.apk' } } };
-    assert.deepEqual(buildBoard(snapshot).main, { slug: run.slug, branch: 'develop', sha: 'abcdef1', at: run.at, kind, state: 'ready', url: kind === 'web' ? null : 'https://m/main.apk', port: kind === 'web' ? 8501 : null, pull: null });
+    assert.deepEqual(buildBoard(snapshot).main, { slug: run.slug, branch: 'develop', sha: 'abcdef1', at: run.at, kind, state: 'ready', url: kind === 'web' ? null : 'https://m/main.apk', port: kind === 'web' ? 8501 : null, pull: null, script: '.kickflip/build' });
+    assert.equal(buildBoard({ ...snapshot, try: { kind, main: { ...run, target: 'ios' } } }).main.script, '.kickflip/build-ios');
     assert.deepEqual(buildBoard({ ...snapshot, try: { kind, main: run, pull: { at: 'now' } } }).main.pull, { running: false, error: null });
     assert.deepEqual(buildBoard({ ...snapshot, try: { kind, main: run, pull: { at: 'now', running: true, error: 'can’t pull: local changes' } } }).main.pull, { running: true, error: 'can’t pull: local changes' });
     assert.equal(buildBoard({ ...snapshot, try: { kind, main: { ...run, script: false } } }).main, null);

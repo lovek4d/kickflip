@@ -6,11 +6,11 @@ import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { listBoards, readManifest, readJSON, saveJSON, appendEvent, GITHUB_STATE, REPO_FETCH } from './boards.mjs';
-import { boardRepo, githubFromOrigin } from './board-repo.mjs';
+import { boardRepo, githubFromOrigin, mainRefOf } from './board-repo.mjs';
 import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
-import { buildScriptError } from '../board/build-script.mjs';
+import { buildScriptError, buildScriptOf } from '../board/build-script.mjs';
 import { appendThread, recordedWorktree, setItem } from '../board/store.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 import { hubGate } from '../board/on-host.mjs';
@@ -27,7 +27,7 @@ const KEYCHAIN = /errSecInternalComponent|keychain[^\n]*\blocked\b|\blocked\b[^\
 export const TRY_PORTS = { first: 8500, last: 8599 };
 export const isTryPort = (port) => /^\d+$/.test(String(port)) && Number(port) >= TRY_PORTS.first && Number(port) <= TRY_PORTS.last;
 const IDLE_MS = 30 * 60_000;
-const scriptAt = (dir) => path.join(dir, '.kickflip', 'build');
+const scriptAt = (dir, target) => path.join(dir, buildScriptOf(target));
 const exists = (file) => fs.existsSync(file);
 const logFileOf = (board, key) => path.join(board.dir, 'data', 'try', `${key.split('/').at(-1)}.log`);
 function failureLog(board, key, error) {
@@ -291,7 +291,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   }
   async function launch(board, key, worktree, metadata = {}) {
     if (!worktree) throw new BuildError('This card has no valid worktree.');
-    const script = scriptAt(worktree);
+    const script = scriptAt(worktree, board.build_target);
     const error = buildScriptError(script);
     if (error) throw new BuildError(error);
     if (!fs.realpathSync(script).startsWith(fs.realpathSync(worktree) + path.sep)) throw new BuildError('Build script must be inside the worktree.');
@@ -424,7 +424,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       if (entry?.state === 'running') throw new BuildError('A build is already running for main.', 409);
       if (entry?.state !== 'failed' || !entry.sha) throw new BuildError('Main has no failed build to retry.', 409);
       const { sha, branch, slug, at, script } = entry;
-      return launchMain(board, boardRepo(route, manifest).repo, { sha, branch, slug, at, script });
+      return launchMain(board, boardRepo(route, manifest).repo, { sha, branch, slug, at, script, ...(board.build_target ? { target: board.build_target } : {}) });
     }
     starting.add(id);
     const resuming = interrupted.delete(id);
@@ -481,7 +481,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         const { state } = stateOf(board);
         const source = boardRepo(board.route, manifest);
         const branch = source.branch || 'main';
-        const ref = source.local ? `refs/heads/${branch}` : `refs/remotes/origin/${branch}`;
+        const ref = mainRefOf(source);
         for (const { slug, wave } of board.waves) for (const item of wave.items) {
           const key = `${slug}/${item.id}`;
           const states = cardPRs(item, board.github || wave.repo).map((p) => prs[prKeyOf(p)]);
@@ -493,7 +493,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
               const head = await git(worktree, 'rev-parse', 'HEAD');
               let ahead = 0;
               try { ahead = Number(await git(worktree, 'rev-list', '--count', `${ref}..HEAD`)); } catch {}
-              Object.assign(state.cards[key] ||= {}, { head, ahead, script: exists(scriptAt(worktree)) });
+              Object.assign(state.cards[key] ||= {}, { head, ahead, script: exists(scriptAt(worktree, board.build_target)) });
               persist(board);
             } else if (!interrupted.has(id)) continue;
             const entry = state.cards[key];
@@ -514,7 +514,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
           if (!source.repo || await waiting()) continue;
           const sha = await git(source.repo, 'rev-parse', ref);
           let script = false;
-          try { await git(source.repo, 'cat-file', '-e', `${sha}:.kickflip/build`); script = true; } catch {}
+          try { await git(source.repo, 'cat-file', '-e', `${sha}:${buildScriptOf(board.build_target)}`); script = true; } catch {}
           if (!script) {
             const run = runs.get(runKey(board, 'main'));
             if (run) await stopRun(run);
@@ -523,13 +523,13 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
             continue;
           }
           const entry = state.main;
-          if (entry?.state === 'running' || (entry?.sha === sha && (entry.state === 'failed' || (entry.state === 'ready' && (state.kind !== 'web' || lookup(board.route, 'main', { manifest })))))) continue;
+          if (entry?.state === 'running' || (entry?.sha === sha && (entry.target || null) === (board.build_target || null) && (entry.state === 'failed' || (entry.state === 'ready' && (state.kind !== 'web' || lookup(board.route, 'main', { manifest })))))) continue;
           const id = runKey(board, 'main');
           if (starting.has(id)) continue;
           const at = await git(source.repo, 'log', '-1', '--format=%cI', sha);
           let slug = board.github;
           if (!slug) { try { slug = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
-          const metadata = { sha, branch, slug: slug || '', at, script };
+          const metadata = { sha, branch, slug: slug || '', at, script, ...(board.build_target ? { target: board.build_target } : {}) };
           await launchMain(board, source.repo, metadata);
         } catch (e) { log(`try /${board.route} main: ${e.message}`); }
       }

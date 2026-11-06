@@ -1297,6 +1297,45 @@ test("/api/permissions writes the board folder's settings.local.json and reads i
   }
 });
 
+// docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md
+test('/api/build-targets lists the executable .kickflip/build-* scripts at the board’s main tip, and build_target saves a name or the default', async () => {
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  const folder = path.join(home, 'target-repo');
+  const git = (...args) => execFileSync('git', ['-C', folder, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@x' } });
+  fs.mkdirSync(path.join(folder, '.kickflip'), { recursive: true });
+  git('init', '--quiet', '--initial-branch=main');
+  for (const [name, mode] of [['build', 0o755], ['build-web', 0o755], ['build-ios', 0o755], ['build-notes', 0o644], ['README', 0o755]]) {
+    fs.writeFileSync(path.join(folder, '.kickflip', name), '#!/bin/sh\n');
+    fs.chmodSync(path.join(folder, '.kickflip', name), mode);
+  }
+  git('add', '.');
+  git('commit', '--quiet', '-m', 'targets');
+  fs.writeFileSync(path.join(folder, '.kickflip', 'build-uncommitted'), '#!/bin/sh\n', { mode: 0o755 });
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], local: true, owner: { repo: folder } } } }));
+  const cfg = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
+  const save = (body) => fetch(`${base}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const settingsEvents = async () => (await (await fetch(`${base}/_claude/events?kind=settings`)).json()).map((e) => e.data);
+  try {
+    assert.deepEqual(await (await fetch(`${base}/api/build-targets`)).json(), { targets: ['ios', 'web'] });
+    const set = await (await save({ build_target: 'web' })).json();
+    assert.equal(set.settings.build_target, 'web');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).build_target, 'web');
+    assert.deepEqual((await settingsEvents())[0], { build_target: 'web' });
+    for (const bad of ['../build', '', 'a b', 7]) assert.equal((await save({ build_target: bad })).status, 400, JSON.stringify(bad));
+    const cleared = await (await save({ build_target: null })).json();
+    assert.equal('build_target' in cleared.settings, false);
+    assert.equal('build_target' in JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')), false);
+    assert.deepEqual((await settingsEvents())[0], { build_target: null });
+    fs.rmSync(manifest);
+    assert.equal((await fetch(`${base}/api/build-targets`)).status, 404);
+  } finally {
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+    fs.rmSync(manifest, { force: true });
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});
+
 // docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md
 test("Save on the settings page's reviewers adds and removes in the server, opening the DM and checking the login, and records reviewers-added and reviewers-removed for the session", async () => {
   const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };

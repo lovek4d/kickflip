@@ -415,6 +415,14 @@ test("settings prints the board's settings as JSON, off when absent, and setting
     assert.equal(board('settings', 'set', 'github-login', invalid, '--site', 'orch').code, 1);
   }
 
+  // docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md
+  assert.deepEqual(board('settings', 'set', 'build-target', 'ios', '--site', 'orch'), { code: 0, out: 'build-target ios\n', err: '' });
+  assert.equal(cfg().build_target, 'ios');
+  assert.equal(JSON.parse(board('settings', '--site', 'orch').out).build_target, 'ios');
+  assert.match(board('settings', 'set', 'build-target', '../x', '--site', 'orch').err, /build_target must name \.kickflip\/build-<target>/);
+  assert.deepEqual(board('settings', 'set', 'build-target', 'default', '--site', 'orch'), { code: 0, out: 'build-target default\n', err: '' });
+  assert.ok(!('build_target' in cfg()));
+
   const bad = [
     [['settings'], 1, /needs --site/],
     [['settings', 'set', 'auto-merge', 'yes', '--site', 'orch'], 1, /takes on or off/],
