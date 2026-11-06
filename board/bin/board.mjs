@@ -13,6 +13,7 @@ import { bump, queueLines, stopBuilder, stopLand } from '../stop.mjs';
 import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
+import { checkTakesRender } from '../render-check.mjs';
 
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
@@ -62,7 +63,9 @@ command fails and changes nothing.
          danger|success, to the next row's box indexes (default all); practice: ["<line>", …]
          A prototype url's topic must be recorded (prototype add), its option ids a non-empty subset of the
          take keys in take order, without repeats, and every take file written; a hand-written prototype-*.html
-         is refused. On an item: topic, each other question answered and still waiting on Claude is
+         is refused. Each take is then loaded headlessly at 390px and 1280px, and the question is refused,
+         naming the take and width, if one throws, logs a console error or draws an empty stage.
+         On an item: topic, each other question answered and still waiting on Claude is
          resolved, noting "Followed by <new id>", and printed as "resolved: <old id>". Any other unresolved
          question on the same topic that links the same prototype is resolved, noting "Replaced by <new id>",
          and printed as "replaced: <old id>". round_of names the question on the same topic whose
@@ -721,7 +724,7 @@ const COMMANDS = {
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);
-    return { ...(await store.addQuestions(site, input)), asked: [input].flat() };
+    return { ...(await store.addQuestions(site, input, process.env.KICKFLIP_RENDER_CHECK === 'off' ? undefined : checkTakesRender)), asked: [input].flat() };
   }],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
   'question move': [['ids'], ['to', 'block'], (site, [ids], f) => store.moveQuestions(site, ids.split(',').filter(Boolean), f.to, (f.block || '').split(',').filter(Boolean))],

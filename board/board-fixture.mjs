@@ -23,7 +23,7 @@ export const pushStub = () => path.join(home, 'push-stub.mjs');
 export function run(script, args, input, env = {}) {
   write(pushStub(), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n'); console.log(process.env.STUB_SAY || 'sent'); process.exit(Number(process.env.STUB_EXIT || 0));");
   const pushEnv = { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, pushStub(), 'push']), STUB_CALLS: path.join(home, 'push-calls.jsonl') };
-  const r = spawnSync(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1', ...pushEnv, ...env }, input, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1', KICKFLIP_RENDER_CHECK: 'off', ...pushEnv, ...env }, input, encoding: 'utf8' });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 export const board = (...args) => run('board.mjs', args);

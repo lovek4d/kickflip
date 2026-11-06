@@ -292,6 +292,7 @@ import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
+import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
 import { BoardError, startVisual, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startRebase, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
@@ -363,7 +364,6 @@ const json = (res, code, body, headers = {}) => send(res, code, { 'content-type'
 
 // A page names each local script and stylesheet by its version, so a pinned file caches for good and an edit
 // reaches the browser through the page, which revalidates on every visit (docs/adr/2026-10-29-1639-the-board-opens-on-the-last-visit.md).
-const versionOf = (st) => `${Math.floor(st.mtimeMs).toString(36)}-${st.size.toString(36)}`;
 const ASSET = /\b(src|href)="([\w.][\w./-]*\.(?:js|css))"/g;
 async function versionAssets(html, p) {
   const dir = p.endsWith('/') ? p : path.posix.dirname(p);
@@ -908,7 +908,6 @@ async function thread(key) {
     links: own ? await askLinksOf(askId) : [], agents, moved });
 }
 
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function staticFile(rel) {
   for (const root of roots) {
@@ -923,25 +922,10 @@ async function staticFile(rel) {
 
 // A recorded prototype's page is the template with its record filled in; a topic not recorded falls through to the
 // site's own files, so questions on hand-written pages keep opening them.
-const PROTOTYPE_TEMPLATE = path.join(template, 'public', 'prototype.html');
 async function recordedPrototype(p) {
   const topic = /^\/prototype-([a-z0-9-]+)\.html$/.exec(p)?.[1];
   return topic ? (await readPrototypes(here)).find((r) => r.topic === topic) || null : null;
 }
-// Inside <script type="application/json">, so "<" is escaped and the record can't close the element.
-const scriptJSON = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-async function prototypePage(proto) {
-  const takes = await Promise.all(proto.takes.map(async (t) => {
-    const src = `prototypes/${proto.topic}/${t.key}.js`;
-    const st = await fs.stat(takeFile(here, proto.topic, t.key)).catch(() => null);
-    return { key: t.key, label: t.label, src: st?.isFile() ? `${src}?v=${versionOf(st)}` : null, file: src };
-  }));
-  const title = `${proto.title} · prototype`;
-  const header = { lead: 'back', backHref: proto.card ? `./#item=${encodeURIComponent(proto.card)}` : './', title, controls: false };
-  const fill = { prototypeTitle: esc(title), prototypeHeader: `<!--header ${scriptJSON(header).replace(/>/g, '\\u003e')}-->`, prototypeData: scriptJSON({ topic: proto.topic, title: proto.title, takes }) };
-  return (await fs.readFile(PROTOTYPE_TEMPLATE, 'utf8')).replace(/\{\{(prototypeTitle|prototypeHeader|prototypeData)\}\}/g, (_, k) => fill[k]);
-}
-
 async function upload(req, res) {
   try {
     const name = decodeURIComponent(String(req.headers['x-filename'] || ''));
@@ -1408,7 +1392,7 @@ const server = http.createServer(async (req, res) => {
     if (!shell && !file) { res.writeHead(404).end(); return; }
     const ext = shell ? '.html' : path.extname(file).toLowerCase();
     const st = shell ? null : await fs.stat(file);
-    let body = shell ? Buffer.from(shellHtml({ touchIcon: await touchIcon() })) : proto ? Buffer.from(await prototypePage(proto)) : await fs.readFile(file);
+    let body = shell ? Buffer.from(shellHtml({ touchIcon: await touchIcon() })) : proto ? Buffer.from(await prototypePage(here, proto)) : await fs.readFile(file);
     if (!shell && ext === '.html') body = (await pageHeaders(body.toString('utf8'))).replaceAll('{{title}}', esc((await config()).title)).replaceAll('{{touchIcon}}', await touchIcon());
     if (!shell && ext === '.html') body = Buffer.from(await versionAssets(body, p));
     const etag = ext === '.html' ? `W/"${crypto.createHash('sha1').update(body).digest('base64url').slice(0, 20)}"` : `W/"${versionOf(st)}"`;

@@ -1232,8 +1232,10 @@ async function checkPrototype(site, q, name) {
   }
 }
 
-// A question file holds one question or an array of them; all are checked before any is added.
-export async function addQuestions(site, input) {
+// A question file holds one question or an array of them; all are checked before any is added. renderCheck(site, topic)
+// then runs for each recorded prototype the questions link, and throws to refuse them
+// (docs/adr/2026-11-07-0900-a-prototype-question-publishes-only-when-every-take-renders.md).
+export async function addQuestions(site, input, renderCheck = async () => {}) {
   needSite(site);
   const questions = Array.isArray(input) ? input : [input];
   if (!questions.length) fail('the question file is empty');
@@ -1275,6 +1277,7 @@ export async function addQuestions(site, input) {
       if (!from.resolved) fail(`${name}.reask_of names ${id}, which is not resolved; only a resolved question is asked again`);
     });
   }
+  for (const topic of new Set(questions.map((q) => pageTopic(q.url)).filter(Boolean))) await renderCheck(site, topic);
   const lines = [];
   const held = [];
   for (const q of questions) {
