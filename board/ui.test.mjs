@@ -2161,12 +2161,19 @@ test("a shared person's sidebar lists only their boards: no Hub row, no New boar
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/orch/']);
 });
 
-test('the Questions page bar docks on the keyboard while a field is focused', () => {
+test('while typing, the header collapses to a strip at the top of what shows and the field\'s send bar docks on the keyboard', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const view = fs.readFileSync(new URL('./public/view-questions.js', import.meta.url), 'utf8');
-  assert.match(css, /\.view-questions\.kb-up \.bar \{[^}]*position: fixed;[^}]*bottom: var\(--kb/);
-  assert.match(view, /classList\.toggle\('kb-up', typing && kb > 0\)/);
-  assert.match(view, /B\.on\(vv, 'resize', dock\)[\s\S]*B\.on\(vv, 'scroll', dock\)/);
+  const rule = (sel) => css.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
+  const header = ':root.kb-up :is(body > .top, body.has-sidebar > :not(.sidebar) > .top)';
+  assert.match(rule(header), /position: fixed;[^]*top: var\(--keyboard-top, 0px\);[^]*height: 26px;/);
+  assert.match(css, /:root\.kb-up :is\(body > \.top, body\.has-sidebar > :not\(\.sidebar\) > \.top\) > :not\(\.brand\)/);
+  assert.match(rule(`${header} .brand::after`), /content: '· typing'/);
+  for (const bar of [':root.kb-up .view-questions.docked .bar', ':root.kb-up form[data-reply].docked > .row']) {
+    assert.match(rule(bar), /position: fixed;[^]*bottom: var\(--keyboard, 0px\);/, bar);
+  }
+  // The docked thread row carries the What's left? chip and the send buttons, as take B drew.
+  assert.match(css, /:root\.kb-up form\[data-reply\]\.docked > \.row :is\(\.tools, \[data-confirm="finish"\]\) \{ display: none; \}/);
+  assert.doesNotMatch(css, /\.view-questions\.kb-up/);
 });
 
 test('a ↗ written in a question, its context and its options draws as the arrow icon, never the character', () => {

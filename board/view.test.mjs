@@ -1304,6 +1304,41 @@ test('a tap, key or scroll tells the hub the owner is here: at once while away, 
   assert.deepEqual(beats, ['POST']);
 });
 
+test('while a text field is focused and the keyboard is up the page is typing, and the field\'s send bar stays docked until the keyboard goes', async () => {
+  const { page, win, doc } = await shellPage('/shop/');
+  const html = doc.documentElement;
+  const vars = new Map();
+  html.style.setProperty = (k, v) => vars.set(k, v);
+  const vv = win.visualViewport;
+  const form = new page.Target();
+  form.classList = new Set();
+  form.classList.toggle = (c, on) => (on ? form.classList.add(c) : form.classList.delete(c));
+  const field = { matches: (sel) => sel.includes('textarea'), closest: (sel) => (sel.includes('form[data-reply]') ? form : null) };
+  page.fire(doc, 'focusin', { target: field });
+  assert.equal(html.classList.contains('kb-up'), false, 'no keyboard yet');
+  vv.height = 500;
+  page.fire(vv, 'resize');
+  assert.equal(html.classList.contains('kb-up'), true);
+  assert.equal(form.classList.has('docked'), true);
+  assert.deepEqual([vars.get('--keyboard'), vars.get('--keyboard-top')], ['344px', '0px']);
+  vv.offsetTop = 20;
+  page.fire(vv, 'scroll');
+  assert.deepEqual([vars.get('--keyboard'), vars.get('--keyboard-top')], ['324px', '20px']);
+  // A tap on the docked bar blurs the field first: the bar stays where it is until the keyboard goes, so the tap lands.
+  page.fire(doc, 'focusout', { target: field });
+  assert.equal(html.classList.contains('kb-up'), true);
+  assert.equal(form.classList.has('docked'), true);
+  vv.height = 844; vv.offsetTop = 0;
+  page.fire(vv, 'resize');
+  assert.equal(html.classList.contains('kb-up'), false);
+  assert.equal(form.classList.has('docked'), false);
+  // A radio or a button never starts it, even with a keyboard up.
+  page.fire(doc, 'focusin', { target: { matches: () => false, closest: () => null } });
+  vv.height = 500;
+  page.fire(vv, 'resize');
+  assert.equal(html.classList.contains('kb-up'), false);
+});
+
 test('the shell uses the inline or fetched boot code, adopts the first live code for cached or unversioned data, and keeps its update row across sidebar events', async () => {
   for (const boot of ['inline', 'fetched', 'cached', 'unversioned']) {
     const storage = memoryStorage([['hub:sidebar', JSON.stringify({ code: 'stored', sites: [] })]]);
