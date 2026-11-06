@@ -738,7 +738,7 @@ function sendText(req, res, code, headers, body) {
 async function shellPage(here, viewer = null) {
   const data = viewer ? viewer.sidebar((await sidebarState()).data) : (await sidebarState()).data;
   const context = vm.createContext({});
-  for (const file of ['ui-phase-bars.js', 'ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
+  for (const file of ['ui-progress-bar.js', 'ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
   return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
 }
 

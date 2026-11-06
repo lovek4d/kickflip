@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, setTimeout, clearTimeout });
-for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
+for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
 const ui = context.BoardUI;
@@ -951,7 +951,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   assert.match(css, /button\.build\.ready, button\.unhold, button\.closes \{[^}]*background: var\(--color-notice\)/);
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const clicks = [], later = [];
   const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
@@ -993,7 +993,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
 
 test("a card with a worktree opens it in VS Code from its Links line, live on the host and muted with a tooltip off it",() => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1014,7 +1014,7 @@ test("a card with a worktree opens it in VS Code from its Links line, live on th
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test("the open card's details list shows Parent, Children, Related to, Blocked by and Waits on it as rows of tappable labels, leaving out empty rows; the workflow row has no follow-up Build", () => {
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1101,7 +1101,7 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
   assert.doesNotMatch(css, /button\.build[,\s{]/);
 
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
-  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
@@ -1197,12 +1197,50 @@ test("a refused Implement's reason takes the card's status line, in place of its
   assert.doesNotMatch(html, /Next: /);
 });
 
-test("the phase bars draw any list of phases: the board's five build phases and a start's three steps share one renderer", () => {
-  assert.equal(ui.phaseBars(null, ['a', 'b']), '');
-  assert.equal(ui.phaseBars({ reached: 2, running: true, dim: true, label: 'B <2>' }, ['a', 'b', 'c']),
-    '<span class="phase-bars dim" role="img" aria-label="B &lt;2&gt;" title="B &lt;2&gt;"><i class="done"></i><i class="now"></i><i class=""></i></span>');
-  assert.equal(ui.phaseBars({ reached: 1, running: false, fill: 30, label: 'x' }, ['a', 'b', 'c']),
-    '<span class="phase-bars" role="img" aria-label="x" title="x"><i class="done"></i><i class="fill" style="--p:30%"></i><i class=""></i></span>');
+// docs/adr/2026-11-06-0038-a-progress-bar-pulses-one-step-at-a-time.md
+test("one progress bar draws every bar: count steps, done of them filled, the one running step at now pulsing, a percent filling the next, dim and tone", () => {
+  const bar = (strip) => /<span[^>]*>(.*)<\/span>/.exec(ui.progressBar(strip))[1].match(/<i class="\w*"(?: style="[^"]*")?><\/i>/g).join('');
+  assert.equal(ui.progressBar(null), '');
+  assert.equal(ui.progressBar({ count: 3, done: 2, now: 1, label: 'B <2>' }),
+    '<span class="phase-bars" role="img" aria-label="B &lt;2&gt;" title="B &lt;2&gt;"><i class="done"></i><i class="now"></i><i class=""></i></span>');
+  assert.equal(ui.progressBar({ count: 3, done: 0, percent: 30, label: 'x' }),
+    '<span class="phase-bars" role="img" aria-label="x" title="x"><i class="fill" style="--p:30%"></i><i class=""></i><i class=""></i></span>');
+  assert.equal(ui.progressBar({ count: 5, done: 2, now: 1, tone: 'plan', label: 'Prototyping' }).slice(0, 30), '<span class="phase-bars plan" ');
+  assert.equal(bar({ count: 4, done: 4, label: 'x' }), '<i class="done"></i>'.repeat(4));
+  assert.equal(bar({ count: 4, done: 0, label: 'x' }), '<i class=""></i>'.repeat(4));
+  // A dimmed bar is written without its pulse, so the markup, not CSS, says nothing pulses.
+  assert.equal(ui.progressBar({ count: 3, done: 2, now: 1, dim: true, label: 'x' }),
+    '<span class="phase-bars dim" role="img" aria-label="x" title="x"><i class="done"></i><i class="done"></i><i class=""></i></span>');
+  // now is one index, so a bar never draws two pulsing steps, whatever it is given.
+  for (let count = 1; count <= 5; count++) {
+    for (let done = 0; done <= count; done++) {
+      for (const now of [undefined, ...Array.from({ length: count }, (_, i) => i)]) {
+        for (const percent of [undefined, 40]) {
+          const html = ui.progressBar({ count, done, now, percent, label: 'x' });
+          assert.equal((html.match(/<i /g) || []).length, count);
+          assert.ok((html.match(/class="now"/g) || []).length <= 1, html);
+        }
+      }
+    }
+  }
+});
+
+// docs/adr/2026-11-06-0038-a-progress-bar-pulses-one-step-at-a-time.md
+test("every pulse beats on one clock: a pulse animation starting anywhere on the page is set to the document timeline's origin, so the bar's running step and its card's status dot blink together and a redraw never restarts the beat", () => {
+  const anim = (animationName) => ({ animationName, startTime: 812 });
+  for (const name of ['pulse', 'pulse-fill', 'pulse-fill-plan', 'sb-pulse', 'reader-pulse']) {
+    const own = anim(name);
+    const other = anim('nudge-ping');
+    ui.onePulse({ animationName: name, target: { getAnimations: () => [own, other] } });
+    assert.deepEqual([own.startTime, other.startTime], [0, 812], name);
+  }
+  const ping = anim('nudge-ping');
+  ui.onePulse({ animationName: 'nudge-ping', target: { getAnimations: () => [ping] } });
+  assert.equal(ping.startTime, 812, 'other animations keep their own start');
+  const heard = [];
+  const ctx = vm.createContext({ document: { addEventListener: (type, fn) => heard.push([type, fn]) } });
+  vm.runInContext(fs.readFileSync(new URL('./public/ui-progress-bar.js', import.meta.url), 'utf8'), ctx);
+  assert.deepEqual(heard.map(([type, fn]) => [type, fn === ctx.BoardUI.onePulse]), [['animationstart', true]]);
 });
 
 // docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
@@ -1220,9 +1258,9 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
     [{ builder: { ...testing, phase: 'reading' } }, { dim: false, label: 'Reading, step 1 of 5', bars: 'now - - - -' }],
     [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ builder: { ...testing, phase: 'landing' } }, { dim: false, label: 'Landing, step 5 of 5', bars: 'done done done done now' }],
-    [{ builder: { ...testing, stalled: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
+    [{ builder: { ...testing, stalled: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done done - -' }],
     [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, step 4 of 5', bars: 'done done done now -' }],
-    [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done now - - -' }],
+    [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
     [{ reachedPhase: 'building', action: questions }, { dim: true, label: 'Stopped at building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
     [{ reopened: true, reachedPhase: 'testing' }, { dim: true, label: 'Reopened, all 5 steps done', bars: 'done done done done done' }],
     [{ reachedPhase: 'landing', next: 'Fix the failing CI' }, { dim: true, label: 'Stopped at landing, step 5 of 5', bars: 'done done done done done' }],
@@ -2110,7 +2148,7 @@ test('the Auto Review lane shows each PR with its author, cards and state, opens
 
 // docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
 test("a card's phase bars enter as it lands in In Progress, empty or not, fill as it reaches more phases, leave as it goes, and are still otherwise", () => {
-  const reached = (it) => ui.phaseStrip(it)?.reached ?? null;
+  const reached = (it) => ui.phaseStrip(it)?.done ?? null;
   assert.equal(reached({ lane: 'progress', builder: { phase: 'testing' } }), 3);
   assert.equal(reached({ lane: 'progress', builder: { phase: null } }), 0);
   assert.equal(reached({ lane: 'progress', waitsOn: 'checking' }), 4);

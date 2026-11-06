@@ -363,15 +363,17 @@ button.attach:disabled { opacity: .35; }
    pixel off its siblings (docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md). */
 .card-time .phase-bars { display: inline-flex; gap: 2px; vertical-align: middle; position: relative; top: -1px; }
 .phase-bars i { width: 9px; height: 4px; border-radius: 2px; background: var(--line); }
-/* A strip dims, and its running bar stops blinking, while the card waits on something other than a builder
-   (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md). app-cards.js sweeps bars in --bar-fill. */
+/* A strip dims while the card waits on something other than a builder; ui-progress-bar.js then writes its running bar
+   as done, so it stops blinking (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md). app-cards.js
+   sweeps bars in --bar-fill. */
 .phase-bars { --bar-fill: var(--color-notice); }
 .phase-bars.dim { --bar-fill: color-mix(in srgb, var(--muted) 55%, transparent); }
 .phase-bars i.done, .phase-bars i.now { background: var(--bar-fill); }
 /* A bar part way, to --p: a starting board's clone (ui-sidebar.js). */
 .phase-bars i.fill { background: linear-gradient(to right, var(--bar-fill) var(--p), var(--line) var(--p)); }
 @keyframes pulse-fill { 50% { background-color: color-mix(in srgb, var(--color-notice) 35%, transparent); } }
-@media (prefers-reduced-motion: no-preference) { .phase-bars:not(.dim) i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
+/* Every pulse beats on one clock (ui-progress-bar.js onePulse), so a card's running bar and its status dot blink together. */
+@media (prefers-reduced-motion: no-preference) { .phase-bars i.now { animation: pulse-fill 1.4s ease-in-out infinite; } }
 /* A stale build's status line, dot included, is the needs-you red, and a tap on it nudges Claude (ui-cards.js builderStatus). */
 /* A status line that is a button is drawn as the div it replaces: this one reset, then only a colour per state. The font
    shorthand stays out so .sub's 12px wins. It sets no width: a button is its own block formatting context, so a full-width one
@@ -416,7 +418,7 @@ button.sub.agent.stalled.nudging { color: var(--color-notice); cursor: default; 
 .paused { color: var(--muted); font-weight: 600; }
 .phase-bars.plan { --bar-fill: var(--accent); }
 @keyframes pulse-fill-plan { 50% { background-color: color-mix(in srgb, var(--accent) 35%, transparent); } }
-@media (prefers-reduced-motion: no-preference) { .phase-bars.plan:not(.dim) i.now { animation-name: pulse-fill-plan; } }
+@media (prefers-reduced-motion: no-preference) { .phase-bars.plan i.now { animation-name: pulse-fill-plan; } }
 .msg.calls { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
 .msg.calls summary { cursor: pointer; color: var(--muted); list-style: none; }
 .msg.calls summary::-webkit-details-marker { display: none; }

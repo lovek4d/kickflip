@@ -1,5 +1,5 @@
 // The sidebar's behaviour on a page with <aside id="sidebar" class="sidebar"> and <div id="sidebarScrim"
-// class="sidebar-scrim">, after ui-phase-bars.js, ui-page-header.js and ui-sidebar.js (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md).
+// class="sidebar-scrim">, after ui-progress-bar.js, ui-page-header.js and ui-sidebar.js (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md).
 // Sidebar.mount({here, data}) paints `data` or the last copy this device stored; the app shell hands it each new copy
 // through setData from its one stream (shell.js). The page header's logo (a.hub) toggles the sidebar at every
 // width, with what waits on the other sites in its accessible label. Below 900px the sidebar is a drawer: the logo or a swipe in from the
@@ -17,8 +17,8 @@
 // logo does, checkDevice reading this device's push subscription again, and keydown and pointerdown taking a framed
 // page's events (view-frame.js), as the document's own
 // A starting board's row (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md): its seconds
-// tick in place each second, and a repaint sets its running bar's pulse from the clock, so a new copy never restarts
-// it. When the board joins, its row fades in, and a repaint during the fade carries it on from where it was.
+// tick in place each second, and its running bar beats on every pulse's one clock (ui-progress-bar.js onePulse). When
+// the board joins, its row fades in, and a repaint during the fade carries it on from where it was.
 (function () {
   const DATA_KEY = 'hub:sidebar';
   // app.html reads it before the first paint, so a collapsed rail never shows for a moment.
@@ -27,8 +27,7 @@
   // A phone has no keys to press, so it never shows the shortcuts sheet.
   const DESKTOP = '(hover: hover) and (pointer: fine)';
   const TWICE_MS = 1000;
-  // style.css pulse-fill's period, and sidebar.css sb-join's length.
-  const PULSE_MS = 1400;
+  // sidebar.css sb-join's length.
   const JOIN_MS = 2500;
   // paint() sets the bar's duration from this and its delay from switching.started.
   const IDLE_MS = 3000;
@@ -90,7 +89,6 @@
     }
     function paintStarts() {
       const now = Date.now();
-      for (const bar of aside.querySelectorAll('.sb-starting .phase-bars i.now')) bar.style.animationDelay = `-${now % PULSE_MS}ms`;
       for (const [route, at] of joined) {
         const row = now - at < JOIN_MS && aside.querySelector(`a.sb-row[href="/${encodeURIComponent(route)}/"]`);
         if (!row) { joined.delete(route); continue; }

@@ -9,7 +9,7 @@ import { freePorts, until } from '../shared/test-helpers.mjs';
 
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-phase-bars.js', 'ui-cards.js'];
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js'];
 
 const card = (key, stalled) => ({ kind: 'work', key, id: key, ref: key, title: 'Short title', lane: 'progress', bumpable: true, internal: true,
   builder: { progress: 'Running tests', phase: 'testing', at: null, stalled } });

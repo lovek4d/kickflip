@@ -1,6 +1,6 @@
-// Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-phase-bars.js.
+// Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-progress-bar.js.
 (function () {
-  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, phaseBars: bars } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
@@ -167,8 +167,8 @@
   const BUILD_PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
   const stepWords = (phase) => `step ${BUILD_PHASES.indexOf(phase) + 1} of ${BUILD_PHASES.length}`;
   const ALL_DONE = `all ${BUILD_PHASES.length} steps done`;
-  // What a card's bars show, or null off In Progress and on a card only a planner works on: how many phases it reached,
-  // whether the last of them is running, whether it dims because the card waits on something other than a builder (its
+  // A card's progress bar (ui-progress-bar.js), or null off In Progress and on a card only a planner works on: how many
+  // phases it reached, which of them is running, whether it dims because the card waits on something other than a builder (its
   // questions, a blocker or queue, a reopening) or its build is stale, and its label. An install is no build: its card keeps the phase its
   // build reached, undimmed
   // (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md).
@@ -177,26 +177,28 @@
   function phaseStrip(it) {
     if (it.lane === 'todo' && it.builder?.planner) {
       const prototype = it.builder.kind === 'prototype';
-      return { reached: prototype ? 2 : 1, running: true, dim: false, plan: true, label: prototype ? 'Prototyping' : 'Grilling' };
+      const done = prototype ? 2 : 1;
+      return { count: BUILD_PHASES.length, done, now: done - 1, tone: 'plan', label: prototype ? 'Prototyping' : 'Grilling' };
     }
     if (it.lane !== 'progress' || it.builder?.planner) return null;
     const all = BUILD_PHASES.length;
     // Orchestrator review is the checking phase, before landing (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
-    if (it.waitsOn === 'checking') return { reached: BUILD_PHASES.indexOf('checking') + 1, running: true, dim: false, label: `Orchestrator review, ${stepWords('checking')}` };
+    const checking = BUILD_PHASES.indexOf('checking');
+    if (it.waitsOn === 'checking') return { count: all, done: checking + 1, now: checking, label: `Orchestrator review, ${stepWords('checking')}` };
     const asking = it.action?.kind === ACTION_KIND.questions || it.action?.kind === ACTION_KIND.pick;
     const answers = asking ? ', waiting on your answers' : '';
     const name = (phase) => `${phase[0].toUpperCase()}${phase.slice(1)}`;
     if (it.builder && it.builder.kind !== BUILDER_KIND.install) {
-      const reached = BUILD_PHASES.indexOf(it.builder.phase) + 1;
-      return { reached, running: reached > 0, dim: asking || Boolean(it.builder.stalled || it.builder.quiet), label: `${reached ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
+      const done = BUILD_PHASES.indexOf(it.builder.phase) + 1;
+      return { count: all, done, now: done ? done - 1 : undefined, dim: asking || Boolean(it.builder.stalled || it.builder.quiet), label: `${done ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
     }
     const dim = !it.builder || asking;
-    if (it.reopened) return { reached: all, running: false, dim, label: `Reopened, ${ALL_DONE}${answers}` };
-    const reached = BUILD_PHASES.indexOf(it.reachedPhase) + 1;
-    const label = reached ? `Stopped at ${it.reachedPhase}, ${stepWords(it.reachedPhase)}` : 'No step yet';
-    return { reached, running: false, dim, label: `${label}${answers}` };
+    if (it.reopened) return { count: all, done: all, dim, label: `Reopened, ${ALL_DONE}${answers}` };
+    const done = BUILD_PHASES.indexOf(it.reachedPhase) + 1;
+    const label = done ? `Stopped at ${it.reachedPhase}, ${stepWords(it.reachedPhase)}` : 'No step yet';
+    return { count: all, done, dim, label: `${label}${answers}` };
   }
-  // What the bars do when a card's reached count goes from prev to next across redraws, null or undefined meaning no
+  // What the bars do when a card's done count goes from prev to next across redraws, null or undefined meaning no
   // strip (docs/adr/2026-11-03-1850-the-phase-bars-animate-as-a-build-starts-advances-and-ends.md).
   function phaseMotion(prev, next) {
     const had = typeof prev === 'number';
@@ -204,7 +206,6 @@
     if (had !== has) return has ? 'enter' : 'leave';
     return has && next > prev ? 'fill' : null;
   }
-  const phaseBars = (strip) => bars(strip, BUILD_PHASES);
   // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
   // Every status line on an In Progress card is the phase-bar orange, and every build or plan line on a Todo card the
   // owner's blue (style.css).
@@ -319,7 +320,7 @@
     return `${actions ?? cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
       ${status}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
-      ${timeLine(it, unread, phaseBars(phaseStrip(it)))}`;
+      ${timeLine(it, unread, progressBar(phaseStrip(it)))}`;
   }
   const WAVE_ICON = '<svg class="wave-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-1.5"/></svg>';
   const askChip = (it) => (it.isNew ? badge('notice', 'New') : '');

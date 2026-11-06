@@ -1,11 +1,11 @@
 // The sidebar of every site (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md), drawn from the hub's
 // /_hub/sidebar.json. It needs only ui-page-header.js, loaded before it, for its head, which is the page header itself, and
-// ui-phase-bars.js for a starting board's steps: the app shell runs it through sidebar.js, and hub/hub.mjs renders the
+// ui-progress-bar.js for a starting board's steps: the app shell runs it through sidebar.js, and hub/hub.mjs renders the
 // shell's first sidebar with all three in a vm context.
 // Its links are root-absolute, since every site and hub page sits beside this one on the hub. sidebar.css styles it.
 (function () {
   // ui.js replaces the BoardUI global when it loads after this, so the header renderer is held here.
-  const { header, phaseBars } = globalThis.BoardUI || {};
+  const { header, progressBar } = globalThis.BoardUI || {};
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const svg = (paths, size = 17) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
   const ICONS = {
@@ -174,8 +174,9 @@
   function startSteps(s) {
     const at = STEP_KEYS.indexOf(s.step);
     const label = `${START_STEPS[s.step]}, step ${at + 1} of ${STEP_KEYS.length}`;
-    const strip = s.step === 'cloning' ? { reached: 0, running: false, fill: s.percent || 0, label } : { reached: at + 1, running: true, label };
-    return `<span class="sb-steps">${phaseBars(strip, STEP_KEYS)}</span>`;
+    const count = STEP_KEYS.length;
+    const bar = s.step === 'cloning' ? { count, done: 0, percent: s.percent || 0, label } : { count, done: at + 1, now: at, label };
+    return `<span class="sb-steps">${progressBar(bar)}</span>`;
   }
 
   // The update row, only while the app's code is old: the version the hub now runs, as the Hub page's footer writes it (v0.5.1), or New version

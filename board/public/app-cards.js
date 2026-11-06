@@ -367,7 +367,7 @@ BoardView.part((B) => {
   // After lanes redraw: compares each card's reached count to its last, then enters, fills or leaves its strip. An
   // entering strip grows in one bar at a time, then sweeps each reached bar.
   function moveStrips(items, before) {
-    const next = new Map(items.map((it) => [it.key, phaseStrip(it)?.reached ?? null]));
+    const next = new Map(items.map((it) => [it.key, phaseStrip(it)?.done ?? null]));
     const still = reduceMotion.matches || !drawn;
     for (const [key, reached] of next) {
       const kind = still ? null : phaseMotion(phases.get(key), reached);
