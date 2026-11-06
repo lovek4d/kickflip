@@ -1990,7 +1990,7 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
   assert.equal([...boardPaused.matchAll(/class="word t-paused">paused/g)].length, 1, 'only the paused board');
   assert.equal([...boardPaused.matchAll(/>working</g)].length, 1);
   assert.match(text(boardPaused), /healthy/);
-  assert.equal(ui.statusLine(null, { pause: manual('board') }), `<span class="paused">paused until ${until}</span>`);
+  assert.equal(ui.statusLine(null, { pause: manual('board') }), `<span class="fresh hold" title="Paused until ${until}"></span>`);
 });
 
 test('the New version row reads Updated to the pulled version with Restart, spins while the pull or the restart runs, and gives Reload priority', () => {
