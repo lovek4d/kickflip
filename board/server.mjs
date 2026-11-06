@@ -223,7 +223,7 @@
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
 //   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings),
-//                                paused_until: Pause board's end or null, pause_choices: holdChoices without Forever}
+//                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets)
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (store.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
@@ -1223,7 +1223,7 @@ const server = http.createServer(async (req, res) => {
       const id = rulesChanged(saved.changes) ? await appendEvent('rules', { scope: 'board', ...saved.changes }) : null;
       return json(res, 200, { rules: saved.rules, id });
     }
-    if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here), paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES.filter((c) => c.ms !== null) });
+    if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here), paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES });
     // Board Settings' Build target picker (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
     if (p === '/api/build-targets' && req.method === 'GET') {
       const self = boardAt(here);

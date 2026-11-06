@@ -558,7 +558,7 @@ test("Board Settings' reviewers Add picks a Slack member and a GitHub login, sta
 });
 
 // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
-test("Board Settings opens with Pause board: the snooze picker's chips without Forever, then until when with Resume, each saved at once", async () => {
+test("Board Settings opens with Pause board: the snooze picker's chips, Forever included, then until when with Resume, each saved at once", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
   const markup = page.win.AppViews.settings.markup({}, {});
@@ -569,12 +569,12 @@ test("Board Settings opens with Pause board: the snooze picker's chips without F
   let sidebar = 0;
   page.win.fetch = async (url, opts = {}) => {
     let body = {};
-    if (url.endsWith('/api/settings')) body = { settings: {}, paused_until: paused, pause_choices: [{ value: '1h', label: '1h', ms: 3600_000 }, { value: '3h', label: '3h', ms: 3 * 3600_000 }] };
+    if (url.endsWith('/api/settings')) body = { settings: {}, paused_until: paused, pause_choices: [{ value: '1h', label: '1h', ms: 3600_000 }, { value: '3h', label: '3h', ms: 3 * 3600_000 }, { value: 'forever', label: 'Forever', ms: null }] };
     if (url.endsWith('/api/pause')) {
       posts.push(JSON.parse(opts.body));
       const { pause } = JSON.parse(opts.body);
-      if (pause === 'forever') return { ok: false, status: 400, json: async () => ({ error: 'A pause ends after now and within 30 days.' }) };
-      paused = pause === 'off' ? null : until;
+      if (pause === 'soon') return { ok: false, status: 400, json: async () => ({ error: 'A pause ends after now and within 30 days.' }) };
+      paused = pause === 'off' ? null : pause === 'forever' ? 'forever' : until;
       body = { paused_until: paused };
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
@@ -585,7 +585,8 @@ test("Board Settings opens with Pause board: the snooze picker's chips without F
   const box = root.querySelector('#pauseBoard');
   const status = root.querySelector('#pauseBoardStatus');
   assert.match(box.innerHTML, /<span class="title" id="pauseBoardTitle">Pause board<\/span>/);
-  assert.deepEqual([...box.innerHTML.matchAll(/name="pause" value="([^"]+)"/g)].map((m) => m[1]), ['1h', '3h']);
+  assert.deepEqual([...box.innerHTML.matchAll(/name="pause" value="([^"]+)"/g)].map((m) => m[1]), ['1h', '3h', 'forever']);
+  assert.match(box.innerHTML, /aria-label="Forever, until you resume">Forever</);
   assert.match(box.innerHTML, /action="https:\/\/mac\.ts\.net\/orch\/api\/pause"/);
   const submit = async (value) => { page.fire(box, 'submit', { target: new page.El(), submitter: Object.assign(new page.El(), { value }) }); await tick(); await tick(); };
   await submit('3h');
@@ -598,6 +599,10 @@ test("Board Settings opens with Pause board: the snooze picker's chips without F
   assert.equal(status.textContent, 'Resumed. New work starts again.');
   assert.match(box.innerHTML, /value="1h"/);
   await submit('forever');
+  assert.deepEqual(posts.at(-1), { pause: 'forever' });
+  assert.match(box.innerHTML, /<span class="text title">Paused until you resume<\/span>[^]*value="off">Resume/);
+  await submit('off');
+  await submit('soon');
   assert.equal(status.textContent, 'A pause ends after now and within 30 days.');
   view.unmount();
 });

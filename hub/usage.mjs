@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { audit, hubAudit } from '../shared/audit.mjs';
+import { FOREVER } from './duration.mjs';
 
 const CODEX_FILES = 6;
 const SAME_WINDOW_S = 180;
@@ -126,7 +127,7 @@ export async function checkUsagePause({ gate, home = os.homedir(), resume }) {
   const previous = readJson(file);
   // Pause hub (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md) is a pause like the line's, its window 'manual'.
   if (gate.state === 'paused' && previous?.state !== 'paused') {
-    const reason = gate.manual ? `The owner paused the hub until ${gate.resets_at}.` : `Claude's ${gate.window === 'five_hour' ? '5-hour' : 'weekly'} usage reached the ${gate.pause_at}% line.`;
+    const reason = gate.manual ? `The owner paused the hub ${gate.resets_at === FOREVER ? 'until they resume it' : `until ${gate.resets_at}`}.` : `Claude's ${gate.window === 'five_hour' ? '5-hour' : 'weekly'} usage reached the ${gate.pause_at}% line.`;
     audit(hubAudit(home), { call: 'usage-pause', result: 'paused', reason, inputs: { gate, previous: previous?.state ?? null } });
   }
   if (previous?.state === 'paused' && gate.state === 'normal') {

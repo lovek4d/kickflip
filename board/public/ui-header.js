@@ -11,7 +11,7 @@
     const down = link === 'offline' || watcher === 'stopped';
     const reason = link === 'offline' ? "Offline: can't reach the host"
       : watcher === 'stopped' ? 'Claude not listening'
-      : paused ? `Paused until ${BoardUI.usageClock(pause.resets_at)}`
+      : paused ? `Paused ${BoardUI.pauseUntilWords(pause.resets_at)}`
       : link === 'reconnecting' ? 'Reconnecting…'
       : watcher === 'waking' || (waking && watcher === 'asleep') ? 'Waking: the hub is resuming its session'
       : watcher === 'asleep' ? 'Asleep: its session idled out. Refresh, or any tap on the page, wakes it' : '';

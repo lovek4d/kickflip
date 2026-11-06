@@ -32,6 +32,9 @@
     const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP])M/i, (_, x) => `${x.toLowerCase()}m`);
     return new Date().toDateString() === d.toDateString() ? time : `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
   }
+  // A pause's end in words: until its clock, or until you resume a Forever Pause hub or Pause board
+  // (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
+  const pauseUntilWords = (end) => (end === 'forever' ? 'until you resume' : `until ${usageClock(end)}`);
   const usageTone = (w) => !w ? 'none' : w.state === 'stale' ? 'stale' : w.used_percentage >= 90 ? 'full' : w.used_percentage >= 75 ? 'high' : 'ok';
   const usageBar = (w) => `<span class="u-bar" aria-hidden="true"><i style="width:${w?.state === 'stale' ? 0 : Math.max(0, Math.min(100, w?.used_percentage || 0))}%"></i></span>`;
   function usageWords(reading, key) {
@@ -220,7 +223,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage);
-    const hub = paused ? { tone: 'paused', word: 'paused', detail: `until ${usageClock(data.pause.resets_at)}` } : data?.hub;
+    const hub = paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')
@@ -248,5 +251,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, startCaption, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, usageTone, usageBar, usageWords });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, startCaption, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords });
 })();

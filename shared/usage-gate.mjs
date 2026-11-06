@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { usageReader } from '../hub/usage.mjs';
 import { readSettingsFile, writeSettingsFile, readCodexShare, readClaudeModel } from '../hub/push.mjs';
-import { FOREVER, durationEnd } from '../hub/duration.mjs';
+import { FOREVER, durationEnd, storedEnd } from '../hub/duration.mjs';
 import { codexStatus, codexStatusReader, effectiveCodexShare } from './codex.mjs';
 
 export const validPauseAt = (value) => Number.isInteger(value) && value >= 50 && value <= 100 && value % 5 === 0;
@@ -11,17 +11,21 @@ const timeOf = (now) => Number(now);
 const windows = ['five_hour', 'seven_day'];
 
 // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
-// A manual pause's stored end (settings.json's paused_until for the hub, board.json's for a board) while it is still ahead.
-const pausedUntil = (stored, now) => (typeof stored === 'string' && Date.parse(stored) > timeOf(now) ? stored : null);
+// A manual pause's stored end (settings.json's paused_until for the hub, board.json's for a board) while it is still
+// ahead: an ISO time, or FOREVER, which lasts until the owner resumes it.
+const pausedUntil = (stored, now) => (stored === FOREVER || (typeof stored === 'string' && Date.parse(stored) > timeOf(now)) ? stored : null);
 
-// When a Pause hub or Pause board choice made at `now` ends, as a Date, or null for off: the snooze picker's chips and
-// Custom (hub/duration.mjs), never forever. Throws {status: 400} for any other choice.
+// When a Pause hub or Pause board choice made at `now` ends, as it is stored (an ISO time or FOREVER), or null for off:
+// the snooze picker's chips, Forever included, and Custom (hub/duration.mjs). Throws {status: 400} for any other choice.
 export function pauseEnd(choice, now = new Date()) {
   if (choice === 'off') return null;
   const end = durationEnd(new Date(timeOf(now)), choice);
-  if (!end || end === FOREVER) throw Object.assign(new Error('A pause ends after now and within 30 days: <n>m, <n>h, <n>d, <n>w or a date and time; or off.'), { status: 400 });
-  return end;
+  if (!end) throw Object.assign(new Error('A pause ends after now and within 30 days: <n>m, <n>h, <n>d, <n>w, forever or a date and time; or off.'), { status: 400 });
+  return storedEnd(end);
 }
+
+// A manual pause's end in words: `until <iso>`, or until the owner resumes it for FOREVER.
+export const pauseUntilWords = (end) => (end === FOREVER ? 'until the owner resumes it' : `until ${end}`);
 
 // hubPause and boardPause are the manual pauses' stored ends (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md):
 // either, while ahead, pauses Claude and Codex work alike, over the usage pause and Keep going, the hub's first.
@@ -65,11 +69,11 @@ export function readUsageGate({ home = os.homedir(), now = Date.now(), dir = nul
     hubPause: settings.paused_until, boardPause: dir ? boardPausedUntil(dir, now) : null, now });
 }
 
-// Pause hub: a pauseEnd choice, or off. Settings writes keep other keys. → the end, or null.
+// Pause hub: a pauseEnd choice, or off. Settings writes keep other keys. → the stored end, or null.
 export function setHubPause(choice, { home = os.homedir(), now = new Date() } = {}) {
   const end = pauseEnd(choice, now);
   const { paused_until: _, ...rest } = readSettingsFile(home);
-  writeSettingsFile(end ? { ...rest, paused_until: end.toISOString() } : rest, home);
+  writeSettingsFile(end ? { ...rest, paused_until: end } : rest, home);
   return end;
 }
 
@@ -123,9 +127,9 @@ function claudePick(setting, card) {
 
 const MANUAL_WORDS = { hub: ['the hub', 'Pause hub in Hub settings'], board: ['this board', 'Pause board in Board settings'] };
 export const pauseReason = (gate) => (gate.manual
-  ? `Work is paused: the owner paused ${MANUAL_WORDS[gate.manual][0]} until ${gate.resets_at}. ${MANUAL_WORDS[gate.manual][1]} resumes it.`
+  ? `Work is paused: the owner paused ${MANUAL_WORDS[gate.manual][0]} ${pauseUntilWords(gate.resets_at)}. ${MANUAL_WORDS[gate.manual][1]} resumes it.`
   : usagePauseReason(gate));
-// The watcher's line while paused: `usage paused <iso> <window> <used>%`, or `usage paused <iso> manual hub|board`.
+// The watcher's line while paused: `usage paused <iso> <window> <used>%`, or `usage paused <iso|forever> manual hub|board`.
 export const pausedLine = (gate) => `usage paused ${gate.resets_at} ${gate.manual ? `manual ${gate.manual}` : `${gate.window} ${gate.used}%`}`;
 const usagePauseReason = (gate) => `Work is paused: Claude's ${windowWord(gate.window)} usage is at ${Math.round(gate.used)}%. Resumes at ${gate.resets_at}. The owner can tap Keep going on the Hub page.`;
 

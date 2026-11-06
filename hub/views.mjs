@@ -126,6 +126,7 @@ export const SNOOZE_REFUSED = 'That snooze ends in the past or more than 30 days
 export const AWAKE_REFUSED = 'That keep awake ends in the past or more than 30 days on. Pick another time.';
 const SNOOZE_FOREVER = 'until you end it';
 const AWAKE_FOREVER = 'until you turn it off';
+const PAUSE_FOREVER = 'until you resume';
 
 const untilWords = (end, now, forever) => (end === FOREVER ? forever : `until ${clock(end, now)}`);
 // The shared duration picker's chips (duration.mjs), each with when it would end if chosen at `now`.
@@ -139,17 +140,17 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // Keep awake share one duration picker (docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md), whose
 // choices are null while that setting is on, and Snooze's while notifications are off. awake is
 // {until: awake.mjs awakeUntil, unsupported: awake.mjs awakeUnsupported}.
-// pausedUntil is Pause hub's end, a Date, or null while it is off
-// (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): its picker is the snooze picker's, without Forever.
+// pausedUntil is Pause hub's end, a Date or FOREVER, or null while it is off
+// (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): its picker is the snooze picker's.
 export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, awake = { until: null, unsupported: null }, pausedUntil = null }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
   const queued = st.count ? ` The ${st.count} queued push${st.count === 1 ? ' is' : 'es are'} dropped now.` : '';
   const snoozedTitle = until && `Snoozed ${untilWords(until, now, SNOOZE_FOREVER)}`;
-  const pausedTitle = pausedUntil && `Paused until ${clock(pausedUntil, now)}`;
+  const pausedTitle = pausedUntil && `Paused ${untilWords(pausedUntil, now, PAUSE_FOREVER)}`;
   return {
-    pause: { on: pausedUntil ? { title: pausedTitle } : null, summary: pausedTitle || 'Off', choices: pausedUntil ? null : durationChoices(now).filter((c) => c.value !== FOREVER) },
+    pause: { on: pausedUntil ? { title: pausedTitle } : null, summary: pausedUntil === FOREVER ? 'Paused · forever' : pausedTitle || 'Off', choices: pausedUntil ? null : durationChoices(now, PAUSE_FOREVER) },
     snoozed: until ? { title: snoozedTitle, summary: until === FOREVER ? 'Snoozed · forever' : snoozedTitle } : null,
     device: deviceLine(st, now),
     on: {

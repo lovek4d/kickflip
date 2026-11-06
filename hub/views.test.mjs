@@ -21,11 +21,16 @@ const NOT_INSTALLED = codexStatus({ installed: false });
 const LOGGED_OUT = codexStatus({ installed: true, home: '/nonexistent' });
 
 // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
-test("Pause hub offers the snooze picker's chips without Forever, then says until when with Resume", () => {
+test("Pause hub offers the snooze picker's chips, Forever included, then says until when with Resume", () => {
   const now = t(10);
-  const off = plain(settingsView({ now, st: status(now, DEFAULTS) }).pause);
-  assert.deepEqual(off, { on: null, summary: 'Off', choices: [['1h', 'until 11:00am'], ['3h', 'until 1:00pm'], ['6h', 'until 4:00pm'], ['1d', 'until 10:00am tomorrow']].map(([value, until]) => ({ value, label: value, until })) });
+  const v = settingsView({ now, st: status(now, DEFAULTS) });
+  const off = plain(v.pause);
+  assert.deepEqual(off, { on: null, summary: 'Off', choices: [['1h', '1h', 'until 11:00am'], ['3h', '3h', 'until 1:00pm'], ['6h', '6h', 'until 4:00pm'], ['1d', '1d', 'until 10:00am tomorrow'], ['forever', 'Forever', 'until you resume']].map(([value, label, until]) => ({ value, label, until })) });
+  const values = (choices) => choices.map((c) => [c.value, c.label]);
+  assert.deepEqual(values(v.pause.choices), values(v.snooze.choices), 'the same set as Snooze');
+  assert.deepEqual(values(v.pause.choices), values(v.awake.choices), 'the same set as Keep awake');
   assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), pausedUntil: t(13) }).pause), { on: { title: 'Paused until 1:00pm' }, summary: 'Paused until 1:00pm', choices: null });
+  assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), pausedUntil: 'forever' }).pause), { on: { title: 'Paused until you resume' }, summary: 'Paused · forever', choices: null });
 });
 
 test('pollLine says when the next check runs and what the last one found', () => {
@@ -330,7 +335,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   await B.openSettings({ hash: '#pause' });
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Pause hub');
   assert.match(root.querySelector('.setting-content').textContent, /No new builders, planners or pulls start on any board until then/);
-  assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => [b.textContent, b.getAttribute('name')]), [['1h', 'pause'], ['3h', 'pause'], ['6h', 'pause'], ['1d', 'pause']]);
+  assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => [b.textContent, b.getAttribute('name')]), [['1h', 'pause'], ['3h', 'pause'], ['6h', 'pause'], ['1d', 'pause'], ['Forever', 'pause']]);
   const pauseChips = root.querySelector('.dur-choices');
   await submitForm(pauseChips, pauseChips.querySelector('button[value="3h"]'));
   assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/hub-pause', 'pause=3h']);

@@ -1993,6 +1993,13 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
   assert.equal(ui.statusLine(null, { pause: manual('board') }), `<span class="fresh hold" title="Paused until ${until}"></span>`);
 });
 
+test('a Forever Pause hub or Pause board reads until you resume on the banner, the Hub row and the header', () => {
+  const forever = (scope) => ({ pause_at: 90, state: 'paused', manual: scope, window: null, used: null, resets_at: 'forever' });
+  assert.equal(text(context.HubUI.pauseBanner(forever('hub'))), 'Work paused: you paused the hub until you resume. Resume');
+  assert.match(text(ui.sidebar({ pause: forever('hub'), sites: [], hub: { tone: 'ok', word: 'healthy', detail: 'up' } })), /paused until you resume/);
+  assert.equal(ui.statusLine(null, { pause: forever('board') }), '<span class="fresh hold" title="Paused until you resume"></span>');
+});
+
 test('the New version row reads Updated to the pulled version with Restart, spins while the pull or the restart runs, and gives Reload priority', () => {
   const row = (update, upgrade) => ui.updateRow(update, upgrade);
   assert.equal(row(null, null), '');

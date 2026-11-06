@@ -32,4 +32,7 @@ test("a board's session hears its own board's pause and the hub's, and other ses
   assert.equal(run({ hook_event_name: 'PreToolUse', session_id: 'other', tool_name: 'Agent' }), '');
   write(path.join(state, 'settings.json'), { paused_until: until });
   assert.match(run({ hook_event_name: 'SessionStart', session_id: 'other' }), /^The owner paused the hub\. /);
+  write(path.join(state, 'settings.json'), { paused_until: 'forever' });
+  assert.equal(run({ hook_event_name: 'SessionStart', session_id: 'other' }).trim(),
+    'The owner paused the hub. Running steps finish; start no new work, builders or agents until the owner resumes it; answer the owner\'s messages briefly with "paused until you resume".');
 });

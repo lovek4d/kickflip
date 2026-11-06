@@ -331,12 +331,17 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       const sidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
       assert.deepEqual([sidebar.pause.state, sidebar.pause.manual], ['paused', 'hub']);
       const unchanged = fs.readFileSync(file, 'utf8');
-      for (const body of ['pause=forever', 'pause=31d', '', 'pause=soon']) {
+      for (const body of ['pause=31d', '', 'pause=soon']) {
         const r = await post(body);
         assert.equal(r.status, 400);
         assert.ok((await r.json()).error);
         assert.equal(fs.readFileSync(file, 'utf8'), unchanged);
       }
+      const forever = await (await post('pause=forever')).json();
+      assert.deepEqual([forever.pause.on.title, forever.pause.summary], ['Paused until you resume', 'Paused · forever']);
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).paused_until, 'forever');
+      const foreverSidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
+      assert.deepEqual([foreverSidebar.pause.state, foreverSidebar.pause.resets_at], ['paused', 'forever']);
       const resume = await post('pause=off');
       assert.equal((await resume.json()).pause.on, null);
       assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).paused_until, undefined);

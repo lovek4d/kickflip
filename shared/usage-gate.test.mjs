@@ -77,7 +77,7 @@ test('a manual hub or board pause pauses all new work until its end, over the us
   assert.equal(gate({ ...calm, hubPause: until, boardPause: later }).manual, 'hub', 'the hub pause covers every board');
   assert.equal(gate({ hubPause: later }).manual, 'hub', 'over the usage pause');
   assert.equal(gate({ boardPause: later, keepGoing: { window: 'five_hour', until } }).state, 'paused', 'Keep going lifts only the usage pause');
-  for (const ended of [new Date(now).toISOString(), 'forever', 'bad', null]) assert.equal(gate({ ...calm, hubPause: ended, boardPause: ended }).state, 'normal');
+  for (const ended of [new Date(now).toISOString(), 'bad', null]) assert.equal(gate({ ...calm, hubPause: ended, boardPause: ended }).state, 'normal');
   assert.equal(gate({ boardPause: later, now: Date.parse(later) }).manual, null, 'an ended board pause leaves the usage pause');
   const hub = gate({ ...calm, hubPause: later });
   const board = gate({ ...calm, boardPause: later });
@@ -88,15 +88,26 @@ test('a manual hub or board pause pauses all new work until its end, over the us
   assert.equal(pausedLine(gate()), `usage paused ${until} five_hour 90%`);
 });
 
+test('a Forever manual pause lasts until it is lifted and says so', () => {
+  const forever = gate({ claude: reading(20, 20), boardPause: 'forever', now: now + 365 * 86_400_000 });
+  assert.deepEqual([forever.state, forever.manual, forever.resets_at], ['paused', 'board', 'forever']);
+  assert.equal(gate({ hubPause: 'forever', boardPause: 'forever' }).manual, 'hub');
+  assert.equal(pauseReason(forever), 'Work is paused: the owner paused this board until the owner resumes it. Pause board in Board settings resumes it.');
+  assert.equal(pausedLine(forever), 'usage paused forever manual board');
+});
+
 test('the file reader reads the hub pause from settings and the board pause from its board.json', (t) => {
   const f = fixture(t);
   const site = path.join(f.home, 'site');
   fs.mkdirSync(site);
   f.write('settings.json', { rules: ['kept'] });
-  assert.equal(setHubPause('3h', { home: f.home, now: new Date(now) }).toISOString(), new Date(now + 3 * 3600_000).toISOString());
+  assert.equal(setHubPause('3h', { home: f.home, now: new Date(now) }), new Date(now + 3 * 3600_000).toISOString());
   assert.deepEqual(f.settings(), { rules: ['kept'], paused_until: new Date(now + 3 * 3600_000).toISOString() });
   assert.equal(readUsageGate({ home: f.home, now }).manual, 'hub');
-  for (const choice of ['forever', '0h', '31d', 'soon']) assert.throws(() => setHubPause(choice, { home: f.home, now: new Date(now) }), { status: 400 });
+  assert.equal(setHubPause('forever', { home: f.home, now: new Date(now) }), 'forever');
+  assert.deepEqual(f.settings(), { rules: ['kept'], paused_until: 'forever' });
+  assert.equal(readUsageGate({ home: f.home, now }).resets_at, 'forever');
+  for (const choice of ['0h', '31d', 'soon']) assert.throws(() => setHubPause(choice, { home: f.home, now: new Date(now) }), { status: 400 });
   assert.equal(setHubPause('off', { home: f.home, now: new Date(now) }), null);
   assert.deepEqual(f.settings(), { rules: ['kept'] });
   assert.equal(readUsageGate({ home: f.home, now }).state, 'normal');

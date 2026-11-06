@@ -394,15 +394,17 @@
     const savedCaps = {};
     let buildTarget = null, buildTargets = null;
     // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): the hub's duration
-    // picker (hub-kit.js) with the Hold sheet's chips but Forever, posting {pause} to api/pause at once.
+    // picker (hub-kit.js) with the Hold sheet's chips, Forever included, posting {pause} to api/pause at once. A Forever
+    // pause lasts until Resume.
     const pauseBox = $('#pauseBoard');
     const pickers = HubKit.durationPickers(B);
     let pauseChoices = [];
+    const pausedWords = (end, now) => (end === 'forever' ? 'until you resume' : `until ${BoardUI.heldUntilWords(end, now)}`);
     function paintPause(pausedUntil) {
       const now = new Date();
-      const choices = pauseChoices.map((c) => ({ value: c.value, label: c.label, until: `until ${BoardUI.heldUntilWords(new Date(now.getTime() + c.ms), now)}` }));
+      const choices = pauseChoices.map((c) => ({ value: c.value, label: c.label, until: pausedWords(c.ms === null ? 'forever' : new Date(now.getTime() + c.ms), now) }));
       pauseBox.innerHTML = HubKit.durationPicker({ id: 'pauseBoard', title: 'Pause board', icon: '', action: site.url('api/pause'), name: 'pause', button: 'Resume',
-        choices: pausedUntil ? null : choices, on: pausedUntil ? { title: `Paused until ${BoardUI.heldUntilWords(new Date(pausedUntil), now)}` } : null });
+        choices: pausedUntil ? null : choices, on: pausedUntil ? { title: `Paused ${pausedWords(pausedUntil === 'forever' ? 'forever' : new Date(pausedUntil), now)}` } : null });
       pickers.painted();
     }
     B.on(pauseBox, 'submit', async (e) => {

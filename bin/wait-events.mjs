@@ -20,7 +20,8 @@
 //                             max-implementers <1..99>, github-login <login> and tickets <json> when set
 //                             (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), then
 //   quiet <text>              the fixed instruction to keep the terminal quiet (QUIET), then
-//   usage paused <iso> <window> <used>%  while Claude is paused, after rules/settings; hub work events wait for reset
+//   usage paused <iso> <window> <used>%  while Claude is paused, after rules/settings; hub work events wait for reset;
+//                             `usage paused <iso|forever> manual hub|board` under Pause hub or Pause board
 //   link <name> <detail>      each hub link that doesn't reach the board (../hub/boards.mjs linksOf), the list its
 //                             Hub links sheet shows (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md), at
 //                             once, while the sheet still reads it settling

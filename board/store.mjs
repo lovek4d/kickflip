@@ -951,13 +951,12 @@ export const settingsOf = (cfg, board) => {
 };
 // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): a shared/usage-gate.mjs
 // pauseEnd choice, or off, saved as board.json's paused_until, which readUsageGate reads with the board's dir. It is no
-// board setting: the gate, not a settings event, tells the session. → the end as an ISO time, or null.
+// board setting: the gate, not a settings event, tells the session. → the end as an ISO time or forever, or null.
 export async function setBoardPause(site, choice, now = new Date()) {
   let end;
   try { end = pauseEnd(choice, now); } catch (e) { fail(e.message); }
-  const until = end ? end.toISOString() : undefined;
-  await writeBoardJSON(site, () => ({ set: { paused_until: until } }));
-  return until ?? null;
+  await writeBoardJSON(site, () => ({ set: { paused_until: end ?? undefined } }));
+  return end;
 }
 export async function readBoardSettings(site) {
   const dir = needSite(site);

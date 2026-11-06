@@ -76,7 +76,7 @@
 //                     400 {error} for an end not after now or more than 30 days on (303 to ?refused=keep-awake), or
 //                     409 {error} off macOS (awake.mjs)
 //   /_hub/settings/hub-pause POST pause=<usage-gate.mjs pauseEnd choice | off> → Pause hub, then /_hub/api/settings's
-//                     JSON, or 400 {error} for forever or an end not after now or more than 30 days on
+//                     JSON, or 400 {error} for an end not after now or more than 30 days on
 //                     (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md)
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
@@ -177,6 +177,7 @@ import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePro
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
 import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
+import { endOf } from './duration.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
 import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
@@ -831,7 +832,7 @@ const settingsData = async () => {
   const now = new Date();
   const awake = { until: awakeUntil(now), unsupported: awakeUnsupported() };
   const gate = readUsageGate({ now });
-  const pausedUntil = gate.manual === 'hub' ? new Date(gate.resets_at) : null;
+  const pausedUntil = gate.manual === 'hub' ? endOf(gate.resets_at, now) : null;
   return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), awake, pausedUntil }), closed: closedBoards() };
 };
 
