@@ -2208,3 +2208,16 @@ test('a ↗ written in a question, its context and its options draws as the arro
   assert.doesNotMatch(html, /[↗︎]/);
   assert.equal(html.split('class="link-arrow"').length - 1, 4);
 });
+
+test("a Todo thread message's footer and a bare Implement request lead with an icon for Reply and Implement, as Quick build's does", () => {
+  const html = ui.threadMessages([
+    { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'hello', status: 'Reply', eventId: 'm1', state: 'waiting', files: [] },
+    { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'go', status: 'Implement', eventId: 'm2', state: 'waiting', files: [] },
+    { ts: ago(0.5), who: 'love', via: 'site', kind: 'item-message', request: true, text: 'Implement', eventId: 'm3', state: 'waiting', files: [] },
+  ]);
+  for (const words of ['Reply', 'Implement']) {
+    assert.match(ui.MARK_ICONS[words], /^<svg class="mark-icon"/);
+    assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`), words);
+  }
+  assert.ok(html.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implement`));
+});
