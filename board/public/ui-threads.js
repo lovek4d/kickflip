@@ -23,18 +23,18 @@
   // Each reply becomes Claude's own message at the time it was written, quoting the owner's message
   // when other messages came between them. A reply with no time follows its message.
   const withReplies = (msgs) => {
+    // A folded submit's answers each reply, quoting their own block.
     const out = msgs.flatMap((m, i) => [{ m, at: String(m.ts), i, part: 0 },
-      ...(m.eventId && m.reply ? [{ m: { ts: m.reply.at || m.ts, who: 'claude', kind: 'reply', reply: m.reply }, of: m, at: String(m.reply.at || m.ts), i, part: 1 }] : [])]);
+      ...(m.answers || [m]).filter((a) => a.eventId && a.reply).map((a) => ({ m: { ts: a.reply.at || m.ts, who: 'claude', kind: 'reply', reply: a.reply }, of: m, quoted: m.answers ? a.text : m.text, at: String(a.reply.at || m.ts), i, part: 1 }))]);
     out.sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i || a.part - b.part);
-    return out.map(({ m, of }, n) => (of ? { ...m, quote: out[n - 1]?.m === of ? '' : of.text || '' } : m));
+    return out.map(({ m, of, quoted }, n) => (of ? { ...m, quote: out[n - 1]?.m === of && !(of.answers?.length > 1) ? '' : quoted || '' } : m));
   };
   // A message being edited shows its edit box in place of its text; app-asks.js handles the form, and attach.js the
   // files it adds to the message, under composer id edit:<event id>.
   const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
         <div class="pending-files" data-files></div>
         <div class="send-actions"><button type="button" data-edit-cancel>Cancel</button>${sendButton('Save', 0)}</div></form>`;
-  // batched: an answer followed by another of the owner's answers in its state, which carries the batch's footer.
-  const line = (m, links, edits, batched = false) => (m.kind === 'reply'
+  const line = (m, links, edits) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg link">${statusMark('ask-link')}<a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
@@ -51,7 +51,7 @@
         <div class="body"${edits.has(m.eventId) ? ' hidden' : ''}>${m.html ? linkHtml(m.html, links) : linkText(m.text, links)}</div>${edits.has(m.eventId) ? editForm(m.eventId, edits.get(m.eventId).text) : ''}${attachments(m.files)}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">Open the log</a></div>` : ''}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
-        ${m.eventId && !batched ? msgFooter(m) : ''}
+        ${m.eventId ? msgFooter(m) : ''}
       </div>`);
 
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
@@ -84,10 +84,6 @@
   // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount); the
   // orchestrator's answer to a builder's ask never is.
   const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github') && String(m.ts) > seenAt;
-  const batchedAt = (lines, i) => {
-    const next = lines.slice(i + 1).find(isMessage);
-    return lines[i].kind === 'owner-answer' && next?.kind === 'owner-answer' && stateOf(next) === stateOf(lines[i]);
-  };
   // The window opens from the oldest unread message, at most UNREAD_CAP messages back; a message being edited always shows.
   function threadWindow(lines, { seenAt = null, more = 0, upto = null }, edits) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));
@@ -110,7 +106,7 @@
     const { start, hidden } = view ? threadWindow(lines, view, edits) : { start: 0, hidden: 0 };
     const shown = lines.slice(start);
     if (start && shown[0].kind === 'reply' && !shown[0].quote) shown[0] = { ...shown[0], quote: lines[start - 1].text || '' };
-    return (hidden ? moreButton(hidden) : '') + shown.map((m, i) => line(m, links, edits, batchedAt(lines, start + i))).join('');
+    return (hidden ? moreButton(hidden) : '') + shown.map((m) => line(m, links, edits)).join('');
   }
 
   // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md

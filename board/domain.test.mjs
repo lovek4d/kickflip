@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1677,7 +1677,8 @@ test("an owner answer stops waiting on Claude once its question is resolved afte
   const events = [answer('resolved', '2026-10-23T11:00:00Z'), answer('reopened', '2026-10-23T11:20:00Z'), answer('rounded', '2026-10-23T11:00:00Z'),
     answer('before-build', '2026-10-23T11:10:00Z'), answer('before-grill', '2026-10-23T11:20:00Z'), answer('after-build', '2026-10-23T13:30:00Z')];
   const agents = { grill: { kind: 'grill', started: '2026-10-23T12:30:00Z', done: '2026-10-23T12:40:00Z' }, main: { kind: 'claude', started: '2026-10-23T11:15:00Z' } };
-  const states = (a) => Object.fromEntries(threadOf('w/A1', { events, owner, agents: a }).filter((m) => m.kind === 'owner-answer').map((m) => [m.text.split('?')[0].replace(/^Question \d+ · /, ''), m.state]));
+  // Answers sharing a ts are one message; each answer's own state is read from its event id.
+  const states = (a) => Object.fromEntries(threadOf('w/A1', { events, owner, agents: a }).flatMap(stateEntries).map(([id, state]) => [id.replace(/^a-/, ''), state]));
   assert.deepEqual(states(agents), { resolved: 'answered', reopened: 'waiting', rounded: 'answered', 'before-build': 'answered', 'before-grill': 'waiting', 'after-build': 'waiting' });
   assert.equal(states({ grill: agents.grill })['before-build'], 'waiting');
   // The questions page reads the same resolution from ownerQuestion.
@@ -2059,8 +2060,11 @@ test("a card's thread keeps the event log's order across its own key, its ask's 
   const answer = (id, q) => ({ id, ts, kind: 'owner-answer', data: { id: q, choice: 'A' }, reply: null });
   const events = [ask, msg('m1', 'w/A1'), answer('a2', 'q2'), msg('m2', 'ask:k0'), answer('a1', 'q1'), msg('m3', 'w/A1')];
   const owner = { items: [{ id: 'q1', topic: 'item:w/A1', question: 'One?' }, { id: 'q2', topic: 'item:w/A1', question: 'Two?' }] };
-  assert.deepEqual(threadOf('w/A1', { events, owner, fromAsk: 'k0' }).map((m) => m.eventId), ['k0', 'm1', 'm2', 'm3', 'a2', 'a1']);
-  assert.deepEqual(threadOf('w/A1', { events, owner, fromAsk: 'k0', moved: ['k0'] }).map((m) => m.eventId), ['k0', 'm1', 'm2', 'm3', 'a2', 'a1']);
+  // The two answers share a ts, so they fold into one message in log order.
+  const thread = threadOf('w/A1', { events, owner, fromAsk: 'k0' });
+  assert.deepEqual(thread.map((m) => m.eventId), ['k0', 'm1', 'm2', 'm3', 'a2']);
+  assert.deepEqual(thread.at(-1).answers.map((a) => a.eventId), ['a2', 'a1']);
+  assert.deepEqual(threadOf('w/A1', { events, owner, fromAsk: 'k0', moved: ['k0'] }).map((m) => m.eventId), ['k0', 'm1', 'm2', 'm3', 'a2']);
 });
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md: the server shares one build of its data and adds
@@ -2398,4 +2402,25 @@ test('a card blocked until a condition, with a reason, is blocked as a dep block
   assert.deepEqual([card(dep).blocked, card(dep).blockReason, card(dep).blockedBy.map((d) => d.ref)], [true, 'shares the send bar', ['A2']]);
   const done = built({ status: 'done', blocked_until: 'x', block_reason: 'y' });
   assert.deepEqual([card(done).blockedUntil, card(done).blockReason, card(done).blocked], [null, null, false]);
+});
+
+// docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
+test("answers written together (one ts) are one thread message with one status; the message is as pending as its most pending answer", () => {
+  const qs = ['q1', 'q2'].map((id) => ({ id, topic: 'item:w/A1', question: `${id}?`, options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }] }));
+  const answer = (id, choice, ts) => ({ id: `a-${id}-${ts}`, ts, kind: 'owner-answer', data: { id, choice, note: id === 'q2' ? 'because' : '' }, reply: null });
+  const at = '2026-11-05T01:00:55.627Z';
+  const together = threadOf('w/A1', { events: [answer('q1', 'A', at), answer('q2', 'B', at)], owner: { items: qs } });
+  assert.equal(together.length, 1);
+  assert.equal(together[0].text, 'Question 1 · q1?\n→ A\n\nQuestion 2 · q2?\n→ B · because');
+  assert.equal(together[0].status, 'answers submitted');
+  assert.equal(together[0].eventId, `a-q1-${at}`);
+  assert.deepEqual(together[0].answers.map((a) => a.eventId), [`a-q1-${at}`, `a-q2-${at}`]);
+  const apart = threadOf('w/A1', { events: [answer('q1', 'A', at), answer('q2', 'B', '2026-11-05T01:05:00.000Z')], owner: { items: qs } });
+  assert.equal(apart.length, 2);
+  // q1 is resolved after the submit, q2 is not: the message still waits, each answer keeps its own state.
+  const half = threadOf('w/A1', { events: [answer('q1', 'A', at), answer('q2', 'B', at)], owner: { items: [{ ...qs[0], resolved: 'Done', resolved_at: '2026-11-05T02:00:00Z' }, qs[1]] } });
+  assert.equal(half[0].state, 'waiting');
+  assert.deepEqual(stateEntries(half[0]).map(([, s]) => s), ['answered', 'waiting']);
+  const lone = threadOf('w/A1', { events: [answer('q1', 'A', at)], owner: { items: qs } });
+  assert.equal(lone[0].text, 'Question 1 · q1?\n→ A');
 });

@@ -472,7 +472,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const lastTs = [...msgs.map((m) => m.ts), ...othersAt, ...(inProgress ? [mark.at] : [])].filter(Boolean).sort().pop();
   return {
     key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? askedLabel(e.ts) : 'New', isNew: !handled, title, status: null,
-    internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'asks' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => m.state === 'working'),
+    internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'asks' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => stateEntries(m).some(([, state]) => state === 'working')),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
     linear: [], pr: null, prs: [], reviewers: [], review: {}, inReviewSince: null, reviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
@@ -852,8 +852,28 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     m.canDelete = m.kind === 'item-message' && (m.state === 'working' || m.state === 'waiting');
     m.canEdit = m.canDelete;
   }
-  return msgs;
+  return foldSubmits(msgs);
 }
+// docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
+// One submit of several answers is one write, so its owner-answer events share a ts: they fold into one message at the
+// first answer's place, with each answer's block in submit order, its first event id, and answers listing every member
+// {eventId, state, reply}. The message is as pending as its most pending member.
+const STATE_ORDER = ['waiting', 'working', 'answered', 'replied'];
+function foldSubmits(msgs) {
+  const submits = new Map();
+  for (const m of msgs) if (m.kind === 'owner-answer') submits.set(m.ts, [...(submits.get(m.ts) || []), m]);
+  return msgs.flatMap((m) => {
+    if (m.kind !== 'owner-answer') return [m];
+    const group = submits.get(m.ts);
+    if (group.length === 1) return [m];
+    if (group[0] !== m) return [];
+    return [{ ...m, text: group.map((a) => a.text).join('\n\n'), files: group.flatMap((a) => a.files),
+      state: group.map((a) => a.state).sort((a, b) => STATE_ORDER.indexOf(a) - STATE_ORDER.indexOf(b))[0],
+      reply: undefined, answers: group.map((a) => ({ eventId: a.eventId, state: a.state, reply: a.reply, text: a.text })) }];
+  });
+}
+// The states of the events a message stands for: each answer of a folded submit, else the message itself.
+export const stateEntries = (m) => (m.answers || [m]).filter((a) => a.eventId).map((a) => [a.eventId, a.state]);
 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 // The wave bands in Todo: each open lineup, the owner's wave (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
@@ -978,7 +998,7 @@ export function buildBoard(snapshot) {
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(wave, it, tickets), became: true }]);
       const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded, index });
-      for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
+      for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
       claudeAt.set(key, claudeAtOf(msgs));
       items.push(workItem({
         slug, wave, it, order, repo, remote, base: snapshot.branch || 'main',
@@ -987,7 +1007,7 @@ export function buildBoard(snapshot) {
         worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
         thread: lines,
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],
-        working: msgs.some((m) => m.state === 'working'),
+        working: msgs.some((m) => stateEntries(m).some(([, state]) => state === 'working')),
         said: msgs.filter((m) => m.who === 'love' && (m.kind === 'item-message' || m.kind === 'owner-answer')),
         askedAt: (index.questions.get(`item:${key}`) || []).filter((q) => q.asked_at).map((q) => q.asked_at),
         topicItems, prSlack: snapshot.prSlack || {}, boardReviewers: snapshot.reviewers || [], now, bumpedAt: cardBumps.get(key), holdAsk: cardHolds.get(key), closedAt: cardDones.get(key),
@@ -1046,7 +1066,7 @@ export function buildBoard(snapshot) {
     // An ask linked to a card the board no longer holds went with it to the archive (store.mjs archiveCards).
     if (!folded && routeRecord(askLinks, e.id)) { moved.set(key, routeRecord(askLinks, e.id)); continue; }
     const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links, index });
-    for (const m of msgs) if (m.eventId) threadStates.set(m.eventId, m.state);
+    for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
     claudeAt.set(key, claudeAtOf(msgs));
     items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(routeRecord(askLinks, e.id)), routeRecord(askProgress, e.id), askDones.get(e.id), pendingOn(`item:${key}`)));
   }
