@@ -688,7 +688,6 @@ test('builder done on a record with judgment calls hands the card back, its reco
 test('agent launch asks for a helper on an open card, which then starts, reports and hands back as its own agent; agent wait prints its hand-back and agent merge brings in its branch', () => {
   const repo = scratchRepo();
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
-  assert.equal(onOrch('item', 'set', 'w/A1', '--status', 'building').code, 0);
   const main = onOrch('builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(main.code, 0, main.err);
   const helperFile = at('waves', 'w', 'agents', 'A1@tests.json');
