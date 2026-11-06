@@ -1527,7 +1527,7 @@ async function handOff(started) {
   if (!started || started.bumped) return null;
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
-    // A pause on its kind, or a busy Mac, that began after the pull holds the launch; reviveHeadless launches it once
+    // A pause on its kind, or a busy host, that began after the pull holds the launch; reviveHeadless launches it once
     // the hold lifts. A busy Mac says so on the card (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
     const gate = readUsageGate({ dir: here });
     if (heldFor(gate, started.kind)) {
@@ -1769,7 +1769,7 @@ async function reviveHeadless() {
     const launch = async (card) => {
       const was = tracked[card.key];
       const entry = { call: 'relaunch', key: card.key, inputs: was,
-        reason: was.pid === null ? 'Its launch was held by a pause or a busy Mac, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
+        reason: was.pid === null ? 'Its launch was held by a pause or a busy host, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
       try {
         const { pid } = await launchBuilder(here, card);
         logCall({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });

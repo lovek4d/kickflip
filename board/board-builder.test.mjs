@@ -626,12 +626,12 @@ test('builder start refuses a Claude pause before making records or a worktree, 
 });
 
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
-test('builder start refuses every kind while the Mac is busy, and starts once it eases', () => {
+test('builder start refuses every kind while the host is busy, and starts once it eases', () => {
   write(at('kickflip', 'machine-state.json'), { state: 'busy', reason: 'load high' });
   for (const kind of ['build', 'grill']) {
     const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', kind);
     assert.equal(r.code, 1);
-    assert.match(r.err, /Work is held: this Mac is busy \(load high\)\. It starts again when the Mac eases\./);
+    assert.match(r.err, /Work is held: the host is busy \(load high\)\. It starts again when the host eases\./);
   }
   assert.equal(fs.existsSync(at('waves', 'w', 'agents')), false);
   write(at('kickflip', 'machine-state.json'), { state: 'normal', reason: null });

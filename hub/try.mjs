@@ -270,7 +270,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     } catch (e) { tail.push(`Could not read the build log: ${e.message}`); }
     const kind = run.port || (stateOf(board).state.kind || (board.waves.some(({ wave }) => wave.items.some((it) => it.install?.url)) ? 'app' : 'web')) === 'web' ? 'Serve' : 'Build';
     await appendThread(board.dir, key, { text: [`${kind} failed (exit ${code ?? 1})`, error?.message,
-      signal && `Stopped by ${signal}.`, keychain && 'The login keychain must be unlocked on the Mac.', ...tail].filter(Boolean).join('\n') });
+      signal && `Stopped by ${signal}.`, keychain && 'The login keychain must be unlocked on the host.', ...tail].filter(Boolean).join('\n') });
   }
   function terminate(run) {
     if (run.ending) return run.ending;

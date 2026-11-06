@@ -162,7 +162,7 @@ command fails and changes nothing.
                                                          server records the owner's own Hold and Resume taps. A later
                                                          --held/--unheld overrides a tap.
                                                          --pick-up-at holds it until an ISO time such as
-                                                         2026-11-04T09:00 (the Mac's local time without an
+                                                         2026-11-04T09:00 (the host's local time without an
                                                          offset; a past time is refused), stored as UTC
                                                          pick_up_at. Within a minute of it the board server
                                                          resumes the card, adds a thread line, and appends

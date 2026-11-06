@@ -379,7 +379,7 @@
     removed: { line: 'This board is gone', hint: 'The hub no longer lists it.', retries: false },
     access: { line: 'You no longer have access', hint: 'Ask its owner to share it again.', retries: false },
     erroring: { line: 'Board restarting', hint: 'It answers with errors. Retrying for 30 seconds.' },
-    unreachable: { line: 'Board offline', hint: 'The hub, your connection or the Mac is down. Retrying.' },
+    unreachable: { line: 'Board offline', hint: 'The hub, your connection or the host is down. Retrying.' },
   };
   const RESTART_WHY = { code: 'Its code changed.', starting: 'It’s starting.', crashed: 'It stopped, and the hub is starting it again.' };
   function downOf(answer, online = navigator.onLine !== false) {

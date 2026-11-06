@@ -41,6 +41,11 @@
 html.sb-update body.has-sidebar > .top .hub, html.sb-update body.has-sidebar > :not(.sidebar) > .top .hub { position: relative; }
 html.sb-update body.has-sidebar > .top .hub::after, html.sb-update body.has-sidebar > :not(.sidebar) > .top .hub::after {
   content: ''; position: absolute; width: 10px; height: 10px; top: 3px; right: 3px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+/* A busy hub gets an orange dot on the logo and a broken one a red dot, in the update dot's place (red, then orange, then blue). */
+html:is(.sb-hub-busy, .sb-hub-down) body.has-sidebar > .top .hub, html:is(.sb-hub-busy, .sb-hub-down) body.has-sidebar > :not(.sidebar) > .top .hub { position: relative; }
+html:is(.sb-hub-busy, .sb-hub-down) body.has-sidebar > .top .hub::after, html:is(.sb-hub-busy, .sb-hub-down) body.has-sidebar > :not(.sidebar) > .top .hub::after {
+  content: ''; position: absolute; width: 10px; height: 10px; top: 3px; right: 3px; border-radius: 50%; background: var(--color-notice); box-shadow: 0 0 0 2px var(--bg); }
+html.sb-hub-down body.has-sidebar > .top .hub::after, html.sb-hub-down body.has-sidebar > :not(.sidebar) > .top .hub::after { background: var(--color-danger); }
 .sidebar .sb-text { flex: 1; min-width: 0; }
 .sidebar .sb-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .sb-moon { display: inline-block; margin-left: 5px; color: var(--muted); vertical-align: -1px; }

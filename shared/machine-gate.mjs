@@ -53,7 +53,7 @@ export function checkMachine({ home = os.homedir(), reading = readMachine(), now
   const due = !previous?.logged_at || now.getTime() - Date.parse(previous.logged_at) >= READING_EVERY;
   if (changed && state === 'busy') {
     const why = reading.pressure === 'critical' ? 'memory pressure is critical' : `${load} is at least ${HOLD_LOAD}× its ${reading.cores} cores`;
-    audit(hubAudit(home), { call: 'machine-busy', result: state, reason: `This Mac is busy: ${why}, so no new work starts.`, inputs }, { now });
+    audit(hubAudit(home), { call: 'machine-busy', result: state, reason: `The host is busy: ${why}, so no new work starts.`, inputs }, { now });
   } else if (changed) {
     audit(hubAudit(home), { call: 'machine-eased', result: state, reason: `Memory pressure is ${reading.pressure ?? 'unread'} and ${load} is under ${RELEASE_LOAD}× its ${reading.cores} cores, so new work starts again.`, inputs }, { now });
   } else if (due) {

@@ -102,6 +102,9 @@
     // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
     function paint() {
       html.classList.toggle('sb-update', Boolean(update));
+      const dot = globalThis.BoardUI?.hubDot?.(data);
+      html.classList.toggle('sb-hub-busy', dot === 'busy');
+      html.classList.toggle('sb-hub-down', dot === 'down');
       if (!data) return;
       const scroll = aside.querySelector('.sb-scroll');
       const top = painted ? scroll?.scrollTop : undefined;

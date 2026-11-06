@@ -89,7 +89,7 @@ test('a manual hub or board pause pauses all new work until its end, over the us
 });
 
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
-test('a busy Mac holds every kind of new work, with no override, and words it after a pause', (t) => {
+test('a busy host holds every kind of new work, with no override, and words it after a pause', (t) => {
   const busy = { state: 'busy', reason: 'memory pressure critical' };
   const calm = { claude: reading(20, 20) };
   const held = gate({ ...calm, machine: busy });
@@ -98,13 +98,13 @@ test('a busy Mac holds every kind of new work, with no override, and words it af
   assert.deepEqual(['claude', 'codex', 'grill'].map((k) => heldFor(held, k)), [true, true, true]);
   assert.deepEqual([holdsWork(held), holdsWork(gate(calm)), holdsWork(gate())], [true, false, true]);
   assert.equal(heldFor(gate({ machine: busy, keepGoing: { window: 'five_hour', until } }), 'claude'), true, 'Keep going lifts only the usage pause');
-  const words = 'Work is held: this Mac is busy (memory pressure critical). It starts again when the Mac eases.';
+  const words = 'Work is held: the host is busy (memory pressure critical). It starts again when the host eases.';
   assert.equal(pauseReason(held), words);
   assert.equal(pauseReasonFor(held, 'claude'), words);
   assert.equal(pauseReasonFor(held, 'codex'), words);
   assert.match(pauseReason(gate({ machine: busy })), /^Work is paused: Claude's 5-hour usage/, 'a pause is worded first');
   assert.match(pauseReasonFor(gate({ claude: reading(20), codex: reading(20, 92), machine: busy }), 'codex'), /^Codex is paused/);
-  assert.equal(MACHINE_HELD_LINE, 'Held: this Mac is busy. It starts again when the Mac eases.');
+  assert.equal(MACHINE_HELD_LINE, 'Held: the host is busy. It starts again when the host eases.');
   const f = fixture(t);
   assert.deepEqual(readUsageGate({ home: f.home, now }).machine, { state: 'normal', reason: null });
   f.write('machine-state.json', { state: 'busy', reason: 'load high', at: new Date(now).toISOString() });

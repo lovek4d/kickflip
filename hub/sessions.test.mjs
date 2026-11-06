@@ -761,7 +761,7 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
     write(web('manifest.json'), { ...(fs.existsSync(web('manifest.json')) ? manifest() : {}), sites: { ...(fs.existsSync(web('manifest.json')) ? manifest().sites : {}), ...m.sites } });
     const refusals = [await cli(['resume', 'unknown']), await cli(['start', 'unknown'])];
     assert.deepEqual(refusals.map((x) => x.status), [1, 1]);
-    for (const r of refusals) assert.match(r.stderr, /Couldn't tell whether session \S+ is live: ps gave no answer in time, as happens on a busy Mac\. Try again in a moment\./);
+    for (const r of refusals) assert.match(r.stderr, /Couldn't tell whether session \S+ is live: ps gave no answer in time, as happens on a busy host\. Try again in a moment\./);
     assert.equal(calls().length, before, 'no second claude process');
     const listed = await cli(['sessions']);
     assert.match(listed.stdout, /^\/unknown  s-unknown  live unknown \(ps gave no answer\)  /m);

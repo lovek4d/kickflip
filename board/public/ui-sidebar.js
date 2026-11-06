@@ -196,14 +196,20 @@
   // update: null | 'ready' | 'reloading'.
   // now: the time a starting board's seconds count to. A shared person's data (data.shared; hub/share.mjs sharedSidebar)
   // draws their boards alone: no Hub row, update or notification rows, and no New board.
+  // Whether the Hub row reads busy: the host is busy and no usage pause reads first.
+  const hubBusy = (data) => data?.pause?.machine?.state === 'busy' && data?.pause?.state !== 'paused';
+  // The logo's dot for the hub's state, like the blue update dot: 'down' (red) for a broken hub, 'busy' (orange), else ''.
+  const hubDot = (data) => (data?.hub?.tone === 'down' ? 'down' : hubBusy(data) ? 'busy' : '');
+
   function sidebar(data, { here = '', device = null, switching = false, update = null, now = Date.now() } = {}) {
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
     const paused = data?.pause?.state === 'paused';
-    // A busy Mac holds every board's new work, and a pause reads before it (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
-    const busy = data?.pause?.machine?.state === 'busy';
+    // A busy host holds every board's new work but shows only on the Hub row and the logo's dot, never on a board, and a pause reads before it
+    // (docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md).
+    const busy = hubBusy(data);
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
-    const holdWord = (s) => (paused || s.pause?.state === 'paused' ? word('paused', 'paused') : busy ? word('wait', 'busy') : '');
+    const holdWord = (s) => (paused || s.pause?.state === 'paused' ? word('paused', 'paused') : '');
     const siteRow = (s) => {
       const sub = s.board && holdWord(s) ? holdWord(s) + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
       return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? `<span class="sb-status">${sub}</span>` : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
@@ -221,7 +227,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage);
-    const hub = paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: 'Mac is busy' } : data?.hub;
+    const hub = paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: 'the host is busy' } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')
@@ -249,5 +255,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, START_STEPS, startSteps, startCaption, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, START_STEPS, startSteps, startCaption, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
 })();

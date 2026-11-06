@@ -198,7 +198,7 @@ test('a failed run writes one failure with its exit, keychain hint and last five
   release();
   assert.deepEqual(await retry, { status: 'started' });
   assert.equal(thread().length, 1);
-  assert.equal(thread()[0].text, 'Build failed (exit 7)\nThe login keychain must be unlocked on the Mac.\none\ntwo\nthree\nfour\nfive');
+  assert.equal(thread()[0].text, 'Build failed (exit 7)\nThe login keychain must be unlocked on the host.\none\ntwo\nthree\nfour\nfive');
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(thread().length, 1);
 });

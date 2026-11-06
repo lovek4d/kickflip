@@ -130,7 +130,7 @@ test("while tailscale can't name the owner, signed-in devices get a page saying 
   assert.equal(page.status, 503);
   const text = await page.text();
   assert.match(text, /<p class="rf-line">Tailscale didn’t answer, so this kickflip can’t tell who you are\.<\/p>/);
-  assert.match(text, /<p class="rf-sub">Open it on the Mac itself, or try again in a moment\.<\/p>/);
+  assert.match(text, /<p class="rf-sub">Open it on the host itself, or try again in a moment\.<\/p>/);
   const api = await fetch(`${base}/_hub/api/hub`, { headers: phone });
   assert.deepEqual([api.status, await api.json()], [503, { error: 'Tailscale didn’t answer, so the hub can’t tell who you are.' }]);
   assert.equal(statusAsks(), 1, 'a failed read is not retried at once');

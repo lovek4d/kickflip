@@ -1463,7 +1463,7 @@ async function followUp(site, key, what, run) {
 // A card's key from a question topic, item:<wave>/<id>, or null for any other topic, an ask's included.
 const cardOfTopic = (topic) => (typeof topic === 'string' && topic.startsWith('item:') && !topic.startsWith('item:ask:') ? topic.slice(5) : null);
 const pad2 = (n) => String(n).padStart(2, '0');
-// The owner's time on a notes heading, MM/DD HH:MM in the Mac's local time.
+// The owner's time on a notes heading, MM/DD HH:MM in the host's local time.
 const noteStamp = (d = new Date()) => `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 // One answer as its notes line: the question, the option picked by its label, and the owner's note verbatim.
 function answerLine(q, a) {
@@ -2191,7 +2191,7 @@ function holdOf({ held, unheld, pickUpAt }) {
 // A past time is refused, so a typo can't start a card at once.
 function pickUpTime(value) {
   const ms = typeof value === 'string' && AT_RE.test(value) ? Date.parse(value) : NaN;
-  if (Number.isNaN(ms)) fail('--pick-up-at takes an ISO time such as 2026-11-04T09:00, the Mac’s local time unless it names an offset, or "" to resume the card');
+  if (Number.isNaN(ms)) fail('--pick-up-at takes an ISO time such as 2026-11-04T09:00, the host’s local time unless it names an offset, or "" to resume the card');
   if (ms <= Date.now()) fail(`--pick-up-at ${value} has passed; pass a later time, or --unheld to resume the card now`);
   return new Date(ms).toISOString();
 }

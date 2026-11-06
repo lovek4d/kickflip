@@ -298,7 +298,7 @@ async function isBackground(id, { run, cwd }) {
   try { return JSON.parse(r.stdout).some((s) => s?.sessionId === id && s.kind === 'background'); } catch { return false; }
 }
 
-const unknownLiveness = (session) => `Couldn't tell whether session ${session} is live: ps gave no answer in time, as happens on a busy Mac. Try again in a moment.`;
+const unknownLiveness = (session) => `Couldn't tell whether session ${session} is live: ps gave no answer in time, as happens on a busy host. Try again in a moment.`;
 
 // Refuses while rec's session is live, and while ps can't say whether it is, since a second process can't be undone.
 function refuseLive(rec, live) {
