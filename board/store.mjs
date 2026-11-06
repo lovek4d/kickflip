@@ -1424,10 +1424,12 @@ export async function settleAnswers(site, answers) {
     await writeJSON(ownerFile(site), owner);
     if (a.choice === 'no') continue;
     const key = q.topic.slice(5);
-    if ((await loadItem(site, key)).item.state !== 'grilling') continue;
-    await setItem(site, key, { state: 'prototyping' });
-    await appendThread(site, key, { text: 'You asked for a prototype round, so the board moved the card to prototyping.' });
-    prototype.push(key);
+    await followUp(site, key, 'moving it to prototyping', async () => {
+      if ((await loadItem(site, key)).item.state !== 'grilling') return;
+      await setItem(site, key, { state: 'prototyping' });
+      await appendThread(site, key, { text: 'You asked for a prototype round, so the board moved the card to prototyping.' });
+      prototype.push(key);
+    });
   }
   const byCard = new Map();
   for (const a of answers) {
@@ -1438,12 +1440,23 @@ export async function settleAnswers(site, answers) {
   const staged = [];
   for (const [key, said] of byCard) {
     if (!(await loadItem(site, key).catch(() => null))) continue;
-    await addToNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
-    if (prototype.includes(key) || !(await stageable(site, key))) continue;
-    await stage(site, key, 'answers');
-    staged.push(key);
+    await followUp(site, key, 'writing them into its notes', async () => {
+      await addToNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
+      if (prototype.includes(key) || !(await stageable(site, key))) return;
+      await stage(site, key, 'answers');
+      staged.push(key);
+    });
   }
   return { prototype, staged };
+}
+
+// docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
+// Runs one card's follow-up to an owner Send, which is already recorded: a refusal becomes a thread line on the card.
+async function followUp(site, key, what, run) {
+  try { await run(); } catch (e) {
+    if (!(e instanceof BoardError)) throw e;
+    await appendThread(site, key, { text: `Your answers were recorded, but ${what} failed: ${e.message}` });
+  }
 }
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
@@ -1463,8 +1476,13 @@ function answerLine(q, a) {
 async function addToNotes(site, key, heading, body) {
   const { source, wave, item } = await loadItem(site, key);
   let file;
-  if (item.plan) file = await planPath(source.dir, item.plan);
-  else {
+  if (item.plan) {
+    file = await planPath(source.dir, item.plan, { missingOk: true });
+    if (!existsSync(file)) {
+      await fs.writeFile(file, `# ${item.title}\n`);
+      await appendThread(site, key, { text: `The card's notes file ${item.plan} was missing, so the board started a new one with your answers.` });
+    }
+  } else {
     const base = String(item.id).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
     let name = `${base}-notes.md`;
     for (let n = 2; existsSync(path.join(source.dir, name)); n++) name = `${base}-notes-${n}.md`;
@@ -1632,6 +1650,20 @@ async function ownerEvents(site) {
     return { ...e, reply: e.reply || replied.some(Boolean) };
   }));
   return { answers, requests: events.filter((e) => e.kind === 'prototype-request'), reopens: events.filter((e) => e.kind === QUESTION_REOPEN) };
+}
+
+// docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
+// The answers whose question still waits for one: open, or with only a prototype requested, which a reopen puts it back
+// to. An answer to a question owner.json doesn't hold is kept for the caller to refuse.
+export async function unrecorded(site, answers) {
+  const { asked } = await topicQuestionsAll(site);
+  const state = new Map(asked.map((q) => [q.id, q.state]));
+  return answers.filter((a) => !state.has(String(a.id)) || ['open', 'requested'].includes(state.get(String(a.id))));
+}
+async function topicQuestionsAll(site) {
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  const { answers, requests, reopens } = await ownerEvents(site);
+  return { owner, asked: (owner.items || []).map((q) => ownerQuestion(q, answers, requests, [], reopens)) };
 }
 
 export async function topicQuestions(site, topic) {
@@ -1865,13 +1897,15 @@ async function checkNotesComplete(site, key, dir, item) {
 }
 
 // docs/adr/2026-10-29-1639-a-full-plan-opens-as-a-page-on-the-site.md
-async function planPath(dir, rel) {
+// With missingOk, a notes file that doesn't exist yet gives the path it would have.
+async function planPath(dir, rel, { missingOk = false } = {}) {
   const bad = (why) => fail(`a notes file is a .md file inside ${dir}, named relative to it: "${rel}" ${why}`);
   if (typeof rel !== 'string' || !rel.trim()) bad('is empty');
   if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes('..')) bad('leaves the folder');
   if (path.extname(rel).toLowerCase() !== '.md') bad('is not a .md file');
-  const real = await fs.realpath(path.resolve(dir, rel)).catch(() => bad('does not exist'));
-  if (!real.startsWith((await fs.realpath(dir)) + path.sep)) bad('leaves the folder');
+  const root = await fs.realpath(dir);
+  const real = await fs.realpath(path.resolve(dir, rel)).catch(() => missingOk ? path.resolve(root, rel) : bad('does not exist'));
+  if (!real.startsWith(root + path.sep)) bad('leaves the folder');
   return real;
 }
 

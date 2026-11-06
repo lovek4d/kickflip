@@ -322,7 +322,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, launchIntake, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -458,8 +458,12 @@ async function appendEvents(list) {
 // picks no take carries prototype_again: true, which asks the session for the next round
 // (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md). A note with no take resolves its
 // question, and the Send is acted on in code: gates settled, answers in the notes, cards left with nothing open staged.
-async function recordAnswers(answers) {
+// An answer to a question that already has one recorded, and wasn't reopened since, is skipped
+// (docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md).
+async function recordAnswers(sent) {
+  const answers = await unrecorded(here, sent);
   const asked = new Map(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => [q.id, q]));
+  if (!answers.length) return [];
   const again = (a) => asked.has(String(a.id)) && picksNoTake(asked.get(String(a.id)), a.choice);
   const ids = await appendEvents(answers.map((a) => ['owner-answer', again(a) ? { ...a, prototype_again: true } : a]));
   await resolveNoteAnswers(here, answers);
@@ -1201,7 +1205,7 @@ const server = http.createServer(async (req, res) => {
         try { await changeLineup(here, slug, { phases: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
         return json(res, 200, { id: null, board: await answerBoard(req, since) });
       }
-      if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0], board: await answerBoard(req, since) });
+      if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0] ?? null, board: await answerBoard(req, since) });
       if (kind === 'owner-answers') {
         const refused = await answersRefused(body.answers);
         if (refused) return json(res, 400, { error: refused });
@@ -1419,6 +1423,7 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     if (!res.headersSent) {
       if (err.status === 403) res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }).end(err.message);
+      else if (err instanceof BoardError) json(res, err.status || 400, { error: err.message });
       else res.writeHead(err.status || (err.code === 'ENOENT' ? 404 : 400)).end();
     }
   }

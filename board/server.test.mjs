@@ -168,6 +168,7 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     assert.deepEqual([last().kind, last().data.prototype_again], ['owner-answer', true]);
     const card = (await r.json()).board.items.find((i) => i.key === 't/P1');
     assert.deepEqual([card.state, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
+    await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'question-reopen', question: 'moon' }) });
     assert.equal((await answer('moon', 'B', '')).status, 200);
     assert.equal(last().data.prototype_again, undefined);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
@@ -285,6 +286,27 @@ test("one owner-answers request records every answer as one-by-one answers would
     assert.deepEqual(out.board.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [['b1a', 'answered']]);
     assert.deepEqual(out.board.ownerTopics.find((t) => t.id === 'item:t/B1').questions, ['b1a', 'b1b']);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1b').resolved, 'Answered with a note');
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
+test('a Send of answers already recorded adds nothing and answers as sent, until the question is reopened', async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  const eventsFile = path.join(site, 'data', 'events.jsonl');
+  const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind === 'owner-answer' && e.data.id === 'once');
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'ONCE1', title: 'Once' }] }));
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'once', topic: 'item:t/ONCE1', question: 'once?', options: [{ id: 'A', label: 'This' }] }] }));
+  try {
+    const send = () => post({ kind: 'owner-answers', answers: [{ id: 'once', question: 'once?', choice: 'A', label: 'A. This', note: '' }] });
+    assert.equal((await send()).status, 200);
+    const again = await send();
+    assert.equal(again.status, 200);
+    assert.deepEqual((await again.json()).ids, []);
+    assert.equal((await post({ kind: 'owner-answer', id: 'once', choice: 'A' })).status, 200);
+    assert.equal(lines().length, 1);
+    assert.equal((await post({ kind: 'question-reopen', question: 'once' })).status, 200);
+    await send();
+    assert.equal(lines().length, 2, 'a reopened question takes a new answer');
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 

@@ -130,3 +130,25 @@ test('every answer on a card goes into its notes verbatim, in a file the board m
   assert.equal(bare.read().plan, 'a1-notes.md');
   assert.match(bare.notes('a1-notes.md'), /^# Card\n\n## Answers \(owner, .*\)\n- q-other \(Which\?\): no option picked\. Note, verbatim: "Only a note"\n$/);
 });
+
+// docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
+test('a card whose notes file is gone gets a fresh one at the same path with its answers, and a thread line says so', async () => {
+  const gone = world('grilling');
+  fs.rmSync(path.join(gone.site, 'data', 'notes.md'));
+  await settleAnswers(gone.site, [(await addQuestions(gone.site, other), gone.answer('q-other', 'a', 'Bigger'))]);
+  assert.equal(gone.read().plan, 'notes.md');
+  assert.match(gone.notes('notes.md'), /^# Card\n[\s\S]*## Answers \(owner, [^)]*\)\n- q-other \(Which\?\): A\. Note, verbatim: "Bigger"/);
+  assert.ok(gone.thread().some((m) => /notes file notes.md was missing/.test(m.text)));
+});
+
+test('a follow-up that fails on one card posts its reason to that card and leaves the other cards settled', async () => {
+  const w = world('grilling');
+  const wave = JSON.parse(fs.readFileSync(path.join(w.site, 'data', 'wave.json'), 'utf8'));
+  fs.writeFileSync(path.join(w.site, 'data', 'wave.json'), JSON.stringify({ items: [{ ...wave.items[0], plan: '../escaped.md' }, { id: 'A2', title: 'Second', state: 'grilling', size: 'small', plan: 'notes.md' }] }));
+  await addQuestions(w.site, other);
+  await addQuestions(w.site, { ...other, id: 'q-second', topic: 'item:t/A2' });
+  const result = await settleAnswers(w.site, [w.answer('q-other', 'a'), w.answer('q-second', 'a')]);
+  assert.match(w.thread().at(-1).text, /Your answers were recorded.*leaves the folder/);
+  assert.match(w.notes('notes.md'), /q-second/);
+  assert.deepEqual(result.staged, ['t/A2']);
+});
