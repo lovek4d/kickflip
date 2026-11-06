@@ -829,7 +829,7 @@ test('a paused session wake holds only hub work events, then wakes for an owner 
   write(path.join(dir, 'data', '.watch-cursor-paused.json'), { 'data/events.jsonl': 0 });
   const m = { sites: { paused: { dir, cmd: boardCmd(dir), watch: ['data/events.jsonl'], owner: { session: 'paused', repo, since: new Date(0).toISOString() } } } };
   const resumed = [];
-  const check = (state = 'paused') => checkSessions({ manifest: m, now: new Date(), live: () => new Map(), listening: () => false, gate: { state }, resume: async (route) => resumed.push(route), push: async () => assert.fail('no push expected') });
+  const check = (state = 'paused') => checkSessions({ manifest: m, now: new Date(), live: () => new Map(), listening: () => false, gateOf: (board) => { assert.equal(board.dir, dir, "each board's own gate, which reads its own pause"); return { state }; }, resume: async (route) => resumed.push(route), push: async () => assert.fail('no push expected') });
   await check();
   for (const kind of ['github-change', 'check-github', 'card-unblocked']) fs.appendFileSync(file, JSON.stringify({ kind, ts: new Date().toISOString() }) + '\n');
   await check();

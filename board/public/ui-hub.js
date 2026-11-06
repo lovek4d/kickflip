@@ -15,6 +15,7 @@
     power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
     calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
     snooze: '<path d="M4 10h6l-6 8h6"/><path d="M14 4h6l-6 8h6"/>',
+    pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
     coffee: '<path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><path d="M6 2v2"/><path d="M10 2v2"/><path d="M14 2v2"/>',
     laptop: '<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/>',
     key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
@@ -38,6 +39,8 @@
     const going = pause.state === 'going';
     const until = BoardUI.usageClock(pause.resets_at);
     const icon = going ? '<path d="M3.34 19a10 10 0 1 1 17.32 0"/><path d="m12 14 4-4"/>' : '<circle cx="12" cy="12" r="9"/><path d="M10 9v6"/><path d="M14 9v6"/>';
+    // Pause hub (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): Resume ends it, which view-hub.js posts.
+    if (pause.manual) return `<div class="hold-banner ub-banner ub-paused" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(`Work paused: you paused the hub. Resumes at ${until}.`)}</span><form method="post" action="/_hub/settings/hub-pause"><button class="btn quiet" name="pause" value="off">Resume</button></form></div>`;
     const text = going ? `Past the buffer: spending usage until ${until}`
       : `Work paused: Claude’s ${pause.window === 'five_hour' ? '5‑hour' : 'weekly'} usage is at ${Math.round(pause.used)}%. Resumes ${pause.window === 'five_hour' ? 'at ' : ''}${until}.`;
     return `<div class="hold-banner ub-banner ub-${going ? 'going' : 'paused'}" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span>${esc(text)}</span><form method="post" action="/_hub/settings/keep-going"><button class="btn${going ? '' : ' quiet'}" name="value" value="${going ? 'off' : 'on'}">${going ? 'Stop' : 'Keep going'}</button></form></div>`;

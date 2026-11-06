@@ -78,6 +78,44 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$usageHeld, undefined);
 });
 
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+test("a board's own pause holds its hub work as a usage pause does and names itself, until it is lifted", { timeout: 60000 }, async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'board-pause-watch-'));
+  const dir = path.join(home, 'site');
+  const state = path.join(home, '.claude', 'kickflip');
+  const events = path.join(dir, 'data', 'events.jsonl');
+  const until = new Date(Date.now() + 3600_000).toISOString();
+  const children = [];
+  t.after(() => { for (const child of children) if (child.exitCode === null) child.kill(); fs.rmSync(home, { recursive: true, force: true }); });
+  write(path.join(state, 'manifest.json'), { sites: { shop: { dir, watch: ['data/events.jsonl'], owner: { session: 's1' } } } });
+  write(path.join(dir, 'board.json'), { title: 'Shop', paused_until: until });
+  ownSession(home, 's1');
+  write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 0 });
+  write(events, JSON.stringify({ id: 'g', kind: 'github-change', ts: new Date().toISOString() }) + '\n');
+  const start = () => {
+    const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
+    children.push(child);
+    let stdout = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    return { child, done: new Promise((resolve) => child.on('close', () => resolve(stdout))) };
+  };
+  const first = start();
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+  assert.equal(first.child.exitCode, null, 'the held github-change wakes nothing');
+  fs.appendFileSync(events, JSON.stringify({ id: 'm', kind: 'item-message', ts: new Date().toISOString(), data: { key: 'w/A1' } }) + '\n');
+  const out = await first.done;
+  assert.match(out, /"kind":"item-message"/);
+  assert.doesNotMatch(out, /"kind":"github-change"/);
+  assert.match(out, new RegExp(`\\nusage paused ${until} manual board\\n`));
+  const second = start();
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  assert.equal(second.child.exitCode, null);
+  write(path.join(dir, 'board.json'), { title: 'Shop' });
+  const resumed = await second.done;
+  assert.match(resumed, /"kind":"github-change"/);
+  assert.doesNotMatch(resumed, /usage paused/);
+});
+
 const WATCHER = new URL('./wait-events.mjs', import.meta.url).pathname;
 const running = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 // A home with one board `shop` owned by session s1, its events file and cursor at 0.

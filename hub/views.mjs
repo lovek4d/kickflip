@@ -139,13 +139,17 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // Keep awake share one duration picker (docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md), whose
 // choices are null while that setting is on, and Snooze's while notifications are off. awake is
 // {until: awake.mjs awakeUntil, unsupported: awake.mjs awakeUnsupported}.
-export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, awake = { until: null, unsupported: null } }) {
+// pausedUntil is Pause hub's end, a Date, or null while it is off
+// (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): its picker is the snooze picker's, without Forever.
+export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, awake = { until: null, unsupported: null }, pausedUntil = null }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
   const queued = st.count ? ` The ${st.count} queued push${st.count === 1 ? ' is' : 'es are'} dropped now.` : '';
   const snoozedTitle = until && `Snoozed ${untilWords(until, now, SNOOZE_FOREVER)}`;
+  const pausedTitle = pausedUntil && `Paused until ${clock(pausedUntil, now)}`;
   return {
+    pause: { on: pausedUntil ? { title: pausedTitle } : null, summary: pausedTitle || 'Off', choices: pausedUntil ? null : durationChoices(now).filter((c) => c.value !== FOREVER) },
     snoozed: until ? { title: snoozedTitle, summary: until === FOREVER ? 'Snoozed · forever' : snoozedTitle } : null,
     device: deviceLine(st, now),
     on: {

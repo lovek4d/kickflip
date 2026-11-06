@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, heldUsageEvent, builderPick, heldFor, pauseReasonFor } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel } from '../hub/push.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
@@ -25,7 +25,7 @@ function fixture(t) {
 }
 
 test('the line defaults to 90, includes equality, checks the five-hour window first and Off never pauses either tool', () => {
-  assert.deepEqual(gate(), { pause_at: 90, state: 'paused', window: 'five_hour', used: 90, resets_at: until, codex: { past: false, window: null, used: null, resets_at: null } });
+  assert.deepEqual(gate(), { pause_at: 90, state: 'paused', manual: null, window: 'five_hour', used: 90, resets_at: until, codex: { past: false, window: null, used: null, resets_at: null } });
   assert.equal(gate({ claude: reading(89, 89) }).state, 'normal');
   assert.equal(gate({ claude: reading(99, 99) }).window, 'five_hour');
   assert.equal(gate({ claude: reading(40, 95) }).window, 'seven_day');
@@ -66,6 +66,45 @@ test('each kind of agent is held by its own usage: Claude by the pause, Codex pa
   assert.equal(heldFor(gate({ keepGoing: { window: 'five_hour', until } }), 'claude'), false, 'Keep going lets Claude go');
   assert.match(pauseReasonFor(claudePaused, 'claude'), /^Work is paused: Claude's 5-hour usage is at 90%/);
   assert.equal(pauseReasonFor(codexPast, 'codex'), `Codex is paused: its weekly usage is at 92%, past the 90% line. Resumes at ${week}.`);
+});
+
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+test('a manual hub or board pause pauses all new work until its end, over the usage pause and Keep going, hub first', () => {
+  const later = new Date(now + 7200_000).toISOString();
+  const calm = { claude: reading(20, 20) };
+  assert.deepEqual(gate({ ...calm, hubPause: later }), { pause_at: 90, state: 'paused', manual: 'hub', window: null, used: null, resets_at: later, codex: { past: false, window: null, used: null, resets_at: null } });
+  assert.equal(gate({ ...calm, boardPause: later }).manual, 'board');
+  assert.equal(gate({ ...calm, hubPause: until, boardPause: later }).manual, 'hub', 'the hub pause covers every board');
+  assert.equal(gate({ hubPause: later }).manual, 'hub', 'over the usage pause');
+  assert.equal(gate({ boardPause: later, keepGoing: { window: 'five_hour', until } }).state, 'paused', 'Keep going lifts only the usage pause');
+  for (const ended of [new Date(now).toISOString(), 'forever', 'bad', null]) assert.equal(gate({ ...calm, hubPause: ended, boardPause: ended }).state, 'normal');
+  assert.equal(gate({ boardPause: later, now: Date.parse(later) }).manual, null, 'an ended board pause leaves the usage pause');
+  const hub = gate({ ...calm, hubPause: later });
+  const board = gate({ ...calm, boardPause: later });
+  assert.deepEqual(['claude', 'codex', 'grill'].map((k) => heldFor(board, k)), [true, true, true], 'a manual pause holds Codex too');
+  assert.equal(pauseReason(hub), `Work is paused: the owner paused the hub until ${later}. Pause hub in Hub settings resumes it.`);
+  assert.equal(pauseReasonFor(board, 'codex'), `Work is paused: the owner paused this board until ${later}. Pause board in Board settings resumes it.`);
+  assert.equal(pausedLine(board), `usage paused ${later} manual board`);
+  assert.equal(pausedLine(gate()), `usage paused ${until} five_hour 90%`);
+});
+
+test('the file reader reads the hub pause from settings and the board pause from its board.json', (t) => {
+  const f = fixture(t);
+  const site = path.join(f.home, 'site');
+  fs.mkdirSync(site);
+  f.write('settings.json', { rules: ['kept'] });
+  assert.equal(setHubPause('3h', { home: f.home, now: new Date(now) }).toISOString(), new Date(now + 3 * 3600_000).toISOString());
+  assert.deepEqual(f.settings(), { rules: ['kept'], paused_until: new Date(now + 3 * 3600_000).toISOString() });
+  assert.equal(readUsageGate({ home: f.home, now }).manual, 'hub');
+  for (const choice of ['forever', '0h', '31d', 'soon']) assert.throws(() => setHubPause(choice, { home: f.home, now: new Date(now) }), { status: 400 });
+  assert.equal(setHubPause('off', { home: f.home, now: new Date(now) }), null);
+  assert.deepEqual(f.settings(), { rules: ['kept'] });
+  assert.equal(readUsageGate({ home: f.home, now }).state, 'normal');
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ paused_until: until }));
+  assert.equal(readUsageGate({ home: f.home, now, dir: site }).manual, 'board');
+  assert.equal(readUsageGate({ home: f.home, now }).state, 'normal', 'without the board, its pause is not read');
+  fs.writeFileSync(path.join(site, 'board.json'), '{');
+  assert.equal(readUsageGate({ home: f.home, now, dir: site }).state, 'normal');
 });
 
 test('the file reader follows setting changes and resets while writes preserve other settings', (t) => {

@@ -1973,6 +1973,26 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });
 
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+test('Pause hub reads paused on the Hub row and every board with Resume on its banner; Pause board on its own row alone', () => {
+  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const until = ui.usageClock(resets_at);
+  const manual = (scope) => ({ pause_at: 90, state: 'paused', manual: scope, window: null, used: null, resets_at });
+  const working = '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span>';
+  const banner = context.HubUI.pauseBanner(manual('hub'));
+  assert.equal(text(banner), `Work paused: you paused the hub. Resumes at ${until}. Resume`);
+  assert.match(banner, /hold-banner ub-banner ub-paused/);
+  assert.match(banner, /action="\/_hub\/settings\/hub-pause"><button class="btn quiet" name="pause" value="off">Resume/);
+  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: working }, { route: 'b', title: 'B', board: true, icon: '', sub: working }];
+  const hubPaused = ui.sidebar({ pause: manual('hub'), sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  assert.equal([...hubPaused.matchAll(/class="word t-paused">paused/g)].length, 3);
+  const boardPaused = ui.sidebar({ pause: { state: 'normal' }, sites: [{ ...sites[0], pause: manual('board') }, sites[1]], hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  assert.equal([...boardPaused.matchAll(/class="word t-paused">paused/g)].length, 1, 'only the paused board');
+  assert.equal([...boardPaused.matchAll(/>working</g)].length, 1);
+  assert.match(text(boardPaused), /healthy/);
+  assert.equal(ui.statusLine(null, { pause: manual('board') }), `<span class="paused">paused until ${until}</span>`);
+});
+
 test('the New version row reads Updated to the pulled version with Restart, spins while the pull or the restart runs, and gives Reload priority', () => {
   const row = (update, upgrade) => ui.updateRow(update, upgrade);
   assert.equal(row(null, null), '');

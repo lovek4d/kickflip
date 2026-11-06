@@ -124,12 +124,15 @@ export function contextReading(session, { home = os.homedir() } = {}) {
 export async function checkUsagePause({ gate, home = os.homedir(), resume }) {
   const file = path.join(home, '.claude', 'kickflip', 'usage-gate-state.json');
   const previous = readJson(file);
+  // Pause hub (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md) is a pause like the line's, its window 'manual'.
   if (gate.state === 'paused' && previous?.state !== 'paused') {
-    audit(hubAudit(home), { call: 'usage-pause', result: 'paused', reason: `Claude's ${gate.window === 'five_hour' ? '5-hour' : 'weekly'} usage reached the ${gate.pause_at}% line.`, inputs: { gate, previous: previous?.state ?? null } });
+    const reason = gate.manual ? `The owner paused the hub until ${gate.resets_at}.` : `Claude's ${gate.window === 'five_hour' ? '5-hour' : 'weekly'} usage reached the ${gate.pause_at}% line.`;
+    audit(hubAudit(home), { call: 'usage-pause', result: 'paused', reason, inputs: { gate, previous: previous?.state ?? null } });
   }
   if (previous?.state === 'paused' && gate.state === 'normal') {
-    audit(hubAudit(home), { call: 'usage-resume', result: 'resumed', reason: `Claude's ${previous.window === 'five_hour' ? '5-hour' : 'weekly'} usage is under the line again, so every board was told.`, inputs: { gate, previous: previous.window } });
-    await resume(previous.window);
+    const reason = previous.manual ? "The owner's pause of the hub ended, so every board was told." : `Claude's ${previous.window === 'five_hour' ? '5-hour' : 'weekly'} usage is under the line again, so every board was told.`;
+    audit(hubAudit(home), { call: 'usage-resume', result: 'resumed', reason, inputs: { gate, previous: previous.manual ? 'manual' : previous.window } });
+    await resume(previous.manual ? 'manual' : previous.window);
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;

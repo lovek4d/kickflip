@@ -45,7 +45,7 @@ import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mjs';
 import { parentOf, sessionGone } from '../hub/live.mjs';
 import { ackPing, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
-import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
+import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
 
 const [route, session] = process.argv.slice(2);
 if (!route || !session) { console.error('usage: wait-events.mjs <route> <session-id>'); process.exit(2); }
@@ -178,7 +178,7 @@ for (;;) {
   const pending = (seen) => Object.fromEntries(Object.entries(seen).map(([f, lines]) => [f, [...(routeRecord(base.$quietHeld, f) || []), ...(routeRecord(base.$usageHeld, f) || []), ...lines.slice(routeRecord(base, f) || 0)]]));
   const eligible = (line, gate) => gate.state !== 'paused' || !heldUsageEvent(line);
   const wakes = (waiting, gate) => Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate) && !recordOnly(line)));
-  const currentGate = readUsageGate();
+  const currentGate = readUsageGate({ dir: s.dir });
   const now = matching(s);
   if (!wakes(pending(now), currentGate)) {
     // Nothing to wake for: record-only lines are kept for the next wake, so the cursor can move past them.
@@ -196,7 +196,7 @@ for (;;) {
   await new Promise((r) => setTimeout(r, 2000));
   orphaned();
   const seen = matching(s);
-  const gate = readUsageGate();
+  const gate = readUsageGate({ dir: s.dir });
   const waiting = pending(seen);
   if (!wakes(waiting, gate)) continue;
   const held = Object.create(null);
@@ -225,7 +225,7 @@ for (;;) {
   if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);
   if (board) for (const line of settingsLines(settingsOf(board))) console.log(line);
   if (board) console.log(QUIET);
-  if (gate.state === 'paused') console.log(`usage paused ${gate.resets_at} ${gate.window} ${gate.used}%`);
+  if (gate.state === 'paused') console.log(pausedLine(gate));
   // This watcher still runs, so the events link reads as reaching the board. A failure here must not keep the
   // cursor below from moving, or the same events would wake the session again.
   try {

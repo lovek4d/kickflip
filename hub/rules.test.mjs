@@ -314,6 +314,42 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       assert.equal(resumed().length, count + 1);
       assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).state, 'normal');
     });
+    // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+    await t.test('Pause hub pauses every board until its end, Resume wakes them, and Pause board shows on its own row', async () => {
+      const post = (body, json = true) => fetch(`${base}/_hub/settings/hub-pause`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(json ? { accept: 'application/json' } : {}) }, body, redirect: 'manual',
+      });
+      const eventsFile = path.join(siteDir, 'data', 'events.jsonl');
+      const resumed = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === 'usage-resumed');
+      const count = resumed().length;
+      const paused = await post('pause=3h');
+      assert.equal(paused.status, 200);
+      const settings = await paused.json();
+      assert.match(settings.pause.on.title, /^Paused until /);
+      assert.equal(settings.pause.summary, settings.pause.on.title);
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).other_key, 'kept');
+      const sidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
+      assert.deepEqual([sidebar.pause.state, sidebar.pause.manual], ['paused', 'hub']);
+      const unchanged = fs.readFileSync(file, 'utf8');
+      for (const body of ['pause=forever', 'pause=31d', '', 'pause=soon']) {
+        const r = await post(body);
+        assert.equal(r.status, 400);
+        assert.ok((await r.json()).error);
+        assert.equal(fs.readFileSync(file, 'utf8'), unchanged);
+      }
+      const resume = await post('pause=off');
+      assert.equal((await resume.json()).pause.on, null);
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).paused_until, undefined);
+      assert.deepEqual(resumed().slice(count).map((e) => e.data), [{ window: 'manual' }]);
+      assert.deepEqual([(await post('pause=off', false)).headers.get('location')], ['/_hub/#pause']);
+      const boardFile = path.join(siteDir, 'board.json');
+      const board = JSON.parse(fs.readFileSync(boardFile, 'utf8'));
+      fs.writeFileSync(boardFile, JSON.stringify({ ...board, paused_until: new Date(Date.now() + 3600_000).toISOString() }));
+      const own = await (await fetch(`${base}/_hub/sidebar.json`)).json();
+      assert.notEqual(own.pause.manual, 'board', "the hub's own gate is not the board's");
+      assert.deepEqual([own.sites.find((s) => s.route === 'orch').pause.manual], ['board']);
+      fs.writeFileSync(boardFile, JSON.stringify(board));
+    });
     const notify = await fetch(`${base}/_hub/settings/notifications`, {
       method: 'POST', headers: { accept: 'application/json' }, body: 'set=weekends&value=on',
     });

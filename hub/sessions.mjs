@@ -410,7 +410,7 @@ export async function checkSessions({
   manifest = readManifest(), now = new Date(), live = liveSessions, asked = new Set(),
   listening = (board, running) => isListening(board, { now: now.getTime(), running }),
   resume = (route, mark) => resumeSession(route, { manifest, live, mark }), push = deliver,
-  gate = readUsageGate({ now }),
+  gateOf = (board) => readUsageGate({ now, dir: board.dir }),
 } = {}) {
   const running = live();
   // With ps giving no answer, which sessions run is unknown, so nothing wakes or pushes and every outage is kept for
@@ -427,7 +427,7 @@ export async function checkSessions({
       listening: heard, live: isLive, recorded: Boolean(rec?.repo), now: now.getTime(), asked: asked.has(board.route),
       counts: heard ? null : watchedCounts(board), waiting: !heard && !isLive && oldestUnheard(board) !== null,
     });
-    if (action === 'resume' && gate.state === 'paused') {
+    if (action === 'resume' && gateOf(board).state === 'paused') {
       const mark = routeRecord(state, board.route)?.mark || watcherCursor(board);
       const pending = Object.entries(watchedLines(board)).flatMap(([file, lines]) => lines.slice(routeRecord(mark, file) || 0));
       if (!pending.some((line) => !heldUsageEvent(line))) { action = 'none'; delete entry.resumed_at; }

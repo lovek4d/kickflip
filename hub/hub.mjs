@@ -75,6 +75,9 @@
 //   /_hub/settings/keep-awake POST keep_awake=<duration.mjs durationEnd choice | off> → /_hub/api/settings's JSON, or
 //                     400 {error} for an end not after now or more than 30 days on (303 to ?refused=keep-awake), or
 //                     409 {error} off macOS (awake.mjs)
+//   /_hub/settings/hub-pause POST pause=<usage-gate.mjs pauseEnd choice | off> → Pause hub, then /_hub/api/settings's
+//                     JSON, or 400 {error} for forever or an end not after now or more than 30 days on
+//                     (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md)
 //   /_hub/settings/codex POST value=auto|always|off → /_hub/api/hub's JSON, or 400 {error}, or 409 {error} with the
 //                     fix while Codex isn't installed or logged in, checked afresh
 //   /_hub/settings/claude-model POST value=opus|auto|sonnet → /_hub/api/hub's JSON, or 400 {error}
@@ -191,7 +194,7 @@ import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shellHtml } from './shell.mjs';
 import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
-import { readUsageGate, setPauseAt, setKeepGoing } from '../shared/usage-gate.mjs';
+import { readUsageGate, setPauseAt, setKeepGoing, setHubPause, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
@@ -697,7 +700,10 @@ async function sidebarState({ fresh = false } = {}) {
   const contexts = new Map(boards.map((b) => [b.route, contextReading(b.owner?.session)]).filter(([, reading]) => reading));
   const starting = startingBoards(manifest, now.getTime(), clonePercent, (route) => listens.get(route) === 'listening' && rows.some((r) => r.route === route && r.state === 'up'));
   const landing = new Set(starting.map((s) => s.route));
-  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts).filter((s) => !landing.has(s.route));
+  // A board under Pause board carries its own gate as pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
+  const pausedBoards = new Map(boards.filter((b) => boardPausedUntil(b.dir)).map((b) => [b.route, readUsageGate({ dir: b.dir })]));
+  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts).filter((s) => !landing.has(s.route))
+    .map((s) => (pausedBoards.has(s.route) ? { ...s, pause: pausedBoards.get(s.route) } : s));
   const settings = readSettings();
   const held = hold(now, settings);
   const data = {
@@ -824,7 +830,9 @@ async function hubData(req) {
 const settingsData = async () => {
   const now = new Date();
   const awake = { until: awakeUntil(now), unsupported: awakeUnsupported() };
-  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), awake }), closed: closedBoards() };
+  const gate = readUsageGate({ now });
+  const pausedUntil = gate.manual === 'hub' ? new Date(gate.resets_at) : null;
+  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), awake, pausedUntil }), closed: closedBoards() };
 };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
@@ -1063,6 +1071,15 @@ async function hubRoute(req, res, url, viewer = null) {
     }
     awake.apply();
     return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#keep-awake');
+  }
+  if (p === '/_hub/settings/hub-pause' && req.method === 'POST') {
+    const f = new URLSearchParams(await readBody(req));
+    try { setHubPause(f.get('pause')); } catch (e) {
+      if (e.status !== 400) throw e;
+      return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+    }
+    await checkUsageGate();
+    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#pause');
   }
   if (p === '/_hub/settings/codex' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req));

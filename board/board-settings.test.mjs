@@ -756,3 +756,20 @@ test('review digest waits without changing the record while Slack is not ready',
   assert.equal(digestCommand([], now).waiting, undefined);
   assert.deepEqual(read(file), record);
 });
+
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+test('Pause board saves its end in board.json beside the other settings, refuses forever and clears with off', async () => {
+  const { setBoardPause, readBoardSettings } = await import('./store.mjs');
+  const { readUsageGate } = await import('../shared/usage-gate.mjs');
+  const dir = site('audit');
+  const before = read(path.join(dir, 'board.json'));
+  const from = new Date();
+  const end = await setBoardPause(dir, '1h', from);
+  assert.equal(end, new Date(from.getTime() + 3600_000).toISOString());
+  assert.deepEqual(read(path.join(dir, 'board.json')), { ...before, paused_until: end });
+  assert.equal(readUsageGate({ home, dir }).manual, 'board');
+  assert.equal('paused_until' in (await readBoardSettings(dir)), false, 'the pause is no board setting the session is told of');
+  for (const choice of ['forever', 'later', '0m']) await assert.rejects(setBoardPause(dir, choice, from), /A pause ends after now/);
+  assert.equal(await setBoardPause(dir, 'off', from), null);
+  assert.deepEqual(read(path.join(dir, 'board.json')), before);
+});

@@ -1,4 +1,4 @@
-// What the hub page and settings modals share, each through the view's B
+// What the hub page and settings modals share, Board Settings' duration picker included, each through the view's B
 // (app.js BoardView.page), so unmounting the view stops it all: loading and refreshing the view's data, posting its
 // forms for JSON, and this device's notifications row.
 (function () {
@@ -169,5 +169,65 @@
     return { state: (line) => (state && on ? { ...state, sub: `On · ${line}` } : state), busy: () => busy, ready };
   }
 
-  globalThis.HubKit = { live, forms, device };
+  // datetime-local speaks the device's clock; the picker's hidden field carries its UTC ISO value to the server.
+  const localInput = (d) => {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  function customBounds(input, reset = false) {
+    const now = Date.now();
+    input.min = localInput(new Date(now + 60_000));
+    input.max = localInput(new Date(now + 30 * 86_400_000));
+    if (reset) input.value = input.defaultValue = localInput(new Date(now + 3_600_000));
+  }
+
+  // The one duration picker Snooze, Keep awake, Pause hub and Pause board share (hub/duration.mjs): chips that post
+  // `name` to `action` at once, then Custom, whose date and time posts as `name` too. While its setting is on, `on`
+  // replaces it with when it ends and a button that posts `name`=off.
+  function durationPicker({ id, title, icon, action, name, choices, on, button }) {
+    const { esc } = HubUI;
+    if (on) return `<div class="row dur-on">${icon}<span class="body"><span class="text title">${esc(on.title)}</span><form method="post" action="${action}"><button class="btn quiet" name="${name}" value="off">${button}</button></form></span></div>`;
+    if (!choices) return '';
+    const chips = choices.map((c) => `<button class="btn quiet" name="${name}" value="${esc(c.value)}" aria-label="${esc(`${c.label}, ${c.until}`)}">${esc(c.label)}</button>`).join('');
+    return `<div class="block" role="group" aria-labelledby="${id}Title"><div class="dur-head">${icon}<span class="title" id="${id}Title">${title}</span></div><div class="dur-chips"><form class="dur-choices" method="post" action="${action}">${chips}</form><form class="dur-custom" method="post" action="${action}"><input type="hidden" name="${name}"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-dur-at required aria-label="Custom ${title.toLowerCase()} until a date and time"></form></div></div>`;
+  }
+
+  // Wires every duration picker under B.root: Custom opens its picker, and closing it submits its form with the time
+  // chosen. → painted(), which a view calls after drawing a picker to set Custom's bounds and suggested time.
+  function durationPickers(B) {
+    let openPicker = null;
+    B.on(B.root, 'click', (e) => {
+      const input = e.target.closest?.('[data-dur-at]');
+      if (!input) return;
+      openPicker = input;
+      customBounds(input, input.value === input.defaultValue);
+      try { input.showPicker(); } catch { /* iOS opens its wheel on the tap itself. */ }
+    });
+    // A chip's pointerdown comes before Custom's focusout; without this reset Custom posts first and the chip's post is dropped.
+    B.on(B.root, 'pointerdown', (e) => {
+      const input = e.target.closest?.('.dur-choices button') && e.target.closest('.dur-chips')?.querySelector('[data-dur-at]');
+      if (!input) return;
+      openPicker = null;
+      input.value = input.defaultValue;
+    });
+    // Closing an opened picker accepts its suggested time; an unchanged field reached by Tab does nothing.
+    const saveCustom = (input) => {
+      if (!input.value || (input !== openPicker && input.value === input.defaultValue) || !input.checkValidity()) return;
+      const at = new Date(input.value);
+      if (Number.isNaN(at.getTime())) return;
+      input.form.querySelector('input[type="hidden"]').value = at.toISOString();
+      input.form.requestSubmit();
+      openPicker = null;
+      input.defaultValue = input.value;
+    };
+    B.on(B.root, 'change', (e) => {
+      if (e.target.matches?.('[data-dur-at]') && document.activeElement !== e.target) saveCustom(e.target);
+    });
+    B.on(B.root, 'focusout', (e) => {
+      if (e.target.matches?.('[data-dur-at]')) saveCustom(e.target);
+    });
+    return { painted: () => { for (const input of B.root.querySelectorAll('[data-dur-at]')) customBounds(input, true); } };
+  }
+
+  globalThis.HubKit = { live, forms, device, durationPicker, durationPickers };
 })();

@@ -1,5 +1,5 @@
 // HubSettings: summary rows below Hub’s health and status open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
-// settingsView's words from GET /_hub/api/settings. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
+// settingsView's words from GET /_hub/api/settings. Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
 // hours' times and hold to /_hub/settings/quiet, and Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
 // a key's save to land. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
@@ -9,28 +9,10 @@
   const { esc } = HubUI;
   const ACTION = '/_hub/settings/notifications';
 
-  // datetime-local speaks the device's clock; the picker's hidden field carries its UTC ISO value to the hub.
-  const localInput = (d) => {
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-  function customBounds(input, reset = false) {
-    const now = Date.now();
-    input.min = localInput(new Date(now + 60_000));
-    input.max = localInput(new Date(now + 30 * 86_400_000));
-    if (reset) input.value = input.defaultValue = localInput(new Date(now + 3_600_000));
-  }
-
-  // The one duration picker Snooze and Keep awake share (hub/duration.mjs): chips that post `name` to `action` at once,
-  // then Custom, whose date and time posts as `name` too. While its setting is on, `on` replaces it with when it ends
-  // and a button that posts `name`=off.
-  function durationPicker({ id, title, icon, action, name, choices, on, button }) {
-    if (on) return `<div class="row dur-on">${icon}<span class="body"><span class="text title">${esc(on.title)}</span><form method="post" action="${action}"><button class="btn quiet" name="${name}" value="off">${button}</button></form></span></div>`;
-    if (!choices) return '';
-    const chips = choices.map((c) => `<button class="btn quiet" name="${name}" value="${esc(c.value)}" aria-label="${esc(`${c.label}, ${c.until}`)}">${esc(c.label)}</button>`).join('');
-    return `<div class="block" role="group" aria-labelledby="${id}Title"><div class="dur-head">${icon}<span class="title" id="${id}Title">${title}</span></div><div class="dur-chips"><form class="dur-choices" method="post" action="${action}">${chips}</form><form class="dur-custom" method="post" action="${action}"><input type="hidden" name="${name}"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-dur-at required aria-label="Custom ${title.toLowerCase()} until a date and time"></form></div></div>`;
-  }
-
+  const { durationPicker } = HubKit;
+  // Pause hub (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md), gray as every paused status.
+  const pauseRow = (p) => durationPicker({ id: 'pauseHub', title: 'Pause hub', icon: HubUI.tile('pause', 'var(--color-quiet)'),
+    action: '/_hub/settings/hub-pause', name: 'pause', choices: p.choices, on: p.on, button: 'Resume' });
   const snoozeRow = (d) => durationPicker({ id: 'snooze', title: 'Snooze', icon: HubUI.tile('snooze', '#a855f7'), action: ACTION, name: 'snooze',
     choices: d.snooze?.choices, on: d.snoozed, button: 'End' });
   // Grey while off and orange while on, as the machine working (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md).
@@ -58,7 +40,7 @@
       + `<h2 class="label">Snoozes and wakes read</h2><div class="group">${reads}</div>`;
   }
 
-  const sections = [['notifications', 'Notifications'], ['quiet', 'Quiet hours'], ['keep-awake', 'Keep awake'], ['linear', 'Linear'], ['slack', 'Slack'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  const sections = [['pause', 'Pause hub'], ['notifications', 'Notifications'], ['quiet', 'Quiet hours'], ['keep-awake', 'Keep awake'], ['linear', 'Linear'], ['slack', 'Slack'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
   const sectionOf = (hash) => {
     const id = { push: 'notifications', 'closed-boards': 'closed', polling: 'quiet' }[hash?.slice(1)] || hash?.slice(1);
     return sections.some(([section]) => section === id) ? id : null;
@@ -80,13 +62,16 @@
       let rules = null;
       let rulesJSON = '';
       let tokenSlot = null;
+      const pickers = HubKit.durationPickers(B);
 
       function paint() {
         if (!last) return;
         const { row, tile, deviceRow } = HubUI;
         top.innerHTML = HubUI.flash(flash);
         const scrollTop = B.$('.settings-body').scrollTop;
-        if (active === 'notifications') {
+        if (active === 'pause') {
+          content.innerHTML = `<div class="group">${pauseRow(last.pause)}</div><p class="note">Running steps finish. No new builders, planners or pulls start on any board until then, as when usage reaches the pause line.</p>`;
+        } else if (active === 'notifications') {
           content.innerHTML = `<div class="group">${deviceRow(device.state(last.device), { compact: true })}${notificationRows(last)}</div>`;
         } else if (active === 'quiet') {
           content.innerHTML = quietRows(last.quiet);
@@ -103,11 +88,11 @@
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening === b.route ? BoardUI.BUSY : reopening ? ' disabled' : ''}>Reopen</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
         }
-        const input = B.$('[data-dur-at]');
-        if (input) customBounds(input, true);
+        pickers.painted();
         B.$('.settings-body').scrollTop = scrollTop;
         B.$('#keep-awake').disabled = Boolean(last.awake.unsupported);
         const summaries = {
+          pause: last.pause.summary,
           notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.summary, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
           quiet: last.quiet.summary,
           'keep-awake': last.awake.summary,
@@ -207,37 +192,6 @@
       B.atUnmount(() => closeModal(false));
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       device.ready.then(() => { if (B.alive()) paint(); });
-      let openPicker = null;
-      B.on(root, 'click', (e) => {
-        const input = e.target.closest?.('[data-dur-at]');
-        if (!input) return;
-        openPicker = input;
-        customBounds(input, input.value === input.defaultValue);
-        try { input.showPicker(); } catch { /* iOS opens its wheel on the tap itself. */ }
-      });
-      // A chip's pointerdown comes before Custom's focusout; without this reset Custom posts first and the chip's post is dropped.
-      B.on(root, 'pointerdown', (e) => {
-        const input = e.target.closest?.('.dur-choices button') && B.$('[data-dur-at]');
-        if (!input) return;
-        openPicker = null;
-        input.value = input.defaultValue;
-      });
-      // Closing an opened picker accepts its suggested time; an unchanged field reached by Tab does nothing.
-      const saveCustom = (input) => {
-        if (!input.value || (input !== openPicker && input.value === input.defaultValue) || !input.checkValidity()) return;
-        const at = new Date(input.value);
-        if (Number.isNaN(at.getTime())) return;
-        input.form.querySelector('input[type="hidden"]').value = at.toISOString();
-        input.form.requestSubmit();
-        openPicker = null;
-        input.defaultValue = input.value;
-      };
-      B.on(root, 'change', (e) => {
-        if (e.target.matches?.('[data-dur-at]') && document.activeElement !== e.target) saveCustom(e.target);
-      });
-      B.on(root, 'focusout', (e) => {
-        if (e.target.matches?.('[data-dur-at]')) saveCustom(e.target);
-      });
       B.on(root, 'click', async (e) => {
         const button = e.target.closest?.('[data-reopen]');
         if (!button || reopening) return;

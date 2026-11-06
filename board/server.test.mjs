@@ -1030,7 +1030,8 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, max_planners: 3, auto_triage: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true } });
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, max_planners: 3, auto_triage: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true },
+      paused_until: null, pause_choices: [['1h', 3600_000], ['3h', 3 * 3600_000], ['6h', 6 * 3600_000], ['1d', 86400_000]].map(([value, ms]) => ({ value, label: value, ms })) });
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
@@ -1062,6 +1063,31 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     assert.equal((await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json()).id, null);
     assert.equal((await save({ tickets: { source: 'internal', prefix: 'bad1' } })).status, 400);
     assert.deepEqual((await settingsEvents()).find((e) => e.tickets), { tickets: { source: 'internal', prefix: 'OPS' } });
+  } finally {
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+  }
+});
+
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+test('Pause board saves its end in board.json with no settings event, reads back on the settings page, refuses forever and clears with off', async () => {
+  const cfg = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
+  const pause = (body) => fetch(`${base}/api/pause`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const settingsEvents = async () => (await (await fetch(`${base}/_claude/events?kind=settings`)).json()).length;
+  const events = await settingsEvents();
+  try {
+    const on = await pause({ pause: '1h' });
+    assert.equal(on.status, 200);
+    const { paused_until } = await on.json();
+    assert.ok(Math.abs(Date.parse(paused_until) - Date.now() - 3600_000) < 60_000);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).paused_until, paused_until);
+    assert.equal((await (await fetch(`${base}/api/settings`)).json()).paused_until, paused_until);
+    assert.equal(await settingsEvents(), events, 'no settings event');
+    for (const bad of [{ pause: 'forever' }, { pause: '45d' }, { pause: 1 }, { pause: '1h', more: 1 }, {}]) assert.equal((await pause(bad)).status, 400, JSON.stringify(bad));
+    const resumed = async () => (await (await fetch(`${base}/_claude/events?kind=usage-resumed`)).json()).filter((e) => e.data?.window === 'manual').length;
+    const before = await resumed();
+    assert.deepEqual(await (await pause({ pause: 'off' })).json(), { paused_until: null });
+    assert.equal('paused_until' in JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')), false);
+    await until(async () => (await resumed()) === before + 1, "the lift wakes the board's session");
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
   }

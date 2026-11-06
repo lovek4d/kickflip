@@ -74,6 +74,10 @@ _Avoid_: quota, live usage
 The Usage card's “Pause work at”, last in the group below Codex: `pauseAt` in `~/.claude/kickflip/settings.json`, 50–100 in steps of 5, default 90 (10% buffer); 100 reads Off. Either live Claude window at or over it pauses new work until that window resets. Running steps finish; builders and new agents wait, watchers hold the hub's work events, and owner messages get a brief “paused until <time>”. Keep going lifts that window's pause until its reset; Stop restores it. Codex hands work to Opus builders at the same line, without pausing. The Hub banner and sidebar and board header status slots show the pause, never the logo. `shared/usage-gate.mjs` owns it; `kickflip usage-gate` prints it ([work pauses at the pause line](docs/adr/2026-11-01-1710-work-pauses-at-the-pause-line.md)).
 _Avoid_: buffer threshold, quota guard
 
+**Pause hub** and **Pause board**:
+The owner's manual pause, first in Hub settings and Board settings, with the snooze picker's chips and Custom but not Forever: until its end it pauses new work exactly as the **pause line** does, Codex builders included, on every board for Pause hub (settings.json's `paused_until`) and on that board alone for Pause board (board.json's `paused_until`, no board setting). It outranks the usage pause and Keep going, Pause hub first. Resume ends it, and the end wakes the boards with `usage-resumed {window: "manual"}`. It reads paused in gray wherever the usage pause shows: Pause hub on the Hub banner and row and every board, Pause board on its own sidebar row, header and cards ([Pause board and Pause hub pause new work by hand](docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md)).
+_Avoid_: snooze (pushes only), hold (one card)
+
 **Claude model**:
 The Usage card's Opus · Auto · Sonnet control, opening Claude's block: `claudeModel` in `~/.claude/kickflip/settings.json`, default Auto. It decides which model builds a card Claude builds: Opus or Sonnet always, or under Auto the card's own `--model`, else Sonnet for a card `--size small` and Opus for the rest. `builder pick` prints it with why, and a build's `builder start` refuses a `--model` it rules out. Codex builds, prototypes and grills don't read it ([usage picks Opus, Auto or Sonnet for Claude builders, and builder pick says which and why](docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md)).
 _Avoid_: Opus builders, allow Opus
@@ -145,7 +149,7 @@ A start and end time, 10:00pm to 8:00am by default. With its hold on, pushes que
 _Avoid_: overnight window, wake times
 
 **Hub settings**:
-The six summary rows below the **hub page**’s health and status: Notifications, Quiet hours, Keep awake, Linear, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area. Snooze and Keep awake share one duration picker: 1h, 3h, 6h, 1d, Forever and Custom. Keep awake has the hub run `caffeinate -ims` until its end, and is disabled on hosts other than macOS ([snooze and Keep awake share one duration picker](docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md)). Old Hub Settings links open the matching modal over Hub ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)).
+The summary rows below the **hub page**’s health and status: **Pause hub** first, then Notifications, Quiet hours, Keep awake, Linear, Slack, Rules for every board and Closed boards. Each opens its controls in a centred modal with its own scroll area. Snooze and Keep awake share one duration picker: 1h, 3h, 6h, 1d, Forever and Custom. Keep awake has the hub run `caffeinate -ims` until its end, and is disabled on hosts other than macOS ([snooze and Keep awake share one duration picker](docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md)). Old Hub Settings links open the matching modal over Hub ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)).
 _Avoid_: Hub Settings page, preferences, hub config
 
 **Shared person**:
@@ -153,7 +157,7 @@ Someone else signed in to Tailscale whose login a board's Sharing lists: they se
 _Avoid_: guest, viewer, collaborator
 
 **Board Settings**:
-The centred modal opened from a board header’s gear, at every width, which scrolls inside on a phone. It contains only that board’s settings: repo and branch (Change uses the same list and GitHub link search as New board), ticket source, auto-merge, auto-build, auto-pull (Auto implement Todo cards) with Maximum parallel implementers and planners, auto-triage, reviewers, sharing, rules and Close board with typed-name confirmation. Closing returns to the same board and open card without another history entry ([hub settings expand in place and board settings open in a modal](docs/adr/2026-10-31-1721-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
+The centred modal opened from a board header’s gear, at every width, which scrolls inside on a phone. It contains only that board’s settings: **Pause board** first, then repo and branch (Change uses the same list and GitHub link search as New board), ticket source, auto-merge, auto-build, auto-pull (Auto implement Todo cards) with Maximum parallel implementers and planners, auto-triage, reviewers, sharing, rules and Close board with typed-name confirmation. Closing returns to the same board and open card without another history entry ([hub settings expand in place and board settings open in a modal](docs/adr/2026-10-31-1721-hub-settings-expand-in-place-and-board-settings-open-in-a-modal.md)).
 _Avoid_: Settings page
 
 **Codex setting**:

@@ -20,6 +20,14 @@ const USABLE = { usable: true, reason: null, words: null, fix: null };
 const NOT_INSTALLED = codexStatus({ installed: false });
 const LOGGED_OUT = codexStatus({ installed: true, home: '/nonexistent' });
 
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+test("Pause hub offers the snooze picker's chips without Forever, then says until when with Resume", () => {
+  const now = t(10);
+  const off = plain(settingsView({ now, st: status(now, DEFAULTS) }).pause);
+  assert.deepEqual(off, { on: null, summary: 'Off', choices: [['1h', 'until 11:00am'], ['3h', 'until 1:00pm'], ['6h', 'until 4:00pm'], ['1d', 'until 10:00am tomorrow']].map(([value, until]) => ({ value, label: value, until })) });
+  assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), pausedUntil: t(13) }).pause), { on: { title: 'Paused until 1:00pm' }, summary: 'Paused until 1:00pm', choices: null });
+});
+
 test('pollLine says when the next check runs and what the last one found', () => {
   const now = t(19);
   assert.equal(pollLine(poll(now), now), 'Next check 7:30pm');
@@ -137,7 +145,8 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   let slack = { set: false };
   let checked = null;
   let awake = { until: null, unsupported: null };
-  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, awake });
+  let pausedUntil = null;
+  const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, awake, pausedUntil });
   let confirmed = false;
   let live;
   let subscribed = false;
@@ -181,6 +190,11 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
         const end = choice === 'off' ? null : snoozeEnd(now, choice, DEFAULTS);
         return { ok: true, json: async () => data({ ...ON, snoozed_until: end === 'forever' ? end : end?.toISOString() || null }) };
       }
+      if (url === '/_hub/settings/hub-pause') {
+        const choice = opts.body.get('pause');
+        pausedUntil = choice === 'off' ? null : durationEnd(now, choice);
+        return { ok: true, json: async () => data() };
+      }
       if (url === '/_hub/settings/keep-awake') {
         const choice = opts.body.get('keep_awake');
         awake = { ...awake, until: choice === 'off' ? null : durationEnd(now, choice) };
@@ -203,7 +217,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   const modal = root.querySelector('#hubSettingsModal');
   assert.equal(modal.open, true);
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Rules for every board');
-  assert.equal(root.querySelectorAll('[data-summary]').length, 7);
+  assert.equal(root.querySelectorAll('[data-summary]').length, 8);
   const rulesBox = root.querySelector('#hubRules');
   rulesBox.setAttribute('data-dirty', '');
   live.paint(data());
@@ -211,7 +225,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.equal(await B.openSettings({ hash: '#notifications' }), false);
   rulesBox.removeAttribute('data-dirty');
   await B.openSettings({ hash: '#notifications' });
-  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Notifications', 'Quiet hours', 'Keep awake', 'Linear', 'Slack', 'Rules for every board', 'Closed boards']);
+  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Pause hub', 'Notifications', 'Quiet hours', 'Keep awake', 'Linear', 'Slack', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => b.textContent), ['1h', '3h', '6h', '1d', 'Forever']);
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');
@@ -311,6 +325,22 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.deepEqual(root.querySelectorAll('.setting-content .label').map((h) => h.textContent), ['Snoozes and wakes read']);
   assert.match(root.querySelector('.setting-content').textContent, /Every board wakes once at 8:00am, when quiet hours end\./);
   assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'Off');
+  // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+  assert.equal(root.querySelector('[data-summary="pause"]').textContent, 'Off');
+  await B.openSettings({ hash: '#pause' });
+  assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Pause hub');
+  assert.match(root.querySelector('.setting-content').textContent, /No new builders, planners or pulls start on any board until then/);
+  assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => [b.textContent, b.getAttribute('name')]), [['1h', 'pause'], ['3h', 'pause'], ['6h', 'pause'], ['1d', 'pause']]);
+  const pauseChips = root.querySelector('.dur-choices');
+  await submitForm(pauseChips, pauseChips.querySelector('button[value="3h"]'));
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/hub-pause', 'pause=3h']);
+  assert.equal(root.querySelector('.dur-on .title').textContent, 'Paused until 1:00pm');
+  assert.equal(root.querySelector('[data-summary="pause"]').textContent, 'Paused until 1:00pm');
+  const resume = root.querySelector('.dur-on form');
+  assert.equal(resume.querySelector('button').textContent, 'Resume');
+  await submitForm(resume, resume.querySelector('button'));
+  assert.equal(posts.at(-1).opts.body.toString(), 'pause=off');
+  assert.equal(root.querySelector('[data-summary="pause"]').textContent, 'Off');
   await B.openSettings({ hash: '#keep-awake' });
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Keep awake');
   assert.match(root.querySelector('.setting-content').textContent, /caffeinate -ims/);

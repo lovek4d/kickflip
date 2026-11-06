@@ -183,6 +183,21 @@ test("each pause that starts, and each that lifts and wakes the boards, goes in 
   assert.equal(printed.stdout.trim().split('\n').length, 6);
 });
 
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+test('Pause hub starts and lifts as the usage pause does, waking every board, and the audit log says the owner paused it', async (t) => {
+  const f = fixture(t);
+  const woke = [];
+  const check = (state, manual = null) => checkUsagePause({ home: f.home, gate: { state, manual, window: null, pause_at: 90, used: null, resets_at: '2026-11-06T12:00:00.000Z' }, resume: async (window) => woke.push(window) });
+  await check('paused', 'hub');
+  await check('normal');
+  const log = fs.readFileSync(f.file('.claude', 'kickflip', 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(log.map((e) => [e.call, e.result, e.reason]), [
+    ['usage-pause', 'paused', 'The owner paused the hub until 2026-11-06T12:00:00.000Z.'],
+    ['usage-resume', 'resumed', "The owner's pause of the hub ended, so every board was told."],
+  ]);
+  assert.deepEqual(woke, ['manual']);
+});
+
 test('a session\'s context reading is its saved percent and time, null without one', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-'));
   try {

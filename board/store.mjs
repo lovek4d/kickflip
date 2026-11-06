@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
-import { readUsageGate, pauseReason, pauseReasonFor, heldFor, builderPick } from '../shared/usage-gate.mjs';
+import { readUsageGate, pauseReason, pauseReasonFor, heldFor, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
@@ -949,6 +949,16 @@ export const settingsOf = (cfg, board) => {
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}),
     ...(validBuildTarget(cfg?.build_target) ? { build_target: cfg.build_target } : {}) };
 };
+// Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): a shared/usage-gate.mjs
+// pauseEnd choice, or off, saved as board.json's paused_until, which readUsageGate reads with the board's dir. It is no
+// board setting: the gate, not a settings event, tells the session. → the end as an ISO time, or null.
+export async function setBoardPause(site, choice, now = new Date()) {
+  let end;
+  try { end = pauseEnd(choice, now); } catch (e) { fail(e.message); }
+  const until = end ? end.toISOString() : undefined;
+  await writeBoardJSON(site, () => ({ set: { paused_until: until } }));
+  return until ?? null;
+}
 export async function readBoardSettings(site) {
   const dir = needSite(site);
   return settingsOf(await readJSON(path.join(dir, 'board.json'), {}), listBoards().find((b) => samePath(b.dir, dir)));
@@ -2661,7 +2671,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   if (pick && asked !== 'build' && asked !== pick.kind) fail(`--kind ${asked}: ${pick.kind} builds now. ${pick.reason} Pass --kind ${pick.kind}, or --kind build.`);
   const k = pick ? pick.kind : asked;
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: each kind is held by its own usage.
-  const gate = readUsageGate();
+  const gate = readUsageGate({ dir: site });
   if (heldFor(gate, k)) throw new BoardError(pauseReasonFor(gate, k));
   const line = asLine && forAgent(asLine, plans({ kind: k }), '--progress');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
@@ -2797,7 +2807,7 @@ const onlyRebased = (item, approved, head) => {
 // and nor is a blocked one: the tap bumps it (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 // → {held: its hold or null, blockers: the names of its unfinished deps}.
 async function tapRefusals(site, key) {
-  const gate = readUsageGate();
+  const gate = readUsageGate({ dir: site });
   if (gate.state === 'paused') fail(pauseReason(gate));
   const { item } = await loadItem(site, key);
   const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;

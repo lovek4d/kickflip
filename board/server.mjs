@@ -222,8 +222,12 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings)
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings),
+//                                paused_until: Pause board's end or null, pause_choices: holdChoices without Forever}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets)
+//   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
+//                                (store.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
+//                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
 //   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
@@ -275,7 +279,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startRebase, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startRebase, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -283,7 +287,7 @@ import { routeRecord } from '../hub/routes.mjs';
 import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
-import { readUsageGate, heldFor, pauseReasonFor } from '../shared/usage-gate.mjs';
+import { readUsageGate, heldFor, pauseReasonFor, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
@@ -1219,13 +1223,21 @@ const server = http.createServer(async (req, res) => {
       const id = rulesChanged(saved.changes) ? await appendEvent('rules', { scope: 'board', ...saved.changes }) : null;
       return json(res, 200, { rules: saved.rules, id });
     }
-    if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here) });
+    if (p === '/api/settings' && req.method === 'GET') return json(res, 200, { settings: await readBoardSettings(here), paused_until: boardPausedUntil(here), pause_choices: HOLD_CHOICES.filter((c) => c.ms !== null) });
     // Board Settings' Build target picker (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
     if (p === '/api/build-targets' && req.method === 'GET') {
       const self = boardAt(here);
       if (!self) return json(res, 404, { error: 'This board isn’t in the hub’s manifest.' });
       const source = boardRepo(self.route);
       return json(res, 200, { targets: await listBuildTargets(source.repo, mainRefOf(source)) });
+    }
+    if (p === '/api/pause' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).join() !== 'pause' || typeof body.pause !== 'string') return json(res, 400, { error: 'Send only {pause: a duration, a date and time, or off}.' });
+      let pausedUntil;
+      try { pausedUntil = await setBoardPause(here, body.pause); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+      checkAuto();
+      return json(res, 200, { paused_until: pausedUntil });
     }
     if (p === '/api/permissions') {
       const self = boardAt(here);
@@ -1390,6 +1402,10 @@ async function checkPickUps() {
 let checkingAuto = null;
 let autoAgain = false;
 let heldByPause = false;
+// Whether the last check found this board's own pause in force: once it lifts with nothing else pausing, the board wakes
+// its session with usage-resumed {window: 'manual'}, as the hub does every board when a hub-wide pause lifts
+// (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
+let boardPaused = false;
 function checkAuto() {
   if (checkingAuto) { autoAgain = true; return checkingAuto; }
   checkingAuto = (async () => {
@@ -1405,7 +1421,10 @@ async function runAuto() {
   const log = await readLines(events);
   const { items, reviews } = await sharedBoard();
   const { idle, pullable, waiting, starts, pulls } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
-  heldByPause = readUsageGate().state === 'paused';
+  const gate = readUsageGate({ dir: here });
+  if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
+  boardPaused = gate.manual === 'board';
+  heldByPause = gate.state === 'paused';
   const ready = idle && !heldByPause;
   for (const key of heldByPause ? [] : starts) {
     const started = await startReleasedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
@@ -1443,7 +1462,7 @@ async function handOff(started) {
   const entry = { kind: started.kind, model: started.model, relaunched: false };
   try {
     // A pause on its kind that began after the pull holds the launch; reviveHeadless launches it once the pause lifts.
-    const gate = readUsageGate();
+    const gate = readUsageGate({ dir: here });
     if (heldFor(gate, started.kind)) {
       logCall({ call: 'launch-held', key: started.key, result: 'held', reason: pauseReasonFor(gate, started.kind), inputs: { kind: started.kind, model: started.model ?? null, gate } });
       await trackLaunch(started.key, { ...entry, pid: null });
@@ -1516,7 +1535,7 @@ async function reviveHeadless() {
   if (revivingHeadless) return;
   revivingHeadless = true;
   try {
-    const gate = readUsageGate();
+    const gate = readUsageGate({ dir: here });
     const file = path.join(data, 'headless-builders.json');
     const tracked = await readJSON(file, {});
     if (!Object.keys(tracked).length) return;
@@ -1889,7 +1908,7 @@ setInterval(() => {
   checkPrototypeWaits();
   reviveHeadless();
   checkPickUps();
-  if (heldByPause && readUsageGate().state !== 'paused') checkAuto();
+  if (heldByPause && readUsageGate({ dir: here }).state !== 'paused') checkAuto();
   else triageDue().then((due) => { if (due) checkAuto(); }, (err) => console.error('Triage check failed:', err.message));
   checkActions();
   checkWaits();

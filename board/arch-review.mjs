@@ -62,7 +62,7 @@ const exists = (file) => fs.stat(file).then(() => true, () => false);
 export async function startReview(site, board, { now = new Date(), home = os.homedir() } = {}) {
   const waits = reviewWaits(home);
   if (waits) throw Object.assign(new BoardError(waits), { status: 409 });
-  const gate = readUsageGate({ home });
+  const gate = readUsageGate({ home, dir: site });
   if (gate.state === 'paused') throw Object.assign(new BoardError(pauseReason(gate)), { status: 409 });
   const target = boardRepo(board.route);
   const name = repoName(target);

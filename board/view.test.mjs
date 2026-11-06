@@ -557,6 +557,51 @@ test("Board Settings' reviewers Add picks a Slack member and a GitHub login, sta
   view.unmount();
 });
 
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+test("Board Settings opens with Pause board: the snooze picker's chips without Forever, then until when with Resume, each saved at once", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  const markup = page.win.AppViews.settings.markup({}, {});
+  assert.ok(markup.indexOf('<h2>Pause board</h2>') < markup.indexOf('<h2>Repo</h2>'), 'Pause board is at the top');
+  const until = new Date(Date.now() + 3 * 3600_000).toISOString();
+  const posts = [];
+  let paused = null;
+  let sidebar = 0;
+  page.win.fetch = async (url, opts = {}) => {
+    let body = {};
+    if (url.endsWith('/api/settings')) body = { settings: {}, paused_until: paused, pause_choices: [{ value: '1h', label: '1h', ms: 3600_000 }, { value: '3h', label: '3h', ms: 3 * 3600_000 }] };
+    if (url.endsWith('/api/pause')) {
+      posts.push(JSON.parse(opts.body));
+      const { pause } = JSON.parse(opts.body);
+      if (pause === 'forever') return { ok: false, status: 400, json: async () => ({ error: 'A pause ends after now and within 30 days.' }) };
+      paused = pause === 'off' ? null : until;
+      body = { paused_until: paused };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/orch', { sidebarChanged: () => { sidebar++; } });
+  view.mount();
+  await tick();
+  const box = root.querySelector('#pauseBoard');
+  const status = root.querySelector('#pauseBoardStatus');
+  assert.match(box.innerHTML, /<span class="title" id="pauseBoardTitle">Pause board<\/span>/);
+  assert.deepEqual([...box.innerHTML.matchAll(/name="pause" value="([^"]+)"/g)].map((m) => m[1]), ['1h', '3h']);
+  assert.match(box.innerHTML, /action="https:\/\/mac\.ts\.net\/orch\/api\/pause"/);
+  const submit = async (value) => { page.fire(box, 'submit', { target: new page.El(), submitter: Object.assign(new page.El(), { value }) }); await tick(); await tick(); };
+  await submit('3h');
+  assert.deepEqual(posts.at(-1), { pause: '3h' });
+  assert.match(box.innerHTML, /class="row dur-on"><span class="body"><span class="text title">Paused until [^<]+<\/span>[^]*name="pause" value="off">Resume/);
+  assert.equal(status.textContent, 'Paused. New work on this board waits.');
+  assert.equal(sidebar, 1, 'the sidebar redraws its paused row');
+  await submit('off');
+  assert.deepEqual(posts.at(-1), { pause: 'off' });
+  assert.equal(status.textContent, 'Resumed. New work starts again.');
+  assert.match(box.innerHTML, /value="1h"/);
+  await submit('forever');
+  assert.equal(status.textContent, 'A pause ends after now and within 30 days.');
+  view.unmount();
+});
+
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md, docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 for (const [key, id, on] of [
   ['auto_pull', 'autoPull', 'Saved. Claude grills each card that lands in Todo and starts ready ones while an implementer slot is free.'],
@@ -876,7 +921,7 @@ test('Hub Settings lists closed boards, keeps a refused reopen available, then r
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, awake: { summary: 'Off' },
+  const d = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' },
     closed: [{ route: 'shop', title: 'The <Shop>' }] };
   const posts = [];
   let refuse = true;
@@ -915,7 +960,7 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   const site = (route, title, restart) => ({ route, title, icon: '', href: `/${route}/`, tone: 'ok', word: 'up · listening · every link passes', lines: [], remembered: [], restart });
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '2 sites', host: 'mac',
     groups: [{ label: 'Boards', sites: [site('shop', 'The <Shop>', true), site('hub-orchestrator', 'Hub', false)] }] };
-  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, awake: { summary: 'Off' }, closed: [] };
+  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' }, closed: [] };
   const confirms = [];
   page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push([text, labels?.ok]); return true; };
   const posts = [];
@@ -975,7 +1020,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, integrations: [], polling: { title: 'Checks every 30 min', lines: [], count: 0 }, sites: '0 sites', host: 'mac', groups: [],
     usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', description: '', choices: choices('auto') },
     pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date().toISOString() } };
-  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, awake: { summary: 'Off', choices: [] }, closed: [], snooze: { choices: [] } };
+  const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, closed: [], snooze: { choices: [] } };
   const posts = [];
   let answer;
   page.win.fetch = (url, opts = {}) => {
@@ -4332,7 +4377,7 @@ test("switching to another board through the sidebar and back returns to the pag
 
 test('a stored link to the old Polling page opens Hub with Quiet hours, and modal links and dismissal preserve history', async () => {
   const requests = [];
-  const settings = { on: { on: true }, weekends: { on: false }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, closed: [], awake: { summary: 'Off' } };
+  const settings = { on: { on: true }, weekends: { on: false }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, closed: [], pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' } };
   const { win, doc, page, entries, tap } = await shellPage('/_hub/settings/polling?w=18%3A00&from=push', {
     fetch: async (url) => {
       requests.push(url);
@@ -4392,7 +4437,7 @@ test('legacy hub links open one modal, guard dirty rules on every dismissal, res
   page.win.document.getElementById = () => true;
   const root = page.win.document.body.appendChild(new Element('div'));
   root.innerHTML = page.win.HubSettings.markup();
-  const data = { on: { on: true }, weekends: { on: false }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, closed: [], awake: { summary: 'Off' } };
+  const data = { on: { on: true }, weekends: { on: false }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, closed: [], pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off' } };
   page.win.fetch = async () => ({ ok: true, json: async () => structuredClone(data) });
   page.win.RulesEditor.mount = () => ({ set() {} });
   const baseline = page.left();

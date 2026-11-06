@@ -202,8 +202,9 @@
     const sites = data?.sites || [];
     const keys = switching ? new Map(switchKeys(data).map((k) => [k.href, k])) : null;
     const paused = data?.pause?.state === 'paused';
+    // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     const siteRow = (s) => {
-      const sub = paused && s.board ? word('paused', 'paused') + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
+      const sub = (paused || s.pause?.state === 'paused') && s.board ? word('paused', 'paused') + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
       return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? `<span class="sb-status">${sub}</span>` : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
     };
     const boards = sites.filter((s) => s.board);

@@ -11,6 +11,10 @@
   title: () => 'Board Settings',
   markup: (view, { siteTitle = '' } = {}) => `<dialog class="settings-modal" id="boardSettingsModal" aria-labelledby="boardSettingsTitle"><div class="settings-head"><div><h2 id="boardSettingsTitle" tabindex="-1">Board settings</h2><p class="muted small">${BoardUI.esc(siteTitle)}</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close board settings">✕</button></div>
 <div class="set settings-body">
+  <h2>Pause board</h2>
+  <div class="hub-view"><div class="group" id="pauseBoard"><p class="muted small block">Loading…</p></div></div>
+  <p class="muted small">Running steps finish. No new builders, planners or pulls start on this board until then, as when usage reaches the pause line.</p>
+  <p class="muted small" id="pauseBoardStatus" role="status"></p>
   <h2>Repo</h2>
   <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small" id="boardRepoChange">Change ›</span></button>
   <p class="muted small" id="boardRepoStatus"></p>
@@ -389,7 +393,41 @@
     const autoMergeStatus = $('#autoMergeStatus');
     const savedCaps = {};
     let buildTarget = null, buildTargets = null;
+    // Pause board (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): the hub's duration
+    // picker (hub-kit.js) with the Hold sheet's chips but Forever, posting {pause} to api/pause at once.
+    const pauseBox = $('#pauseBoard');
+    const pickers = HubKit.durationPickers(B);
+    let pauseChoices = [];
+    function paintPause(pausedUntil) {
+      const now = new Date();
+      const choices = pauseChoices.map((c) => ({ value: c.value, label: c.label, until: `until ${BoardUI.heldUntilWords(new Date(now.getTime() + c.ms), now)}` }));
+      pauseBox.innerHTML = HubKit.durationPicker({ id: 'pauseBoard', title: 'Pause board', icon: '', action: site.url('api/pause'), name: 'pause', button: 'Resume',
+        choices: pausedUntil ? null : choices, on: pausedUntil ? { title: `Paused until ${BoardUI.heldUntilWords(new Date(pausedUntil), now)}` } : null });
+      pickers.painted();
+    }
+    B.on(pauseBox, 'submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const pause = e.submitter?.value ?? form.querySelector('input[type="hidden"]')?.value;
+      const status = $('#pauseBoardStatus');
+      try {
+        const out = await BoardUI.waitOn(e.submitter || form.querySelector('input:not([type="hidden"])'), (async () => {
+          const r = await fetch(site.url('api/pause'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pause }) });
+          const body = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(body.error);
+          return body;
+        })(), { group: pauseBox.querySelectorAll('button') });
+        if (!B.alive()) return;
+        paintPause(out.paused_until);
+        status.textContent = out.paused_until ? 'Paused. New work on this board waits.' : 'Resumed. New work starts again.';
+        ctx.sidebarChanged?.();
+      } catch (error) {
+        if (B.alive()) status.textContent = error.message || 'Could not save. Is the host awake?';
+      }
+    });
     get(site.url('api/settings'), waitIn('#autoMergeStatus')).then(({ body: d }) => {
+      pauseChoices = d.pause_choices || [];
+      paintPause(d.paused_until);
       if (!B.alive()) return;
       savedTickets = d.settings?.tickets || null;
       tickets = BoardDialogs.ticketsControl($('#boardTickets'), { value: savedTickets || { source: 'internal', prefix: 'INT' }, repo: () => repo.github || '', title: () => ctx.siteTitle || '',

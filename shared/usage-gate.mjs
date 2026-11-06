@@ -1,13 +1,31 @@
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { usageReader } from '../hub/usage.mjs';
 import { readSettingsFile, writeSettingsFile, readCodexShare, readClaudeModel } from '../hub/push.mjs';
+import { FOREVER, durationEnd } from '../hub/duration.mjs';
 import { codexStatus, codexStatusReader, effectiveCodexShare } from './codex.mjs';
 
 export const validPauseAt = (value) => Number.isInteger(value) && value >= 50 && value <= 100 && value % 5 === 0;
 const timeOf = (now) => Number(now);
 const windows = ['five_hour', 'seven_day'];
 
-export function usageGate({ claude, codex, pauseAt = 90, keepGoing, now = Date.now() } = {}) {
+// docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
+// A manual pause's stored end (settings.json's paused_until for the hub, board.json's for a board) while it is still ahead.
+const pausedUntil = (stored, now) => (typeof stored === 'string' && Date.parse(stored) > timeOf(now) ? stored : null);
+
+// When a Pause hub or Pause board choice made at `now` ends, as a Date, or null for off: the snooze picker's chips and
+// Custom (hub/duration.mjs), never forever. Throws {status: 400} for any other choice.
+export function pauseEnd(choice, now = new Date()) {
+  if (choice === 'off') return null;
+  const end = durationEnd(new Date(timeOf(now)), choice);
+  if (!end || end === FOREVER) throw Object.assign(new Error('A pause ends after now and within 30 days: <n>m, <n>h, <n>d, <n>w or a date and time; or off.'), { status: 400 });
+  return end;
+}
+
+// hubPause and boardPause are the manual pauses' stored ends (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md):
+// either, while ahead, pauses Claude and Codex work alike, over the usage pause and Keep going, the hub's first.
+export function usageGate({ claude, codex, pauseAt = 90, keepGoing, hubPause, boardPause, now = Date.now() } = {}) {
   const line = validPauseAt(pauseAt) ? pauseAt : 90;
   const past = (reading) => line === 100 ? null : windows.find((key) => {
     const w = reading?.[key];
@@ -21,11 +39,19 @@ export function usageGate({ claude, codex, pauseAt = 90, keepGoing, now = Date.n
   const going = window && keepGoing?.window === window && Math.abs(Date.parse(keepGoing.until) - Date.parse(hit.resets_at)) <= 300_000
     && timeOf(now) < Date.parse(keepGoing.until);
   const codexWindow = past(codex);
-  return { pause_at: line, state: window ? going ? 'going' : 'paused' : 'normal', ...hit, codex: { past: Boolean(codexWindow), ...details(codex, codexWindow) } };
+  const codexDetails = { past: Boolean(codexWindow), ...details(codex, codexWindow) };
+  const manual = pausedUntil(hubPause, now) ? 'hub' : pausedUntil(boardPause, now) ? 'board' : null;
+  if (manual) return { pause_at: line, state: 'paused', manual, window: null, used: null, resets_at: pausedUntil(manual === 'hub' ? hubPause : boardPause, now), codex: codexDetails };
+  return { pause_at: line, state: window ? going ? 'going' : 'paused' : 'normal', manual: null, ...hit, codex: codexDetails };
 }
 
+const readBoardJson = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'board.json'), 'utf8')) || {}; } catch { return {}; } };
+// The end of Pause board on the board at dir, while it is ahead, else null.
+export const boardPausedUntil = (dir, now = Date.now()) => pausedUntil(readBoardJson(dir).paused_until, now);
+
+// dir is a board's site dir, whose own pause it reads too; without it only the hub's.
 const readers = new Map();
-export function readUsageGate({ home = os.homedir(), now = Date.now() } = {}) {
+export function readUsageGate({ home = os.homedir(), now = Date.now(), dir = null } = {}) {
   let reader = readers.get(home);
   if (!reader) {
     reader = { now: timeOf(now) };
@@ -35,7 +61,16 @@ export function readUsageGate({ home = os.homedir(), now = Date.now() } = {}) {
   }
   reader.now = timeOf(now);
   const settings = readSettingsFile(home);
-  return usageGate({ ...reader.usage({ codexShare: readCodexShare(reader.codex(), home) }), pauseAt: settings.pauseAt, keepGoing: settings.keepGoing, now });
+  return usageGate({ ...reader.usage({ codexShare: readCodexShare(reader.codex(), home) }), pauseAt: settings.pauseAt, keepGoing: settings.keepGoing,
+    hubPause: settings.paused_until, boardPause: dir ? boardPausedUntil(dir, now) : null, now });
+}
+
+// Pause hub: a pauseEnd choice, or off. Settings writes keep other keys. → the end, or null.
+export function setHubPause(choice, { home = os.homedir(), now = new Date() } = {}) {
+  const end = pauseEnd(choice, now);
+  const { paused_until: _, ...rest } = readSettingsFile(home);
+  writeSettingsFile(end ? { ...rest, paused_until: end.toISOString() } : rest, home);
+  return end;
 }
 
 export function setPauseAt(value, { home = os.homedir() } = {}) {
@@ -86,13 +121,19 @@ function claudePick(setting, card) {
   return card.size === 'small' ? { model: 'sonnet', reason: 'Claude model is Auto and the card is small.' } : { model: 'opus', reason: "Claude model is Auto and the card isn't small." };
 }
 
-export const pauseReason = (gate) => `Work is paused: Claude's ${windowWord(gate.window)} usage is at ${Math.round(gate.used)}%. Resumes at ${gate.resets_at}. The owner can tap Keep going on the Hub page.`;
+const MANUAL_WORDS = { hub: ['the hub', 'Pause hub in Hub settings'], board: ['this board', 'Pause board in Board settings'] };
+export const pauseReason = (gate) => (gate.manual
+  ? `Work is paused: the owner paused ${MANUAL_WORDS[gate.manual][0]} until ${gate.resets_at}. ${MANUAL_WORDS[gate.manual][1]} resumes it.`
+  : usagePauseReason(gate));
+// The watcher's line while paused: `usage paused <iso> <window> <used>%`, or `usage paused <iso> manual hub|board`.
+export const pausedLine = (gate) => `usage paused ${gate.resets_at} ${gate.manual ? `manual ${gate.manual}` : `${gate.window} ${gate.used}%`}`;
+const usagePauseReason = (gate) => `Work is paused: Claude's ${windowWord(gate.window)} usage is at ${Math.round(gate.used)}%. Resumes at ${gate.resets_at}. The owner can tap Keep going on the Hub page.`;
 
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
 // Whether gate holds an agent of kind: Codex while past its line, any other kind (Claude, and the planners, which run
-// as Claude) while Claude's work is paused. pauseReasonFor words the hold.
-export const heldFor = (gate, kind) => (kind === 'codex' ? gate.codex.past : gate.state === 'paused');
+// as Claude) while Claude's work is paused; every kind while the owner paused it by hand. pauseReasonFor words the hold.
+export const heldFor = (gate, kind) => Boolean(gate.manual) || (kind === 'codex' ? gate.codex.past : gate.state === 'paused');
 const windowWord = (window) => (window === 'five_hour' ? '5-hour' : 'weekly');
-export const pauseReasonFor = (gate, kind) => (kind === 'codex'
+export const pauseReasonFor = (gate, kind) => (kind === 'codex' && !gate.manual
   ? `Codex is paused: its ${windowWord(gate.codex.window)} usage is at ${Math.round(gate.codex.used)}%, past the ${gate.pause_at}% line. Resumes at ${gate.codex.resets_at}.`
   : pauseReason(gate));

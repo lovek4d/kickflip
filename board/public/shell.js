@@ -215,7 +215,7 @@ window.AppShell = (function () {
       const siteRoot = hub ? '/_hub' : '/' + encodeURIComponent(route);
       let v;
       if (board) {
-        v = BoardView.create(root, siteRoot, { signal: signalFor(route), pause: () => data?.pause, away: () => data?.away });
+        v = BoardView.create(root, siteRoot, { signal: signalFor(route), pause: () => data?.sites?.find((s) => s.route === route)?.pause || data?.pause, away: () => data?.away });
       } else {
         v = page.create(root, siteRoot, { view, siteTitle, boards, open: openHere, toggleSidebar: sidebar.toggle, keydown: sidebar.keydown, pointerdown: sidebar.pointerdown,
           reload: () => go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'reload'), closeSidebar: sidebar.close, up: () => router.up(),
