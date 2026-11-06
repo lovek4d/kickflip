@@ -1497,7 +1497,7 @@ export function intakeDue(items, events, runs) {
   return intakeOpen(items, events).find((d) => !routeRecord(runs, d.event)) ?? null;
 }
 // How long an intake triage run may stay open from its launch before it counts as hung, whatever it is doing.
-export const INTAKE_TIMEOUT_AFTER = BUILDER_STALLED_AFTER;
+export const INTAKE_TIMEOUT_AFTER = BUILDER_STALE_AFTER;
 // The intake events whose run is open at least INTAKE_TIMEOUT_AFTER after its launch (`at`), for the runs and now in ms.
 export function intakeHung(runs, now) {
   return Object.entries(runs).filter(([, r]) => !r.ended && now - Date.parse(r.at) >= INTAKE_TIMEOUT_AFTER).map(([event]) => event);
