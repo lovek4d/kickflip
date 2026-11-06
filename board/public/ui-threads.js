@@ -63,7 +63,7 @@
     const newest = statuses.at(-1);
     const count = `${statuses.length} status line${statuses.length === 1 ? '' : 's'}`;
     const tail = running ? (newest ? `running · ${escText(newest.text)}` : 'running') + ` · ${count}` : `finished · ${count}`;
-    return `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`;
+    return `<details class="msg calls status-fold${running ? '' : ' finished'}${m.planner ? ' planner' : ''}"><summary>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`;
   }
   function foldStatus(lines) {
     const runs = new Map();
