@@ -4115,7 +4115,7 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   assert.deepEqual(tinting(), ['ask:b1', 'w/C1', 'w/C2', 'ask:n2'], 'a New task that lands in Todo takes the tint');
 });
 
-function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }) {
+function questionsOnDom({ topics, questions, at, next, gate = null, items = [], embedded = false }) {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const base = 'https://mac.ts.net/board-a';
@@ -4187,7 +4187,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }
     shell.board = root;
     return true;
   };
-  const questionsView = page.win.AppViews.questions.create(shell.root, base, { view, up });
+  const questionsView = page.win.AppViews.questions.create(shell.root, base, embedded ? { view, embedded: true } : { view, up });
   const idle = page.left();
   questionsView.mount();
   const $ = (sel) => shell.root.querySelector(sel);
@@ -4327,7 +4327,7 @@ test("Waiting on you folds a topic's sent and resolved questions under a collaps
   const $ = (sel) => v.root.querySelector(sel);
   const group = $('details.done.resolved-group');
   assert.equal(group.hasAttribute('open'), false);
-  assert.deepEqual(group.querySelector('summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (3)', 'r1, s1, r2']);
+  assert.deepEqual(group.querySelector('summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (3)']);
   assert.deepEqual(group.querySelectorAll('section.q').map((s) => s.dataset.q), ['r1', 's1', 'r2']);
   assert.equal(group.querySelectorAll('textarea').length, 0);
   assert.deepEqual(group.querySelectorAll('section.q .muted.small').filter((m) => /^\d\./.test(m.textContent)).map((m) => m.textContent), ['2. ', '3. ', '4. '], 'each keeps its number on the card');
@@ -4346,6 +4346,36 @@ test("Waiting on you folds a topic's sent and resolved questions under a collaps
   await v.send();
   assert.deepEqual(JSON.parse(JSON.stringify(v.sent.at(-1))), ['owner-answers', { answers: [{ id: 's1', question: 'Question s1?', choice: 'B', label: 'B. No', note: 'Not yet' }] }]);
   assert.deepEqual($('#qform').children.filter((c) => c.matches('section.q.resolved')).map((c) => c.dataset.q), ['s1'], 'sent again, it stays in place, resolved');
+  v.unmount();
+});
+
+// docs/adr/2026-11-06-1100-resolved-questions-fold-away-once-you-leave-their-topic.md
+test("Waiting on you keeps a sent question in place only while its topic shows: a pill tap folds it, and coming back shows it already under 'resolved (N)'", async () => {
+  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }],
+    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T1'), question('q3', 'item:w/T2')], at: 'q1' });
+  await v.settle();
+  const folded = () => v.root.querySelectorAll('details.done section.q').map((s) => s.dataset.q);
+  v.answer('q1');
+  await v.send();
+  assert.deepEqual([v.shown().questions, folded()], [['q1', 'q2'], []], 'in place while its topic shows');
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T2"]') });
+  await v.settle();
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T1"]') });
+  await v.settle();
+  assert.deepEqual([v.shown().questions, folded()], [['q1', 'q2'], ['q1']]);
+  assert.deepEqual(v.root.querySelector('details.done summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (1)']);
+  v.unmount();
+});
+
+test("Waiting on you's last Send in the board's pane, with no topic or board to go on to, shows the moon and 'no open questions' with the Sent line as a toast", async () => {
+  const q = { id: 'q1', topic: 'item:w/T1', source: '', question: 'Question q1?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [q], at: 'q1', next: null, embedded: true });
+  await v.settle();
+  v.answer('q1');
+  await v.send();
+  assert.equal(v.root.querySelector('.q-empty p').textContent, 'no open questions');
+  assert.equal(v.root.querySelector('#qform'), null);
   v.unmount();
 });
 

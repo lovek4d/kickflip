@@ -673,7 +673,6 @@ main > * { transition: opacity .25s ease; }
 .view-questions details.resolved-group > summary::-webkit-details-marker { display: none; }
 .view-questions details.resolved-group > summary .caret { transition: transform .15s; }
 .view-questions details.resolved-group[open] > summary .caret { transform: rotate(90deg); }
-.view-questions details.resolved-group > summary .names { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .view-questions .q.resolved button.chip { cursor: pointer; font: inherit; font-size: 12px; min-height: 28px; }
 .view-questions .q.resolved button.chip:disabled { cursor: default; }
 .view-questions .q.resolved .resolved-line { margin: 8px 0; }

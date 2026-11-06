@@ -12,10 +12,11 @@
 // recorded the page moves on as a Send does (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md,
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
 // A question the owner has sent an answer to is resolved: read-only, green, with a Resolved badge. One that resolves
-// while the page shows stays in place until the page loads again; at load, a topic's sent questions fold under
-// "resolved (N)" above its open ones. A sent question's badge, once confirmed, sends `question-reopen {key?, question}`, and the question
+// while its topic shows stays in place until you leave that topic, by a pill, a link or the move on after the last
+// Send; a topic's sent questions otherwise fold under "resolved (N)", which names only the count, above its open ones. A sent question's badge, once confirmed, sends `question-reopen {key?, question}`, and the question
 // opens again with its last pick and note for a new Send. Each question is numbered by its place on its card
-// (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md).
+// (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md,
+// docs/adr/2026-11-06-1100-resolved-questions-fold-away-once-you-leave-their-topic.md).
 // A topic or question that arrives while the page shows inserts its pill or card where it belongs, and the counts
 // update, with no repaint, so the open topic, its picks, the note being typed and the scroll stay
 // (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md).
@@ -52,7 +53,8 @@
     let soloId = null;
     let shown = '';
     let sentLine = '';
-    // The questions this page has drawn unsent, which stay in place once sent or resolved until the page loads again.
+    // The shown topic's questions this page has drawn unsent, which stay in place once sent or resolved until you leave
+    // the topic (setTopic).
     const inPlace = new Set();
     // The footer after a prototype request: the blue spinner, then these words.
     const PROTOTYPE_REQUESTED = 'prototype requested';
@@ -65,7 +67,12 @@
     const topicOf = (qid) => topics.find((t) => t.questions.includes(qid)) || null;
     const openTopics = () => topics.filter((t) => t.state !== 'resolved');
     const links = (q) => linkContext(items, q.topic?.startsWith('item:') ? q.topic.slice(5) : null, { base: './' });
-    const urgentOpen = () => all.find((q) => q.urgent && q.state === 'open');
+    // Shows a topic, or none; the topic left folds its sent questions.
+    const setTopic = (id) => {
+      if (id !== topicId) for (const qid of topics.find((t) => t.id === topicId)?.questions || []) inPlace.delete(qid);
+      topicId = id;
+    };
+    const urgentOpen =() => all.find((q) => q.urgent && q.state === 'open');
     // A question's number on its card: its place in its topic, which keeps every question it has had.
     const numberOf = (q) => (topicOf(q.id)?.questions.indexOf(q.id) ?? -1) + 1;
     // The questions the form shows, in order; the rest of qs fold under resolved (N).
@@ -135,7 +142,7 @@
         ? `<div class="solo">${badge('notice', 'needs you first')}<button class="ghost" id="showAll">All questions</button></div>`
         : `${topicBar()}${topicHead(t)}`;
       el.innerHTML = `${head}<form id="qform">
-        ${done.length ? `<details class="done resolved-group"><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span><span class="names">${done.map((q) => esc(q.id)).join(', ')}</span></summary>${done.map((q) => questionCard(q, { n: numberOf(q), links: links(q) })).join('')}</details>` : ''}
+        ${done.length ? `<details class="done resolved-group"><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span></summary>${done.map((q) => questionCard(q, { n: numberOf(q), links: links(q) })).join('')}</details>` : ''}
         ${live.map((q) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) })).join('')}
         <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${statusHtml(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
       </form>`;
@@ -184,7 +191,7 @@
     }
 
     // A sent question's Resolved badge reopens it once the owner confirms: the question opens in place with its last
-    // pick and note, and stays in the form until the page loads again.
+    // pick and note, and stays in the form until you leave the topic.
     async function reopen(q, button) {
       if (!(await BoardDialogs.confirm('Reopen this question?')) || !B.alive()) return;
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
@@ -215,10 +222,10 @@
 
     function pick(hash) {
       const u = urgentOpen();
-      if (u && (!hash || hash === u.id)) { soloId = u.id; topicId = topicOf(u.id)?.id ?? null; return; }
+      if (u && (!hash || hash === u.id)) { soloId = u.id; setTopic(topicOf(u.id)?.id ?? null); return; }
       soloId = null;
       const t = (hash && topicOf(hash)) || topics.find((x) => x.open);
-      topicId = t ? t.id : null;
+      setTopic(t ? t.id : null);
     }
 
     const sigNow = () => JSON.stringify([soloId, topicId, topics.map((t) => [t.id, t.state, t.open, t.answered, t.round]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply)), Boolean(q.reask)])]);
@@ -334,7 +341,6 @@
       const next = nextQuestion(all, pills, { topic: from });
       const left = topics.find((t) => t.id === from)?.open || 0;
       if (next?.topic === from) {
-        topicId = from;
         sentLine = countOpen ? `${footer.replace(/\.?$/, '.')} ${left} still open.` : footer;
         shown = sigNow();
         const y = scrollY;
@@ -347,9 +353,10 @@
         sentNotice.put(B.route, what);
         if (ctx.up?.()) return;
         sentNotice.take(B.route);
-        topicId = from;
+        setTopic(null);
+        B.toast(what);
       } else {
-        topicId = next.topic;
+        setTopic(next.topic);
         setHash(next.id);
       }
       shown = sigNow();
@@ -365,7 +372,7 @@
       if (reopenBadge) { if (!reopenBadge.disabled) reopen(byId(reopenBadge.dataset.reopen), reopenBadge); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) {
-        soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = '';
+        soloId = null; setTopic(b.dataset.topic); sentLine = ''; shown = '';
         const first = topics.find((t) => t.id === topicId)?.questions[0];
         if (first) setHash(first);
         render(); scroll(0);
@@ -433,7 +440,7 @@
     if (ctx.embedded) B.openTopic = (id) => {
       if (!loaded) return false;
       const topic = topics.find((t) => t.id === id);
-      if (topic) { soloId = null; topicId = topic.id; } else pick(id || '');
+      if (topic) { soloId = null; setTopic(topic.id); } else pick(id || '');
       sentLine = '';
       shown = '';
       render();
