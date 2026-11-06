@@ -108,7 +108,7 @@ test('a card waiting on its questions stays in Todo with its action until buildi
   assert.deepEqual([waiting.action, waiting.resolvedBy], [{ kind: 'pick', url: 'questions.html#q1', label: 'Prototypes ready: pick a take' }, 'openQuestions']);
   const picked = { id: 'e1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' }, reply: null };
   const answered = card({ owner: { items: [q] }, events: [picked] });
-  assert.deepEqual([answered.lane, answered.action, answered.actionButton, answered.buildable], ['todo', null, null, true]);
+  assert.deepEqual([answered.lane, answered.action, answered.actionButton, answered.resolvedBy, answered.buildable], ['todo', null, 'openQuestions', null, true], 'every question answered: the button stays, quiet');
   const grilled = card({ owner: { items: [{ ...q, url: 'https://example.com/doc' }] } });
   assert.deepEqual([grilled.lane, grilled.waitsOn, grilled.action, grilled.actionButton], ['todo', 'owner', { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' }, 'openQuestions']);
   const more = { ...q, id: 'q2', url: null };
@@ -365,9 +365,9 @@ test("a prototype request is its question's input until the round arrives: the q
   assert.deepEqual(view([{ ...plain, url: 'prototype-search.html?q=plain', resolved: 'Picked A', resolved_at: '2026-10-23T11:00:00Z' }], []).round, null);
 
   const thread = threadOf('w/A1', { events: [request('plain', '2026-10-23T10:00:00Z')], owner: { items: [plain] } });
-  assert.deepEqual(thread.map((m) => [m.kind, m.text, m.status, Boolean(m.request)]), [['prototype-request', 'Where does search sit?\n→ show it on a phone', 'prototype requested', false]]);
+  assert.deepEqual(thread.map((m) => [m.kind, m.text, m.status, Boolean(m.request)]), [['prototype-request', 'Question 1 · Where does search sit?\n→ show it on a phone', 'prototype requested', false]]);
   const leaning = threadOf('w/A1', { events: [request('plain', '2026-10-23T10:00:00Z', 'B')], owner: { items: [plain] } });
-  assert.deepEqual(leaning.map((m) => m.text), ['Where does search sit?\n→ B. Behind an icon\n→ show it on a phone']);
+  assert.deepEqual(leaning.map((m) => m.text), ['Question 1 · Where does search sit?\n→ B. Behind an icon\n→ show it on a phone']);
 });
 
 // docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md
@@ -400,7 +400,7 @@ test("an answer to an item's question joins that item's thread", () => {
   ];
   const lines = [{ ts: '2026-10-23T09:00:00Z', who: 'claude', text: 'Built.' }];
   const msgs = threadOf('w/A1', { lines, events, owner });
-  assert.deepEqual(msgs.map((m) => m.text), ['Built.', '', 'Keep it?\n→ A. Keep it · and file one']);
+  assert.deepEqual(msgs.map((m) => m.text), ['Built.', '', 'Question 1 · Keep it?\n→ A. Keep it · and file one']);
   assert.deepEqual(msgs.map((m) => m.files), [undefined, [shot], [shot]]);
   assert.deepEqual(msgs[2].reply, { html: 'Kept.' });
 });
@@ -582,10 +582,10 @@ test("a task Claude replied to with an open question is a Todo task carrying Ope
   };
   assert.deepEqual(card(), ['todo', 'asked', false, false, false, true, 'questions', 'openQuestions']);
   assert.deepEqual(buildBoard({ fromWaves: false, waves: [], events: [ask], owner }).needs.map((n) => [n.kind, refKind(n.text.split(': ')[0]) + n.text.slice(n.text.indexOf(': '))]), [['Question', 'asked: a1 first line · 1 question']]);
-  assert.deepEqual(card([answer]), ['todo', 'asked', false, false, false, true, null, null]);
-  assert.deepEqual(card([{ ...answer, reply: { html: 'Home it is.' } }]), ['asks', 'asked', false, false, false, false, null, null]);
-  assert.deepEqual(card([{ id: 'd1', ts: '2026-10-23T09:20:00Z', kind: 'ask-done', data: { id: 'a1' }, reply: null }]), ['asks', 'asked', false, false, false, false, null, null]);
-  assert.deepEqual(card([], { askProgress: { a1: { state: 'done', at: '2026-10-23T09:20:00Z' } } }), ['asks', 'asked', false, false, false, false, null, null]);
+  assert.deepEqual(card([answer]), ['todo', 'asked', false, false, false, true, null, 'openQuestions']);
+  assert.deepEqual(card([{ ...answer, reply: { html: 'Home it is.' } }]), ['asks', 'asked', false, false, false, false, null, 'openQuestions']);
+  assert.deepEqual(card([{ id: 'd1', ts: '2026-10-23T09:20:00Z', kind: 'ask-done', data: { id: 'a1' }, reply: null }]), ['asks', 'asked', false, false, false, false, null, 'openQuestions']);
+  assert.deepEqual(card([], { askProgress: { a1: { state: 'done', at: '2026-10-23T09:20:00Z' } } }), ['asks', 'asked', false, false, false, false, null, 'openQuestions']);
   assert.deepEqual(card([], { askProgress: { a1: { state: 'progress', at: '2026-10-23T09:20:00Z', next: 'Pick one' } } }), ['review', 'asked', false, false, false, true, 'questions', 'openQuestions']);
 });
 
@@ -658,7 +658,7 @@ test("a New card asked whether to move waits on the owner in Todo, then a move l
   assert.deepEqual(asked.needs.map((n) => [n.kind, n.url]), [['Question', '#item=ask%3Aa1']]);
   const answer = { id: 'ans', ts: '2026-10-23T09:30:00Z', kind: 'owner-answer', data: { id: 'mv', choice: 'move' }, reply: null };
   const back = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, answer], owner }).items[0];
-  assert.deepEqual([back.lane, back.isNew, back.action, back.actionButton], ['todo', true, null, null]);
+  assert.deepEqual([back.lane, back.isNew, back.action, back.actionButton], ['todo', true, null, 'openQuestions']);
   const link = '/audit/#item=ask%3Ab1';
   const line = { ts: '2026-10-23T09:40:00Z', who: 'claude', text: 'Moved to Audit.', link };
   const moved = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, answer], owner, threads: { 'ask:a1': [line] },
@@ -1671,7 +1671,7 @@ test("an owner answer stops waiting on Claude once its question is resolved afte
   const events = [answer('resolved', '2026-10-23T11:00:00Z'), answer('reopened', '2026-10-23T11:20:00Z'), answer('rounded', '2026-10-23T11:00:00Z'),
     answer('before-build', '2026-10-23T11:10:00Z'), answer('before-grill', '2026-10-23T11:20:00Z'), answer('after-build', '2026-10-23T13:30:00Z')];
   const agents = { grill: { kind: 'grill', started: '2026-10-23T12:30:00Z', done: '2026-10-23T12:40:00Z' }, main: { kind: 'claude', started: '2026-10-23T11:15:00Z' } };
-  const states = (a) => Object.fromEntries(threadOf('w/A1', { events, owner, agents: a }).filter((m) => m.kind === 'owner-answer').map((m) => [m.text.split('?')[0], m.state]));
+  const states = (a) => Object.fromEntries(threadOf('w/A1', { events, owner, agents: a }).filter((m) => m.kind === 'owner-answer').map((m) => [m.text.split('?')[0].replace(/^Question \d+ · /, ''), m.state]));
   assert.deepEqual(states(agents), { resolved: 'answered', reopened: 'waiting', rounded: 'answered', 'before-build': 'answered', 'before-grill': 'waiting', 'after-build': 'waiting' });
   assert.equal(states({ grill: agents.grill })['before-build'], 'waiting');
   // The questions page reads the same resolution from ownerQuestion.
@@ -1800,7 +1800,7 @@ test("a card's bare Grill and Prototype taps are muted request entries in its th
     ['ask', 'Add a badge', false, null], ['quick-build', 'quick build: no grill', true, null],
     ['grill-more', 'grill requested', true, null], ['prototype-request', 'prototype requested', true, null],
     ['grill-more', 'Ask about the colours', false, 'grill requested'], ['prototype-request', 'Phone width first', false, 'prototype requested'],
-    ['owner-answer', 'Keep it?\n→ A. Keep it · yes', false, 'answers submitted'],
+    ['owner-answer', 'Question 1 · Keep it?\n→ A. Keep it · yes', false, 'answers submitted'],
   ]);
   assert.deepEqual(msgs.filter((m) => m.status).map((m) => m.state), ['waiting', 'waiting', 'waiting']);
   assert.equal(threadOf('w/A1', { events: [{ ...events[0], data: { text: 'Add a badge' } }], fromAsk: 'a1' }).length, 1);
@@ -2263,4 +2263,48 @@ test('visualsDue names, per card with no visual agent running, its oldest visual
     { key: 'w/C1', lane: 'todo', agents: [] },
   ];
   assert.deepEqual(visualsDue(items, events), [{ key: 'w/A1', request: events[1] }, { key: 'w/C1', request: events[3] }]);
+});
+
+// docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
+test("a sent question's reopen opens it again until a new answer, a prototype request or a later resolve, and its card's thread reads 'Question N was reopened' with its mark", () => {
+  const q = { id: 'q2', topic: 'item:w/A1', question: 'Two?', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }] };
+  const answer = (ts, choice = 'A') => ({ id: `a-${ts}`, ts, kind: 'owner-answer', data: { id: 'q2', choice, label: choice }, reply: null });
+  const reopen = (ts, question = 'q2') => ({ id: `o-${ts}`, ts, kind: 'question-reopen', data: { key: 'w/A1', question }, reply: null });
+  const request = (ts) => ({ id: `r-${ts}`, ts, kind: 'prototype-request', data: { key: 'w/A1', question: 'q2', note: '', choice: 'A' }, reply: null });
+  const state = (extra, answers, reopens, requests = []) => (({ state, reopened }) => [state, reopened])(ownerQuestion({ ...q, ...extra }, answers, requests, [], reopens));
+  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z')], []), ['answered', false]);
+  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z')]), ['open', true]);
+  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z'), answer('2026-10-23T12:00:00Z', 'B')], [reopen('2026-10-23T11:00:00Z')]), ['answered', false], 'a new answer sends it again');
+  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z')], [request('2026-10-23T12:00:00Z')]), ['requested', false]);
+  assert.deepEqual(state({}, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z', 'other')]), ['answered', false]);
+  const resolved = { resolved: 'Kept it', resolved_at: '2026-10-23T10:30:00Z' };
+  assert.deepEqual(state(resolved, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z')]), ['open', true], 'a resolved question reopens');
+  assert.deepEqual(state({ ...resolved, resolved_at: '2026-10-23T12:00:00Z' }, [answer('2026-10-23T10:00:00Z')], [reopen('2026-10-23T11:00:00Z')]), ['resolved', false], 'resolved again after the reopen');
+  assert.deepEqual(state({ resolved: 'Replaced' }, [], [reopen('2026-10-23T11:00:00Z')]), ['open', true]);
+
+  const owner = { items: [{ ...q, id: 'q1', question: 'One?' }, q] };
+  const msgs = threadOf('w/A1', { events: [answer('2026-10-23T10:00:00Z'), reopen('2026-10-23T11:00:00Z'), answer('2026-10-23T12:00:00Z', 'B')], owner });
+  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request), m.mark || null]), [
+    ['owner-answer', 'Question 2 · Two?\n→ A', false, null],
+    ['question-reopen', 'Question 2 was reopened', true, 'question reopened'],
+    ['owner-answer', 'Question 2 · Two?\n→ B', false, null],
+  ]);
+  const card = board({ owner, events: [answer('2026-10-23T10:00:00Z'), reopen('2026-10-23T11:00:00Z')] }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([card.questions.open, card.action?.kind, card.actionButton, card.resolvedBy], [2, 'questions', 'openQuestions', 'openQuestions'], 'a reopened question turns the Questions button orange again');
+});
+
+test("a card's questions keep their numbers in its thread: a later round's questions number on after the earlier ones", () => {
+  const q = (id, n) => ({ id, topic: 'item:w/A1', question: `Q${n}?`, options: [{ id: 'A', label: 'Yes' }] });
+  const owner = { items: [q('a', 1), { id: 'x', topic: 'item:w/OTHER', question: 'Elsewhere?' }, q('b', 2), q('c', 3), q('d', 4), q('e', 5)] };
+  const answer = (id, ts) => ({ id: `a-${id}`, ts, kind: 'owner-answer', data: { id, choice: 'A', label: 'A. Yes' }, reply: null });
+  const msgs = threadOf('w/A1', { events: [answer('a', '2026-10-23T10:00:00Z'), answer('c', '2026-10-23T10:01:00Z'), answer('e', '2026-10-24T10:00:00Z')], owner });
+  assert.deepEqual(msgs.map((m) => m.text), ['Question 1 · Q1?\n→ A. Yes', 'Question 3 · Q3?\n→ A. Yes', 'Question 5 · Q5?\n→ A. Yes']);
+});
+
+test("a Done card that had questions keeps its quiet Questions button, and a card that never had any has none", () => {
+  const q = { id: 'q1', topic: 'item:w/A1', question: 'Which?', options: [{ id: 'A', label: 'One' }] };
+  const picked = { id: 'e1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' }, reply: null };
+  const done = board({ owner: { items: [q] }, events: [picked], pr: { ...greenDraft, state: 'MERGED' } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([done.lane, done.actionButton, done.resolvedBy], ['done', 'openQuestions', null]);
+  assert.equal(board().items.find((i) => i.key === 'w/A1').actionButton, null);
 });

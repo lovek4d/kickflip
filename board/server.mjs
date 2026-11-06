@@ -126,6 +126,10 @@
 //                                reask-request {key?, question} asks the session to ask a resolved question again from the
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
+//                                question-reopen {key?, question} is a sent question's Resolved badge: the question opens
+//                                again for a new answer and its card's thread reads "Question N was reopened"; one naming
+//                                a question with no answer sent → 400 {error}. Record-only: it wakes no session
+//                                (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md)
 //                                builder-nudge {key} asks the session to check a builder
 //                                item set appends card-unblocked {key} when a blocked card's last dep finishes,
 //                                including held cards, so the owning session hears it whoever ran the command.
@@ -281,7 +285,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -391,7 +395,7 @@ async function readBody(req, limit = 64 * 1024) {
 // never carries it. board.json is read again here, so a level changed since the hub's check holds. Full takes answers,
 // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
 // the header's GitHub check stay the owner's, as does any kind not listed.
-const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', 'grill-more', 'visual-request', 'item-message',
+const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
   'ask', 'ask-edited', 'ask-withdrawn', 'ask-bump', 'ask-done', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
   'builder-nudge', 'lineup-move', 'plan-waves']);
 const VIEW_ONLY = 'This board is shared with you to look at only.';
@@ -446,6 +450,12 @@ async function answersRefused(answers) {
   const asked = new Set(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => q.id));
   const gone = answers.filter((a) => !asked.has(String(a?.id)));
   return gone.length ? `${gone.map((a) => String(a?.id)).join(', ')} ${gone.length === 1 ? 'is' : 'are'} no longer asked here. Reload to see what is, then send again.` : null;
+}
+
+// A reopen names a question the owner has sent an answer to, or that is resolved; any other is refused with why.
+async function reopenRefused(id) {
+  const q = (await sharedBoard()).owner.find((x) => x.id === id);
+  return !q ? `${id} is no longer asked here. Reload to see what is.` : ['open', 'requested'].includes(q.state) ? `${id} has no answer sent, so there is nothing to reopen.` : null;
 }
 
 // A re-ask names a question the owner sees resolved; any other is refused with why.
@@ -887,6 +897,7 @@ async function thread(key) {
   const askIds = [askId, ...moved].filter(Boolean);
   const keys = new Set([key, ...askIds.map((id) => `ask:${id}`)]);
   const mine = (await shownEvents()).filter((e) => (keys.has(e.data?.key) && ITEM_EVENTS.includes(e.kind)) || (e.kind === 'owner-answer' && asked.has(e.data?.id))
+    || (e.kind === QUESTION_REOPEN && asked.has(e.data?.question))
     || (e.kind === 'ask' && askIds.includes(e.id)) || e.kind === 'ask-edited');
   const lines = (await Promise.all([...keys].map((k) => readLines(threadFile(k))))).flat();
   return threadOf(key, { lines, events: await Promise.all(mine.map(withReply)), owner, working: await readWorking(here), fromAsk: askId,
@@ -1235,6 +1246,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (kind === 'reask-request') {
         const refused = await reaskRefused(String(body.question || ''));
+        if (refused) return json(res, 400, { error: refused });
+      }
+      if (kind === QUESTION_REOPEN) {
+        const refused = await reopenRefused(String(body.question || ''));
         if (refused) return json(res, 400, { error: refused });
       }
       const id = await appendEvent(kind, body);

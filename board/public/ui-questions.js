@@ -11,6 +11,13 @@
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.
   const choiceOf = (q, draft) => draft.choice ?? (q.answers.length ? q.answers[q.answers.length - 1].choice : q.suggested?.option ?? null);
+  // A question's unsent note: its draft, else on a reopened question the note its last answer sent, so a changed pick
+  // sends it again.
+  const noteOf = (q, draft) => draft.note ?? (q.reopened ? q.answers.at(-1)?.note || '' : '');
+  // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
+  // Whether the owner has resolved a question: an answer is sent, whatever Claude has done with it since, or Claude
+  // resolved it. A sent question draws as resolvedCard, locked, until its badge reopens it.
+  const isSent = (q) => q.state === 'answered' || q.state === 'replied' || q.state === 'resolved';
   // A question's unsent {choice, note} on this device, in localStorage under qdraft:<id>. view-questions.js and the
   // phone's deck (app-needs.js) and the prototype viewer's Choose this (prototype-switcher.js) write it.
   const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
@@ -26,8 +33,6 @@
 
   const QUESTION_STATE = {
     open: { label: 'open', tone: 'normal' },
-    answered: { label: 'waiting for claude', tone: 'notice' },
-    replied: { label: 'claude replied', tone: 'ready' },
     requested: { label: `${SPIN}prototype requested`, tone: 'normal' },
   };
   // docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md
@@ -40,7 +45,7 @@
   function answerHistory(q, links = {}) {
     if (!q.answers.length) return '';
     const body = q.answers.map((a) => `<div class="ans"><div class="muted small">You · ${esc(time(a.ts))}</div>${escText(choiceLabel(q, a.choice))}${a.note ? `<div>${linkText(a.note, links)}</div>` : ''}${attachments(a.files)}</div>
-      ${a.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(a.reply), links)}</div>` : a.acted ? '' : '<div class="muted small" style="margin-top:4px">Waiting for Claude…</div>'}`).join('');
+      ${a.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(a.reply), links)}</div>` : ''}`).join('');
     const last = q.answers[q.answers.length - 1];
     return q.state === 'open' || !last.reply ? body : `<details><summary>Your answer and Claude's reply</summary>${body}</details>`;
   }
@@ -82,19 +87,21 @@
   }
   // A confirm says why it is asked; its View prototypes opens the viewer on its one take (?variant=).
   const confirmLine = (q) => q.confirm_of && q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : '';
-  // docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md
-  // A resolved question, read-only: its green resolved badge asks Claude to ask it again (view-questions.js sends
-  // `reask-request` once the owner confirms), how it was resolved and when it was acted on (resolved_at), its last pick
-  // checked among locked options, and its last note and Claude's reply. reask is a re-ask under way, which locks the badge.
-  function resolvedCard(q, links) {
+  // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
+  // A sent or resolved question, read-only in a green tint: its Resolved badge reopens it (view-questions.js sends
+  // `question-reopen` once the owner confirms), how Claude resolved it and when (resolved_at), its last pick checked
+  // among locked options, and its last note and Claude's reply. reask is a re-ask under way
+  // (docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md).
+  function resolvedCard(q, links, n) {
     const last = q.answers[q.answers.length - 1];
     const outcome = q.resolved ? `${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'}` : '';
     const acted = q.resolved_at ? ` <span class="acted" title="${esc(time(q.resolved_at))}">acted on ${esc(ago(q.resolved_at))}</span>.` : '';
     const said = last && (last.note || last.reply || last.files?.length) ? `<div class="ans"><div class="muted small">You · ${esc(time(last.ts))}</div>${last.note ? `<div>${linkText(last.note, links)}</div>` : ''}${attachments(last.files)}</div>
       ${last.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(last.reply), links)}</div>` : ''}` : '';
     return `<section class="q resolved" id="${esc(q.id)}" data-q="${esc(q.id)}">
-      <div class="row" style="margin:0"><span class="muted small">${esc(q.source || '')}</span>${badge('ready', 'resolved', { button: true, title: 'Ask this question again', attrs: { type: 'button', 'data-reask': q.id, disabled: q.reask ? '' : null } })}</div>
+      <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge('ready', '✓ Resolved', { button: true, title: 'Reopen this question', attrs: { type: 'button', 'data-reopen': q.id } })}</div>
       <h3>${linkText(q.question, links)}</h3>
+      ${q.answers.length ? '<div class="sent-line">Sent. Tap Resolved to reopen it.</div>' : ''}
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
       ${questionLink(q.url)}
       ${outcome || acted ? `<div class="small muted resolved-line">${outcome}${acted}</div>` : ''}
@@ -106,18 +113,19 @@
   // An owner question from /api/board; draft is this device's unsent {choice, note}; links its ui-links.js linkContext.
   // A question waiting on the prototype the owner asked for is locked at the pick and note the request sent until its
   // round arrives (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
+  // A requested question takes the accent tint, as a sent one takes the green.
   function questionCard(q, { n = 0, draft = {}, links = {} } = {}) {
-    if (q.state === 'resolved') return resolvedCard(q, links);
+    if (isSent(q)) return resolvedCard(q, links, n);
     const locked = q.state === 'requested';
     const chosen = locked ? q.request.choice : choiceOf(q, draft);
-    return `<section class="q ${q.urgent && q.state === 'open' ? 'urgent' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
+    return `<section class="q${q.urgent && q.state === 'open' ? ' urgent' : ''}${locked ? ' pr-busy' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
       <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, QUESTION_STATE[q.state].label)}</div>
       <h3>${linkText(q.question, links)}</h3>
       ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
       ${questionLink(q.confirm_of && isPrototype(q.url) ? withParam(q.url, 'variant', q.options[0].id) : q.url)}
       ${confirmLine(q)}
       ${drawn(q) ? takes(q, chosen, links, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })).join('')}
-      ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, draft.note)}
+      ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, noteOf(q, draft))}
       ${answerHistory(q, links)}
     </section>`;
   }
@@ -166,5 +174,5 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, option, answerHistory, questionCard, roundChip, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, option, answerHistory, questionCard, roundChip, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
 })();

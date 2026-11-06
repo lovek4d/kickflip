@@ -28,6 +28,9 @@ export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE } = enums.BoardUI;
 const { laneOrder } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'visual-request', 'reask-request'];
+// The owner's tap on a sent question's Resolved badge, {key?, question}: the question opens again (ownerQuestion), and
+// its card's thread reads "Question N was reopened". A record-only event, which wakes no session.
+export const QUESTION_REOPEN = 'question-reopen';
 export const ITEM_STATUSES = ['building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 export const BUILDER_STALLED_AFTER = 10 * 60000;
 // How long a headless builder whose process lives may go without a status line or transcript movement before it reads
@@ -342,13 +345,14 @@ function actionOf(it, questionById, autoMerge) {
 const asking = (it) => Boolean(it.questions && it.questions.state !== 'resolved' && it.questions.open > 0);
 const ASKING = new Set([ACTION_KIND.pick, ACTION_KIND.questions]);
 
-// The open card's one workflow button, which board/public/app-cards.js only labels: openQuestions while it has open
-// questions, held or not, and none otherwise. An ask waiting on the owner's Done has it in its thread box, beside Reply
+// The card's one workflow button, which board/public/app-cards.js only labels: openQuestions on any card that has had
+// questions, Done ones too, held or not, which resolvedBy colours orange only while they wait on the owner, and none
+// otherwise (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md). An ask waiting on
+// the owner's Done has it in its thread box, beside Reply
 // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md). A grill or prototype is asked for from the
 // thread's fire and eye (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 function actionButtonOf(it) {
-  if (closedLane(it)) return null;
-  return asking(it) ? BUTTON.openQuestions : null;
+  return it.questions ? BUTTON.openQuestions : null;
 }
 
 // docs/adr/2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md
@@ -620,15 +624,21 @@ const resolvedSince = (q, ts) => Boolean(q.resolved) && (!q.resolved_at || Strin
 // requestEvents prototype-request events, oldest first; store.mjs reads their states to close a card's questions.
 // reask is the owner's newest reask-request for a resolved question while it is newer than `resolved_at`: question add
 // with reask_of resolves the question again once the session asks it again.
-export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents = []) {
+// reopenEvents are question-reopen events, the owner's tap on a sent question's Resolved badge: the newest one, while
+// it is newer than the last answer, the last prototype request and `resolved_at`, opens the question again for a new
+// answer, and `reopened` is set (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md).
+export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents = [], reopenEvents = []) {
   const answers = answerEvents.filter((e) => e.data?.id === q.id);
   const last = answers[answers.length - 1] || null;
-  const reopened = Boolean(q.resolved && q.resolved_at && last && String(last.ts) > q.resolved_at);
-  const resolved = q.resolved && !reopened;
-  const req = requestEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(last?.ts || '')).at(-1);
+  const reopen = reopenEvents.filter((e) => e.data?.question === q.id).at(-1);
+  const after = (e, ...times) => Boolean(e) && times.every((t) => String(e.ts) > String(t || ''));
+  const answeredAgain = Boolean(q.resolved && q.resolved_at && last && String(last.ts) > q.resolved_at);
+  const req = requestEvents.filter((e) => e.data?.question === q.id && after(e, last?.ts, reopen?.ts)).at(-1);
+  const reopened = after(reopen, last?.ts, req?.ts, q.resolved_at);
+  const resolved = q.resolved && !answeredAgain && !reopened;
   const reask = resolved ? reaskEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(q.resolved_at || '')).at(-1) : null;
-  const state = resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
-  return { ...q, state, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
+  const state = reopened ? 'open' : resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
+  return { ...q, state, reopened, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
     answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, acted: resolvedSince(q, e.ts) })) };
 }
 
@@ -725,8 +735,15 @@ const actionText = (e, asked) => {
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || (e.data.files?.length ? '' : routeRecord(ACTION_LABELS, e.kind)) || '';
   const q = asked.get(e.data.question);
   const o = (q.options || []).find((x) => x.id === e.data.choice);
-  return [q.question, o && `${o.id}. ${o.label}`, e.data.note].filter(Boolean).join('\n→ ');
+  return [numbered(asked, q), o && `${o.id}. ${o.label}`, e.data.note].filter(Boolean).join('\n→ ');
 };
+// docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
+// A question's number on its card: its place among the card's questions in owner.json, which only appends, so a new
+// round's questions number on after the earlier ones. asked: the card's questions by id, in owner.json order.
+const numberOf = (asked, id) => [...asked.keys()].indexOf(id) + 1;
+const numbered = (asked, q) => `Question ${numberOf(asked, q.id)} · ${q.question}`;
+// The reopened line's mark (board/public/ui.js MARK_ICONS).
+const REOPENED = 'question reopened';
 // A Grill or Prototype request: bare (the request line) or carrying the owner's text, files or question (a message with
 // its status); a thread message has its button's label as its status (intentLabel).
 // A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
@@ -748,18 +765,19 @@ export function threadIndex(events, owner = {}) {
   const questions = new Map();
   const topicOf = new Map();
   for (const q of owner.items || []) { add(questions, q.topic, q); topicOf.set(q.id, q.topic); }
-  const byKey = new Map(), answers = new Map(), asks = new Map(), edits = new Map(), editFiles = new Map(), order = new Map();
+  const byKey = new Map(), answers = new Map(), reopens = new Map(), asks = new Map(), edits = new Map(), editFiles = new Map(), order = new Map();
   events.forEach((e, i) => {
     order.set(e, i);
     if (e.data?.key && ITEM_EVENTS.includes(e.kind)) add(byKey, e.data.key, e);
     if (e.kind === 'owner-answer' && topicOf.has(e.data?.id)) add(answers, topicOf.get(e.data.id), e);
+    if (e.kind === QUESTION_REOPEN && topicOf.has(e.data?.question)) add(reopens, topicOf.get(e.data.question), e);
     if (e.kind === 'ask') asks.set(e.id, e);
   });
   for (const e of events.filter((x) => x.kind === 'ask-edited').sort((a, b) => String(a.ts).localeCompare(String(b.ts)))) {
     edits.set(e.data?.id, e.data?.text);
     for (const f of e.data?.files || []) add(editFiles, e.data?.id, f);
   }
-  return { byKey, answers, asks, edits, editFiles, questions, order };
+  return { byKey, answers, reopens, asks, edits, editFiles, questions, order };
 }
 // The events of several of an index's lists in the log's order.
 const inLogOrder = (index, lists) => {
@@ -801,8 +819,9 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
         ...requestOf(e, asked), ...byOf(e) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
-      return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, status: ANSWERS_SUBMITTED, ...byOf(e) };
+      return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${numbered(asked, asked.get(e.data.id))}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, status: ANSWERS_SUBMITTED, ...byOf(e) };
     }),
+    ...(index.reopens.get(`item:${key}`) || []).map((e) => ({ ts: e.ts, who: 'love', kind: e.kind, request: true, mark: REOPENED, text: `Question ${numberOf(asked, e.data.question)} was reopened`, ...byOf(e) })),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
@@ -997,7 +1016,8 @@ export function buildBoard(snapshot) {
   const answerEvents = groupBy(events.filter((e) => e.kind === 'owner-answer'), (e) => e.data?.id);
   const requestEvents = groupBy(events.filter((e) => e.kind === 'prototype-request'), (e) => e.data?.question);
   const reaskEvents = groupBy(events.filter((e) => e.kind === 'reask-request'), (e) => e.data?.question);
-  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || [], reaskEvents.get(q.id) || []));
+  const reopenEvents = groupBy(events.filter((e) => e.kind === QUESTION_REOPEN), (e) => e.data?.question);
+  const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || [], reaskEvents.get(q.id) || [], reopenEvents.get(q.id) || []));
   const questionById = new Map(questions.map((q) => [q.id, q]));
   const questionsOn = groupBy(questions, (q) => q.topic);
   const pendingOn = (topic) => {

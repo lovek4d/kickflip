@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -1315,7 +1315,7 @@ async function publishStaged(site, key) {
 
 async function publishQuestions(site, owner, items, questions, lines) {
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
-  const { answers, requests } = await ownerEvents(site);
+  const { answers, requests, reopens } = await ownerEvents(site);
   const at = new Date().toISOString();
   const replaced = [];
   const resolved = [];
@@ -1332,7 +1332,7 @@ async function publishQuestions(site, owner, items, questions, lines) {
   }
   for (const q of questions) {
     const topic = pageTopic(q.url);
-    const views = items.filter((old) => old.topic === q.topic).map((old) => ownerQuestion(old, answers, requests));
+    const views = items.filter((old) => old.topic === q.topic).map((old) => ownerQuestion(old, answers, requests, [], reopens));
     const followed = q.topic.startsWith('item:') ? answeredOnClaude(views) : [];
     for (const old of views) {
       if (followed.includes(old.id)) {
@@ -1417,8 +1417,8 @@ export async function resolveQuestion(site, id, note) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id);
   if (!q) fail(`no question "${id}" in owner.json`);
-  const { answers, requests } = await ownerEvents(site);
-  const view = ownerQuestion(q, answers, requests);
+  const { answers, requests, reopens } = await ownerEvents(site);
+  const view = ownerQuestion(q, answers, requests, [], reopens);
   if (view.state === 'resolved') return ownerFile(site);
   // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
   if (view.state === 'requested') fail(`${id} waits on the prototype the owner asked for; question add with round_of ${id} resolves it`);
@@ -1442,10 +1442,10 @@ export async function moveQuestions(site, ids, to, block = []) {
   if (new Set(chain).size !== chain.length) fail('question move names a card twice');
   for (const key of block) await loadItem(site, key);
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const { answers, requests } = await ownerEvents(site);
+  const { answers, requests, reopens } = await ownerEvents(site);
   for (const id of [kept, ...others]) {
     const q = (owner.items || []).find((x) => x.id === id) || fail(`no question "${id}" in owner.json`);
-    const { state } = ownerQuestion(q, answers, requests);
+    const { state } = ownerQuestion(q, answers, requests, [], reopens);
     if (state !== 'open') fail(`${id} is ${state}; question move takes open questions`);
   }
   for (const [i, key] of block.entries()) {
@@ -1478,21 +1478,21 @@ function roundSettled(owner, q, answers) {
   if (!roundSettledBy(round, n)) fail(`${q.id} is in prototype round ${n}, which no pick has settled yet; a pick settles it`);
 }
 
-// The owner's answers, each with whether it has a reply, and prototype requests, from the event log: what
-// domain.mjs ownerQuestion reads a question's state from. → {answers, requests}
+// The owner's answers, each with whether it has a reply, prototype requests and reopens, from the event log: what
+// domain.mjs ownerQuestion reads a question's state from. → {answers, requests, reopens}
 async function ownerEvents(site) {
   const events = await readLines(path.join(site, 'data', 'events.jsonl'));
   const answers = await Promise.all(events.filter((e) => e.kind === 'owner-answer').map(async (e) => {
     const replied = await Promise.all(['html', 'json'].map((ext) => fs.stat(path.join(site, 'data', 'replies', `${e.id}.${ext}`)).then((s) => s.isFile(), () => false)));
     return { ...e, reply: e.reply || replied.some(Boolean) };
   }));
-  return { answers, requests: events.filter((e) => e.kind === 'prototype-request') };
+  return { answers, requests: events.filter((e) => e.kind === 'prototype-request'), reopens: events.filter((e) => e.kind === QUESTION_REOPEN) };
 }
 
 export async function topicQuestions(site, topic) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const { answers, requests } = await ownerEvents(site);
-  const asked = (owner.items || []).filter((q) => q.topic === topic).map((q) => ownerQuestion(q, answers, requests));
+  const { answers, requests, reopens } = await ownerEvents(site);
+  const asked = (owner.items || []).filter((q) => q.topic === topic).map((q) => ownerQuestion(q, answers, requests, [], reopens));
   return { owner, asked };
 }
 const cardQuestions = (site, key) => topicQuestions(site, `item:${key}`);
@@ -1567,8 +1567,8 @@ export async function checkClose(site, key, said, ownerStep, check) {
 // The card's noTakePicked, from owner.json and the owner's answers. → {id, note}, or null.
 async function unpickedPrototype(site, key) {
   const owner = await readJSON(ownerFile(site), { items: [] });
-  const { answers, requests } = await ownerEvents(site);
-  return noTakePicked((owner.items || []).map((q) => ownerQuestion(q, answers, requests)), key);
+  const { answers, requests, reopens } = await ownerEvents(site);
+  return noTakePicked((owner.items || []).map((q) => ownerQuestion(q, answers, requests, [], reopens)), key);
 }
 const clip = (s) => (s.length > 120 ? `${s.slice(0, 119)}…` : s);
 

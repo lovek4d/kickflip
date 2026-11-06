@@ -11,8 +11,11 @@
 // The question then reads prototype requested, locked, until its prototype round arrives, and once the request is
 // recorded the page moves on as a Send does (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md,
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
-// A topic's resolved questions fold under "resolved (N)", read-only; a resolved question's badge, once confirmed, sends
-// `reask-request {key?, question}` (docs/adr/2026-11-04-2001-a-resolved-question-is-read-only-and-can-be-asked-again.md).
+// A question the owner has sent an answer to is resolved: read-only, green, with a Resolved badge. One that resolves
+// while the page shows stays in place until the page loads again; at load, a topic's sent questions fold under
+// "resolved (N)". A sent question's badge, once confirmed, sends `question-reopen {key?, question}`, and the question
+// opens again with its last pick and note for a new Send. Each question is numbered by its place on its card
+// (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md).
 // A topic or question that arrives while the page shows inserts its pill or card where it belongs, and the counts
 // update, with no repaint, so the open topic, its picks, the note being typed and the scroll stay
 // (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md).
@@ -30,7 +33,7 @@
     const { $, site } = B;
     const scroll = (y) => { if (!ctx.embedded) scrollTo(0, y); };
     const setHash = (id) => { if (!ctx.embedded) history.replaceState(history.state, '', '#' + encodeURIComponent(id)); };
-    const { esc, getDraft, setDraft, choiceLabel, choiceOf, questionCard, roundChip, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
+    const { esc, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, questionCard, roundChip, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, restartNotice } = BoardUI;
     const hashId = () => { if (ctx.embedded) return ''; const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
 
     let all = [];
@@ -46,6 +49,8 @@
     let soloId = null;
     let shown = '';
     let sentLine = '';
+    // The questions this page has drawn unsent, which stay in place once sent or resolved until the page loads again.
+    const inPlace = new Set();
     // The footer after a prototype request: the blue spinner, then these words.
     const PROTOTYPE_REQUESTED = 'prototype requested';
     // The bar's line while a suggested option is still pre-checked.
@@ -58,6 +63,10 @@
     const openTopics = () => topics.filter((t) => t.state !== 'resolved');
     const links = (q) => linkContext(items, q.topic?.startsWith('item:') ? q.topic.slice(5) : null, { base: './' });
     const urgentOpen = () => all.find((q) => q.urgent && q.state === 'open');
+    // A question's number on its card: its place in its topic, which keeps every question it has had.
+    const numberOf = (q) => (topicOf(q.id)?.questions.indexOf(q.id) ?? -1) + 1;
+    // The questions the form shows, in order; the rest of qs fold under resolved (N).
+    const inForm = (qs) => qs.filter((q) => !isSent(q) || inPlace.has(q.id));
 
     // docs/adr/2026-10-29-1639-waiting-on-you-leads-with-what-needs-the-owner.md
     function topicBar() {
@@ -69,16 +78,17 @@
     const pillHtml = (t, arrived = false) => `<button class="${arrived ? 'arrived ' : ''}${t.progress ? 'progress' : ''}" data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
     const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
 
-    // Only open questions changed here since their last answer, with files attached, or with a suggested option
-    // pre-checked and never answered, are sent; a resolved one is read-only.
+    // Only open questions changed here since their last answer, with files attached, reopened with a pick, or with a
+    // suggested option pre-checked and never answered, are sent; a sent one is read-only.
     const filesOf = (q) => BoardAttach.files('q:' + q.id, site.root);
     const uploading = (qs) => qs.some((q) => BoardAttach.busy('q:' + q.id, site.root));
     function pending(qs) {
-      return qs.filter((q) => q.state !== 'resolved' && q.state !== 'requested').filter((q) => {
+      return qs.filter((q) => q.state === 'open').filter((q) => {
         const d = getDraft(q.id);
         if (filesOf(q).length) return true;
         const last = q.answers[q.answers.length - 1];
         if (!last && q.suggested) return true;
+        if (q.reopened && choiceOf(q, d) !== null) return true;
         if (!('choice' in d) && !d.note) return false;
         return !last || (d.choice ?? last.choice) !== last.choice || (d.note || '') !== (last.note || '');
       });
@@ -115,14 +125,15 @@
         return;
       }
       const t = topics.find((x) => x.id === topicId);
-      const live = qs.filter((q) => q.state !== 'resolved');
-      const done = qs.filter((q) => q.state === 'resolved');
+      const live = inForm(qs);
+      const done = qs.filter((q) => !live.includes(q));
+      for (const q of live) inPlace.add(q.id);
       const head = soloId
         ? `<div class="solo">${badge('notice', 'needs you first')}<button class="ghost" id="showAll">All questions</button></div>`
         : `${topicBar()}${topicHead(t)}`;
       el.innerHTML = `${head}<form id="qform">
-        ${live.map((q, i) => questionCard(q, { n: soloId ? 0 : i + 1, draft: getDraft(q.id), links: links(q) })).join('')}
-        ${done.length ? `<details class="done resolved-group"><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span><span class="names">${done.map((q) => esc(q.id)).join(', ')}</span></summary>${done.map((q) => questionCard(q, { links: links(q) })).join('')}</details>` : ''}
+        ${live.map((q) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) })).join('')}
+        ${done.length ? `<details class="done resolved-group"><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span><span class="names">${done.map((q) => esc(q.id)).join(', ')}</span></summary>${done.map((q) => questionCard(q, { n: numberOf(q), links: links(q) })).join('')}</details>` : ''}
         <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${statusHtml(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
       </form>${soloId ? '' : waitingTopics() + resolvedTopics()}`;
       BoardAttach.paintAll();
@@ -175,23 +186,24 @@
       const d = getDraft(q.id);
       return BoardUI.waitOn(button, BoardUI.pending.within((async () => {
         let out;
-        try { out = await send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: (d.note || '').trim(), choice: choiceOf(q, d) }); } catch (e) { refused(e); return; }
+        try { out = await send('prototype-request', { ...(key ? { key } : {}), question: q.id, note: noteOf(q, d).trim(), choice: choiceOf(q, d) }); } catch (e) { refused(e); return; }
         setDraft(q.id, {});
         await moveOnOnceLoaded(at, `Prototype requested${at.name ? ` for ${at.name}` : ''}.`, out, PROTOTYPE_REQUESTED);
       })(), stillWaiting));
     }
 
-    // A resolved question's badge asks Claude to ask it again from the card's current notes, once the owner confirms.
-    // The topic's resolved questions load again, so the question shows its re-ask under way.
-    async function askAgain(q, button) {
-      if (!(await BoardDialogs.confirm('Ask this again from today’s context?')) || !B.alive()) return;
+    // A sent question's Resolved badge reopens it once the owner confirms: the question opens in place with its last
+    // pick and note, and stays in the form until the page loads again.
+    async function reopen(q, button) {
+      if (!(await BoardDialogs.confirm('Reopen this question?')) || !B.alive()) return;
       const key = q.topic?.startsWith('item:') ? q.topic.slice(5) : null;
       await BoardUI.waitOn(button, BoardUI.pending.within((async () => {
         let out;
-        try { out = await send('reask-request', { ...(key ? { key } : {}), question: q.id }); } catch (e) { refused(e); return; }
+        try { out = await send('question-reopen', { ...(key ? { key } : {}), question: q.id }); } catch (e) { refused(e); return; }
         if (!B.alive()) return;
+        inPlace.add(q.id);
+        sentLine = '';
         if (!land(out.board, false)) await load(false);
-        await loadResolved(true);
         repaint(false);
       })(), stillWaiting));
     }
@@ -201,7 +213,7 @@
       const n = pending(qs).length;
       const b = $('#send');
       if (b) { b.disabled = !n || uploading(qs); b.textContent = uploading(qs) ? 'Uploading…' : 'Send'; }
-      const live = qs.filter((q) => q.state !== 'resolved');
+      const live = inForm(qs);
       const answered = live.filter((q) => q.state !== 'open').length;
       // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
       const prechecked = live.some((q) => q.suggested && !q.answers.length && choiceOf(q, getDraft(q.id)) === q.suggested.option);
@@ -300,9 +312,11 @@
       const head = page.querySelector('.topichead');
       const headHtml = topicHead(topics.find((x) => x.id === topicId));
       if (head && head.outerHTML !== headHtml) head.outerHTML = headHtml;
-      const live = visible().filter((q) => q.state !== 'resolved').length - added.length;
       const before = form.querySelector('details.resolved-group') || form.querySelector('.bar');
-      added.forEach((q, i) => before.insertAdjacentHTML('beforebegin', questionCard(q, { n: live + i + 1, draft: getDraft(q.id), links: links(q) })));
+      for (const q of added) {
+        inPlace.add(q.id);
+        before.insertAdjacentHTML('beforebegin', questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) }));
+      }
       const opened = new Set();
       for (const d of [...page.children]) if (d.matches('details.done')) { if (d.open) opened.add(d.querySelector('summary').textContent.split(' ·')[0]); d.remove(); }
       page.insertAdjacentHTML('beforeend', waitingTopics() + resolvedTopics());
@@ -346,8 +360,8 @@
       if (ev.target.id === 'showAll') { soloId = null; sentLine = ''; shown = ''; render(); return; }
       const eye = ev.target.closest && ev.target.closest('[data-proto]');
       if (eye) { askPrototype(byId(eye.closest('section.q').dataset.q), eye); return; }
-      const reask = ev.target.closest && ev.target.closest('[data-reask]');
-      if (reask) { if (!reask.disabled) askAgain(byId(reask.dataset.reask), reask); return; }
+      const reopenBadge = ev.target.closest && ev.target.closest('[data-reopen]');
+      if (reopenBadge) { if (!reopenBadge.disabled) reopen(byId(reopenBadge.dataset.reopen), reopenBadge); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) {
         soloId = null; topicId = b.dataset.topic; sentLine = ''; shown = '';
@@ -385,7 +399,7 @@
         const d = getDraft(q.id);
         const choice = choiceOf(q, d);
         const files = filesOf(q);
-        return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: (d.note || '').trim(), ...(files.length ? { files } : {}) };
+        return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: noteOf(q, d).trim(), ...(files.length ? { files } : {}) };
       });
       // Send waits until the page has moved on (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
       await BoardUI.waitOn($('#send'), BoardUI.pending.within((async () => {

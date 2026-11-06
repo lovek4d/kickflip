@@ -3966,26 +3966,27 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }
   page.win.ClaudeSite.site = (r) => ({ ...site(r), send: async (kind, data) => {
     sent.push([kind, data]);
     const q = server.questions.find((x) => x.id === (data.id ?? data.question));
-    // A question's prototype request is recorded, and resolves it, as board/server.mjs does, once gate (if any) settles.
+    // A question's prototype request is recorded, and reads requested, as board/server.mjs does, once gate (if any) settles.
     if (kind === 'prototype-request') {
       await gate?.promise;
       if (gate?.refuse) throw Object.assign(new Error('send failed: 400'), { status: 400, reason: gate.refuse });
-      Object.assign(q, { state: 'resolved', resolved: 'Prototype requested', request: { id: 'r1', ts: '2026-10-30T10:00:00.000Z', note: data.note, choice: data.choice } });
+      Object.assign(q, { state: 'requested', request: { id: 'r1', ts: '2026-10-30T10:00:00.000Z', note: data.note, choice: data.choice } });
       topics.find((t) => t.id === q.topic).round = { n: (q.round || 0) + 1, state: 'making' };
       return { id: 'e1', board: structuredClone(boardBody()) };
     }
-    // A re-ask request marks its resolved question pending, as board/server.mjs's ownerQuestion reads it.
-    if (kind === 'reask-request') {
-      q.reask = { id: 'rr1', ts: '2026-10-30T10:00:00.000Z' };
-      return { id: 'rr1', board: structuredClone(boardBody()) };
+    // A reopen opens its sent question again, as board/server.mjs's ownerQuestion reads it.
+    if (kind === 'question-reopen') {
+      Object.assign(q, { state: 'open', reopened: true });
+      delete q.resolved;
+      return { id: 'o1', board: structuredClone(boardBody()) };
     }
     // An owner-answers batch is recorded all or none, as board/server.mjs records it, once gate (if any) settles.
     await gate?.promise;
     if (gate?.refuse) throw Object.assign(new Error('send failed: 400'), { status: 400, reason: gate.refuse });
     for (const a of data.answers) {
       const q = server.questions.find((x) => x.id === a.id);
-      q.state = 'answered';
-      q.answers.push({ ts: '2026-10-30T10:00:00.000Z', choice: a.choice, note: '', files: [], reply: null });
+      Object.assign(q, { state: 'answered', reopened: false });
+      q.answers.push({ ts: '2026-10-30T10:00:00.000Z', choice: a.choice, note: a.note, files: [], reply: null });
     }
     return { ids: data.answers.map((_, n) => `e${n}`), board: structuredClone(boardBody()) };
   } });
@@ -4096,10 +4097,12 @@ test("Waiting on you puts the tapped topic pill's first question in the URL, so 
   v.unmount();
 });
 
-test("Waiting on you groups a topic's resolved questions under a collapsed 'resolved (N)' naming them, read-only; tapping one's green resolved badge confirms, then asks Claude to ask it again", async () => {
+// docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md
+test("Waiting on you folds a topic's sent and resolved questions under a collapsed 'resolved (N)' at load, read-only; tapping one's green Resolved badge confirms, reopens it in the form with its pick and note, and the reopened answer sends again", async () => {
   const question = (id, state = 'open') => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state,
     ...(state === 'resolved' ? { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null } : {}) });
-  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('r1', 'resolved'), question('r2', 'resolved')], at: 'q1' });
+  const sent = { ...question('s1', 'answered'), answers: [{ ts: '2026-10-30T08:00:00.000Z', choice: 'B', note: 'Not yet', files: [], reply: null }] };
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('r1', 'resolved'), sent, question('r2', 'resolved')], at: 'q1' });
   const confirms = [];
   let agree = false;
   v.page.win.BoardDialogs.confirm = async (message) => { confirms.push(message); return agree; };
@@ -4107,20 +4110,25 @@ test("Waiting on you groups a topic's resolved questions under a collapsed 'reso
   const $ = (sel) => v.root.querySelector(sel);
   const group = $('details.done.resolved-group');
   assert.equal(group.hasAttribute('open'), false);
-  assert.deepEqual(group.querySelector('summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (2)', 'r1, r2']);
-  assert.deepEqual(group.querySelectorAll('section.q').map((s) => s.dataset.q), ['r1', 'r2']);
+  assert.deepEqual(group.querySelector('summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (3)', 'r1, s1, r2']);
+  assert.deepEqual(group.querySelectorAll('section.q').map((s) => s.dataset.q), ['r1', 's1', 'r2']);
   assert.equal(group.querySelectorAll('textarea').length, 0);
-  const tap = () => $('section.q[data-q="r1"] [data-reask]');
+  assert.deepEqual(group.querySelectorAll('section.q .muted.small').filter((m) => /^\d\./.test(m.textContent)).map((m) => m.textContent), ['2. ', '3. ', '4. '], 'each keeps its number on the card');
+  const tap = () => $('section.q[data-q="s1"] [data-reopen]');
   v.page.fire(v.root, 'click', { target: tap() });
   await v.settle();
-  assert.deepEqual([confirms, v.sent], [['Ask this again from today’s context?'], []]);
+  assert.deepEqual([confirms, v.sent], [['Reopen this question?'], []]);
   agree = true;
   v.page.fire(v.root, 'click', { target: tap() });
   await v.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['reask-request', { key: 'w/T1', question: 'r1' }]]);
-  assert.equal(tap().disabled, true);
-  assert.match($('section.q[data-q="r1"]').textContent, /re-ask requested/);
-  assert.equal($('section.q[data-q="r2"] [data-reask]').disabled, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['question-reopen', { key: 'w/T1', question: 's1' }]]);
+  assert.deepEqual($('#qform').children.filter((c) => c.matches('section.q')).map((c) => c.dataset.q), ['q1', 's1'], 'the reopened question joins the form');
+  assert.equal($('section.q[data-q="s1"] textarea.note').value, 'Not yet');
+  assert.equal($('section.q[data-q="s1"] input[value="B"]').hasAttribute('checked'), true);
+  assert.equal($('#send').disabled, false, 'its pick is ready to send again');
+  await v.send();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent.at(-1))), ['owner-answers', { answers: [{ id: 's1', question: 'Question s1?', choice: 'B', label: 'B. No', note: 'Not yet' }] }]);
+  assert.deepEqual($('#qform').children.filter((c) => c.matches('section.q.resolved')).map((c) => c.dataset.q), ['s1'], 'sent again, it stays in place, resolved');
   v.unmount();
 });
 
@@ -4155,9 +4163,9 @@ test("Waiting on you's eye on each question, beside its box with the attach butt
   await v.settle();
   assert.deepEqual(v.shown(), { pills: [], questions: ['q1', 'q2'], status: 'prototype requested. 1 still open.', hash: '#q1' });
   assert.ok($('#qstatus .try-spin'));
-  assert.ok($('details.done section.q[data-q="q2"]'));
-  assert.equal($('details.done section.q[data-q="q2"] [data-proto]'), null);
-  assert.equal(v.root.querySelectorAll('.pr-busy').length, 0);
+  assert.equal($('details.done'), null, 'the requested question stays in place');
+  assert.equal($('section.q[data-q="q2"] [data-proto]'), null);
+  assert.deepEqual(v.root.querySelectorAll('.pr-busy').map((s) => s.dataset.q), ['q2'], 'in the blue tint');
   assert.equal($('.topichead .chip').textContent, 'Prototype round 1');
   assert.ok($('.topichead .chip.tone-normal .try-spin'));
   assert.equal($('#send').disabled, true);
@@ -4212,7 +4220,8 @@ test("Waiting on you's Send carries every ready answer in one request, waits dis
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
   const draft = (page, id) => JSON.parse(page.win.localStorage.getItem(`qdraft:${id}`) || '{}');
-  const waiting = () => v.root.querySelectorAll('section.q').filter((s) => s.textContent.includes('waiting for claude')).map((s) => s.dataset.q);
+  // Sent questions stay in place in the form, resolved, until the page loads again.
+  const waiting = () => $('#qform').children.filter((c) => c.matches('section.q.resolved')).map((s) => s.dataset.q);
   v.answer('q1');
   v.answer('q2');
   await v.send();
@@ -5165,7 +5174,7 @@ test("a tap whose POST board cannot land because a reload won the race keeps its
   b.view.unmount();
 });
 
-test("Waiting on you's Send, Prototype and Re-ask stay busy until the page has moved on, not until their POST answers", async () => {
+test("Waiting on you's Send, Prototype and Reopen stay busy until the page has moved on, not until their POST answers", async () => {
   const question = (id, state = 'open', extra = {}) => ({ id, topic: 'item:w/T1', source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state, ...extra });
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }], questions: [question('q1'), question('q2'), question('q3'), question('r1', 'resolved', { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null })], at: 'q1' });
   v.page.win.BoardDialogs.confirm = async () => true;
@@ -5195,10 +5204,10 @@ test("Waiting on you's Send, Prototype and Re-ask stay busy until the page has m
   await v.settle();
   assert.match(v.shown().status, /^prototype requested/);
 
-  v.page.fire(v.root, 'click', { target: $('section.q[data-q="r1"] [data-reask]') });
+  v.page.fire(v.root, 'click', { target: $('section.q[data-q="r1"] [data-reopen]') });
   await v.settle();
-  assert.equal(v.sent.at(-1)[0], 'reask-request');
-  assert.match($('section.q[data-q="r1"]').textContent, /re-ask requested/, 'the badge rests only once the page shows the re-ask');
+  assert.equal(v.sent.at(-1)[0], 'question-reopen');
+  assert.ok($('section.q[data-q="r1"] textarea.note'), 'the badge rests only once the page shows the question open');
   v.unmount();
 });
 
