@@ -23,3 +23,5 @@ Only the main agent's record finishes. A done from an `--agent` helper only stop
 The words stay as they were (gh195-words-look: C): the "landing" phase, the "Push main after a land" switch, "Orchestrator review" and "landed and done".
 
 The headless builder's and lander's briefs now end with `builder done --text`.
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a finish closes the card with item set --done; a hand-back marks the record handed_back.

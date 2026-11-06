@@ -110,7 +110,7 @@ test('a Send that leaves an unstarted card with nothing open stages it, a note-o
 
   const started = world();
   await addQuestions(started.site, other);
-  started.item({ status: 'building' });
+  started.item({ lane: 'progress' });
   await settleAnswers(started.site, [started.answer('q-other', 'a')]);
   assert.equal(started.card(), 'grilling');
 });

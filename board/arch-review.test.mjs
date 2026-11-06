@@ -23,7 +23,7 @@ async function boardServer({ items = 'data/wave.json', site: entry = {}, skills 
   fs.mkdirSync(path.join(site, 'data'), { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'App', items, slug: 'app' }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ title: 'App', items: [{ id: 'INT-7', title: 'Older', status: 'done' }, { id: 'GC', title: 'Lettered' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ title: 'App', items: [{ id: 'INT-7', title: 'Older', lane: 'done', closed_at: '2026-11-01T10:00:00Z' }, { id: 'GC', title: 'Lettered' }] }));
   fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: {
     app: { dir: site, cmd: ['node', serverFile], github: 'owner/app-repo', branch: 'main', owner: { session: 's1', repo: path.join(home, 'repos', 'app-repo') }, ...entry },
@@ -33,12 +33,17 @@ async function boardServer({ items = 'data/wave.json', site: entry = {}, skills 
     fs.writeFileSync(path.join(home, '.claude', 'skills', name, 'SKILL.md'), `# ${name}\n`);
   }
   const [port] = await freePorts();
-  const child = spawn(process.execPath, [serverFile, site], { env: { ...process.env, HOME: home, PORT: String(port) } });
+  // gh answers the server's pr view from <gh>/<n>.json, and fails for a PR with none.
+  const gh = path.join(home, 'fake-gh');
+  fs.mkdirSync(gh);
+  fs.writeFileSync(path.join(gh, 'gh'), `#!${process.execPath}\nconst fs = require('node:fs');\nconst [cmd, verb, n] = process.argv.slice(2);\nconst file = ${JSON.stringify(gh)} + '/' + n + '.json';\nif (cmd !== 'pr' || verb !== 'view' || !fs.existsSync(file)) process.exit(1);\nprocess.stdout.write(fs.readFileSync(file, 'utf8'));\n`);
+  fs.chmodSync(path.join(gh, 'gh'), 0o755);
+  const child = spawn(process.execPath, [serverFile, site], { env: { ...process.env, HOME: home, PORT: String(port), PATH: `${gh}:${process.env.PATH}` } });
   children.push(child);
   await boardListening(child);
   const base = `http://127.0.0.1:${port}`;
   return {
-    home, site, base,
+    home, site, base, gh,
     arch: async () => (await (await fetch(`${base}/api/board`)).json()).arch,
     run: async () => { const r = await fetch(`${base}/api/arch-review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); return { status: r.status, body: await r.json() }; },
     events: () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []),
@@ -74,8 +79,10 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   assert.deepEqual([last.open, last.running, last.findings], [true, false, 2]);
 
   const done = readJSON(path.join(b.site, 'data', 'wave.json'));
-  done.items.find((it) => it.id === 'INT-1').status = 'done';
-  done.items.push({ id: 'INT-9', title: 'Split the store', status: 'done' }, { id: 'INT-10', title: 'Merge the readers', status: 'dropped' });
+  Object.assign(done.items.find((it) => it.id === 'INT-1'), { lane: 'done', closed_at: new Date().toISOString() });
+  // INT-10 never landed: its one PR closed unmerged, so it isn't built.
+  fs.writeFileSync(path.join(b.gh, '10.json'), JSON.stringify({ number: 10, state: 'CLOSED', isDraft: false, statusCheckRollup: [], latestReviews: [] }));
+  done.items.push({ id: 'INT-9', title: 'Split the store', lane: 'done', closed_at: new Date().toISOString() }, { id: 'INT-10', title: 'Merge the readers', lane: 'done', closed_at: new Date().toISOString(), prs: [{ number: 10 }] });
   done.lineups[0].phases.push(['INT-9'], ['INT-10']);
   fs.writeFileSync(path.join(b.site, 'data', 'wave.json'), JSON.stringify(done));
   await until(async () => ({ last } = await b.arch()).last.open === false, 'the board sees the review closed');
@@ -115,7 +122,7 @@ test('arch file files each answered finding as a card in the review, resolves sk
   assert.deepEqual(file().slice(0, 2), ['findings of INT-1 filed', 'filed: INT-3 from f3']);
   assert.deepEqual(wave().lineups[0].phases, [['INT-1'], ['INT-2'], ['INT-3']]);
   const audit = wave().items.find((it) => it.id === 'INT-1');
-  assert.equal(audit.status, 'done');
+  assert.equal(audit.lane, 'done');
   assert.equal(JSON.parse(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8').trim().split('\n').at(-1)).text, 'Every finding is settled: filed INT-2, INT-3.');
 });
 

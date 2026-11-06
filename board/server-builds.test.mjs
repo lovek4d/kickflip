@@ -21,7 +21,7 @@ async function withBoard(run) {
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.mkdirSync(path.join(site, 'data', 'replies'));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'A1', title: 'One', status: 'building' }, { id: 'A2', title: 'Two' }] }));
+  fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two' }] }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
   fs.writeFileSync(setup, `
     import fs from 'node:fs';

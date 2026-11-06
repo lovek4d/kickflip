@@ -15,3 +15,5 @@ Considered:
 - refusing `item set --status building` with no Next and no record: `builder start` writes that status a moment before its record, so every build start would be refused;
 - checking the card's PR state in the CLI: it needs GitHub, and the PR's own next covers most of those cards; the gap covers the rest;
 - leaving the line empty and nudging the session instead: the owner asked for a Next to always be there.
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a hand-back is handed_back on the build record, not --status checking; builder done without --next points at builder call or land.

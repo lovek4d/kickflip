@@ -20,7 +20,7 @@ export async function runOwnerChecks(boards, state, failed) {
     for (const { slug, wave } of board.waves) {
       for (const item of wave.items) {
         const check = item.owner_check;
-        if (!check || check.broken || !item.owner_step || !['done', 'merged'].includes(item.status)) continue;
+        if (!check || check.broken || !item.owner_step || item.lane !== 'done') continue;
         const id = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, slug, item.id, check.check]);
         if (ran.has(id)) continue;
         ran.add(id);

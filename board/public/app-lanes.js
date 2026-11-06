@@ -55,11 +55,11 @@ BoardView.part((B) => {
   // A fold's open state lives in storage, not in setHTML's summary-text match, because its row's count changes.
   // Fold ids are wave:<slug> (board/domain.mjs waveFold), so any id maps to its own storage key.
   const FOLDS = new Proxy({}, { get: (_, id) => ({ store: `foldOpen:${String(id)}` }) });
-  // A fold's header reads like a lane's: its name, then its count, then an optional note.
-  function fold(id, list, name, note = '') {
+  // A fold's header reads like a lane's: its name, then its count.
+  function fold(id, list, name) {
     if (!list.length) return '';
     return `<details class="fold" data-fold="${esc(id)}" ${store.get(FOLDS[id].store, false) ? 'open' : ''}>
-        <summary><span class="lane-name">${name}</span><span class="count">${list.length}</span>${note ? `<span class="count">· ${note}</span>` : ''}</summary>
+        <summary><span class="lane-name">${name}</span><span class="count">${list.length}</span></summary>
         <div class="fold-list">${list.map((it) => B.card(it)).join('')}</div>
       </details>`;
   }
@@ -69,8 +69,7 @@ BoardView.part((B) => {
     const slugs = [...new Set(items.filter((i) => i.fold === `wave:${i.wave}`).map((i) => i.wave))];
     return slugs.map((slug) => {
       const w = d.waves.find((x) => x.slug === slug);
-      const { dropped } = w.finished;
-      return fold(`wave:${slug}`, items.filter((i) => i.fold === `wave:${slug}`), escText(w.title), dropped ? `${dropped} dropped` : '');
+      return fold(`wave:${slug}`, items.filter((i) => i.fold === `wave:${slug}`), escText(w.title));
     }).join('');
   }
 

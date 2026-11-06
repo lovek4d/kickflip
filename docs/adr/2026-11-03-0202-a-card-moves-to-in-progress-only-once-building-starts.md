@@ -20,3 +20,5 @@ The owner asked for this on #59's thread: "Anything that is in progress should o
 Considered:
 - listing only `build`, `opus` and `codex` as build kinds: older records have no kind, and other agents a session starts on a card, such as a benchmark, are building;
 - skipping a card with a running grill or prototype agent in `pullOf` itself: the idle check already holds every pull while any agent runs.
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a build's start stores the move to In Progress; there are no building or fixing statuses.

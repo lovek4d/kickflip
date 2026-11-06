@@ -1,16 +1,17 @@
 // A card's PRs, each in its own repo (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md). A wave entry stores
-// prs: [{repo?: "owner/name", number}] in the order they were added, an entry without repo being in the board's repo;
-// an older entry's pr: <n> is one PR in the board's repo. Every reader goes through cardPRs, and item set --pr writes
-// the list.
+// prs: [{repo?: "owner/name", number, merged_at?}] in the order they were added, an entry without repo being in the
+// board's repo, and merged_at the PR's merge mark once the board saw it merge
+// (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md); an older entry's pr: <n> is one PR in
+// the board's repo. Every reader goes through cardPRs, and item set --pr writes the list.
 
 const REF = /^(?:([\w.-]+\/[\w.-]+)#)?([1-9]\d*)$/;
 
 // The stored list, an older pr: <n> read as [{number: n}].
 export const storedPRs = (item) => (Array.isArray(item?.prs) ? item.prs : Number.isInteger(item?.pr) ? [{ number: item.pr }] : []);
 
-// A wave entry → [{repo, number}]. boardRepo is the board's GitHub repo or its wave's repo, which a PR stored without
-// one is in; with no board repo that PR has no repo to read, so it is left out.
-export const cardPRs = (item, boardRepo) => storedPRs(item).map((p) => ({ repo: p.repo || boardRepo, number: p.number })).filter((p) => p.repo);
+// A wave entry → [{repo, number, merged_at?}]. boardRepo is the board's GitHub repo or its wave's repo, which a PR
+// stored without one is in; with no board repo that PR has no repo to read, so it is left out.
+export const cardPRs = (item, boardRepo) => storedPRs(item).map((p) => ({ repo: p.repo || boardRepo, number: p.number, ...(p.merged_at ? { merged_at: p.merged_at } : {}) })).filter((p) => p.repo);
 
 // Whether the wave entry has a PR at all, whatever its repo.
 export const hasPR = (item) => storedPRs(item).length > 0;

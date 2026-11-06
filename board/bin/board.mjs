@@ -11,7 +11,6 @@ import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
 import { bump, queueLines, stopBuilder, stopForBlock, stopLand } from '../stop.mjs';
-import { ITEM_STATUSES } from '../domain.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { checkTakesRender } from '../render-check.mjs';
@@ -27,8 +26,8 @@ item add creates a ticket in the board’s source unless --ticket <id> links one
 Internal defaults to INT; GitHub and Linear create an issue from the title and notes, Linear in the board's team and
 project through Hub's Linear key. A linked ticket must exist in the source; an Internal one no other card holds.
 Asks have no ticket; item set --from-ask creates one when the card has none.
-A card moves its ticket one way: --status building or fixing → In Progress, --pr → In Review, --status done or
-merged → Done (a GitHub issue closes), only for a ticket assigned to the owner or created by kickflip. A ticket that
+A card moves its ticket one way: a build's start → In Progress, --pr, --pushed or a verified merge-ready build → In
+Review, --done → Done (a GitHub issue closes), only for a ticket assigned to the owner or created by kickflip. A ticket that
 can't move prints one "ticket <id>: …" line; the card's change still stands.
 Linear needs Hub's Linear key: settings set tickets refuses it without one, and once the key is removed the hub
 moves every Linear board to internal tickets. A card is never left without a ticket: if Linear can't make one, the
@@ -51,7 +50,7 @@ command fails and changes nothing.
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
           source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, prototype_gate?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
           for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
-          a board over ~/.claude/waves. A question on a done or merged card reopens it.
+          a board over ~/.claude/waves. A question on a done card reopens it.
          A question on an item: topic whose card has a grill or prototype planner running is staged, not published,
          whoever adds it: it shows nowhere until the planner finishes, fails or is stopped, when every staged question
          on the card publishes in the order added, with one owner push. The command says "staged" and why.
@@ -124,9 +123,12 @@ command fails and changes nothing.
                                                          blank line and <!-- claude-bridge --> after, the marker pr
                                                          reads as Claude's own. Refuses words that already carry
                                                          either. Prints the post's url
-  item set <wave>/<id> [--status <s> | --clear-status]   edits the item in its wave file
-         [--next <t> | --clear-next]                     status: ${ITEM_STATUSES.join(', ')}
-                                                         an empty --next "" clears it, as --clear-next does
+  item set <wave>/<id> [--done --text <t> [--force]]    edits the item in its wave file; --done closes the card
+                                                         (below). A card has no status: it stores its lane, which
+                                                         a build's start, a handover, a block and a close move,
+                                                         and the board server moves the rest, each with a thread
+                                                         line; --status is refused
+         [--next <t> | --clear-next]                     an empty --next "" clears it, as --clear-next does
                                                          naming another unfinished card requires it in --deps
          [--pr <n> | --pr <owner/repo#n>]...             adds a PR to the card, a bare number in the board's repo;
                                                          repeatable, and never replaces one. Each PR gets its own
@@ -136,7 +138,7 @@ command fails and changes nothing.
                                                          on the owner's merge. Push it first (git push origin
                                                          <branch>). The hub's repo fetch moves it to Done once the
                                                          branch is merged into the board's branch or gone from the
-                                                         remote. Clears building/fixing as --pr does
+                                                         remote. Moves it to In Review as --pr does
          [--gh-since <ISO time>]                         records the last handled GitHub event, an ISO-8601 UTC
                                                          time such as 2026-10-23T11:00:00Z, stored as given
          [--from-ask <eventId> --text <t>]               the ask it came from: its New card gives way to this item,
@@ -158,7 +160,7 @@ command fails and changes nothing.
                                                          it back, and the board starts that round's planner
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board
                                                          server records the owner's own Hold and Resume taps. A later
-                                                         --held/--unheld overrides a tap; --unheld also clears a held status.
+                                                         --held/--unheld overrides a tap.
                                                          --pick-up-at holds it until an ISO time such as
                                                          2026-11-04T09:00 (the Mac's local time without an
                                                          offset; a past time is refused), stored as UTC
@@ -204,28 +206,24 @@ command fails and changes nothing.
                                                          an https:// .apk URL for Android. --install-sha is the
                                                          head it was built from: the badge reads "Install (stale)"
                                                          once the branch moves past it. Hidden once the card is Done
-         [--text <t>]                                    with --status done or dropped, required on a site: the
-                                                         card's closing line, written last in its thread. merged
-                                                         writes "Merged PR #n." unless --text says otherwise
-         builder start for a build sets building itself. --status building resolves the card's answered
-         questions, noting "Acted on: build started".
-         --status building refuses while the item is held or a dep isn't done, merged or dropped,
-         and while the newest owner answer to its questions that link a prototype-*.html page picks
-         no take, which leaves the card prototyping with Next "Prototype again" until the next
-         round's pick; a pick's note is the build's guidance;
-         done, merged and dropped print "unblocked: <wave>/<id>" and append card-unblocked {key}
-         once per unblocking, including held cards: start each unheld card next.
-         building and fixing count as working only while a builder record on the card is open.
-         --pr clears building/fixing and closes ordinary builders; install builders keep running.
-         checking is a builder's hand-back of work it couldn't land: In Progress, reading "Orchestrator
-         review", until the owning session takes it on; it unblocks nothing.
+         [--text <t>]                                    with --done, required on a site: the card's closing line,
+                                                         written last in its thread, saying why it closed (merged,
+                                                         dropped, superseded)
+         builder start for a build moves the card to In Progress with "Moved to In Progress: a build
+         started", resolving its answered questions, noting "Acted on: build started". It refuses while
+         the item is held or a dep isn't done, and while the newest owner answer to its questions that
+         link a prototype-*.html page picks no take, which leaves the card prototyping with Next
+         "Prototype again" until the next round's pick; a pick's note is the build's guidance.
+         --pr closes ordinary builders and moves the card to In Review; install builders keep running.
+         A builder's hand-back of work it couldn't land (builder done with judgment calls) keeps the card
+         In Progress, reading "Orchestrator review", until the owning session lands it; it unblocks nothing.
          The board server records the owner's card-done in the wave file itself.
-         Every --status or --clear-status records status_at; a later status change overrides the tap.
-         --status done, merged or dropped closes the card: it resolves each of its questions (topic
+         --done moves the card to Done and its ticket to Done: it resolves each of its questions (topic
          item:<wave>/<id>) that has an answer, noting "Closed with the card", and prints "resolved: <id>"
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too.
-         --status done refuses a done card the owner messaged since it closed: it reads reopened, and closes
-         again only on the owner's Done
+         It prints "unblocked: <wave>/<id>" and appends card-unblocked {key} once per unblocking,
+         including held cards: start each unheld card next. It refuses a card the owner reopened: it
+         closes again only on the owner's Done
   item add <wave>[/<id>] --title <t> [--notes <t>]       a new card, unstarted; never
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
          [--notes-file <file>]                           --plan is an alias of --notes-file
@@ -440,8 +438,9 @@ command fails and changes nothing.
                                                          --agent <other name> refuses while the tap's main record
                                                          is open and not taken up.
                                                          A build's start clears the card's Next.
-                                                         A build (--kind build, claude or codex) on an open card sets
-                                                         --status building first, refusing what that refuses;
+                                                         A build (--kind build, claude or codex) on a card not done
+                                                         and not In Progress moves it to In Progress first,
+                                                         refusing what item set's build start refuses;
                                                          Prints "ref: <ref>", the card's label, which commit subjects start with.
                                                          Resolves the card's answered questions, noting "Acted on:
                                                          builder started"
@@ -466,10 +465,9 @@ command fails and changes nothing.
          the card's status shows the newest one from an agent still working. builder progress refuses
          without an open record for that agent, as builder call does
   builder done <wave>/<id> [--agent <name>]              marks that agent's record done; the item's thread
-         [--next <t>] [--text <what you checked>]        shows when it started and finished; clears building/fixing
-                                                         when the card has no open builder records left. On a
+         [--next <t>] [--text <what you checked>]        shows when it started and finished. On a
                                                          record with unverified judgment calls it hands the card
-                                                         back: --status checking with Next "Answer the builder's
+                                                         back: its records close marked handed back, with Next "Answer the builder's
                                                          questions" when a call starts "Question:", else "Verify
                                                          the builder's judgment calls"; --next is refused there.
                                                          Else, on a board, the main build's record that keeps a
@@ -490,7 +488,7 @@ command fails and changes nothing.
          [--owner-step <t>]                              a step only the owner can do once the code lands: the card
                                                          then waits in In Review with it as its Next, its ticket
                                                          open, until the owner's Done; refused on a card already
-                                                         done, merged or dropped. land takes it too
+                                                         done. land takes it too
          [--check "<name> <args>"]                       with --owner-step: a read-only check on the step's final
                                                          evidence, which the hub's poll runs on each check once the
                                                          code lands, closing the card when it passes: tag
@@ -530,8 +528,9 @@ command fails and changes nothing.
                                                          stopping the one running; a bump of a queued land says so in
                                                          its thread ("land moved first by orchestrator")
   lander <wave>/<id>                                     relaunch the headless lander of a card it stopped on (a usage
-                                                         pause ends one): the card goes back to checking and the
-                                                         server launches a fresh lander; refused unless it is building
+                                                         pause ends one): its open record closes as handed back and
+                                                         the server launches a fresh lander; refused unless a
+                                                         builder record on the card is open
   builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line, and for claude which model, from the hub's Claude model
                                                          and the card's --size and --model: "codex: <reason>" or
@@ -585,12 +584,12 @@ command fails and changes nothing.
                                                          the orchestrator"
   builder verified <wave>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
          [--note <t>]                                    refuses while any record on the card has a call after it.
-                                                         On a handed-back build (checking, no builder open, every
+                                                         On a handed-back build (not done, no builder open, every
                                                          call verified) it finishes the card in the same step, as
                                                          builder done does, --note its closing line (else "Judgment
                                                          calls verified."). While a question on the card is open it
                                                          says so and the card waits; a finish that fails keeps the
-                                                         mark, the card checking, and says why
+                                                         mark, the card handed back, and says why
   land <wave>/<id> --text <t> [--repo <dir>]             brings the worktree its builder record keeps (else
          [--dir <dir>]
                                                          ~/.claude/kickflip/worktrees/<id> of --repo) into the board's
@@ -608,7 +607,7 @@ command fails and changes nothing.
                                                          branch. Without --site it never pushes. One land runs at a time on the host: a
                                                          second refuses, naming the card landing. With --site, --text <what was checked>
                                                          is required, and once it lands the card closes as item set
-                                                         --status done --text does; it refuses first what that close
+                                                         --done --text does; it refuses first what that close
                                                          would. With --site it is builder done's finish: the push
                                                          after a land, and on a GitHub or plain-remote board the
                                                          branch push (and draft PR) instead of the fast-forward.
@@ -656,7 +655,7 @@ command fails and changes nothing.
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch', 'writes']);
+const BOOLEAN = new Set(['done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch', 'writes']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -779,11 +778,9 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
-    if (f.status === 'done' && site) await store.checkNotReopened(site, key);
-    // docs/adr/2026-11-05-0000-a-card-in-progress-has-its-worktree-until-done.md
-    if (f.status === 'building' && site && boardAt(site)) await store.ensureWorktree(site, key, (opts) => boardWorktree(site, key.split('/')[1], opts));
-    return store.setItem(site, key, { status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
+  'item set': [['wave/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
+    if (f.done && site) await store.checkNotReopened(site, key);
+    return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check, stopRun: () => stopForBlock(site, key) }, options);
   }],
   'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model', 'state', 'relate'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model, state: f.state, relate: f.relate, intake: true }, options)],
@@ -910,7 +907,7 @@ const COMMANDS = {
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
       await landInTurn({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref });
-      return site ? store.setItem(site, key, { status: 'done', text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
+      return site ? store.setItem(site, key, { done: true, text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
   }],
@@ -922,7 +919,7 @@ const COMMANDS = {
   lander: [['wave/id'], [], async (site, [key]) => {
     if (!site) throw new UsageError('lander needs --site <route>');
     await store.relaunchLander(site, key);
-    return { lines: [`${await store.cardName(site, key)} is back at checking; the server launches a lander for it within a minute`] };
+    return { lines: [`${await store.cardName(site, key)} is handed back again; the server launches a lander for it within a minute`] };
   }],
   merge: [['wave/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
     : store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed }))],
@@ -948,7 +945,7 @@ const builderOf = (f) => (f.agent === undefined || f.agent === 'main' ? 'builder
 function itemChanges(f) {
   const pickUp = f['pick-up-at'];
   return [
-    f.status, f['clear-status'] && 'status cleared',
+    f.done && 'done',
     f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
     f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.state,
     f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),

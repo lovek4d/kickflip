@@ -24,7 +24,7 @@ function fixture({ hub = false, waves = false } = {}) {
   const dir = web('sites', 'shop');
   const data = waves ? path.join(home, '.claude', 'waves', 'shop') : path.join(dir, 'data');
   write(path.join(dir, 'board.json'), { title: 'The Shop', slug: 'shop', items: waves ? 'waves' : 'data/cards.json' });
-  write(path.join(data, waves ? 'wave.json' : 'cards.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 42, status: 'building' }, { id: 'S2', status: 'done' }] });
+  write(path.join(data, waves ? 'wave.json' : 'cards.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 42, lane: 'progress' }, { id: 'S2', lane: 'done' }] });
   write(path.join(data, 'agents', 'S1.json'), { label: 'Builder', started: '2026-10-30T00:00:00Z', eta: '2026-11-01T00:00:00Z' });
   write(path.join(data, 'agents', 'S1@review.json'), { label: 'Reviewer', kind: 'codex', started: '2026-10-30T00:00:00Z' });
   write(path.join(data, 'agents', 'S1@install.json'), { label: 'Install', kind: 'install', started: '2026-10-30T00:00:00Z' });

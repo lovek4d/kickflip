@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { INCOMING_FILES, listBoards, readJSON, saveJSON } from './boards.mjs';
 import { openPRs, prFiles, githubLogin } from './pr-report.mjs';
-import { cardPRs } from '../shared/card-prs.mjs';
+import { cardPRs, storedPRs } from '../shared/card-prs.mjs';
 
 const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
@@ -46,7 +46,7 @@ export async function checkIncoming({ manifest, gh = { openPRs, prFiles }, login
       const byNumber = new Map(open.map((p) => [p.number, p]));
       const cards = [];
       for (const { slug, wave } of board.waves) {
-        for (const it of wave.items.filter((i) => i?.status !== 'dropped')) {
+        for (const it of wave.items.filter((i) => i && (i.lane !== 'done' || storedPRs(i).some((p) => p.merged_at)))) {
           for (const { number } of cardPRs(it, board.github).filter((p) => p.repo === board.github)) {
             const key = `${board.github}#${number}`;
             let files = byNumber.get(number)?.files || cache[key];

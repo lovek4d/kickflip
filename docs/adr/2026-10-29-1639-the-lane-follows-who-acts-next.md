@@ -21,3 +21,5 @@ The owner approved this on the `hub-orchestrator` ask that became INT-105 ("go f
 
 Considered:
 - the badge alone, with drafts and prototypes left in In Progress, which the owner's ask raised first; the lanes would still say nothing about who acts.
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): who acts next still places the card, and the settle pass stores that placement as its lane, with a thread line per move.

@@ -1026,16 +1026,16 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
-  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, waveTitle: 'W', status: 'planned', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
+  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, waveTitle: 'W', storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
     [['#item=w%2FGH-53', '#53'], ['#item=w%2FGH-94', '#94'], ['#item=w%2FGH-95', '#95'], ['#item=w%2FGH-75', '#75'], ['#item=w%2FGH-80', '#80'], ['#item=w%2FGH-99', '#99']]);
   assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'to do']]);
-  // The Status row reads the card's lane and agent, never the wave file's raw status
+  // The Status row reads the card's lane and agent, never the wave file's stored lane
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
-  const bare = { ...card, status: 'building', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] };
+  const bare = { ...card, storedLane: 'review', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] };
   const testing = { progress: 'Testing · x', phase: 'testing', at: null };
   for (const [extra, want] of [
     [{ lane: 'progress', builder: testing }, 'implementing'],

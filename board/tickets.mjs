@@ -111,11 +111,12 @@ export function titleTickets(source, title) {
   return [...new Set((found || []).filter((id) => ticketIn(source, id)))];
 }
 
-// The ticket a card's status asks for: building or fixing → started, a PR → review, done or merged → done.
-export function ticketTarget({ status, pr }) {
-  if (['done', 'merged'].includes(status)) return 'done';
-  if (['building', 'fixing'].includes(status)) return 'started';
-  if (pr !== undefined && status === undefined) return 'review';
+// The ticket a card's move asks for: a close → done, a build's start → started, a handover (a PR, a push, a verified
+// merge-ready build) → review.
+export function ticketTarget({ start, done, handover }) {
+  if (done) return 'done';
+  if (start) return 'started';
+  if (handover) return 'review';
   return null;
 }
 

@@ -39,7 +39,6 @@ export const RESUME_STATE = path.join(WEB, 'resume-state.json');
 const LINK_FAULTS = path.join(WEB, 'link-faults.json');
 export const REPO_FETCH = path.join(WEB, 'repo-fetch.json');
 export const HUB_CODE = path.join(WEB, 'hub-code.json');
-const FINISHED = ['merged', 'dropped'];
 const NO_SINCE = '1970-01-01T00:00:00Z';
 // bin/wait-events.mjs exits on each event and the session relaunches it, so a recent exit still counts as running.
 const RELAUNCH_GRACE = 2 * 60_000;
@@ -119,7 +118,7 @@ function wavesOf(dir, cfg, kind) {
 // item's gh_since. A PR in another repo is polled like one in the board's; one stored without a repo, on a board with
 // no github and a wave with no repo, has none to poll (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 export function prsOf(waves, github) {
-  return waves.flatMap(({ slug, wave }) => wave.items.filter((it) => !FINISHED.includes(it?.status))
+  return waves.flatMap(({ slug, wave }) => wave.items.filter((it) => it && it.lane !== 'done')
     .flatMap((it) => cardPRs(it, github || wave.repo).map((p) => ({ wave: slug, id: it.id, pr: p.number, repo: p.repo, since: it.gh_since || NO_SINCE }))));
 }
 

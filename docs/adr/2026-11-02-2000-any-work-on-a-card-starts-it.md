@@ -27,3 +27,5 @@ The owner asked for this in hub/INT-255's thread: "Anything making a prototype s
 Considered:
 - a new step, such as `item set --status building`, on each kind of work: sessions already mark the owner's message working almost every time, and a builder status needs the owner's go ([only the owner or Auto-build starts a card run](2026-11-02-1806-only-the-owner-or-auto-build-starts-a-card-run.md));
 - counting any thread line, which [a started card never returns to Todo](2026-10-29-1639-a-started-card-never-returns-to-todo.md) turned down since it lifts cards moved in with a note but never worked.
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a build's start moves the card to In Progress with a thread line; there is no building status.

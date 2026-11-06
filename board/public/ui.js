@@ -99,6 +99,7 @@
     'Re-ask requested': mini('<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>'),
     visual: mini(IMAGE_PATHS),
     'ask-link': mini('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'),
+    move: mini('<path d="M3 7h14"/><path d="m13 3 4 4-4 4"/><path d="M21 17H7"/><path d="m11 13-4 4 4 4"/>'),
     'Implementation requested': mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
     Held: mini('<path d="M9 5v14"/><path d="M15 5v14"/>'),
     Resumed: mini('<path d="M7 4v16l13-8z"/>'),

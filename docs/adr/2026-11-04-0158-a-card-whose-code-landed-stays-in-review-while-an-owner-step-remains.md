@@ -10,3 +10,5 @@ Some cards aren't finished when their code lands. #12 (GitHub Actions publishes 
 - **A draft PR names its wait.** A card on a draft PR with no Next reads "Review draft PR #N" (`board/domain.mjs`), so it never reads "none set yet" while it waits on the owner. A Next the card was given wins, and a green draft still asks for Ready on GitHub. This is derived from the PR state the board polls, not written by `item set --pr`, because the CLI doesn't read GitHub when it adds a PR. Owner: "It should just say review draft PR, like rather than this whole thing."
 
 Owner, on #12's thread: "Maybe just offer a flag to agents to keep a thread open in review despite building being completed."
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): the card is stored in Done and shown in In Review until the owner's Done.

@@ -28,7 +28,7 @@ function fakeBuilder(t) {
 test('blocking a card In Progress stops its board-launched builder, keeps its worktree and ready state, and sends it back to Todo', async (t) => {
   const pid = fakeBuilder(t);
   await new Promise((r) => setTimeout(r, 200));
-  setA1({ status: 'building', state: 'ready' });
+  setA1({ lane: 'progress', state: 'ready' });
   const tree = { path: path.join(home, 'tree'), branch: 'A1', repo: path.join(home, 'repo') };
   write(recordFile(), { started: new Date(Date.now() - 60_000).toISOString(), kind: 'claude', model: 'opus', worktree: tree, session: { id: 's1', pid, at: now() } });
   const r = await runAsync('board.mjs', ['--site', 'orch', 'item', 'set', 'w/A1', '--deps', 'ENG-1']);
@@ -36,7 +36,7 @@ test('blocking a card In Progress stops its board-launched builder, keeps its wo
   assert.match(r.out, /A1: build stopped by orchestrator/);
   await until(() => !alive(pid), 'the builder is gone');
   const item = itemOf();
-  assert.deepEqual([item.status, item.state, item.deps], [undefined, 'ready', ['ENG-1']]);
+  assert.deepEqual([item.lane, item.state, item.deps], ['todo', 'ready', ['ENG-1']]);
   const rec = record();
   assert.equal(typeof rec.done, 'string', 'its record closes, so nothing relaunches it and the card leaves In Progress');
   assert.equal(rec.stopped.run, 'build');
@@ -44,37 +44,38 @@ test('blocking a card In Progress stops its board-launched builder, keeps its wo
   assert.deepEqual(threadOf().map((l) => l.text), ['build stopped by orchestrator', 'Blocked by ENG-1: back to Todo. It starts again once nothing blocks it.']);
 });
 
-test('blocking a card that is checking, with nothing running, sends it back to Todo; blocking one already blocked again changes nothing more', () => {
-  setA1({ status: 'checking', state: 'ready' });
+test('blocking a handed-back card, with nothing running, sends it back to Todo; blocking one already blocked again changes nothing more', () => {
+  setA1({ lane: 'progress', state: 'ready' });
+  write(recordFile(), { started: new Date(Date.now() - 60_000).toISOString(), done: now(), handed_back: now(), kind: 'claude' });
   const r = onOrch('item', 'set', 'w/A1', '--blocked-until', 'the API ships');
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual([itemOf().status, itemOf().blocked_until], [undefined, 'the API ships']);
+  assert.deepEqual([itemOf().lane, itemOf().blocked_until], ['todo', 'the API ships']);
   assert.deepEqual(threadOf().map((l) => l.text), ['Blocked until the API ships: back to Todo. It starts again once nothing blocks it.']);
   assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
   assert.equal(threadOf().length, 1, 'a Todo card has nothing to send back');
 });
 
 test("blocking a card whose builder runs in a session the board didn't launch is refused, and changes nothing", () => {
-  setA1({ status: 'building', state: 'ready' });
+  setA1({ lane: 'progress', state: 'ready' });
   write(recordFile(), { started: now(), kind: 'claude' });
   const r = onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1');
   assert.equal(r.code, 1);
   assert.match(r.err, /^A1's builder runs in a session the board didn't launch, so blocking it can't stop it; finish or stop it in that session with builder done --next, then block it\n/);
-  assert.deepEqual([itemOf().status, itemOf().deps], ['building', undefined]);
+  assert.deepEqual([itemOf().lane, itemOf().deps], ['progress', undefined]);
   assert.equal(record().done, undefined);
 });
 
 test('a blocked card In Review stays there, and merge refuses it naming what blocks it, before asking GitHub', () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
-  write(waveFile(), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, state: 'ready' }, { id: 'ENG-1', title: 'Later' }] });
+  write(waveFile(), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, state: 'ready', lane: 'review' }, { id: 'ENG-1', title: 'Later' }] });
   writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' }));
   assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
   assert.deepEqual([itemOf().pr, fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl'))], [7, false], 'In Review, nothing is sent back');
   const merge = run('board.mjs', ['--site', 'orch', 'merge', 'w/A1'], undefined, env);
   assert.deepEqual([merge.code, merge.err], [1, 'Not merged: blocked by ENG-1.\n']);
   assert.deepEqual(calls(dir), []);
-  assert.equal(itemOf().status, undefined);
+  assert.equal(itemOf().lane, 'review');
 });
 
 test('land refuses a blocked card with Auto-merge on, leaving main as it was', () => {
@@ -100,16 +101,16 @@ test("a blocked card's held Merge can't be tapped, and the lander skips its veri
 
   const tree = path.join(home, 'tree');
   fs.mkdirSync(tree, { recursive: true });
-  setA1({ merge_ready: undefined, status: 'checking' });
-  write(recordFile(), { started: now(), done: now(), kind: 'claude', worktree: { path: tree }, verified: { at: now() } });
+  setA1({ merge_ready: undefined, lane: 'progress' });
+  write(recordFile(), { started: now(), done: now(), handed_back: now(), kind: 'claude', worktree: { path: tree }, verified: { at: now() } });
   assert.deepEqual(await store.landable(site('orch')), []);
   setA1({ deps: undefined });
   assert.deepEqual((await store.landable(site('orch'))).map((c) => c.key), ['w/A1']);
 });
 
 test('a finishing dep unblocks a card In Review, waking the orchestrator', () => {
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', pr: 7, deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', status: 'building' }] });
-  const r = onOrch('item', 'set', 'w/ENG-1', '--status', 'done', '--text', 'Done.');
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', pr: 7, deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
+  const r = onOrch('item', 'set', 'w/ENG-1', '--done', '--text', 'Done.');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /unblocked: w\/A1/);
   assert.ok(events().some((e) => e.kind === 'card-unblocked' && e.data.key === 'w/A1'));

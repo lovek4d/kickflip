@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, intakeKeyOf, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANES, MOVE, handedBackAt, intakeKeyOf, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -470,7 +470,6 @@ export async function markAsk(site, eventId, state, next) {
 
 // Why an ask is no longer New on this board, or null. An ask that became work items is New to moveAsk while none of
 // them has started; it returns them as `items`.
-const UNSTARTED = [undefined];
 async function askNotNew(site, eventId, events) {
   const named = `ask "${eventId}"`;
   if (events.some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId && !e.data?.key)) return { why: `${named} was deleted by the owner` };
@@ -483,7 +482,7 @@ async function askNotNew(site, eventId, events) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) if (it.from_ask === eventId) items.push({ key: `${s.slug}/${it.id}`, it });
   }
-  const started = items.find(({ it }) => hasPR(it) || !UNSTARTED.includes(it.status));
+  const started = items.find(({ it }) => hasPR(it) || leftTodo(it));
   if (started) return { why: `${named} became ${started.key}, which has started` };
   if (items.length) return { items: items.map((i) => i.key) };
   const replied = await Promise.all(['html', 'json'].map((ext) => fs.stat(path.join(site, 'data', 'replies', `${eventId}.${ext}`)).then(() => true, () => false)));
@@ -513,7 +512,8 @@ async function copyUpload(from, to, f) {
 
 // Sends a New ask to another board in the hub's manifest: there, an `ask` event with the owner's latest text, copies
 // of its uploads and `from {route, title, id}`, which wakes that board's session; here, a done mark naming it, and a
-// line in the ask's thread linking to its card there. Work items the ask became, none of them started, are dropped.
+// line in the ask's thread linking to its card there. Work items the ask became, none of them started, close as Done
+// with a line saying where the ask went.
 export async function moveAsk(site, eventId, route) {
   needSite(site);
   domId(eventId, 'the event id');
@@ -540,9 +540,9 @@ export async function moveAsk(site, eventId, route) {
   await writeJSON(askProgressFile(site), { asks: { ...asks, [eventId]: { state: 'done', at, moved } } });
   const link = `/${route}/#item=${encodeURIComponent(`ask:${id}`)}`;
   await appendLine(threadFile(site, `ask:${eventId}`), { ts: at, who: 'claude', text: `Moved to ${target.title}.`, link });
-  // The ask has already gone to the other board, so a dropped card's open question can't stop it.
-  for (const key of state?.items || []) await setItem(site, key, { status: 'dropped', force: true, text: `Dropped: its ask moved to ${target.title}.` });
-  return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
+  // The ask has already gone to the other board, so a closing card's open question can't stop it.
+  for (const key of state?.items || []) await setItem(site, key, { done: true, force: true, text: `Closed: its ask moved to ${target.title}.` });
+  return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `closed: ${k}`)] };
 }
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
@@ -647,7 +647,7 @@ async function writeReviewers(site, change) {
   const lines = [];
   for (const source of await itemSources(site)) {
     const wave = await readJSON(source.file, null);
-    if (!(wave?.items || []).some((it) => !FINISHED.includes(it.status))) continue;
+    if (!(wave?.items || []).some((it) => !closed(it))) continue;
     await writeJSON(source.file, { ...wave, reviewers });
     lines.push(`wave ${source.slug}: reviewers copied`);
   }
@@ -777,7 +777,7 @@ export async function reviewDue(site, options) {
     const wave = await readJSON(source.file, {});
     const people = reviewersOf(wave, cfg.reviewers);
     for (const item of wave.items || []) {
-      if (['done', 'dropped'].includes(item.status)) continue;
+      if (item.lane === 'done') continue;
       for (const p of cardPRs(item, boardRepoOf(site, wave))) {
         const pr = prKeyOf(p);
         const gh = routeRecord(cache.prs, pr);
@@ -844,7 +844,7 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
     const people = reviewersOf(wave, cfg.reviewers);
     for (const r of people) if (!reviewers.has(r.name)) reviewers.set(r.name, { name: r.name, slack_user: r.slack_user, dm: r.dm, items: [] });
     for (const item of wave.items || []) {
-      if (['merged', 'done', 'dropped'].includes(item.status)) continue;
+      if (item.lane === 'done') continue;
       const key = `${source.slug}/${item.id}`;
       const legacy = reviewLinks(wave, item, key, topics);
       for (const p of cardPRs(item, boardRepoOf(site, wave))) {
@@ -1479,7 +1479,7 @@ async function addToNotes(site, key, heading, body) {
 // take picked on its prototypes.
 async function stageable(site, key) {
   const { source, item } = await loadItem(site, key);
-  if (![...UNSTARTED, 'held'].includes(item.status) || hasPR(item) || item.pushed) return false;
+  if (leftTodo(item) || hasPR(item) || item.pushed) return false;
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
   if (records.some((r) => r?.started && !r.done && r.kind !== VISUAL)) return false;
   if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open')) return false;
@@ -1507,7 +1507,7 @@ const messageWords = ({ text: said, files }) => [String(said || '').trim(), ...(
 // does; its open questions resolve as skipped; its words go into the notes; and it is staged in Todo.
 export async function stageImplement(site, key, message) {
   const { item } = await loadItem(site, key);
-  if (item.held || item.status === 'held') await recordOwnerTap(site, 'card-hold', { key, hold: false });
+  if (item.held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
   const { owner, asked } = await cardQuestions(site, key);
   const open = asked.filter((q) => q.state === 'open').map((q) => q.id);
   if (open.length) await markResolved(site, owner, open, 'Skipped: you tapped Implement');
@@ -1525,7 +1525,7 @@ export async function stageReply(site, key, message) {
 // to grilling or prototyping; the tap launches the planner itself.
 export async function planAgain(site, key, kind) {
   const { source, wave, item } = await loadItem(site, key);
-  if (!['ready', 'staging'].includes(item.state) || item.status) return;
+  if (!['ready', 'staging'].includes(item.state) || leftTodo(item)) return;
   item.state = kind === 'prototype' ? 'prototyping' : 'grilling';
   delete item.staged_at;
   await writeJSON(source.file, wave);
@@ -1534,7 +1534,7 @@ export async function planAgain(site, key, kind) {
 // the answer's Send stages it again.
 async function grillAgain(site, key) {
   const loaded = await loadItem(site, key).catch(() => null);
-  if (!loaded || !['ready', 'staging'].includes(loaded.item.state) || loaded.item.status) return;
+  if (!loaded || !['ready', 'staging'].includes(loaded.item.state) || leftTodo(loaded.item)) return;
   loaded.item.state = 'grilling';
   delete loaded.item.staged_at;
   await writeJSON(loaded.source.file, loaded.wave);
@@ -1740,9 +1740,38 @@ async function checkAsk(site, eventId, name = '--from-ask') {
   return known ? eventId : fail(`no ask "${eventId}" in this site's data/events.jsonl`);
 }
 
-// docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md
-const FINISHED = ['done', 'merged', 'dropped'];
-export const isFinished = async (site, key) => FINISHED.includes((await loadItem(site, key)).item.status);
+// docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
+// A card's stored lane (todo, progress, review, done), written only here, with lane_at; a move to Done writes closed_at
+// and a move out of it reopened_at, which the next move to Done clears. → the lane it left, undefined for a card never
+// placed.
+function placeIn(item, to, now = new Date().toISOString()) {
+  if (!LANES[to]) throw new Error(`no lane "${to}"`);
+  const from = item.lane;
+  item.lane = to;
+  item.lane_at = now;
+  if (to === 'done') { item.closed_at = now; delete item.reopened_at; }
+  else if (from === 'done') item.reopened_at = now;
+  return from;
+}
+// Moves the card at key to lane `to`, with why as a move line in its thread, unless it is there already. A card's first
+// placement writes no line. → the line, or null.
+export async function moveCard(site, key, to, why) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (item.lane === to) return null;
+  const now = new Date().toISOString();
+  const from = placeIn(item, to, now);
+  await writeJSON(source.file, wave);
+  if (from === undefined) return null;
+  const line = { ts: now, who: 'claude', kind: MOVE, text: `Moved to ${LANES[to]}: ${text(why, 'why')}` };
+  await appendLine(threadFile(site, key), line);
+  return line.text;
+}
+// docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md: a Done card, or one reopened since, has finished
+// for the cards waiting on it.
+const closed = (item) => item?.lane === 'done' || Boolean(item?.reopened_at);
+// Whether the card has left Todo: it is stored in another lane.
+const leftTodo = (item) => Boolean(item?.lane) && item.lane !== 'todo';
+export const isFinished = async (site, key) => closed((await loadItem(site, key)).item);
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-07-0700-staging-then-ready.md:
 // a card's state. Staging is the board's alone, set on an owner action; --state takes the rest.
 const AGENT_STATES = ['ready', 'grilling', 'prototyping'];
@@ -1760,12 +1789,6 @@ export async function quickAsk(site, eventId) {
 }
 // A Next asking the owner to mark the card ready ("Mark ready", "mark it ready").
 const ASKS_READY = /^mark (?:it |this |the card )?ready\b/i;
-function clearBuildingStatus(item) {
-  if (!['building', 'fixing'].includes(item?.status)) return false;
-  delete item.status;
-  item.status_at = new Date().toISOString();
-  return true;
-}
 // docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md: each --pr adds a PR, owner/repo#n or a bare number in the
 // board's repo (repo), to the card's list; one it already holds stays as it is. An older pr: <n> moves into the list.
 function addPRs(item, refs, repo) {
@@ -1780,7 +1803,7 @@ const depKey =(slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}
 async function unfinishedDeps(site, slug, item) {
   const keys = (item.deps || []).map((d) => depKey(slug, d));
   const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
-  return keys.filter((k, i) => deps[i] && !FINISHED.includes(deps[i].status));
+  return keys.filter((k, i) => deps[i] && !closed(deps[i]));
 }
 // The names of what blocks item (at key) from starting: each unfinished dep's card name, then its blocked-until condition.
 async function blockerNames(site, key, item) {
@@ -1795,16 +1818,16 @@ export async function blockWords(site, key, item) {
   return [deps.length && `by ${deps.join(', ')}`, item.blocked_until && `until ${item.blocked_until}`].filter(Boolean).join(' and ');
 }
 // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a card In Progress is one started with
-// none of a PR, a pushed branch or a held Merge, which keep it In Review.
-const inProgress = (item, records) => !hasPR(item) && !item.pushed && !item.merge_ready
-  && (['building', 'fixing', 'checking'].includes(item.status) || records.some((r) => r?.started && !r.done && builds(r)));
+// none of a PR, a pushed branch or a held Merge, which keep it In Review: a build runs on it, or its build handed back.
+const inProgress = (item, records) => !hasPR(item) && !item.pushed && !item.merge_ready && !closed(item)
+  && (Boolean(handedBackAt(records)) || records.some((r) => r?.started && !r.done && builds(r)));
 // → the keys of the blocked cards whose last unfinished dep was key and no condition blocks.
 async function unblockedBy(site, key) {
   const out = [];
   for (const s of await itemSources(site)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
-      if (![undefined, 'held'].includes(it.status) || it.blocked_until || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      if (leftTodo(it) || it.blocked_until || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
       if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
     }
   }
@@ -1818,7 +1841,7 @@ async function checkNextDeps(site, key, item, next) {
     const wave = await readJSON(source.file, null);
     for (const other of wave?.items || []) {
       const otherKey = `${source.slug}/${other.id}`;
-      if (otherKey === key || deps.has(otherKey) || FINISHED.includes(other.status)) continue;
+      if (otherKey === key || deps.has(otherKey) || closed(other)) continue;
       const names = [other.id, refOf(wave, other)].flatMap((id) => [id, `${source.slug}/${id}`]);
       if (names.some((name) => mentions.has(name))) fail(`--next names unfinished card ${otherKey}; add it with --deps`);
     }
@@ -1890,39 +1913,55 @@ export async function setMainInstall(site, { install, installSha }) {
 export const mergedLine = (prs, repo) => (prs.length ? `Merged PR${prs.length > 1 ? 's' : ''} ${prNames(prs, repo)}.` : 'Merged.');
 
 // docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md
-// The thread line closing a card writes as its last: --text, which done and dropped need on a site, or for merged
+// The thread line closing a card writes as its last: --text, which a close on a site needs, or for a merge
 // mergedLine's. → the line, or null.
-function closingLine(site, key, item, status, text, repo) {
-  if (status === 'merged') return text ?? (item.status === 'merged' ? null : mergedLine(storedPRs(item), repo));
-  if (text === undefined && site) fail(`--status ${status} needs --text "<what was done or left>", which becomes ${key}'s last thread line`);
+function closingLine(site, key, merged, text, repo) {
+  if (merged) return text ?? mergedLine(merged, repo);
+  if (text === undefined && site) fail(`--done needs --text "<what was done, or why it closes without landing>", which becomes ${key}'s last thread line`);
   return text ?? null;
 }
+// Marks each of merged [{repo?, number, at?}] that the card holds with its merge time, merged_at.
+function markMerged(item, merged, repo) {
+  const now = new Date().toISOString();
+  const same = (a, b) => a.number === b.number && (a.repo || repo || null) === (b.repo || repo || null);
+  item.prs = storedPRs(item).map((p) => {
+    const m = merged.find((q) => same(p, q));
+    return m && !p.merged_at ? { ...p, merged_at: m.at || now } : p;
+  });
+  delete item.pr;
+}
 
-// → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing
-// (done, merged, dropped) adds a `resolved: <id>` line per question it resolved (closeQuestions).
+// docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
+// → the wave file, and when a dep finishes the items it unblocked as `unblocked: <key>` lines; closing (done) adds a
+// `resolved: <id>` line per question it resolved (closeQuestions), and moves the card to Done. merged, a merge's close,
+// is the PRs that merged [{repo?, number, at?}], each marked on the card with its merged_at. start, a build's start
+// (startBuilder), moves the card to In Progress after the checks a build's start makes; handBack, builder done's with
+// judgment calls, closes its open records marked handed_back for the orchestrator's check. A handover (--pr, --pushed,
+// --merge-ready) moves it to In Review, and a block on a card In Progress back to Todo.
 // notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
 // (closingLine), or with fromAsk the item's first thread line.
 // ownerStep is the owner step builder done or land records, and ownerDone the owner's Done, which alone clears it
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
-  if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
+async function changeItem(site, key, { ticket, status, clearStatus, done, merged, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
+  if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
+  if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   // A Quick build ask files --from-ask straight to staging (quickAsk, checked below once the ask is known).
   if (state !== 'staging' || fromAsk === undefined) checkState(state);
-  if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
-  if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
+  if (force && !done) fail('--force goes with --done');
+  if (fromAsk !== undefined && done) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
   if (ownerStep !== undefined) text(ownerStep, '--owner-step');
   const spec = check === undefined || check === '' ? check : checkSpec(check);
-  if (said !== undefined && fromAsk === undefined && !FINISHED.includes(status)) fail(`--text goes with --from-ask or --status ${FINISHED.join(', ')}`);
+  if (said !== undefined && fromAsk === undefined && !done) fail('--text goes with --from-ask or --done');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
+  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const quick = ask !== undefined && await quickAsk(site, ask);
@@ -1933,11 +1972,10 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
   if (ask && state === undefined && !item.state) fail('--from-ask files a card, which reads New until it has a state: pass --state grilling or prototyping, or staging for a Quick build ask');
-  const statusBefore = item.status;
-  const wasFinished = FINISHED.includes(item.status);
-  if (ownerStep !== undefined && wasFinished) fail(`${key} is already ${item.status}, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
+  const wasFinished = closed(item);
+  if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
-  if (ownerDone || status === 'dropped') delete item.owner_step;
+  if (ownerDone) delete item.owner_step;
   if (spec !== undefined && !item.owner_step) fail(`--check goes with an owner step, which ${key} doesn't have: pass --owner-step "<the step>" with it on builder done or land`);
   // Setting the same check again clears its broken mark and keeps when it was attached.
   if (spec) item.owner_check = { check: spec, since: item.owner_check?.check === spec ? item.owner_check.since : new Date().toISOString() };
@@ -1970,38 +2008,33 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (relate !== undefined) item.related = [...new Set([...(item.related || []).map((r) => depKey(parseKey(key).wave, r)), ...await relatedKeys(site, key, relate, '--relate')])];
   if (unrelate !== undefined) unlink = await unrelateCards(site, key, item, await relatedKeys(site, key, unrelate, '--unrelate'));
   if (hold !== undefined) setHold(item, hold);
-  if (status === 'building' && (item.held || item.status === 'held')) {
+  if (start && item.held) {
     fail(item.pick_up_at ? `${key} is held until ${item.pick_up_at}, when the board resumes it; start it early only with item set ${key} --unheld`
       : `${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
   }
-  if (status === 'planned' || status === 'waiting') fail(`--status ${status} is gone: an unstarted card has no status. Clear it with --clear-status`);
-  if (status !== undefined) item.status = ITEM_STATUSES.includes(status) ? status : fail(`--status takes ${ITEM_STATUSES.join(', ')}`);
-  if (LEAVES_TODO.includes(status) || pr !== undefined || pushed !== undefined || mergeReady !== undefined) clearHold(item);
-  if (status === 'building') {
+  const handover = pr !== undefined || pushed !== undefined || mergeReady !== undefined;
+  // A card that leaves Todo is never still held.
+  if (start || done || handBack || handover) clearHold(item);
+  if (start) {
     const blockers = await unfinishedDeps(site, parseKey(key).wave, item);
-    if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done or merged`);
+    if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done`);
     if (item.blocked_until) fail(`${key} is blocked until ${item.blocked_until}; start it once that holds and the block is cleared with --blocked-until ""`);
   }
-  const unpicked = status === 'building' && site ? await unpickedPrototype(site, key) : null;
+  const unpicked = start && site ? await unpickedPrototype(site, key) : null;
   if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
-  const resolve = FINISHED.includes(status) ? await closeQuestions(site, key, `--status ${status}`, force) : async () => [];
-  const lastLine = FINISHED.includes(status) ? closingLine(site, key, { ...item, status: statusBefore }, status, said, boardRepoOf(site, wave)) : null;
-  if (clearStatus) delete item.status;
-  // A newer status_at overrides the owner's card-done in domain.mjs.
-  if (status !== undefined || clearStatus) item.status_at = new Date().toISOString();
+  const resolve = done ? await closeQuestions(site, key, '--done', force) : async () => [];
+  const lastLine = done ? closingLine(site, key, merged, said, boardRepoOf(site, wave)) : null;
+  if (merged) markMerged(item, merged, boardRepoOf(site, wave));
   if (next !== undefined) {
     setNext(item, next, await hasOpenQuestion(site, key));
     await checkNextDeps(site, key, item, item.next);
   }
   if (clearNext) { delete item.next; delete item.next_on_questions; }
   // A build starting acts on whatever a Next set during the card's questions waited on.
-  if (status === 'building' && next === undefined && item.next_on_questions) { delete item.next; delete item.next_on_questions; }
+  if (start && next === undefined && item.next_on_questions) { delete item.next; delete item.next_on_questions; }
   // The In Review lane sorts by this first arrival, which no later PR, push, merge-ready, tap or land rewrites.
-  if ((pr !== undefined || pushed !== undefined || mergeReady !== undefined) && !item.review_since) item.review_since = new Date().toISOString();
-  if (pr !== undefined) {
-    addPRs(item, pr, boardRepoOf(site, wave));
-    clearBuildingStatus(item);
-  }
+  if (handover && !item.review_since) item.review_since = new Date().toISOString();
+  if (pr !== undefined) addPRs(item, pr, boardRepoOf(site, wave));
   // docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md
   if (pushed !== undefined) {
     if (!listBoards().find((b) => samePath(b.dir, needSite(site)))?.remote) fail('--pushed is for a board whose repo is a plain git remote; on GitHub, open a PR and pass --pr');
@@ -2009,15 +2042,13 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     try { validateBranch(pushed); } catch { fail('--pushed takes the name of the branch you pushed'); }
     item.pushed = { branch: pushed, at: new Date().toISOString() };
     item.branch = pushed;
-    clearBuildingStatus(item);
   }
   // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a verified branch that waits for the owner's Merge.
   if (mergeReady !== undefined) {
     item.merge_ready = { branch: mergeReady, at: new Date().toISOString() };
     item.branch = mergeReady;
-    clearBuildingStatus(item);
   }
-  if (FINISHED.includes(status)) delete item.merge_ready;
+  if (done) delete item.merge_ready;
   if (ghSince !== undefined) {
     if (typeof ghSince !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(ghSince) || Number.isNaN(Date.parse(ghSince))) fail('--gh-since takes an ISO-8601 UTC time such as 2026-10-23T11:00:00Z');
     item.gh_since = ghSince;
@@ -2040,21 +2071,28 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (item.state === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the state it is already in; pass --next with what happens next, or --clear-next`);
   if (built) item.install = built;
   if (built === null) delete item.install;
-  // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: building and fixing go with a builder start.
-  if (!owedBefore && !['building', 'fixing'].includes(status) && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
+  // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: a build's start goes with its record.
+  if (!owedBefore && !start && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
   // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a block on a card In Progress sends
   // it back to Todo. stopRun, item set's, stops its board-launched build first and refuses a session's; the worktree and
   // branch stay on its records, and its state stays, so the pull starts it again once nothing blocks it.
-  const blocked = (deps !== undefined || blockedUntil) && status === undefined && !clearStatus && inProgress(item, records) ? await blockWords(site, key, item) : '';
+  const blocked = (deps !== undefined || blockedUntil) && !done && inProgress(item, records) ? await blockWords(site, key, item) : '';
   const stops = blocked && records.some((r) => r?.started && !r.done && builds(r)) ? await stopRun() : [];
-  if (blocked) {
-    delete item.status;
-    item.status_at = new Date().toISOString();
-  }
+  // The moves this write makes (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a close
+  // and a block write their own lines, the rest a move line.
+  const repo = boardRepoOf(site, wave);
+  let moveLine = null;
+  const moveTo = (to, why) => { if (item.lane !== to && placeIn(item, to) !== undefined && why) moveLine = `Moved to ${LANES[to]}: ${why}`; };
+  if (done) moveTo('done', null);
+  else if (blocked) moveTo('todo', null);
+  else if (handover && item.lane !== 'done') {
+    moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
+  } else if (start && !closed(item)) moveTo('progress', 'a build started');
   if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, wave, item, ticket, options, source.dir);
   await writeJSON(source.file, wave);
+  if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (blocked) {
-    await closeBuilders(source.dir, item.id, false);
+    await closeBuilders(source.dir, item.id, false, { endHandBack: true });
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: back to Todo. It starts again once nothing blocks it.` });
   }
   if (unlink) await unlink();
@@ -2062,30 +2100,33 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
   if (notesFile !== undefined || (state === 'ready' && site)) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
-  if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
+  if (start) resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who, by, command })).lines);
   // The ticket stays open while the card waits on its owner step.
-  const target = item.owner_step && FINISHED.includes(status) ? null : ticketTarget({ status, pr: pr ?? pushed ?? mergeReady });
-  const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
+  const target = item.owner_step && done ? null : ticketTarget({ start, done, handover });
+  const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo });
   if (moved) resolved.push(moved);
-  // A builder that forgot builder done would keep the card In Progress after it was handed back.
-  if (pr !== undefined || pushed !== undefined || mergeReady !== undefined || HANDED_BACK.includes(status)) await closeBuilders(source.dir, item.id, FINISHED.includes(status));
-  if (pr !== undefined || pushed !== undefined || mergeReady !== undefined || HANDED_BACK.includes(status)) await publishStaged(site, key);
+  // A builder that forgot builder done would keep the card In Progress after it was handed back; a hand-back's records
+  // close marked handed_back, and a handover or a close ends the hand-back.
+  if (handover || done || handBack) {
+    await closeBuilders(source.dir, item.id, done, handBack ? { handedBack: new Date().toISOString() } : { endHandBack: true });
+    await publishStaged(site, key);
+  }
   // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
-  if (lifted && !FINISHED.includes(item.status) && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) {
+  if (lifted && !closed(item) && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) {
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Unblocked: ${lifted}.` });
     await appendEvent({ dir: site }, 'card-unblocked', { key });
     resolved.unshift(`unblocked: ${key}`);
   }
-  if (!FINISHED.includes(status) || wasFinished) return { file: source.file, lines: resolved };
+  if (!done || wasFinished) return { file: source.file, lines: resolved };
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
   const ts = new Date().toISOString();
   for (const k of unblocked) {
-    await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${await cardName(site, key)} is ${status}.` });
+    await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${await cardName(site, key)} is done.` });
     await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
@@ -2117,9 +2158,8 @@ function pickUpTime(value) {
   if (ms <= Date.now()) fail(`--pick-up-at ${value} has passed; pass a later time, or --unheld to resume the card now`);
   return new Date(ms).toISOString();
 }
-// A card that has left Todo is never still held, so --status building, fixing, checking and the finished ones, --pr and
-// --pushed drop its hold and pick-up time.
-const LEAVES_TODO = ['building', 'fixing', 'checking', ...FINISHED];
+// A card that has left Todo is never still held, so a build's start, a hand-back, --done, --pr, --pushed and
+// --merge-ready drop its hold and pick-up time.
 function clearHold(item) {
   delete item.held;
   delete item.pick_up_at;
@@ -2127,7 +2167,6 @@ function clearHold(item) {
 function setHold(item, hold) {
   if (hold) item.held = true; else delete item.held;
   if (hold?.until) item.pick_up_at = hold.until; else delete item.pick_up_at;
-  if (!hold && item.status === 'held') delete item.status;
   item.held_at = new Date().toISOString();
 }
 
@@ -2146,9 +2185,9 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
 }
 
 // The owner's Hold, Resume or Done tap (card-hold {key, hold, until?} or card-done {key}), or a Full person's, whose
-// data.shared_by {login, name} names their thread line, recorded in the wave file as the board server takes it, with a thread line; a Done unblocks blocked cards as item set --status done does
-// (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). A merged or dropped card, and a Hold on a
-// are left as they are. → the item set result, or null when nothing was written.
+// data.shared_by {login, name} names their thread line, recorded in the wave file as the board server takes it, with a
+// thread line; a Done closes the card and unblocks blocked cards as item set --done does
+// (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). → the item set result.
 export async function recordOwnerTap(site, kind, data) {
   const key = String(data?.key || '');
   const { wave: slug, id } = parseKey(key);
@@ -2158,10 +2197,10 @@ export async function recordOwnerTap(site, kind, data) {
   // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: each tap's line is its status line.
   const said = { text: COMMANDS.done, who: 'love', by, command: 'done' };
   const item = wave.items.find((it) => it.id === id) || fail(`wave "${slug}" has no item "${id}"`);
-  // A merged card waiting on its owner step closes on the owner's Done, staying merged.
+  // A Done card waiting on its owner step closes on the owner's Done; any other card in Done has nothing to write.
   const stepOpen = kind === 'card-done' && Boolean(item.owner_step);
-  if (!stepOpen && ['merged', 'dropped'].includes(item.status)) return null;
-  if (kind === 'card-done') return setItem(site, key, { status: item.status === 'merged' ? 'merged' : 'done', force: true, ownerDone: true, ...said });
+  if (!stepOpen && item.lane === 'done') return null;
+  if (kind === 'card-done') return setItem(site, key, { done: true, force: true, ownerDone: true, ...said });
   const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
   setHold(item, data.hold ? { until } : null);
   await writeJSON(source.file, wave);
@@ -2183,7 +2222,7 @@ function checkSpec(value) {
 export async function passOwnerCheck(site, key, check, found) {
   const { item } = await loadItem(site, key);
   if (!item.owner_step || item.owner_check?.check !== check) return null;
-  return setItem(site, key, { status: item.status === 'merged' ? 'merged' : 'done', force: true, ownerDone: true, text: `Check passed: ${found}. Closed.` });
+  return setItem(site, key, { done: true, force: true, ownerDone: true, text: `Check passed: ${found}. Closed.` });
 }
 
 // The hub's poll couldn't run the owner step's check several times in a row: the card reads it broken, the poll stops
@@ -2313,7 +2352,7 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   needSite(site);
   const { wave, item } = await loadItem(site, key);
   if (!hasPR(item)) fail(`${key} has no PR`);
-  if (FINISHED.includes(item.status)) fail(`${key} is ${item.status}`);
+  if (closed(item)) fail(`${key} is done`);
   // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: auto-merge's refusal too.
   const blocked = await blockWords(site, key, item);
   if (blocked) {
@@ -2328,8 +2367,8 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   try { fetched = await Promise.all(prs.map((p) => fetchPR({ repo: p.repo, pr: p.number, since: now }))); } catch (e) { fail(e.message); }
   const states = fetched.map(({ view }) => view);
   if (allLanded(states)) {
-    const merged = prs.filter((_, i) => states[i].state === 'MERGED');
-    return setItem(site, key, { status: 'merged', text: `PR${merged.length > 1 ? 's' : ''} ${prNames(merged, repo)} ${merged.length > 1 ? 'were' : 'was'} already merged.` });
+    const merged = prs.map((p, i) => ({ ...p, at: states[i].mergedAt })).filter((_, i) => states[i].state === 'MERGED');
+    return setItem(site, key, { merged, text: `PR${merged.length > 1 ? 's' : ''} ${prNames(merged, repo)} ${merged.length > 1 ? 'were' : 'was'} already merged.` });
   }
   const open = prs.map((p, i) => ({ ...p, ...fetched[i] })).filter(({ view }) => view.state === 'OPEN');
   // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a card no reviewer is on merges with no approval.
@@ -2370,7 +2409,7 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   }
   const said = [mergedLine(done, repo), afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`,
     rebasedOnly && `After the approval: only the board's rebase onto ${item.rebased.at(-1).base}.`, steps && `The owner's word on the manual steps: "${steps}"`];
-  return setItem(site, key, { status: 'merged', text: said.filter(Boolean).join(' ') });
+  return setItem(site, key, { merged: done, text: said.filter(Boolean).join(' ') });
 }
 
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
@@ -2382,7 +2421,7 @@ export async function heldMerge(site, key) {
 // finish on. → the held merge
 export async function tapMerge(site, key) {
   const { source, wave, item } = await loadItem(site, key);
-  if (!item.merge_ready || FINISHED.includes(item.status)) fail(`${key} isn't waiting for its Merge`);
+  if (!item.merge_ready || closed(item)) fail(`${key} isn't waiting for its Merge`);
   const blocked = await blockWords(site, key, item);
   if (blocked) fail(`${key} is blocked ${blocked}, so its Merge waits until nothing blocks it`);
   item.merge_ready.tapped = new Date().toISOString();
@@ -2428,7 +2467,7 @@ export const setItem = (site, key, changes, options) => (changes.ticket !== unde
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 
-// → {file, key}. A new card starts unstarted: no status. key is <wave>/<id>, or <wave>
+// → {file, key}. A new card starts in Todo, placed as it is made. key is <wave>/<id>, or <wave>
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
 // (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: state files the card at once, with
@@ -2442,7 +2481,8 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   if (state === 'ready') fail("item add files a card grilling or prototyping; it reaches ready through staging, on the owner's Send, Implement or Reply");
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
-  const item = { id, title: text(title, '--title'), created: new Date().toISOString() };
+  const created = new Date().toISOString();
+  const item = { id, title: text(title, '--title'), created, lane: 'todo', lane_at: created };
   if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a card, such as <wave>/<id>');
   if (notes !== undefined) item.notes = text(notes, '--notes');
   setBuildChoice(item, { size, model });
@@ -2489,7 +2529,7 @@ async function backfill(site, dryRun, options) {
   const ticketed = (wave, it) => it.ticket && !(source.source !== 'internal' && wave.internal === true && it.ticket === it.id);
   for (const { entry, wave } of waves) {
     for (const it of wave.items) {
-      if (ticketed(wave, it) || FINISHED.includes(it.status)) continue;
+      if (ticketed(wave, it) || closed(it)) continue;
       const key = `${entry.slug}/${it.id}`;
       const found = [...titleTickets(source, it.title), ...(it.linear || []).filter((id) => ticketIn(source, id))]
         .find((id) => source.source !== 'internal' || !held.has(id));
@@ -2518,8 +2558,8 @@ async function backfill(site, dryRun, options) {
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 // Moves each wave file's follow-ups, a list kept beside its items until then, into its items, once: each keeps its id,
-// title, ticket and notes, its date as when it was made, and its Filed from as its Parent; a done one is done, closed
-// at its thread's last line. A wave whose follow-up has a card's id is left as it is, and named in the refusal.
+// title, ticket and notes, its date as when it was made, and its Filed from as its Parent; a done one is in Done,
+// closed at its thread's last line. A wave whose follow-up has a card's id is left as it is, and named in the refusal.
 // Run by the board server as it starts. → one line per wave file moved.
 export const migrateFollowups = (site) => ticketWrite(site, async () => {
   const lines = [];
@@ -2532,28 +2572,56 @@ export const migrateFollowups = (site) => ticketWrite(site, async () => {
     for (const { id, title, from, filed, done, ...rest } of wave.followups) {
       const closedAt = done ? (site && (await readLines(threadFile(site, `${entry.slug}/${id}`))).map((l) => l.ts).filter(Boolean).sort().pop()) || filed : null;
       moved.push({ id, title, ...(filed ? { created: filed } : {}), ...(from ? { parent: depKey(entry.slug, from) } : {}),
-        ...(done ? { status: 'done' } : {}), ...(closedAt ? { status_at: closedAt } : {}), ...rest });
+        ...(done ? { lane: 'done', ...(closedAt ? { lane_at: closedAt, closed_at: closedAt } : {}) } : {}), ...rest });
     }
     const { followups, ...kept } = wave;
     await writeJSON(entry.file, { ...kept, items: [...wave.items, ...moved] });
-    lines.push(`${entry.slug}: ${moved.length} follow-ups moved to cards (${moved.filter((m) => m.status === 'done').length} done)`);
+    lines.push(`${entry.slug}: ${moved.length} follow-ups moved to cards (${moved.filter((m) => m.lane === 'done').length} done)`);
   }
   return lines;
 });
 
-// docs/adr/2026-11-05-0226-a-grill-with-nothing-left-to-ask-ends-ready.md
-// Removes the statuses "planned" and "waiting" from every card of a site's wave files: an unstarted card has no status.
-// Run by the board server as it starts. → one line per wave file changed.
-export const dropPlannedStatus = (site) => ticketWrite(site, async () => {
+// docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
+// A card's status becomes the facts that replace it: merged, done and dropped put it in Done, closed at the status's
+// time, merged also marking each of its PRs merged then; held becomes its held flag; checking marks its newest build
+// record handed back. Every other status goes, and the board's first build places the card. → whether it changed.
+function statusToFacts(item, records = []) {
+  if (item.status === undefined && item.status_at === undefined && item.merged_at === undefined) return false;
+  const at = item.merged_at || item.status_at || new Date().toISOString();
+  if (['merged', 'done', 'dropped'].includes(item.status)) Object.assign(item, { lane: 'done', lane_at: at, closed_at: at });
+  if (item.status === 'merged' || item.merged_at) { item.prs = storedPRs(item).map((p) => ({ ...p, merged_at: p.merged_at || at })); delete item.pr; }
+  if (item.status === 'held') item.held = true;
+  const newest = records.filter((r) => r.started && builds(r)).sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
+  if (item.status === 'checking' && newest) newest.handed_back = at;
+  delete item.status; delete item.status_at; delete item.merged_at;
+  return true;
+}
+
+// statusToFacts over every card of a site's wave files and its archive. Run by the board server as it starts. → one
+// line per file changed.
+export const migrateStatuses = (site) => ticketWrite(site, async () => {
   const lines = [];
   for (const entry of await itemSources(site)) {
     const wave = await readJSON(entry.file, null);
-    const planned = (Array.isArray(wave?.items) ? wave.items : []).filter((it) => ['planned', 'waiting'].includes(it.status));
-    if (!planned.length) continue;
-    for (const it of planned) delete it.status;
+    let changed = 0;
+    for (const it of Array.isArray(wave?.items) ? wave.items : []) {
+      const files = it.status === 'checking' ? await builderFiles(entry.dir, it.id) : [];
+      const records = await Promise.all(files.map((f) => readJSON(f, null)));
+      if (!statusToFacts(it, records.filter(Boolean))) continue;
+      changed++;
+      for (const [i, r] of records.entries()) if (r?.handed_back) await writeJSON(files[i], r);
+    }
+    if (!changed) continue;
     await writeJSON(entry.file, wave);
-    lines.push(`${entry.slug}: ${planned.length} planned or waiting cards now have no status`);
+    lines.push(`${entry.slug}: ${changed} cards' statuses became lanes and facts`);
   }
+  await archiveWrite(site, async () => {
+    const cards = await readArchive(site);
+    const changed = cards.filter((c) => c.item && statusToFacts(c.item)).length;
+    if (!changed) return;
+    await writeArchive(site, cards);
+    lines.push(`archive: ${changed} cards' statuses became lanes and facts`);
+  });
   return lines;
 });
 
@@ -2618,7 +2686,7 @@ export const archiveCards = (site, picks) => archiveWrite(site, async () => {
   for (const source of await itemSources(site)) {
     const wave = await readJSON(source.file, null);
     if (!Array.isArray(wave?.items)) continue;
-    const leaving = wave.items.filter((it) => wanted.has(`${source.slug}/${it.id}`) && FINISHED.includes(it.status));
+    const leaving = wave.items.filter((it) => wanted.has(`${source.slug}/${it.id}`) && it.lane === 'done');
     if (!leaving.length) continue;
     for (const item of leaving) moved.push({ ...wanted.get(`${source.slug}/${item.id}`), wave: source.slug, archived_at: at, item });
     writes.push([source.file, { ...wave, items: wave.items.filter((it) => !leaving.includes(it)) }]);
@@ -2937,12 +3005,12 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     // A helper's record keeps what agent launch asked of it.
     ...(k === HELPER && before?.kind === HELPER ? { label: before.label, task: before.task, writes: before.writes, requested: before.requested } : {}),
   };
-  const marking = build && !dir && ![...FINISHED, 'building', 'fixing'].includes(was.status);
-  const marked = marking ? await setItem(site, key, { status: 'building' }) : { lines: [] };
+  const marking = build && !dir && !closed(was) && was.lane !== 'progress';
+  const marked = marking ? await setItem(site, key, { start: true }) : { lines: [] };
   let wt;
   let remade = null;
   // A build started again on the card keeps the worktree its last record left, while that is still there.
-  // So does one the card was given on entering In Progress (ensureWorktree), which no record keeps.
+  // So does one kept on the wave item, which no record keeps.
   const left = ownWorktree && build && agent === 'main' ? [before?.worktree, was?.worktree].find((w) => w?.path && existsSync(w.path)) ?? null : null;
   const kept = (takeUp ?? resumed)?.worktree ?? left;
   const make = worktree ?? (build && agent === 'main' && !kept ? ownWorktree : undefined);
@@ -2954,7 +3022,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     } else wt = kept;
   } catch (e) {
     // A worktree that can't be made leaves the card unstarted, as it was.
-    if (marking) await restoreStatus(site, key, was);
+    if (marking) await restoreLane(site, key, was);
     throw e;
   }
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
@@ -3061,8 +3129,8 @@ async function tapRefusals(site, key) {
   const gate = readUsageGate({ dir: site });
   if (holdsWork(gate)) fail(pauseReason(gate));
   const { item } = await loadItem(site, key);
-  const held = item.held || item.status === 'held' ? { held: item.held, status: item.status, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
-  if (held && ![...UNSTARTED, 'held'].includes(item.status)) fail("it's held. Unhold it, then tap Implement.");
+  const held = item.held ? { held: item.held, pick_up_at: item.pick_up_at, held_at: item.held_at } : null;
+  if (held && leftTodo(item)) fail("it's held. Unhold it, then tap Implement.");
   if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes, so it prototypes again. Pick a take from the next round, then tap Implement.');
   return { held, blockers: await blockerNames(site, key, item) };
 }
@@ -3099,14 +3167,14 @@ async function bumpBlocked(site, key, blockers) {
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 // A build the board server started whose agent couldn't launch goes back to Todo: its open main record closes, the card
-// loses the building status the start gave it, and the thread says why, as a refusal the Todo card shows.
+// goes back to Todo with no move line, and the thread says why, as a refusal the Todo card shows.
 export async function abandonLaunch(site, key, why) {
   const file = await builderFile(site, key);
   const record = await readJSON(file, null);
   const now = new Date().toISOString();
   if (record && !record.done) await writeJSON(file, { ...record, done: now });
   const { source, wave, item } = await loadItem(site, key);
-  if (item.status === 'building') { delete item.status; item.status_at = now; }
+  if (item.lane === 'progress') placeIn(item, 'todo', now);
   await writeJSON(source.file, wave);
   await appendLine(threadFile(site, key), { ts: now, who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${why}` });
 }
@@ -3176,7 +3244,7 @@ export async function landFirst(site, key) {
 // The orchestrator's bump (on) or unbump of a card, the event the owner's bump icon sends. → the event's time
 export async function bumpCard(site, key, on) {
   const { item } = await loadItem(site, key);
-  if (FINISHED.includes(item.status)) fail(`${await cardName(site, key)} is ${item.status}; there is nothing to bump`);
+  if (closed(item)) fail(`${await cardName(site, key)} is done; there is nothing to bump`);
   const id = await appendEvent({ dir: site }, on ? 'card-bump' : 'card-unbump', { key });
   return (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === id).ts;
 }
@@ -3239,7 +3307,7 @@ export async function requestHelper(site, key, { name, task, writes, model }) {
   const forced = readClaudeModel();
   if (model !== undefined && forced !== 'auto' && model !== forced) fail(`--model ${model}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
   const { item } = await loadItem(site, key);
-  if (FINISHED.includes(item.status)) fail(`${await cardName(site, key)} is ${item.status}; a helper needs an open card`);
+  if (closed(item)) fail(`${await cardName(site, key)} is Done; a helper needs an open card`);
   const file = await builderFile(site, key, undefined, agent);
   if (existsSync(file)) fail(`${key} already has an agent named ${agent}; pick another --name`);
   if (writes && !(await cardWorktree(site, key))) fail(`a helper that writes branches from ${key}'s worktree, and the card has none; start its build first, or drop --writes`);
@@ -3344,7 +3412,7 @@ export async function addVisual(site, key, { file, title }) {
 }
 
 // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
-// The builds the board server started (a pull, a Build tap, a queued start) whose launch it never made: a building card
+// The builds the board server started (a pull, a Build tap, a queued start) whose launch it never made: a card not done
 // whose main build record is open with dispatched still set, since a builder's own `builder start` clears that mark.
 // → [{key, kind, model}], launchBuilder's card for each.
 export async function cutOffBuilds(site) {
@@ -3352,7 +3420,7 @@ export async function cutOffBuilds(site) {
   for (const source of await itemSources(site)) {
     const wave = await readJSON(source.file, null);
     for (const item of wave?.items || []) {
-      if (item.status !== 'building') continue;
+      if (closed(item)) continue;
       const record = await readJSON(path.join(source.dir, 'agents', `${item.id}.json`), null);
       if (!record?.started || record.done || !record.dispatched || plans(record)) continue;
       out.push({ key: `${source.slug}/${item.id}`, kind: providerOf(record.kind), model: record.model });
@@ -3368,9 +3436,9 @@ async function restoreHold(site, key, was) {
   await writeJSON(source.file, wave);
 }
 
-async function restoreStatus(site, key, was) {
+async function restoreLane(site, key, was) {
   const { source, wave, item } = await loadItem(site, key);
-  for (const field of ['status', 'status_at']) if (was[field] === undefined) delete item[field]; else item[field] = was[field];
+  for (const field of ['lane', 'lane_at', 'closed_at', 'reopened_at']) if (was[field] === undefined) delete item[field]; else item[field] = was[field];
   await writeJSON(source.file, wave);
 }
 
@@ -3387,19 +3455,6 @@ export async function pickBuilder(site, key) {
   const { item } = await loadItem(site, key);
   const { kind, model, reason } = builderPick({ card: item });
   return { lines: [`${[kind, model].filter(Boolean).join(' ')}: ${reason}`] };
-}
-
-// A card moving to In Progress has its worktree before any builder runs: made by make (as builder start's) unless
-// the card already has one on disk, and kept on the wave item until land removes it, since no builder record may exist yet.
-export async function ensureWorktree(site, key, make) {
-  const { source, wave, item } = await loadItem(site, key);
-  if (item.worktree?.path && existsSync(item.worktree.path)) return null;
-  const recorded = await recordedWorktree(site, key);
-  if (recorded?.path && existsSync(recorded.path)) return null;
-  const { remade, ...wt } = await make({ busy: [] });
-  item.worktree = wt;
-  await writeJSON(source.file, wave);
-  return wt;
 }
 
 // The worktree the item's newest builder record keeps ({path, branch, repo}), or null when none keeps one.
@@ -3566,20 +3621,22 @@ async function cardLinks(site, key) {
   ].filter(([, k]) => cards.has(k));
   return Promise.all(linked.map(async ([relation, k]) => {
     const { entry, it } = cards.get(k);
-    return { relation, ref: await cardName(site, k), title: it.title || k, status: it.status || 'not started', notes: it.plan ? path.join(entry.dir, it.plan) : null };
+    return { relation, ref: await cardName(site, k), title: it.title || k, lane: LANES[it.lane || 'todo'], notes: it.plan ? path.join(entry.dir, it.plan) : null };
   }));
 }
 
-// The cards a headless lander lands: checking, every call on their records verified, none of their questions open,
-// nothing blocking them, and their worktree still there. → [{key, verified, kind, model}], verified the newest verification's time, and kind and
-// model the newest record's, so the lander runs as the agent that built the card.
+// The cards a headless lander lands: handed back (domain.mjs handedBackAt) and not done, every call on their records
+// verified, none of their questions open, nothing blocking them, and their worktree still there. → [{key, verified,
+// kind, model}], verified the newest verification's time, and kind and model the newest record's, so the lander runs as
+// the agent that built the card.
 export async function landable(site) {
   const out = [];
   for (const source of await itemSources(site)) {
     const wave = await readJSON(source.file, null);
     for (const item of wave?.items || []) {
-      if (item.status !== 'checking') continue;
+      if (closed(item)) continue;
       const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter(Boolean);
+      if (!handedBackAt(records)) continue;
       const verified = records.map((r) => r.verified?.at).filter(Boolean).sort().at(-1);
       if (!verified || records.some((r) => unverifiedCalls(r).length)) continue;
       const key = `${source.slug}/${item.id}`;
@@ -3592,12 +3649,14 @@ export async function landable(site) {
 }
 
 // data/landers.json {<key>: {verified, pid}}: the verification each launched lander was for and its process. A card
-// whose lander stopped partway (the usage pause ends a headless run) stays at building with no process; this sets it back
-// to checking and drops its entry, so landable finds it and the server launches a fresh lander. → the thread line.
+// whose lander stopped partway (the usage pause ends a headless run) keeps its lander's record open with no process;
+// this closes that record as handed back and drops the entry, so landable finds the card and the server launches a
+// fresh lander.
 export async function relaunchLander(site, key) {
-  const { item } = await loadItem(site, key);
-  if (item.status !== 'building') fail(`${key} is ${item.status || 'not started'}; only a card at building has a stopped lander to relaunch`);
-  await setItem(site, key, { status: 'checking', next: 'A lander relaunches to land the verified build' });
+  const { source, item } = await loadItem(site, key);
+  const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
+  if (!records.some((r) => r?.started && !r.done)) fail(`${key} has no open builder; only a card whose lander stopped has one to relaunch`);
+  await setItem(site, key, { handBack: true, next: 'A lander relaunches to land the verified build' });
   const file = path.join(site, 'data', 'landers.json');
   const sent = await readJSON(file, {});
   delete sent[key];
@@ -3619,7 +3678,7 @@ export async function checkCallsVerified(site, key, { dir } = {}) {
   fail(`land: ${key} has judgment calls nobody verified yet; check them with ${owing.map((a) => `builder calls ${key}${a}`).join(', ')}, then run ${owing.map((a) => `builder verified ${key}${a}`).join(', ')}`);
 }
 
-// `builder done`'s hand-back for a record with unverified calls: the card goes to checking with the Next the calls ask
+// `builder done`'s hand-back for a record with unverified calls: its records close as handed back with the Next the calls ask
 // for, a question first (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
 // → {lines}, or null when the record has none.
 export async function handBackCalls(site, key, { dir, agent = 'main', next }) {
@@ -3628,8 +3687,8 @@ export async function handBackCalls(site, key, { dir, agent = 'main', next }) {
   if (!calls.length) return null;
   if (next !== undefined) fail(`builder done sets ${key}'s Next itself while its record has judgment calls; run it without --next`);
   const asks = calls.some((c) => c.text.startsWith('Question:')) ? "Answer the builder's questions" : "Verify the builder's judgment calls";
-  const set = await setItem(site, key, { status: 'checking', next: asks });
-  return { lines: [`handed back: checking, Next "${asks}"`, ...set.lines] };
+  const set = await setItem(site, key, { handBack: true, next: asks });
+  return { lines: [`handed back: Next "${asks}"`, ...set.lines] };
 }
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md
@@ -3652,13 +3711,13 @@ export async function finishesCard(site, key, { agent = 'main' }) {
 }
 
 // What `builder verified` does next: null when the card isn't a handed-back build whose every call is now verified
-// (checking, no builder open, its newest worktree still there); else {waits: [question id]} while the card's questions
-// are open, or {} when verifying finishes it.
+// (handed back and not done, no builder open, its newest worktree still there); else {waits: [question id]} while the
+// card's questions are open, or {} when verifying finishes it.
 export async function verifiedFinish(site, key) {
   const { source, item } = await loadItem(site, key);
-  if (item.status !== 'checking') return null;
+  if (closed(item)) return null;
   const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter(Boolean);
-  if (records.some((r) => unverifiedCalls(r).length || (r.started && !r.done && r.kind !== 'install'))) return null;
+  if (!handedBackAt(records) || records.some((r) => unverifiedCalls(r).length || (r.started && !r.done && r.kind !== 'install'))) return null;
   const tree = await recordedWorktree(site, key);
   if (!tree || !existsSync(tree.path)) return null;
   return { waits: (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id) };
@@ -3668,13 +3727,12 @@ export async function verifiedFinish(site, key) {
 // reopened, and only the owner's Done closes it again.
 export async function checkNotReopened(site, key) {
   const { item } = await loadItem(site, key);
-  if (item.status !== 'done' || item.merged_at) return;
-  const doneAt = String(item.status_at || '');
+  if (item.reopened_at) fail(`the owner reopened ${await cardName(site, key)}; it closes on the owner's Done`);
+  if (item.lane !== 'done' || storedPRs(item).some((p) => p.merged_at)) return;
+  const doneAt = String(item.closed_at || '');
   const events = await readLines(path.join(site, 'data', 'events.jsonl'));
   if (events.some((e) => e.kind === 'item-message' && e.data?.key === key && String(e.ts) > doneAt)) fail(`the owner reopened ${await cardName(site, key)} with a message; it closes on the owner's Done`);
 }
-
-const HANDED_BACK = ['checking', 'done', 'merged', 'dropped'];
 
 async function builderFiles(waveDir, id) {
   const dir = path.join(waveDir, 'agents');
@@ -3683,13 +3741,20 @@ async function builderFiles(waveDir, id) {
     .map((n) => path.join(dir, n));
 }
 
-async function closeBuilders(waveDir, id, cardFinished) {
+// Closes the card's open builder records, an install build only with the card finished. handedBack marks each record it
+// closes as handed back at that time (domain.mjs handedBackAt); endHandBack takes the mark off every record, so the
+// hand-back ends.
+async function closeBuilders(waveDir, id, cardFinished, { handedBack, endHandBack = false } = {}) {
   const now = new Date().toISOString();
   for (const file of await builderFiles(waveDir, id)) {
     const record = await readJSON(file, null);
-    if (!record || record.done || (record.kind === 'install' && !cardFinished)) continue;
-    const { eta, ...rest } = record;
-    await writeJSON(file, { ...rest, done: now });
+    if (!record) continue;
+    if (record.done || (record.kind === 'install' && !cardFinished)) {
+      if (endHandBack && record.handed_back) { const { handed_back, ...rest } = record; await writeJSON(file, rest); }
+      continue;
+    }
+    const { eta, handed_back, ...rest } = record;
+    await writeJSON(file, { ...rest, done: now, ...(handedBack ? { handed_back: handedBack } : {}) });
   }
 }
 
@@ -3721,14 +3786,13 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
     setNext(item || fail(`${key} has no item to set --next on`), next, await hasOpenQuestion(site, key));
     if (site) await checkNextDeps(site, key, item, item.next);
   }
-  const cleared = last && clearBuildingStatus(item);
   if (requireNext && item && owesNext(item, records)) {
-    fail(`builder done closes ${key}'s last open builder, which leaves it In Progress with no Next; pass --next "<what happens next>", or hand it back with item set ${key} --status checking or land`);
+    fail(`builder done closes ${key}'s last open builder, which leaves it In Progress with no Next; pass --next "<what happens next>", or record a judgment call with builder call ${key} or land`);
   }
   await writeJSON(file, stopped);
   await publishStaged(site, key);
   if (note) await statusToThread(site, key, agent, record, { detail: note }, done);
-  if (cleared || next !== undefined) await writeJSON(source.file, wave);
+  if (next !== undefined) await writeJSON(source.file, wave);
   return file;
 }
 

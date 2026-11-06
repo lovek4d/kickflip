@@ -19,3 +19,5 @@ Considered:
 - the builder landing after the session verifies: a second resume for every card with calls, where the session can run `land` itself;
 - checking only the latest build record: a second agent's calls on the same card would slip past `land`;
 - `item set --status done` checking calls too: a card closed without `land` was closed by the session, which is the one verifying.
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): builder done with unverified calls closes the record with handed_back and the Next; there is no checking status.

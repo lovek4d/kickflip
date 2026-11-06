@@ -3529,7 +3529,7 @@ test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their bu
   b.page.fire(b.root, 'click', { target: button('w/T1', 'finish') });
   await b.settle();
   assert.deepEqual([waitState(button('w/T1', 'finish')), card('w/T1').open, card('w/T1').closest('.lane').dataset.lane], [WAITING, true, 'todo']);
-  b.server.board = { ...boardOf([workCard('T1', { lane: 'done', status: 'done' }), ...cards.slice(1)]), holdChoices };
+  b.server.board = { ...boardOf([workCard('T1', { lane: 'done', storedLane: 'done' }), ...cards.slice(1)]), holdChoices };
   sends.answer();
   await b.settle();
   assert.deepEqual([card('w/T1').open, card('w/T1').closest('.lane').dataset.lane], [false, 'done']);
@@ -3574,18 +3574,18 @@ test("a Merge tap spins until a board shows the card left In Review or the merge
   assert.deepEqual(busy('M1'), BUSY);
   await b.change({ board: boardAt(3, [merging('M1'), idle('M2')]) });
   assert.deepEqual(busy('M1'), BUSY, 'a status line keeps it merging');
-  await b.change({ board: boardAt(4, [workCard('M1', { lane: 'done', status: 'done' }), idle('M2')]) });
+  await b.change({ board: boardAt(4, [workCard('M1', { lane: 'done', storedLane: 'done' }), idle('M2')]) });
   assert.equal(button('M1'), null);
   assert.equal(b.root.querySelector('details.item[data-key="w/M1"]').closest('.lane').dataset.lane, 'done');
 
   // A refusal: the board after the tap shows the card still In Review and no longer merging.
   b.page.fire(b.root, 'click', { target: button('M2') });
   await b.settle();
-  b.server.board = boardAt(5, [workCard('M1', { lane: 'done', status: 'done' }), merging('M2')]);
+  b.server.board = boardAt(5, [workCard('M1', { lane: 'done', storedLane: 'done' }), merging('M2')]);
   answer({ id: 'e2', board: structuredClone(b.server.board) });
   await b.settle();
   assert.deepEqual(busy('M2'), BUSY);
-  await b.change({ board: boardAt(6, [workCard('M1', { lane: 'done', status: 'done' }), idle('M2')]) });
+  await b.change({ board: boardAt(6, [workCard('M1', { lane: 'done', storedLane: 'done' }), idle('M2')]) });
   assert.deepEqual(busy('M2'), [false, null]);
   b.view.unmount();
 });
@@ -5018,10 +5018,10 @@ test('a slim Done card draws as the whole card does, closed and open', async () 
   const t = (m) => `2026-11-04T0${m}:00:00.000Z`;
   const built = buildBoard({
     waves: [{ slug: 'w', agents: { A1: { main: { kind: 'claude', started: t(1), done: t(2) } } }, wave: { title: 'W', repo: 'o/r', items: [
-      { id: 'A1', title: 'Merged', status: 'merged', pr: 7, status_at: t(3), branch: 'a1', plan: 'a1.md', manual_steps: ['Restart the hub'], parent: 'A2', related: ['A3'] },
-      { id: 'A2', title: 'Parent', status: 'done', status_at: t(4), notes: 'Why' },
-      { id: 'A3', title: 'Dropped', status: 'dropped', status_at: t(5) },
-      { id: 'A4', title: 'Open', status: 'planned', deps: ['A2'] },
+      { id: 'A1', title: 'Merged', lane: 'done', lane_at: t(3), closed_at: t(3), prs: [{ number: 7, merged_at: t(3) }], branch: 'a1', plan: 'a1.md', manual_steps: ['Restart the hub'], parent: 'A2', related: ['A3'] },
+      { id: 'A2', title: 'Parent', lane: 'done', lane_at: t(4), closed_at: t(4), notes: 'Why' },
+      { id: 'A3', title: 'Dropped', lane: 'done', lane_at: t(5), closed_at: t(5) },
+      { id: 'A4', title: 'Open', lane: 'todo', deps: ['A2'] },
     ] } }],
     prs: { 'o/r#7': { state: 'MERGED', mergedAt: t(3), title: 'Merged', checks: { state: 'pass' }, reviews: {} } },
     owner: { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Which?', options: [{ id: 'a', label: 'A' }], resolved: 'Answered', resolved_at: t(2) }] },

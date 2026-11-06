@@ -216,9 +216,10 @@ test('a merged PR closes its card as merged, frees the card waiting on it and st
   const first = await board.poll();
   assert.deepEqual(first.failed, []);
   assert.deepEqual(first.merged, ['merges']);
-  assert.equal(board.wave().items[0].status, 'merged');
+  assert.equal(board.wave().items[0].lane, 'done');
+  assert.deepEqual(board.wave().items[0].prs.map((p) => [p.number, typeof p.merged_at]), [[51, 'string']]);
   assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
-  assert.deepEqual(board.thread('m/A2').map((l) => l.text), ['Unblocked: A1 is merged.']);
+  assert.deepEqual(board.thread('m/A2').map((l) => l.text), ['Unblocked: A1 is done.']);
   assert.deepEqual(board.events().map((e) => [e.kind, e.data]), [
     ['card-unblocked', { key: 'm/A2' }], ['github-change', { prs: [{ wave: 'm', id: 'A1', pr: 51, changes: ['merged'] }] }],
   ]);
@@ -228,6 +229,19 @@ test('a merged PR closes its card as merged, frees the card waiting on it and st
   assert.deepEqual(second.merged, []);
   assert.deepEqual(queried(home).slice(fetches), [[]]);
   assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
+});
+
+test('a card whose only PR closed unmerged moves to Done with a Closed line, and wakes no merge', async () => {
+  const board = fileBoard('closes', { slug: 'x' }, [{ id: 'A1', lane: 'review', pr: 52 }]);
+  writePR(home, 52, prView({ state: 'CLOSED' }));
+  const first = await board.poll();
+  assert.deepEqual(first.failed, []);
+  assert.deepEqual(first.merged, []);
+  const [item] = board.wave().items;
+  assert.equal(item.lane, 'done');
+  assert.equal(typeof item.closed_at, 'string');
+  assert.deepEqual(item.prs.map((p) => [p.number, p.merged_at]), [[52, undefined]]);
+  assert.deepEqual(board.thread('x/A1').map((l) => l.text), ['Closed: #52 closed unmerged.']);
 });
 
 // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
@@ -281,9 +295,10 @@ test("on a board with auto-merge on, the poll merges an approved, green, clean P
   const first = await auto.poll();
   assert.deepEqual(first.failed, []);
   assert.deepEqual(merges().slice(before), ['90']);
-  assert.equal(auto.wave().items[0].status, 'merged');
+  assert.equal(auto.wave().items[0].lane, 'done');
+  assert.equal(typeof auto.wave().items[0].prs[0].merged_at, 'string');
   assert.equal(auto.thread('a/A1').at(-1).text, 'Merged PR #90.');
-  for (const id of ['A2', 'A3', 'A4']) assert.equal(auto.wave().items.find((i) => i.id === id).status, undefined, id);
+  for (const id of ['A2', 'A3', 'A4']) assert.notEqual(auto.wave().items.find((i) => i.id === id).lane, 'done', id);
   await manual.poll();
   assert.deepEqual(merges().slice(before), ['90'], 'a board with auto-merge off merges none');
 
@@ -291,7 +306,7 @@ test("on a board with auto-merge on, the poll merges an approved, green, clean P
   writePR(home, 92, prView({ ...ready })); writeMerge(home, 92, { error: 'base branch policy prohibits the merge' });
   const second = await auto.poll();
   assert.deepEqual(second.failed, ['auto: could not merge a/A3 (gh pr merge #92 failed: base branch policy prohibits the merge)']);
-  assert.equal(auto.wave().items[2].status, undefined);
+  assert.notEqual(auto.wave().items[2].lane, 'done');
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md: each merge the
   // poll tries goes in the board's audit log, with what it read; a board with auto-merge off logs none.
   const why = (pr) => `Auto-merge is on and PR #${pr} is approved, green and clean.`;
@@ -315,13 +330,15 @@ test("the poll reads every PR on a card in its own repo, and closes the card onl
   assert.equal(first.watched, 3);
   assert.deepEqual(first.merged, []);
   assert.deepEqual(queried(home).at(-1), ['o/r#61', 'o/site#61', 'o/api#62']);
-  assert.equal(board.wave().items[0].status, undefined);
+  assert.notEqual(board.wave().items[0].lane, 'done');
   assert.deepEqual(board.events().map((e) => e.data), [{ prs: [{ wave: 's', id: 'A1', pr: 61, changes: ['merged'] }] }]);
   writePR(home, 'o/site#61', prView({ state: 'MERGED' }));
   writePR(home, 'o/api#62', prView({ state: 'CLOSED' }));
   const second = await board.poll();
   assert.deepEqual(second.merged, ['several']);
-  assert.equal(board.wave().items[0].status, 'merged');
+  assert.equal(board.wave().items[0].lane, 'done');
+  assert.deepEqual(board.wave().items[0].prs.map((p) => [p.repo, p.number, typeof p.merged_at]),
+    [[undefined, 61, 'string'], ['o/site', 61, 'string'], ['o/api', 62, 'undefined']]);
   assert.deepEqual(board.thread('s/A1').map((l) => l.text), ['Merged PRs #61, o/site#61.']);
   assert.equal((await board.poll()).watched, 0);
 });
@@ -405,7 +422,7 @@ test('a shared ticket waits for both cards across file boards to be ready and th
   const { board, issue, poll, world, updates } = await linearPoll(t);
   const logged = readAudit(hubAudit()).length;
   const first = board('shared-first', [{ id: 'A1', pr: 34, ticket: 'ENG-5' }]);
-  board('shared-second', [{ id: 'A1', pr: 35, ticket: 'ENG-5' }, { id: 'dropped', status: 'dropped', ticket: 'ENG-5' }]);
+  board('shared-second', [{ id: 'A1', pr: 35, ticket: 'ENG-5' }, { id: 'dropped', lane: 'done', ticket: 'ENG-5' }]);
   issue('ENG-5');
   writePR(home, 34, prView());
   writePR(home, 35, prView({ isDraft: true }));
@@ -415,7 +432,7 @@ test('a shared ticket waits for both cards across file boards to be ready and th
   writePR(home, 34, prView({ state: 'MERGED' }));
   assert.deepEqual((await poll()).linear, { moved: [], failed: [] });
   assert.equal(world.issues['ENG-5'].state, 's-rev');
-  first([{ id: 'A1', pr: 34, status: 'merged', ticket: 'ENG-5' }]);
+  first([{ id: 'A1', lane: 'done', prs: [{ number: 34, merged_at: '2026-11-04T10:00:00Z' }], ticket: 'ENG-5' }]);
   writePR(home, 35, prView({ state: 'MERGED' }));
   assert.deepEqual((await poll()).linear.moved, [{ id: 'ENG-5', state: 'Done' }]);
   assert.equal(updates().length, 3);
@@ -427,7 +444,7 @@ test('a shared ticket waits for both cards across file boards to be ready and th
     ['linear-move', 'ENG-5', 'moved to In Review', 'Every card on it has merged or has a PR ready for review.'],
     ['linear-move', 'ENG-5', 'moved to Done', 'Every card on it has merged.'],
   ]);
-  assert.deepEqual(moves[0].inputs.cards, ['shared-first:linear/A1', 'shared-second:linear/A1']);
+  assert.deepEqual(moves[0].inputs.cards, ['shared-first:linear/A1', 'shared-second:linear/A1', 'shared-second:linear/dropped']);
 });
 
 test('the poll combines Linear lists and Linear-source tickets once across waves boards, including created tickets', async (t) => {
@@ -455,7 +472,7 @@ test('an unstarted carrying card blocks review and a closed unmerged PR does not
   const { board, issue, poll, linear } = await linearPoll(t);
   board('unstarted', [
     { id: 'A1', pr: 37, ticket: 'ENG-10' }, { id: 'A2', ticket: 'ENG-10' },
-    { id: 'A3', pr: 38, ticket: 'ENG-11' }, { id: 'A4', status: 'done', ticket: 'ENG-10' },
+    { id: 'A3', pr: 38, ticket: 'ENG-11' }, { id: 'A4', lane: 'done', ticket: 'ENG-10' },
   ]);
   issue('ENG-10');
   issue('ENG-11');
@@ -523,16 +540,16 @@ test("the poll runs a landed card's owner-step check, closing it once it passes 
   const page = `http://127.0.0.1:${server.address().port}/release`;
   const step = { owner_step: 'Tag the release', owner_check: { check: `url ${page} v0.3`, since: '2026-11-04T10:00:00Z' } };
   const board = fileBoard('checks', { slug: 'c' }, [
-    { id: 'C1', status: 'done', ...step }, { id: 'C2', status: 'merged', ...step }, { id: 'C3', status: 'building', ...step }]);
+    { id: 'C1', lane: 'done', ...step }, { id: 'C2', lane: 'done', prs: [{ number: 95, merged_at: '2026-11-04T09:00:00Z' }], ...step }, { id: 'C3', lane: 'progress', ...step }]);
   const first = await board.poll();
   assert.deepEqual(first.failed, []);
   assert.equal(hits, 2);
-  assert.deepEqual(board.wave().items.map((i) => [i.status, i.owner_step]), [['done', 'Tag the release'], ['merged', 'Tag the release'], ['building', 'Tag the release']]);
+  assert.deepEqual(board.wave().items.map((i) => [i.lane, i.owner_step]), [['done', 'Tag the release'], ['done', 'Tag the release'], ['progress', 'Tag the release']]);
   live = true;
   await board.poll();
   const [c1, c2, c3] = board.wave().items;
-  assert.deepEqual([c1.status, c1.owner_step, c1.owner_check], ['done', undefined, undefined]);
-  assert.deepEqual([c2.status, c2.owner_step, c2.owner_check], ['merged', undefined, undefined]);
+  assert.deepEqual([c1.lane, c1.owner_step, c1.owner_check], ['done', undefined, undefined]);
+  assert.deepEqual([c2.lane, c2.owner_step, c2.owner_check], ['done', undefined, undefined]);
   assert.equal(c3.owner_step, 'Tag the release');
   assert.deepEqual(board.thread('c/C1').map((l) => [l.who, l.text]), [['claude', `Check passed: ${page} shows "v0.3". Closed.`]]);
   const after = hits;
@@ -541,7 +558,7 @@ test("the poll runs a landed card's owner-step check, closing it once it passes 
 });
 
 test("an owner-step check that can't run three times in a row is marked broken, wakes the session once and stops running", async () => {
-  const board = fileBoard('broken-checks', { slug: 'b' }, [{ id: 'B1', status: 'done', owner_step: 'Deploy it', owner_check: { check: 'url http://127.0.0.1:1/never', since: '2026-11-04T10:00:00Z' } }]);
+  const board = fileBoard('broken-checks', { slug: 'b' }, [{ id: 'B1', lane: 'done', owner_step: 'Deploy it', owner_check: { check: 'url http://127.0.0.1:1/never', since: '2026-11-04T10:00:00Z' } }]);
   for (let i = 0; i < 2; i += 1) {
     await board.poll();
     assert.equal(board.wave().items[0].owner_check.broken, undefined);
@@ -561,7 +578,7 @@ test("an owner-step check that can't run three times in a row is marked broken, 
 // docs/adr/2026-11-05-1000-the-poll-links-a-pr-opened-by-hand-on-a-cards-branch.md
 test("the poll links an open same-repo PR whose head is a card's branch, once, and wakes the session with linked", async () => {
   const board = fileBoard('hand', { slug: 'h' }, [
-    { id: 'H1', status: 'building' }, { id: 'H2', status: 'held' }, { id: 'H3', pr: 70 }, { id: 'H4', status: 'done' }, { id: 'H5' }, { id: 'H6' },
+    { id: 'H1', lane: 'progress' }, { id: 'H2', held: true }, { id: 'H3', pr: 70 }, { id: 'H4', lane: 'done' }, { id: 'H5' }, { id: 'H6' },
   ]);
   writeOpen(home, 'o/r', [
     { number: 12, headRefName: 'H1', isCrossRepository: false },
@@ -578,16 +595,16 @@ test("the poll links an open same-repo PR whose head is a card's branch, once, a
   assert.deepEqual(first.failed, []);
   const items = board.wave().items;
   assert.deepEqual(items.map((i) => storedPRs(i).map((p) => p.number)), [[12], [13], [70], [], [], []]);
-  assert.equal(items[0].status, undefined);
-  assert.equal(items[1].status, 'held');
-  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Found PR #12 on branch H1.']);
+  // A linked PR is a handover: each card moves to In Review, and a held one leaves its hold.
+  assert.deepEqual(items.slice(0, 2).map((i) => [i.lane, i.held]), [['review', undefined], ['review', undefined]]);
+  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Moved to In Review: PR #12 opened', 'Found PR #12 on branch H1.']);
   assert.deepEqual(board.thread('h/H5'), []);
   assert.deepEqual(board.events().map((e) => e.data.prs), [[
     { wave: 'h', id: 'H1', pr: 12, changes: ['linked'] }, { wave: 'h', id: 'H2', pr: 13, changes: ['linked'] },
   ]]);
   assert.deepEqual(queried(home).at(-1), ['o/r#70']);
   await board.poll();
-  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Found PR #12 on branch H1.']);
+  assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Moved to In Review: PR #12 opened', 'Found PR #12 on branch H1.']);
   assert.equal(board.events().length, 1);
   assert.deepEqual(queried(home).at(-1), ['o/r#12', 'o/r#13', 'o/r#70']);
 });

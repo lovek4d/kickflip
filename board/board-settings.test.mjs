@@ -121,31 +121,36 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   assert.equal(await cli('item', 'add', 'audit/D4', '--title', 'Four', '--ticket', 'ENG-10'), 0);
   assert.deepEqual([item('C3').ticket, item('C3').ticket_created, item('D4').ticket], ['ENG-9', undefined, 'ENG-10']);
   const stateOf = (id) => world.teams[0].states.find((s) => s.id === world.issues[id].state).name;
+  // builder start's move of the ticket reaches Linear through the global fetch, not the CLI's injected one.
+  t.mock.method(globalThis, 'fetch', linear.fetch);
+  const start = (id) => cli('builder', 'start', `audit/${id}`, '--kind', 'claude');
+  const said = (line) => out.slice(-4).includes(line);
   const moves = [
-    ['B2', ['--status', 'building'], 'ENG-101', 'In Progress'], ['B2', ['--pr', '5'], 'ENG-101', 'In Review'], ['B2', ['--status', 'done', '--text', 'Done.'], 'ENG-101', 'Done'],
-    ['D4', ['--status', 'fixing'], 'ENG-10', 'In Progress'], ['D4', ['--status', 'merged'], 'ENG-10', 'Done'],
+    ['B2', null, 'ENG-101', 'In Progress'], ['B2', ['--pr', '5'], 'ENG-101', 'In Review'], ['B2', ['--done', '--text', 'Done.'], 'ENG-101', 'Done'],
+    ['D4', null, 'ENG-10', 'In Progress'], ['D4', ['--done', '--text', 'Merged.'], 'ENG-10', 'Done'],
   ];
   for (const [id, flags, ticket, state] of moves) {
-    assert.equal(await cli('item', 'set', `audit/${id}`, ...flags), 0);
-    assert.equal(out.at(-1), `ticket ${ticket}: moved to ${state}`);
+    assert.equal(await (flags ? cli('item', 'set', `audit/${id}`, ...flags) : start(id)), 0);
+    assert.ok(said(`ticket ${ticket}: moved to ${state}`), out.slice(-4).join('\n'));
     assert.equal(stateOf(ticket), state);
   }
-  assert.equal(await cli('item', 'set', 'audit/B2', '--status', 'building'), 0);
+  assert.equal(await cli('item', 'set', 'audit/B2', '--pr', '6'), 0);
   assert.equal(stateOf('ENG-101'), 'Done');
-  assert.equal(await cli('item', 'set', 'audit/C3', '--status', 'building'), 0);
-  assert.equal(out.at(-1), 'ticket ENG-9: left as it is, not assigned to you');
-  assert.deepEqual([item('C3').status, stateOf('ENG-9')], ['building', 'Todo']);
+  assert.equal(await start('C3'), 0);
+  assert.ok(said('ticket ENG-9: left as it is, not assigned to you'), out.slice(-4).join('\n'));
+  assert.deepEqual([item('C3').lane, stateOf('ENG-9')], ['progress', 'Todo']);
   const before = linear.calls.length;
-  for (const flags of [['--status', 'checking'],['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
+  for (const flags of [['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
   assert.equal(linear.calls.length, before);
   assert.equal(await cli('item', 'add', 'audit/E5', '--title', 'Five'), 0);
   assert.equal(await cli('item', 'add', 'audit', '--title', 'Named in Linear'), 0);
   assert.equal(out.at(-1), 'ENG-103 added as audit/ENG-103');
   assert.deepEqual([item('ENG-103').ticket, world.issues['ENG-103'].input.title], ['ENG-103', 'Named in Linear']);
   const offline = async () => { throw new Error('offline'); };
-  assert.equal(await main(['--site', 'audit', 'item', 'set', 'audit/E5', '--status', 'building'], { linearFetch: offline }), 0);
-  assert.equal(out.at(-1), 'ticket ENG-102: could not move to In Progress (Could not reach Linear: offline)');
-  assert.equal(item('E5').status, 'building');
+  globalThis.fetch.mock.mockImplementation(offline);
+  assert.equal(await start('E5'), 0);
+  assert.ok(said('ticket ENG-102: could not move to In Progress (Could not reach Linear: offline)'), out.slice(-4).join('\n'));
+  assert.equal(item('E5').lane, 'progress');
 
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
@@ -154,19 +159,19 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   assert.equal(await cli('item', 'add', 'audit/G7', '--title', 'Seven', '--ticket', '#41'), 0);
   assert.equal(await cli('item', 'add', 'audit/H8', '--title', 'Eight', '--ticket', '#43', '--deps', 'audit/F6'), 0);
   gh.length = 0;
-  for (const id of ['F6', 'G7']) assert.equal(await cli('item', 'set', `audit/${id}`, '--status', 'building'), 0);
+  for (const id of ['F6', 'G7']) assert.equal(await start(id), 0);
   assert.equal(await cli('item', 'set', 'audit/G7', '--pr', '7'), 0);
   assert.deepEqual(gh, []);
-  assert.equal(await cli('item', 'set', 'audit/F6', '--status', 'done', '--text', 'Done.'), 0);
+  assert.equal(await cli('item', 'set', 'audit/F6', '--done', '--text', 'Done.'), 0);
   assert.equal(out.at(-1), 'ticket #42: closed');
   assert.deepEqual(gh, [['issue', 'close', '42', '--repo', 'o/r']]);
   // The line on the card it unblocked names the finished card by its ticket, not its id.
   assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__H8.jsonl')).map((m) => m.text), ['Unblocked: #42 is done.']);
-  assert.equal(await cli('item', 'set', 'audit/G7', '--status', 'merged'), 0);
+  assert.equal(await cli('item', 'set', 'audit/G7', '--done', '--text', 'Merged.'), 0);
   assert.equal(out.at(-1), 'ticket #41: left as it is, not assigned to you');
   assert.equal(gh.some((argv) => argv[1] === 'close' && argv[2] === '41'), false);
   ghAnswers.view = { state: 'OPEN', assignees: [{ login: 'Love' }] };
-  assert.equal(await cli('item', 'set', 'audit/G7', '--status', 'done', '--text', 'Done.'), 0);
+  assert.equal(await cli('item', 'set', 'audit/G7', '--done', '--text', 'Done.'), 0);
   assert.equal(out.at(-1), 'ticket #41: closed');
   assert.deepEqual(gh.at(-1), ['issue', 'close', '41', '--repo', 'o/r']);
 });
@@ -189,11 +194,11 @@ test("a board still on Linear after Hub's key went refuses new tickets, links an
     assert.equal(err.at(-1), noKey);
   }
   assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
-  for (const flags of [['--status', 'building'], ['--pr', '9'], ['--status', 'done', '--text', 'Done.']]) {
-    assert.equal(await cli('item', 'set', 'audit/B2', ...flags), 0);
-    assert.equal(out.at(-1), 'ticket ENG-101: not moved, Hub has no Linear key');
+  for (const args of [['builder', 'start', 'audit/B2', '--kind', 'claude'], ['item', 'set', 'audit/B2', '--pr', '9'], ['item', 'set', 'audit/B2', '--done', '--text', 'Done.']]) {
+    assert.equal(await cli(...args), 0);
+    assert.ok(out.slice(-4).includes('ticket ENG-101: not moved, Hub has no Linear key'), out.slice(-4).join('\n'));
   }
-  write(waveFile, { ...read(waveFile), items: [{ id: 'E5', title: 'Fix login (ENG-2918)' }, { id: 'F6', title: 'No id yet' }, { id: 'G7', title: 'Done', status: 'done' }] });
+  write(waveFile, { ...read(waveFile), items: [{ id: 'E5', title: 'Fix login (ENG-2918)' }, { id: 'F6', title: 'No id yet' }, { id: 'G7', title: 'Done', lane: 'done', closed_at: '2026-11-01T10:00:00Z' }] });
   out.length = 0;
   assert.equal(await cli('tickets', 'backfill'), 0);
   assert.deepEqual(out, [`audit/E5 failed: ${noKey}`, `audit/F6 failed: ${noKey}`, 'backfill: linked 0, created 0, failed 2']);
@@ -208,12 +213,12 @@ test('tickets backfill links ids from open cards’ titles that belong to the so
   const waveFile = site('audit', 'data', 'wave.json');
   write(waveFile, { ...read(waveFile), items: [
     { id: 'A1', title: 'Fix login (ENG-2918)' },
-    { id: 'B2', title: 'Merged ENG-77', status: 'merged' },
-    { id: 'C3', title: 'Watch OPS-3 too', status: 'building' },
+    { id: 'B2', title: 'Merged ENG-77', lane: 'done', closed_at: '2026-11-01T10:00:00Z', prs: [{ number: 5, merged_at: '2026-11-01T10:00:00Z' }] },
+    { id: 'C3', title: 'Watch OPS-3 too', lane: 'progress' },
     { id: 'D4', title: 'Has one', ticket: 'ENG-5' },
     { id: 'E5', title: 'Legacy', linear: ['ENG-2919'] },
     { id: 'F6', title: 'Gone ENG-4040' },
-    { id: 'G7', title: 'Dropped', status: 'dropped' },
+    { id: 'G7', title: 'Dropped', lane: 'done', closed_at: '2026-11-01T10:00:00Z' },
     { id: 'ENG-1', title: 'Later', parent: 'A1' },
   ] });
   assert.equal(await cli('tickets', 'backfill'), 1);
@@ -263,7 +268,7 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   writeAccounts(dir, { lovek4d: 'token-lovek4d' });
   writePR(dir, 7, prView());
   write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), hub: true, local: true, github: 'someone/fork', cmd: [process.execPath, bin('../server.mjs')] } } });
-  write(site('audit', 'data', 'wave.json'), { ...wave(), internal: true, items: [{ id: 'A1', title: 'One', ticket: 'A1' }, { id: 'Z9', title: 'Shipped', ticket: 'Z9', status: 'done' }] });
+  write(site('audit', 'data', 'wave.json'), { ...wave(), internal: true, items: [{ id: 'A1', title: 'One', ticket: 'A1' }, { id: 'Z9', title: 'Shipped', ticket: 'Z9', lane: 'done', closed_at: '2026-11-01T10:00:00Z' }] });
   const cli = (...args) => run('board.mjs', ['--site', 'audit', ...args], undefined, env);
   const last = (...args) => cli(...args).out.trim().split('\n').at(-1);
   assert.equal(last('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}'), 'setting tickets {"source":"github","account":"lovek4d"}');
@@ -272,7 +277,7 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   assert.equal(cli('item', 'add', 'audit/C3', '--title', 'Three', '--ticket', '#9').code, 0);
   assert.deepEqual(cli('tickets', 'backfill').out.trim().split('\n').slice(-2), ['audit/A1 created #2', 'backfill: linked 0, created 1, failed 0']);
   assert.equal(read(site('audit', 'data', 'wave.json')).items.find((it) => it.id === 'Z9').ticket, 'Z9');
-  assert.equal(last('item', 'set', 'audit/B2', '--status', 'done', '--text', 'Done.'), 'ticket #1: closed');
+  assert.equal(last('item', 'set', 'audit/B2', '--done', '--text', 'Done.'), 'ticket #1: closed');
   assert.equal(cli('item', 'set', 'audit/C3', '--pr', '7').code, 0);
   const report = cli('pr', 'audit/C3');
   assert.equal(report.code, 0, report.err);
@@ -288,7 +293,7 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   const issueCalls = () => calls(dir).filter((a) => a[0] === 'issue').length;
   const before = issueCalls();
   assert.deepEqual(cli('item', 'add', 'audit/D4', '--title', 'Four'), { code: 1, out: '', err: 'gh has no nobody account; run gh auth login\n' });
-  assert.equal(last('item', 'set', 'audit/C3', '--status', 'done', '--text', 'Done.'), 'ticket #9: could not move to Done (gh has no nobody account; run gh auth login)');
+  assert.equal(last('item', 'set', 'audit/C3', '--done', '--text', 'Done.'), 'ticket #9: could not move to Done (gh has no nobody account; run gh auth login)');
   assert.equal(issueCalls(), before);
   assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}').code, 1);
 });
@@ -305,7 +310,7 @@ test("a card with an owner step keeps its GitHub issue open when the session clo
   const file = site('audit', 'data', 'wave.json');
   write(file, { ...read(file), items: read(file).items.map((it) => ({ ...it, owner_step: 'Tag the first release' })) });
   const closes = () => calls(dir).filter((a) => a[0] === 'issue' && a[1] === 'close').length;
-  const session = cli('item', 'set', 'audit/B2', '--status', 'done', '--text', 'Landed.');
+  const session = cli('item', 'set', 'audit/B2', '--done', '--text', 'Landed.');
   assert.equal(session.code, 0, session.err);
   assert.equal(closes(), 0);
   assert.equal(read(file).items[0].owner_step, 'Tag the first release');
@@ -313,7 +318,7 @@ test("a card with an owner step keeps its GitHub issue open when the session clo
     { encoding: 'utf8', env: { ...process.env, HOME: home, ...env } });
   assert.equal(owner.status, 0, owner.stderr);
   assert.equal(closes(), 1);
-  assert.deepEqual([read(file).items[0].status, read(file).items[0].owner_step], ['done', undefined]);
+  assert.deepEqual([read(file).items[0].lane, read(file).items[0].owner_step], ['done', undefined]);
 });
 
 test("pr comment and pr reply post Claude's words through gh with the robot prefix and the claude-bridge marker, as the board's github-login", () => {
@@ -354,7 +359,7 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
   const ann = { name: 'Ann', slack_user: 'U01ANN', dm: 'D01ANN', github: 'ann' };
   const bob = { name: 'Bob', slack_user: 'U02BOB', dm: 'D02BOB', github: 'bob-b' };
   const cfg = () => read(site('orch', 'board.json'));
-  write(at('waves', 'old', 'wave.json'), { title: 'Old', items: [{ id: 'O1', title: 'Shipped', status: 'merged' }] });
+  write(at('waves', 'old', 'wave.json'), { title: 'Old', items: [{ id: 'O1', title: 'Shipped', lane: 'done', closed_at: '2026-11-01T10:00:00Z', prs: [{ number: 1, merged_at: '2026-11-01T10:00:00Z' }] }] });
   write(path.join(home, 'r.json'), [ann]);
   assert.deepEqual(board('reviewers', 'set', '--site', 'orch', '--file', path.join(home, 'r.json')).out.trim().split('\n').slice(1), ['wave w: reviewers copied']);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', reviewers: [ann] });
@@ -676,7 +681,7 @@ test('review digest lists one item per hub-checked PR awaiting review, dates old
     item('old', 1),
     item('edge', 2, { review_link_ts: { Ann: ts(48) } }),
     item('recent', 3, { review_sent: { Ann: ts(47) } }),
-    item('approved', 4), item('draft', 5), item('closed', 6), item('unknown', 7), item('done', 10, { status: 'merged' }), item('ci', 13), item('liked', 14),
+    item('approved', 4), item('draft', 5), item('closed', 6), item('unknown', 7), item('done', 10, { lane: 'done', closed_at: '2026-11-01T10:00:00Z' }), item('ci', 13), item('liked', 14),
   ] });
   write(site('orch', 'data', 'pr-slack.json'), { 'o/r#1': { head: 'a', links: { Ann: { channel: 'D1', ts: ts(73), reactions: [] } }, replies: [] } });
   write(at('waves', 'empty', 'wave.json'), { reviewers: [{ name: 'Cy', slack_user: 'U3', dm: 'D3' }], items: [] });
@@ -719,8 +724,8 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
   write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer, bobReviewer], items: [
     { id: 'A1', title: 'Open', pr: 1 },
     { id: 'A2', title: 'Draft', pr: 2 },
-    { id: 'A3', title: 'Merged', pr: 3, status: 'merged' },
-    { id: 'A4', title: 'Done', pr: 4, status: 'done' },
+    { id: 'A3', title: 'Merged', prs: [{ number: 3, merged_at: '2026-11-01T10:00:00Z' }], lane: 'done', closed_at: '2026-11-01T10:00:00Z' },
+    { id: 'A4', title: 'Done', pr: 4, lane: 'done', closed_at: '2026-11-01T10:00:00Z' },
   ] });
   const link = (channel, ts, reactions = []) => ({ channel, ts, reactions });
   write(site('orch', 'data', 'pr-slack.json'), {

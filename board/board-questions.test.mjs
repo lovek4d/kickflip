@@ -49,10 +49,13 @@ test('question add appends valid questions and rejects the whole file otherwise'
     write(path.join(home, 'card.json'), question(id, { topic: 'item:w/A1' }));
     return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'card.json'));
   };
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'merged', '--force').code, 0);
+  const merged = read(at('waves', 'w', 'wave.json'));
+  Object.assign(merged.items[0], { lane: 'done', lane_at: '2026-10-23T10:00:00Z', closed_at: '2026-10-23T10:00:00Z', prs: [{ number: 5, merged_at: '2026-10-23T10:00:00Z' }] });
+  write(at('waves', 'w', 'wave.json'), merged);
   assert.equal(onCard('q-merged').code, 0);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'done', '--force', '--text', 'Done.').code, 0);
-  assert.equal(onCard('q-done').code, 0);
+  assert.equal(board('item', 'set', 'w/ENG-1', '--site', 'orch', '--done', '--force', '--text', 'Done.').code, 0);
+  write(path.join(home, 'card.json'), question('q-done', { topic: 'item:w/ENG-1' }));
+  assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'card.json')).code, 0);
   const added = read(site('orch', 'data', 'owner.json')).items;
   assert.deepEqual(added.map((q) => q.id), ['q1', 'q2', 'q4', 'q-merged', 'q-done']);
   assert.ok(added.every((q) => !Number.isNaN(Date.parse(q.asked_at))));
@@ -374,6 +377,8 @@ test("a planner that is stopped or abandoned publishes the questions staged on i
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'prototype').code, 0);
   assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')).code, 0);
   assert.deepEqual(read(owner).items, []);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+  // Closing the card abandons its planner.
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--done', '--text', 'Dropped: no longer wanted.').code, 0);
   assert.deepEqual(read(owner).items.map((q) => q.id), ['q1']);
+  assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
 });

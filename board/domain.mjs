@@ -31,7 +31,12 @@ export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototy
 // The owner's tap on a sent question's Resolved badge, {key?, question}: the question opens again (ownerQuestion), and
 // its card's thread reads "Question N was reopened". A record-only event, which wakes no session.
 export const QUESTION_REOPEN = 'question-reopen';
-export const ITEM_STATUSES = ['building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
+// docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
+// The lanes a card is stored in (its wave entry's `lane`, which store.mjs placeIn alone writes), and their names in a
+// move's thread line. Stale is In Review shown past seven days, never stored.
+export const LANES = Object.freeze({ todo: 'Todo', progress: 'In Progress', review: 'In Review', done: 'Done' });
+// The thread line kind of a card's move from one lane to another (store.mjs moveCard).
+export const MOVE = 'move';
 export const BUILDER_STALLED_AFTER = 10 * 60000;
 // How long a headless builder whose process lives may go without a status line or transcript movement before it reads
 // quiet (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
@@ -70,36 +75,37 @@ const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? {
 // board skips the draft (docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md). A card the board's rebase run works on
 // (rebasing) stays in its open PR's lane while the run builds and once it hands back
 // (docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
-function laneOf(item, pr, running, pushed, reopened, skipDraft, rebasing) {
-  const s = (item.status || '').toLowerCase();
-  if (s === 'merged' || s === 'done' || s === 'dropped' || (!reopened && (pr?.state === 'MERGED' || pr?.state === 'CLOSED'))) return 'done';
-  if ((running || s === 'checking') && !rebasing) return 'progress';
+function laneOf(item, pr, running, checking, pushed, reopened, skipDraft, rebasing) {
+  if (!reopened && (item.lane === 'done' || pr?.state === 'MERGED' || pr?.state === 'CLOSED')) return 'done';
+  if ((running || checking) && !rebasing) return 'progress';
   if (pushed) return 'review';
   if (pr?.state === 'OPEN') return pr.checks?.state === 'fail' && (!pr.isDraft || skipDraft) ? 'progress' : 'review';
   return pr ? 'progress' : 'todo';
 }
 
-// The state of one of a card's PRs (ui-enums.js PR_STATE): merged once GitHub or the card says so, or null before GitHub
-// is read.
-function prStateOf(pr, it) {
-  if (pr?.state === 'MERGED' || it.status === 'merged' || it.merged_at) return PR_STATE.merged;
+// The state of one of a card's PRs (ui-enums.js PR_STATE): merged once GitHub or the PR's merge mark on the card says
+// so, or null before GitHub is read.
+function prStateOf(pr, mergedAt) {
+  if (pr?.state === 'MERGED' || mergedAt) return PR_STATE.merged;
   if (pr?.state === 'CLOSED') return PR_STATE.closed;
   if (pr?.state === 'OPEN') return pr.isDraft ? PR_STATE.draft : PR_STATE.open;
   return null;
 }
 
-const droppedCard = (i) => {
-  const s = (i.status || '').toLowerCase();
-  return s === 'dropped' || (i.pr?.state === 'CLOSED' && s !== 'merged' && s !== 'done');
-};
+// A Done card whose least-ready PR closed unmerged: its work never landed.
+export const unlanded = (i) => i.pr?.status === PR_STATE.closed;
 
 // A wave is finished once it has work items and every work item is in Done
-// (docs/adr/2026-10-29-1639-lists-never-cut-silently.md). merged counts the wave's Done cards that weren't dropped.
-function finishedOf(cards) {
-  if (!cards.some((i) => i.kind === 'work') || cards.some((i) => i.lane !== 'done')) return null;
-  const done = cards.filter((i) => i.lane === 'done');
-  const dropped = done.filter(droppedCard).length;
-  return { merged: done.length - dropped, dropped };
+// (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
+const finishedOf = (cards) => cards.some((i) => i.kind === 'work') && cards.every((i) => i.lane === 'done');
+
+// docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
+// When the card's newest build handed back for the orchestrator's check (store.mjs handBackCalls, relaunchLander): that
+// record closed with handed_back, and no build has started since. Install builds don't count. → the time, or null.
+export function handedBackAt(agents) {
+  const newest = agents.filter((a) => a?.started && builds(a) && a.kind !== BUILDER_KIND.install)
+    .sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
+  return newest?.done && newest.handed_back ? newest.handed_back : null;
 }
 
 // Each reviewer's state, and since when the link has waited on them.
@@ -116,9 +122,9 @@ function reviewOf(reviewers, pr, sentAt) {
 // reviewers, the merge once GitHub counts it approved, or nothing. buildBoard sets `owner` for the owner's other waits.
 // A verified branch held for the owner's Merge waits on the merge, and so does a ready PR on a card no reviewer is on
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
-function waitsOnOf(lane, pr, builder, status, pushed, skipDraft, { held, needsApproval }) {
+function waitsOnOf(lane, pr, builder, checking, pushed, skipDraft, { held, needsApproval }) {
   if (builder?.kind === BUILDER_KIND.install) return 'builder';
-  if (status === 'checking') return 'checking';
+  if (checking) return 'checking';
   if (builder) return 'builder';
   if (held && lane === 'review') return 'merge';
   if (pushed && lane === 'review') return 'owner';
@@ -146,7 +152,7 @@ const TAP_DONE = 'Tap Done once it is settled';
 // Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's; never the owner's lines,
 // their answers included, nor status, agent or ask-link lines, nor the orchestrator's answer to a builder's ask, which
 // leaves the card quiet (ui-threads.js unread; docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md).
-const QUIET_KINDS = ['status', 'agent', 'ask-link', BUILDER_ASK.answer];
+const QUIET_KINDS = ['status', 'agent', 'ask-link', MOVE, BUILDER_ASK.answer];
 const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET_KINDS.includes(m.kind);
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
@@ -154,26 +160,31 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 const LANDER_HANDOFF = /^(?:Not merged yet: |Lander launched headless )/;
 function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets }) {
-  const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || {}), status: prStateOf(p.gh, it) }));
+  const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || {}), status: prStateOf(p.gh, p.merged_at) }));
   const least = leastReady(prs.map((p) => p.gh));
   const pr = prs[least]?.gh || null;
   const prStatus = views[least]?.status ?? null;
+  const storedLane = it.lane || null;
   // docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md
-  const tappedDone = Boolean(closedAt) && String(closedAt) > String(it.status_at || '');
-  if (tappedDone && it.status !== 'merged') it = { ...it, status: 'done' };
-  // When the card last closed: the owner's Done, its done or merged status, or its PR's merge.
-  const closed = [tappedDone && closedAt, it.status_at, it.merged_at, ...prs.map((p) => p.gh?.mergedAt)].filter(Boolean).map(String).sort().pop() || null;
-  // A done or merged card reopens; a dropped one, or one whose PR closed unmerged, doesn't
+  const tappedDone = Boolean(closedAt) && String(closedAt) > String(it.lane_at || '');
+  if (tappedDone) it = { ...it, lane: 'done', closed_at: closedAt, reopened_at: undefined };
+  // When the card last closed: its move to Done (the owner's Done until the board applies it), or its PRs' merge.
+  const closed = [it.closed_at, ...prs.flatMap((p) => [p.merged_at, p.gh?.mergedAt])].filter(Boolean).map(String).sort().pop() || null;
+  // A Done card reopens, and so does one whose PR merged; a reopened one stays open until it moves to Done again
   // (docs/adr/2026-11-02-1952-a-message-or-question-on-a-done-card-reopens-it.md,
-  // docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md).
+  // docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card that never landed,
+  // every PR closed unmerged, doesn't reopen
+  // (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md).
   const doneAt = String(closed || '');
-  const reopenAt = ['done', 'merged'].includes(it.status) || (prStatus === PR_STATE.merged && it.status !== 'dropped')
-    ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() : undefined;
-  // docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md: the owner step holds a card whose code landed (done, merged, or its PR merged) in In
-  // Review until the owner's Done.
-  const ownerStep = it.owner_step && !tappedDone && it.status !== 'dropped' ? String(it.owner_step) : null;
-  const landed = ['done', 'merged'].includes(it.status) || prStatus === PR_STATE.merged;
-  if (reopenAt) it = { ...it, status: undefined, next: undefined };
+  const neverLanded = views.length > 0 && views.every((v) => v.status === PR_STATE.closed);
+  const reopenAt = (it.lane === 'done' || it.reopened_at || prStatus === PR_STATE.merged) && !neverLanded
+    ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() || it.reopened_at || undefined : undefined;
+  // docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md: the owner step
+  // holds a card whose code landed (Done, or its PR merged) in In Review until the owner's Done.
+  const ownerStep = it.owner_step && !tappedDone ? String(it.owner_step) : null;
+  const landed = (it.lane === 'done' || prStatus === PR_STATE.merged) && !neverLanded;
+  if (reopenAt) it = { ...it, next: undefined };
+  const checkingAt = handedBackAt(agents);
   const ownerPending = Boolean(reopenAt) && said.some((m) => String(m.ts) > doneAt && (m.state === 'waiting' || m.state === 'working'));
   const key = `${slug}/${it.id}`;
   const reviewers = reviewersOf(wave, boardReviewers);
@@ -190,12 +201,12 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   // (rebase_run) until its push, and the push it made (rebased), while that is still the PR's head.
   const rebasing = Boolean(it.rebase_run) && pr?.state === 'OPEN';
   const lastRebase = (it.rebased || []).at(-1);
-  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing);
+  let lane = laneOf(it, pr, agents.some((a) => a.started && !a.done && builds(a)), Boolean(checkingAt), pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing);
   if (reopenAt && lane === 'todo') lane = 'progress';
   if (lane === 'review' && inReviewSince && now - Date.parse(inReviewSince) > STALE_AFTER) lane = 'stale';
   const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
   if (stepWaits) lane = 'review';
-  let waitsOn = waitsOnOf(lane, pr, builder, (it.status || '').toLowerCase(), pushed, skipDraft, { held: mergeReady, needsApproval: reviewers.length > 0 });
+  let waitsOn = waitsOnOf(lane, pr, builder, Boolean(checkingAt) && lane !== 'done', pushed, skipDraft, { held: mergeReady, needsApproval: reviewers.length > 0 });
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && (!pr.isDraft || skipDraft);
   // A reopened card Claude has answered waits on the owner's Done.
@@ -203,7 +214,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   if (awaitsDone) waitsOn = 'owner';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
   // Only a Todo card reads held; old data can't show one in Done.
-  const held = lane === 'todo' && (tapped ? Boolean(holdAsk.data.hold) : it.status === 'held' || Boolean(it.held));
+  const held = lane === 'todo' && (tapped ? Boolean(holdAsk.data.hold) : Boolean(it.held));
   // docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
   const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
   // docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md
@@ -213,7 +224,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const bumpStands = bumpedAt && !(firstBuild && String(bumpedAt) < firstBuild);
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   // A held Merge handed to a lander (finish.mjs landHeld) is still merging: the card leaves In Review once the lander starts.
-  const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status' && !LANDER_HANDOFF.test(m.text || '')).map((m) => String(m.ts)).sort().pop() || '';
+  const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', MOVE].includes(m.kind) && !LANDER_HANDOFF.test(m.text || '')).map((m) => String(m.ts)).sort().pop() || '';
   // A held card's tap is recorded on it (store.mjs tapMerge), and the board server's land writes its outcome there.
   const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
   const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;
@@ -222,12 +233,11 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const mergingNext = lastStatus?.text.startsWith('Waiting for ') ? `${OWNER_MERGE_NEXT.merging} · ${lastStatus.text[0].toLowerCase()}${lastStatus.text.slice(1)}` : OWNER_MERGE_NEXT.merging;
   // A Build tap the board refused: its reason stays on a Todo card while it is the card's newest line
   // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
-  const newest = thread.filter((m) => m.kind !== 'status').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  const newest = thread.filter((m) => !['status', MOVE].includes(m.kind)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
   const refusal = lane === 'todo' && newest?.kind === BUILD_REFUSED ? newest.text : null;
   // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
-  // When the card last came into In Progress: its reopening, else its latest build agent's start, else its status change.
-  const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop()
-    || (['building', 'fixing', 'checking'].includes(String(it.status || '').toLowerCase()) ? it.status_at || null : null);
+  // When the card last came into In Progress: its reopening, else its latest build agent's start.
+  const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop() || null;
   const approved = pr?.reviewDecision === 'APPROVED';
   const reviewNext = pushed && waitsOn === 'owner' ? `merge ${pushed.branch} into ${base}`
     : mergeReady && waitsOn === 'merge' ? (merging ? mergingNext : heldNext(base))
@@ -241,7 +251,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const rebaseFailed = rebasing && waitsOn === 'checking'
     ? agents.flatMap((a) => a.calls).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1)?.text ?? null : null;
   return {
-    key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, status: it.status || null,
+    key, kind: 'work', order, wave: slug, waveTitle: wave.title || slug, id: it.id, ref: refOf(wave, it, tickets), title: it.title, storedLane,
     created: it.created || null, reviewSince: it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: wave.internal === true, repo: wave.internal === true && !wave.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
@@ -270,7 +280,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: planningOf('grill', events, agents, askedAt), prototyping: planningOf('prototype', events, agents, askedAt),
     state: it.state || null,
-    updatedAt: pr?.mergedAt || pr?.updatedAt || it.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
+    updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
     waitFacts: waitFactsOf(it, { agents, thread, events, refusedAt: refusal ? newest.ts : null }),
   };
@@ -278,16 +288,16 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 // What a card's wait on the orchestrator is read from (orchestratorWaitOf), kept on the item only until buildBoard places
-// it: when its status was set and its stored Next, its oldest builder ask with no answer, its newest grill and prototype
-// requests, when the pull refused it, whether its records hold unverified calls, and the session's writes on it: a thread
-// line of Claude's other than a status, agent or refusal line, a verify and a builder start.
+// it: when its build handed back and its stored Next, its oldest builder ask with no answer, its newest grill and
+// prototype requests, when the pull refused it, whether its records hold unverified calls, and the session's writes on
+// it: a thread line of Claude's other than a status, agent, move or refusal line, a verify and a builder start.
 function waitFactsOf(it, { agents, thread, events, refusedAt }) {
   const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
   const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
   const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
-  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', BUILD_REFUSED].includes(m.kind)).map((m) => m.ts);
+  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', MOVE, BUILD_REFUSED].includes(m.kind)).map((m) => m.ts);
   return {
-    statusAt: it.status_at || null, next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
+    handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt,
     unverified: agents.some((a) => a.calls.some((c) => !a.verified || String(c.at) > String(a.verified.at))),
     writes: [...lines, ...agents.flatMap((a) => [a.verified?.at, a.started])].filter(Boolean).map(String).sort(),
@@ -421,9 +431,10 @@ function placeOwnerWait(it, questionById, autoMerge) {
 
 // docs/adr/2026-10-29-1639-a-started-card-never-returns-to-todo.md
 // docs/adr/2026-11-03-0202-a-card-moves-to-in-progress-only-once-building-starts.md
-// A work card has started once building has: a build agent's record, running or finished, or a building or fixing
-// status. A PR, a pushed branch and checking place it on their own (laneOf).
-const started = (it) => it.agents.some(builds) || ['building', 'fixing'].includes(String(it.status || '').toLowerCase());
+// A work card has started once it is stored past Todo (store.mjs placeIn: a build's start moves it, a block or a
+// launch that failed moves it back); one never placed, once building has: a build agent's record, running or finished.
+// A PR, a pushed branch and a hand-back place it on their own (laneOf).
+const started = (storedLane, agents) => (storedLane ? storedLane !== 'todo' : agents.some(builds));
 
 // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md
 // An In Progress card shows its builder line while a builder record is open, else its Next. buildBoard gives one with
@@ -431,12 +442,11 @@ const started = (it) => it.agents.some(builds) || ['building', 'fixing'].include
 export const NO_NEXT = 'none set yet';
 // Whether a work item's wave entry and builder records leave its card started with no open record and no Next, where
 // nothing else gives it a line or places it: a PR or pushed branch (GitHub or the owner's merge words most of those,
-// and buildBoard's gap the rest), checking, a hold, or a finished status.
+// and buildBoard's gap the rest), a hand-back, a hold, or Done.
 export function owesNext(item, records) {
-  const status = String(item.status || '').toLowerCase();
-  if (item.next || hasPR(item) || item.pushed || item.held || ['held', 'checking', 'done', 'merged', 'dropped'].includes(status)) return false;
   const agents = records.filter((r) => r?.started);
-  return !agents.some((r) => !r.done) && started({ status, agents });
+  if (item.next || hasPR(item) || item.pushed || item.held || item.lane === 'done' || handedBackAt(agents)) return false;
+  return !agents.some((r) => !r.done) && started(item.lane, agents);
 }
 
 // An ask is a New card in Todo, at the bottom among the cards by when it was sent (a bump moves it to the top), until Claude replies to it or writes in its thread; then it is an answered ask
@@ -479,7 +489,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const othersAt = [...msgs.filter(countsUnread).map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort();
   const lastTs = [...msgs.map((m) => m.ts), ...othersAt, ...(inProgress ? [mark.at] : [])].filter(Boolean).sort().pop();
   return {
-    key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? askedLabel(e.ts) : 'New', isNew: !handled, title, status: null,
+    key: `ask:${e.id}`, kind: 'ask', order: 0, wave: null, waveTitle: null, id: e.id, ref: handled ? askedLabel(e.ts) : 'New', isNew: !handled, title, storedLane: null,
     internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'asks' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => stateEntries(m).some(([, state]) => state === 'working')),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
@@ -549,7 +559,7 @@ export function prototypeWaits(built, events) {
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
-    calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null,
+    calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null,
     ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
@@ -782,7 +792,7 @@ const requestOf = (e, asked) => {
   return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : command;
 };
 // A Claude line answers the owner's messages before it; an agent's lines and the orchestrator's answer to a builder don't.
-const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
+const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', MOVE, BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
   ...msgs.filter((m) => m.kind === 'ask').map((m) => m.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
 // The event log and owner questions grouped once per build, so each card's thread picks its own instead of scanning
@@ -850,7 +860,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL ? { kind: VISUAL } : {}), ...(m.command ? commandLine(m.command) : {}),
+    ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.command ? commandLine(m.command) : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
@@ -917,7 +927,7 @@ function waveBandsOf(snapshot, waves, lineups, items, questions, events) {
     return { running: Boolean(last && !last.reply), questions: pending };
   };
   const byKey = new Map(items.map((i) => [i.key, i]));
-  const merged = (cards) => cards.filter((i) => i.lane === 'done' && !droppedCard(i)).length;
+  const merged = (cards) => cards.filter((i) => i.lane === 'done' && !unlanded(i)).length;
   const open = lineups.map((l) => ({ l, cards: l.keys.map((k) => byKey.get(k)).filter(Boolean) }))
     .map((x) => ({ ...x, open: !x.l.finished_at && x.cards.some((i) => i.lane !== 'done') }))
     .sort((a, b) => Number(a.open) - Number(b.open));
@@ -1014,7 +1024,7 @@ export function buildBoard(snapshot) {
   const remote = snapshot.github ? null : remoteFromInput(snapshot.remote);
   for (const { slug, wave, agents: records = {} } of snapshot.waves) {
     const repo = snapshot.github || wave.repo || null;
-    waves.push({ slug, title: wave.title || slug, status: wave.status || null, internal: Boolean(wave.internal), finished: null, reviewers: (wave.reviewers || []).map((r) => r.name) });
+    waves.push({ slug, title: wave.title || slug, status: wave.status || null, internal: Boolean(wave.internal), finished: false, reviewers: (wave.reviewers || []).map((r) => r.name) });
     wave.items.forEach((it, order) => {
       const key = `${slug}/${it.id}`;
       // An archived card's own ask is linked to it as well (store.mjs archiveCards), and counts once, as its from_ask.
@@ -1137,7 +1147,7 @@ export function buildBoard(snapshot) {
     it.blockReason = open ? it.blockReason ?? null : null;
     it.blocked = it.blockedBy.length > 0 || Boolean(it.blockedUntil);
     placeOwnerWait(it, questionById, autoMerge);
-    if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it)) it.lane = 'progress';
+    if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it.storedLane, it.agents)) it.lane = 'progress';
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
     if (it.unpicked) it.state = 'prototyping';
     if (it.unpicked && !it.action) it.next = PROTOTYPE_AGAIN;
@@ -1509,7 +1519,7 @@ export const DONE_KEPT = 100;
 // The fields of a Done card the page draws: the Done lane's card and its open detail (ui-cards.js workLines,
 // app-cards.js), the wave bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes, Questions and
 // Prototypes buttons, and ui-snapshot.js updateSign. No page file reads `agents`, and the rest are set on a Done card only to be sent.
-export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'status', 'wave', 'waveTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
+export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'wave', 'waveTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
   'review', 'reviewers', 'risky', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
@@ -1522,7 +1532,27 @@ export function archivedOf(built, keep = DONE_KEPT) {
   const linked = new Set(built.items.filter((i) => i.lane !== 'done').flatMap((i) => [
     ...(i.deps || []).map((d) => (String(d).includes('/') ? String(d) : `${i.wave}/${d}`)), i.parent?.key, ...(i.children || []).map((c) => c.key), ...(i.related || []).map((r) => r.key)]));
   return built.items.filter((i) => i.lane === 'done' && i.kind === 'work').sort((a, b) => String(b.closedAt || '').localeCompare(String(a.closedAt || '')))
-    .slice(keep).filter((i) => ['done', 'merged', 'dropped'].includes(i.status) && !banded.has(i.key) && !linked.has(i.key) && (!i.questions || i.questions.state === 'resolved'));
+    .slice(keep).filter((i) => i.storedLane === 'done' && !i.reopened && !banded.has(i.key) && !linked.has(i.key) && (!i.questions || i.questions.state === 'resolved'));
+}
+
+// docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
+// The moves the board server's settle pass makes after a build (store.mjs moveCard): each work card whose built lane
+// differs from its stored one moves to it, Stale as In Review, with why as its thread line. Done is left to what closes
+// a card (item set --done, a land, a merge, the owner's Done), which records why itself, and a stored Done shown
+// elsewhere moves only once a message or question reopened it: an owner step shows a landed card in In Review while it
+// stays Done. → [{key, to, why}]
+export function movesOf(built) {
+  return built.items.filter((i) => i.kind === 'work').flatMap((i) => {
+    const to = i.lane === 'stale' ? 'review' : i.lane;
+    if (to === i.storedLane || to === 'done' || (i.storedLane === 'done' && !i.reopened)) return [];
+    return [{ key: i.key, to, why: moveWhy(i, to) }];
+  });
+}
+function moveWhy(i, to) {
+  if (to === 'todo') return i.held ? 'it is held' : i.blocked ? 'it is blocked' : 'nothing builds it';
+  if (i.reopened && to === 'progress') return 'a message or question reopened it';
+  if (to === 'progress') return i.waitsOn === 'checking' ? 'its build handed back for a check' : i.builder ? 'a build started' : 'Claude acts next';
+  return i.next || 'it waits on review';
 }
 
 // The push tag tied to a card's thread: ask-<event id> for ask:<event id>, item-<wave>/<id> for a work item.
@@ -1577,8 +1607,8 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
     : it.builder?.stopped ? { kind: 'stalled', since: it.builder.silentSince, next: `${it.builder.stopped}: start it again when it should run, or drop the card` }
     : it.builder?.stalled ? { kind: 'stalled', since: it.builder.silentSince, next: 'Find out why the builder went silent or stopped, then restart or finish its run' }
     : it.lane === 'stale' && it.inReviewSince ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), next: 'Find out why the review went stale and fix what you can: rebase, CI, comments, a silent reviewer' }
-    : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.statusAt, next: facts.next || "Verify the builder's judgment calls" }
-      : { kind: 'checking', since: facts.statusAt, next: facts.next || 'Land the checked build' }
+    : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
+      : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }
     : it.grilling && facts.grillAt && !running('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }
     : it.prototyping && facts.prototypeAt && !running('prototype') ? { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' }
     : it.refusal && facts.refusedAt ? { kind: 'refused', since: facts.refusedAt, next: it.refusal }
@@ -1655,7 +1685,7 @@ export function idleStep(state, { idle, now }) {
 // waves (lineups) whose every card is Done with the last one closing since since.
 export function idleSummary(items, since) {
   const after = (i) => String(i.closedAt || '') > since;
-  const landed = items.filter((i) => i.kind === 'work' && i.lane === 'done' && !droppedCard(i) && after(i));
+  const landed = items.filter((i) => i.kind === 'work' && i.lane === 'done' && !unlanded(i) && after(i));
   const lineups = new Map();
   for (const i of items) if (i.lineup) lineups.set(i.lineup.slug, [...(lineups.get(i.lineup.slug) || []), i]);
   const waves = [...lineups.values()].filter((cards) => cards.every((i) => i.lane === 'done') && cards.some(after)).map((cards) => cards[0].lineup.title);

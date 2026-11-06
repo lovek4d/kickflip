@@ -11,6 +11,7 @@ import { samePath } from '../hub/boards.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { readUsageGate, pauseReason, holdsWork } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
+import { unlanded } from './domain.mjs';
 import { BoardError, addItem, appendThread, boardConfig, cardName, changeLineup, createLineup, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
 
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
@@ -39,7 +40,7 @@ export function archOf(reviews, items, questions, { repo, waits }) {
     return {
       key: r.key, ref: card.ref, wave: r.title, at: r.at, open, running: open && !card.questions,
       findings: questions.filter((q) => q.topic === `item:${r.key}` && !q.round_of && !q.confirm_of).length,
-      built: items.filter((i) => inWave(i) && i.lane === 'done' && i.status !== 'dropped').length,
+      built: items.filter((i) => inWave(i) && i.lane === 'done' && !unlanded(i)).length,
     };
   };
   return { repo, waits, last: [...reviews].reverse().map(view).find(Boolean) || null };
@@ -136,6 +137,6 @@ export async function fileFindings(site, key) {
   const left = (await topicQuestions(site, `item:${key}`)).asked.filter((x) => x.state !== 'resolved');
   if (left.length) return { lines: [...lines, `waiting: ${left.map((x) => x.id).join(', ')}`] };
   const filed = (await topicQuestions(site, `item:${key}`)).asked.filter((x) => /^Filed as /.test(x.resolved || '')).map((x) => x.resolved.slice(9, -1));
-  const closed = await setItem(site, key, { status: 'done', text: filed.length ? `Every finding is settled: filed ${filed.join(', ')}.` : 'Every finding is settled: none filed.' });
+  const closed = await setItem(site, key, { done: true, text: filed.length ? `Every finding is settled: filed ${filed.join(', ')}.` : 'Every finding is settled: none filed.' });
   return { lines: [...lines, ...closed.lines, `closed: ${await cardName(site, key)}`] };
 }

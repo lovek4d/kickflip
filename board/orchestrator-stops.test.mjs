@@ -61,7 +61,7 @@ test('stopRuns kills what ignores the stop once the grace period ends', async (t
 
 test("the orchestrator's builder stop stops the card's headless builder with everything under it, marks its record, and says so in the status word's own words", async (t) => {
   const run = await fakeRun(t, { nested: true });
-  setA1({ status: 'building' });
+  setA1({ lane: 'progress' });
   const started = new Date(Date.now() - 60_000).toISOString();
   write(recordFile(), { started, kind: 'claude', model: 'opus', session: { id: 's1', pid: run.root, at: now() } });
   const r = await cli('builder', 'stop', 'w/A1');
@@ -83,7 +83,7 @@ test("the orchestrator's builder stop stops the card's headless builder with eve
 
 test('builder stop names its run land while the builder is landing, and refuses a run the board did not launch or a planner', async (t) => {
   const run = await fakeRun(t);
-  setA1({ status: 'building' });
+  setA1({ lane: 'progress' });
   write(recordFile(), { started: now(), kind: 'claude', session: { pid: run.root, at: now() } });
   write(site('orch', 'data', 'threads', 'w__A1.jsonl'), JSON.stringify({ ts: now(), who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing' }) + '\n');
   const r = await cli('builder', 'stop', 'w/A1');
@@ -131,7 +131,7 @@ test("land stop on the Merge tap's land stops it and its suite, takes it out of 
 
 test("land stop on a headless builder's land stops that builder, and refuses a land that is fast-forwarding main or runs in a session the board did not launch", async (t) => {
   const run = await fakeRun(t, { nested: true });
-  setA1({ status: 'building' });
+  setA1({ lane: 'progress' });
   write(recordFile(), { started: now(), kind: 'claude', session: { pid: run.root, at: now() } });
   write(kick('landing', 'A1'), { pid: run.land, at: now() });
   write(kick('land.lock'), { card: 'A1', pid: run.land, at: now() });
@@ -206,7 +206,7 @@ test('one function words every stop, and a stopped build reads it as its status,
   const stop = '2026-11-05T10:20:00.000Z';
   const card = (record, alive = { 'w/A1': true }) => buildBoard({
     fromWaves: true, now: Date.parse('2026-11-05T10:21:00.000Z'), alive,
-    waves: [{ slug: 'w', agents: { A1: { main: record } }, wave: { items: [{ id: 'A1', title: 'One', status: 'building' }] } }],
+    waves: [{ slug: 'w', agents: { A1: { main: record } }, wave: { items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }],
   }).items[0];
   const stopped = card({ kind: 'claude', started, stopped: { run: 'build', at: stop } });
   assert.deepEqual([stopped.lane, stopped.builder.stopped, stopped.builder.alive, stopped.builder.stalled, stopped.builder.silentSince], ['progress', 'build stopped by orchestrator', false, true, stop]);

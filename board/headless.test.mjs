@@ -101,11 +101,11 @@ test("a headless planner's brief names its card and its notes so far, spells its
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md
 test("a builder's and a planner's brief list the card's related cards with their notes, for context only; a lander's doesn't", () => {
   const links = [
-    { relation: 'related', ref: 'ENG-2', title: 'Sort the lane', status: 'planned', notes: '/s/waves/w/a2.md' },
-    { relation: 'parent', ref: 'ENG-3', title: 'The lane', status: 'done', notes: null },
+    { relation: 'related', ref: 'ENG-2', title: 'Sort the lane', lane: 'Todo', notes: '/s/waves/w/a2.md' },
+    { relation: 'parent', ref: 'ENG-3', title: 'The lane', lane: 'Done', notes: null },
   ];
   for (const brief of [builderBrief({ ...card, links }), plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', links })]) {
-    for (const want of ['Related cards', "don't build their scope", 'ENG-2 "Sort the lane" (related, planned): /s/waves/w/a2.md', 'ENG-3 "The lane" (parent, done): no notes']) {
+    for (const want of ['Related cards', "don't build their scope", 'ENG-2 "Sort the lane" (related, Todo): /s/waves/w/a2.md', 'ENG-3 "The lane" (parent, Done): no notes']) {
       assert.ok(brief.includes(want), `the brief has ${want}`);
     }
   }
@@ -113,7 +113,7 @@ test("a builder's and a planner's brief list the card's related cards with their
   assert.ok(!landerBrief({ ...card, links }).includes('Related cards'));
 });
 
-test("briefFacts gives a card's links: Related to set on either card, its Parent and its deps, each with its ref, title, status and notes path", async () => {
+test("briefFacts gives a card's links: Related to set on either card, its Parent and its deps, each with its ref, title, lane and notes path", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'brief-facts-'));
   try {
     const site = path.join(home, 'site');
@@ -121,24 +121,24 @@ test("briefFacts gives a card's links: Related to set on either card, its Parent
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
     fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ title: 'T', items: [
       { id: 'A1', title: 'One', parent: 'P1', deps: ['D1'], related: ['R1'] },
-      { id: 'R1', title: 'Rel', status: 'planned', plan: 'r1.md' },
-      { id: 'R2', title: 'Rel back', status: 'building', related: ['t/A1'] },
-      { id: 'P1', title: 'Par', status: 'done' },
-      { id: 'D1', title: 'Dep', status: 'building' },
+      { id: 'R1', title: 'Rel', plan: 'r1.md' },
+      { id: 'R2', title: 'Rel back', lane: 'review', related: ['t/A1'] },
+      { id: 'P1', title: 'Par', lane: 'done', closed_at: '2026-11-01T10:00:00Z' },
+      { id: 'D1', title: 'Dep', lane: 'progress' },
       { id: 'X1', title: 'Other' },
     ] }));
     const { links } = await briefFacts(site, 't/A1');
     assert.deepEqual(links, [
-      { relation: 'parent', ref: 'P1', title: 'Par', status: 'done', notes: null },
-      { relation: 'depends on', ref: 'D1', title: 'Dep', status: 'building', notes: null },
-      { relation: 'related', ref: 'R1', title: 'Rel', status: 'planned', notes: path.join(site, 'data', 'r1.md') },
-      { relation: 'related', ref: 'R2', title: 'Rel back', status: 'building', notes: null },
+      { relation: 'parent', ref: 'P1', title: 'Par', lane: 'Done', notes: null },
+      { relation: 'depends on', ref: 'D1', title: 'Dep', lane: 'In Progress', notes: null },
+      { relation: 'related', ref: 'R1', title: 'Rel', lane: 'Todo', notes: path.join(site, 'data', 'r1.md') },
+      { relation: 'related', ref: 'R2', title: 'Rel back', lane: 'In Review', notes: null },
     ]);
     assert.deepEqual((await briefFacts(site, 't/X1')).links, []);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test("the server launches the builder for a tap and a pull instead of waking the session, and a lander once a checking card's calls are verified and no question is open", async () => {
+test("the server launches the builder for a tap and a pull instead of waking the session, and a lander once a handed-back card's calls are verified and no question is open", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-server-'));
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
@@ -163,15 +163,15 @@ test("the server launches the builder for a tap and a pull instead of waking the
   fs.writeFileSync(path.join(data, 'h1.md'), '# H1\n');
   const lander = path.join(home, 'lander-wt');
   fs.mkdirSync(lander);
-  const verified = { started: '2026-11-04T01:00:00.000Z', done: '2026-11-04T02:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-04T01:30:00.000Z', text: 'Kept it small' }], verified: { at: '2026-11-04T03:00:00.000Z' }, worktree: { path: lander, branch: 'H3', repo: clone } };
+  const verified = { started: '2026-11-04T01:00:00.000Z', done: '2026-11-04T02:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-04T01:30:00.000Z', text: 'Kept it small' }], handed_back: '2026-11-04T02:00:00.000Z', verified: { at: '2026-11-04T03:00:00.000Z' }, worktree: { path: lander, branch: 'H3', repo: clone } };
   fs.mkdirSync(path.join(data, 'agents'));
   fs.writeFileSync(path.join(data, 'agents', 'H3.json'), JSON.stringify(verified));
   fs.writeFileSync(path.join(data, 'agents', 'H4.json'), JSON.stringify({ ...verified, worktree: { ...verified.worktree, path: lander, branch: 'H4' } }));
   fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [
     { id: 'H1', title: 'Tapped', state: 'ready', size: 'large', plan: 'h1.md' },
     { id: 'H2', title: 'Pulled', state: 'ready', size: 'large' },
-    { id: 'H3', title: 'Verified', status: 'checking', next: "Verify the builder's judgment calls" },
-    { id: 'H4', title: 'Asked', status: 'checking', next: "Answer the builder's questions" },
+    { id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" },
+    { id: 'H4', title: 'Asked', lane: 'progress', next: "Answer the builder's questions" },
   ] }));
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = path.join(home, 'claude');
@@ -317,7 +317,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
 });
 
 // docs/adr/2026-11-04-2230-a-lander-the-pause-stopped-starts-again.md
-test('a lander whose process is gone while its card reads building (the usage pause ended it) is launched again, and board.mjs lander does the same by hand', async () => {
+test('a lander whose process is gone while its builder record is open (the usage pause ended it) is launched again, and board.mjs lander does the same by hand', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-lander-'));
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
@@ -332,15 +332,19 @@ test('a lander whose process is gone while its card reads building (the usage pa
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
   const worktree = path.join(home, 'wt');
   fs.mkdirSync(worktree);
-  fs.writeFileSync(path.join(data, 'agents', 'H3.json'), JSON.stringify({ started: '2026-11-04T01:00:00.000Z', done: '2026-11-04T02:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-04T01:30:00.000Z', text: 'Kept it small' }], verified: { at: '2026-11-04T03:00:00.000Z' }, worktree: { path: worktree, branch: 'H3', repo: clone } }));
+  const recordFile = path.join(data, 'agents', 'H3.json');
+  const handedBack = { started: '2026-11-04T01:00:00.000Z', done: '2026-11-04T02:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-04T01:30:00.000Z', text: 'Kept it small' }], handed_back: '2026-11-04T02:00:00.000Z', verified: { at: '2026-11-04T03:00:00.000Z' }, worktree: { path: worktree, branch: 'H3', repo: clone } };
+  fs.writeFileSync(recordFile, JSON.stringify(handedBack));
   const waveFile = path.join(data, 'wave.json');
-  fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'H3', title: 'Verified', status: 'checking', next: "Verify the builder's judgment calls" }] }));
+  fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" }] }));
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = path.join(home, 'claude');
   fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, '{}\\n');\n`);
   fs.chmodSync(fake, 0o755);
   const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).length : 0);
-  const status = () => JSON.parse(fs.readFileSync(waveFile, 'utf8')).items[0].status;
+  const record = () => JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+  // Handed back: the record closed marked handed_back, with no build open since.
+  const handedBackAgain = () => typeof record().done === 'string' && typeof record().handed_back === 'string' && record().started !== handedBack.started;
   const [port] = await freePorts();
   const serve = async () => {
     const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
@@ -350,16 +354,20 @@ test('a lander whose process is gone while its card reads building (the usage pa
   let child = await serve();
   try {
     await until(() => runs() === 1, 'the lander launches');
-    // The lander started (building) and then its process went with the pause. Only once the server has tracked the
+    // The lander started (its builder start reopens the record) and then its process went with the pause. Only once the server has tracked the
     // lander's process and that process is gone: a pass that still sees it alive relaunches nothing, and no change
     // follows to run another.
     const landers = () => { try { return JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8')); } catch { return {}; } };
     const gone = (pid) => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } };
     await until(() => Number.isInteger(landers()['t/H3']?.pid) && gone(landers()['t/H3'].pid), 'the lander is tracked and has exited');
-    const building = () => { const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].status = 'building'; fs.writeFileSync(waveFile, JSON.stringify(w)); };
+    const building = () => {
+      const { done: _, handed_back: __, ...open } = handedBack;
+      fs.writeFileSync(recordFile, JSON.stringify({ ...open, started: new Date().toISOString() }));
+      const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].next = 'Landing'; fs.writeFileSync(waveFile, JSON.stringify(w));
+    };
     building();
     await until(() => runs() === 2, 'the stopped lander launches again');
-    assert.equal(status(), 'checking');
+    assert.ok(handedBackAgain(), JSON.stringify(record()));
     // The one command does the same by hand, with the server stopped so its own pass cannot relaunch first.
     await new Promise((resolve) => { child.once('exit', resolve); child.kill(); });
     building();
@@ -367,8 +375,8 @@ test('a lander whose process is gone while its card reads building (the usage pa
     fs.mkdirSync(path.join(home, '.claude', 'kickflip', 'sites'), { recursive: true });
     fs.symlinkSync(site, path.join(home, '.claude', 'kickflip', 'sites', 'shop'));
     const out = execFileSync(process.execPath, [cli, '--site', 'shop', 'lander', 't/H3'], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
-    assert.match(out, /back at checking/);
-    assert.equal(status(), 'checking');
+    assert.match(out, /is handed back again/);
+    assert.ok(handedBackAgain(), JSON.stringify(record()));
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))['t/H3'], undefined);
     child = await serve();
     await until(() => runs() === 3, 'the relaunched lander launches');
@@ -434,7 +442,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Revive me', status: 'building' }] }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Revive me', lane: 'progress' }] }));
   fs.writeFileSync(path.join(data, 'agents', 'R1.json'), JSON.stringify({ started: '2026-11-04T01:00:00.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'R1', repo: wt } }));
   const dead = spawn(process.execPath, ['-e', '']);
   await new Promise((resolve) => dead.once('exit', resolve));
@@ -473,7 +481,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
 });
 
 // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
-test("a restarted server launches the builder of a building card whose record is still dispatched and untracked, and leaves a planner and a tracked one alone", async () => {
+test("a restarted server launches the builder of an In Progress card whose record is still dispatched and untracked, and leaves a planner and a tracked one alone", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-cutoff-'));
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
@@ -485,7 +493,7 @@ test("a restarted server launches the builder of a building card whose record is
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: ['C1', 'C2', 'C3', 'C4'].map((id) => ({ id, title: id, status: 'building' })) }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: ['C1', 'C2', 'C3', 'C4'].map((id) => ({ id, title: id, lane: 'progress' })) }));
   const record = (extra) => JSON.stringify({ started: '2026-11-05T04:42:41.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'x', repo: wt }, ...extra });
   fs.writeFileSync(path.join(data, 'agents', 'C1.json'), record({ dispatched: 'hub' }));
   fs.writeFileSync(path.join(data, 'agents', 'C2.json'), record({ dispatched: 'hub', kind: 'grill' }));
@@ -571,7 +579,7 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
     assert.equal(grill.argv[grill.argv.indexOf('--model') + 1], 'opus');
     assert.deepEqual([b.record('G1').kind, b.record('G1').dispatched], ['grill', 'hub']);
     assert.match(b.thread('G1').at(-1).text, /^Planner launched on Claude Opus in .*clone\.$/);
-    assert.equal(b.item('G1').status, undefined, 'a planner never starts the card');
+    assert.equal(b.item('G1').lane, 'todo', 'a planner never starts the card');
 
     await send('prototype-request', { key: 't/P1' });
     await until(() => b.runs().length === 2, 'the prototype launches');
@@ -606,7 +614,7 @@ test('a build whose builder fails to launch goes back to Todo with the reason, a
     const last = b.thread('F1').at(-1);
     assert.equal(last.kind, 'build-refused');
     assert.match(last.text, /^Couldn't start implementing: the launch failed \(.*ENOENT.*\)\. Tap Implement to try again\.$/);
-    assert.equal(b.item('F1').status, undefined, 'back in Todo');
+    assert.equal(b.item('F1').lane, 'todo', 'back in Todo');
     assert.ok(b.record('F1').done, 'its builder record is closed');
     assert.ok(!b.events().includes('card-build'));
   } finally {
@@ -661,7 +669,7 @@ test('a stale lander entry for an archived Done card is dropped, and the card st
   fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main' } } }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'D1', title: 'Landed', status: 'done' }, { id: 'T1', title: 'Other', status: 'todo' }] }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'D1', title: 'Landed', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z' }, { id: 'T1', title: 'Other', lane: 'todo' }] }));
   await archiveCards(site, [{ key: 't/D1', closed_at: '2026-11-01T00:00:00.000Z' }]);
   fs.writeFileSync(path.join(data, 'landers.json'), JSON.stringify({ 't/D1': { verified: 'v1', pid: 2 ** 22 + 12345 } }));
   const [port] = await freePorts();
@@ -714,7 +722,7 @@ test("an intake triage run's brief holds the board's index, the task and its thr
 });
 
 test("a new task launches an intake triage run on Sonnet in the board's repo, one at a time, and one that ends with it unsorted hands it to the orchestrator", async () => {
-  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', state: 'grilling', status: 'building' }]);
+  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', state: 'grilling', lane: 'progress' }]);
   const { child, send } = await b.start();
   try {
     const { id } = await send('ask', { text: 'Make the header blue' });
@@ -739,7 +747,7 @@ test("a new task launches an intake triage run on Sonnet in the board's repo, on
 });
 
 test("the owner's visual request launches a visual agent on Sonnet beside the card's build, as its own agent, and a second waits for the first to finish", async () => {
-  const b = oneLaunchBoard([{ id: 'V1', title: 'Show me', status: 'building' }]);
+  const b = oneLaunchBoard([{ id: 'V1', title: 'Show me', lane: 'progress' }]);
   fs.mkdirSync(path.join(b.data, 'agents'), { recursive: true });
   const build = { kind: 'claude', model: 'opus', started: new Date().toISOString(), worktree: { path: b.clone } };
   fs.writeFileSync(path.join(b.data, 'agents', 'V1.json'), JSON.stringify(build));
@@ -787,7 +795,7 @@ test("a helper's brief gives it the task as its own agent, in its worktree when 
 });
 
 test('a writing helper waits while the board has no implementer slot free, launches once its spawner waits on it, in its own worktree off the card branch', async () => {
-  const b = oneLaunchBoard([{ id: 'V1', title: 'Split me', status: 'building' }]);
+  const b = oneLaunchBoard([{ id: 'V1', title: 'Split me', lane: 'progress' }]);
   fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', max_implementers: 1 }));
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const cardTree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1');

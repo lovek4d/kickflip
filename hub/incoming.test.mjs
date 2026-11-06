@@ -34,7 +34,7 @@ test('the poll lists incoming PRs for each board with auto review on, reading a 
     fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 'w', github_login: 'love', ...cfg }));
     fs.writeFileSync(path.join(dir, 'data', 'wave.json'), JSON.stringify({ items: [
-      { id: 'A1', title: 'Open', pr: 10, status: 'checking' }, { id: 'A2', title: 'Merged', pr: 5, status: 'merged' }, { id: 'A3', title: 'Dropped', pr: 6, status: 'dropped' },
+      { id: 'A1', title: 'Open', pr: 10, lane: 'progress' }, { id: 'A2', title: 'Merged', lane: 'done', prs: [{ number: 5, merged_at: '2026-11-01T00:00:00Z' }] }, { id: 'A3', title: 'Dropped', pr: 6, lane: 'done' },
     ] }));
     return [route, { cmd: ['node', 'board/server.mjs'], dir, port: 1, github: 'o/r' }];
   };

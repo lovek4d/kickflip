@@ -21,3 +21,5 @@ The owner set this on INT-99: "should not revert from in progress to todo unless
 Considered:
 - a `started_at` written when a card first leaves Todo; this rule derives the same thing from records that already exist;
 - counting any thread line as started, which would lift cards moved in with a note but never worked.
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a placed card has started once its stored lane isn't Todo; a block or a hold moves it back to Todo with a thread line.

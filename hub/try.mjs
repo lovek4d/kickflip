@@ -523,7 +523,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         for (const { slug, wave } of board.waves) for (const item of wave.items) {
           const key = `${slug}/${item.id}`;
           const states = cardPRs(item, board.github || wave.repo).map((p) => prs[prKeyOf(p)]);
-          if (['done', 'merged', 'dropped'].includes(String(item.status).toLowerCase()) || (states.length && states.every((pr) => ['MERGED', 'CLOSED'].includes(pr?.state)))) continue;
+          if (item.lane === 'done' || (states.length && states.every((pr) => ['MERGED', 'CLOSED'].includes(pr?.state)))) continue;
           try {
             const id = runKey(board, key);
             const worktree = await installWorktree(board, key, manifest);
@@ -708,11 +708,11 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
 }
 
 // docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md: a pushed card (board.mjs item set --pushed) is Done once its
-// branch's tip is in the board's branch, as merged, or once the branch is gone from the remote, as merged when its last
-// known tip is in the board's branch and done otherwise, since a squash merge leaves no trace of the branch.
+// branch's tip is in the board's branch, or once the branch is gone from the remote, its line saying which, since a
+// squash merge leaves no trace of the branch.
 async function settlePushed(board, repo, branch, log) {
   const open = board.waves.flatMap(({ slug, wave }) => wave.items
-    .filter((it) => it.pushed?.branch && !hasPR(it) && !['done', 'merged', 'dropped'].includes(String(it.status).toLowerCase()))
+    .filter((it) => it.pushed?.branch && !hasPR(it) && it.lane !== 'done')
     .map((it) => ({ key: `${slug}/${it.id}`, branch: it.pushed.branch })));
   if (!open.length) return;
   const heads = new Map((await originGit(repo, 'ls-remote', '--heads', 'origin')).split('\n')
@@ -725,7 +725,7 @@ async function settlePushed(board, repo, branch, log) {
     if (tip) { try { await git(repo, 'merge-base', '--is-ancestor', tip, `refs/remotes/origin/${branch}`); merged = true; } catch {} }
     if (!merged && heads.has(card.branch)) continue;
     try {
-      await setItem(board.dir, card.key, { status: merged ? 'merged' : 'done', force: true, text: merged ? `${card.branch} is merged into ${branch} on ${host}, so this card is Done.`
+      await setItem(board.dir, card.key, { done: true, force: true, text: merged ? `${card.branch} is merged into ${branch} on ${host}, so this card is Done.`
         : `${card.branch} is gone from ${host}, so this card is Done.` });
     } catch (e) { log(`pushed ${card.key}: ${e.message}`); }
   }

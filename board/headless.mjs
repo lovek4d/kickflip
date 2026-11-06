@@ -24,7 +24,7 @@ const ruleLines = (rules, heading = 'Rules from the hub and this board:') => (ru
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: the cards the card links (briefFacts' links).
 const linkLines = (links) => (links.length ? [
   "Related cards: read their notes for context; don't build their scope.",
-  ...links.map((l) => `- ${l.ref} "${l.title}" (${l.relation}, ${l.status}): ${l.notes || 'no notes'}`),
+  ...links.map((l) => `- ${l.ref} "${l.title}" (${l.relation}, ${l.lane}): ${l.notes || 'no notes'}`),
   '',
 ] : []);
 

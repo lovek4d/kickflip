@@ -45,7 +45,7 @@ const boardCmd = (route) => [process.execPath, path.join(SKILL, 'board', 'server
 const NOW_SINCE = ago(60);
 
 write(claude('waves', 'w1', 'wave.json'), { repo: 'o/r', reviewers: [{ name: 'Bea' }], items: [
-  { id: 'A1', pr: 11, gh_since: '2026-10-20T00:00:00Z' }, { id: 'A2', pr: 12, status: 'merged' }, { id: 'A3' }, { id: 'A4', pr: 13, status: 'dropped' },
+  { id: 'A1', pr: 11, gh_since: '2026-10-20T00:00:00Z' }, { id: 'A2', lane: 'done', prs: [{ number: 12, merged_at: '2026-10-21T00:00:00Z' }] }, { id: 'A3' }, { id: 'A4', lane: 'done', pr: 13 },
 ] });
 fs.mkdirSync(claude('waves', 'notes'), { recursive: true });
 write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] });
@@ -899,7 +899,7 @@ test('object property names work as page routes and as new boards through HTTP a
       const joined = await cli(path.join(SKILL, 'bin', 'kickflip.mjs'), ['join', '--name', names[i], '--session', sessions[i], '--template', 'board', '--repo', repo, '--port', String(namedPorts[i])]);
       assert.equal(joined.status, 0, joined.stderr);
       write(site(route, 'board.json'), { title: names[i], slug: route, items: 'data/items.json' });
-      write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', status: 'planned' }] });
+      write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', lane: 'todo' }] });
       await until(() => fetch(`${base}/${route}/_claude/health`).then((r) => r.ok, () => false), `${route} server becomes healthy`);
       const side = await get('/_hub/sidebar.json?fresh=1');
       assert.deepEqual(side.starting.filter((s) => s.route === route).map((s) => s.step), ['landing']);

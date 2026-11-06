@@ -14,9 +14,9 @@ const at = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISO
 // count Done cards D0 (newest) … D<count-1>, then O1, an open card depending on D<count-2>, and O2, in an open
 // lineup with D<count-1>. D<count-3> still has a question open; D<count-4>, made from ask a1, has a resolved one and an answer.
 function waveOf(count) {
-  const done = Array.from({ length: count }, (_, n) => ({ id: `D${n}`, title: `Done ${n}`, status: n === 7 ? 'dropped' : 'done', status_at: at(n), created: at(n + 500),
+  const done = Array.from({ length: count }, (_, n) => ({ id: `D${n}`, title: `Done ${n}`, lane: 'done', lane_at: at(n), closed_at: at(n), created: at(n + 500),
     ...(n === count - 4 ? { from_ask: 'a1' } : {}) }));
-  return { title: 'T', items: [...done, { id: 'O1', title: 'Open', status: 'planned', deps: [`D${count - 2}`] }, { id: 'O2', title: 'Lined up', status: 'planned' }],
+  return { title: 'T', items: [...done, { id: 'O1', title: 'Open', lane: 'todo', deps: [`D${count - 2}`] }, { id: 'O2', title: 'Lined up', lane: 'todo' }],
     lineups: [{ slug: 'lu', title: 'Lineup', phases: [[`D${count - 1}`], ['O2']] }] };
 }
 const ownerOf = (count) => ({ topics: [], items: [
@@ -34,7 +34,7 @@ test('the Done cards past the newest 100 leave the board, except one in an open 
 
 test('a card made from an ask that the archive also linked to it counts the ask once', () => {
   const events = [{ id: 'a1', ts: at(9), kind: 'ask', data: { text: 'Make a badge' } }];
-  const count = (askLinks) => buildBoard({ waves: [{ slug: 't', wave: { items: [{ id: 'D1', title: 'D', status: 'done', from_ask: 'a1' }] }, agents: {} }], owner: { items: [] },
+  const count = (askLinks) => buildBoard({ waves: [{ slug: 't', wave: { items: [{ id: 'D1', title: 'D', lane: 'done', closed_at: at(1), from_ask: 'a1' }] }, agents: {} }], owner: { items: [] },
     threads: { 't/D1': [{ ts: at(1), who: 'claude', text: 'Landed.' }] }, events, askLinks }).items.find((i) => i.key === 't/D1').threadCount;
   assert.equal(count({ a1: 't/D1' }), count({}));
 });
@@ -46,7 +46,7 @@ test('a slim Done card keeps what the page draws and leaves the rest out', () =>
   const slim = slimDone(card);
   assert.equal(slim.agents, undefined);
   assert.equal(slim.created, undefined);
-  for (const field of ['key', 'ref', 'title', 'lane', 'status', 'sortAt', 'othersAt', 'hasNotes', 'questions', 'manualSteps']) assert.deepEqual(slim[field], card[field], field);
+  for (const field of ['key', 'ref', 'title', 'lane', 'sortAt', 'othersAt', 'hasNotes', 'questions', 'manualSteps']) assert.deepEqual(slim[field], card[field], field);
 });
 
 function siteOf(count) {
@@ -99,8 +99,8 @@ test("the strip drops what nothing reads: an archive entry's page card for its c
   try {
     const q = { id: 'q-old', topic: 'item:t/X1', question: 'Old?', resolved: 'Answered', resolved_at: at(9), push_tag: 'item-t/X1', no_change: true };
     write('done-archive.json', { cards: [
-      { key: 't/X1', wave: 't', archived_at: at(1), card: { key: 't/X1', title: 'Old', sortAt: at(8) }, item: { id: 'X1', title: 'Old', status: 'done', summary: 'Gone' }, questions: [q], asks: [] },
-      { key: 't/X2', wave: 't', archived_at: at(1), closed_at: at(9), item: { id: 'X2', title: 'Kept', status: 'done' }, questions: [], asks: [] }] });
+      { key: 't/X1', wave: 't', archived_at: at(1), card: { key: 't/X1', title: 'Old', sortAt: at(8) }, item: { id: 'X1', title: 'Old', lane: 'done', summary: 'Gone' }, questions: [q], asks: [] },
+      { key: 't/X2', wave: 't', archived_at: at(1), closed_at: at(9), item: { id: 'X2', title: 'Kept', lane: 'done', closed_at: at(9) }, questions: [], asks: [] }] });
     const wave = read('wave.json');
     wave.items[1].summary = 'Gone too';
     write('wave.json', wave);
@@ -110,8 +110,8 @@ test("the strip drops what nothing reads: an archive entry's page card for its c
 
     await stripDeadFields(site);
     assert.deepEqual(read('done-archive.json').cards, [
-      { key: 't/X1', wave: 't', archived_at: at(1), closed_at: at(8), item: { id: 'X1', title: 'Old', status: 'done' }, questions: [{ id: 'q-old', topic: 'item:t/X1', question: 'Old?', resolved: 'Answered', resolved_at: at(9) }], asks: [] },
-      { key: 't/X2', wave: 't', archived_at: at(1), closed_at: at(9), item: { id: 'X2', title: 'Kept', status: 'done' }, questions: [], asks: [] }]);
+      { key: 't/X1', wave: 't', archived_at: at(1), closed_at: at(8), item: { id: 'X1', title: 'Old', lane: 'done' }, questions: [{ id: 'q-old', topic: 'item:t/X1', question: 'Old?', resolved: 'Answered', resolved_at: at(9) }], asks: [] },
+      { key: 't/X2', wave: 't', archived_at: at(1), closed_at: at(9), item: { id: 'X2', title: 'Kept', lane: 'done', closed_at: at(9) }, questions: [], asks: [] }]);
     assert.ok(read('wave.json').items.every((it) => !('summary' in it)));
     assert.deepEqual(read('owner.json').items[2], ownerOf(3).items[2]);
     const before = ['wave.json', 'owner.json', 'done-archive.json'].map((f) => fs.statSync(path.join(site, 'data', f)).mtimeMs);
@@ -151,7 +151,7 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
     const first = await (await fetch(`${base}/api/done`)).json();
     assert.deepEqual([first.cards.length, first.cards[0].key, first.cards.at(-1).key, first.left], [DONE_KEPT, 't/D100', 't/D199', count - DONE_KEPT - 3 - DONE_KEPT]);
     assert.ok(first.cards.every((c) => c.lane === 'done' && !('agents' in c) && !('created' in c)), 'paged cards come slim');
-    assert.deepEqual([first.cards[0].title, first.cards[0].status, first.cards[0].sortAt, first.cards[0].wave], ['Done 100', 'done', at(100), 't'], 'a paged card is built as it pages in');
+    assert.deepEqual([first.cards[0].title, first.cards[0].lane, first.cards[0].sortAt, first.cards[0].wave], ['Done 100', 'done', at(100), 't'], 'a paged card is built as it pages in');
     const last = first.cards.at(-1);
     const second = await (await fetch(`${base}/api/done?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}`)).json();
     assert.deepEqual([second.cards.map((c) => c.key), second.left], [Array.from({ length: count - 3 - 200 }, (_, n) => `t/D${200 + n}`), 0]);

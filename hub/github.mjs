@@ -21,7 +21,9 @@ import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendThread, setItem, mergedLine, mergeCard } from '../board/store.mjs';
-import { allLanded, cardPRs, leastReady } from '../shared/card-prs.mjs';
+import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs';
+
+const PR_ENDED = ['MERGED', 'CLOSED'];
 import { runOwnerChecks } from './owner-checks.mjs';
 import { audit, boardAudit, hubAudit } from '../shared/audit.mjs';
 
@@ -221,7 +223,7 @@ async function linkHandPRs(board, open, failed) {
     const repo = board.github || wave.repo;
     const heads = new Map((open[repo] || []).filter((p) => !p.isCrossRepository).map((p) => [p.headRefName, p.number]));
     for (const item of wave.items) {
-      if (!heads.has(item.id) || ['done', 'merged', 'dropped'].includes(item.status) || cardPRs(item, repo).some((p) => p.repo === repo)) continue;
+      if (!heads.has(item.id) || item.lane === 'done' || cardPRs(item, repo).some((p) => p.repo === repo)) continue;
       const card = `${slug}/${item.id}`;
       const pr = heads.get(item.id);
       try {
@@ -242,8 +244,10 @@ function lineText(event) {
 }
 
 // docs/adr/2026-11-02-2335-the-hubs-poll-records-merges-and-pr-comments-on-the-card.md. siblings is every PR on the card, this one
-// included, with its summary as next; the card closes as merged once they have all landed (shared/card-prs.mjs
-// allLanded), its line naming the merged ones. → true when this check recorded the card merged, on any board showing it.
+// included, with its summary as next; once every one has merged or closed the card moves to Done, each merged PR marked
+// with its merge (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md), its line naming the
+// merged ones, or the closed ones when none merged. → true when this check recorded the card merged (shared/card-prs.mjs
+// allLanded), on any board showing it.
 async function recordOnCard(board, { p, key, recipient }, report, siblings, { state, merged, failed }) {
   const card = `${p.wave}/${p.id}`;
   const written = new Set(state.threaded[key]?.[recipient] || []);
@@ -264,13 +268,17 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
     } catch (err) { failed.push(`${board.route}: could not write ${card}'s GitHub line (${err.message})`); }
   }
   if (written.size) (state.threaded[key] ||= {})[recipient] = [...written];
-  if (report.state !== 'MERGED' || !allLanded(siblings.map((c) => c.next))) return false;
+  const states = siblings.map((c) => c.next);
+  if (!PR_ENDED.includes(report.state) || !states.every((s) => PR_ENDED.includes(s?.state))) return false;
+  const landed = allLanded(states);
   const file = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, p.wave, p.id]);
   if (!merged.has(file)) {
     const repo = board.github || board.waves.find((w) => w.slug === p.wave)?.wave.repo;
-    const text = mergedLine(siblings.filter((c) => c.next.state === 'MERGED').map((c) => ({ repo: c.p.repo, number: c.p.pr })), repo);
-    try { await setItem(board.dir, card, { status: 'merged', force: true, text }); merged.set(file, true); }
-    catch (err) { failed.push(`${board.route}: could not record ${card} merged (${err.message})`); merged.set(file, false); }
+    const prs = siblings.filter((c) => c.next.state === 'MERGED').map((c) => ({ repo: c.p.repo, number: c.p.pr }));
+    const closedPRs = siblings.map((c) => ({ repo: c.p.repo, number: c.p.pr }));
+    const text = landed ? mergedLine(prs, repo) : `Closed: ${prNames(closedPRs, repo)} closed unmerged.`;
+    try { await setItem(board.dir, card, { merged: prs, force: true, text }); merged.set(file, landed); }
+    catch (err) { failed.push(`${board.route}: could not record ${card} ${landed ? 'merged' : 'closed'} (${err.message})`); merged.set(file, false); }
   }
   return merged.get(file);
 }
@@ -320,13 +328,12 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
     const source = board.kind === 'waves' ? WAVES : board.dir;
     for (const { slug, wave } of board.waves) {
       for (const item of wave.items) {
-        if (item.status === 'dropped') continue;
         const ids = new Set(item.linear || []);
         if (board.tickets?.source === 'linear' && item.ticket) ids.add(item.ticket);
         // The card's least-ready PR stands for it, as on the board (shared/card-prs.mjs leastReady).
         const summaries = (prs.get(JSON.stringify([slug, item.id])) || []).map((p) => fetched[fetchKey(p, board.me)] || null);
         const summary = summaries[leastReady(summaries)];
-        const merged = ['merged', 'done'].includes(item.status) || allLanded(summaries);
+        const merged = item.lane === 'done' || allLanded(summaries);
         const carrying = {
           merged, ready: summary?.state === 'OPEN' && !summary.isDraft,
           hasPR: summaries.length > 0 && (merged || summaries.some((s) => s?.state === 'OPEN')), failed: summaries.some((s) => !s),

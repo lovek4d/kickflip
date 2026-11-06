@@ -15,7 +15,7 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   const thread = () => (fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')) ? lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.text) : []);
   const merges = () => calls(dir).filter((a) => a[1] === 'merge');
   const approved = (commit) => writeReviews(dir, 7, [{ id: 1, user: { login: 'ann' }, state: 'APPROVED', submitted_at: '2026-11-01T10:00:00Z', commit_id: commit }]);
-  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, status: 'building', manual_steps: ['Run the backfill'] }, { id: 'A2', title: 'Two', pr: 8 }, { id: 'A3', title: 'Three' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, lane: 'progress', manual_steps: ['Run the backfill'] }, { id: 'A2', title: 'Two', pr: 8 }, { id: 'A3', title: 'Three' }] });
   writePR(dir, 7, prView({ failing: ['build'], pending: 1 }));
   assert.deepEqual(merge('w/A1'), { code: 1, out: '', err: "Not merged: review: review required; failing: build; merge state: blocked; manual steps: merge only on the owner's word, with --confirmed \"<their words>\".\n" });
   assert.deepEqual(thread(), []);
@@ -36,14 +36,15 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   assert.match(merge('w/A3').err, /w\/A3 has no PR/);
   writeMerge(dir, 8, { error: 'Pull request is not mergeable: the base branch policy prohibits the merge.' });
   assert.deepEqual(merge('w/A2'), { code: 1, out: '', err: 'gh pr merge #8 failed: Pull request is not mergeable: the base branch policy prohibits the merge.\n' });
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[1].status, undefined);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[1].lane, undefined);
   assert.equal(merges().length, 1);
   approved('aaa');
   const done = merge('w/A1', '--after-approval', 'Only a rebase onto main.', '--confirmed', 'the backfill ran on prod');
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out.trim().split('\n').at(-1), 'A1: merged');
   assert.deepEqual(merges().at(-1), ['pr', 'merge', '7', '--repo', 'o/r', '--squash']);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'merged');
+  const merged = read(at('waves', 'w', 'wave.json')).items[0];
+  assert.deepEqual([merged.lane, merged.prs.map((p) => [p.number, typeof p.merged_at])], ['done', [[7, 'string']]]);
   assert.equal(thread().at(-1), 'Merged PR #7. After the approval: Only a rebase onto main. The owner\'s word on the manual steps: "the backfill ran on prod"');
   writePR(dir, 8, prView({ state: 'MERGED' }));
   assert.equal(merge('w/A2').code, 0);
@@ -92,7 +93,8 @@ test("merge takes every PR on a card across repos in its order, refusing while a
   const done = merge('w/A1');
   assert.equal(done.code, 0, done.err);
   assert.deepEqual(merges(), ['o/r#6', 'o/site#1']);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'merged');
+  const merged = read(at('waves', 'w', 'wave.json')).items[0];
+  assert.deepEqual([merged.lane, merged.prs.map((p) => typeof p.merged_at)], ['done', ['string', 'string']]);
   assert.equal(thread('A1').at(-1), 'Merged PRs #6, o/site#1.');
   writePR(dir, 'o/site#2', prView({ state: 'MERGED' }));
   writePR(dir, 'o/r#9', prView({ state: 'CLOSED' }));
@@ -104,7 +106,7 @@ test("merge takes every PR on a card across repos in its order, refusing while a
   writePR(dir, 'o/site#3', ready);
   writeMerge(dir, 'o/site#3', { error: 'Base branch was modified.' });
   assert.deepEqual(merge('w/A3'), { code: 1, out: '', err: 'gh pr merge o/site#3 failed: Base branch was modified. (merged #11 before it)\n' });
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[2].status, undefined);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[2].lane, undefined);
   writePR(dir, 'o/r#11', prView({ state: 'MERGED' }));
   writePR(dir, 'o/site#3', prView({ state: 'CLOSED' }));
   assert.equal(merge('w/A3').code, 0);
@@ -375,7 +377,7 @@ test('land on --site needs --text, refuses before landing what closing would ref
   assert.equal(r.code, 0, r.err);
   assert.notEqual(git(repo, 'rev-parse', 'main'), main);
   assert.deepEqual(r.out.trim().split('\n').slice(-2), ['A1: landed and done', 'resolved: q1']);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'done');
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].lane, 'done');
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
   assert.ok(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).some((m) => m.kind === 'status' && m.phase === 'landing'), 'the finish itself sets the landing phase');
 });
@@ -398,7 +400,7 @@ test('land --owner-step lands the code and leaves the card open on its owner ste
   assert.notEqual(git(repo, 'rev-parse', 'main'), main);
   assert.equal(r.out.trim().split('\n').at(-1), 'A1: landed; waits on the owner step "Tag the first release"');
   const item = read(at('waves', 'w', 'wave.json')).items[0];
-  assert.deepEqual([item.status, item.owner_step, item.owner_check.check], ['done', 'Tag the first release', 'tag o/r v*']);
+  assert.deepEqual([item.lane, item.owner_step, item.owner_check.check], ['done', 'Tag the first release', 'tag o/r v*']);
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, 'Checked on the phone.');
 });
 
@@ -427,9 +429,9 @@ test('builder done --owner-step records the step on the card, and refuses one on
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out.trim(), 'A1: builder done; owner step "Tag the first release"');
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, 'Tag the first release');
-  items({ status: 'done' });
+  items({ lane: 'done', closed_at: '2026-11-01T10:00:00Z' });
   const late = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it');
-  assert.deepEqual([late.code, late.err], [1, 'w/A1 is already done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge\n']);
+  assert.deepEqual([late.code, late.err], [1, 'w/A1 is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, undefined);
 });
 
@@ -453,7 +455,7 @@ test('builder done --check attaches a named check to the owner step, refusing on
 });
 
 test('item set --check changes or removes the check on a card waiting on its owner step, clearing a broken mark, and refuses a card with no step', () => {
-  const items = (extra) => write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'done', ...extra }] });
+  const items = (extra) => write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'done', closed_at: '2026-11-01T10:00:00Z', ...extra }] });
   const item = () => read(at('waves', 'w', 'wave.json')).items[0];
   items({});
   const none = board('item', 'set', 'w/A1', '--site', 'orch', '--check', 'npm kickflip 0.3.*');
@@ -525,7 +527,7 @@ test('builder done on a build that keeps a worktree finishes the card: it needs 
   const failed = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(failed.code, 1);
   assert.match(failed.err, /^tests failed in .* \(1 failing\); nothing landed/);
-  assert.deepEqual([git(repo, 'rev-parse', 'main'), record().done, itemOf().status], [main, undefined, undefined]);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), record().done, itemOf().lane], [main, undefined, undefined]);
 
   fs.rmSync(path.join(worktree(), 'broken.test.mjs'));
   git(worktree(), 'commit', '--quiet', '-am', 'A1: fixed');
@@ -533,7 +535,7 @@ test('builder done on a build that keeps a worktree finishes the card: it needs 
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
   assert.notEqual(git(repo, 'rev-parse', 'main'), main);
-  assert.equal(itemOf().status, 'done');
+  assert.equal(itemOf().lane, 'done');
   assert.equal(typeof record().done, 'string');
   assert.equal(threadOf().at(-1).text, 'Checked it.');
   assert.equal(fs.existsSync(worktree()), false);
@@ -582,7 +584,7 @@ test("a finish on a local board pushes its branch to origin once it lands when t
   git(repo, 'remote', 'set-url', 'origin', path.join(home, 'gone.git'));
   const failed = finish('A3');
   assert.match(failed.out, /\nlanded, but main didn't reach origin: .+; push it with git -C .+ push origin main\n/);
-  assert.equal(itemOf('A3').status, 'done');
+  assert.equal(itemOf('A3').lane, 'done');
   assert.match(threadOf('A3').at(-1).text, /^Landed, but main didn't reach origin: /);
 });
 
@@ -593,16 +595,16 @@ test('builder verified on a handed-back build finishes the card in the same step
   assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old name').code, 0);
   const main = git(repo, 'rev-parse', 'main');
   assert.equal(onOrch('builder', 'done', 'w/A1').code, 0);
-  assert.deepEqual([itemOf().status, git(repo, 'rev-parse', 'main')], ['checking', main]);
+  assert.deepEqual([itemOf().lane, typeof record().handed_back, git(repo, 'rev-parse', 'main')], [undefined, 'string', main]);
   const r = onOrch('builder', 'verified', 'w/A1', '--note', 'The old name holds.');
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: judgment calls verified; landed and done\n'), r.out);
   assert.notEqual(git(repo, 'rev-parse', 'main'), main);
-  assert.equal(itemOf().status, 'done');
+  assert.equal(itemOf().lane, 'done');
   assert.equal(threadOf().at(-1).text, 'The old name holds.');
 });
 
-test("builder verified leaves a card checking while one of its questions is open, and a finish that fails keeps the stamp and says why", () => {
+test("builder verified leaves a card handed back while one of its questions is open, and a finish that fails keeps the stamp and says why", () => {
   const repo = scratchRepo();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   commit(worktree(), 'shared/notes.md', 'branch\n', 'A1: work');
@@ -612,7 +614,7 @@ test("builder verified leaves a card checking while one of its questions is open
   const waits = onOrch('builder', 'verified', 'w/A1');
   assert.deepEqual([waits.code, waits.err], [0, '']);
   assert.equal(waits.out, "A1: judgment calls verified\nA1 finishes once the owner answers q1\n");
-  assert.deepEqual([itemOf().status, typeof record().verified.at], ['checking', 'string']);
+  assert.deepEqual([itemOf().lane, typeof record().handed_back, typeof record().verified.at], [undefined, 'string', 'string']);
 
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [] });
   assert.equal(onOrch('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
@@ -623,7 +625,7 @@ test("builder verified leaves a card checking while one of its questions is open
   const failed = onOrch('builder', 'verified', 'w/A1');
   assert.equal(failed.code, 1);
   assert.equal(failed.err, `judgment calls verified, but A1 didn't finish: rebasing A1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again\n`);
-  assert.deepEqual([itemOf().status, git(repo, 'rev-parse', 'main'), onOrch('builder', 'calls', 'w/A1').out.includes('\nverified ')], ['checking', main, true]);
+  assert.deepEqual([itemOf().lane, typeof record().handed_back, git(repo, 'rev-parse', 'main'), onOrch('builder', 'calls', 'w/A1').out.includes('\nverified ')], ['progress', 'string', main, true]);
 });
 
 test('on a GitHub board, builder done sends the build for review: it pushes the branch, opens a draft PR, and the card moves to it with its record closed', () => {
@@ -639,7 +641,7 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   assert.ok(r.out.includes('\nA1: draft PR #100 opened\n'), r.out);
   assert.deepEqual([git(origin, 'rev-parse', 'A1'), git(origin, 'rev-parse', 'main')], [git(worktree(), 'rev-parse', 'HEAD'), main]);
   assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr'), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', 'A1', '--title', 'A1: One', '--body', 'Checked it on the phone.']);
-  assert.deepEqual([itemOf().prs, itemOf().status, typeof record().done], [[{ number: 100 }], undefined, 'string']);
+  assert.deepEqual([itemOf().prs, itemOf().lane, typeof record().done], [[{ number: 100 }], 'review', 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it on the phone.');
   assert.equal(fs.existsSync(worktree()), true);
 });
@@ -679,7 +681,7 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
   assert.equal(git(origin, 'rev-parse', 'A1'), rebased);
   assert.equal(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').length, 1, 'the PR stays as it is');
   const item = itemOf();
-  assert.deepEqual([item.prs, item.status, item.rebase_run, typeof record().done], [[{ number: 100 }], undefined, undefined, 'string']);
+  assert.deepEqual([item.prs, item.lane, item.rebase_run, typeof record().done], [[{ number: 100 }], 'review', undefined, 'string']);
   assert.deepEqual(item.rebased.map(({ at: _, ...r }) => r), [{ from: before, to: rebased, base: 'main', replayed: true }]);
   assert.equal(threadOf().at(-1).text, 'Rebased onto main.');
 
@@ -724,7 +726,7 @@ test("with Auto-merge off, builder done on a local board verifies the build and 
   const held = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(held.code, 0, held.err);
   assert.ok(held.out.includes('\nA1: verified; waits for your Merge\n'), held.out);
-  assert.deepEqual([git(repo, 'rev-parse', 'main'), itemOf().status, itemOf().merge_ready.branch, typeof record().done], [main, undefined, 'A1', 'string']);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), itemOf().lane, itemOf().merge_ready.branch, typeof record().done], [main, 'review', 'A1', 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it.');
   assert.equal(fs.existsSync(worktree()), true);
 
@@ -739,7 +741,7 @@ test("with Auto-merge off, builder done on a local board verifies the build and 
   assert.equal(git(repo, 'show', 'main:work.txt'), 'built');
   assert.equal(git(repo, 'show', 'main:later.txt'), 'main moved');
   assert.equal(git(origin, 'rev-parse', 'main'), git(repo, 'rev-parse', 'main'));
-  assert.deepEqual([itemOf().status, itemOf().merge_ready], ['done', undefined]);
+  assert.deepEqual([itemOf().lane, itemOf().merge_ready], ['done', undefined]);
   assert.equal(threadOf().at(-1).text, 'Landed on main on your Merge.');
   assert.equal(fs.existsSync(worktree()), false);
 });
@@ -808,7 +810,7 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   const landed = b('builder', 'done', 'w/A1', '--text', 'Resolved it.');
   assert.equal(landed.code, 0, landed.err);
   assert.ok(landed.out.includes('\nA1: landed and done\n'), landed.out);
-  assert.equal(itemOf().status, 'done');
+  assert.equal(itemOf().lane, 'done');
 });
 
 test("a tapped Merge refused for a reason no lander fixes says why in the thread and leaves the card waiting for its Merge", () => {
@@ -822,7 +824,7 @@ test("a tapped Merge refused for a reason no lander fixes says why in the thread
   const failed = onOrch('merge', 'w/A1');
   assert.equal(failed.code, 1);
   assert.equal(threadOf().at(-1).text, `Not merged: ${repo} is on elsewhere, not main; switch it to main (git -C ${repo} switch main) and land again. Tap Merge again.`);
-  assert.deepEqual([itemOf().status, itemOf().merge_ready.branch], [undefined, 'A1']);
+  assert.deepEqual([itemOf().lane, itemOf().merge_ready.branch], ['review', 'A1']);
 });
 
 // docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md
@@ -877,7 +879,7 @@ test('on Merge, a hub card branches from its folder\'s main and lands there, ope
   assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
   assert.equal(git(folder, 'show', 'main:work.txt'), 'built');
   assert.equal(git(origin, 'rev-parse', 'main'), main);
-  assert.deepEqual([itemOf().status, itemOf().prs, calls(ghDir).filter((a) => a[0] === 'pr')], ['done', undefined, []]);
+  assert.deepEqual([itemOf().lane, itemOf().prs, calls(ghDir).filter((a) => a[0] === 'pr')], ['done', undefined, []]);
 });
 
 // docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md
@@ -900,7 +902,7 @@ test("on Draft PR or Ready PR, a hub card branches from origin's main, and its f
     assert.equal(git(origin, 'rev-parse', id), git(tree, 'rev-parse', 'HEAD'));
     assert.equal(git(origin, 'rev-list', '--count', `main..${id}`), '1');
     assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr').at(-1), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', id, '--title', `${id}: ${itemOf(id).title}`, '--body', `Checked ${id}.`]);
-    assert.deepEqual([itemOf(id).status, itemOf(id).prs?.length], [undefined, 1]);
+    assert.deepEqual([itemOf(id).lane, itemOf(id).prs?.length], ['review', 1]);
   };
   assert.deepEqual(b('settings', 'set', 'prs', 'on'), { code: 0, out: 'prs on\n', err: '' });
   finish('A1');
@@ -928,5 +930,5 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
   assert.ok(r.out.includes('\npushed main to origin\n'), r.out);
   assert.equal(git(origin, 'show', 'main:work.txt'), 'built');
   assert.equal(git(origin, 'show', 'main:later.txt'), 'origin moved');
-  assert.deepEqual([itemOf().status, itemOf().prs], ['done', undefined]);
+  assert.deepEqual([itemOf().lane, itemOf().prs], ['done', undefined]);
 });

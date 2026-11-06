@@ -18,7 +18,7 @@ test("the Merge tap merges the card in the board server, and a refusal answers t
   const data = path.join(site, 'data');
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, status: 'building' }, { id: 'A2', title: 'Two', pr: 8, status: 'building' }] }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, lane: 'review' }, { id: 'A2', title: 'Two', pr: 8, lane: 'progress' }] }));
   fs.writeFileSync(path.join(data, 'owner.json'), '{"items":[]}');
   const approval = (head) => [{ id: 1, user: { login: 'ann' }, state: 'APPROVED', submitted_at: '2026-11-04T10:00:00Z', commit_id: head }];
   writePR(home, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', head: 'aaa' })); writeReviews(home, 7, approval('aaa'));
@@ -37,12 +37,12 @@ test("the Merge tap merges the card in the board server, and a refusal answers t
   const why = 'Not merged: review: review required; failing: build; merge state: blocked.';
   assert.deepEqual(await refused.json(), { error: why });
   assert.deepEqual(thread('t/A2'), [why]);
-  assert.equal(items()[1].status, 'building');
+  assert.equal(items()[1].lane, 'progress');
 
   const merged = await tap('t/A1');
   assert.equal(merged.status, 200);
   assert.deepEqual(calls(home).filter((a) => a[1] === 'merge'), [['pr', 'merge', '7', '--repo', 'o/r', '--squash']]);
-  assert.equal(items()[0].status, 'merged');
+  assert.deepEqual([items()[0].lane, items()[0].prs.map((p) => [p.number, typeof p.merged_at])], ['done', [[7, 'string']]]);
   assert.equal(thread('t/A1').at(-1), 'Merged PR #7.');
   assert.doesNotMatch(events(), /card-merge/);
 });

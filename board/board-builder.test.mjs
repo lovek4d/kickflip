@@ -23,7 +23,7 @@ test('agent.mjs still writes builder records, beside the wave file it names', ()
 });
 
 test('builder keeps one record per agent on an item, with its kind and an ETA it can change or clear', () => {
-  assert.equal(board('item', 'set', 'w/A1', '--status', 'building').code, 0);
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
   assert.equal(board('builder', 'start', 'w/A1', '--label', 'Opus builder', '--kind', 'claude').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench', '--eta', '2026-10-23T16:30:00-07:00').code, 0);
   assert.deepEqual([read(at('waves', 'w', 'agents', 'A1.json')).kind, read(at('waves', 'w', 'agents', 'A1@bench.json')).eta], ['claude', '2026-10-23T23:30:00.000Z']);
@@ -36,31 +36,31 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
   assert.equal(board('builder', 'done', 'w/A1', '--agent', 'bench').code, 0);
   const bench = read(at('waves', 'w', 'agents', 'A1@bench.json'));
   assert.deepEqual([typeof bench.done, 'eta' in bench, 'done' in read(at('waves', 'w', 'agents', 'A1.json'))], ['string', false, false]);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'building');
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].lane, 'progress');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'Review').code, 0);
   assert.equal('done' in read(at('waves', 'w', 'agents', 'A1.json')), false);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '7').code, 0);
   assert.deepEqual([typeof read(at('waves', 'w', 'agents', 'A1.json')).done, read(at('waves', 'w', 'agents', 'A1@bench.json')).done], ['string', bench.done]);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, undefined);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].lane, 'review');
+  // A builder's own start and done, a build's start aside, leave the card's wave entry as it is, in any lane.
   for (const [key, flags, file] of [
     ['w/A1', [], at('waves', 'w', 'wave.json')],
     ['audit/A1', ['--site', 'audit'], site('audit', 'data', 'wave.json')],
     ['audit/A1', ['--dir', site('audit', 'data')], site('audit', 'data', 'wave.json')],
   ]) {
-    const route = key.startsWith('audit/') ? ['--site', 'audit'] : [];
-    for (const status of ['building', 'fixing', 'checking', 'held', 'done']) {
-      assert.equal(board('item', 'set', key, ...route, '--status', status, ...(status === 'done' && route.length ? ['--text', 'Done.'] : [])).code, 0);
+    for (const fields of [{ lane: 'progress' }, { lane: 'todo', held: true }, { lane: 'review', prs: [{ number: 7 }] }, { lane: 'done', closed_at: '2026-10-23T10:00:00Z' }]) {
+      const w = read(file);
+      w.items[0] = { id: 'A1', title: 'One', next: 'Review', ...fields };
+      write(file, w);
       const before = read(file).items[0];
       assert.equal(board('builder', 'start', key, ...flags).code, 0);
       assert.equal(board('builder', 'start', key, ...flags, '--agent', 'install', '--kind', 'install').code, 0);
       assert.equal(board('builder', 'done', key, ...flags).code, 0);
-      assert.deepEqual(read(file).items[0], before);
+      assert.deepEqual(read(file).items[0], before, fields.lane);
       assert.equal(board('builder', 'done', key, ...flags, '--agent', 'install').code, 0);
-      const after = read(file).items[0];
-      assert.equal(after.status, ['building', 'fixing'].includes(status) ? undefined : status);
-      if (!['building', 'fixing'].includes(status)) assert.deepEqual(after, before);
+      assert.deepEqual(read(file).items[0], before, fields.lane);
       assert.equal(board('builder', 'done', key, ...flags, '--agent', 'install').code, 0);
-      assert.deepEqual(read(file).items[0], after);
+      assert.deepEqual(read(file).items[0], before, fields.lane);
     }
   }
 });
@@ -70,25 +70,27 @@ test('a hand-back closes ordinary builders while an install survives until expli
   assert.equal(board('builder', 'start', 'w/A1', '--agent', 'install', '--kind', 'install', '--eta', '2026-10-30T18:00:00Z').code, 0);
   const running = read(install);
   assert.equal(board('builder', 'start', 'w/A1').code, 0);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '7', '--clear-status').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--pr', '7').code, 0);
   assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
   assert.deepEqual(read(install), running);
+  assert.equal(board('builder', 'start', 'w/A1').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--agent', 'fix').code, 0);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
-  assert.equal(typeof read(at('waves', 'w', 'agents', 'A1@fix.json')).done, 'string');
+  assert.equal(board('builder', 'call', 'w/A1', '--agent', 'fix', 'Kept the old header').code, 0);
+  assert.match(board('builder', 'done', 'w/A1', '--site', 'orch', '--agent', 'fix').out, /^handed back: Next/m);
+  for (const agent of ['A1', 'A1@fix']) {
+    const closed = read(at('waves', 'w', 'agents', `${agent}.json`));
+    assert.deepEqual([typeof closed.done, typeof closed.handed_back], ['string', 'string'], agent);
+  }
   assert.deepEqual(read(install), running);
   assert.equal(board('builder', 'done', 'w/A1', '--agent', 'install').code, 0);
   assert.equal(typeof read(install).done, 'string');
   assert.equal('eta' in read(install), false);
-  for (const status of ['done', 'merged', 'dropped']) {
-    assert.equal(board('builder', 'start', 'w/A1', '--agent', 'install', '--kind', 'install').code, 0);
-    assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', status, '--text', 'Closed.').code, 0);
-    assert.equal(typeof read(install).done, 'string', status);
-  }
+  assert.equal(board('builder', 'start', 'w/A1', '--agent', 'install', '--kind', 'install').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--done', '--text', 'Closed.').code, 0);
+  assert.equal(typeof read(install).done, 'string');
 });
 
 test('builder start --model records the Claude model and prints it', () => {
-  assert.equal(board('item', 'set', 'w/A1', '--status', 'building').code, 0);
   const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'claude', '--model', 'sonnet', '--label', 'Sonnet builder');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^model: Claude Sonnet$/m);
@@ -113,17 +115,17 @@ test('builder call appends a one-line call to the open record, calls prints them
 
   // A hand-back closes the record; a restart of the same agent is that build resumed, its calls and worktree kept.
   write(main, { ...read(main), worktree: { path: '/wt/A1', branch: 'A1', repo: '/repo' } });
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+  assert.match(board('builder', 'done', 'w/A1', '--site', 'orch').out, /^handed back: Next "Answer the builder's questions"$/m);
   assert.match(board('builder', 'call', 'w/A1', 'Late').err, /needs an open builder record/);
   assert.equal(board('builder', 'start', 'w/A1').code, 0);
   assert.deepEqual([read(main).calls.length, read(main).worktree.path], [2, '/wt/A1']);
   assert.equal(board('builder', 'call', 'w/A1', 'Dropped the cap').code, 0);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+  assert.match(board('builder', 'done', 'w/A1', '--site', 'orch').out, /^handed back: /m);
   // A dispatch on that record, and the agent's own start taking the dispatch up, keep the calls too.
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'claude').code, 0);
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build').code, 0);
   assert.deepEqual([read(main).calls.length, 'dispatched' in read(main)], [3, false]);
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--status', 'checking').code, 0);
+  assert.match(board('builder', 'done', 'w/A1', '--site', 'orch').out, /^handed back: /m);
 
   const verified = board('--site', 'orch', 'builder', 'verified', 'w/A1', '--note', 'All match the notes.');
   assert.deepEqual([verified.code, verified.out], [0, 'A1: judgment calls verified\n']);
@@ -164,7 +166,7 @@ test('builder ask posts to the thread as the builder and wakes the orchestrator,
     'ask2. Fold Done on a new device?', '  deferred: Not sure. Carry on with folded; I put it to the owner after review.']);
   // A deferred ask is a question for the owner: the build hands back for it, and the review puts it to the owner.
   assert.deepEqual(read(main).calls.map((c) => c.text), ['Question: Fold Done on a new device? (deferred to the owner)']);
-  assert.match(orch('builder', 'done', 'w/A1').out, /handed back: checking, Next "Answer the builder's questions"/);
+  assert.match(orch('builder', 'done', 'w/A1').out, /handed back: Next "Answer the builder's questions"/);
   assert.match(orch('builder', 'verified', 'w/A1').err, /^ask2 on w\/A1 was deferred to the owner; add its question with "ask": "ask2" first\n$/);
   const q = (extra) => ({ id: 'gh-fold', topic: 'item:w/A1', question: 'Fold Done on a new device?', options: [{ id: 'yes', label: 'Folded', recommended: true }, { id: 'no', label: 'Open' }], ...extra });
   write(path.join(home, 'q.json'), q({ ask: 'ask1' }));
@@ -187,7 +189,7 @@ test('builder pick names the kind that builds now, builder start refuses the oth
   assert.match(picked.out, /^ref: A1$/m);
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).kind, 'claude');
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).model, 'opus');
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'building');
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].lane, 'progress');
   write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'A2', title: 'Two', deps: ['A1'] }] });
   const blocked = noCodex('builder', 'start', 'w/A2', '--site', 'orch', '--kind', 'claude');
   assert.equal(blocked.code, 1);
@@ -356,14 +358,14 @@ test("builder start stores the installed link for the kickflip fallback repo, an
   assert.deepEqual(branches(clone), ['main']);
 });
 
-test("item set --status building gives the card its worktree before any builder runs and a later build start keeps it", () => {
+test('a build start on a board gives the card its worktree, and a later build start keeps it', () => {
   const repo = scratchRepo();
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
-  const set = board('--site', 'orch', 'item', 'set', 'w/A1', '--status', 'building');
-  assert.equal(set.code, 0, set.err);
+  const first = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
+  assert.equal(first.code, 0, first.err);
   assert.equal(git(worktree(), 'rev-parse', '--abbrev-ref', 'HEAD'), 'A1');
-  assert.deepEqual(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'A1').worktree, { path: worktree(), branch: 'A1', repo });
-  assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
+  assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo });
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'A1').lane, 'progress');
   commit(worktree(), 'work.txt', 'built');
   const started = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build');
   assert.equal(started.code, 0, started.err);
@@ -508,7 +510,7 @@ test('the SubagentStop hook exits 0 with nothing on stdout when its input or tra
 test("a builder's builder start takes up the record the owner's Build tap started: same kind and worktree, its own start time, and no longer dispatched", () => {
   const tapped = { label: 'Codex builder', kind: 'codex', started: '2026-11-03T10:00:00.000Z', dispatched: 'tap', worktree: { path: '/w/A1', branch: 'A1', repo: '/r' } };
   write(at('waves', 'w', 'agents', 'A1.json'), tapped);
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
   const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Codex builder');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^A1: builder started\nkind: codex\. The owner's Build tap picked it\.\nmodel: Codex\nref: A1\nworktree: \/w\/A1\n/);
@@ -524,7 +526,7 @@ test("a builder's start keeps the session id its launch recorded since the recor
   const file = at('waves', 'w', 'agents', 'A1.json');
   const session = { id: 'sess-1', at: '2026-11-03T10:00:01.000Z' };
   write(file, { label: 'Builder', kind: 'claude', model: 'opus', started: '2026-11-03T10:00:00.000Z', dispatched: 'hub', session, worktree: { path: '/w/A1', branch: 'A1', repo: '/r' } });
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build').code, 0);
   assert.deepEqual(read(file).session, session, 'the agent taking up its launch keeps its session');
   // A lander launched on a closed record: its session was written after the close.
@@ -538,12 +540,12 @@ test("a builder's start keeps the session id its launch recorded since the recor
 });
 
 test("builder start --dispatch opens the record before the agent launches, for build, prototype and grill, and the agent's own start takes it up", () => {
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'todo' }, { id: 'A2', title: 'Two', status: 'todo' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo' }, { id: 'A2', title: 'Two', lane: 'todo' }] });
   const dispatched = board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'build', '--model', 'sonnet', '--label', 'Sonnet builder');
   assert.equal(dispatched.code, 0, dispatched.err);
   const open = read(at('waves', 'w', 'agents', 'A1.json'));
   assert.equal(open.dispatched, 'session');
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].status, 'building');
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].lane, 'progress');
   const taken = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Sonnet builder');
   assert.equal(taken.code, 0, taken.err);
   assert.match(taken.out, new RegExp(`kind: ${open.kind}\\. The session's dispatch picked it\\.`));
@@ -554,7 +556,7 @@ test("builder start --dispatch opens the record before the agent launches, for b
     const r = board('--site', 'orch', 'builder', 'start', 'w/A2', '--dispatch', '--kind', kind, '--model', 'opus', '--label', `${kind} agent`);
     assert.equal(r.code, 0, r.err);
     assert.equal(read(at('waves', 'w', 'agents', 'A2.json')).dispatched, 'session');
-    assert.equal(read(at('waves', 'w', 'wave.json')).items[1].status, 'todo');
+    assert.equal(read(at('waves', 'w', 'wave.json')).items[1].lane, 'todo');
     const own = board('--site', 'orch', 'builder', 'start', 'w/A2', '--kind', kind, '--label', `${kind} agent`);
     assert.equal(own.code, 0, own.err);
     const after = read(at('waves', 'w', 'agents', 'A2.json'));
@@ -564,7 +566,7 @@ test("builder start --dispatch opens the record before the agent launches, for b
 });
 
 test('--dispatch on a record whose worktree the dispatch made keeps it through the agent\'s start, and a record already done is not taken up', () => {
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
   const wt = { path: '/w/A1', branch: 'A1', repo: '/r' };
   write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Prototype', kind: 'claude', model: 'opus', started: '2026-11-03T10:00:00.000Z', dispatched: 'session', worktree: wt });
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'prototype').code, 0);
@@ -577,7 +579,7 @@ test('--dispatch on a record whose worktree the dispatch made keeps it through t
 test("--dispatch on a record the Build tap opened leaves it alone and says it's already open", () => {
   const tapped = { label: 'Builder', kind: 'codex', started: '2026-11-03T10:00:00.000Z', dispatched: 'tap', worktree: { path: '/w/A1', branch: 'A1', repo: '/r' } };
   write(at('waves', 'w', 'agents', 'A1.json'), tapped);
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
   const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'build', '--worktree');
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, "A1: already open: the Implement tap opened its record; launch the agent, whose own builder start takes it up\n");
@@ -586,7 +588,7 @@ test("--dispatch on a record the Build tap opened leaves it alone and says it's 
 
 test('builder start under another agent name refuses while the Build tap opened the main record and nobody took it up', () => {
   write(at('waves', 'w', 'agents', 'A1.json'), { label: 'Builder', kind: 'codex', started: '2026-11-03T10:00:00.000Z', dispatched: 'tap' });
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'building' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
   const r = board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench');
   assert.equal(r.code, 1);
   assert.match(r.err, /the Implement tap opened w\/A1's main builder record and no agent has taken it up; run builder start w\/A1 without --agent first/);
@@ -596,7 +598,7 @@ test('builder start under another agent name refuses while the Build tap opened 
 });
 
 test('builder progress refuses without an open builder record, as builder call does', () => {
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', status: 'todo' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo' }] });
   const none = board('--site', 'orch', 'builder', 'progress', 'w/A1', '--phase', 'reading', 'the notes');
   assert.equal(none.code, 1);
   assert.match(none.err, /builder progress needs an open builder record on w\/A1; run builder start first/);
@@ -662,7 +664,7 @@ test('builder start saves a planner\'s model, Sonnet for a prototype and Opus fo
   ]);
 });
 
-test('builder done on a record with judgment calls hands the card back as checking, with the Next its calls ask for', () => {
+test('builder done on a record with judgment calls hands the card back, its records marked handed back, with the Next its calls ask for', () => {
   const item = () => read(at('waves', 'w', 'wave.json')).items[0];
   const record = () => read(at('waves', 'w', 'agents', 'A1.json'));
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder').code, 0);
@@ -671,15 +673,15 @@ test('builder done on a record with judgment calls hands the card back as checki
   assert.deepEqual([refused.code, refused.err], [1, "builder done sets w/A1's Next itself while its record has judgment calls; run it without --next\n"]);
   const done = board('builder', 'done', 'w/A1', '--site', 'orch');
   assert.equal(done.code, 0, done.err);
-  assert.equal(done.out, "A1: builder done\nhanded back: checking, Next \"Verify the builder's judgment calls\"\n");
-  assert.deepEqual([item().status, item().next, Boolean(record().done)], ['checking', "Verify the builder's judgment calls", true]);
+  assert.equal(done.out, "A1: builder done\nhanded back: Next \"Verify the builder's judgment calls\"\n");
+  assert.deepEqual([typeof record().handed_back, item().next, Boolean(record().done)], ['string', "Verify the builder's judgment calls", true]);
 
   assert.equal(board('builder', 'verified', 'w/A1', '--site', 'orch').code, 0);
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder').code, 0);
   assert.equal(board('builder', 'call', 'w/A1', '--site', 'orch', 'Question: keep the old label?').code, 0);
   assert.equal(board('builder', 'call', 'w/A1', '--site', 'orch', 'Kept the old colour').code, 0);
   assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch').code, 0);
-  assert.deepEqual([item().status, item().next], ['checking', "Answer the builder's questions"]);
+  assert.deepEqual([typeof record().handed_back, item().next], ['string', "Answer the builder's questions"]);
 });
 
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md

@@ -26,3 +26,5 @@ Considered:
 - the board server writing the wave file when it takes the message: a second writer of the wave file, which [the board applies the owner's Hold, Resume and Done at once](2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md) turned down for the owner's taps;
 - `question add` setting `--status building`, which needs the owner's go ([only the owner or Auto-build starts a card run](2026-11-02-1806-only-the-owner-or-auto-build-starts-a-card-run.md)), counts only while a builder runs, and would leave the card in In Progress with no Done to wait on;
 - refusing a question on a Done card until the session reopens it, which round 1 of hub/INT-269 built.
+
+Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a reopen is stored as a move out of Done with reopened_at; a Done card whose PRs all closed unmerged doesn't reopen.

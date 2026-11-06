@@ -671,17 +671,17 @@ test('on a plain git remote board the poll moves a pushed card to Done once its 
   git(repo, 'merge', '--quiet', '--no-ff', '-m', 'merge', 'merged-one');
   git(repo, 'push', '--quiet', 'origin', 'main', ':merged-one', ':dropped-one');
   const pushed = (b) => ({ branch: b, at: '2026-11-02T10:00:00Z' });
-  write(path.join(site, 'data', 'wave.json'), { items: [{ id: 'A1', pushed: pushed('merged-one') }, { id: 'A2', pushed: pushed('open-one') }, { id: 'A3', pushed: pushed('dropped-one') }] });
+  write(path.join(site, 'data', 'wave.json'), { items: [{ id: 'A1', lane: 'review', pushed: pushed('merged-one') }, { id: 'A2', lane: 'review', pushed: pushed('open-one') }, { id: 'A3', lane: 'review', pushed: pushed('dropped-one') }] });
   delete manifest.sites.orch.github;
   manifest.sites.orch.remote = 'git@gitlab.example.com:acme/project.git';
   await fetchTryBranches({ manifest, log() {} });
-  assert.deepEqual(read(path.join(site, 'data', 'wave.json')).items.map((it) => it.status), ['merged', undefined, 'done']);
+  assert.deepEqual(read(path.join(site, 'data', 'wave.json')).items.map((it) => it.lane), ['done', 'review', 'done']);
   assert.equal(thread().at(-1).text, 'merged-one is merged into main on gitlab.example.com, so this card is Done.');
   assert.equal(fs.readFileSync(path.join(site, 'data', 'threads', 'w__A3.jsonl'), 'utf8').includes('dropped-one is gone from gitlab.example.com, so this card is Done.'), true);
   git(repo, 'merge', '--quiet', '--no-ff', '-m', 'merge', 'open-one');
   git(repo, 'push', '--quiet', 'origin', 'main');
   await fetchTryBranches({ manifest, log() {} });
-  assert.equal(read(path.join(site, 'data', 'wave.json')).items[1].status, 'merged');
+  assert.equal(read(path.join(site, 'data', 'wave.json')).items[1].lane, 'done');
 });
 
 // A local board whose folder's origin is a bare repo here, with a second clone that pushes to it. → push(file) commits

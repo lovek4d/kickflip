@@ -76,7 +76,7 @@ test("the board pushes each new Action needed once under its card's tag, again o
   const ask = (id, topic, question) => ({ id, topic, question, options: [{ id: 'A', label: 'Keep' }] });
   const answer = (id) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice: 'A' }) });
   const tagged = (tag) => pushes().filter((c) => flag(c, 'tag') === tag);
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'P1', title: 'Pushed', status: 'building' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'P1', title: 'Pushed', lane: 'progress' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ topics: [{ id: 'plan', title: 'Plan' }], items: [ask('p1', 'item:t/P1', 'Keep the badge?')] }));
   try {
     await until(() => tagged('item-t/P1').length === 1, 'the new question pushes');
@@ -413,10 +413,10 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
-    { id: 'B1', title: 'Tapped', next: 'Implement' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
-    { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree' }, { id: 'B7', title: 'Leftover work' },
-    { id: 'B8', title: 'Held and unstarted', held: true }, { id: 'B9', title: 'Held and waiting', held: true }, { id: 'B10', title: 'Held and grilled', held: true },
-    { id: 'B11', title: 'Ready', state: 'ready' }, { id: 'B12', title: 'Grilling', state: 'grilling', unfiled: true }, { id: 'B13', title: 'Leftover work, prototyping', state: 'prototyping' },
+    { id: 'B1', title: 'Tapped', lane: 'todo', next: 'Implement' }, { id: 'B2', title: 'Held', lane: 'todo', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', lane: 'todo', deps: ['B4'] }, { id: 'B4', title: 'Dep', lane: 'todo' },
+    { id: 'B5', title: 'Held and blocked', lane: 'todo', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree', lane: 'todo' }, { id: 'B7', title: 'Leftover work', lane: 'todo' },
+    { id: 'B8', title: 'Held and unstarted', lane: 'todo', held: true }, { id: 'B9', title: 'Held and waiting', lane: 'todo', held: true }, { id: 'B10', title: 'Held and grilled', lane: 'todo', held: true },
+    { id: 'B11', title: 'Ready', lane: 'todo', state: 'ready' }, { id: 'B12', title: 'Grilling', lane: 'todo', state: 'grilling', unfiled: true }, { id: 'B13', title: 'Leftover work, prototyping', lane: 'todo', state: 'prototyping' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -434,22 +434,22 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual(log().slice(before), []);
     assert.match(thread('B1').at(-1).text, new RegExp(`^Builder launched on Claude Opus in ${worktree}\\.$`));
     const started = await card('B1');
-    assert.deepEqual([started.lane, started.status, started.buildable, started.builder.progress, started.refusal], ['progress', 'building', false, null, null]);
+    assert.deepEqual([started.lane, started.storedLane, started.buildable, started.builder.progress, started.refusal], ['progress', 'progress', false, null, null]);
 
     const held = await card('B2');
     assert.deepEqual([held.held, held.buildable], [true, true]);
     assert.equal((await post({ kind: 'card-build', key: 't/B2' })).status, 200);
     const unheld = await card('B2');
-    assert.deepEqual([unheld.held, unheld.lane, unheld.status, unheld.builder.progress, unheld.refusal], [false, 'progress', 'building', null, null]);
+    assert.deepEqual([unheld.held, unheld.lane, unheld.storedLane, unheld.builder.progress, unheld.refusal], [false, 'progress', 'progress', null, null]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
-    assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed'], ['claude', 'Builder launched on Claude Opus']]);
+    assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed'], ['claude', 'Moved to In Progress: a build started'], ['claude', 'Builder launched on Claude Opus']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
     // docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md: a held card that has an unstarted status is unheld by Implement too.
     for (const id of ['B8', 'B9']) {
       assert.equal((await post({ kind: 'card-build', key: `t/${id}` })).status, 200);
       const resumed = await card(id);
-      assert.deepEqual([resumed.held, resumed.lane, resumed.status, resumed.refusal], [false, 'progress', 'building', null], id);
-      assert.deepEqual(thread(id).map((m) => m.text.replace(/ in .*/, '')), ['Resumed', 'Builder launched on Claude Opus'], id);
+      assert.deepEqual([resumed.held, resumed.lane, resumed.storedLane, resumed.refusal], [false, 'progress', 'progress', null], id);
+      assert.deepEqual(thread(id).map((m) => m.text.replace(/ in .*/, '')), ['Resumed', 'Moved to In Progress: a build started', 'Builder launched on Claude Opus'], id);
     }
     // Grill leaves the hold alone.
     assert.equal((await post({ kind: 'grill-more', key: 't/B10' })).status, 200);
@@ -459,7 +459,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal(bumpedAnswer.id, null);
     assert.ok(bumpedAnswer.board.items.find((i) => i.id === 'B3').bumpedAt);
     const bumped = await card('B3');
-    assert.deepEqual([bumped.lane, 'queued' in bumped, bumped.status, bumped.builder, bumped.next, bumped.buildable, bumped.blockedBy.map((d) => d.ref)], ['todo', false, null, null, null, true, ['B4']]);
+    assert.deepEqual([bumped.lane, 'queued' in bumped, bumped.storedLane, bumped.builder, bumped.next, bumped.buildable, bumped.blockedBy.map((d) => d.ref)], ['todo', false, 'todo', null, null, true, ['B4']]);
     assert.deepEqual(thread('B3').map((m) => [m.who, m.text]), [['claude', 'Can’t start yet: waits on B4. Bumped to the top of Todo.']]);
     assert.equal(fs.existsSync(path.join(site, 'data', 'agents', 'B3.json')), false);
     assert.equal(fs.existsSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B3')), false);
@@ -474,7 +474,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     fs.mkdirSync(taken, { recursive: true });
     assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
     const leftover = await card('B4');
-    assert.deepEqual([leftover.lane, leftover.status, leftover.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${taken} already exists; land or remove it first`]);
+    assert.deepEqual([leftover.lane, leftover.storedLane, leftover.refusal], ['todo', 'todo', `Couldn't start implementing: --worktree: ${taken} already exists; land or remove it first`]);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more', 'card-bump'].includes(k)), []);
 
     // A leftover worktree holding no work is remade from the board's fetched main; one holding work still refuses.
@@ -489,12 +489,12 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     git(origin, 'commit', '--quiet', '-m', 'main moved');
     assert.equal((await post({ kind: 'card-build', key: 't/B6' })).status, 200);
     const remade = await card('B6');
-    assert.deepEqual([remade.lane, remade.status, remade.refusal], ['progress', 'building', null]);
+    assert.deepEqual([remade.lane, remade.storedLane, remade.refusal], ['progress', 'progress', null]);
     assert.equal(git(leftover6, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
-    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', `Remade the leftover worktree ${leftover6} from main: it held no commits or changes.`], ['claude', `Builder launched on Claude Opus in ${leftover6}.`]]);
+    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', 'Moved to In Progress: a build started'], ['claude', `Remade the leftover worktree ${leftover6} from main: it held no commits or changes.`], ['claude', `Builder launched on Claude Opus in ${leftover6}.`]]);
     assert.equal((await post({ kind: 'card-build', key: 't/B7' })).status, 200);
     const kept = await card('B7');
-    assert.deepEqual([kept.lane, kept.status, kept.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
+    assert.deepEqual([kept.lane, kept.storedLane, kept.refusal], ['todo', 'todo', `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
 
     // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: an empty Implement, on a ready
     // card or one still grilling, writes only its keyed status line, marks the card ready as it is and starts the build,
@@ -503,10 +503,10 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     for (const id of ['B11', 'B12']) {
       assert.equal((await post({ kind: 'item-message', key: `t/${id}`, text: '', intent: 'build' })).status, 200);
       const tapped = await card(id);
-      assert.deepEqual([tapped.lane, tapped.status, tapped.orchestrator], ['progress', 'building', null], id);
+      assert.deepEqual([tapped.lane, tapped.storedLane, tapped.orchestrator], ['progress', 'progress', null], id);
       assert.deepEqual([wave().items.find((i) => i.id === id).state, 'unfiled' in wave().items.find((i) => i.id === id)], ['ready', false], id);
       assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', `${id}.json`), 'utf8')).dispatched, 'tap');
-      assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text.replace(/ in .*/, '')]), [['love', 'implement', 'Implementation requested'], ['claude', undefined, 'Builder launched on Claude Opus']], id);
+      assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text.replace(/ in .*/, '')]), [['love', 'implement', 'Implementation requested'], ['claude', undefined, 'Moved to In Progress: a build started'], ['claude', undefined, 'Builder launched on Claude Opus']], id);
     }
     assert.deepEqual(log().slice(events).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
     // One the tap refuses keeps the state it had.
@@ -643,8 +643,8 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   assert.deepEqual(sent, [{ key: 't/A2', hold: true, until: timed.heldUntil }, { key: 't/A2', hold: true, until: at }, { key: 't/A2', hold: true }]);
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: false });
   await post('/_claude/events', { kind: 'card-done', key: 't/A2' });
-  assert.deepEqual(await work().then((c) => [c.lane, c.status, c.finishable]), ['done', 'done', false]);
-  assert.deepEqual([filed().status, filed().held], ['done', undefined]);
+  assert.deepEqual(await work().then((c) => [c.lane, c.finishable]), ['done', false]);
+  assert.deepEqual([filed().lane, typeof filed().closed_at, filed().held], ['done', 'string', undefined]);
   const lines = said();
   // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: each tap's line is keyed.
   assert.deepEqual([lines.slice(0, 2), lines.slice(4)], [['Held', 'Resumed'], ['Held', 'Resumed', 'Marked done']]);
@@ -676,7 +676,7 @@ test("the events POST answers with the board as the tap left it, so a bump, unbu
 });
 
 // docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md
-test("a Hold or Done whose wave file couldn't be written is refused with why and records no event, as is one on a merged card", async () => {
+test("a Hold or Done whose wave file couldn't be written is refused with why and records no event, as is one on a card already in Done", async () => {
   const wave = path.join(site, 'data', 'wave.json');
   fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'W1', title: 'One' }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
@@ -694,17 +694,19 @@ test("a Hold or Done whose wave file couldn't be written is refused with why and
   } finally { fs.rmdirSync(blocker); }
   assert.equal(logged(), before);
   assert.deepEqual(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0], { id: 'W1', title: 'One' });
-  fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'W1', title: 'One', status: 'merged' }] }));
-  assert.deepEqual(await post({ kind: 'card-done', key: 't/W1' }), [400, { error: 't/W1 is already merged or dropped, so its wave file stays as it is.' }]);
-  assert.equal(logged(), before);
-  const [held] = await post({ kind: 'card-hold', key: 't/W1', hold: true });
-  assert.equal(held, 400);
-  // A merged card waiting on its owner step closes on the owner's Done.
-  fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'W1', title: 'One', status: 'merged', owner_step: 'Tag the first release' }] }));
+  const landed = { id: 'W1', title: 'One', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z', prs: [{ number: 7, merged_at: '2026-11-01T00:00:00.000Z' }] };
+  // A merged card waiting on its owner step closes on the owner's Done, its PR staying merged.
+  fs.writeFileSync(wave, JSON.stringify({ items: [{ ...landed, owner_step: 'Tag the first release' }] }));
   const [status, out] = await post({ kind: 'card-done', key: 't/W1' });
   assert.equal(status, 200, out.error);
   assert.equal(out.board.items.find((i) => i.id === 'W1').lane, 'done');
-  assert.deepEqual((({ status: s, owner_step }) => [s, owner_step])(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0]), ['merged', undefined]);
+  assert.deepEqual((({ lane, owner_step, prs }) => [lane, owner_step, prs[0].merged_at])(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0]), ['done', undefined, landed.prs[0].merged_at]);
+  const stepped = logged();
+  fs.writeFileSync(wave, JSON.stringify({ items: [landed] }));
+  assert.deepEqual(await post({ kind: 'card-done', key: 't/W1' }), [400, { error: 't/W1 is already in Done, so its wave file stays as it is.' }]);
+  assert.equal(logged(), stepped);
+  const [held] = await post({ kind: 'card-hold', key: 't/W1', hold: true });
+  assert.equal(held, 400);
 });
 
 test("deleting a New card is one events POST that records ask-withdrawn and hides the ask, and its board has the card gone", async () => {
@@ -747,7 +749,7 @@ test('a watcher that just exited on an event still counts as listening, until it
 
 test("the board lists each agent's record on an item, and the item's thread shows when each started and finished among its lines", async () => {
   await boardSees(base, () => {
-    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A3', title: 'Three', status: 'building' }] }));
+    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A3', title: 'Three', lane: 'progress' }] }));
     fs.mkdirSync(path.join(site, 'data', 'agents'), { recursive: true });
     fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
     fs.writeFileSync(path.join(site, 'data', 'agents', 'A3.json'), JSON.stringify({ label: 'Opus builder', kind: 'opus', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' }));
@@ -1359,7 +1361,7 @@ test("/api/board names a card's worktree while its folder exists, and says wheth
   fs.mkdirSync(agents, { recursive: true });
   const record = (dir) => JSON.stringify({ label: 'Opus builder', kind: 'claude', started: new Date().toISOString(), worktree: { path: dir, branch: 'x', repo: home } });
   await boardSees(base, () => {
-    fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'V1', title: 'Kept', status: 'building' }, { id: 'V2', title: 'Landed', status: 'building' }] }));
+    fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'V1', title: 'Kept', lane: 'progress' }, { id: 'V2', title: 'Landed', lane: 'progress' }] }));
     fs.writeFileSync(path.join(agents, 'V1.json'), record(kept));
     fs.writeFileSync(path.join(agents, 'V2.json'), record(path.join(home, 'worktrees', 'V2')));
   });
@@ -1452,7 +1454,7 @@ test("Save on the settings page's reviewers adds and removes in the server, open
   const waveFile = path.join(site, 'data', 'wave.json');
   const wavePrev = fs.existsSync(waveFile) ? fs.readFileSync(waveFile) : null;
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, reviewers: [ann, bob] }));
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ reviewers: [ann, bob], items: [{ id: 'R1', title: 'R', status: 'planned' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ reviewers: [ann, bob], items: [{ id: 'R1', title: 'R', lane: 'todo' }] }));
   slackWorldOf.dms.U3 = 'D3';
   writeGithubUser(ghDir, 'cy-gh', { login: 'Cy-GH' });
   const cy = { name: 'Cy Doe', slack_user: 'U3', dm: 'D3', github: 'Cy-GH' };
@@ -1567,10 +1569,10 @@ test("a reload naming the number it holds as since gets a patch of the cards cha
   const { applyPatch } = vmContext.BoardUI;
   const content = (b) => { const { generatedAt: _, ...rest } = JSON.parse(JSON.stringify(b)); return rest; };
   const get = async (q = '') => (await fetch(`${base}/api/board${q}`)).json();
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched' }, { id: 'F2', title: 'Still' }, { id: 'F3', title: 'Gone soon' }] })));
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }, { id: 'F3', title: 'Gone soon', lane: 'todo' }] })));
   await cardsMarkedRead('t/F');
   const first = await get();
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched again' }, { id: 'F2', title: 'Still' }] })));
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched again', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }] })));
   const patch = await get(`?since=${first.version}`);
   assert.equal(patch.since, first.version);
   assert.deepEqual(patch.lists.items.set.map((c) => [c.key, c.title]), [['t/F1', 'Patched again']]);
@@ -1688,7 +1690,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
       };
       await import(${JSON.stringify(server)});
       await until(() => state(), 'the first idle check');
-      const done = (id, mins) => ({ id, title: id, status: 'done', status_at: new Date(Date.parse('2026-11-04T10:00:00Z') + mins * 60000).toISOString() });
+      const done = (id, mins) => { const at = new Date(Date.parse('2026-11-04T10:00:00Z') + mins * 60000).toISOString(); return { id, title: id, lane: 'done', lane_at: at, closed_at: at }; };
       await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
       mock.timers.tick(16 * 60000);
       await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);

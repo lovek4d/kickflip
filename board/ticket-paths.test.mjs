@@ -46,7 +46,7 @@ const SOURCES = [
 const LINEAR = SOURCES[2][1];
 const NEEDS_KEY = 'Linear needs Hub’s Linear key; add it in Hub settings › Linear first, or pick Internal or GitHub issues.';
 const NO_KEY = 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub settings › Linear, or pick another ticket source.';
-const OLD = { id: 'OLD', title: 'Filed long ago', ticket: 'INT-1' };
+const OLD = { id: 'OLD', title: 'Filed long ago', ticket: 'INT-1', lane: 'todo', lane_at: '2026-10-01T10:00:00.000Z' };
 
 // A board at sites/<route> over data/wave.json, on GitHub as o/<route>, holding one old card.
 function board(route) {
@@ -144,7 +144,7 @@ test("the board server's Run review route and arch file give their cards tickets
   assert.equal(first.body.key, 'app/GH-1');
   assert.equal(b.item('GH-1').ticket, '#1');
   const waveFile = path.join(b.site, 'data', 'wave.json');
-  write(waveFile, { ...read(waveFile), items: read(waveFile).items.map((it) => (it.id === 'GH-1' ? { ...it, status: 'done' } : it)) });
+  write(waveFile, { ...read(waveFile), items: read(waveFile).items.map((it) => (it.id === 'GH-1' ? { ...it, lane: 'done', lane_at: new Date().toISOString(), closed_at: new Date().toISOString() } : it)) });
 
   const keyFile = path.join(kickflip, 'secrets.json');
   const key = fs.readFileSync(keyFile, 'utf8');

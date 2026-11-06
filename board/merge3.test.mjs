@@ -9,9 +9,9 @@ import { merge3 } from './merge3.mjs';
 
 test('merge3 keeps both sides changes to different cards, fields and additions', () => {
   const base = { title: 'W', items: [{ id: 'A', next: 'x' }, { id: 'B' }, { id: 'C' }] };
-  const mine = { title: 'W', items: [{ id: 'A', next: 'x', status: 'done' }, { id: 'B' }, { id: 'C' }, { id: 'M' }] };
+  const mine = { title: 'W', items: [{ id: 'A', next: 'x', lane: 'done' }, { id: 'B' }, { id: 'C' }, { id: 'M' }] };
   const theirs = { title: 'W', items: [{ id: 'A', next: 'x' }, { id: 'B', size: 's' }, { id: 'T' }] };
-  assert.deepEqual(merge3(base, mine, theirs), { title: 'W', items: [{ id: 'A', next: 'x', status: 'done' }, { id: 'B', size: 's' }, { id: 'T' }, { id: 'M' }] });
+  assert.deepEqual(merge3(base, mine, theirs), { title: 'W', items: [{ id: 'A', next: 'x', lane: 'done' }, { id: 'B', size: 's' }, { id: 'T' }, { id: 'M' }] });
 });
 
 test('merge3 lets mine win a field both changed, and drops a card mine removed', () => {

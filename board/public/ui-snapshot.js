@@ -55,9 +55,9 @@
   // before and after map a line's id to its text; the ids of the lines that are new or read differently flash once.
   const changedLines = (before, after) => Object.keys(after).filter((id) => globalThis.BoardUI.record(before, id) !== after[id]);
 
-  // What counts as a card's update: a new thread line, a status or Next line change, or a PR or CI change
+  // What counts as a card's update: a new thread line, a lane, status or Next line change, or a PR or CI change
   // (docs/adr/2026-11-02-2354-an-updated-card-takes-a-brief-tint.md). Two board items read the same exactly when it is unchanged.
-  const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.status ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
+  const updateSign = (it) => JSON.stringify([it.threadCount ?? 0, it.lane ?? null, it.builder?.progress ?? null, it.working ?? null, it.waitsOn ?? null,
     it.next ?? null, it.ask?.state ?? null, ...(it.prs || []).map((pr) => [pr.state, pr.isDraft, pr.reviewDecision, pr.checks?.state ?? null])]);
 
   Object.assign(globalThis.BoardUI, { copyOf, readCopy, copyStore, pageCopy, boardCopy, preloadKeys, changedLines, updateSign });

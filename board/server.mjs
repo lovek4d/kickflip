@@ -315,14 +315,14 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeStranded, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeStranded, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, launchIntake, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1008,6 +1008,7 @@ function changed({ read = false } = {}) {
   changeTimer = setTimeout(() => {
     changeTimer = null;
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
+    settleLanes();
     checkArchive();
     markNewCards();
     checkActions();
@@ -1233,7 +1234,7 @@ const server = http.createServer(async (req, res) => {
           written = await recordOwnerTap(here, kind, body);
         }
         catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its wave file: ${e.message}` }); }
-        if (!written) return json(res, 400, { error: `${key} is already merged or dropped, so its wave file stays as it is.` });
+        if (!written) return json(res, 400, { error: `${key} is already in Done, so its wave file stays as it is.` });
         if (agents.length) {
           stopAgents(agents);
           await appendThread(here, key, { text: 'Stopped its builder.', who: 'love', by: shared ? shared.by.name || shared.by.login : undefined });
@@ -1770,15 +1771,16 @@ function runHeldMerge(key) {
 
 // data/landers.json {<key>: {verified, pid}}: the verification each launched lander was for, so each gets one lander,
 // and its process. A card whose verified build waits to land (store.mjs landable) gets a headless lander. A lander whose
-// process has gone while its card still reads building stopped partway (the usage pause ends a headless run): its card
-// goes back to checking (store.mjs relaunchLander) and gets a fresh lander in this pass. A lander is only ever due on a
-// checking card, so with none checking (anyChecking false) and none sent back, landable's read of the wave files is skipped.
-// A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor relaunched. A dead
-// lander whose card is neither building nor checking (landed, or archived) has its entry dropped; relaunchLander would restore an
-// archived card from the archive.
+// process has gone while its card still has a builder open stopped partway (the usage pause ends a headless run): its
+// card is handed back again (store.mjs relaunchLander) and gets a fresh lander in this pass. A lander is only ever due
+// on a handed-back card, so with none handed back (anyChecking false) and none sent back, landable's read of the wave
+// files is skipped. A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor
+// relaunched. A dead lander whose card is neither building nor handed back (landed, or archived) has its entry dropped;
+// relaunchLander would restore an archived card from the archive.
 async function launchLanders(items, stopped) {
-  const anyChecking = items.some((i) => i.status === 'checking');
-  const status = Object.fromEntries(items.map((i) => [i.key, i.status]));
+  const anyChecking = items.some((i) => i.waitsOn === 'checking');
+  const status = Object.fromEntries(items.map((i) => [i.key, i.waitsOn === 'checking' ? 'checking'
+    : i.lane !== 'done' && i.agents?.some((a) => a.started && !a.done) ? 'building' : null]));
   const file = path.join(data, 'landers.json');
   const sent = Object.fromEntries(Object.entries(await readJSON(file, {})).map(([k, v]) => [k, typeof v === 'string' ? { verified: v, pid: null } : v]));
   const pidGone = new Set();
@@ -1789,7 +1791,7 @@ async function launchLanders(items, stopped) {
     if (status[key] !== 'building') { dropped.add(key); continue; }
     await relaunchLander(here, key);
     pidGone.add(key);
-    logCall({ call: 'lander', key, result: 'sent back to checking', reason: 'Its lander exited with the card still building.', inputs: entry });
+    logCall({ call: 'lander', key, result: 'handed back again', reason: 'Its lander exited with its builder still open.', inputs: entry });
   }
   const kept = Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k) && !dropped.has(k)));
   const save = async () => {
@@ -2057,6 +2059,27 @@ async function stepIdle() {
   }
 }
 
+// docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
+// Each card the build places in a lane other than its stored one moves there (domain.mjs movesOf, store.mjs moveCard),
+// with a thread line saying why, as the server starts and after each board change. A settle asked for while one runs
+// runs again after it.
+let settling = null;
+let settleAgain = false;
+function settleLanes() {
+  if (settling) { settleAgain = true; return settling; }
+  settling = (async () => {
+    do {
+      settleAgain = false;
+      try {
+        const moves = movesOf(await sharedBoard());
+        for (const m of moves) await moveCard(here, m.key, m.to, m.why);
+        if (moves.length) dataVersion++;
+      } catch (err) { console.error('Lane settle failed:', err.message); }
+    } while (settleAgain);
+  })().finally(() => { settling = null; });
+  return settling;
+}
+
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
 // The Done cards past the newest DONE_KEPT move to the archive with their resolved questions (domain.mjs archivedOf,
 // store.mjs archiveCards), as the server starts and after each board change, each with when it closed. A check asked
@@ -2088,10 +2111,11 @@ async function archiveDone() {
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
-try { for (const line of await dropPlannedStatus(here)) console.log(line); } catch (e) { console.error('planned-status migration:', e.message); }
+try { for (const line of await migrateStatuses(here)) console.log(line); } catch (e) { console.error('status migration:', e.message); }
 try { for (const line of await stageImplementAsks(here)) console.log(line); } catch (e) { console.error('staging migration:', e.message); }
 try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
 await launchCutOffBuilds();
+await settleLanes();
 await checkArchive();
 await markNewCards();
 await watchBoard();
