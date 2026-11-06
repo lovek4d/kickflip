@@ -573,7 +573,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   const grills = () => fs.readFileSync(path.join(dir, 'launches.log'), 'utf8').split('\n').filter((l) => l.endsWith(' grill')).length;
   assert.deepEqual(launched('grill', 'prototype', 'build'), [], 'nothing launches while usage is paused');
   fs.rmSync(usageFile);
-  await until(() => launched('grill').length === 2 && launched('build').length === 1 && thread('B3').length === 2, 'the arrivals get their grills');
+  await until(() => launched('grill').length === 2 && launched('build').length === 1 && thread('B3').length === 1, 'the arrivals get their grills');
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being oldest first');
   assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
   assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');

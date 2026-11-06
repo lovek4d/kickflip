@@ -374,6 +374,6 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const role = visual ? 'Visual agent' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
   const prompt = visual ? visualBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
   const launched = await launchAgent({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
-  if (launched.sessionId) await recordSession(site, key, launched.sessionId, launched.pid, agent, path.basename(launched.log));
+  await recordSession(site, key, launched.sessionId, launched.pid, agent, path.basename(launched.log));
   return launched;
 }
