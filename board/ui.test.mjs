@@ -2240,6 +2240,25 @@ test("a bare visual request is a request line led by the image mark, and the age
   ]);
   assert.match(ui.MARK_ICONS['visual requested'], /<rect x="3" y="3" width="18" height="18" rx="2"\/>/);
   assert.ok(html.startsWith(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['visual requested']}</span>visual requested <span class="muted">`));
-  assert.match(html, /<div class="msg link visual"><a href="visuals\/A1\/how-a-land-moves\.html">How a land &lt;moves&gt; →<\/a> <span class="muted">· [^<]+<\/span><\/div>$/);
+  assert.match(html, /<div class="msg link visual"><span class="mark" aria-hidden="true"><svg.*?<\/svg><\/span><a href="visuals\/A1\/how-a-land-moves\.html">How a land &lt;moves&gt; →<\/a> <span class="muted">· [^<]+<\/span><\/div>$/);
   assert.doesNotMatch(html, /target="_blank"|class="who"/);
+});
+
+// docs/adr/2026-11-07-0600-every-thread-status-line-carries-an-icon.md
+test('every kind of thread status or system line leads with an icon, so a new kind cannot ship without one', async () => {
+  const { ACTION_LABELS, INTENT_LABELS, QUICK_BUILD, ANSWERS_SUBMITTED } = await import('./domain.mjs');
+  // Each word domain.mjs puts on a request line or a message footer has an icon.
+  const words = [...Object.values(ACTION_LABELS).filter((w) => w !== ACTION_LABELS['mark-ready']), ...Object.values(INTENT_LABELS), QUICK_BUILD, ANSWERS_SUBMITTED];
+  for (const w of words) assert.match(ui.MARK_ICONS[w] || '', /class="mark-icon/, `${w} has an icon`);
+  // Each system line kind renders a mark holding an icon, or the dot of a builder or agent that is running.
+  const sample = { ts: ago(1), who: 'claude', text: 'x', link: '#item=a', calls: ['c'], verified: null };
+  for (const kind of ui.SYSTEM_KINDS) {
+    const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'quick-build' ? { text: QUICK_BUILD, request: true } : {}) }]);
+    assert.match(html, /<span class="mark" aria-hidden="true">(<svg class="mark-icon|<span class="(working|agent)-dot")/, `${kind} line has a mark`);
+  }
+  // A request line with no icon for its words renders an empty mark, which this catches.
+  for (const text of words.filter((w) => !INTENT_LABELS.reply || w !== INTENT_LABELS.reply)) {
+    const html = ui.threadMessages([{ ts: ago(1), who: 'love', kind: 'grill-more', request: true, text }]);
+    assert.match(html, /<span class="mark" aria-hidden="true"><svg class="mark-icon/, `${text} request line has an icon`);
+  }
 });

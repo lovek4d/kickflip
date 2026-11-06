@@ -710,14 +710,14 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // A request with text, a question's prototype request (its question, pick and note) and an answer are the owner's
 // messages, with the tap's words as their footer's status
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
-const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'visual-request': 'visual requested', 'reask-request': 're-ask requested' };
+export const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'visual-request': 'visual requested', 'reask-request': 're-ask requested' };
 const REQUESTS = ['grill-more', 'prototype-request', 'visual-request'];
-const ANSWERS_SUBMITTED = 'answers submitted';
-const QUICK_BUILD = 'quick build: no grill';
+export const ANSWERS_SUBMITTED = 'answers submitted';
+export const QUICK_BUILD = 'quick build: no grill';
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
 // A Todo card's thread box sends with Reply (intent: 'reply') or Implement (intent: 'build'), and its message's footer
 // names that button. A bare Implement is a request line. A one-button box's message carries no intent and has no footer.
-const INTENT_LABELS = { reply: 'Reply', build: 'Implement' };
+export const INTENT_LABELS = { reply: 'Reply', build: 'Implement' };
 const intentLabel = (e) => INTENT_LABELS[e.data.intent];
 const bareMessage = (e) => e.kind === 'item-message' && !String(e.data.text || '').trim() && !e.data.files?.length;
 const actionText = (e, asked) => {

@@ -36,9 +36,9 @@
   // batched: an answer followed by another of the owner's answers in its state, which carries the batch's footer.
   const line = (m, links, edits, batched = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
-    : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
+    : m.kind === 'ask-link' ? `<div class="msg link">${statusMark('ask-link')}<a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
-    : m.kind === 'visual' ? `<div class="msg link visual"><a href="${esc(m.link)}">${escText(m.text)} →</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'visual' ? `<div class="msg link visual">${statusMark('visual')}<a href="${esc(m.link)}">${escText(m.text)} →</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.request ? `<div class="msg request">${statusMark(m.text)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
@@ -54,6 +54,8 @@
 
   const STEP = 3;
   const UNREAD_CAP = 10;
+  // Every kind of system line; each leads with a mark, and a test renders each, so a new kind needs an entry in ui.js MARK_ICONS.
+  const SYSTEM_KINDS = ['status', 'agent', 'calls', 'ask-link', 'questions', 'visual', 'quick-build'];
   const NOT_MESSAGE = new Set(['status', 'agent', 'calls', 'ask-link', 'questions']);
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
   // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount); the
@@ -109,5 +111,5 @@
     return [{ ts: fresh.at(-1), who: 'claude', kind: 'questions', text: `${fresh.length} new question${fresh.length === 1 ? '' : 's'}`, link: `questions.html#${encodeURIComponent(questions.first)}` }];
   }
 
-  Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton, doneTone, newQuestionsLine });
+  Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
 })();
