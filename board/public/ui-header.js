@@ -1,19 +1,24 @@
 // The board header's time and the In Review header's GitHub line, with when a refresh asks for a check. Needs ui.js.
 (function () {
   const { since, esc } = globalThis.BoardUI;
-  // The header's short time beside refresh: `at` is when the page last got fresh data (nextFresh), and watcher is
-  // /api/board's checks.watcher (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md): a grey asleep while
-  // the hub can wake the session, waking… once a wake is under way (waking: the page asked for one and the board hasn't
-  // said so yet), and a red not listening when nothing will wake it
-  // (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). link is 'online',
-  // 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it).
-  const statusLine = (at, { link = 'online', watcher, pause, waking = false } = {}) => (pause?.state === 'paused' ? `<span class="paused">paused until ${esc(BoardUI.usageClock(pause.resets_at))}</span>`
-    : link === 'offline' ? `<span class="link-state offline" title="Offline: can't reach the host">${at ? shortSince(at) : 'offline'}</span>`
-    : link === 'reconnecting' ? '<span class="link-state">reconnecting…</span>'
-    : watcher === 'waking' || (waking && watcher === 'asleep') ? '<span class="claude asleep" title="Waking: the hub is resuming its session">waking…</span>'
-    : watcher === 'asleep' ? '<span class="claude asleep" title="Asleep: its session idled out. Refresh, or any tap on the page, wakes it">asleep</span>'
-    : watcher === 'stopped' ? '<span class="claude down" title="Claude not listening">not listening</span>'
-    : at ? `<span class="fresh" title="Updated ${since(at)}: the last change from the host, or your last refresh">${shortSince(at)}</span>` : '');
+  // The header's short time beside refresh: `at` is when the page last got fresh data (nextFresh). It always reads that age;
+  // the board's other states only move the span's colour (the arrow follows it, style.css) and its title. watcher is
+  // /api/board's checks.watcher (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md): stopped
+  // (nothing will wake it) and an offline link turn it red, paused usage turns it orange. link is 'online', 'offline'
+  // (the last board load failed) or 'reconnecting' (a refresh tap is retrying it, and the icon spins).
+  const statusLine = (at, { link = 'online', watcher, pause, waking = false } = {}) => {
+    const paused = pause?.state === 'paused';
+    const down = link === 'offline' || watcher === 'stopped';
+    const reason = link === 'offline' ? "Offline: can't reach the host"
+      : watcher === 'stopped' ? 'Claude not listening'
+      : paused ? `Paused until ${BoardUI.usageClock(pause.resets_at)}`
+      : link === 'reconnecting' ? 'Reconnecting…'
+      : watcher === 'waking' || (waking && watcher === 'asleep') ? 'Waking: the hub is resuming its session'
+      : watcher === 'asleep' ? 'Asleep: its session idled out. Refresh, or any tap on the page, wakes it' : '';
+    if (!at && !reason) return '';
+    const title = [reason, at && `Updated ${since(at)}: the last change from the host, or your last refresh`].filter(Boolean).join('. ');
+    return `<span class="fresh${down ? ' down' : paused ? ' hold' : ''}" title="${esc(title)}">${at ? shortSince(at) : ''}</span>`;
+  };
   // What the page shows, for telling whether a change signal brought anything new; generatedAt changes on every load.
   const freshSig = (board, threads, openKeys) => JSON.stringify([{ ...board, generatedAt: null }, [...openKeys].sort().map((k) => [k, threads.get(k) ?? null])]);
   // fresh is {at, sig}: the header's time and what the page showed then. via is 'refresh' (a ↻ tap), 'signal' (the

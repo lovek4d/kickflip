@@ -189,8 +189,9 @@ button.link { background: none; border: 0; color: var(--accent); padding: 8px 12
 .refresh #refresh { padding: 4px; margin-left: -4px; flex: none; }
 .refresh #status { font-size: 12px; min-width: 0; }
 .refresh .late { color: var(--color-notice); font-weight: 600; }
-.refresh .down { color: var(--color-danger); font-weight: 600; }
-.refresh .asleep { color: var(--muted); font-weight: 600; }
+/* The header's time keeps its text; a stopped or offline board turns it and the refresh arrow red, paused usage orange. */
+.refresh .down, .refresh:has(.down) #refresh { color: var(--color-danger); }
+.refresh .hold, .refresh:has(.hold) #refresh { color: var(--color-notice); }
 .lane-github { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted); text-align: right; }
 .lane-github .late { color: var(--color-notice); }
 .msg.other { background: transparent; border: 1px solid var(--line); }
@@ -520,8 +521,6 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .arch-last .muted { font-size: 12.5px; }
 .arch-body .arch-waits { color: var(--color-notice); }
 .arch-body .arch-run { width: 100%; min-height: 44px; font-size: 15px; }
-/* INT-64: offline, the header's time and refresh turn red */
-.view-board.offline .refresh #refresh, .refresh .link-state.offline { color: var(--color-danger); }
 .back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; color: var(--accent); text-decoration: none; }
 /* The lead slot, logo or back, is one 44px tap box on the page's left edge, so every page's header lines up the same
    (docs/adr/2026-10-29-1639-a-questions-takes-show-inline.md). The brand keeps that height when the rail hides the logo, so the

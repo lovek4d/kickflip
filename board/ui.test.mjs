@@ -152,16 +152,21 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(text(ui.statusLine(ago(0))), 'now');
   assert.equal(text(ui.statusLine(ago(2), { watcher: 'running' })), '2 h');
   assert.equal(ui.statusLine(null), '');
-  assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /^<span class="claude down" title="Claude not listening">not listening<\/span>$/);
-  assert.match(ui.statusLine(fresh, { watcher: 'stopped', link: 'offline' }), /^<span class="link-state offline" title="Offline: can't reach the host">1 min<\/span>$/);
-  // An asleep board says so in grey where a deaf one is red, and waking… once the page asked the hub to wake it.
-  assert.match(ui.statusLine(fresh, { watcher: 'asleep' }), /^<span class="claude asleep" title="Asleep: [^"]*wakes it">asleep<\/span>$/);
-  assert.equal(text(ui.statusLine(fresh, { watcher: 'asleep', waking: true })), 'waking…');
-  assert.match(ui.statusLine(fresh, { watcher: 'waking' }), /^<span class="claude asleep" title="Waking: [^"]*">waking…<\/span>$/);
+  // The time never changes to words: only the span's class (red, orange) and title move.
+  const cls = (html) => /class="([^"]*)"/.exec(html)[1];
+  for (const opts of [{ watcher: 'stopped' }, { link: 'offline' }, { link: 'reconnecting' }, { watcher: 'asleep' }, { watcher: 'asleep', waking: true }, { watcher: 'waking' }, { pause: { state: 'paused', resets_at: ago(-1) } }, { watcher: 'stopped', waking: true }]) {
+    assert.equal(text(ui.statusLine(fresh, opts)), '1 min', JSON.stringify(opts));
+  }
+  assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped' })), 'fresh down');
+  assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /title="Claude not listening\. Updated /);
+  assert.equal(cls(ui.statusLine(fresh, { link: 'offline' })), 'fresh down');
+  assert.equal(cls(ui.statusLine(fresh, { pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh hold');
+  assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped', pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh down');
+  assert.equal(cls(ui.statusLine(fresh, { link: 'reconnecting' })), 'fresh');
+  assert.match(ui.statusLine(fresh, { link: 'reconnecting' }), /title="Reconnecting…\. Updated /);
+  assert.match(ui.statusLine(fresh, { watcher: 'asleep' }), /title="Asleep: [^"]*wakes it\. Updated /);
   assert.equal(text(ui.statusLine(fresh, { watcher: 'running', waking: true })), '1 min');
-  assert.equal(text(ui.statusLine(fresh, { watcher: 'stopped', waking: true })), 'not listening');
-  assert.equal(text(ui.statusLine(fresh, { link: 'reconnecting' })), 'reconnecting…');
-  assert.match(ui.statusLine(undefined, { link: 'offline' }), /^<span class="link-state offline"[^>]*>offline<\/span>$/);
+  assert.equal(text(ui.statusLine(undefined, { link: 'offline' })), '');
   assert.equal(text(ui.githubLine(checks)), 'GitHub 4 min');
   assert.match(ui.githubLine(checks), /<svg class="gh-mark"[^>]*aria-label="GitHub"/);
   assert.equal(text(ui.githubLine(checks, { pending: true })), 'GitHub Checking…');
@@ -1964,7 +1969,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.ok(text(sidebar).includes(`until ${until}`));
   assert.match(text(sidebar), /paused 3 todo/);
   assert.doesNotMatch(sidebar, />working</);
-  assert.equal(ui.statusLine(null, { pause }), `<span class="paused">paused until ${until}</span>`);
+  assert.match(ui.statusLine(ago(0), { pause }), new RegExp(`^<span class="fresh hold" title="Paused until ${until}\\. Updated [^"]*">now</span>$`));
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });
 

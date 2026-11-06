@@ -2526,27 +2526,32 @@ test("a changed board comes as a patch from the version on screen, a reload's an
   b.view.unmount();
 });
 
-test('a tap anywhere on an asleep board, refresh included, asks the hub to wake its session once, and the header reads asleep, then waking… until it listens', async () => {
+test('a tap anywhere on an asleep board, refresh included, asks the hub to wake its session once, and the header keeps reading the age of the data while its title says asleep, then waking… until it listens', async () => {
   const checks = (watcher) => ({ at: '2026-10-30T10:00:00.000Z', every: 30, late: false, watcher, claudeAt: null });
   const b = boardOnDom({ board: { ...boardOf([workCard('A1')]), checks: checks('asleep') }, threads: {} });
   await b.settle();
   const status = () => b.root.querySelector('#status').textContent;
-  assert.equal(status(), 'asleep');
+  const title = () => b.root.querySelector('#status .fresh').getAttribute('title');
+  assert.equal(status(), 'now');
+  assert.match(title(), /^Asleep/);
   b.page.fire(b.root, 'click', { target: b.root.querySelector('#refresh') });
-  assert.equal(status(), 'waking…');
+  assert.equal(status(), 'now');
+  assert.match(title(), /^Waking/);
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.lane') });
   assert.deepEqual(b.posts.filter(([p]) => p === '/_hub/wake'), [['/_hub/wake', { route: 'board-a' }]]);
   await b.change({ board: { ...b.view.B.state.board, checks: checks('waking') } });
-  assert.equal(status(), 'waking…');
+  assert.match(title(), /^Waking/);
   b.page.fire(b.root, 'submit', { target: b.root });
   assert.equal(b.posts.filter(([p]) => p === '/_hub/wake').length, 1);
   await b.change({ board: { ...b.view.B.state.board, checks: checks('running') } });
-  assert.notEqual(status(), 'waking…');
+  assert.doesNotMatch(title(), /^Waking/);
   b.page.fire(b.root, 'click', { target: b.root.querySelector('#refresh') });
   await b.settle();
   assert.equal(b.posts.filter(([p]) => p === '/_hub/wake').length, 1);
   await b.change({ board: { ...b.view.B.state.board, checks: checks('stopped') } });
-  assert.equal(status(), 'not listening');
+  assert.equal(status(), 'now');
+  assert.match(title(), /^Claude not listening/);
+  assert.match(b.root.querySelector('#status .fresh').getAttribute('class'), /\bdown\b/);
   b.view.unmount();
 });
 
