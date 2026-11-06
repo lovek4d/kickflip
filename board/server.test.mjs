@@ -230,7 +230,8 @@ test("a reopen of a sent question is recorded and opens it on the board, with 'Q
   const ask = (id, extra = {}) => ({ id, topic: 'item:t/K7', question: `${id}?`, options: [{ id: 'A', label: 'This' }], ...extra });
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('live'), ask('sent')] }));
   const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  // The server's own orchestrator-waits pass appends meanwhile; the reopen's writes are what this compares.
+  const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind !== 'orchestrator-waits');
   try {
     assert.equal((await send({ kind: 'owner-answer', id: 'sent', choice: 'A', label: 'A. This' })).status, 200);
     const before = lines().length;
