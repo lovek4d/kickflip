@@ -115,7 +115,7 @@ test('arch file files each answered finding as a card in the review, resolves sk
   answer('f2', 'skip');
   assert.deepEqual(file(), ['findings of INT-1 filed', 'filed: INT-2 from f1', 'skipped: f2', 'waiting: f3']);
   const filed = wave().items.find((it) => it.id === 'INT-2');
-  assert.deepEqual([filed.title, filed.notes, filed.deps], ['Split the store', "Move the readers out.\n\n- Readers own their files.\n\nOwner's note: Keep the API.\n\nFrom the finding: Split the store?", ['INT-1']]);
+  assert.deepEqual([filed.title, fs.readFileSync(path.join(b.site, 'data', filed.plan), 'utf8'), filed.deps], ['Split the store', "# Split the store\n\nMove the readers out.\n\n- Readers own their files.\n\nOwner's note: Keep the API.\n\nFrom the finding: Split the store?\n", ['INT-1']]);
   assert.deepEqual(wave().lineups[0].phases, [['INT-1'], ['INT-2']]);
   assert.deepEqual(resolved(), { f1: 'Filed as INT-2.', f2: 'Skipped.', f3: undefined });
   answer('f3', 'A');

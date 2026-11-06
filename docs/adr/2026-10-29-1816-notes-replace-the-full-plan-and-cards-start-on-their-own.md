@@ -1,10 +1,12 @@
 ---
-status: superseded in part by 2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build
+status: superseded in part by 2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build and 2026-11-09-1100-the-board-owns-a-cards-notes-file
 ---
 
 # Notes replace the full plan, and a card starts on its own
 
 Superseded in part by [a Todo card that nothing blocks has Build](2026-11-02-1745-a-todo-card-that-nothing-blocks-has-build.md): a Todo card that nothing blocks and that has no Action needed has the owner's Build, which starts its builder now. Cards still start on their own.
+
+Amended by [the board owns a card's notes file](2026-11-09-1100-the-board-owns-a-cards-notes-file.md): the board names and writes each card's own notes file, `item notes` appends a section rather than the session rewriting it, and `--notes-file` and `--plan` are gone.
 
 A card's long write-up is its **Notes**: the owning session's understanding of the task so far, what was asked, what is settled and what is still open. The session rewrites it as the grill settles things, rather than freezing it as a plan, and the thread keeps the short news. A card starts as soon as its open questions are all answered and nothing blocks it; the owner gives no separate go.
 

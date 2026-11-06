@@ -1441,7 +1441,7 @@ export async function settleAnswers(site, answers) {
   for (const [key, said] of byCard) {
     if (!(await loadItem(site, key).catch(() => null))) continue;
     await followUp(site, key, 'writing them into its notes', async () => {
-      await addToNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
+      await appendNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
       if (prototype.includes(key) || !(await stageable(site, key))) return;
       await stage(site, key, 'answers');
       staged.push(key);
@@ -1471,29 +1471,126 @@ function answerLine(q, a) {
   const note = String(a.note || '').trim();
   return `- ${q.id} (${q.question}): ${picked ? `${picked}.` : 'no option picked.'}${note ? ` Note, verbatim: "${note}"` : ''}`;
 }
-// Appends a section, ## heading then body, to the card's notes file, first making <id>-notes.md beside its wave file
-// when the card has none.
-async function addToNotes(site, key, heading, body) {
-  const { source, wave, item } = await loadItem(site, key);
-  let file;
-  if (item.plan) {
-    file = await planPath(source.dir, item.plan, { missingOk: true });
-    if (!existsSync(file)) {
-      await fs.writeFile(file, `# ${item.title}\n`);
-      await appendThread(site, key, { text: `The card's notes file ${item.plan} was missing, so the board started a new one with your answers.` });
-    }
-  } else {
-    const base = String(item.id).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
-    let name = `${base}-notes.md`;
-    for (let n = 2; existsSync(path.join(source.dir, name)); n++) name = `${base}-notes-${n}.md`;
-    file = path.join(source.dir, name);
-    await fs.writeFile(file, `# ${item.title}\n`, { flag: 'wx' });
-    item.plan = name;
-    await writeJSON(source.file, wave);
-  }
-  const notes = await fs.readFile(file, 'utf8');
-  await fs.writeFile(file, `${notes.replace(/\n*$/, '\n')}\n## ${heading}\n${body}\n`);
+// docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md
+// A card's notes file is written here and nowhere else. The board names it <id>-notes.md beside the card's wave file,
+// every write after the first is an appended section under the card's lock, written to a temp file then renamed, and
+// the file is kept read-only, so a shell's `cat >` or `cat >>` into it fails while the rename still replaces it.
+const NOTES_MODE = 0o444;
+const notesBase = (id) => String(id).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+const notesLock = (dir, id, fn) => withFileLock(path.join(dir, `.${notesBase(id)}-notes`), fn);
+// The card's own notes name, <id>-notes.md, or -2, -3… while a file of that name is already there.
+function freeNotesName(dir, id) {
+  let name = `${notesBase(id)}-notes.md`;
+  for (let n = 2; existsSync(path.join(dir, name)); n++) name = `${notesBase(id)}-notes-${n}.md`;
+  return name;
 }
+async function writeNotesFile(file, content) {
+  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
+  await fs.rm(tmp, { force: true });
+  await fs.writeFile(tmp, content, { mode: NOTES_MODE });
+  await fs.rename(tmp, file);
+}
+const notesHeading = (v) => (/\n/.test(text(v, '--heading')) ? fail('--heading is one line, the section\'s title') : text(v, '--heading'));
+const withSection = (notes, heading, body) => `${notes.replace(/\n*$/, '\n')}\n## ${heading}\n${body.replace(/^\n+|\s+$/g, '')}\n`;
+
+// Appends a section, ## heading then body, to the card's notes, first making the card's <id>-notes.md when it has
+// none, or starting its named file again, with a thread line saying so, when that file is gone. → its file name.
+async function appendNotes(site, key, heading, body) {
+  const { source, item: { id } } = await loadItem(site, key);
+  return notesLock(source.dir, id, async () => {
+    const { source, wave, item } = await loadItem(site, key);
+    let file;
+    if (item.plan) {
+      file = await planPath(source.dir, item.plan, { missingOk: true });
+      if (!existsSync(file)) await appendThread(site, key, { text: `The card's notes file ${item.plan} was missing, so the board started a new one.` });
+    } else {
+      item.plan = freeNotesName(source.dir, item.id);
+      file = path.join(source.dir, item.plan);
+      await writeJSON(source.file, wave);
+    }
+    const notes = existsSync(file) ? await fs.readFile(file, 'utf8') : `# ${item.title}\n`;
+    await writeNotesFile(file, withSection(notes, notesHeading(heading), body));
+    return item.plan;
+  });
+}
+
+// Every card that names a notes file, live then archived: [{key, ref, title, created, archived, dir, plan}]. An
+// archived card's wave folder is its wave's, or the site's data/ once that wave is gone.
+async function cardsWithNotes(site) {
+  const { tickets } = settingsOf(await boardConfig(site));
+  const cards = [];
+  const waves = new Map();
+  for (const source of await itemSources(site)) {
+    const wave = await readJSON(source.file, null);
+    waves.set(source.slug, { source, wave: wave || {} });
+    for (const it of wave?.items || []) if (it.plan) cards.push({ key: `${source.slug}/${it.id}`, ref: refOf(wave, it, tickets), title: it.title, created: it.created || '', archived: false, dir: source.dir, plan: it.plan });
+  }
+  for (const a of site ? await readArchive(site) : []) {
+    if (!a.item?.plan) continue;
+    const at = waves.get(a.wave);
+    cards.push({ key: a.key, ref: refOf(at?.wave || {}, a.item, tickets), title: a.item.title, created: a.item.created || '', archived: true, dir: at?.source.dir || path.join(site, 'data'), plan: a.item.plan });
+  }
+  return cards;
+}
+const realNotes = (card) => fs.realpath(path.resolve(card.dir, card.plan)).catch(() => null);
+// Refuses a draft that is any card's notes file, live, done or archived, naming that card; hint(card) ends the error.
+async function refuseCardNotes(site, draft, flag, hint) {
+  const real = await fs.realpath(draft).catch(() => fail(`${flag} ${draft}: no such file`));
+  for (const card of await cardsWithNotes(site)) {
+    if (await realNotes(card) === real) fail(`${flag} ${draft} is the notes file of ${card.ref} "${card.title}" (${card.key}), and a card's notes are its own; ${hint(card)}`);
+  }
+  return fs.readFile(real, 'utf8');
+}
+const DRAFT_HINT = 'write a draft of your own outside the board\'s data folder';
+
+// `item notes <key> --heading <h> --file <draft>`, or `--from <other key>` to fold that card's notes in as a section
+// (headed --heading, or "Folded from <ref> "<title>""). Resolves the card's answered questions still waiting on Claude,
+// as recording their answers in the notes acts on them. → {file, heading, lines}
+export async function addNotes(site, key, { heading, file, from }) {
+  let body;
+  if (from !== undefined) {
+    if (from === key) fail(`${key} can't fold its own notes into itself; pass --from <the other card>`);
+    const [into, other] = await Promise.all([loadItem(site, key), loadItem(site, from)]);
+    const [a, b] = await Promise.all([into, other].map(({ source, item }) => (item.plan ? fs.realpath(path.resolve(source.dir, item.plan)).catch(() => null) : null)));
+    if (a && a === b) fail(`${from} and ${key} name one notes file, ${into.item.plan}, from before the board named each card's own; the board splits it as it starts`);
+    body = (await readNotes(site, from)).markdown;
+    heading ??= `Folded from ${await cardName(site, from)} "${other.item.title}"`;
+  } else {
+    body = await refuseCardNotes(site, file, '--file', (card) => (card.key === key ? `${DRAFT_HINT}, holding only the new section` : `${DRAFT_HINT}, or fold that card's notes in with item notes ${key} --from ${card.key}`));
+  }
+  if (!body.trim()) fail(`${from ?? file} is empty`);
+  const name = await appendNotes(site, key, heading, body);
+  const lines = await resolveAnswered(site, key, "Recorded in the card's notes");
+  return { file: name, heading, lines };
+}
+
+// docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md
+// Run by the board server as it starts: of the cards naming one notes file, live or archived, the earliest made keeps
+// it and each later live card gets a copy under its own name, with a thread line; an archived card is never rewritten.
+// Every card's notes file is then made read-only. → one line per card given its own copy.
+export const splitSharedNotes = (site) => ticketWrite(site, async () => {
+  const cards = await cardsWithNotes(site);
+  const byFile = new Map();
+  for (const card of cards) {
+    const real = await realNotes(card);
+    if (real) byFile.set(real, [...(byFile.get(real) || []), card]);
+  }
+  const lines = [];
+  for (const [real, sharing] of byFile) {
+    const [keeper, ...later] = sharing.sort((x, y) => (x.created < y.created ? -1 : x.created > y.created ? 1 : x.key < y.key ? -1 : 1));
+    for (const card of later.filter((c) => !c.archived)) {
+      const { source, wave, item } = await loadWave(site, parseKey(card.key).wave).then((l) => ({ ...l, item: l.wave.items.find((it) => it.id === parseKey(card.key).id) }));
+      const was = item.plan;
+      item.plan = freeNotesName(source.dir, item.id);
+      await writeNotesFile(path.join(source.dir, item.plan), await fs.readFile(real, 'utf8'));
+      await writeJSON(source.file, wave);
+      await appendThread(site, card.key, { text: `This card shared its notes file ${path.normalize(was)} with ${keeper.ref}, so the board gave it its own copy, ${item.plan}.` });
+      lines.push(`${card.key}: its own notes, ${item.plan}, copied from ${path.normalize(was)}, which ${keeper.key} keeps`);
+    }
+    await fs.chmod(real, NOTES_MODE);
+  }
+  return lines;
+});
 // Whether a Send leaves the card stageable: unstarted, with no PR, no planner or build running, no question open and a
 // take picked on its prototypes.
 async function stageable(site, key) {
@@ -1531,13 +1628,13 @@ export async function stageImplement(site, key, message) {
   const open = asked.filter((q) => q.state === 'open').map((q) => q.id);
   if (open.length) await markResolved(site, owner, open, 'Skipped: you tapped Implement');
   const words = messageWords(message);
-  if (words) await addToNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
+  if (words) await appendNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
   await stage(site, key, 'implement');
 }
 // A Reply on a ready Todo card: its words go into the notes, and it is staged again.
 export async function stageReply(site, key, message) {
   const words = messageWords(message);
-  if (words) await addToNotes(site, key, `Reply (owner, ${noteStamp()}), verbatim`, words);
+  if (words) await appendNotes(site, key, `Reply (owner, ${noteStamp()}), verbatim`, words);
   await stage(site, key, 'reply');
 }
 // The owner's Grill or Prototype tap (kind grill or prototype) on a ready or staging card takes it out of that state,
@@ -1884,16 +1981,17 @@ async function checkNextDeps(site, key, item, next) {
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // Ready means a builder can start from the card alone: it has a size, a notes file, and that file names the id of every
 // question on the card the owner answered, bar a prototype_gate answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+const NOTES_COMMAND = (key) => `item notes ${key} --heading "<heading>" --file <draft.md>`;
 function checkSizeAndNotes(key, item) {
   const starts = 'a builder starts from it, so pass';
   if (!item.size) fail(`${key} has no size; ${starts} --size small or large with --state ready`);
-  if (!item.plan) fail(`${key} has no notes file; ${starts} --notes-file <file.md> with --state ready`);
+  if (!item.plan) fail(`${key} has no notes file; a builder starts from it, so add its notes with ${NOTES_COMMAND(key)} before --state ready`);
 }
 async function checkNotesComplete(site, key, dir, item) {
   checkSizeAndNotes(key, item);
   const notes = await fs.readFile(await planPath(dir, item.plan), 'utf8');
   const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id) && !(q.prototype_gate && !q.answers.at(-1).note)).map((q) => q.id);
-  if (left.length) fail(`${key}'s notes leave out the answered question${left.length === 1 ? '' : 's'} ${left.join(', ')}; record each answer in ${item.plan}, naming its id, before it is ready`);
+  if (left.length) fail(`${key}'s notes leave out the answered question${left.length === 1 ? '' : 's'} ${left.join(', ')}; record each answer in its notes, naming its id, with ${NOTES_COMMAND(key)} before it is ready`);
 }
 
 // docs/adr/2026-10-29-1639-a-full-plan-opens-as-a-page-on-the-site.md
@@ -1973,13 +2071,12 @@ function markMerged(item, merged, repo) {
 // (startBuilder), moves the card to In Progress after the checks a build's start makes; handBack, builder done's with
 // judgment calls, closes its open records marked handed_back for the orchestrator's check. A handover (--pr, --pushed,
 // --merge-ready) moves it to In Review, and a block on a card In Progress back to Todo.
-// notesFile is the --notes-file (alias --plan) file, kept in the item's `plan`. text is the closing line
-// (closingLine), or with fromAsk the item's first thread line.
+// text is the closing line (closingLine), or with fromAsk the item's first thread line.
 // ownerStep is the owner step builder done or land records, and ownerDone the owner's Done, which alone clears it
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, done, merged, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, done, merged, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -1996,7 +2093,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
+  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const quick = ask !== undefined && await quickAsk(site, ask);
@@ -2017,7 +2114,6 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (spec === '' || !item.owner_step) delete item.owner_check;
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
   const owedBefore = owesNext(item, records);
-  if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (title !== undefined) item.title = text(title, '--title');
   setBuildChoice(item, { size, model });
   if (deps !== undefined) {
@@ -2135,8 +2231,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (linked) await postLinkLines(site, key, linked, await linksOf(site, key));
   const resolved = [...stops, ...await resolve()];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
-  // Ready checked that the notes name every answered question, so it resolves them as a new notes file does.
-  if (notesFile !== undefined || (state === 'ready' && site)) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
+  // Ready checked that the notes name every answered question, so it resolves them as item notes does.
+  if (state === 'ready' && site) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (start) resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who, by, command })).lines);
@@ -2503,7 +2599,7 @@ export async function builderModel(site, key) {
 // Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <wave>/<id>:
 // an Internal ticket another card holds is refused. Every path that makes a card comes through here
 // (board/ticket-paths.test.mjs).
-async function assignTicket(site, self, wave, item, ticket, options, dir) {
+async function assignTicket(site, self, wave, item, ticket, options, dir, body) {
   try {
     const cfg = await boardConfig(site);
     const source = ticketSource(cfg.tickets || { source: 'internal' });
@@ -2520,7 +2616,7 @@ async function assignTicket(site, self, wave, item, ticket, options, dir) {
         }
       }
     }
-    const body = ticket === undefined && source.source !== 'internal' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
+    body ??= ticket === undefined && source.source !== 'internal' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
     const r = await resolveTicket(source, { ticket, title: item.title, body, repo: boardRepoOf(site, wave), next: max + 1 }, options);
     item.ticket = r.ticket;
     if (r.created && source.source !== 'internal') item.ticket_created = true; else delete item.ticket_created;
@@ -2539,7 +2635,7 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // relate its Related to. With intake, a site and no state, the card is unfiled, reading New, and a `card-added {key, title}`
 // event wakes the board's session to file it; once filed it arrives in Todo and gets its grill
 // (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is ready.
-async function createItem(site, key, { title, notes, deps, notesFile, ticket, pickUpAt, parent, size, model, state, relate, intake = false }, options) {
+async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, parent, size, model, state, relate, intake = false }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
   checkState(state);
@@ -2549,20 +2645,26 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   const created = new Date().toISOString();
   const item = { id, title: text(title, '--title'), created, lane: 'todo', lane_at: created };
   if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a card, such as <wave>/<id>');
-  if (notes !== undefined) item.notes = text(notes, '--notes');
+  if (notes !== undefined && notesFrom !== undefined) fail('pass --notes or --notes-from, not both');
+  // The ticket's body is the draft or the --notes text; the notes file heads the text with the card's title.
+  const body = notesFrom !== undefined ? await refuseCardNotes(site, notesFrom, '--notes-from', () => `${DRAFT_HINT}, and link that card with --relate`)
+    : notes === undefined ? '' : text(notes, '--notes');
+  if (notesFrom !== undefined && !body.trim()) fail(`--notes-from ${notesFrom} is empty`);
+  const seed = notesFrom !== undefined ? body : `# ${item.title}\n${body && `\n${body}\n`}`;
   setBuildChoice(item, { size, model });
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
-  if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (state !== undefined) item.state = state;
   // Without a site there is no board session to file it.
   else if (intake && site) item.unfiled = true;
-  await assignTicket(site, key, wave, item, ticket, options, source.dir);
+  await assignTicket(site, key, wave, item, ticket, options, source.dir, body);
   if (id === undefined) {
     item.id = cardIdOf(item.ticket);
     if (wave.items.some((it) => it.id === item.id)) fail(`wave "${slug}" already has an item "${item.id}"; link ${item.ticket} with item add ${slug}/<id> --ticket ${item.ticket}`);
   }
+  item.plan = freeNotesName(source.dir, item.id);
+  await writeNotesFile(path.join(source.dir, item.plan), seed);
   const added = `${slug}/${item.id}`;
   wave.items.push(item);
   await writeJSON(source.file, wave);

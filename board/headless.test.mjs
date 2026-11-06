@@ -70,6 +70,9 @@ test("a headless planner's brief names its card and its notes so far, spells its
     assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
   }
   assert.ok(!proto.includes('/s/waves/w/a1.md'));
+  // docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md: a planner hands its notes to the board as a draft.
+  assert.ok(grill.includes(`${b} item notes w/A1 --heading "Grill (<MM/DD>)" --file <draft.md>`) && proto.includes(`${b} item notes w/A1 --heading "Prototype (<MM/DD>)" --file <draft.md>`));
+  assert.ok(!(grill + proto).includes('--notes-file'));
   // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md: a web round is a page in the
   // base prototype worktree, recorded --served, that takes ?variant= and ?state= and the viewer's message.
   for (const want of [`${b} prototype base`, '--served <path>', '--state <key>:<label>', '?variant=', '?state=', 'KickflipPrototype.on', 'real components', 'mock data', 'prints "port <n>"']) {
@@ -818,17 +821,19 @@ test("an intake triage run's brief holds the board's index, the task and its thr
     '- ENG-1 w/A1 "Make it go", todo, grilling: /s/waves/w/a1.md', '- ENG-2 w/A2 "No notes", progress, ready: no notes',
     'love: Make the header blue', '/s/data/uploads/a.png', 'Use Node 22+', 'w: /s/waves/w',
     `${b} reply e1 --file`, `${b} item relate-ask e1 <key> --summary`, `${b} item add <wave> --title`,
-    `${b} item set <key> --from-ask e1 --notes-file`, '--state <grilling|prototyping>', 'verbatim',
+    `${b} item set <key> --from-ask e1 --relate`, `${b} item add <wave> --title "<the change, in plain words>" --notes-from <draft.md>`,
+    `${b} item notes <key> --heading "Asked (owner, <date>)" --file <draft.md>`, "outside the board's data folder", '--state <grilling|prototyping>', 'verbatim',
     `${b} intake handoff e1 --text`, 'Never push',
   ]) assert.ok(ask.includes(want), `the intake brief has ${want}`);
+  assert.ok(!ask.includes('--notes-file'), 'the board names a card\'s notes file');
   assert.ok(!ask.includes('--state ready') && !ask.includes('--state staging'), 'intake never sets a card ready, and stages only a Quick build');
   const quick = intakeBrief({ ...intake, event: 'e1', key: 'ask:e1', kind: 'ask', quick: true, thread: [] });
-  assert.ok(quick.includes('--from-ask e1 --notes-file <file> --relate <keys> --text "<one line on what you filed>" --state staging --size <small|large>'));
+  assert.ok(quick.includes('--from-ask e1 --relate <keys> --text "<one line on what you filed>" --state staging --size <small|large>'));
   assert.ok(!quick.includes('--state <grilling|prototyping>'));
   const message = intakeBrief({ ...intake, event: 'm1', key: 'ask:e1', kind: 'item-message', thread: [] });
   assert.ok(message.includes(`${b} reply m1 --file`) && message.includes(`${b} intake handoff m1 --text`));
   const added = intakeBrief({ ...intake, event: 'c1', key: 'w/A2', kind: 'card-added', thread: [] });
-  for (const want of ['w/A2', `${b} item set w/A2 --relate`, '--state <grilling|prototyping>', `${b} intake handoff c1 --text`]) assert.ok(added.includes(want), `the card-added brief has ${want}`);
+  for (const want of ['w/A2', `${b} item set w/A2 --relate`, `${b} item notes w/A2 --heading "What it is" --file <draft.md>`, '--state <grilling|prototyping>', `${b} intake handoff c1 --text`]) assert.ok(added.includes(want), `the card-added brief has ${want}`);
 });
 
 test("a new task launches an intake triage run on Sonnet in the board's repo, one at a time, and one that ends with it unsorted hands it to the orchestrator", async () => {

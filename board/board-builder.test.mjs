@@ -238,7 +238,7 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   const before = count();
   assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'planned').err, /--state takes ready, grilling or prototyping/);
   write(at('waves', 'w', 'q1.md'), '# Quick\n');
-  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'ready', '--size', 'small', '--notes-file', 'q1.md').err, /item add files a card grilling or prototyping/);
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'ready', '--size', 'small').err, /item add files a card grilling or prototyping/);
   assert.equal(count(), before, 'a refused add writes no card');
 
   write(at('kickflip', 'settings.json'), { claudeModel: 'sonnet' });

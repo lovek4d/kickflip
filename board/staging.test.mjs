@@ -21,7 +21,8 @@ test('only the board stages a card: item set and item add refuse --state staging
 
 test('ready comes only from staging, or a card already ready; staging to ready clears when it was staged', () => {
   write(at('waves', 'w', 'a1.md'), '# A1\n');
-  const ready = () => board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md');
+  setState({ plan: 'a1.md' });
+  const ready = () => board('item', 'set', 'w/A1', '--site', 'orch', '--state', 'ready', '--size', 'small');
   for (const from of [undefined, 'grilling', 'prototyping']) {
     setState({ state: from });
     assert.deepEqual(ready(), { code: 1, out: '', err: `w/A1 reads ${from || 'no state'}, not staging; a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n` });
@@ -35,8 +36,7 @@ test('ready comes only from staging, or a card already ready; staging to ready c
 });
 
 test('item add files a card grilling or prototyping, never ready', () => {
-  write(at('waves', 'w', 'q1.md'), '# Quick\n');
-  const r = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--state', 'ready', '--size', 'small', '--notes-file', 'q1.md');
+  const r = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--state', 'ready', '--size', 'small');
   assert.deepEqual(r, { code: 1, out: '', err: "item add files a card grilling or prototyping; it reaches ready through staging, on the owner's Send, Implement or Reply\n" });
   assert.equal(item('Q1'), undefined);
   assert.equal(board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--state', 'grilling').code, 0);
@@ -49,8 +49,8 @@ test('a Quick build ask files --from-ask --state staging, so the orchestrator ju
     { id: 'eb', ts: '2026-11-06T10:01:00Z', kind: 'ask', data: { text: 'Fix the footer' } },
     { id: 'ei', ts: '2026-11-06T10:02:00Z', kind: 'item-message', data: { key: 'ask:eb', text: '', intent: 'build' } },
     { id: 'ep', ts: '2026-11-06T10:03:00Z', kind: 'ask', data: { text: 'Fix the sidebar' } });
-  const file = (id, ask, state) => board('item', 'set', `w/${id}`, '--site', 'orch', '--from-ask', ask, '--text', 'Filed.', '--state', state, '--size', 'small', '--notes-file', 'a1.md');
-  write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'Quick' }, { id: 'A2', title: 'Implement on New' }, { id: 'A3', title: 'Plain' }] });
+  const file = (id, ask, state) => board('item', 'set', `w/${id}`, '--site', 'orch', '--from-ask', ask, '--text', 'Filed.', '--state', state, '--size', 'small');
+  write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'Quick', plan: 'a1.md' }, { id: 'A2', title: 'Implement on New', plan: 'a1.md' }, { id: 'A3', title: 'Plain', plan: 'a1.md' }] });
   assert.deepEqual(file('A1', 'eq', 'ready'), { code: 1, out: '', err: 'w/A1 came from a Quick build ask: file it --state staging, and the orchestrator judges it before it goes ready\n' });
   assert.equal(item('A1').state, undefined);
   const quick = file('A1', 'eq', 'staging');

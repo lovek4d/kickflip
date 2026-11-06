@@ -46,8 +46,8 @@ test('tickets validate prefixes and link or create in the board source through t
   assert.equal(await cli('item', 'add', 'audit/F6', '--title', 'Six', '--ticket', '#41'), 0);
   assert.equal(await cli('item', 'set', 'audit/F6', '--ticket', '41'), 0);
   assert.equal(await cli('item', 'add', 'audit/G7', '--title', 'Seven', '--notes', 'Why this matters'), 0);
-  write(site('audit', 'data', 'notes.md'), '# Full notes');
-  assert.equal(await cli('item', 'add', 'audit/H8', '--title', 'Eight', '--notes-file', 'notes.md'), 0);
+  write(path.join(home, 'notes.md'), '# Full notes');
+  assert.equal(await cli('item', 'add', 'audit/H8', '--title', 'Eight', '--notes-from', path.join(home, 'notes.md')), 0);
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'I9', title: 'From ask', notes: 'Asked why' }] });
   assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1', '--state', 'grilling', '--text', 'On it.'), 0);
@@ -106,8 +106,8 @@ test('internal ticket creation uses the next number across all board waves, incl
 test("a Linear board creates and checks issues through Hub's key, and each card moves only its owner's or kickflip's ticket, one way", async (t) => {
   const { saveBoardSettings, main, out, err, world, linear, gh, ghAnswers, cli, item } = await ticketCli(t);
   await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' } });
-  write(site('audit', 'data', 'notes.md'), '# Why it matters');
-  assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes-file', 'notes.md'), 0);
+  write(path.join(home, 'notes.md'), '# Why it matters');
+  assert.equal(await cli('item', 'add', 'audit/B2', '--title', 'Two', '--notes-from', path.join(home, 'notes.md')), 0);
   assert.deepEqual([item('B2').ticket, item('B2').ticket_created], ['ENG-101', true]);
   assert.deepEqual(world.issues['ENG-101'].input, { teamId: 'team-eng', projectId: 'proj-audit', title: 'Two', description: '# Why it matters' });
   world.issues['ENG-8'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };

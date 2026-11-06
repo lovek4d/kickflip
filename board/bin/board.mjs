@@ -176,13 +176,6 @@ command fails and changes nothing.
          [--size small|large] [--model opus|sonnet]      what builder pick reads while the hub's Claude model is
                                                          Auto: a small card gets Claude Sonnet, any other Opus, and
                                                          --model wins over --size; "" clears either
-         [--notes-file <file>]                           the item's notes: a .md file inside its wave's folder,
-                                                         named relative to it, holding the session's understanding
-                                                         of the task so far. The open card's Notes link opens it,
-                                                         or without one the item's short notes text. --plan is an
-                                                         alias. Resolves answered questions still waiting on
-                                                         Claude, noting "Recorded in the card's notes", and
-                                                         prints "resolved: <id>" for each
          [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
          [--blocked-until "<condition>"]                 blocks it until a condition an agent can check, which
                                                          the orchestrator checks on its passes over the cards;
@@ -224,9 +217,12 @@ command fails and changes nothing.
          It prints "unblocked: <wave>/<id>" and appends card-unblocked {key} once per unblocking,
          including held cards: start each unheld card next. It refuses a card the owner reopened: it
          closes again only on the owner's Done
-  item add <wave>[/<id>] --title <t> [--notes <t>]       a new card, unstarted; never
+  item add <wave>[/<id>] --title <t>                    a new card, unstarted; never
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
-         [--notes-file <file>]                           --plan is an alias of --notes-file
+         [--notes <t> | --notes-from <draft.md>]         the board makes the card's own notes, <id>-notes.md beside
+                                                         its wave file, read-only: the draft verbatim, or "# <title>"
+                                                         then the --notes text. Refuses a draft that is any card's
+                                                         notes file, live, done or archived, naming that card
          [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
          [--size small|large] [--model opus|sonnet]      as item set's
          [--parent <wave>/<id>]                          the card it was spun out of, such as one filed from
@@ -240,6 +236,16 @@ command fails and changes nothing.
                                                          brings in intake triage, which links and files it
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
          card. Prints "<label> added as <key>": use the key in later commands
+  item notes <wave>/<id> --heading <h>                 appends "## <h>" and the draft to the card's notes, making
+         (--file <draft.md> | --from <wave>/<id>)        its <id>-notes.md when it has none; the only way to write
+                                                         notes (--notes-file and --plan are gone). Write the draft
+                                                         outside the board's data; one that is any card's notes
+                                                         file, live, done or archived, is refused, naming that
+                                                         card. --from folds that other card's notes in instead,
+                                                         headed "Folded from <ref> "<title>"" without --heading.
+                                                         Resolves answered questions still waiting on Claude,
+                                                         noting "Recorded in the card's notes", and prints
+                                                         "resolved: <id>" for each
   item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
                                                          card goes, its message and thread show in the item's
                                                          thread marked Moved, then the summary line. Again with
@@ -699,7 +705,7 @@ function flagsOf(name, allowed, flags) {
  * the path itself (a reply once read "/private/tmp/…/exp-reply.html"), so it is refused: one
  * token that names an existing file, or that looks like a path to a document.
  */
-const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked', 'task', 'reason'];
+const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'heading', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked', 'task', 'reason'];
 const DOC_PATH = /^(?:\/|~\/|\.{1,2}\/)\S*\.(?:html?|md|json|txt)$/;
 
 function looksLikePath(value) {
@@ -726,10 +732,11 @@ function readJSONInput(file) {
   try { return JSON.parse(readInput(file)); } catch (e) { throw new store.BoardError(`${file}: ${e.message}`); }
 }
 
-// --plan names the notes file in calls written before it was called --notes-file.
-function notesFileOf(f) {
-  if (f.plan !== undefined && f['notes-file'] !== undefined) throw new UsageError('pass --notes-file or --plan, not both');
-  return f['notes-file'] ?? f.plan;
+// docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md: the board names a card's notes file, so neither
+// item add nor item set takes one.
+function refuseNotesFile(f, instead) {
+  const flag = ['notes-file', 'plan'].find((name) => f[name] !== undefined);
+  if (flag) throw new UsageError(`--${flag} is gone: the board names a card's notes file, <id>-notes.md, and writes it itself; ${instead}`);
 }
 
 function noteOf(f) {
@@ -787,11 +794,21 @@ const COMMANDS = {
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
   'item set': [['wave/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
+    refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
-    return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], notesFile: notesFileOf(f), deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
+    return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check, stopRun: () => stopForBlock(site, key) }, options);
   }],
-  'item add': [['wave[/id]'], ['title', 'notes', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model', 'state', 'relate'], (site, [key], f, options) => store.addItem(site, key, { title: f.title, notes: f.notes, deps: f.deps, notesFile: notesFileOf(f), ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model, state: f.state, relate: f.relate, intake: true }, options)],
+  'item add': [['wave[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model', 'state', 'relate'], (site, [key], f, options) => {
+    refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');
+    if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model, state: f.state, relate: f.relate, intake: true }, options);
+  }],
+  'item notes': [['wave/id'], ['heading', 'file', 'from'], (site, [key], f) => {
+    if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
+    if ((f.file === undefined) === (f.from === undefined)) throw new UsageError('item notes takes --file <draft.md> or --from <wave>/<id>');
+    return store.addNotes(site, key, f);
+  }],
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
@@ -958,7 +975,7 @@ function itemChanges(f) {
     f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
     f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.state,
     f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),
-    notesFileOf(f) !== undefined && 'notes recorded', f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
+    f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
     f.parent !== undefined && (f.parent ? `parent ${f.parent}` : 'parent cleared'), f.related !== undefined && (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
     f.relate !== undefined && `related to ${f.relate.split(',').join(', ')} added`, f.unrelate !== undefined && `unrelated from ${f.unrelate.split(',').join(', ')}`,
     f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',
@@ -988,6 +1005,7 @@ const SAID = {
   'prototype rm': (site, [topic]) => `prototype ${topic} removed`,
   'item set': async (site, [key], f) => `${await card(site, key)}: ${itemChanges(f)}`,
   'item add': async (site, _, f, { key }) => `${await card(site, key)} added as ${key}`,
+  'item notes': async (site, [key], f, { file, heading }) => `${await card(site, key)}: notes section "${heading}" added to ${file}`,
   'item relate-ask': async (site, [id, key]) => `task ${id} folded into ${await card(site, key)}`,
   'ask progress': async (site, [id]) => `${await card(site, `ask:${id}`)}: in progress`,
   'ask done': async (site, [id]) => `${await card(site, `ask:${id}`)}: done`,

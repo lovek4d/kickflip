@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// A PreToolUse hook on Edit|Write that refuses a hand edit of the JSON files board.mjs owns on a board site: the
-// site's board.json, every .json under its data/, and the wave file(s) board.json's `items` names. It denies, not asks,
-// because a headless session has nobody to ask, and the reason names the board.mjs command that makes the change.
-// Notes .md files, question drafts (<site>/drafts/) and Bash writes stay open
-// (docs/adr/2026-11-05-2330-a-hook-refuses-hand-edits-to-board-data-files.md).
+// A PreToolUse hook on Edit|Write that refuses a hand edit of the files board.mjs owns on a board site: the site's
+// board.json, every .json and .md under its data/, the wave file(s) board.json's `items` names, and the .md notes beside
+// a ~/.claude/waves wave file. It denies, not asks, because a headless session has nobody to ask, and the reason names
+// the board.mjs command that makes the change. Drafts (<site>/drafts/, or any folder outside data/) and Bash writes stay
+// open (docs/adr/2026-11-05-2330-a-hook-refuses-hand-edits-to-board-data-files.md,
+// docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,13 +15,14 @@ process.stdout.on('error', () => {});
 const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
 const inside = (dir, file) => !path.relative(dir, file).startsWith('..') && !path.isAbsolute(path.relative(dir, file));
 
-// → the file's kind on this board ('wave', 'board' or 'data'), or null when it is not board-owned
+// → the file's kind on this board ('wave', 'board', 'notes' or 'data'), or null when it is not board-owned
 function ownedKind(board, file) {
   const dir = real(board.dir);
   let items = 'waves';
   try { items = JSON.parse(fs.readFileSync(path.join(dir, 'board.json'), 'utf8')).items || 'waves'; } catch {}
   if (file === path.join(dir, 'board.json')) return 'board';
   if (items === 'waves' ? path.basename(file) === 'wave.json' && inside(real(path.join(os.homedir(), '.claude', 'waves')), file) : file === real(path.resolve(dir, items))) return 'wave';
+  if (file.endsWith('.md') && (inside(path.join(dir, 'data'), file) || (items === 'waves' && inside(real(path.join(os.homedir(), '.claude', 'waves')), file)))) return 'notes';
   if (file.endsWith('.json') && inside(path.join(dir, 'data'), file)) return 'data';
   return null;
 }
@@ -28,6 +30,7 @@ function ownedKind(board, file) {
 const HINTS = {
   wave: 'A card changes with `board.mjs --site <route> item add|set <wave>/<id> …`',
   board: 'Board settings change with `board.mjs --site <route> rules|reviewers …` or the settings page',
+  notes: 'A card\'s notes change with `board.mjs --site <route> item notes <wave>/<id> --heading "<heading>" --file <draft.md>`, the draft written outside data/',
   data: 'Board data changes with a board.mjs command (`item set`, `thread`, `topic add`, `question add --file <draft>`, `reply`, `builder …`); its usage text lists them',
 };
 
