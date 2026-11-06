@@ -472,6 +472,8 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
   const handled = done || inProgress || asked || onClaude;
   // An owner message Claude hasn't answered puts the next step back with Claude.
   const ownerPending = msgs.some((m) => m.who === 'love' && m.kind !== 'ask' && (m.state === 'waiting' || m.state === 'working'));
+  // The owner's thread messages still owed an answer, by event id (intakeDue).
+  const owed = msgs.filter((m) => m.who === 'love' && m.kind === 'item-message').flatMap(stateEntries).filter(([, s]) => s === 'waiting' || s === 'working').map(([id]) => id);
   const state = handled ? 'answered' : msg.state;
   const bumped = handled ? null : bumpedAt || null;
   const othersAt = [...msgs.filter(countsUnread).map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort();
@@ -483,7 +485,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
     finishable: handled && !done,
     linear: [], pr: null, prs: [], reviewers: [], review: {}, inReviewSince: null, reviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
     threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, prototyping: false, created: e.ts, updatedAt: handled ? lastTs : e.ts,
-    ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null },
+    ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null, owed },
     fold: null, action: null,
   };
 }
@@ -1187,6 +1189,7 @@ export function buildBoard(snapshot) {
     it.orchestrator = ['progress', 'todo', 'stale'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && it.builder?.stalled) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
+  intakeWaits(items, events);
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
 
@@ -1428,6 +1431,57 @@ export function visualsDue(items, events) {
     if (request) out.push({ key: it.key, request });
   }
   return out;
+}
+
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+// Intake is what reaches the board unsorted: a new task (ask), the owner's message in an ask's thread (item-message
+// keyed ask:<id>), and a card an agent added with no state (card-added). The card an intake event is on, or null.
+export const intakeKeyOf = (e) => (e.kind === 'ask' ? `ask:${e.id}`
+  : e.kind === 'card-added' ? e.data?.key ?? null
+  : e.kind === 'item-message' && String(e.data?.key || '').startsWith('ask:') ? e.data.key
+  : null);
+// Whether intake event e, on card key, still waits to be sorted: the ask still New, the message still unanswered, the
+// card still unfiled. items is a built board's items by key.
+function unsorted(items, e, key) {
+  const it = items.get(key);
+  if (!it) return false;
+  if (e.kind === 'ask') return it.isNew;
+  if (e.kind === 'card-added') return it.kind === 'work' && it.unfiled;
+  return (it.ask?.owed || []).includes(e.id);
+}
+// The intake events still to sort, oldest first, for built items and the event log: unsorted, and not handed to the
+// orchestrator by an intake-handoff. → [{event, key, kind}]
+function intakeOpen(items, events) {
+  const byKey = new Map(items.map((i) => [i.key, i]));
+  const handedOff = new Set(events.filter((e) => e.kind === 'intake-handoff').map((e) => e.data?.event));
+  return events.flatMap((e) => {
+    const key = intakeKeyOf(e);
+    return key && !handedOff.has(e.id) && unsorted(byKey, e, key) ? [{ event: e.id, key, kind: e.kind }] : [];
+  });
+}
+// The intake event an intake triage run sorts next, for built items, the event log and runs, data/intake-runs.json
+// {<event id>: {key, pid, at, ended?}}: none while a run is open; else the oldest open intake event with no run.
+// → {event, key, kind} or null.
+export function intakeDue(items, events, runs) {
+  if (Object.values(runs).some((r) => !r.ended)) return null;
+  return intakeOpen(items, events).find((d) => !routeRecord(runs, d.event)) ?? null;
+}
+// The intake events whose run has ended with the event still open, each for the orchestrator's hand-off.
+// → [{event, key, kind}]
+export function intakeStranded(items, events, runs) {
+  return intakeOpen(items, events).filter((d) => routeRecord(runs, d.event)?.ended);
+}
+// The orchestrator's wait on each intake event triage handed it (intake-handoff {event, key, text}) while the event
+// is still unsorted, on its card's item as orchestrator.
+function intakeWaits(items, events) {
+  const byKey = new Map(items.map((i) => [i.key, i]));
+  const byId = new Map(events.map((e) => [e.id, e]));
+  for (const h of events.filter((e) => e.kind === 'intake-handoff')) {
+    const e = byId.get(h.data?.event);
+    const key = e && intakeKeyOf(e);
+    if (!key || !unsorted(byKey, e, key)) continue;
+    byKey.get(key).orchestrator = { kind: 'intake', since: String(h.ts), picked: null, next: `Sort what intake triage handed you: ${h.data.text}` };
+  }
 }
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md

@@ -246,11 +246,24 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   assert.equal(child.exitCode, null);
   assert.equal(stdout, '');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'handshake.json'), 'utf8')).ack.id, 'p1');
-  line('a1', 'ask', { text: 'Wake' });
+  // docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md: on a board, intake is intake triage's, so it
+  // wakes nobody; an intake wait the orchestrator owns comes as orchestrator-waits.
+  line('a1', 'ask', { text: 'New task' });
+  line('c1', 'card-added', { key: 'w/A2', title: 'Follow-up' });
+  line('m1', 'item-message', { key: 'ask:a0', text: 'One more thing' });
+  line('h1', 'intake-handoff', { event: 'a0', key: 'ask:a0', text: 'Unsure' });
+  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 11, 'intake lines moved the cursor');
+  assert.equal(child.exitCode, null);
+  assert.equal(stdout, '');
+  line('w1', 'item-message', { key: 'w/A1', text: 'Wake' });
   assert.equal(await exited, 0);
   const lines = stdout.split('\n');
   const at = (kind) => lines.findIndex((l) => l.includes(`"kind":"${kind}"`));
   assert.ok(at('main-pulled') >= 0 && at('main-pulled') < at('settings') && at('settings') < at('ask-done') && at('ask-done') < at('reviewers-removed') && at('reviewers-removed') < at('reviewers-added') && at('reviewers-added') < at('repo-changed') && at('repo-changed') < at('ping') && at('ping') < at('ask'));
+  assert.ok(at('ask') < at('card-added') && at('card-added') < at('intake-handoff'));
+  assert.ok(lines.findIndex((l) => l.includes('"id":"m1"')) < lines.findIndex((l) => l.includes('"id":"w1"')));
   assert.ok(lines.includes('ping p1 from the hub answered'));
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$quietHeld, undefined);
+  // Only the event that woke the session reads Working on it: the held intake lines are intake triage's.
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['w1']);
 });

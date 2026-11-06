@@ -206,6 +206,76 @@ export function helperBrief({ route, key, ref, title, notes, agent, task, writes
   ].filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n');
 }
 
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+// The brief for an intake triage run on one intake event: event, its kind (ask, item-message on an ask's thread, or
+// card-added) and key, the card it is on. cards is the board's index, every open work card {ref, key, title, lane,
+// state, notes: its notes file or null}; waves {slug, dir} where a new card can go; thread the card's messages
+// {who, text, files?}; quick whether the ask asked for an Implement. It sorts that one event and exits: thread lines are its report.
+export function intakeBrief({ route, repo, rules = [], waves = [], cards = [], event, key, kind, quick = false, thread = [] }) {
+  const b = cli(route);
+  const said = thread.map((m) => `- ${m.who}: ${m.text}${m.files?.length ? ` (attached: ${m.files.map((f) => f.path).join(', ')})` : ''}`);
+  // An Implement ask files to staging, for the orchestrator to judge; any other card to its grill or prototype.
+  const state = quick ? '--state staging --size <small|large>' : '--state <grilling|prototyping>';
+  const stateLine = quick
+    ? '      The owner chose Implement: put the plan in the notes; the orchestrator judges it from staging before it goes ready.'
+    : "      --state prototyping when it changes the hub's or a board's UI, --state grilling for anything else; the board starts the grill or prototype itself.";
+  const fileIt = (from) => [
+    `   1. Write its notes file in the wave's folder, a .md named for the change: open with the owner's words verbatim, under "## Asked (owner, <date>)", then a short "## What it is" in plain words and a "## Related" line naming each linked card and how they overlap. Append that "## Related" line to each linked card's notes file too.`,
+    `   2. ${from}`,
+    stateLine,
+  ];
+  const jobs = {
+    ask: [
+      `Your job: sort new task ${event}, on card ${key}, one of these ways:`,
+      `- Answer it, when it is a question or asks for nothing to build: \`${b} reply ${event} --file <reply.html>\`.`,
+      `- Fold it into the open card it is about: \`${b} item relate-ask ${event} <key> --summary "<one line>"\`, then append the owner's words verbatim to that card's notes file under "## Asked (owner, <date>)".`,
+      `- File it as a new card: \`${b} item add <wave> --title "<the change, in plain words>"\` prints "<label> added as <key>"; use that key.`,
+      ...fileIt(`\`${b} item set <key> --from-ask ${event} --notes-file <file> --relate <keys> --text "<one line on what you filed>" ${state}\` (link every card it overlaps, depends on or would duplicate; --deps for one it truly waits on).`),
+    ],
+    'item-message': [
+      `Your job: the owner's message ${event} in the thread of new task ${key}, whose last line is theirs. Answer it with \`${b} reply ${event} --file <reply.html>\`, or, if it changes what the task asks, sort the task as the message now has it:`,
+      `- fold it: \`${b} item relate-ask ${key.slice(4)} <key> --summary "<one line>"\`; or file it: \`${b} item add <wave> --title "<the change>"\`, then`,
+      ...fileIt(`\`${b} item set <key> --from-ask ${key.slice(4)} --notes-file <file> --relate <keys> --text "<one line>" ${state}\`,`),
+      `  then reply to the message saying what you did.`,
+    ],
+    'card-added': [
+      `Your job: card ${key}, which an agent added unfiled (card-added ${event}). Read its notes and the cards its title looks related to, tidy its notes (what it is, why, where it came from), and add a "## Related" line to it and each linked card's notes. Then file it in one call:`,
+      `\`${b} item set ${key} --relate <keys> --text "<one line>" --state <grilling|prototyping>\`: prototyping when it changes the hub's or a board's UI, grilling for anything else.`,
+    ],
+  };
+  return [
+    `You are an intake triage run on the kickflip board /${route}. The board launched you to sort one thing that reached it unsorted; nobody watches this session, so never wait on a person. Work in ${repo}, reading only: you write through the board's CLI, \`${b} <command>\`, and notes files, nothing else. Never set a card ready, never build, never push, and never restart the hub or a board server.`,
+    '',
+    ...jobs[kind],
+    '',
+    `If you can't tell how to sort it (which card it belongs to, or what it asks), don't guess: \`${b} intake handoff ${event} --text "<what you are unsure of>"\` hands it to the orchestrator, and stop.`,
+    'Each command writes its own line in the thread, which is your report; add one with `' + b + ' thread ' + key + ' --text "<line>"` only for what those lines leave unsaid. Every line stands alone: name cards by their label.',
+    '',
+    `The thread of ${key}:`,
+    ...(said.length ? said : ['- (no messages)']),
+    '',
+    "The board's open cards, as label key \"title\", lane, state: notes file. Read the notes of any card whose title looks related before you choose.",
+    ...(cards.length ? cards.map((c) => `- ${c.ref} ${c.key} "${c.title}", ${c.lane}, ${c.state || 'no state'}: ${c.notes || 'no notes'}`) : ['- (none)']),
+    '',
+    'Waves a new card can go in, as slug: folder:',
+    ...waves.map((w) => `- ${w.slug}: ${w.dir}`),
+    '',
+    ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, build or restart, it isn't yours:"),
+    'Sort that one thing, then exit. Never push.',
+  ].join('\n');
+}
+
+// Launches the intake triage run on Sonnet in the board's repo (intakeBrief's), with a thread line on its card naming
+// it, a status line, so the task still reads New. → {pid, sessionId, log, exited}; rejects when it can't start.
+export async function launchIntake(site, intake) {
+  const route = boardAt(site)?.route ?? path.basename(site);
+  const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
+  const { repo } = builderRepo(site);
+  const launched = await launchAgent({ kind: 'claude', model: 'sonnet', cwd: repo, site, prompt: intakeBrief({ ...intake, route, repo, rules }), log: logFile(intake.event, 'intake') });
+  await appendThread(site, intake.key, { text: `Intake triage launched on ${modelName({ kind: 'claude', model: 'sonnet' })} in ${repo}.`, kind: 'status', log: path.basename(launched.log) });
+  return launched;
+}
+
 // The agents launchBuilder started, of agents each {pid, at} as store.mjs openAgents reads them, whose process still
 // runs. Pids get reused, so a pid counts only while its process started within LAUNCH_WINDOW before the session was
 // recorded; with no answer from ps, none does.

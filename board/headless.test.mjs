@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
-import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
+import { builderBrief, helperBrief, intakeBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, readArchive } from './store.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
@@ -688,6 +688,54 @@ test("a visual agent's brief has it start as its own agent, read the card and th
   assert.ok(!brief.includes('question add') && !brief.includes('item set'), 'a visual posts no question and moves no card');
   assert.ok(brief.indexOf('visual add') < brief.indexOf(`${b} builder done`));
   assert.match(visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1' }), /what the thread was last discussing/);
+});
+
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+test("an intake triage run's brief holds the board's index, the task and its thread, and has it reply, fold or file it, staging a Quick build, or hand it off", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  const intake = { route: 'shop', repo: '/r/shop', rules: ['Use Node 22+'], waves: [{ slug: 'w', dir: '/s/waves/w' }],
+    cards: [{ ref: 'ENG-1', key: 'w/A1', title: 'Make it go', lane: 'todo', state: 'grilling', notes: '/s/waves/w/a1.md' }, { ref: 'ENG-2', key: 'w/A2', title: 'No notes', lane: 'progress', state: 'ready', notes: null }] };
+  const ask = intakeBrief({ ...intake, event: 'e1', key: 'ask:e1', kind: 'ask', thread: [{ who: 'love', text: 'Make the header blue', files: [{ path: '/s/data/uploads/a.png' }] }] });
+  for (const want of [
+    '- ENG-1 w/A1 "Make it go", todo, grilling: /s/waves/w/a1.md', '- ENG-2 w/A2 "No notes", progress, ready: no notes',
+    'love: Make the header blue', '/s/data/uploads/a.png', 'Use Node 22+', 'w: /s/waves/w',
+    `${b} reply e1 --file`, `${b} item relate-ask e1 <key> --summary`, `${b} item add <wave> --title`,
+    `${b} item set <key> --from-ask e1 --notes-file`, '--state <grilling|prototyping>', 'verbatim',
+    `${b} intake handoff e1 --text`, 'Never push',
+  ]) assert.ok(ask.includes(want), `the intake brief has ${want}`);
+  assert.ok(!ask.includes('--state ready') && !ask.includes('--state staging'), 'intake never sets a card ready, and stages only a Quick build');
+  const quick = intakeBrief({ ...intake, event: 'e1', key: 'ask:e1', kind: 'ask', quick: true, thread: [] });
+  assert.ok(quick.includes('--from-ask e1 --notes-file <file> --relate <keys> --text "<one line on what you filed>" --state staging --size <small|large>'));
+  assert.ok(!quick.includes('--state <grilling|prototyping>'));
+  const message = intakeBrief({ ...intake, event: 'm1', key: 'ask:e1', kind: 'item-message', thread: [] });
+  assert.ok(message.includes(`${b} reply m1 --file`) && message.includes(`${b} intake handoff m1 --text`));
+  const added = intakeBrief({ ...intake, event: 'c1', key: 'w/A2', kind: 'card-added', thread: [] });
+  for (const want of ['w/A2', `${b} item set w/A2 --relate`, '--state <grilling|prototyping>', `${b} intake handoff c1 --text`]) assert.ok(added.includes(want), `the card-added brief has ${want}`);
+});
+
+test("a new task launches an intake triage run on Sonnet in the board's repo, one at a time, and one that ends with it unsorted hands it to the orchestrator", async () => {
+  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', state: 'grilling', status: 'building' }]);
+  const { child, send } = await b.start();
+  try {
+    const { id } = await send('ask', { text: 'Make the header blue' });
+    await until(() => b.runs().length === 1, 'the intake run launches');
+    const [run] = b.runs();
+    assert.equal(run.cwd, fs.realpathSync(b.clone));
+    assert.equal(run.argv[run.argv.indexOf('--model') + 1], 'sonnet');
+    assert.match(run.argv[1], /Make the header blue/);
+    assert.match(run.argv[1], new RegExp(`intake handoff ${id} --text`));
+    const askThread = () => fs.readFileSync(path.join(b.data, 'threads', `ask__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
+    await until(() => fs.existsSync(path.join(b.data, 'threads', `ask__${id}.jsonl`)) && /^Intake triage launched on Claude Sonnet in /.test(askThread()[0].text), 'the launch line');
+    // The fake run exits without sorting it: the board hands it to the orchestrator, and launches no second run.
+    await until(() => b.events().includes('intake-handoff'), 'the stranded task is handed off');
+    assert.match(askThread().at(-1).text, /^Intake triage handed this to the orchestrator: the intake triage run ended without sorting it/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(b.data, 'intake-runs.json'), 'utf8'))[id].key, `ask:${id}`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(b.runs().length, 1);
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
+  }
 });
 
 test("the owner's visual request launches a visual agent on Sonnet beside the card's build, as its own agent, and a second waits for the first to finish", async () => {

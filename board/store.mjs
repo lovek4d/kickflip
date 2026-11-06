@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, intakeKeyOf, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -405,6 +405,21 @@ export async function eventCard(site, eventId) {
   if (e?.kind === 'ask') return cardName(site, `ask:${eventId}`);
   if (typeof e?.data?.key === 'string') return cardName(site, e.data.key);
   return `the ${e?.kind} event`;
+}
+
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+// `intake handoff <eventId> --text <why>`: an intake triage run unsure how to sort intake event eventId hands it to the
+// orchestrator, as an intake-handoff {event, key, text} event, whose wait (domain.mjs intakeWaits) wakes it, and a
+// status line in the card's thread saying why. → {lines: []}
+export async function intakeHandoff(site, eventId, why) {
+  needSite(site);
+  domId(eventId, 'the event id');
+  const said = text(why, '--text');
+  const e = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((x) => x.id === eventId) || fail(`no event "${eventId}" in this site's data/events.jsonl`);
+  const key = intakeKeyOf(e) || fail(`event "${eventId}" isn't intake: a new task, the owner's message in an ask's thread, or a card an agent added`);
+  await appendEvent({ dir: site }, 'intake-handoff', { event: eventId, key, text: said });
+  await appendThread(site, key, { text: `Intake triage handed this to the orchestrator: ${said}`, kind: 'status' });
+  return { lines: [] };
 }
 
 export async function relateAsk(site, eventId, key, summary) {
@@ -1736,9 +1751,10 @@ function checkState(state) {
   if (state !== undefined && !AGENT_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
 }
 const NOT_STAGED = "a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
-// Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. Filing
-// it counts as its staging.
-async function quickAsk(site, eventId) {
+// Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. It is
+// filed --from-ask --state staging, the one filing that stages a card, so the orchestrator judges it before it goes
+// ready (docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md).
+export async function quickAsk(site, eventId) {
   const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));
   return events.some((e) => (e.kind === 'ask' && e.id === eventId && e.data?.quick === true) || (e.kind === 'item-message' && e.data?.key === `ask:${eventId}` && e.data?.intent === 'build'));
 }
@@ -1893,7 +1909,8 @@ function closingLine(site, key, item, status, text, repo) {
 async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
-  checkState(state);
+  // A Quick build ask files --from-ask straight to staging (quickAsk, checked below once the ask is known).
+  if (state !== 'staging' || fromAsk === undefined) checkState(state);
   if (force && !FINISHED.includes(status)) fail(`--force goes with --status ${FINISHED.join(', ')}`);
   if (fromAsk !== undefined && FINISHED.includes(status)) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
@@ -1908,11 +1925,14 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if ([status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --status, --clear-status, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --notes-file, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
+  const quick = ask !== undefined && await quickAsk(site, ask);
+  if (state === 'staging' && !quick) checkState(state);
   const { source, wave, item } = await loadItem(site, key);
-  if (state === 'ready' && !['staging', 'ready'].includes(item.state) && !(ask && await quickAsk(site, ask))) fail(`${key} reads ${item.state || 'no state'}, not staging; ${NOT_STAGED}`);
+  if (state === 'ready' && quick && !['staging', 'ready'].includes(item.state)) fail(`${key} came from a Quick build ask: file it --state staging, and the orchestrator judges it before it goes ready`);
+  if (state === 'ready' && !['staging', 'ready'].includes(item.state)) fail(`${key} reads ${item.state || 'no state'}, not staging; ${NOT_STAGED}`);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-  if (ask && state === undefined && !item.state) fail('--from-ask files a card, which reads New until it has a state: pass --state ready, grilling or prototyping');
+  if (ask && state === undefined && !item.state) fail('--from-ask files a card, which reads New until it has a state: pass --state grilling or prototyping, or staging for a Quick build ask');
   const statusBefore = item.status;
   const wasFinished = FINISHED.includes(item.status);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already ${item.status}, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
@@ -2013,7 +2033,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     // docs/adr/2026-11-07-0700-staging-then-ready.md: sent back from staging or ready, the card gets its round from the board (domain.mjs roundsDue).
     if (state !== 'ready' && ['staging', 'ready'].includes(item.state)) item.round_at = new Date().toISOString();
     item.state = state;
-    delete item.staged_at;
+    if (state === 'staging') item.staged_at = new Date().toISOString(); else delete item.staged_at;
     delete item.unfiled;
   }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the state the card is in.

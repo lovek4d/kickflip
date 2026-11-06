@@ -54,8 +54,8 @@ function sessionOf(child, log, offset, session) {
 
 // Starts an agent of kind (claude | codex) on prompt, detached in cwd, without the launching session's CLAUDE_*
 // environment, its output going to log as it runs. model is Claude's (opus | sonnet); site is the board's site folder.
-// bin overrides the kind's binary. → {pid, sessionId, log} once it has named its session (sessionId null if it exited
-// or took too long first); rejects when it can't start.
+// bin overrides the kind's binary. → {pid, sessionId, log, exited} once it has named its session (sessionId null if it
+// exited or took too long first), exited settling when its process exits; rejects when it can't start.
 export function launchAgent({ kind, model, cwd, site, prompt, log, bin }) {
   const agent = AGENTS[kind];
   if (!agent) throw new Error(`no agent of kind ${kind}`);
@@ -67,11 +67,12 @@ export function launchAgent({ kind, model, cwd, site, prompt, log, bin }) {
   if (path.isAbsolute(command)) env.PATH = `${path.dirname(command)}:${env.PATH || ''}`;
   return new Promise((resolve, reject) => {
     const child = spawn(command, agent.args({ prompt, model, cwd, site }), { cwd, env, detached: true, stdio: ['ignore', out, out] });
+    const exited = new Promise((done) => child.once('exit', () => done()));
     child.once('spawn', async () => {
       fs.closeSync(out);
       const sessionId = await sessionOf(child, log, offset, agent.session);
       child.unref();
-      resolve({ pid: child.pid, sessionId, log });
+      resolve({ pid: child.pid, sessionId, log, exited });
     });
     child.once('error', (e) => { fs.closeSync(out); reject(e); });
   });

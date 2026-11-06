@@ -42,21 +42,27 @@ test('item add files a card grilling or prototyping, never ready', () => {
   assert.equal(board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--state', 'grilling').code, 0);
 });
 
-test('filing a Quick build ask counts as staging, so --from-ask files it ready; any other ask is refused ready', () => {
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+test('a Quick build ask files --from-ask --state staging, so the orchestrator judges it before ready; ready is refused on it, and staging on any other ask', () => {
   write(at('waves', 'w', 'a1.md'), '# A1\n');
   addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } },
     { id: 'eb', ts: '2026-11-06T10:01:00Z', kind: 'ask', data: { text: 'Fix the footer' } },
     { id: 'ei', ts: '2026-11-06T10:02:00Z', kind: 'item-message', data: { key: 'ask:eb', text: '', intent: 'build' } },
     { id: 'ep', ts: '2026-11-06T10:03:00Z', kind: 'ask', data: { text: 'Fix the sidebar' } });
-  const file = (id, ask) => board('item', 'set', `w/${id}`, '--site', 'orch', '--from-ask', ask, '--text', 'Filed.', '--state', 'ready', '--size', 'small', '--notes-file', 'a1.md');
+  const file = (id, ask, state) => board('item', 'set', `w/${id}`, '--site', 'orch', '--from-ask', ask, '--text', 'Filed.', '--state', state, '--size', 'small', '--notes-file', 'a1.md');
   write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'Quick' }, { id: 'A2', title: 'Implement on New' }, { id: 'A3', title: 'Plain' }] });
-  const quick = file('A1', 'eq');
+  assert.deepEqual(file('A1', 'eq', 'ready'), { code: 1, out: '', err: 'w/A1 came from a Quick build ask: file it --state staging, and the orchestrator judges it before it goes ready\n' });
+  assert.equal(item('A1').state, undefined);
+  const quick = file('A1', 'eq', 'staging');
   assert.equal(quick.code, 0, quick.err);
-  assert.equal(item('A1').state, 'ready');
-  const implemented = file('A2', 'eb');
+  assert.equal(item('A1').state, 'staging');
+  assert.ok(item('A1').staged_at);
+  const implemented = file('A2', 'eb', 'staging');
   assert.equal(implemented.code, 0, implemented.err);
-  assert.equal(item('A2').state, 'ready');
-  assert.deepEqual(file('A3', 'ep'), { code: 1, out: '', err: "w/A3 reads no state, not staging; a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n" });
+  assert.equal(item('A2').state, 'staging');
+  assert.deepEqual(file('A3', 'ep', 'staging'), { code: 1, out: '', err: '--state staging is set by the board, on an owner action; pass ready, grilling or prototyping\n' });
+  assert.deepEqual(file('A3', 'ep', 'ready'), { code: 1, out: '', err: "w/A3 reads no state, not staging; a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n" });
+  assert.equal(item('A3').state, undefined);
 });
 
 test('leaving staging or ready for grilling or prototyping marks the round for the board to start', () => {

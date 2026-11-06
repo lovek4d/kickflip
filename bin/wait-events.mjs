@@ -29,8 +29,11 @@
 //                             <detail>` while the hub runs older code than its files (../hub/boards.mjs hubLink)
 //   handed-over <owner json>  another session took the route over: stop, don't relaunch
 //   Record-only events never wake the session (docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md):
-//   main-pulled, settings, ask-done, reviewers-removed, reviewers-added, question-reopen, repo-changed and ping (hello, as old boards wrote it). The cursor moves past
-//   them at once, a ping is answered then, and their lines print, in order, ahead of the new events on the next wake.
+//   main-pulled, settings, ask-done, reviewers-removed, reviewers-added, question-reopen, repo-changed and ping (hello, as old boards wrote it),
+//   and on a board the intake that intake triage sorts: ask, card-added, item-message on an ask's thread, and intake-handoff
+//   (docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md). The cursor moves past them at once, a ping
+//   is answered then, and their lines print, in order, ahead of the new events on the next wake, marked working only
+//   when they woke the session.
 //   site-removed              the route left the manifest: stop, don't relaunch
 // On start it writes <site dir>/data/watcher.json {pid, since}, and adds exited_at when it exits; a board reads it
 // to say whether a watcher runs (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
@@ -47,7 +50,7 @@ import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mj
 import { parentOf, sessionGone } from '../hub/live.mjs';
 import { ackPing, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
-import { waitsAgainLine } from '../board/domain.mjs';
+import { intakeKeyOf, waitsAgainLine } from '../board/domain.mjs';
 
 const [route, session] = process.argv.slice(2);
 if (!route || !session) { console.error('usage: wait-events.mjs <route> <session-id>'); process.exit(2); }
@@ -74,8 +77,14 @@ const QUIET = "quiet The owner doesn't read this session's terminal. Answer a pr
   + 'by label (#96), and a pointer such as "above" or "here" must make sense in that thread, never point into this session.';
 
 const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello'];
-const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
-const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
+const parsed = (line) => { try { return JSON.parse(line); } catch { return null; } };
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md: on a board, intake (a new task, the owner's
+// message in an ask's thread, an agent-added card) is intake triage's, and its hand-off reaches the session as an
+// intake wait in orchestrator-waits, so none of them wakes the session.
+const recordOnly = (line, board) => {
+  const e = parsed(line);
+  return RECORD_ONLY.includes(e?.kind) || (Boolean(board) && e !== null && (e.kind === 'intake-handoff' || intakeKeyOf(e) !== null));
+};
 // A board is a site with a board.json; other sites get no rules.
 function boardOf(s) {
   try { return JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { return e.code === 'ENOENT' ? null : {}; }
@@ -90,7 +99,7 @@ async function ackPings(dir, lines) {
 }
 
 const PLAIN = {
-  ask: (e) => `new task ${e.id} received`,
+  ask: (e) => `new task ${e.id} received: intake triage sorts it`,
   'owner-answer': (e) => `answer received to question ${e.data?.id}`,
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
@@ -103,7 +112,8 @@ const PLAIN = {
 };
 const ON_CARD = {
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-  'item-message': (c, e) => (e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it, then item set --state ready, or --state grilling or prototyping` : `message received from ${c}'s thread`),
+  'item-message': (c, e) => (String(e.data?.key).startsWith('ask:') ? `message received from ${c}'s thread: intake triage answers it`
+    : e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it, then item set --state ready, or --state grilling or prototyping` : `message received from ${c}'s thread`),
   'card-merge': (c) => `merge asked on ${c}`,
   'card-done': (c) => `${c} marked done`,
   'card-bump': (c) => `${c} bumped`,
@@ -119,7 +129,8 @@ const ON_CARD = {
   'reask-request': (c) => `question asked again on ${c}`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text}`,
   'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}`,
-  'card-added': (c) => `${c} added by an agent: link it and file it`,
+  'card-added': (c) => `${c} added by an agent: intake triage links and files it`,
+  'intake-handoff': (c, e) => `intake triage handed ${c} to you: ${e.data?.text}`,
 };
 
 // One plain line per event line, from its kind and card (data.key, or data.id for an ask-* event), or null for a
@@ -183,13 +194,15 @@ for (;;) {
   orphaned();
   const pending = (seen) => Object.fromEntries(Object.entries(seen).map(([f, lines]) => [f, [...(routeRecord(base.$quietHeld, f) || []), ...(routeRecord(base.$usageHeld, f) || []), ...lines.slice(routeRecord(base, f) || 0)]]));
   const eligible = (line, gate) => gate.state !== 'paused' || !heldUsageEvent(line);
-  const wakes = (waiting, gate) => Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate) && !recordOnly(line)));
+  const onBoard = boardOf(s) !== null;
+  const quiet = (line) => recordOnly(line, onBoard);
+  const wakes = (waiting, gate) => Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate) && !quiet(line)));
   const currentGate = readUsageGate({ dir: s.dir });
   const now = matching(s);
   if (!wakes(pending(now), currentGate)) {
     // Nothing to wake for: record-only lines are kept for the next wake, so the cursor can move past them.
-    const fresh = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter(recordOnly)]));
-    const rest = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter((l) => !recordOnly(l))]));
+    const fresh = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter(quiet)]));
+    const rest = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter((l) => !quiet(l))]));
     if (Object.values(fresh).some((l) => l.length)) {
       if (boardOf(s)) await ackPings(s.dir, Object.values(fresh).flat());
       const append = (kept, add) => Object.fromEntries(Object.keys(now).map((f) => [f, [...(routeRecord(kept, f) || []), ...add[f]]]));
@@ -216,10 +229,8 @@ for (;;) {
       console.log(`event ${f} ${line}`);
       const plain = await plainLine(s.dir, line);
       if (plain) console.log(plain);
-      try {
-        const e = JSON.parse(line);
-        if (WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id);
-      } catch {}
+      const e = parsed(line);
+      if (e && WORKING_KINDS.includes(e.kind) && typeof e.id === 'string' && !quiet(line)) started.push(e.id);
     }
   }
   const board = boardOf(s);

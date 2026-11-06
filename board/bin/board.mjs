@@ -147,9 +147,10 @@ command fails and changes nothing.
          [--state ready|grilling|prototyping]            what a card from an ask does next; it reads New until set.
                                                          Staging is the board's: it stages a card on the owner's
                                                          Send, Implement or Reply on a ready card, and refuses
-                                                         --state staging. ready refuses a card not staging or
-                                                         ready, bar --from-ask on a Quick build ask (its filing
-                                                         counts as staging), a card with an open question, and
+                                                         --state staging, bar --from-ask on a Quick build ask,
+                                                         which files it staging for the orchestrator to judge.
+                                                         ready refuses a card not staging or ready, a Quick
+                                                         build ask's included, a card with an open question, and
                                                          a card without --size, a notes file, or the id of each
                                                          answered question in that file, since a builder starts
                                                          from it; it resolves those answered questions.
@@ -238,7 +239,7 @@ command fails and changes nothing.
          [--relate <id>,<wave>/<id>]                     own form, linking it with --relate in the same call.
                                                          Never ready: a card reaches ready through staging.
                                                          Without --state it reads New and a card-added event
-                                                         wakes the board's session, which links and files it
+                                                         brings in intake triage, which links and files it
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
          card. Prints "<label> added as <key>": use the key in later commands
   item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
@@ -251,6 +252,10 @@ command fails and changes nothing.
                                                          waits on the owner, such as a pick between prototypes
   ask done <eventId>                                     moves the ask to Done, as the owner's Done button does
   ask unfold <eventId>                                   moves a folded ask back out to a card of its own
+  intake handoff <eventId> --text <why>                  an intake triage run unsure how to sort a new task, a
+                                                         message in an ask's thread or an agent-added card hands it
+                                                         to the orchestrator: an intake-handoff event, whose wait
+                                                         wakes the session, and a status line in its thread
   ask move <eventId> --to <route>                        sends a New ask to another board in the hub's manifest:
                                                          a New card there with the owner's text, attachments and
                                                          "Moved from <this board>", which wakes its session; here the
@@ -785,6 +790,7 @@ const COMMANDS = {
   'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
+  'intake handoff': [['eventId'], ['text'], (site, [id], f) => store.intakeHandoff(site, id, f.text)],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
@@ -979,6 +985,7 @@ const SAID = {
   'item relate-ask': async (site, [id, key]) => `task ${id} folded into ${await card(site, key)}`,
   'ask progress': async (site, [id]) => `${await card(site, `ask:${id}`)}: in progress`,
   'ask done': async (site, [id]) => `${await card(site, `ask:${id}`)}: done`,
+  'intake handoff': async (site, [id]) => `${await store.eventCard(site, id)} handed to the orchestrator`,
   'ask unfold': (site, [id]) => `task ${id} back on a card of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
   'lineup create': (site, [slug]) => `lineup ${slug} created`,

@@ -670,6 +670,21 @@ test("item set --status building takes a prototype pick's note as guidance, and 
   assert.equal(status(), 'building');
 });
 
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+test("intake handoff hands an intake event to the orchestrator: an intake-handoff event and a status line in its card's thread; any other event is refused", () => {
+  const r = board('intake', 'handoff', 'e1', '--site', 'orch', '--text', 'Not sure which card it belongs to');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /handed to the orchestrator/);
+  const ev = lines(site('orch', 'data', 'events.jsonl')).at(-1);
+  assert.deepEqual([ev.kind, ev.data], ['intake-handoff', { event: 'e1', key: 'ask:e1', text: 'Not sure which card it belongs to' }]);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e1.jsonl')).map(({ ts, ...m }) => m),
+    [{ who: 'claude', kind: 'status', text: 'Intake triage handed this to the orchestrator: Not sure which card it belongs to' }]);
+  addEvents({ id: 'm9', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'x' } });
+  assert.deepEqual(board('intake', 'handoff', 'm9', '--site', 'orch', '--text', 'x'),
+    { code: 1, out: '', err: `event "m9" isn't intake: a new task, the owner's message in an ask's thread, or a card an agent added\n` });
+  assert.match(board('intake', 'handoff', 'e1', '--site', 'orch').err, /--text/);
+});
+
 test('item relate-ask folds an ask into an item with one summary line, ask unfold and item set --from-ask move it back out', () => {
   const r = board('item', 'relate-ask', 'e1', 'w/A1', '--summary', 'Asked to keep the header spacing', '--site', 'orch');
   assert.equal(r.code, 0);
@@ -683,7 +698,7 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   assert.match(board('ask', 'unfold', 'e1', '--site', 'orch').err, /ask "e1" is not folded into a card/);
   board('item', 'relate-ask', 'e1', 'w/A1', '--summary', 'Back in', '--site', 'orch');
   const stateless = board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Building it.');
-  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a card, which reads New until it has a state: pass --state ready, grilling or prototyping\n']);
+  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a card, which reads New until it has a state: pass --state grilling or prototyping, or staging for a Quick build ask\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, undefined);
   assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'grilling', '--site', 'orch', '--text', 'Building it.').code, 0);
   assert.deepEqual([read(site('orch', 'data', 'ask-links.json')), read(at('waves', 'w', 'wave.json')).items[0].from_ask], [{ links: {} }, 'e1']);

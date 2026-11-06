@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue, intakeDue, intakeStranded } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -2174,6 +2174,55 @@ test("a prototype request waits on its prototype: the card's own while it is und
   // The round naming the question resolves it, and a question posted after the card's request answers that.
   const round = { id: 'q1', topic: 'item:w/A1', question: 'Which?', url: 'prototype-x.html?q=q1', options: [{ id: 'A', label: 'Top' }], round_of: 'q0', asked_at: '2026-10-23T11:00:00Z' };
   assert.deepEqual(prototypeWaits(board({ owner: { items: [{ ...plain, resolved: 'Followed by prototype round 1', resolved_at: '2026-10-23T11:00:00Z' }, round] }, events: [card, asked] }), [card, asked]), []);
+});
+
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+test('intake triage takes the oldest unsorted new task, message in an ask thread or agent-added card, one run at a time; a hand-off waits on the orchestrator until it is sorted', () => {
+  const at = (m) => `2026-11-06T10:${String(m).padStart(2, '0')}:00Z`;
+  const ask = (id, m, extra = {}) => ({ id, ts: at(m), kind: 'ask', data: { text: `Task ${id}` }, reply: null, ...extra });
+  const added = { id: 'c1', ts: at(3), kind: 'card-added', data: { key: 'w/A2', title: 'Follow-up' }, reply: null };
+  const items = [{ id: 'A1', title: 'Filed', state: 'grilling' }, { id: 'A2', title: 'Follow-up', unfiled: true }];
+  const built = (events, waveItems = items) => buildBoard({ now: Date.parse(at(59)), events, waves: [{ slug: 'w', agents: {}, wave: { internal: true, items: waveItems } }] });
+  const due = (events, runs = {}, waveItems) => intakeDue(built(events, waveItems).items, events, runs);
+
+  assert.deepEqual(due([ask('e1', 1), ask('e2', 2), added]), { event: 'e1', key: 'ask:e1', kind: 'ask' });
+  assert.equal(due([ask('e1', 1), ask('e2', 2)], { e1: { key: 'ask:e1', pid: 1, at: at(1) } }), null, 'one run at a time');
+  assert.deepEqual(due([ask('e1', 1), ask('e2', 2)], { e1: { key: 'ask:e1', pid: 1, at: at(1), ended: at(2) } }), { event: 'e2', key: 'ask:e2', kind: 'ask' });
+  assert.equal(due([ask('e1', 1, { reply: { at: at(2) } })]), null, 'a replied ask is sorted');
+  assert.deepEqual(due([added]), { event: 'c1', key: 'w/A2', kind: 'card-added' });
+  assert.equal(due([added], {}, [{ id: 'A2', title: 'Follow-up', state: 'grilling' }]), null, 'a filed card is sorted');
+  // A message in an answered ask's thread is intake's too, until it is answered.
+  const answered = ask('e1', 1, { reply: { at: at(2) } });
+  const message = { id: 'm1', ts: at(4), kind: 'item-message', data: { key: 'ask:e1', text: 'One more thing' }, reply: null };
+  assert.deepEqual(due([answered, message], { e1: { key: 'ask:e1', ended: at(2) } }), { event: 'm1', key: 'ask:e1', kind: 'item-message' });
+  assert.equal(due([answered, { ...message, reply: { at: at(5) } }], { e1: { key: 'ask:e1', ended: at(2) } }), null);
+  // A message on a work card's thread is the orchestrator's, as before.
+  assert.equal(due([{ ...message, data: { key: 'w/A1', text: 'x' } }]), null);
+
+  // A hand-off takes the event off intake's list and waits on the orchestrator until the event is sorted.
+  const handoff = { id: 'h1', ts: at(6), kind: 'intake-handoff', data: { event: 'e1', key: 'ask:e1', text: 'Not sure which card it belongs to' }, reply: null };
+  assert.equal(due([ask('e1', 1), handoff]), null);
+  const waits = orchestratorWaits(built([ask('e1', 1), handoff]));
+  assert.deepEqual(waits.map(({ key, kind, since, picked, next }) => [key, kind, since, picked, next]),
+    [['ask:e1', 'intake', at(6), null, 'Sort what intake triage handed you: Not sure which card it belongs to']]);
+  assert.deepEqual(orchestratorWaits(built([ask('e1', 1, { reply: { at: at(7) } }), handoff])), [], 'sorted: no wait');
+  const cardHandoff = { ...handoff, data: { event: 'c1', key: 'w/A2', text: 'The intake triage ended without sorting it' } };
+  assert.deepEqual(orchestratorWaits(built([added, cardHandoff])).map((w) => [w.key, w.kind]), [['w/A2', 'intake']]);
+  assert.deepEqual(orchestratorWaits(built([added, cardHandoff], [{ id: 'A2', title: 'Follow-up', state: 'grilling' }])), []);
+});
+
+// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+test('an intake run that ended with its event unsorted and not handed off strands it, for the orchestrator', () => {
+  const at = (m) => `2026-11-06T10:${String(m).padStart(2, '0')}:00Z`;
+  const ask = (id, extra = {}) => ({ id, ts: at(1), kind: 'ask', data: { text: `Task ${id}` }, reply: null, ...extra });
+  const stranded = (events, runs) => intakeStranded(buildBoard({ now: Date.parse(at(59)), events, waves: [] }).items, events, runs);
+  const ended = { e1: { key: 'ask:e1', pid: 1, at: at(1), ended: at(2) } };
+  assert.deepEqual(stranded([ask('e1')], ended), [{ event: 'e1', key: 'ask:e1', kind: 'ask' }]);
+  assert.deepEqual(stranded([ask('e1')], { e1: { key: 'ask:e1', pid: 1, at: at(1) } }), [], 'still running');
+  assert.deepEqual(stranded([ask('e1')], {}), [], 'never run');
+  assert.deepEqual(stranded([ask('e1', { reply: { at: at(2) } })], ended), [], 'sorted');
+  const handoff = { id: 'h1', ts: at(3), kind: 'intake-handoff', data: { event: 'e1', key: 'ask:e1', text: 'Unsure' }, reply: null };
+  assert.deepEqual(stranded([ask('e1'), handoff], ended), [], 'already handed off');
 });
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md

@@ -1250,7 +1250,8 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ sites: { t: { dir: site } } }));
   fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: {}, rules: [{ id: 'h1', text: 'Screenshots in every PR', by: 'owner', at: 'x' }] }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'b1', text: 'Ask before\ntouching main', by: 'claude', at: 'x' }, { text: 'no id' }] }));
-  const ask = () => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask', text: 'Wake' }) });
+  // A new task is intake triage's and wakes nobody, so a work card's message wakes the watcher here.
+  const ask = () => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/A1', text: 'Wake' }) });
   const watch = async (session, wake = ask) => {
     ownSession(home, session);
     const watcher = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'wait-events.mjs'), 't', session], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home } });
@@ -1265,17 +1266,18 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   try {
     const lines = await watch('rules1');
     assert.match(lines[0], /^event data\/events\.jsonl /);
-    assert.match(lines[1], /^new task \S+ received$/);
-    const asked = lines[1].split(' ')[2];
+    assert.match(lines[1], /^message received from A1's thread$/);
+    const asked = JSON.parse(lines[0].replace(/^event data\/events\.jsonl /, '')).id;
     assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events[asked]));
     // The watcher marks it working from outside the server, which sees the mark once its file watcher does.
-    await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${asked}`).working, 'the board shows the ask working');
-    assert.deepEqual((await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w), [{ id: asked, kind: 'ask', card: null }]);
+    await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A1').working, 'the board shows the message working');
+    assert.deepEqual((await (await fetch(`${base}/api/working`)).json()).working.filter((w) => w.id === asked).map(({ since, ...w }) => w), [{ id: asked, kind: 'item-message', card: 'A1' }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    assert.deepEqual(lines.slice(2, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
+    // Earlier tests' new tasks on this site, handed off by their intake runs, may print their waits first.
+    assert.deepEqual(lines.slice(-13, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(2, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
+    assert.deepEqual((await watch('rules2')).slice(-11, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     const ping = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'ping1', ts: new Date().toISOString(), kind: 'ping', data: { title: 'T' } }) + '\n');
     // A ping is record-only: the watcher acks it and keeps running, and its line prints ahead of the next event's lines.
     const pingThenAsk = async () => {
@@ -1286,7 +1288,7 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     const pinged = await watch('ping', pingThenAsk);
     assert.match(pinged[0], /^event data\/events\.jsonl .*"id":"ping1"/);
     assert.equal(pinged[1], 'ping ping1 from the hub answered');
-    assert.match(pinged[2], /^event data\/events\.jsonl .*"kind":"ask"/);
+    assert.match(pinged[2], /^event data\/events\.jsonl .*"kind":"item-message"/);
     // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
     const triage = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'tt1', ts: new Date().toISOString(), kind: 'overnight-triage', data: { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['w/A1', 'w/A2'] } }) + '\n');
     assert.equal((await watch('triage', triage))[1], 'Overnight triage 2026-11-03 asked: 2 cards wait on your answers');
