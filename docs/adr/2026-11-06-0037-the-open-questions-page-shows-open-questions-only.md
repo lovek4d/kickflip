@@ -1,0 +1,9 @@
+# The Open questions page shows open questions only
+
+Card #338. The owner asked for a landing for Waiting on you when nothing is pending, then widened it: the page is for open questions only, and a resolved question is reached from its work item (the Questions button, #287).
+
+- **The moon when nothing is open.** With no question to show, view-questions.js draws the hub's moon (ui-hub.js `TILE_PATHS.moon`, now on `HubUI`) at 72px with a thin 1.4 stroke, and under it "no open questions" in muted text. It sits at the true centre: on a phone, of the space between the page's top padding and the nav (`.q-empty` min-height); in the desktop pane, of what the pane has left under its Needs you lines (the pane, slot, main and `#page` turn into a flex column while `.q-empty` shows). It replaced "Nothing is waiting on you." The owner picked the true-centre frame. The round 1 take with a faint "3 answered recently" link was dropped in round 3, so there's no way back from here.
+- **Only open topics open by themselves.** `pick` with no link opens the first topic with an open question, and otherwise none. It used to fall back to a topic waiting on Claude. A link to a question still opens its topic, resolved or not, which is how a work item's Questions button reaches its resolved questions.
+- **Send ends the page.** The "Waiting on Claude" and "Resolved topics" folds under the form are gone, so nothing follows the Send bar. A topic waiting on Claude shows on its card on the board.
+- **Resolved first.** A topic's "resolved (N)" fold now sits above its open questions, so the page reads in order: settled, then open, then Send. It still loads collapsed. A question arriving while the page shows goes in just before the Send bar.
+- **Topic pills stay.** Round 3 also showed the topics as work-item rows. The owner kept today's pills at the top.

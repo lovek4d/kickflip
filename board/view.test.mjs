@@ -4072,13 +4072,13 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
 test("Waiting on you loads a topic's resolved questions only once the topic shows, and its Send draws from the POST's board with no reload of its own", async () => {
   const question = (id, topic, state = 'open') => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state });
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }],
-    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T1'), question('r1', 'item:w/T1', 'resolved'), question('r2', 'item:w/T2', 'resolved')], at: 'q1' });
+    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T1'), question('r1', 'item:w/T1', 'resolved'), question('q3', 'item:w/T2'), question('r2', 'item:w/T2', 'resolved')], at: 'q1' });
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
   const resolvedShown = () => v.root.querySelectorAll('details.done section.q').map((s) => s.dataset.q);
   assert.deepEqual(v.gets, ['/board-a/api/board', '/board-a/api/questions?topic=item%3Aw%2FT1']);
-  assert.deepEqual([v.shown().questions, resolvedShown()], [['q1', 'q2', 'r1'], ['r1']]);
-  v.page.fire(v.root, 'click', { target: v.root.querySelector('details.done button[data-topic="item:w/T2"]') });
+  assert.deepEqual([v.shown().questions, resolvedShown()], [['r1', 'q1', 'q2'], ['r1']]);
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('.topics button[data-topic="item:w/T2"]') });
   await v.settle();
   assert.deepEqual([v.gets.at(-1), resolvedShown()], ['/board-a/api/questions?topic=item%3Aw%2FT2', ['r2']]);
   v.page.fire(v.root, 'click', { target: v.root.querySelector('button[data-topic="item:w/T1"]') });
@@ -4086,8 +4086,50 @@ test("Waiting on you loads a topic's resolved questions only once the topic show
   const loads = v.gets.length;
   v.answer('q1');
   await v.send();
-  assert.deepEqual([v.shown().status, resolvedShown()], ['sent 1 answer · 1 still open', ['r1']]);
+  assert.deepEqual([v.shown().status, resolvedShown()], ['sent 1 answer · 2 still open', ['r1']]);
   assert.deepEqual(v.gets.slice(loads), [], 'the Send downloads nothing beyond its own answer');
+  v.unmount();
+});
+
+// docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md
+test("Waiting on you with no open question shows only the hub's moon, centred, with 'no open questions' under it in muted text: no topic waiting on Claude and no resolved topic is listed", async () => {
+  const question = (id, topic, state) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state,
+    ...(state === 'resolved' ? { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null } : {}) });
+  const questions = [question('a1', 'item:w/T1', 'answered'), question('r1', 'item:w/T2', 'resolved')];
+  const topics = [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Old' }];
+  const v = questionsOnDom({ topics, questions, at: '' });
+  await v.settle();
+  const page = v.root.querySelector('#page');
+  assert.deepEqual(page.children.map((c) => c.getAttribute('class')), ['q-empty']);
+  const empty = page.querySelector('.q-empty');
+  assert.equal(empty.querySelector('svg').getAttribute('width'), '72');
+  assert.equal(empty.querySelector('svg path').getAttribute('d'), 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z', "the hub's moon");
+  assert.deepEqual([empty.querySelector('p').textContent, empty.querySelector('p').getAttribute('class')], ['no open questions', 'muted']);
+  assert.equal(v.root.querySelector('[data-topic]'), null);
+  assert.equal(v.root.querySelector('#progress').textContent, '');
+  v.unmount();
+
+  const linked = questionsOnDom({ topics, questions, at: 'r1' });
+  await linked.settle();
+  assert.deepEqual(linked.root.querySelectorAll('details.resolved-group section.q').map((s) => s.dataset.q), ['r1'], "a link to a resolved question, as a work item's Questions button sends, still opens its topic");
+  linked.unmount();
+});
+
+test("Waiting on you shows the shown topic's resolved questions above its open ones and ends at its Send bar, with no topic list under it", async () => {
+  const question = (id, topic, state = 'open') => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state,
+    ...(state === 'resolved' ? { resolved: 'Picked A', resolved_at: '2026-10-30T09:00:00.000Z', reask: null } : {}) });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: 'INT-2: Waiting' }, { id: 'item:w/T3', title: 'INT-3: Old' }],
+    questions: [question('q1', 'item:w/T1'), question('r1', 'item:w/T1', 'resolved'), question('q2', 'item:w/T1'), question('a1', 'item:w/T2', 'answered'), question('r3', 'item:w/T3', 'resolved')], at: 'q1' });
+  await v.settle();
+  const form = v.root.querySelector('#qform');
+  assert.deepEqual(form.children.map((c) => c.dataset.q || c.getAttribute('class').split(' ').at(-1)), ['resolved-group', 'q1', 'q2', 'bar']);
+  assert.equal(v.root.querySelector('#page').children.at(-1), form, 'Send ends the page');
+  v.server.questions.push(question('q4', 'item:w/T1'));
+  v.page.fire(v.page.win.document, 'visibilitychange');
+  await v.settle();
+  assert.equal(v.root.querySelector('#qform'), form, 'an arrival draws in place');
+  assert.deepEqual(form.children.map((c) => c.dataset.q || c.getAttribute('class').split(' ').at(-1)), ['resolved-group', 'q1', 'q2', 'q4', 'bar'], 'a new question goes after the last open one');
+  assert.equal(v.root.querySelector('#page').children.at(-1), form);
   v.unmount();
 });
 

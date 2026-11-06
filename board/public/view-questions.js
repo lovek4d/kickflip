@@ -13,12 +13,15 @@
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
 // A question the owner has sent an answer to is resolved: read-only, green, with a Resolved badge. One that resolves
 // while the page shows stays in place until the page loads again; at load, a topic's sent questions fold under
-// "resolved (N)". A sent question's badge, once confirmed, sends `question-reopen {key?, question}`, and the question
+// "resolved (N)" above its open ones. A sent question's badge, once confirmed, sends `question-reopen {key?, question}`, and the question
 // opens again with its last pick and note for a new Send. Each question is numbered by its place on its card
 // (docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md).
 // A topic or question that arrives while the page shows inserts its pill or card where it belongs, and the counts
 // update, with no repaint, so the open topic, its picks, the note being typed and the scroll stay
 // (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md).
+// The page shows open questions only: it ends at the Send bar, opens by itself only a topic with an open question, and
+// with none shows the hub's moon and "no open questions". A link to a question still opens its topic, as a work item's
+// Questions button does (docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md).
 // markup({embedded: true}) and ctx.embedded mount it in the board's desktop Needs you pane (app-needs.js): no header,
 // and the board's URL and scroll are left alone.
 (globalThis.AppViews ||= {}).questions = {
@@ -120,7 +123,7 @@
       const el = $('#page');
       const qs = visible();
       if (!qs.length) {
-        el.innerHTML = '<p class="muted">Nothing is waiting on you.</p>' + waitingTopics() + resolvedTopics();
+        el.innerHTML = `<div class="q-empty"><svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HubUI.TILE_PATHS.moon}</svg><p class="muted">no open questions</p></div>`;
         $('#progress').textContent = '';
         return;
       }
@@ -132,24 +135,12 @@
         ? `<div class="solo">${badge('notice', 'needs you first')}<button class="ghost" id="showAll">All questions</button></div>`
         : `${topicBar()}${topicHead(t)}`;
       el.innerHTML = `${head}<form id="qform">
-        ${live.map((q) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) })).join('')}
         ${done.length ? `<details class="done resolved-group"><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span><span class="names">${done.map((q) => esc(q.id)).join(', ')}</span></summary>${done.map((q) => questionCard(q, { n: numberOf(q), links: links(q) })).join('')}</details>` : ''}
+        ${live.map((q) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) })).join('')}
         <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${statusHtml(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
-      </form>${soloId ? '' : waitingTopics() + resolvedTopics()}`;
+      </form>`;
       BoardAttach.paintAll();
       updateBar();
-    }
-
-    function waitingTopics() {
-      const list = topicRow(topics, topicId).waiting;
-      return list.length ? `<details class="done"><summary>Waiting on Claude · ${list.length}</summary>${list.map((t) =>
-        `<div class="trow"><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button><span class="muted small">${t.answered ? 'answered' : 'Claude replied'}</span></div>`).join('')}</details>` : '';
-    }
-
-    function resolvedTopics() {
-      const done = topics.filter((t) => t.state === 'resolved' && t.id !== topicId);
-      return done.length ? `<details class="done"><summary>Resolved topics · ${done.length}</summary>${done.map((t) =>
-        `<div><button class="ghost" data-topic="${esc(t.id)}">${esc(t.title)}</button></div>`).join('')}</details>` : '';
     }
 
     // The topic a tap on this page acts for, the pills before it and its name, which moveOn reads once it is recorded.
@@ -226,7 +217,7 @@
       const u = urgentOpen();
       if (u && (!hash || hash === u.id)) { soloId = u.id; topicId = topicOf(u.id)?.id ?? null; return; }
       soloId = null;
-      const t = (hash && topicOf(hash)) || openTopics().find((x) => x.open) || openTopics()[0];
+      const t = (hash && topicOf(hash)) || topics.find((x) => x.open);
       topicId = t ? t.id : null;
     }
 
@@ -286,7 +277,7 @@
     let drawn = null;
     // A change that only adds topics, counts or open questions at the end of the shown topic is drawn in place: each
     // pill keeps its node and a new one lands at its place in the row, a new question's card goes after the last open
-    // one, and the topic line, the folds under the form and the bar update. → false when anything shown changed.
+    // one, and the topic line and the bar update. → false when anything shown changed.
     function arrive() {
       const form = $('#qform');
       const now = drawnOf();
@@ -312,15 +303,11 @@
       const head = page.querySelector('.topichead');
       const headHtml = topicHead(topics.find((x) => x.id === topicId));
       if (head && head.outerHTML !== headHtml) head.outerHTML = headHtml;
-      const before = form.querySelector('details.resolved-group') || form.querySelector('.bar');
+      const sendBar = form.querySelector('.bar');
       for (const q of added) {
         inPlace.add(q.id);
-        before.insertAdjacentHTML('beforebegin', questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) }));
+        sendBar.insertAdjacentHTML('beforebegin', questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) }));
       }
-      const opened = new Set();
-      for (const d of [...page.children]) if (d.matches('details.done')) { if (d.open) opened.add(d.querySelector('summary').textContent.split(' ·')[0]); d.remove(); }
-      page.insertAdjacentHTML('beforeend', waitingTopics() + resolvedTopics());
-      for (const d of page.children) if (d.matches('details.done') && opened.has(d.querySelector('summary').textContent.split(' ·')[0])) d.open = true;
       BoardAttach.paintAll();
       drawn = now;
       updateBar();

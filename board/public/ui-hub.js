@@ -111,5 +111,5 @@
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}${buffer}</div></section>`;
   }
 
-  globalThis.HubUI = { esc, tile, CHEVRON, row, flash, holdBanner, pauseBanner, nowRow, deviceRow, usageCard };
+  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, nowRow, deviceRow, usageCard };
 })();
