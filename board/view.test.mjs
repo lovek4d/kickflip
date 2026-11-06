@@ -2942,12 +2942,12 @@ test("a Todo card's Implement is in its thread box, quiet while the card isn't r
 });
 
 // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
-test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the ask and Quick build (⌥↵) sends it with quick: true; Ctrl+↵ stands in for ⌘', async () => {
+test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the ask and Implement (⌥↵) sends it with quick: true; Ctrl+↵ stands in for ⌘', async () => {
   const b = boardOnDom({ board: boardOf([]), threads: {} });
   await b.settle();
   const form = b.root.querySelector('#askForm');
   const buttons = () => [...form.querySelectorAll('button[type="submit"]')].map((el) => [el.dataset.intent, el.textContent]);
-  assert.deepEqual(buttons(), [['quick', 'Quick build⌥↵'], ['discuss', 'Discuss⌘↵']]);
+  assert.deepEqual(buttons(), [['quick', 'Implement⌥↵'], ['discuss', 'Discuss⌘↵']]);
   assert.equal(form.querySelector('.ask-seg'), null);
   const send = async (text, submitter) => {
     b.root.querySelector('#askText').value = text;

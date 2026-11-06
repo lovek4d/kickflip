@@ -1708,7 +1708,7 @@ function checkState(state) {
   if (state !== undefined && !AGENT_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
 }
 const NOT_STAGED = "a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
-// Whether ask eventId asked for a Quick build: the New task sheet's Quick build, or an Implement on its New card. Filing
+// Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. Filing
 // it counts as its staging.
 async function quickAsk(site, eventId) {
   const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));

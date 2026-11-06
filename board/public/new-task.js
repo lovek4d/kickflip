@@ -8,7 +8,7 @@ globalThis.BoardNewTask = (function () {
     <div class="sheet-head"><h2 id="sheetTitle">New task</h2><button type="button" class="ghost" id="sheetClose" aria-label="Close">✕</button></div>
     ${BoardUI.dropZone('<textarea id="askText" rows="4" placeholder="Ask a question or give me a task…" autofocus></textarea>')}
     <div class="pending-files" data-files></div>
-    <div class="send-actions">${BoardUI.sendButton('Quick build', 1, ' data-intent="quick"')}${BoardUI.sendButton('Discuss', 0, ' data-intent="discuss"')}</div>
+    <div class="send-actions">${BoardUI.sendButton('Implement', 1, ' data-intent="quick"')}${BoardUI.sendButton('Discuss', 0, ' data-intent="discuss"')}</div>
     <p class="muted small" id="askStatus" aria-live="polite"></p>
   </form>
 </dialog>`;
@@ -26,7 +26,7 @@ globalThis.BoardNewTask = (function () {
     const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
     // Files picked before the app shell switched away from this board are still attached, so they show again.
     BoardAttach.paint('ask', B.site.root);
-    // ⌘↵ sends the ask as Discuss and ⌥↵ as Quick build (ui.js keyedSend).
+    // ⌘↵ sends the ask as Discuss and ⌥↵ as Implement (ui.js keyedSend).
     B.on($('#askText'), 'keydown', (ev) => {
       const button = keyedSend(ev, $('#askForm'));
       if (!button) return;
@@ -77,7 +77,7 @@ globalThis.BoardNewTask = (function () {
     B.on($('#sheetClose'), 'click', closeSheet);
     B.on(sheet, 'click', (ev) => { if (ev.target === sheet) closeSheet(); });
     B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); closeSheet(); });
-    // Discuss has the session grill or prototype the task at once; Quick build sends the ask with quick: true, and the
+    // Discuss has the session grill or prototype the task at once; Implement sends the ask with quick: true, and the
     // session marks the card ready (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
     B.on($('#askForm'), 'submit', async (ev) => {
       ev.preventDefault();
