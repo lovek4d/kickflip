@@ -67,7 +67,7 @@
     const tail = running ? (newest ? `running · ${escText(newest.text)}` : 'running') : 'finished';
     const log = m.folded.find((f) => f.log)?.log;
     const logLink = log ? ` <a class="fold-log" href="log.html?file=${encodeURIComponent(log)}">log</a>` : '';
-    return `<details class="msg calls status-fold${running ? '' : ' finished'}${m.planner ? ' planner' : ''}"><summary>${statusMark('status lines')}${escText(m.agent)} · ${tail}${logLink}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`;
+    return `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary${running ? '' : ' class="finished"'}>${statusMark('status lines')}${escText(m.agent)} · ${tail}${logLink}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`;
   }
   function foldStatus(lines) {
     const runs = new Map();

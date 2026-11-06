@@ -1805,8 +1805,9 @@ test("one agent run folds into one closed line with a caret holding its started 
   assert.doesNotMatch(html, /<details[^>]* open/);
   const p = run('grill', false, true);
   const done = ui.threadMessages([agentLine(1, false, p), ln(2, p), ln(3, p), agentLine(4, true, p)]);
-  assert.match(done, /class="msg calls status-fold finished planner"/);
-  assert.doesNotMatch(html, /status-fold[^"]*finished/);
+  assert.match(done, /<details class="msg calls status-fold planner"><summary class="finished">/);
+  assert.doesNotMatch(html, /finished/);
+  assert.match(html, /<details class="msg calls status-fold"><summary>/);
   assert.match(text(done), /^Claude grill · finished(?! · \d)/);
   assert.match(text(ui.threadMessages([agentLine(1, false, live)])), /^Claude main · running(?! · \d)/);
   assert.match(text(ui.threadMessages([agentLine(1, false, p), agentLine(2, true, p)])), /^Claude grill · finished(?! · \d)/);
