@@ -5927,3 +5927,8 @@ test('deck-more link is not underlined in any state', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.deck-more:hover \{ text-decoration: none; \}/);
 });
+
+test('a resolved question card has no border or tint of its own; the Resolved badge alone marks it', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /\.q\.resolved\s*\{/, 'no rule styles the resolved card itself');
+});

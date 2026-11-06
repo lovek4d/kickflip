@@ -11,7 +11,7 @@
 // The question then reads prototype requested, locked, until its prototype round arrives, and once the request is
 // recorded the page moves on as a Send does (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md,
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
-// A question the owner has sent an answer to is resolved: read-only, green, with a Resolved badge. One that resolves
+// A question the owner has sent an answer to is resolved: read-only, with a Resolved badge. One that resolves
 // while its topic shows stays in place until you leave that topic, by a pill, a link or the move on after the last
 // Send; a topic's sent questions otherwise fold under "resolved (N)", which names only the count, above its open ones. A sent question's badge, once confirmed, sends `question-reopen {key?, question}`, and the question
 // opens again with its last pick and note for a new Send. Each question is numbered by its place on its card
