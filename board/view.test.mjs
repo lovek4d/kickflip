@@ -5338,3 +5338,16 @@ test("a card the reader closes stays closed through a repaint that changed its s
   setHTML(root, card('1m ago', false));
   assert.equal(el().open, false);
 });
+
+// docs/adr/2026-11-07-0400-an-in-progress-pill-is-tinted-not-outlined.md
+test('an In Progress pill is a faint orange tint on the plain border, and a selected one keeps the tint under the selected style', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const rule = (sel) => css.split('\n').findIndex((l) => l.startsWith(`${sel} {`));
+  const progress = rule('.view-questions .topics button.progress');
+  const pressed = rule('.view-questions .topics button.progress[aria-pressed="true"]');
+  assert.ok(progress >= 0 && pressed > progress, 'the selected In Progress rule comes after the tint rule');
+  const lines = css.split('\n');
+  assert.match(lines[progress], /border-color: var\(--line\); background: color-mix\(in srgb, var\(--color-notice\) 12%, var\(--panel\)\)/);
+  assert.match(lines[pressed], /border-color: var\(--accent\); background: color-mix\(in srgb, var\(--color-notice\) 12%, var\(--accent-soft\)\)/);
+});
