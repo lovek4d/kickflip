@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url';
 import { installLinks, installClaudeSettings, nodeBin } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
-import { keepSpotlightOut } from '../shared/spotlight.mjs';
 import { stallingPs, until, untilTestEnds } from '../shared/test-helpers.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -134,7 +133,6 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
   if (installed) {
     installLinks({ home: scratch, cloneRoot: doctorClone() });
     installClaudeSettings({ home: scratch });
-    keepSpotlightOut({ home: scratch, runs: [] });
     write(hubService({ home: scratch }).file, 'service');
   }
   const tailscale = path.join(scratch, 'doctor-bin', 'tailscale');

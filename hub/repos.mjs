@@ -97,15 +97,11 @@ export function repoPath(repo, base = reposDir()) {
   const dest = path.resolve(root, ...parts);
   if (!dest.startsWith(`${root}${path.sep}`)) refuse('Clone path must stay inside the clone folder.');
   let part = root;
-  for (const name of parts) {
-    part = path.join(part, name);
+  for (const name of ['', ...parts]) {
+    if (name) part = path.join(part, name);
     if (fs.lstatSync(part, { throwIfNoEntry: false })?.isSymbolicLink()) refuse('Clone path must stay inside the clone folder; symlinks are refused.');
   }
-  // The clone folder itself may be kickflip's link to its namesake in checkouts.noindex beside it (../shared/spotlight.mjs);
-  // the folders above it may not be links.
-  const moved = fs.existsSync(root) && fs.lstatSync(root).isSymbolicLink();
-  if (moved && fs.realpathSync(root) !== path.join(path.dirname(root), 'checkouts.noindex', path.basename(root))) refuse('Clone path must stay inside the clone folder; symlinks are refused.');
-  let ancestor = moved ? path.dirname(root) : root;
+  let ancestor = root;
   while (!fs.existsSync(ancestor)) ancestor = path.dirname(ancestor);
   if (fs.realpathSync(ancestor) !== ancestor) refuse('Clone path must stay inside the clone folder; symlinks are refused.');
   return dest;

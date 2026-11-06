@@ -6,7 +6,6 @@ import { githubGitArgv, gitReachFault } from '../hub/repos.mjs';
 import { buildsLocally, isBoardSite } from '../hub/boards.mjs';
 import { cloneRoot as runningClone, reposDir } from '../shared/repos.mjs';
 import { codexStatus } from '../shared/codex.mjs';
-import { CHECKOUTS, checkoutFolders, checkoutsDir } from '../shared/spotlight.mjs';
 import { REVIEW_SKILLS, SKILLS_SOURCE, addCommand, skillsState, updateCommand } from '../shared/skills.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
@@ -131,12 +130,13 @@ export async function doctorReport({ home = os.homedir(), cloneRoot = runningClo
   add(service.item, login.running ? 'ok' : service.manager ? 'fixable' : 'yours', login.detail, service.manager ? FIX : `run ${service.restartCommand} under a service manager of your own`);
   for (const note of service.notes()) add(note.item, note.state, note.detail, note.fix);
   if (platform === 'darwin') {
-    const folders = checkoutFolders(home);
-    const yours = folders.filter((f) => f.state === 'yours');
-    const indexed = folders.filter((f) => f.state !== 'ok').map((f) => f.name);
-    if (yours.length) add('Spotlight', 'yours', yours.map((f) => `${f.link} ${f.why}`).join('; '), `move ${yours.length > 1 ? 'them' : 'it'} aside, then ${FIX}`);
-    else if (indexed.length) add('Spotlight', 'fixable', `indexes ${indexed.join(', ')}; ${FIX} moves ${indexed.length > 1 ? 'them' : 'it'} into ${checkoutsDir(home)} once no board run is live`, FIX);
-    else add('Spotlight', 'ok', `skips ${CHECKOUTS.join(', ')} in ${checkoutsDir(home)}`);
+    // Spotlight's Privacy list is root's (VolumeConfiguration.plist) and a .noindex folder isn't honoured, so doctor asks
+    // the index for kickflip's manifest by name across ~/.claude: `mdfind -onlyin` a folder deeper than that finds nothing,
+    // indexed or not (docs/adr/2026-11-06-1500-spotlight-privacy-is-the-owners-step.md).
+    const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+    const found = execute('mdfind', ['-onlyin', path.join(home, '.claude'), 'kMDItemFSName == "manifest.json"']);
+    if ((found.stdout || '').split('\n').includes(manifest)) add('Spotlight', 'yours', `indexes ~/.claude/kickflip, so every builder worktree drives its CPU up; ${FIX} can’t change that`, 'System Settings › Spotlight › Search Privacy (or Spotlight › Privacy): add ~/.claude/kickflip');
+    else add('Spotlight', 'ok', 'skips ~/.claude/kickflip');
   }
 
   group = 'hub';

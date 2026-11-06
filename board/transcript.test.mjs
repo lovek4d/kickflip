@@ -19,16 +19,17 @@ test("a worktree's transcript movement is the newest .jsonl in its Claude projec
   assert.equal(transcriptMovedAt(worktree, home), 3000000);
 });
 
-test("a worktree recorded through a link is found under its real path's projects folder, where Claude Code writes its transcript", () => {
+test("a worktree recorded through a link, as ~/.claude/skills/kickflip stores the clone, is found under its real path's projects folder, where Claude Code writes its transcript", () => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'transcript-')));
-  const real = path.join(home, '.claude', 'kickflip', 'checkouts.noindex', 'worktrees');
-  fs.mkdirSync(path.join(real, 'GH-3'), { recursive: true });
-  fs.symlinkSync(real, path.join(home, '.claude', 'kickflip', 'worktrees'));
-  const folder = path.join(home, '.claude', 'projects', path.join(real, 'GH-3').replace(/[/.]/g, '-'));
+  const real = path.join(home, 'dev', 'kickflip');
+  fs.mkdirSync(path.join(real, '.claude', 'worktrees', 'GH-3'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.claude', 'skills'), { recursive: true });
+  fs.symlinkSync(real, path.join(home, '.claude', 'skills', 'kickflip'));
+  const folder = path.join(home, '.claude', 'projects', path.join(real, '.claude', 'worktrees', 'GH-3').replace(/[/.]/g, '-'));
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(path.join(folder, 'a.jsonl'), '');
   fs.utimesSync(path.join(folder, 'a.jsonl'), 2000, 2000);
-  assert.equal(transcriptMovedAt(path.join(home, '.claude', 'kickflip', 'worktrees', 'GH-3'), home), 2000000);
+  assert.equal(transcriptMovedAt(path.join(home, '.claude', 'skills', 'kickflip', '.claude', 'worktrees', 'GH-3'), home), 2000000);
 });
 
 test("a transcript whose last message is a tool call with no result yet reads as a command running, and its movement stays the file mtime", () => {

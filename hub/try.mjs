@@ -72,18 +72,13 @@ export async function installWorktree(board, key, manifest) {
   if (!record?.path && !repo) return '';
   if (record?.path && !path.isAbsolute(candidate)) return '';
   try {
-    // The kickflip worktrees folder may be a link into checkouts.noindex (../shared/spotlight.mjs): a recorded path names
-    // the link, and resolves under its real folder.
-    const kickflip = path.join(fs.realpathSync(os.homedir()), '.claude', 'kickflip', 'worktrees');
-    let real = kickflip;
-    try { real = fs.realpathSync(kickflip); } catch {}
-    const roots = [[kickflip, real]];
+    const roots = [path.join(fs.realpathSync(os.homedir()), '.claude', 'kickflip', 'worktrees')];
     if (typeof repo === 'string' && path.isAbsolute(repo)) {
-      try { const root = path.join(fs.realpathSync(repo), '.claude', 'worktrees'); roots.push([root, root]); } catch {}
+      try { roots.push(path.join(fs.realpathSync(repo), '.claude', 'worktrees')); } catch {}
     }
     const absolute = path.resolve(repo || '/', candidate);
     const resolved = fs.realpathSync(absolute);
-    return roots.some(([root, rootReal]) => (absolute.startsWith(root + path.sep) || absolute.startsWith(rootReal + path.sep)) && resolved.startsWith(rootReal + path.sep))
+    return roots.some((root) => absolute.startsWith(root + path.sep) && resolved.startsWith(root + path.sep))
       && fs.statSync(resolved).isDirectory() ? resolved : '';
   } catch { return ''; }
 }
