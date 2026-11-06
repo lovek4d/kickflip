@@ -42,7 +42,7 @@
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary.
     : m.request ? `<div class="msg request">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.kind === 'status' && m.folded ? `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary>${statusMark('status lines')}${escText(m.agent)} · ${m.running ? 'running' : 'finished'} · ${m.folded.length} status line${m.folded.length === 1 ? '' : 's'}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`
+    : m.folded ? foldedRun(m, links, edits)
     : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'calls' ? `<details class="msg calls"><summary>${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length} · ${m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet'}</summary><ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}</details>`
     : m.kind === 'agent' ? `<div class="msg agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}">${mark('<span class="agent-dot"></span>')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
@@ -54,14 +54,23 @@
         ${m.eventId && !batched ? msgFooter(m) : ''}
       </div>`);
 
-  // One agent's status lines (domain.mjs agentOfLine gives each its agent) become one line at the first one's place, with
-  // the lines in it; a line no agent covers, and an agent with one line, stay as they are.
+  // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
+  // closed details line at its started line's place: the agent, running with its newest status text or finished, and
+  // the count of its status lines; expanding it shows the run's lines.
+  function foldedRun(m, links, edits) {
+    const statuses = m.folded.filter((f) => f.kind === 'status');
+    const running = !m.folded.some((f) => f.finished);
+    const newest = statuses.at(-1);
+    const count = `${statuses.length} status line${statuses.length === 1 ? '' : 's'}`;
+    const tail = running ? (newest ? `running · ${escText(newest.text)}` : 'running') + ` · ${count}` : `finished · ${count}`;
+    return `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`;
+  }
   function foldStatus(lines) {
     const runs = new Map();
-    for (const m of lines) if (m.kind === 'status' && m.run) runs.set(m.run, [...(runs.get(m.run) || []), m]);
+    for (const m of lines) if (m.run && (m.kind === 'status' || m.kind === 'agent')) runs.set(m.run, [...(runs.get(m.run) || []), m]);
     return lines.flatMap((m) => {
-      const run = m.kind === 'status' && m.run ? runs.get(m.run) : null;
-      if (!run || run.length < 2) return [m];
+      const run = m.run && (m.kind === 'status' || m.kind === 'agent') ? runs.get(m.run) : null;
+      if (!run) return [m];
       return m === run[0] ? [{ ...m, folded: run }] : [];
     });
   }

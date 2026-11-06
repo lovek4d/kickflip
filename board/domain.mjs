@@ -817,8 +817,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     // First, so a start sorts above the status line `builder start` writes at the same moment.
     // A planner's lines are marked planner, which the thread draws in the owner's blue.
     ...agentsOf(agents).flatMap((a) => [
-      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, finished: false, eta: a.done ? null : a.eta, ...(plans(a) ? { planner: true } : {}) }] : []),
-      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: a.name, finished: false, eta: a.done ? null : a.eta, ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: a.name, finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
       // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),

@@ -1797,6 +1797,8 @@ test("a thread's status line names the agent it belongs to: the newest started o
   const lines = [status('2026-10-23T09:00:00Z'), status('2026-10-23T10:05:00Z'), status('2026-10-23T10:16:00Z', true), status('2026-10-23T10:25:00Z'), status('2026-10-23T10:26:00Z', true)];
   const got = threadOf('w/A1', { lines, agents }).filter((m) => m.kind === 'status').map((m) => [m.ts.slice(11, 16), m.run || null, m.running ?? null]);
   assert.deepEqual(got, [['09:00', null, null], ['10:05', 'old', false], ['10:16', 'proto', true], ['10:25', 'build', true], ['10:26', 'proto', true]]);
+  const ends = threadOf('w/A1', { lines, agents }).filter((m) => m.kind === 'agent').map((m) => [m.text.split(' ').pop(), m.run, m.agent]);
+  assert.deepEqual(ends.filter(([, run]) => run === 'old'), [['started', 'old', 'Claude Opus implementer'], ['finished', 'old', 'Claude Opus implementer']]);
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
