@@ -300,21 +300,16 @@ BoardView.part((B) => {
     // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
     const close = it.lane === 'todo' && it.finishable ? ask('finish', 'Close') : '';
     // A Todo card's Implement is in its thread box (app-threads.js; docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md).
-    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${hold}${close}${notesButton(it)}${tryButton(it)}${actionButton(it)}${prototypesButton(it)}${mergeButton(it)}`)}</div>`;
+    return `<div class="actions" data-actions="${key}">${actionRow('workflow', `${hold}${close}${notesButton(it)}${tryButton(it)}${actionButton(it)}${mergeButton(it)}`)}</div>`;
   }
 
   // board/domain.mjs actionButtonOf picks the button and resolvedBy its colour (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).
+  // Every prototype round is a question on its card, so this button reaches the prototypes too, Done cards included
+  // (docs/adr/2026-11-09-1100-needs-you-button-reaches-the-prototypes.md).
   const ACTION_BUTTONS = {
-    [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Questions</a>`,
+    [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Needs you</a>`,
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
-  // docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md
-  // On any card with prototypes (board/domain.mjs prototypesOf), Done ones too, so old rounds stay a tap away: it opens
-  // the viewer on the latest round, solid orange while a round waits on the owner's pick.
-  const prototypesButton = (it) => {
-    const latest = it.prototypes?.rounds.at(-1);
-    return latest ? `<a class="button${it.prototypes.open ? ' resolves' : ''}" href="${esc(latest.url)}">Prototypes</a>` : '';
-  };
 
   // The latest bump among New cards takes no second bump (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md).
   const latestBump = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);

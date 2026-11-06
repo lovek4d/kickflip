@@ -705,7 +705,7 @@ function roundState(qs) {
 }
 
 // docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md
-// A card's prototypes, for its Prototypes button (app-cards.js) and the viewer's rounds (prototype-switcher.js): each of
+// A card's prototypes, for the viewer's rounds (prototype-switcher.js): each of
 // its questions (ownerQuestion views) on a prototype page, oldest round first, and open while one of them waits on the
 // owner's pick. null when it has none.
 function prototypesOf(qs) {
