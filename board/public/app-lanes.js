@@ -1,5 +1,5 @@
 // The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Done's and Asks' Show more,
-// Done's finished-wave folds, and Todo's wave bands with their Implement, triage and card order.
+// Done's finished-wave folds, and Todo's wave bands with their Implement and card order.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
   const { $, store, state } = B;
@@ -110,7 +110,7 @@ BoardView.part((B) => {
   // Every lane but Todo groups its cards under a header per open wave (state.board.waveBands) that has cards there, in
   // band order, then the cards in no wave under No wave. A lane with no card in a wave lists its cards plainly. A header
   // counts its wave's cards in Todo, In Progress (Stale included), In Review and Done as x/y/k/z, from every lane, with
-  // the lane's own number bold in its colour and a tooltip that spells the counts out.
+  // the lane's own number bold in that lane's colour (style.css: review blue, progress orange, Todo and Done gray) and a tooltip that spells the counts out.
   // A tap on the counts opens the tooltip (countsShown, the header's lane/wave); a second tap or a tap elsewhere closes it.
   let countsShown = null;
   const COUNT_LANES = [['todo', 'in Todo'], ['progress', 'in progress'], ['review', 'in review'], ['done', 'done']];
@@ -141,13 +141,6 @@ BoardView.part((B) => {
   // card whose ⋯ menu is open, goalShown the band whose goal popover is open.
   let menu = null;
   let goalShown = null;
-  const triaging = new Set();
-  const triageTopic = (r) => `${r.kind}:${r.slug}`;
-  function triageLink(r) {
-    if (r.triage.running || triaging.has(triageTopic(r))) return '<span class="wv-busy" role="status"><span class="try-spin" aria-hidden="true"></span>triaging…</span>';
-    if (r.triage.questions) return `<span class="muted">Triage: ${B.plural(r.triage.questions, 'open question')}</span>`;
-    return `<button type="button" class="wv-link" data-triage="${esc(triageTopic(r))}">Triage</button>`;
-  }
   const bandStore = (slug) => FOLDS[`band:${slug}`].store;
   const bandOpen = (band, first) => store.get(bandStore(band.slug), band.slug === first);
   const LANE_WORDS = { progress: 'in progress', review: 'in review', stale: 'stale' };
@@ -169,7 +162,7 @@ BoardView.part((B) => {
     const todo = cards.filter((i) => i.lane === 'todo');
     const done = cards.filter((i) => i.lane === 'done');
     const now = cards.filter((i) => LANE_WORDS[i.lane]).map((i) => `${esc(i.ref)} ${LANE_WORDS[i.lane]}`);
-    const progress = [`${band.merged} of ${band.total} merged`, ...now].join(' · ');
+    const progress = now.length ? ` <span class="count">· ${now.join(' · ')}</span>` : '';
     const name = `<span class="lane-name wb-name"${band.goal ? ` title="${esc(band.goal)}" data-goal="${esc(band.slug)}"` : ''}>${esc(band.title)}</span>`;
     const notes = band.kind === 'lineup' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
     const next = band.next;
@@ -178,8 +171,8 @@ BoardView.part((B) => {
       : `<span class="wb-next">next: ${esc(next.ref)} ${esc(next.word)}</span>`;
     const pop = goalShown === band.slug && band.goal ? `<div class="wb-pop" role="tooltip">${esc(band.goal)}</div>` : '';
     const head = `<div class="wb-head" data-band-toggle="${esc(band.slug)}" role="button" tabindex="0" aria-expanded="${open}">${BoardUI.WAVE_ICON}`
-      + `<span class="wb-label">${name} <span class="count">${todo.length}</span> <span class="count">· ${progress}</span></span>`
-      + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}${triageLink(band)}</span>${go}</span>${pop}</div>`;
+      + `<span class="wb-label">${name} <span class="count">${todo.length}</span>${progress}</span>`
+      + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}</span>${go}</span>${pop}</div>`;
     if (!open) return `<section class="wb" data-band="${esc(band.slug)}">${head}</section>`;
     const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#item=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
     const step = (it) => (band.kind === 'lineup' ? band.phases.findIndex((p) => p.includes(it.key)) + 1 : 0);
@@ -248,21 +241,6 @@ BoardView.part((B) => {
         BoardUI.pending.answered('todo:plan', out.board.generatedAt);
         B.render();
       } catch { BoardUI.pending.drop('todo:plan'); B.render(); B.notice('Could not send. Is the host awake?'); }
-      return;
-    }
-    const tb = ev.target.closest('button[data-triage]');
-    if (tb) {
-      const topic = tb.dataset.triage;
-      const row = state.board.waveBands.find((r) => triageTopic(r) === topic);
-      const asks = row.kind === 'lineup'
-        ? `Claude reads the code for ${row.title}'s unstarted cards and asks you in Needs you about splitting, merging, adding or closing any. Start?`
-        : `Claude checks ${row.title}'s unfinished cards, fixes what it can and asks you in Needs you about any that need you. Start?`;
-      if (!(await B.confirm(asks))) return;
-      triaging.add(topic);
-      B.render();
-      try { await B.send('wave-triage', { [row.kind]: row.slug }); }
-      catch { B.notice('Could not send. Is the host awake?'); }
-      finally { triaging.delete(topic); B.render(); }
       return;
     }
     const show = ev.target.closest('a[data-band-show]');

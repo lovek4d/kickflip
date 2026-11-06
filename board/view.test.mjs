@@ -4309,7 +4309,7 @@ test("a phased wave's band numbers each card by its phase, so one phase's cards 
   await b.change({ board: { ...boardOf(cards({ lane: 'progress' })), waveBands: [band({ key: 'w/P3', ref: 'P3', ready: true, word: 'ready' })] } });
   assert.deepEqual(steps(), [['w/P3', '2'], ['w/P4', '3']]);
   assert.equal(head().querySelector('button[data-confirm="card-build"]').dataset.key, 'w/P3');
-  assert.equal(head().querySelector('.wb-label').textContent, 'Phased 2 · 1 of 4 merged · P2 in progress');
+  assert.equal(head().querySelector('.wb-label').textContent, 'Phased 2 · P2 in progress');
 });
 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
@@ -4339,16 +4339,16 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
 
   assert.equal(head('go').querySelector('[data-goal]').getAttribute('title'), 'Go goal.');
   assert.equal(b.root.querySelector('.wb-goal'), null);
-  assert.equal(head('go').querySelector('.wb-label').textContent, 'Go 2 · 0 of 2 merged');
+  assert.equal(head('go').querySelector('.wb-label').textContent, 'Go 2');
   assert.equal(head('go').querySelector('a[href="notes.html?wave=go"]').textContent.trim(), 'Notes');
-  assert.equal(head('go').querySelector('button[data-triage]').textContent, 'Triage');
+  assert.equal(head('go').querySelector('button[data-triage]'), null);
   assert.equal(head('pilot').querySelector('a[href^="notes.html"]'), null);
-  assert.equal(head('pilot').querySelector('button[data-triage]').textContent, 'Triage');
+  assert.equal(head('pilot').querySelector('button[data-triage]'), null);
   const implement = head('go').querySelector('button[data-confirm="card-build"]');
   assert.deepEqual([implement.textContent, implement.dataset.key], ['Implement', 'w/A6']);
   assert.equal(head('mon').querySelector('button[data-confirm]'), null);
   assert.equal(head('mon').querySelector('.wb-next').textContent, 'next: A2 waits on A9');
-  assert.equal(head('mon').querySelector('.wb-label').textContent, 'Monitor 2 · 1 of 4 merged · A8 in progress');
+  assert.equal(head('mon').querySelector('.wb-label').textContent, 'Monitor 2 · A8 in progress');
   assert.deepEqual(shown('go'), ['w/A6', 'w/A7']);
   assert.deepEqual(b.root.querySelectorAll('.wb[data-band="go"] .wn').map((n) => n.textContent), ['1', '2']);
 
@@ -4392,14 +4392,9 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.equal(b.root.querySelector('.wb-menu'), null);
   assert.deepEqual(shown('go'), ['w/A7', 'w/A6']);
 
-  b.page.fire(b.root, 'click', { target: head('pilot').querySelector('[data-triage]') });
-  await b.settle();
-  assert.match(b.confirms.at(-1), /Pilot's unfinished cards/);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['wave-triage', { wave: 'pilot' }]);
-  assert.equal(head('pilot').getAttribute('aria-expanded'), 'false');
   await b.change({ board: { ...b.server.board, waveBands: bands({ running: true, questions: 0 }, { running: false, questions: 1 }) } });
-  assert.equal(head('mon').querySelector('.wv-busy').textContent, 'triaging…');
-  assert.equal(head('pilot').querySelector('.wb-links').textContent, 'Triage: 1 open question');
+  assert.equal(b.root.querySelector('.wv-busy'), null);
+  assert.equal(head('pilot').querySelector('.wb-links').textContent.includes('Triage'), false);
 
   const touch = (type) => b.page.fire(b.root, type, { target: head('go').querySelector('[data-goal]'), pointerType: 'touch' });
   touch('pointerdown');
