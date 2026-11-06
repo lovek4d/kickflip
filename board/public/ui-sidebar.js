@@ -178,14 +178,15 @@
     return `<span class="sb-steps">${phaseBars(strip, STEP_KEYS)}</span>`;
   }
 
-  // The New version row, only while the app's code is old. update: the app's reload, null | 'ready' | 'reloading'. Nothing
+  // The update row, only while the app's code is old: the version the hub now runs, as the Hub page's footer writes it (v0.5.1), or New version
+  // when no version is known (a clone whose commit moved but not its version). update: the app's reload, null | 'ready' | 'reloading'. Nothing
   // else draws a row: the hub pulls a new version and restarts itself, and a pull or restart that fails shows nothing
   // (docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md). A reload waits (ui.js BUSY): the pill keeps
   // its blue with a spinner in place of its word.
-  function updateRow(update) {
+  function updateRow(update, version = null) {
     if (!update) return '';
     return `<button type="button" class="sb-row sb-update-row" data-app-reload${update === 'reloading' ? globalThis.BoardUI.BUSY : ''}>${tile('up', 'var(--accent)')}`
-      + `<span class="sb-text"><span class="sb-title">New version</span></span><span class="sb-go">Reload</span></button>`;
+      + `<span class="sb-text"><span class="sb-title">${version ? `v${esc(version)}` : 'New version'}</span></span><span class="sb-go">Reload</span></button>`;
   }
 
   // data: /_hub/sidebar.json. here: a site's route or a hub page's path without its leading slash. device: this device's push

@@ -2035,11 +2035,12 @@ test('a Forever Pause hub or Pause board reads until you resume on the banner, t
 });
 
 // docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md
-test('the update row reads New version with Reload only, shows nothing otherwise, and spins while reloading', () => {
+test('the update row reads the new version, or New version when none is known, with Reload only, shows nothing otherwise, and spins while reloading', () => {
   assert.equal(ui.updateRow(null), '');
   const ready = ui.updateRow('ready');
   assert.match(ready, /<button type="button" class="sb-row sb-update-row" data-app-reload>/);
   assert.equal(text(ready), 'New version Reload');
+  assert.equal(text(ui.updateRow('ready', '0.5.1')), 'v0.5.1 Reload');
   const reloading = ui.updateRow('reloading');
   assert.match(reloading, /data-app-reload disabled aria-busy="true"/);
   assert.equal(text(reloading), 'New version Reload');

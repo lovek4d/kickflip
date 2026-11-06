@@ -13,7 +13,7 @@
 //                     any GET of them gets the shell
 //   /_hub/api/hub, /_hub/api/settings
 //                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
-//   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, total, start,
+//   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, version, total, start,
 //                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}], hub: {tone, word, detail},
 //                     notifications: {state, text}, away}, away true while the owner reads away (presence.mjs ownerTracker), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md)
@@ -709,6 +709,7 @@ async function sidebarState({ fresh = false } = {}) {
   const held = hold(now, settings);
   const data = {
     code: code.running ?? null,
+    version: VERSION,
     total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
     home: fs.realpathSync(os.homedir()),
     starting,

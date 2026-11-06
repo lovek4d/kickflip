@@ -1312,6 +1312,13 @@ test("the page header's logo toggles the sidebar at every width: from 900px it c
   assert.equal(logo.attrs['aria-label'], 'Boards, new version ready, 2 waiting on other boards');
   sidebar.setUpdate(null);
   assert.equal(logo.attrs['aria-label'], 'Boards, 2 waiting on other boards');
+  // The row names the hub's version once it differs from the one the page booted on, and says New version while it is the same.
+  sidebar.setData({ ...data, version: '0.5.0' });
+  sidebar.setUpdate('ready');
+  assert.match(update.innerHTML, /sb-title">New version</);
+  sidebar.setData({ ...data, version: '0.5.1' });
+  assert.match(update.innerHTML, /sb-title">v0\.5\.1</);
+  sidebar.setUpdate(null);
   tap('[data-sidebar-close]');
   assert.deepEqual(state(), { collapsed: true, stored: '1', drawer: false });
   tap('.top a.hub');
@@ -1579,6 +1586,7 @@ test('an open shell shows new hub code before the next Hub paint and reloads onl
   const sidebar = await fetch(`${base}/_hub/sidebar.json`);
   const sidebarData = await sidebar.json();
   assert.ok(sidebarData.code);
+  assert.match(sidebarData.version, /^\d+\.\d+\.\d+/);
   assert.equal(sidebar.headers.get('x-hub-code'), sidebarData.code);
   // The sidebar carries no npm update state, and the hub has no upgrade route.
   assert.equal('upgrade' in sidebarData, false);

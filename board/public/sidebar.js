@@ -58,6 +58,8 @@
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
     let device = null;
     let update = null;
+    // The hub's version when this page booted; the row names the version only once it differs.
+    let bootVersion = data?.version ?? null;
     let updateHTML = '';
     const rail = matchMedia(RAIL);
     const html = document.documentElement;
@@ -117,7 +119,7 @@
       const fresh = aside.querySelector('.sb-update');
       if (fresh) {
         if (held) fresh.replaceWith(held);
-        const row = updateRow(update);
+        const row = updateRow(update, data.version && data.version !== bootVersion ? data.version : null);
         if (!held || row !== updateHTML) (held || fresh).innerHTML = row;
         updateHTML = row;
       }
@@ -131,6 +133,7 @@
       if (!next) return;
       const starting = new Set(startsRunning().map((s) => s.route));
       for (const s of next.sites || []) if (starting.has(s.route)) joined.set(s.route, Date.now());
+      bootVersion ??= next.version ?? null;
       data = next;
       write(DATA_KEY, JSON.stringify(data));
       paint();
