@@ -117,13 +117,13 @@ test("briefFacts gives a card's links: Related to set on either card, its Parent
       { id: 'R1', title: 'Rel', status: 'planned', plan: 'r1.md' },
       { id: 'R2', title: 'Rel back', status: 'building', related: ['t/A1'] },
       { id: 'P1', title: 'Par', status: 'done' },
-      { id: 'D1', title: 'Dep', status: 'waiting' },
+      { id: 'D1', title: 'Dep', status: 'building' },
       { id: 'X1', title: 'Other' },
     ] }));
     const { links } = await briefFacts(site, 't/A1');
     assert.deepEqual(links, [
       { relation: 'parent', ref: 'P1', title: 'Par', status: 'done', notes: null },
-      { relation: 'depends on', ref: 'D1', title: 'Dep', status: 'waiting', notes: null },
+      { relation: 'depends on', ref: 'D1', title: 'Dep', status: 'building', notes: null },
       { relation: 'related', ref: 'R1', title: 'Rel', status: 'planned', notes: path.join(site, 'data', 'r1.md') },
       { relation: 'related', ref: 'R2', title: 'Rel back', status: 'building', notes: null },
     ]);

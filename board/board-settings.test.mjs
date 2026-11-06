@@ -347,26 +347,6 @@ test("pr comment and pr reply post Claude's words through gh with the robot pref
   assert.equal(posts().length, 3);
 });
 
-test('checked records when GitHub was last checked and the interval, idle while no card has an open PR, and refuses a bad interval', () => {
-  assert.equal(board('checked', '--site', 'orch', '--every', '60').code, 0);
-  const c = read(site('orch', 'data', 'checked.json'));
-  assert.equal(c.every, 60);
-  assert.ok(Date.now() - Date.parse(c.at) < 60000);
-  assert.deepEqual(board('checked', '--site', 'orch'), { code: 0, err: '', out: 'GitHub checked; no open PR\n' });
-  assert.deepEqual({ ...read(site('orch', 'data', 'checked.json')), at: null }, { at: null, every: null, idle: true });
-  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 5 }, { id: 'A2', title: 'Two', pr: 6, status: 'merged' }] });
-  assert.deepEqual(board('checked', '--site', 'orch'), { code: 0, err: '', out: 'GitHub checked; next in 5 min\n' });
-  assert.equal(read(site('orch', 'data', 'checked.json')).every, 5);
-  const bad = board('checked', '--site', 'orch', '--every', '0');
-  assert.equal(bad.code, 1);
-  assert.match(bad.err, /--every/);
-  assert.equal(board('checked', '--site', 'orch', '--idle').code, 0);
-  assert.deepEqual({ ...read(site('orch', 'data', 'checked.json')), at: null }, { at: null, every: null, idle: true });
-  assert.equal(board('checked', '--site', 'orch', '--every', '30').code, 0);
-  assert.equal(read(site('orch', 'data', 'checked.json')).idle, undefined);
-  assert.equal(board('checked', '--site', 'orch', '--idle', '--every', '30').code, 1);
-});
-
 test("reviewers set, add and remove keep the board's own reviewers in its board.json", () => {
   const ann = { name: 'Ann', slack_user: 'U01ANN', dm: 'D01ANN', github: 'ann' };
   const bob = { name: 'Bob', slack_user: 'U02BOB', dm: 'D02BOB', github: 'bob-b' };

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { until } from '../shared/test-helpers.mjs';
 import { home, at, site, write, read, lines, run, board, wave, question, recordPrototype, addPrototypeQuestion, git, commit, scratchRepo, boardsManifest, addEvents } from './board-fixture.mjs';
 
-test('item add records creation on a card with no status, waiting when it has deps, and refuses a taken id, an unknown dep, or a --summary', () => {
+test('item add records creation on a card with no status, and refuses a taken id, an unknown dep, or a --summary', () => {
   const before = Date.now();
   const withoutCreated = (item) => {
     const { created, ...rest } = item;
@@ -21,7 +21,7 @@ test('item add records creation on a card with no status, waiting when it has de
   assert.equal(board('item', 'add', 'w/B2', '--site', 'orch', '--title', 'Two', '--notes', 'Why').code, 0);
   assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', notes: 'Why', unfiled: true, ticket: 'INT-1' });
   assert.equal(board('item', 'add', 'w/C3', '--site', 'orch', '--title', 'Three', '--deps', 'A1,B2').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], status: 'waiting', unfiled: true, ticket: 'INT-2' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', deps: ['A1', 'B2'], unfiled: true, ticket: 'INT-2' });
   const taken = board('item', 'add', 'w/A1', '--site', 'orch', '--title', 'Again');
   assert.equal(taken.code, 1);
   assert.match(taken.err, /already has an item "A1"/);
@@ -178,7 +178,7 @@ test('item set --next requires unfinished card ids and refs to be deps, and allo
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--next', 'After S133', '--deps', '').code, 1);
   assert.deepEqual(items()[0].deps, ['S133']);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'After audit/S133').code, 0);
-  write(at('waves', 'x', 'wave.json'), { internal: true, items: [{ id: 'S133', title: 'Blocker', status: 'waiting' }] });
+  write(at('waves', 'x', 'wave.json'), { internal: true, items: [{ id: 'S133', title: 'Blocker' }] });
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'After x/INT-133').code, 1);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'After x/INT-133', '--deps', 'x/S133').code, 0);
 });
@@ -410,20 +410,23 @@ test("a wave file's follow-ups move into its items once: ids, titles, tickets an
 });
 
 // docs/adr/2026-11-05-0226-a-grill-with-nothing-left-to-ask-ends-ready.md
-test('status planned is gone: the board drops it from every card on load, and item set --status planned is refused', async (t) => {
+test('statuses planned and waiting are gone: the board drops them from every card on load, and item set refuses both', async (t) => {
   const { dropPlannedStatus } = await import('./store.mjs');
   const oldHome = process.env.HOME;
   process.env.HOME = home;
   t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
   const file = site('audit', 'data', 'wave.json');
   write(file, { title: 'W', items: [{ id: 'A1', title: 'One', status: 'planned', state: 'ready' }, { id: 'A2', title: 'Two', status: 'waiting' }, { id: 'A3', title: 'Three', status: 'done' }, { id: 'A4', title: 'Four' }] });
-  assert.deepEqual(await dropPlannedStatus(site('audit')), ['audit: 1 planned cards now have no status']);
-  assert.deepEqual(read(file).items, [{ id: 'A1', title: 'One', state: 'ready' }, { id: 'A2', title: 'Two', status: 'waiting' }, { id: 'A3', title: 'Three', status: 'done' }, { id: 'A4', title: 'Four' }]);
+  assert.deepEqual(await dropPlannedStatus(site('audit')), ['audit: 2 planned or waiting cards now have no status']);
+  assert.deepEqual(read(file).items, [{ id: 'A1', title: 'One', state: 'ready' }, { id: 'A2', title: 'Two' }, { id: 'A3', title: 'Three', status: 'done' }, { id: 'A4', title: 'Four' }]);
   assert.deepEqual(await dropPlannedStatus(site('audit')), []);
   const refused = board('item', 'set', 'audit/A2', '--site', 'audit', '--status', 'planned');
   assert.equal(refused.code, 1);
   assert.match(refused.err, /--status planned is gone: an unstarted card has no status/);
-  assert.equal(read(file).items[1].status, 'waiting');
+  assert.equal(read(file).items[1].status, undefined);
+  const waiting = board('item', 'set', 'audit/A2', '--site', 'audit', '--status', 'waiting');
+  assert.equal(waiting.code, 1);
+  assert.match(waiting.err, /--status waiting is gone: an unstarted card has no status/);
 });
 
 test("closing a card resolves its answered questions, refuses while one has no answer, changing nothing, and --force closes it anyway", () => {
@@ -509,8 +512,8 @@ test('a write that would leave a built card In Progress with nothing building an
 test('item set refuses to start a blocked item, and finishing a dep prints, threads and emits each unblocking once', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'One', status: 'building' },
-    { id: 'A2', title: 'Two', status: 'waiting', deps: ['A1'] },
-    { id: 'A3', title: 'Three', status: 'waiting', deps: ['A1', 'A2'] },
+    { id: 'A2', title: 'Two', deps: ['A1'] },
+    { id: 'A3', title: 'Three', deps: ['A1', 'A2'] },
     { id: 'A4', title: 'Four', status: 'done', deps: ['A1'] },
     { id: 'A5', title: 'Five', deps: ['d/A3'] },
   ] });
@@ -519,7 +522,7 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
   const blocked = board('item', 'set', 'd/A3', '--status', 'building', '--site', 'orch');
   assert.equal(blocked.code, 1);
   assert.match(blocked.err, /d\/A1.*d\/A2|d\/A2.*d\/A1/);
-  assert.deepEqual(status(), ['building', 'waiting', 'waiting', 'done', undefined]);
+  assert.deepEqual(status(), ['building', undefined, undefined, 'done', undefined]);
   assert.deepEqual(events(), []);
   const done = board('item', 'set', 'd/A1', '--status', 'done', '--site', 'orch', '--text', 'Done.');
   assert.equal(done.code, 0);
@@ -544,7 +547,7 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
   const untold = board('item', 'set', 'd/A3', '--status', 'dropped', '--site', 'orch');
   assert.equal(untold.code, 1);
   assert.match(untold.err, /^--status dropped needs --text/);
-  assert.equal(read(at('waves', 'd', 'wave.json')).items[2].status, 'waiting');
+  assert.equal(read(at('waves', 'd', 'wave.json')).items[2].status, undefined);
   const dropped = board('item', 'set', 'd/A3', '--status', 'dropped', '--site', 'orch', '--text', 'Dropped: A5 covers it.');
   assert.equal(dropped.code, 0);
   assert.match(dropped.out, /unblocked: d\/A5/);
@@ -552,7 +555,7 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
   assert.deepEqual(events().map((e) => e.data.key), ['d/A2', 'd/A3', 'd/A5']);
   write(site('audit', 'data', 'wave.json'), { items: [
     { id: 'A1', status: 'building' }, { id: 'A2', status: 'checking' },
-    { id: 'A3', status: 'waiting', deps: ['A1', 'audit/A2'] },
+    { id: 'A3', deps: ['A1', 'audit/A2'] },
   ] });
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--status', 'done', '--text', 'Done.').code, 0);
   assert.equal(fs.existsSync(site('audit', 'data', 'events.jsonl')), false);
@@ -563,7 +566,7 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
 test('item set takes checking as a hand-back that unblocks nothing, and done from checking unblocks as usual', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'One', status: 'building' },
-    { id: 'A2', title: 'Two', status: 'waiting', deps: ['A1'] },
+    { id: 'A2', title: 'Two', deps: ['A1'] },
   ] });
   const unblocked = (r) => r.out.split('\n').filter((l) => l.startsWith('unblocked'));
   const checking = board('item', 'set', 'd/A1', '--status', 'checking', '--site', 'orch');
@@ -609,7 +612,7 @@ test("ready releases a card an Implement message asked for, which the board serv
 test('a held item emits its unblocking but never starts until --unheld resumes it', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
     { id: 'A1', title: 'One', status: 'building' },
-    { id: 'A2', title: 'Two', status: 'waiting', deps: ['A1'] },
+    { id: 'A2', title: 'Two', deps: ['A1'] },
     { id: 'A3', title: 'Three', status: 'held', deps: ['A1'] },
   ] });
   const items = () => read(at('waves', 'd', 'wave.json')).items;
@@ -622,11 +625,11 @@ test('a held item emits its unblocking but never starts until --unheld resumes i
   const refused = board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch');
   assert.equal(refused.code, 1);
   assert.match(refused.err, /d\/A2 is held.*--unheld/);
-  assert.equal(items()[1].status, 'waiting');
+  assert.equal(items()[1].status, undefined);
   assert.equal(board('item', 'set', 'd/A3', '--status', 'building', '--site', 'orch').code, 1);
   assert.equal(board('item', 'set', 'd/A2', '--unheld', '--site', 'orch').code, 0);
   assert.equal(board('item', 'set', 'd/A3', '--unheld', '--site', 'orch').code, 0);
-  assert.deepEqual(items().map((it) => [it.status, Boolean(it.held)]), [['done', false], ['waiting', false], [undefined, false]]);
+  assert.deepEqual(items().map((it) => [it.status, Boolean(it.held)]), [['done', false], [undefined, false], [undefined, false]]);
   assert.equal(board('item', 'set', 'd/A2', '--status', 'building', '--site', 'orch').code, 0);
 });
 

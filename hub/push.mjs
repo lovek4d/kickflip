@@ -1,8 +1,7 @@
 // Web Push for every hub site, with no dependencies. The hub serves the
 // subscribe and unsubscribe side (hub.mjs); every push goes through deliver(), which refuses a push that isn't one of PUSH_KINDS and
 // queues one unless it is urgent or immediate, and every push reaches every subscription.
-// The queue goes out through flushQueue() after each of the hub's checks (schedule.mjs) and at the end
-// of each GitHub tick (`board.mjs checked`), a board's one push as it is and its several as one summary
+// The queue goes out through flushQueue() after each of the hub's checks (schedule.mjs), a board's one push as it is and its several as one summary
 // (docs/adr/2026-11-02-1733-queued-pushes-go-as-one-summary-per-board.md).
 // State lives in ~/.claude/kickflip/push: vapid.json (the signing key),
 // subs.json (one entry per phone or browser that enabled notifications, with
@@ -353,7 +352,7 @@ export async function dropQueued(tags, route) {
 }
 
 let flushing = null;
-// Sends the queue as schedule.mjs notifications, built from what waits on each board now to every subscription at flush time. The queue is emptied before sending, so the hub and a `board.mjs checked` flushing at
+// Sends the queue as schedule.mjs notifications, built from what waits on each board now to every subscription at flush time. The queue is emptied before sending, so two flushes at
 // once never send a push twice. Returns null when nothing was queued, else {count, sent, ok, results}, with sent the
 // notifications that went: the pushes behind one no device took go back to the queue unless a newer one has their tag.
 export function flushQueue() {

@@ -383,7 +383,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
     { id: 'B1', title: 'Tapped', next: 'Implement' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
     { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree' }, { id: 'B7', title: 'Leftover work' },
-    { id: 'B8', title: 'Held and unstarted', held: true }, { id: 'B9', title: 'Held and waiting', status: 'waiting', held: true }, { id: 'B10', title: 'Held and grilled', held: true },
+    { id: 'B8', title: 'Held and unstarted', held: true }, { id: 'B9', title: 'Held and waiting', held: true }, { id: 'B10', title: 'Held and grilled', held: true },
     { id: 'B11', title: 'Ready', state: 'ready' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));

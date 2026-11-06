@@ -43,7 +43,7 @@
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
 //                                question, context, url, options, urgent, asked_at, resolved, resolved_at, round, round_of, confirm_of}]};
 //                                Waiting on you shows an open `urgent` question alone, first
-//                                checks comes from data/checked.json (board.mjs checked),
+//                                checks comes from data/checked.json (the hub's poll writes it),
 //                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes;
 //                                an ask's In Progress mark from data/ask-progress.json (board.mjs ask).
 //                                links: [{link, ok, detail, state, since?}], whether each hub link reaches this
@@ -118,7 +118,7 @@
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
 //                                builder-nudge {key} asks the session to check a builder
-//                                item set appends card-unblocked {key} when a waiting card's last dep finishes,
+//                                item set appends card-unblocked {key} when a blocked card's last dep finishes,
 //                                including held cards, so the owning session hears it whoever ran the command.
 //                                reviewers {add?: [{name, slack_user, github}], remove?: [name]} is Board settings' reviewers
 //                                Save: the server removes the names and adds the people itself (store.mjs removeReviewers,
@@ -160,7 +160,7 @@
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
 //                                card-hold and card-done are written to the wave file first, with the owner's thread
-//                                line, and a Done unblocks waiting cards (store.mjs recordOwnerTap); one whose wave
+//                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); one whose wave
 //                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
 //                                and no event (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
 //                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.

@@ -27,7 +27,7 @@ export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE } = enums.BoardUI;
 const { laneOrder } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'reask-request'];
-export const ITEM_STATUSES = ['waiting', 'building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
+export const ITEM_STATUSES = ['building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 export const BUILDER_STALLED_AFTER = 10 * 60000;
 // How long a headless builder whose process lives may go without a status line or transcript movement before it reads
 // quiet (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
@@ -1349,7 +1349,7 @@ export function startedByAnswer(built, id) {
   const key = /^item:([^/:]+\/[^/]+)$/.exec(q?.topic || '')?.[1];
   const it = key && built.items.find((i) => i.key === key);
   if (!it || it.kind !== 'work' || it.lane === 'done' || it.held || it.blockedBy.length || it.action || it.unpicked || it.pr || it.pushed) return null;
-  if (![null, 'waiting'].includes(it.status) || it.agents.some((a) => !a.done)) return null;
+  if (it.status !== null || it.agents.some((a) => !a.done)) return null;
   return built.owner.some((x) => x.topic === q.topic && x.state === 'open') ? null : key;
 }
 

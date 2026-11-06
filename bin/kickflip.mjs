@@ -127,7 +127,7 @@
 //               news stays on the board.
 //               The push queues, replacing a queued one with the same
 //               --tag, and goes out after the hub's next GitHub check, every minute while the owner is here
-//               and every 5 while away, or when a GitHub tick ends (board.mjs checked); a board's
+//               and every 5 while away; a board's
 //               several queued pushes go as one summary. --now sends at once unless pushes are held
 //               (quiet hours, snoozed or the weekend), and queues if no device takes it; it is for questions,
 //               steps only the owner can run and prototypes. --urgent sends at once through

@@ -194,7 +194,7 @@ command fails and changes nothing.
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too.
          --status done refuses a done card the owner messaged since it closed: it reads reopened, and closes
          again only on the owner's Done
-  item add <wave>[/<id>] --title <t> [--notes <t>]       a new card, unstarted (waiting when it has --deps); never
+  item add <wave>[/<id>] --title <t> [--notes <t>]       a new card, unstarted; never
          [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
          [--notes-file <file>]                           --plan is an alias of --notes-file
          [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
@@ -229,11 +229,6 @@ command fails and changes nothing.
                                                          A card the ask became is dropped, unless it has started.
                                                          Refuses a route that isn't another board, and an ask
                                                          that isn't New
-  checked [--every <minutes> | --idle]                   data/checked.json: GitHub was just checked, next in
-                                                         <minutes> (default 5, the away cadence); run it at the
-                                                         end of each GitHub tick.
-                                                         --idle: the board shows no open PR, so never late; with
-                                                         neither flag it is idle while no card has an open PR.
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
   lineup create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards in
@@ -571,7 +566,7 @@ command fails and changes nothing.
                                                          hub a session's prompt, so any other --kind is refused. It records the
                                                          push in data/push-state.json only when kickflip push
                                                          succeeds, and exits with kickflip push's code. Without --now
-                                                         it queues until the tick ends (checked) or the hub's
+                                                         it queues until the hub's
                                                          next check; --now sends at once unless pushes are held
                                                          (overnight, snoozed or the weekend). --urgent: a
                                                          production fault only; it beats those holds. While
@@ -820,7 +815,6 @@ const COMMANDS = {
   merge: [['wave/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
     : store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed }))],
   'arch file': [['wave/id'], [], (site, [key]) => (site ? fileFindings(site, key) : Promise.reject(new store.BoardError('arch file needs --site <route>')))],
-  checked: [[], ['every', 'idle'], (site, _, f) => store.writeChecked(site, f.every, { idle: f.idle })],
   push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => {
     if (f.kind !== 'fault' && f.kind !== 'reminder') throw new UsageError(`a session pushes only --kind fault or reminder${f.kind === undefined || f.kind === true ? '' : `, not "${f.kind}"`}: the board server pushes Action needed, and news goes on the board`);
     if (f.title === undefined) throw new UsageError('push needs --title');
@@ -876,7 +870,6 @@ const SAID = {
   'ask done': async (site, [id]) => `${await card(site, `ask:${id}`)}: done`,
   'ask unfold': (site, [id]) => `task ${id} back on a card of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
-  checked: (site, _, f, { every }) => (every === null ? 'GitHub checked; no open PR' : `GitHub checked; next in ${every} min`),
   'lineup create': (site, [slug]) => `lineup ${slug} created`,
   'lineup add': async (site, [slug, key]) => `${await card(site, key)} added to lineup ${slug}`,
   'lineup remove': async (site, [slug, key]) => `${await card(site, key)} taken out of lineup ${slug}`,

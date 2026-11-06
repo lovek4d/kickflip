@@ -10,8 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, builderPick } from '../shared/usage-gate.mjs';
-import { reviseQueued, flushQueue, queueStatus, pushKindError, readClaudeModel } from '../hub/push.mjs';
-import { holdLine, CHECK_MINUTES } from '../hub/schedule.mjs';
+import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, cardIdOf } from './tickets.mjs';
@@ -452,7 +451,7 @@ export async function markAsk(site, eventId, state, next) {
 
 // Why an ask is no longer New on this board, or null. An ask that became work items is New to moveAsk while none of
 // them has started; it returns them as `items`.
-const UNSTARTED = [undefined, 'waiting'];
+const UNSTARTED = [undefined];
 async function askNotNew(site, eventId, events) {
   const named = `ask "${eventId}"`;
   if (events.some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId && !e.data?.key)) return { why: `${named} was deleted by the owner` };
@@ -527,22 +526,6 @@ export async function moveAsk(site, eventId, route) {
   return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
 }
 
-// When the session last checked GitHub, and how often it checks (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
-const checkedFile = (site) => path.join(site, 'data', 'checked.json');
-// idle: no timer checks until the next wave, so the last check is never late; left out, it is idle while no card has an
-// open PR, as the hub's poll writes it (hub/github.mjs writeChecked). every defaults to the hub's minutes between checks
-// while the owner is away, the longer of its usual cadences (hub/schedule.mjs CHECK_MINUTES).
-export async function writeChecked(site, every, { idle } = {}) {
-  needSite(site);
-  if (idle && every !== undefined) fail('pass --every or --idle, not both');
-  if (idle === undefined && every === undefined) idle = !(await hasOpenPR(site));
-  const now = new Date();
-  const minutes = idle ? null : every === undefined ? CHECK_MINUTES.away
-    : /^[1-9]\d{0,3}$/.test(String(every)) ? Number(every) : fail('--every takes the minutes between checks, such as 30');
-  await writeJSON(checkedFile(site), idle ? { at: now.toISOString(), every: null, idle: true } : { at: now.toISOString(), every: minutes });
-  return { file: checkedFile(site), every: minutes, lines: await flushAfterTick() };
-}
-
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 // data/reviews.json {<number>: {number, title, author, url, touches, asked, head, state: posted|needs, text, review_url?,
 // at}}: the session's review of an incoming PR, at the head the hub's poll last listed for it in data/incoming.json, or
@@ -591,23 +574,6 @@ export async function postIncomingReview(site, number, { words, readAt }) {
     await saveReview(site, pr, { state: 'posted', text, review_url });
     return { lines: [`posted review on PR #${number}: ${review_url}`] };
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
-}
-
-// Whether a card the hub polls has a PR still open: the cards hub/boards.mjs prsOf lists.
-async function hasOpenPR(site) {
-  for (const source of await itemSources(site)) {
-    const wave = await readJSON(source.file, null);
-    if ((wave?.items || []).some((it) => !FINISHED.includes(it.status) && cardPRs(it, boardRepoOf(site, wave)).length)) return true;
-  }
-  return false;
-}
-
-// A tick's pushes go out as it ends rather than at the next slot (docs/adr/2026-10-29-1639-pushes-go-by-kind-and-each-arrives-on-its-own.md).
-async function flushAfterTick() {
-  const st = queueStatus(new Date());
-  if (st.hold) return st.count ? [`queued pushes held: ${holdLine(st.hold)}`] : [];
-  const r = await flushQueue();
-  return r ? [`sent ${r.sent} of ${r.count} queued push${r.count === 1 ? '' : 'es'}${r.ok ? '' : '; the rest stay queued'}`] : [];
 }
 
 // The join handshake (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md): data/handshake.json
@@ -1555,13 +1521,13 @@ async function unfinishedDeps(site, slug, item) {
   const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
   return keys.filter((k, i) => deps[i] && !FINISHED.includes(deps[i].status));
 }
-// → the keys of the waiting cards whose last unfinished dep was key.
+// → the keys of the blocked cards whose last unfinished dep was key.
 async function unblockedBy(site, key) {
   const out = [];
   for (const s of await itemSources(site)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
-      if (![undefined, 'waiting', 'held'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      if (![undefined, 'held'].includes(it.status) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
       if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
     }
   }
@@ -1715,7 +1681,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
     fail(item.pick_up_at ? `${key} is held until ${item.pick_up_at}, when the board resumes it; start it early only with item set ${key} --unheld`
       : `${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
   }
-  if (status === 'planned') fail('--status planned is gone: an unstarted card has no status. Clear it with --clear-status');
+  if (status === 'planned' || status === 'waiting') fail(`--status ${status} is gone: an unstarted card has no status. Clear it with --clear-status`);
   if (status !== undefined) item.status = ITEM_STATUSES.includes(status) ? status : fail(`--status takes ${ITEM_STATUSES.join(', ')}`);
   if (LEAVES_TODO.includes(status) || pr !== undefined || pushed !== undefined || mergeReady !== undefined) clearHold(item);
   if (status === 'building') {
@@ -1871,7 +1837,7 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
 }
 
 // The owner's Hold, Resume or Done tap (card-hold {key, hold, until?} or card-done {key}), recorded in the wave file
-// as the board server takes it, with a thread line; a Done unblocks waiting cards as item set --status done does
+// as the board server takes it, with a thread line; a Done unblocks blocked cards as item set --status done does
 // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). A merged or dropped card, and a Hold on a
 // are left as they are. → the item set result, or null when nothing was written.
 export async function recordOwnerTap(site, kind, data) {
@@ -2140,7 +2106,7 @@ export const setItem = (site, key, changes, options) => (changes.ticket !== unde
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 
-// → {file, key}. A new card starts unstarted: no status, or waiting when it names deps. key is <wave>/<id>, or <wave>
+// → {file, key}. A new card starts unstarted: no status. key is <wave>/<id>, or <wave>
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
 // (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: state files the card at once, with
@@ -2159,7 +2125,6 @@ async function createItem(site, key, { title, notes, deps, notesFile, ticket, pi
   setBuildChoice(item, { size, model });
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (notesFile !== undefined) { await planPath(source.dir, notesFile); item.plan = path.normalize(notesFile); }
-  if (item.deps?.length) item.status = 'waiting';
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   // A new card has no questions, so ready needs only its size and notes file, checked before its ticket is made.
@@ -2256,17 +2221,17 @@ export const migrateFollowups = (site) => ticketWrite(site, async () => {
 });
 
 // docs/adr/2026-11-05-0226-a-grill-with-nothing-left-to-ask-ends-ready.md
-// Removes the status "planned" from every card of a site's wave files: an unstarted card has no status. Run by the board
-// server as it starts. → one line per wave file changed.
+// Removes the statuses "planned" and "waiting" from every card of a site's wave files: an unstarted card has no status.
+// Run by the board server as it starts. → one line per wave file changed.
 export const dropPlannedStatus = (site) => ticketWrite(site, async () => {
   const lines = [];
   for (const entry of await itemSources(site)) {
     const wave = await readJSON(entry.file, null);
-    const planned = (Array.isArray(wave?.items) ? wave.items : []).filter((it) => it.status === 'planned');
+    const planned = (Array.isArray(wave?.items) ? wave.items : []).filter((it) => ['planned', 'waiting'].includes(it.status));
     if (!planned.length) continue;
     for (const it of planned) delete it.status;
     await writeJSON(entry.file, wave);
-    lines.push(`${entry.slug}: ${planned.length} planned cards now have no status`);
+    lines.push(`${entry.slug}: ${planned.length} planned or waiting cards now have no status`);
   }
   return lines;
 });

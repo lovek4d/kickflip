@@ -129,7 +129,7 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
   fs.writeFileSync(waveFile, JSON.stringify({ items: [
     { id: 'A0', title: 'Dep', status: 'building' },
     { id: 'A1', title: 'Timed', status: 'planned', held: true, pick_up_at: at, held_at: iso(now - 60000) },
-    { id: 'A2', title: 'Blocked', status: 'waiting', deps: ['A0'], held: true, pick_up_at: at, held_at: iso(now - 60000) },
+    { id: 'A2', title: 'Blocked', deps: ['A0'], held: true, pick_up_at: at, held_at: iso(now - 60000) },
     { id: 'A3', title: 'Tapped', status: 'planned' },
     { id: 'A4', title: 'Forever', status: 'planned', held: true, held_at: iso(now - 60000) },
     { id: 'A5', title: 'Cut short', status: 'planned', held: true, pick_up_at: at, held_at: iso(now - 60000) },
@@ -216,7 +216,7 @@ test('with auto implement on the board starts and launches the build of the top 
   const wave = { items: [
     { id: 'A0', title: 'Running', status: 'building' },
     { id: 'A1', title: 'Held', status: 'planned', state: 'ready', held: true },
-    { id: 'A2', title: 'Blocked', status: 'waiting', state: 'ready', deps: ['A3'] },
+    { id: 'A2', title: 'Blocked', state: 'ready', deps: ['A3'] },
     { id: 'A3', title: 'Asking', status: 'planned', state: 'ready' },
     { id: 'A4', title: 'Next', status: 'planned', state: 'ready' },
     { id: 'A5', title: 'Bumped', status: 'planned', state: 'ready' },

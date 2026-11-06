@@ -982,7 +982,7 @@ test('a bumped card that has not started, or is running, tops its lane, the late
   const bump = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-bump', data: { key }, reply: null });
   const items = [
     { id: 'A1', title: 'One', status: 'planned' },
-    { id: 'A2', title: 'Two', status: 'waiting' },
+    { id: 'A2', title: 'Two' },
     { id: 'A3', title: 'Three' },
     { id: 'A4', title: 'Four', status: 'held' },
     { id: 'A5', title: 'Five', status: 'building' },
@@ -1170,8 +1170,8 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; one on
     { id: 'S11', title: 'Eleven', status: 'building' },
     { id: 'INT-14', title: 'Fourteen', status: 'planned' },
     { id: 'INT-15', title: 'Fifteen', status: 'building', deps: ['S10', 'S11', 'INT-14'] },
-    { id: 'INT-16', title: 'Sixteen', status: 'waiting', deps: ['S10'] },
-    { id: 'INT-17', title: 'Seventeen', status: 'waiting' },
+    { id: 'INT-16', title: 'Sixteen', deps: ['S10'] },
+    { id: 'INT-17', title: 'Seventeen' },
     { id: 'INT-18', title: 'Grilled', deps: ['S11'] },
     { id: 'INT-19', title: 'Grilled, held', deps: ['S11'], held: true },
     { id: 'INT-20', title: 'Prototyped by an agent', status: 'planned' },
@@ -1213,7 +1213,7 @@ test("a checking card sits in In Progress waiting on Claude's check, with no bui
   const b = buildBoard({ fromWaves: false, waves: [
     { slug: 'site', agents: { S1: record }, wave: { internal: true, items: [
       { id: 'S1', title: 'One', status: 'checking', next: 'Verify it' },
-      { id: 'S2', title: 'Two', status: 'waiting', deps: ['S1'] },
+      { id: 'S2', title: 'Two', deps: ['S1'] },
     ] } },
     { slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'Draft', status: 'checking', pr: 7 }, { id: 'A2', title: 'No PR', status: 'checking' }] } },
   ], prs: { 'o/r#7': greenDraft } });

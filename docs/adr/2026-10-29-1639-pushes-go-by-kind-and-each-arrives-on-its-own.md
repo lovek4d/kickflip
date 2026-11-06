@@ -12,7 +12,7 @@ What pushes, when it goes, and how several arrive together.
 
 **When it goes.** A push goes one of three ways:
 - **Now** (`--now` on `board.mjs push` and `web-ts push`): questions, steps only the owner can run and prototypes asked for, and the hub's own prompt and fault pushes. These go as soon as they are written. While pushes are held overnight, or when no device takes the push, it queues instead.
-- **Queued** (the default): drafts on Ready and Merge. These go when the monitor tick that wrote them ends (`board.mjs checked`), or after the hub's next check if no tick runs. The hub sends the queue in the same poll that wakes the session, so a push written during that tick would otherwise wait a whole slot.
+- **Queued** (the default): drafts on Ready and Merge. These go after the hub's next check; the session's `checked` command no longer sends them at a tick's end ([no waiting status, no watchers.md, no checked command](2026-11-07-0300-no-waiting-status-no-watchers-md-no-checked-command.md)).
 - **Urgent** (`--urgent`): a fault, only for a production issue someone messaged about. It goes even while pushes are held.
 
 `hub/schedule.mjs` `heldUntil` is the one gate that now and queued pushes pass.

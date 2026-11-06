@@ -243,15 +243,6 @@ test('a reminder the owner asked for goes out as kickflip push sends a fault', (
   assert.deepEqual(received.map(({ title, body }) => [title, body]), [['Everything is done', 'Orch has nothing in progress']]);
 }));
 
-test('checked sends the queued pushes at the end of a tick, a board\'s several as one summary', () => withDevice(async (b, received) => {
-  assert.equal((await b('push', '--site', 'orch', '--kind', 'fault', '--title', 'A2 waits on Merge', '--body', 'Green and approved', '--url', '/orch/')).code, 0);
-  assert.equal((await b('push', '--site', 'orch', '--kind', 'fault', '--title', 'A1 waits on Ready', '--url', '/orch/#item=w%2FA1', '--tag', 'item-w/A1')).code, 0);
-  assert.equal(received.length, 0);
-  assert.equal((await b('checked', '--site', 'orch', '--every', '15')).code, 0);
-  assert.deepEqual(received.map(({ title, body, tag, url }) => [title, body, tag, url]), [['2 updates on orch', 'A2 waits on Merge · A1 waits on Ready', 'summary:orch', '/orch/']]);
-  assert.deepEqual(read(at('kickflip', 'push', 'queue.json')).items, []);
-}));
-
 test("thread writes in an ask's thread and refuses an unknown ask", () => {
   assert.equal(board('thread', 'ask:e1', '--site', 'orch', '--text', 'Answered here.').code, 0);
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e1.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', text: 'Answered here.' }]);

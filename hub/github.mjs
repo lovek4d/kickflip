@@ -69,7 +69,7 @@ export function carry(prev, next) {
   return kept;
 }
 
-// The shape board/store.mjs writeChecked writes; board/domain.mjs checksOf reads it. every null is the idle form.
+// The shape of data/checked.json; board/domain.mjs checksOf reads it. every null is the idle form.
 function writeChecked(dir, every) {
   const file = path.join(dir, 'data', 'checked.json');
   const tmp = `${file}.${process.pid}.tmp`;
