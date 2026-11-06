@@ -788,16 +788,16 @@ export async function reviewDue(site, options) {
   return { links, replies, reactions, digest: digest.due ? digest : null };
 }
 
-// `review updated`: “🤖 Updated: <what changed>” queued in the thread of every posted link on the card's PRs, which the
+// `review updated`: “Updated: <what changed>” queued in the thread of every posted link on the card's PRs, which the
 // hub's next poll sends (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md).
 export async function reviewUpdated(site, key, whatChanged) {
   needSite(site);
   const words = text(whatChanged, 'what changed');
   const { wave, item } = await loadItem(site, key);
   const sent = [];
-  for (const p of cardPRs(item, boardRepoOf(site, wave))) sent.push(...await queueReply(site, prKeyOf(p), 'updated', `🤖 Updated: ${words}`));
+  for (const p of cardPRs(item, boardRepoOf(site, wave))) sent.push(...await queueReply(site, prKeyOf(p), 'updated', `Updated: ${words}`));
   const names = [...new Set(sent)];
-  return { lines: [names.length ? `🤖 Updated queued for ${names.join(', ')} on ${key}` : `no reviewer has a link to ${key}'s PRs; nothing queued`] };
+  return { lines: [names.length ? `Updated queued for ${names.join(', ')} on ${key}` : `no reviewer has a link to ${key}'s PRs; nothing queued`] };
 }
 
 // Whether a reviewer already has a link to one of the card's PRs, so its builder's done owes the Updated decision.

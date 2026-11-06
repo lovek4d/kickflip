@@ -15,7 +15,8 @@ The owner answered the open questions on #277 (11/05 to 11/06):
 - A card holds 1:m PRs, and separately each PR has 1:m reviewer DMs. Slack messages hang off PRs, not cards.
 - Each PR gets its own fresh link. Pushes, the orchestrator's comments and Updated go in that link's thread. Every reviewer of a PR gets the same thread and reactions.
 - Reactions: `git_approved` once anyone approves, even someone else, so the PR no longer needs attention. Then `git_merged` on merge, or `x` on a close.
-- The link message is the PR title, its link, then "+N/-M, K files", one per line. It uses plain lines and links only, and carries no Claude or robot marker for now.
+- The link message is the PR title, its link, then "+N/-M, K files", one per line. It uses plain lines and links only.
+- No Slack message carries a Claude or robot marker: they go out through the Slack MCP as the owner and already read "sent by Claude". A marker comes with the Slack API token (#35).
 - Failures go to the hub log only, as before, and a stuck send keeps retrying every poll.
 - A digest missed by 17:00 is skipped that day.
 - builder done asks for the Updated decision.
@@ -35,7 +36,7 @@ The owner answered the open questions on #277 (11/05 to 11/06):
 The poll's GraphQL query also reads each PR's title, additions, deletions, changedFiles, `latestReviews` and last 20 commits. These go in `github-state.json` for the link text, the push replies and `git_approved`.
 
 **Updated and comments are queued, not sent inline.**
-- `review updated` queues "🤖 Updated: …" in the thread of every posted link on the card's PRs, with no filter on approval.
+- `review updated` queues "Updated: …" in the thread of every posted link on the card's PRs, with no filter on approval.
 - `builder done` refuses on a card whose PR link a reviewer has until it gets `--updated "<what changed>"` or `--updated none`. It queues the reply only once done has gone through, so a done that is run again doesn't queue it twice.
 - `pr comment` and `pr reply` queue "Comment on #n: <words>" in that PR's threads.
 

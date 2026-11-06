@@ -2,7 +2,7 @@
 // board's files as board/store.mjs posts it (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md,
 // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md). Each PR's link goes to the DM the
 // hub opens with each reviewer; pushes, comments and Updated go in that link's thread; reactions go on the link; the
-// weekday digest is a top-level “🤖 <board> digest: …” with one thread reply per PR. A failed send stays owed and goes
+// weekday digest is a top-level “<board> digest: …” with one thread reply per PR. A failed send stays owed and goes
 // again next poll.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,7 +44,7 @@ async function sendBoard(board, slack, now) {
     await attempt(`digest to ${reviewer.name}`, async () => {
       await postDigest(board.dir, due.digest.date, reviewer, {
         channel: reviewer.sent?.channel || await slack.openDM(reviewer.slack_user),
-        header: (n) => `🤖 ${board.title} digest: ${n} PR${n === 1 ? '' : 's'} pending your review`,
+        header: (n) => `${board.title} digest: ${n} PR${n === 1 ? '' : 's'} pending your review`,
         post: (message) => slack.post(message),
       });
     });

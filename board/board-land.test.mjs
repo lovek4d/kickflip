@@ -412,7 +412,7 @@ test("builder done on a card whose PR link a reviewer has asks for the Updated d
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, undefined);
   const done = board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it', '--updated', 'limits reset per key');
   assert.equal(done.code, 0, done.err);
-  assert.deepEqual(record().replies, [{ id: 'updated-1', text: '🤖 Updated: limits reset per key', to: { Ann: {} } }]);
+  assert.deepEqual(record().replies, [{ id: 'updated-1', text: 'Updated: limits reset per key', to: { Ann: {} } }]);
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch').code, 0);
   const quiet = board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Wait for review', '--updated', 'none');
   assert.equal(quiet.code, 0, quiet.err);

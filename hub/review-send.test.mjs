@@ -65,13 +65,13 @@ test("each open PR gets its own link to every reviewer, in the owner's format, a
   const [ann2, bob2] = world.messages.map((m) => m.ts);
 
   // Updated reaches every reviewer's thread on each of the card's PRs, approved or not.
-  assert.deepEqual((await reviewUpdated(site, 'w/A1', 'limits reset per key')).lines, ['🤖 Updated queued for Ann, Bob on w/A1']);
+  assert.deepEqual((await reviewUpdated(site, 'w/A1', 'limits reset per key')).lines, ['Updated queued for Ann, Bob on w/A1']);
   await assert.rejects(reviewUpdated(site, 'w/A1', '  '), /non-empty/);
   world.messages.length = 0;
   await poll();
   assert.deepEqual(world.messages.map((m) => [m.channel, m.text, m.thread_ts]), [
-    ['D1', '🤖 Updated: limits reset per key', ann1], ['D9', '🤖 Updated: limits reset per key', bob1],
-    ['D1', '🤖 Updated: limits reset per key', ann2], ['D9', '🤖 Updated: limits reset per key', bob2],
+    ['D1', 'Updated: limits reset per key', ann1], ['D9', 'Updated: limits reset per key', bob1],
+    ['D1', 'Updated: limits reset per key', ann2], ['D9', 'Updated: limits reset per key', bob2],
   ]);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
@@ -147,7 +147,7 @@ test('the digest is owed to each reviewer until its header and every reply are p
   const first = await poll(monday, flaky);
   assert.ok(first.failed.includes('orch: digest to Ann: Slack: user_not_found'), first.failed.join('\n'));
   assert.ok(first.failed.includes('orch: digest to Bob: Slack: ratelimited'), first.failed.join('\n'));
-  assert.deepEqual(world.messages.filter((m) => m.text.includes('digest')).map((m) => [m.channel, m.text]), [['D2', '🤖 Orch digest: 2 PRs pending your review']]);
+  assert.deepEqual(world.messages.filter((m) => m.text.includes('digest')).map((m) => [m.channel, m.text]), [['D2', 'Orch digest: 2 PRs pending your review']]);
 
   failReplies = false;
   world.dms.U1 = 'D1';
@@ -155,7 +155,7 @@ test('the digest is owed to each reviewer until its header and every reply are p
   await poll();
   const digestLines = world.messages.filter((m) => m.thread_ts || m.text.includes('digest')).map((m) => [m.channel, m.text]);
   assert.deepEqual(digestLines, [
-    ['D1', '🤖 Orch digest: 2 PRs pending your review'], ['D1', 'https://github.com/o/r/pull/1 · Open'], ['D1', 'https://github.com/o/r/pull/2 · Open'],
+    ['D1', 'Orch digest: 2 PRs pending your review'], ['D1', 'https://github.com/o/r/pull/1 · Open'], ['D1', 'https://github.com/o/r/pull/2 · Open'],
     ['D2', 'https://github.com/o/r/pull/1 · Open'], ['D2', 'https://github.com/o/r/pull/2 · Open'],
   ]);
   assert.deepEqual(digests().map((d) => [d.date, d.reviewer, d.replies.every((r) => r.ts)]).sort(), [['2026-11-02', 'Ann', true], ['2026-11-02', 'Bob', true]]);
