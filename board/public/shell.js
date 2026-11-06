@@ -232,8 +232,21 @@ window.AppShell = (function () {
     // go(view, href, how, from): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's
     // own refresh. → true, or a promise of whether the view switched once the owner answers about an unsaved edit.
     let router = null;
+    const wide = matchMedia('(min-width: 900px)');
+    // From 900px Waiting on you is the board's pane, so a view of the questions page shows the board with that question's
+    // pill picked. A page's pane takes a moment to fill, so the pill is waited for.
+    function focusPane(id, tries = 50) {
+      if (!id || current?.view.kind !== 'board' || current.v.B.focusQuestion?.(id) || tries <= 0) return;
+      setTimeout(() => focusPane(id, tries - 1), 100);
+    }
     function go(view, href, how, from) {
       if (!AppRouter.mounted(view)) return false;
+      if (view.kind === 'questions' && wide.matches) {
+        const board = { kind: 'board', route: view.route, hash: '' };
+        const boardHref = new URL(AppRouter.urlOf(board), location.href).href;
+        if (how === 'pop') history.replaceState(history.state, '', boardHref);
+        return Promise.resolve(go(board, boardHref, how, from)).then((shown) => { if (shown) focusPane(view.id); return shown; });
+      }
       if (view.kind === 'settings') {
         if (current?.view.kind === 'board' && current.route === view.route) {
           const here = AppRouter.viewOf(location.href, { boards: boards() });
@@ -285,7 +298,13 @@ window.AppShell = (function () {
     }
     if (!AppRouter.mounted(first)) { location.replace('/_hub/'); return; }
 
-    router = AppRouter.listen({ boards, go });
+    let focus = null;
+    if (first.kind === 'questions' && wide.matches) {
+      focus = first.id;
+      first = { kind: 'board', route: first.route, hash: '' };
+      history.replaceState(history.state, '', AppRouter.urlOf(first));
+    }
+    router = AppRouter.listen({ boards, go, wide: () => wide.matches });
     opener = (url, { replace = false, frames = true } = {}) => {
       const view = AppRouter.viewOf(url, { boards: boards() });
       if (!AppRouter.mounted(view) || (!frames && view.kind === 'frame')) return false;
@@ -301,6 +320,7 @@ window.AppShell = (function () {
     navigator.serviceWorker?.startMessages?.();
 
     show(first);
+    focusPane(focus);
     openStream();
     addEventListener('visibilitychange', () => { if (!document.hidden) openStream(); });
     addEventListener('pageshow', openStream);

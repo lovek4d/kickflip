@@ -566,7 +566,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
 
-function appHistory(url, state = null) {
+function appHistory(url, state = null, { wide = false } = {}) {
   let entries = [{ url: new URL(url), state }];
   let at = 0;
   let backs = 0;
@@ -591,7 +591,7 @@ function appHistory(url, state = null) {
     addEventListener: (type, fn) => { handlers[type] = fn; } });
   for (const file of ['ui-page-header.js', 'router.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
   const shown = [];
-  const router = context.AppRouter.listen({ boards: () => new Set(['orch']),
+  const router = context.AppRouter.listen({ boards: () => new Set(['orch']), wide: () => wide,
     go: (view, href, how, from) => {
       shown.push(`${how} ${view.kind}`);
       if (how === 'push') router.push(href, from);
@@ -678,6 +678,19 @@ test("in the app, back follows the page tree: a prototype goes up to Waiting on 
   const picked = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
   picked.router.replace('https://mac.ts.net/orch/#item=w%2FA1&reply');
   assert.deepEqual([picked.stack(), picked.shown.at(-1)], [['#item=w%2FA1&reply'], 'pop board']);
+});
+
+test("from 900px, back from a prototype goes to the board, since Waiting on you is the board's pane and no page of its own sits between", () => {
+  const cold = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push', null, { wide: true });
+  assert.deepEqual(cold.stack(), ['', 'prototype-x.html?q=q1']);
+  assert.equal(cold.tap('./', { cls: 'back' }), 'back');
+  assert.deepEqual([cold.stack(), cold.shown.at(-1)], [[''], 'pop board']);
+
+  const thread = appHistory('https://mac.ts.net/orch/', null, { wide: true });
+  thread.tap('prototype-x.html?q=q2&variant=B', { card: 'w/A1' });
+  assert.deepEqual(thread.stack(), ['#item=w%2FA1', 'prototype-x.html?q=q2&variant=B']);
+  assert.equal(thread.router.replace('https://mac.ts.net/orch/'), 'up');
+  assert.deepEqual([thread.stack(), thread.shown.at(-1)], [[''], 'pop board']);
 });
 
 test('Action needed shows only while the card waits on the owner, as orange words that link to what they act on', () => {

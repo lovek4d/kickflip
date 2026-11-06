@@ -130,16 +130,19 @@ BoardView.part((B) => {
     const home = new URL(`${B.site.root}/`, location.href);
     const url = new URL(a.getAttribute('href'), home);
     if (url.pathname !== new URL('questions.html', home).pathname || url.hash.length < 2) return;
-    const id = decodeURIComponent(url.hash.slice(1));
+    if (focusQuestion(decodeURIComponent(url.hash.slice(1)))) ev.preventDefault();
+  });
+  // Picks the pill of the topic holding question or topic id, and focuses it → whether the pane holds that topic.
+  function focusQuestion(id) {
     const topic = (state.board?.ownerTopics || []).find((t) => t.id === id || t.questions.includes(id));
-    const pill = topic && questions.slot.querySelector(`button[data-topic="${CSS.escape(topic.id)}"]`);
-    if (!pill) return;
-    ev.preventDefault();
+    const pill = topic && questions?.slot.querySelector(`button[data-topic="${CSS.escape(topic.id)}"]`);
+    if (!pill) return false;
     pill.click();
     const picked = questions.slot.querySelector(`button[data-topic="${CSS.escape(topic.id)}"]`);
     picked.focus();
     picked.scrollIntoView({ block: 'nearest' });
-  });
+    return true;
+  }
   // A double-click on a pane pill focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>),
   // wave:<slug> a band; any other topic, or one the board doesn't show, does nothing.
   B.on(B.root, 'dblclick', (ev) => {
@@ -153,5 +156,5 @@ BoardView.part((B) => {
   B.on(wide, 'change', fitPane);
   B.atUnmount(() => { questions?.unmount(); questions = null; });
 
-  Object.assign(B, { renderNeeds });
+  Object.assign(B, { renderNeeds, focusQuestion });
 });

@@ -5139,6 +5139,9 @@ test("on a desktop, a link into open questions focuses that topic's pill in the 
   assert.deepEqual([e.defaultPrevented, pill('t2').getAttribute('aria-pressed'), wide.doc.activeElement, scrolled], [true, 'true', pill('t2'), ['t2']], 'a question link focuses its topic pill');
   e = link(wide, 'questions.html#t1');
   assert.deepEqual([e.defaultPrevented, pill('t1').getAttribute('aria-pressed'), wide.doc.activeElement], [true, 'true', pill('t1')], 'a topic link does too');
+  assert.equal(wide.view.B.focusQuestion('q1'), true, 'the shell asks for a question by id when it shows the board for a questions view');
+  assert.deepEqual([pill('t1').getAttribute('aria-pressed'), wide.doc.activeElement], ['true', pill('t1')]);
+  assert.equal(wide.view.B.focusQuestion('gone'), false);
   assert.equal(link(wide, 'questions.html#gone').defaultPrevented, false, 'a topic the pane does not hold keeps the link');
   assert.equal(link(wide, 'questions.html').defaultPrevented, false, 'a link with no topic keeps the link');
   assert.equal(link(wide, 'questions.html#q2', { metaKey: true }).defaultPrevented, false, 'a held modifier keeps the link');

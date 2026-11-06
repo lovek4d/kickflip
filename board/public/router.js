@@ -85,18 +85,19 @@ globalThis.AppRouter = (function () {
     const u = new URL(view.url, 'http://hub');
     return /^\/[^/]+\/prototype-[\w-]+\.html$/.test(u.pathname) ? u.searchParams.get('q') || null : null;
   }
-  function levelOf(view, { boards = new Set() } = {}) {
+  // wide: from 900px Waiting on you is the board's pane, so a prototype's parent is the board itself.
+  function levelOf(view, { boards = new Set(), wide = false } = {}) {
     if (view?.kind === 'board') return 0;
     if (view?.kind === 'questions') return 1;
-    return questionOf(view, boards) ? 2 : null;
+    return questionOf(view, boards) ? (wide ? 1 : 2) : null;
   }
   // → the views above view in the tree, its board first. card: the card whose thread the owner left the board from,
   // which the board keeps open.
-  function parentsOf(view, { boards = new Set(), card = null } = {}) {
+  function parentsOf(view, { boards = new Set(), card = null, wide = false } = {}) {
     const q = questionOf(view, boards);
     if (!q && view?.kind !== 'questions') return [];
     const board = { kind: 'board', route: view.route, hash: card ? `#item=${encodeURIComponent(card)}` : '' };
-    return q ? [board, { kind: 'questions', route: view.route, id: q }] : [board];
+    return q && !wide ? [board, { kind: 'questions', route: view.route, id: q }] : [board];
   }
 
   // Each history entry carries {idx}, its distance from the shell's first entry, pushed when a push opened it, and on a
@@ -109,8 +110,8 @@ globalThis.AppRouter = (function () {
   // boards() → the board routes now.
   // → {push(href, from), replace(href), up()}: push and replace write an entry for a view go is showing; replace answers
   // 'up' when it went back to a parent instead, which then takes href, and go shows it on that pop.
-  function listen({ boards, go }) {
-    const b = () => ({ boards: boards() });
+  function listen({ boards, go, wide = () => false }) {
+    const b = () => ({ boards: boards(), wide: wide() });
     const mark = (pushed) => (pushed ? { pushed: true } : {});
     let idx = Number.isInteger(history.state?.idx) ? history.state.idx : 0;
     let landing = null;
