@@ -724,6 +724,8 @@ const actionText = (e, asked) => {
 };
 // A Grill or Prototype request: bare (the request line) or carrying the owner's text, files or question (a message with
 // its status); a thread message has its button's label as its status (intentLabel).
+// A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
+const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
 const requestOf = (e, asked) => {
   if (e.kind === 'item-message') return bareMessage(e) && e.data.intent === 'build' ? { request: true } : INTENT_LABELS[e.data.intent] ? { status: intentLabel(e) } : {};
   if (e.kind !== 'grill-more' && e.kind !== 'prototype-request') return e.kind === 'reask-request' ? { request: true } : {};
@@ -788,16 +790,16 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
     ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}),
-      ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null })),
+      ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
-        ...requestOf(e, asked) })),
+        ...requestOf(e, asked), ...byOf(e) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
-      return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, status: ANSWERS_SUBMITTED };
+      return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${asked.get(e.data.id).question}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, status: ANSWERS_SUBMITTED, ...byOf(e) };
     }),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
-      .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}),
+      .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', kind: 'quick-build', request: true, text: QUICK_BUILD }] : []),
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),

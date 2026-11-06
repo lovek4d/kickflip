@@ -29,7 +29,7 @@ import { readPermissions } from './permissions.mjs';
 import { validBuildTarget } from './build-script.mjs';
 import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
-import { shareOf, validLogin } from '../hub/share.mjs';
+import { shareEntries, validLogin } from '../hub/share.mjs';
 
 export class BoardError extends Error {}
 const fail = (msg) => { throw new BoardError(msg); };
@@ -349,14 +349,15 @@ export async function readUpload(site, file) {
 }
 
 const VIA = ['github', 'slack'];
-// key is <wave>/<id>, or ask:<event id> for an ask's thread.
-export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind }) {
+// key is <wave>/<id>, or ask:<event id> for an ask's thread. by: the shared person whose tap an owner line is, by name
+// (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
+export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by }) {
   needSite(site);
   if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
   else await loadItem(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind };
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by };
   const file = threadFile(site, key);
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
@@ -911,16 +912,25 @@ const writeBoardRules = (site, change) => writeBoardJSON(site, (cfg) => {
   return { set: { rules: result.rules }, ...result };
 });
 
-// Board settings' Sharing (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md): change is
-// {add: login} or {remove: login}, a login as Tailscale-User-Login sends it, trimmed. → {share: [login]}, board.json's list
+// Board settings' Sharing (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md,
+// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md): change is {add: login}, {remove: login}, or
+// {login, level: 'view' | 'full'} for someone listed, a login as Tailscale-User-Login sends it, trimmed. A View entry is
+// stored as the bare login, a Full one as {login, level: 'full'}. → {share}, board.json's list
 export function saveBoardShare(site, change) {
-  const keys = Object.keys(change || {});
-  const [key] = keys;
-  const login = typeof change?.[key] === 'string' ? change[key].trim() : null;
-  if (keys.length !== 1 || !['add', 'remove'].includes(key) || !validLogin(login)) fail('Send add or remove with one login, like name@github.');
+  const keys = Object.keys(change || {}).sort().join();
+  const leveled = keys === 'level,login';
+  const raw = leveled ? change.login : change?.[keys];
+  const login = typeof raw === 'string' ? raw.trim() : null;
+  if (!['add', 'remove', 'level,login'].includes(keys) || !validLogin(login)) fail('Send add or remove with one login, like name@github, or a listed login with its level.');
+  if (leveled && !['view', 'full'].includes(change.level)) fail('A level is view or full.');
+  const stored = ({ login: l, level }) => (level === 'full' ? { login: l, level } : l);
   return writeBoardJSON(site, (cfg) => {
-    const listed = shareOf(cfg);
-    const share = key === 'remove' ? listed.filter((l) => l !== login) : listed.includes(login) ? listed : [...listed, login];
+    const listed = shareEntries(cfg);
+    if (leveled && !listed.some((e) => e.login === login)) fail(`${login} isn't shared with yet. Add them first.`);
+    const entries = keys === 'remove' ? listed.filter((e) => e.login !== login)
+      : leveled ? listed.map((e) => (e.login === login ? { login, level: change.level } : e))
+        : listed.some((e) => e.login === login) ? listed : [...listed, { login, level: 'view' }];
+    const share = entries.map(stored);
     return { set: { share }, share };
   }).then(({ share }) => ({ share }));
 }
@@ -1721,7 +1731,7 @@ function closingLine(site, key, item, status, text, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, ownerStep, ownerDone, check }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, ownerStep, ownerDone, check }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   if (state !== undefined && !CARD_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
@@ -1852,7 +1862,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (released) resolved.push(released.length ? (await bumpBlocked(site, key, released)).line : `released: ${key} starts building now`);
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
-  if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who })).lines);
+  if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who, by })).lines);
   // The ticket stays open while the card waits on its owner step.
   const target = item.owner_step && FINISHED.includes(status) ? null : ticketTarget({ status, pr: pr ?? pushed ?? mergeReady });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
@@ -1928,8 +1938,8 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   await writeJSON(source.file, wave);
 }
 
-// The owner's Hold, Resume or Done tap (card-hold {key, hold, until?} or card-done {key}), recorded in the wave file
-// as the board server takes it, with a thread line; a Done unblocks blocked cards as item set --status done does
+// The owner's Hold, Resume or Done tap (card-hold {key, hold, until?} or card-done {key}), or a Full person's, whose
+// data.shared_by {login, name} names their thread line, recorded in the wave file as the board server takes it, with a thread line; a Done unblocks blocked cards as item set --status done does
 // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). A merged or dropped card, and a Hold on a
 // are left as they are. → the item set result, or null when nothing was written.
 export async function recordOwnerTap(site, kind, data) {
@@ -1937,7 +1947,8 @@ export async function recordOwnerTap(site, kind, data) {
   const { wave: slug, id } = parseKey(key);
   const { source, wave } = await loadWave(site, slug);
   // The owner's line, so it answers none of their messages that wait on Claude.
-  const said = { text: 'Marked done.', who: 'love' };
+  const by = data.shared_by ? data.shared_by.name || data.shared_by.login : undefined;
+  const said = { text: 'Marked done.', who: 'love', by };
   const item = wave.items.find((it) => it.id === id) || fail(`wave "${slug}" has no item "${id}"`);
   // A merged card waiting on its owner step closes on the owner's Done, staying merged.
   const stepOpen = kind === 'card-done' && Boolean(item.owner_step);
@@ -1949,7 +1960,7 @@ export async function recordOwnerTap(site, kind, data) {
   // A hold stops the card's builders, so their records close: an open record with an exited process is relaunched.
   if (data.hold) { await closeBuilders(source.dir, id, false); await publishStaged(site, key); }
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  return appendThread(site, key, { text: data.hold ? (at ? `Held until ${at}.` : 'Held.') : 'Resumed.', who: 'love' });
+  return appendThread(site, key, { text: data.hold ? (at ? `Held until ${at}.` : 'Held.') : 'Resumed.', who: 'love', by });
 }
 
 // --check's text → its stored form, or refuses it (shared/owner-check.mjs parseCheck).

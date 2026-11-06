@@ -75,6 +75,7 @@ These make a site Claude answers: a board, or a page joined with `--watch`.
 
 **Starter kit** (`~/.claude/skills/kickflip/starter`): `server.mjs`, Node with no dependencies, serving `public/` plus the event API; `cross-site.mjs`, the guard copied with it and shared by the hub and board; `public/claude.js`, the browser side; `public/index.html`, a placeholder. Their header comments document the API. A rejoin doesn't recopy the starter, so an existing site keeps the server it was copied with.
 - A page sends `ClaudeSite.send(kind, data)`. That appends one line to `data/events.jsonl`, which wakes the owner.
+- On a board shared Full with someone, their events carry `data.shared_by: {login, name}`, and the thread names them. Act on them as on the owner's ([a shared person is View or Full](docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md)).
 - You **reply** to event `<id>` by writing `data/replies/<id>.html` (an HTML fragment) or `.json`. `ClaudeSite.watch(fn, {kind})` shows it on the page within 10 seconds.
 - Keep replies short first, with depth behind `<details>`.
 - `GET /_claude/needs` returns what waits on the owner, from `data/needs.json` (`{items: [{kind, text, url}], working?, summary?}`, `url` relative to the site root). Write that file when something starts or stops waiting on the owner, or when you start or finish the owner's message (`working` counts those in progress). Without it the site reports nothing waiting.

@@ -1,10 +1,11 @@
 // docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
+// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { shareOf, sharedRoutes, shareReach, routeOfPath, sharedSidebar, shareTracker, validLogin } from './share.mjs';
+import { shareOf, shareEntries, sharedRoutes, shareReach, routeOfPath, sharedSidebar, shareTracker, validLogin } from './share.mjs';
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'share-')));
 const boardSite = (dir) => ({ cmd: ['node', '/x/board/server.mjs'], dir, port: 1 });
@@ -17,6 +18,13 @@ test('a login is kept exactly as Tailscale sends it, and board.json share lists 
   assert.deepEqual(shareOf({}), []);
 });
 
+test('a share entry is a bare login for View, or {login, level: full}; shareOf lists every login', () => {
+  const cfg = { share: ['maya@github', { login: 'sam@example.com', level: 'full' }, { login: 'kim@github', level: 'view' }, { login: 'maya@github', level: 'full' }, { login: 'nope' }, { level: 'full' }, 7] };
+  assert.deepEqual(shareEntries(cfg), [{ login: 'maya@github', level: 'view' }, { login: 'sam@example.com', level: 'full' }, { login: 'kim@github', level: 'view' }]);
+  assert.deepEqual(shareOf(cfg), ['maya@github', 'sam@example.com', 'kim@github']);
+  assert.deepEqual(shareEntries({}), []);
+});
+
 test("a login reaches the boards whose board.json shares with it, read afresh on each ask", (t) => {
   const home = tmp();
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -24,14 +32,14 @@ test("a login reaches the boards whose board.json shares with it, read afresh on
   write('a', { share: ['maya@github'] });
   write('b', { share: ['sam@example.com'] });
   const sites = { a: boardSite(path.join(home, 'a')), b: boardSite(path.join(home, 'b')), page: { port: 2, dir: path.join(home, 'a') } };
-  assert.deepEqual([...sharedRoutes('maya@github', sites)], ['a']);
+  assert.deepEqual([...sharedRoutes('maya@github', sites)], [['a', 'view']]);
   assert.deepEqual([...sharedRoutes('nobody@github', sites)], []);
-  write('b', { share: ['sam@example.com', 'maya@github'] });
-  assert.deepEqual([...sharedRoutes('maya@github', sites)], ['a', 'b']);
+  write('b', { share: ['sam@example.com', { login: 'maya@github', level: 'full' }] });
+  assert.deepEqual([...sharedRoutes('maya@github', sites)], [['a', 'view'], ['b', 'full']]);
 });
 
 test('a shared person reads the shell and their boards, and nothing else; a write is view only', () => {
-  const routes = new Set(['orch']);
+  const routes = new Map([['orch', 'view']]);
   const reach = (pathname, method = 'GET') => shareReach({ method, pathname, routes });
   for (const p of ['/', '/sw.js', '/manifest.webmanifest', '/favicon.ico', '/_hub/app/app.js', '/_hub/colors.css', '/_hub/kickflip.png', '/_hub/icon-180.png',
     '/_hub/sidebar.json', '/_hub/stream', '/orch', '/orch/', '/orch/api/board', '/orch/api/thread', '/orch/notes.html', '/orch/questions.html', '/orch/uploads/x.png',
@@ -56,6 +64,21 @@ test('a shared person reads the shell and their boards, and nothing else; a writ
   assert.equal(reach('/_hub/presence', 'POST'), 'other');
 });
 
+test("a Full person's board passes their event and upload POSTs, and nothing else they write", () => {
+  const routes = new Map([['orch', 'full'], ['look', 'view']]);
+  const reach = (pathname, method = 'POST') => shareReach({ method, pathname, routes });
+  for (const p of ['/orch/_claude/events', '/orch/api/upload']) assert.equal(reach(p), 'pass', p);
+  assert.equal(reach('/orch/api/board', 'GET'), 'pass');
+  for (const p of ['/look/_claude/events', '/look/api/upload', '/orch/api/share', '/orch/api/settings', '/orch/api/rules', '/orch/api/permissions', '/orch/api/read',
+    '/orch/api/hide', '/orch/api/try', '/orch/api/arch-review', '/orch/orch/_claude/events', '/orch/_claude/events/x']) {
+    assert.equal(reach(p), 'view-only', p);
+  }
+  // Reading the event log stays the owner's at every level.
+  assert.equal(reach('/orch/_claude/events', 'GET'), 'view-only');
+  for (const [method, p] of [['PUT', '/orch/_claude/events'], ['DELETE', '/orch/api/upload']]) assert.equal(reach(p, method), 'view-only', `${method} ${p}`);
+  assert.equal(reach('/_hub/presence'), 'other');
+});
+
 test("the route a path names, for a refusal's board", () => {
   assert.equal(routeOfPath('/orch/api/board'), 'orch');
   assert.equal(routeOfPath('/orch'), 'orch');
@@ -67,10 +90,12 @@ test("the route a path names, for a refusal's board", () => {
 test("a shared person's sidebar lists only their boards, without the owner's counts, context, usage or hub row", () => {
   const data = { code: 'abc', total: 4, start: 'mine', away: true, usage: { claude: {} }, hub: { tone: 'ok' }, notifications: { state: 'on' }, starting: [{ route: 'new' }],
     sites: [{ route: 'mine', title: 'Mine', board: true, count: 3, ctx: { percent: 40 }, sub: 'listening', icon: 'i' }, { route: 'orch', title: 'Orch', board: true, count: 1, sub: 'idle', icon: 'j' }] };
-  assert.deepEqual(sharedSidebar(data, new Set(['orch']), 'Love'), {
-    code: 'abc', total: 0, start: 'orch', starting: [], shared: { by: 'Love' },
+  assert.deepEqual(sharedSidebar(data, new Map([['orch', 'view']]), 'Love'), {
+    code: 'abc', total: 0, start: 'orch', starting: [], shared: { by: 'Love', full: [] },
     sites: [{ route: 'orch', title: 'Orch', board: true, sub: 'idle', icon: 'j' }],
   });
+  // The boards they have Full on, for the shell to follow.
+  assert.deepEqual(sharedSidebar(data, new Map([['mine', 'full'], ['orch', 'view']]), 'Love').shared, { by: 'Love', full: ['mine'] });
 });
 
 test('the tracker keeps last seen per board across restarts, viewing now while their stream is open on that board, and who was just refused', (t) => {

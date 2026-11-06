@@ -1721,3 +1721,72 @@ test("Board settings' Sharing adds and removes a login in board.json share, keep
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
   }
 });
+
+// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
+test("Board settings' Sharing sets a person View or Full: Full is stored as {login, level}, View as the bare login", async () => {
+  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, share: ['maya@github', 'sam@example.com'] }));
+  const share = (body) => fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    assert.deepEqual(await (await share({ login: 'maya@github', level: 'full' })).json(), { share: [{ login: 'maya@github', level: 'full' }, 'sam@example.com'] });
+    assert.deepEqual(await (await share({ add: 'maya@github' })).json(), { share: [{ login: 'maya@github', level: 'full' }, 'sam@example.com'] }, 'adding someone listed keeps their level');
+    assert.deepEqual(await (await share({ login: 'maya@github', level: 'view' })).json(), { share: ['maya@github', 'sam@example.com'] });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8')).share, ['maya@github', 'sam@example.com']);
+    await share({ login: 'sam@example.com', level: 'full' });
+    assert.deepEqual(await (await share({ remove: 'sam@example.com' })).json(), { share: ['maya@github'] });
+    for (const bad of [{ login: 'kim@github', level: 'full' }, { login: 'maya@github', level: 'admin' }, { login: 'maya@github' }, { login: 'maya@github', level: 'full', add: 'x@y' }]) {
+      assert.equal((await share(bad)).status, 400, JSON.stringify(bad));
+    }
+  } finally {
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+  }
+});
+
+test("a Full person's answers, messages, uploads and card taps are recorded named as them; Merge, reviewers and a View person's writes are refused", async () => {
+  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const waveFile = path.join(site, 'data', 'wave.json');
+  const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, share: [{ login: 'dana@github', level: 'full' }, 'sam@example.com'] }));
+  const dana = { 'x-kickflip-shared': 'dana@github', 'tailscale-user-login': 'dana@github', 'tailscale-user-name': 'Dana Reyes' };
+  const send = (body, headers = {}) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const logged = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  try {
+    await boardSees(base, () => fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'F1', title: 'Shared' }] })));
+    const r = await send({ kind: 'item-message', key: 't/F1', text: 'Per key, please' }, dana);
+    assert.equal(r.status, 200);
+    assert.deepEqual(logged().at(-1).data, { key: 't/F1', text: 'Per key, please', shared_by: { login: 'dana@github', name: 'Dana Reyes' } });
+    const thread = await (await fetch(`${base}/api/thread?key=t%2FF1`)).json();
+    assert.equal(thread.find((m) => m.text === 'Per key, please').by, 'Dana Reyes');
+    // A tap the server writes to the card's thread itself names them too.
+    assert.equal((await send({ kind: 'card-hold', key: 't/F1', hold: true }, dana)).status, 200);
+    const said = fs.readFileSync(path.join(site, 'data', 'threads', 't__F1.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).at(-1);
+    assert.deepEqual([said.text, said.who, said.by], ['Held.', 'love', 'Dana Reyes']);
+    assert.equal((await (await fetch(`${base}/api/thread?key=t%2FF1`)).json()).find((m) => m.text === 'Held.').by, 'Dana Reyes');
+    await send({ kind: 'card-hold', key: 't/F1', hold: false }, dana);
+    // Their upload is stored like the owner's.
+    const up = await fetch(`${base}/api/upload`, { method: 'POST', headers: { ...dana, 'x-filename': 'note.txt', 'content-type': 'text/plain' }, body: 'hi' });
+    assert.equal(up.status, 200);
+
+    // Merge and Board settings' reviewers stay the owner's, and so does any kind not on Full's list.
+    const count = logged().length;
+    for (const body of [{ kind: 'card-merge', key: 't/F1' }, { kind: 'reviewers', remove: ['x'] }, { kind: 'review-answer', pr: 1, answer: 'post' }, { kind: 'whatever' }]) {
+      const refused = await send(body, dana);
+      assert.deepEqual([refused.status, await refused.json()], [403, { error: 'Merge and Board settings stay the owner’s.' }], body.kind);
+    }
+    // A View person, or a login the board no longer lists, writes nothing.
+    for (const headers of [{ 'x-kickflip-shared': 'sam@example.com' }, { 'x-kickflip-shared': 'gone@github' }]) {
+      const refused = await send({ kind: 'item-message', key: 't/F1', text: 'hi' }, headers);
+      assert.deepEqual([refused.status, await refused.json()], [403, { error: 'This board is shared with you to look at only.' }]);
+      assert.equal((await fetch(`${base}/api/upload`, { method: 'POST', headers: { ...headers, 'x-filename': 'n.txt', 'content-type': 'text/plain' }, body: 'hi' })).status, 403);
+    }
+    // Any other write of theirs is refused, though the hub never forwards one.
+    assert.equal((await fetch(`${base}/api/share`, { method: 'POST', headers: { ...dana, 'content-type': 'application/json' }, body: JSON.stringify({ add: 'x@github' }) })).status, 403);
+    assert.equal(logged().length, count);
+    // The owner's events carry no shared_by, whatever the page sends.
+    await send({ kind: 'item-message', key: 't/F1', text: 'mine', shared_by: { login: 'dana@github' } });
+    assert.deepEqual(logged().at(-1).data, { key: 't/F1', text: 'mine' });
+  } finally {
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
+    if (before) fs.writeFileSync(waveFile, before); else fs.rmSync(waveFile);
+  }
+});

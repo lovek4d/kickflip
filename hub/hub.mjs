@@ -91,7 +91,7 @@
 //                     and user, or 400 {error}, 502 {error} when Slack can't be reached (slack.mjs)
 //   /_hub/settings/quiet POST start=HH:MM, end=HH:MM, or set=hold with value=on (absent for off), one schedule.mjs editQuiet change → /_hub/api/settings's
 //                     JSON, or 400 {error}
-//   /_hub/share/<route> GET a board's Sharing for Board settings → {people: [{login, name, now, at}], refused:
+//   /_hub/share/<route> GET a board's Sharing for Board settings → {people: [{login, level, name, now, at}], refused:
 //                     [{login, name, at}], link}: who the board's board.json share lists, whether each is viewing it now
 //                     and when last seen there, who was refused at its paths in the last hour, and the board's tailnet
 //                     URL (share.mjs shareTracker)
@@ -123,9 +123,11 @@
 // Every request and upgrade first passes the owner gate (board/on-host.mjs ownerGate): anyone but the host, a direct
 // loopback caller or a device signed in to Tailscale as the host's user gets front-door.mjs's refusal, the same on
 // every path (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). A login a board's board.json share
-// lists is that board's shared person instead: they reach the shell, their boards and those boards' reads by GET or HEAD
-// alone, the sidebar and stream filtered to their boards, and a hub page sends them to `/`
-// (share.mjs; docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md).
+// lists is that board's shared person instead: they reach the shell, their boards and those boards' reads by GET or HEAD,
+// on a board they have Full on its event and upload POSTs, forwarded with X-Kickflip-Shared naming them, the sidebar and
+// stream filtered to their boards, and a hub page sends them to `/` (share.mjs;
+// docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md,
+// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
 // /_hub/build and /_hub/pull also require loopback and refuse Origin and forwarded headers.
@@ -205,7 +207,7 @@ import { fallBackFromLinear, openBoardBuilders } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
-import { shareOf, sharedRoutes, shareReach, routeOfPath, sharedSidebar, shareTracker } from './share.mjs';
+import { shareEntries, sharedRoutes, shareReach, routeOfPath, sharedSidebar, shareTracker } from './share.mjs';
 import { restartRunner } from '../board/worktree.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
@@ -1022,9 +1024,11 @@ async function hubRoute(req, res, url, viewer = null) {
   if (sharing && req.method === 'GET') {
     const site = routeRecord(loadManifest().sites, sharing[1]);
     if (!isBoardSite(site)) return sendJSON(404, { error: 'That board is not open.' });
-    const logins = shareOf(readJSON(path.join(site.dir, 'board.json'), {}));
+    const entries = shareEntries(readJSON(path.join(site.dir, 'board.json'), {}));
+    const logins = entries.map((e) => e.login);
     const host = (await hubGate.node())?.dnsName || req.headers['x-forwarded-host'];
-    return sendJSON(200, { people: shares.people(sharing[1], logins), refused: shares.refusals(sharing[1], logins), link: host ? `https://${host}/${sharing[1]}/` : null });
+    const people = shares.people(sharing[1], logins).map((p, i) => ({ ...p, level: entries[i].level }));
+    return sendJSON(200, { people, refused: shares.refusals(sharing[1], logins), link: host ? `https://${host}/${sharing[1]}/` : null });
   }
   if (p.startsWith('/_hub/app/')) {
     const f = appFile(p.slice('/_hub/app/'.length));
@@ -1310,16 +1314,17 @@ const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
 // Shared boards (share.mjs): when each shared person was last seen, and who was just refused.
 const shares = shareTracker({ file: path.join(HOME, 'share-seen.json') });
 // A shared person's open /_hub/stream, {login, routes, res}: the one long-lived answer a shared view holds on the hub.
-// A board's share can be removed while it's open, from Board settings or by editing board.json, so every 2 seconds, and
-// at once after the owner's POST /<route>/api/share, a stream whose login has lost a board it was opened with is ended
-// (its page's EventSource comes back through access, with the boards still shared or refused), as are that login's
-// open responses through the board's try relays (try.mjs).
+// A board's share can be removed or change level while it's open, from Board settings or by editing board.json, so
+// every 2 seconds, and at once after the owner's POST /<route>/api/share, a stream whose login has lost a board it was
+// opened with, or whose level there changed, is ended (its page's EventSource comes back through access, with the
+// boards and levels as they are now, or refused), as are that login's open responses through the board's try relays
+// (try.mjs).
 const sharedStreams = new Set();
 function endUnshared() {
   const sites = loadManifest().sites;
   for (const open of sharedStreams) {
     const now = sharedRoutes(open.login, sites);
-    if ([...open.routes].some((route) => !now.has(route))) { sharedStreams.delete(open); open.res.destroy(); }
+    if ([...open.routes].some(([route, level]) => now.get(route) !== level)) { sharedStreams.delete(open); open.res.destroy(); }
   }
   endUnsharedTries();
 }
@@ -1328,7 +1333,7 @@ setInterval(endUnshared, 2000).unref();
 // Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs). A login the gate
 // calls someone else that a board's board.json shares with reaches what share.mjs shareReach allows.
 // → {verdict: 'owner' | 'shared' | 'home' | 'view-only' | 'other' | 'unread', viewer}; viewer, for 'shared', is
-// {login, routes, sidebar(data)}, the person and their view of the sidebar
+// {login, routes, sidebar(data)}, the person, their boards (route → level) and their view of the sidebar
 async function access(req) {
   const verdict = await hubGate(req);
   const login = req.headers['tailscale-user-login'];
@@ -1405,6 +1410,10 @@ function serve(req, res, viewer = null) {
     return;
   }
   const headers = { ...req.headers, 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
+  // The board names a shared person's write by this login and checks its kind against their level; the owner's
+  // request never carries one (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
+  delete headers['x-kickflip-shared'];
+  if (viewer) headers['x-kickflip-shared'] = viewer.login;
   const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
     const h = { ...r.headers };
     if (vary) h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');

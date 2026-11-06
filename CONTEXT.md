@@ -153,7 +153,7 @@ The summary rows below the **hub page**’s health and status: **Pause hub** fir
 _Avoid_: Hub Settings page, preferences, hub config
 
 **Shared person**:
-Someone else signed in to Tailscale whose login a board's Sharing lists: they see that board, view only, in a shell whose sidebar lists only the boards shared with them, and open its Visit links; the rest of the hub refuses them ([a board is shared view only with a Tailscale login](docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md)).
+Someone else signed in to Tailscale whose login a board's Sharing lists: they see that board in a shell whose sidebar lists only the boards shared with them, and open its Visit links; the rest of the hub refuses them ([a board is shared view only with a Tailscale login](docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md)). Each is **View**, looking only, or **Full**, also answering, writing in threads, attaching files, tapping card buttons and adding New tasks, named in the thread; Merge and Board settings stay the owner's at both ([a shared person is View or Full](docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md)).
 _Avoid_: guest, viewer, collaborator
 
 **Board Settings**:

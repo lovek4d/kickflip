@@ -231,8 +231,10 @@
 //   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
-//   POST /api/share              {add: login} | {remove: login} → board.json's share, the logins the board is shared with
-//                                view only (store.mjs saveBoardShare; docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md),
+//   POST /api/share              {add: login} | {remove: login} | {login, level: view | full} → board.json's share, the
+//                                logins the board is shared with, a bare login View and {login, level: 'full'} Full
+//                                (store.mjs saveBoardShare; docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md,
+//                                docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md),
 //                                waking no session. → {share}; a bad body → 400 {error}. The hub's GET /_hub/share/<route>
 //                                answers who they are, when each was last seen and who was just refused.
 //   GET  /api/permissions        {file, permissions: [{id, name, allows, rule, on, refused}]}: the board's session
@@ -254,7 +256,10 @@
 //   GET  /api/stream             server-sent events: `event: change` shortly after a file the board reads changes, under
 //                                the wave files' folder or data/. Never gzipped
 //   GET  /_claude/health
-// Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text).
+// Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text). One the hub forwards with
+// X-Kickflip-Shared is a shared person's: only an event or upload of someone the board's share lists as Full is taken,
+// and an event only of a kind Full allows, recorded with data.shared_by {login, name}, which the thread names them by; anything
+// else → 403 {error} (sharedWriter; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
@@ -287,6 +292,7 @@ import { routeRecord } from '../hub/routes.mjs';
 import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
+import { shareEntries } from '../hub/share.mjs';
 import { readUsageGate, heldFor, pauseReasonFor, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
@@ -375,6 +381,25 @@ async function readBody(req, limit = 64 * 1024) {
   let body = '';
   for await (const chunk of req) { body += chunk; if (body.length > limit) throw Object.assign(new Error('too large'), { status: 413 }); }
   return body ? JSON.parse(body) : {};
+}
+
+// A shared person's write (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md). The hub forwards one with
+// X-Kickflip-Shared naming them only to a board they have Full on, and only to events or an upload; the owner's request
+// never carries it. board.json is read again here, so a level changed since the hub's check holds. Full takes answers,
+// thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
+// the header's GitHub check stay the owner's, as does any kind not listed.
+const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', 'grill-more', 'item-message',
+  'ask', 'ask-edited', 'ask-withdrawn', 'ask-bump', 'ask-done', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
+  'builder-nudge', 'lineup-move', 'plan-waves']);
+const VIEW_ONLY = 'This board is shared with you to look at only.';
+const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
+// → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
+async function sharedWriter(req, p) {
+  const login = req.headers['x-kickflip-shared'];
+  if (!login) return null;
+  const level = shareEntries(await config()).find((e) => e.login === login)?.level;
+  if (level !== 'full' || !['/_claude/events', '/api/upload'].includes(p) || req.method !== 'POST') return { refused: VIEW_ONLY };
+  return { by: { login, name: req.headers['tailscale-user-name'] || null } };
 }
 
 // Every page event, and the server's own such as a rules save, is one line here, which wakes the watcher. → its id
@@ -1056,6 +1081,9 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://site');
     let p = url.pathname;
     if (prefix && (p === prefix || p.startsWith(prefix + '/'))) p = p.slice(prefix.length) || '/';
+    // A shared person's write: only a Full person's event or upload is taken.
+    const shared = req.method !== 'GET' && req.method !== 'HEAD' ? await sharedWriter(req, p) : null;
+    if (shared?.refused) return json(res, 403, { error: shared.refused });
 
     if (p === '/_claude/health') return json(res, 200, { ok: true });
     if (p === '/api/board') {
@@ -1105,6 +1133,12 @@ const server = http.createServer(async (req, res) => {
       // The version of the board the page holds, so the answer's board is a patch from it.
       const since = String(body.since || '');
       delete body.since;
+      if (shared && !FULL_KINDS.has(kind)) return json(res, 403, { error: OWNERS_ONLY });
+      // shared_by names a Full person's event, and each answer of their Send, and is never the page's to say.
+      for (const d of [body, ...(Array.isArray(body.answers) ? body.answers.filter((a) => a && typeof a === 'object') : [])]) {
+        delete d.shared_by;
+        if (shared) d.shared_by = shared.by;
+      }
       if (kind === 'card-hold' && body.hold && body.for !== undefined) {
         const end = durationEnd(new Date(), body.for);
         if (!end) return json(res, 400, { error: 'That hold ends in the past or more than 30 days on. Pick another time.' });
@@ -1175,7 +1209,7 @@ const server = http.createServer(async (req, res) => {
         if (!written) return json(res, 400, { error: `${key} is already merged or dropped, so its wave file stays as it is.` });
         if (agents.length) {
           stopAgents(agents);
-          await appendThread(here, key, { text: 'Stopped its builder.', who: 'love' });
+          await appendThread(here, key, { text: 'Stopped its builder.', who: 'love', by: shared ? shared.by.name || shared.by.login : undefined });
         }
       }
       // A Save's removes and adds are both written here, and recorded as reviewers-removed and reviewers-added, which the

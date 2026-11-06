@@ -1,5 +1,6 @@
 // docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md
 // docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
+// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -44,7 +45,7 @@ console.log(fs.readFileSync(file, 'utf8'));
     const dir = path.join(home, 'orch');
     write(path.join(dir, 'board.json'), board);
     write(path.join(home, 'stand-in', 'board', 'server.mjs'), `import http from 'node:http';
-const server = http.createServer((req, res) => res.end('orch ' + req.method + ' ' + req.url));
+const server = http.createServer((req, res) => res.end('orch ' + req.method + ' ' + req.url + (req.method === 'POST' ? ' from ' + (req.headers['x-kickflip-shared'] || 'the owner') : '')));
 server.on('upgrade', (req, socket) => socket.end('HTTP/1.1 101 Switching Protocols\\r\\nConnection: Upgrade\\r\\nUpgrade: test\\r\\n\\r\\n' + req.url));
 server.listen(Number(process.env.PORT), '127.0.0.1');
 `);
@@ -155,7 +156,7 @@ test('a board shared with a login lets that person read the shell and the board,
   assert.equal(shell.status, 200);
   const page = await shell.text();
   const data = JSON.parse(/<script id="sidebarData" type="application\/json">(.*?)<\/script>/s.exec(page)[1]);
-  assert.deepEqual([data.sites.map((s) => s.route), data.shared, data.start, data.usage, data.hub], [['orch'], { by: 'Love' }, 'orch', undefined, undefined]);
+  assert.deepEqual([data.sites.map((s) => s.route), data.shared, data.start, data.usage, data.hub], [['orch'], { by: 'Love', full: [] }, 'orch', undefined, undefined]);
   assert.doesNotMatch(page, /href="\/app\/"/, 'the sidebar drawn in lists only their board');
   const sidebar = await (await fetch(`${base}/_hub/sidebar.json`, { headers: shared })).json();
   assert.deepEqual(sidebar.sites.map((s) => s.route), ['orch']);
@@ -252,4 +253,48 @@ test("removing a share ends that person's open hub stream, and leaves the owner'
   assert.equal(theirs.ended, true, 'their stream ended');
   assert.equal(owners.ended, false, "the owner's stream stays open");
   assert.equal((await fetch(`${base}/_hub/stream`, { headers: friend })).status, 403, 'and coming back is refused');
+});
+
+test("a Full person's events and uploads reach the board named as them, the owner's never do, and a level change ends their stream", async (t) => {
+  const { base, home } = await startHub(t, { status: STATUS, board: { title: 'Orch', share: [{ login: 'friend@github', level: 'full' }] } });
+  const deadline = Date.now() + 15_000;
+  while ((await fetch(`${base}/orch/x`).then((r) => r.text(), () => '')) !== 'orch GET /x' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+  const post = (p, headers) => fetch(base + p, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' });
+
+  assert.equal(await (await post('/orch/_claude/events', friend)).text(), 'orch POST /_claude/events from friend@github');
+  assert.equal(await (await post('/orch/api/upload', friend)).text(), 'orch POST /api/upload from friend@github');
+  // Board settings and every other write stay the owner's.
+  for (const p of ['/orch/api/share', '/orch/api/settings', '/orch/api/read']) {
+    const r = await post(p, friend);
+    assert.deepEqual([r.status, await r.json()], [403, { error: 'This board is shared with you to look at only.' }], p);
+  }
+  // The owner's request carries no shared login, whatever it sends.
+  assert.equal(await (await post('/orch/_claude/events', { ...phone, 'x-kickflip-shared': 'friend@github' })).text(), 'orch POST /_claude/events from the owner');
+  const data = await (await fetch(`${base}/_hub/sidebar.json`, { headers: friend })).json();
+  assert.deepEqual(data.shared, { by: 'Love', full: ['orch'] });
+  const sharing = await (await fetch(`${base}/_hub/share/orch`, { headers: phone })).json();
+  assert.deepEqual(sharing.people.map(({ login, level }) => ({ login, level })), [{ login: 'friend@github', level: 'full' }]);
+
+  // Back to View: their open stream ends, so the shell reopens it and follows the level, and their POST is refused.
+  const { hostname, port } = new URL(base);
+  const theirs = await new Promise((resolve, reject) => {
+    const req = http.get({ hostname, port, path: '/_hub/stream', headers: friend }, (res) => {
+      const s = { status: res.statusCode, ended: false };
+      res.on('data', () => {});
+      res.on('close', () => { s.ended = true; });
+      resolve(s);
+    });
+    req.on('error', () => {});
+    t.after(() => req.destroy());
+    setTimeout(() => reject(new Error('no stream')), 5000);
+  });
+  assert.equal(theirs.status, 200);
+  write(path.join(home, 'orch', 'board.json'), { title: 'Orch', share: ['friend@github'] });
+  const until = Date.now() + 5000;
+  while (!theirs.ended && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(theirs.ended, true, 'their stream ended');
+  assert.equal((await post('/orch/_claude/events', friend)).status, 403);
+  const back = await fetch(`${base}/_hub/stream`, { headers: friend });
+  assert.equal(back.status, 200, 'and comes back, view only');
+  await back.body.cancel();
 });

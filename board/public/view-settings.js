@@ -4,8 +4,8 @@
 // (GET api/reviewer-people), or a typed login, and stays off until both are chosen. Tickets save on each change, and Done, ✕,
 // Escape and the backdrop wait for that save to land before closing. An unsaved edit marks [data-dirty], and the shell
 // asks before closing the modal then. Sharing (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md)
-// lists the hub's GET /_hub/share/<route>, who can look and who was just refused, and saves each Add and ✕ at once
-// through POST api/share.
+// lists the hub's GET /_hub/share/<route>, who it's shared with, each View or Full, and who was just refused, and saves
+// each Add, level and ✕ at once through POST api/share.
 (globalThis.AppViews ||= {}).settings = {
   className: 'view-settings',
   title: () => 'Board Settings',
@@ -84,7 +84,7 @@
   <div class="row" style="margin-top:12px"><span class="muted small" id="saveStatus"></span><button class="primary" id="save" disabled>Save</button></div>
   </div>
   <h2>Sharing</h2>
-  <p class="muted small">People listed here can look at this board, view only. Nothing else on the host opens for them.</p>
+  <p class="muted small">View, or Full: everything but Merge and Board settings. Nothing else on the host opens for them.</p>
   <div id="shareList"><p class="muted small">Loading…</p></div>
   <div id="shareRefused"></div>
   <form class="add" id="shareAdd"><input id="shareLogin" placeholder="Add by login, like name@github" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="submit">Add</button></form>
@@ -612,13 +612,18 @@
     // the owner reach the board (docs/adr/2026-11-04-2156-the-whole-hub-answers-only-the-owner.md). A tap waits on the server with the
     // switch as it was and a spinner beside it, then draws the server's answer.
     // Sharing: each row is the person's name, then their login and when; a login Tailscale sent no name with is its own.
+    // A person's row also sets them View or Full with one tap, saying what that level can do
+    // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
     let sharing = null;
-    const shareRow = (title, sub, button) => `<div class="who"><span>${esc(title)}<span class="muted small sub">${sub}</span></span>${button}</div>`;
+    const CAN = { view: 'Looks only. Visit links open.', full: 'Answers, taps card buttons and adds New tasks. Merge and Board settings stay yours.' };
+    const shareRow = (title, sub, button, more = '') => `<div class="who"><span>${esc(title)}<span class="muted small sub">${sub}</span>${more}</span>${button}</div>`;
+    const shareLevel = (p) => `<span role="group" class="share-level" aria-label="${esc(p.name || p.login)}’s access">${[['view', 'View'], ['full', 'Full']].map(([level, label]) =>
+      `<button type="button" data-share-level="${level}" data-login="${esc(p.login)}" aria-pressed="${p.level === level}">${label}</button>`).join('')}</span><span class="muted small sub">${CAN[p.level]}</span>`;
     const shareWhen = (p) => (p.now ? '<span class="share-now">viewing now</span>' : esc(p.at ? BoardUI.since(p.at) : 'not seen yet'));
     const shareSub = (p, when) => (p.name ? `${esc(p.login)} · ${when}` : when);
     function drawSharing() {
       $('#shareList').innerHTML = sharing.people.length ? sharing.people.map((p) => shareRow(p.name || p.login, shareSub(p, shareWhen(p)),
-        `<button type="button" class="ghost" data-share-remove="${esc(p.login)}" aria-label="Remove ${esc(p.name || p.login)}">✕</button>`)).join('') : '<p class="muted small">Nobody yet.</p>';
+        `<button type="button" class="ghost" data-share-remove="${esc(p.login)}" aria-label="Remove ${esc(p.name || p.login)}">✕</button>`, shareLevel(p))).join('') : '<p class="muted small">Nobody yet.</p>';
       $('#shareRefused').innerHTML = sharing.refused.length ? `<p class="muted small">Just refused. Tap to share with them:</p>${sharing.refused.map((r) => shareRow(r.name || r.login, shareSub(r, esc(BoardUI.since(r.at))),
         `<button type="button" data-share-add="${esc(r.login)}">Add</button>`)).join('')}` : '';
     }
@@ -642,7 +647,12 @@
       }
     }
     loadSharing();
-    B.on($('#shareList'), 'click', (e) => { const b = e.target.closest?.('[data-share-remove]'); if (b) saveShare({ remove: b.dataset.shareRemove }); });
+    B.on($('#shareList'), 'click', (e) => {
+      const b = e.target.closest?.('[data-share-remove]');
+      if (b) { saveShare({ remove: b.dataset.shareRemove }); return; }
+      const level = e.target.closest?.('[data-share-level]');
+      if (level) saveShare({ login: level.dataset.login, level: level.dataset.shareLevel });
+    });
     B.on($('#shareRefused'), 'click', (e) => { const b = e.target.closest?.('[data-share-add]'); if (b) saveShare({ add: b.dataset.shareAdd }); });
     B.on($('#shareAdd'), 'submit', async (e) => {
       e.preventDefault?.();

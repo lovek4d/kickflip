@@ -14,8 +14,10 @@ globalThis.BoardNewTask = (function () {
 </dialog>`;
 
   function wire(B) {
-    // A shared person looks only (shell.js marks the page shared-view, and style.css hides the +), so n twice opens nothing.
-    if (document.documentElement.classList.contains('shared-view')) return;
+    // A View person looks only (shell.js marks the page shared-view without shared-full, and style.css hides the +), so
+    // n twice opens nothing.
+    const html = document.documentElement.classList;
+    if (html.contains('shared-view') && !html.contains('shared-full')) return;
     const { $, store, toast, quieted, sendDraft } = B;
     const { waitOn, keyedSend } = BoardUI;
     const send = (kind, data) => (B.send ? B.send(kind, data) : B.site.send(kind, data));

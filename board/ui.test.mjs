@@ -2186,6 +2186,16 @@ test("a shared person's sidebar lists only their boards: no Hub row, no New boar
   assert.deepEqual(plain(ui.switchKeys(data)).map((r) => r.href), ['/orch/']);
 });
 
+// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
+test("a Full person's line in a thread is named as them, the owner's stays You", () => {
+  const html = ui.threadMessages([
+    { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'Per key', by: 'Dana <R>', files: [] },
+    { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Agreed', files: [] },
+  ]);
+  assert.match(html, /<div class="who">Dana &lt;R&gt; · /);
+  assert.match(html, /<div class="who">You · /);
+});
+
 test('while typing, the header collapses to a strip at the top of what shows and the field\'s send bar docks on the keyboard', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const rule = (sel) => css.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';

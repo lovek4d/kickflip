@@ -5502,10 +5502,72 @@ test("Board settings' Sharing lists who can look and who was just refused, adds 
 test("Board settings' Sharing sits under Reviewers with one line to reach the host and Tailscale's Machines page", () => {
   const html = fakePage(memoryStorage().localStorage).win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   assert.ok(html.indexOf('<h2>Reviewers</h2>') < html.indexOf('<h2>Sharing</h2>') && html.indexOf('<h2>Sharing</h2>') < html.indexOf('<h2>Rules</h2>'));
-  assert.match(html, /People listed here can look at this board, view only\. Nothing else on the host opens for them\./);
+  assert.match(html, /View, or Full: everything but Merge and Board settings\. Nothing else on the host opens for them\./);
   assert.match(html, /They also need the host shared to them in Tailscale \(<a href="https:\/\/login\.tailscale\.com\/admin\/machines" target="_blank" rel="noopener">Tailscale’s Machines page <svg[^>]*class="link-arrow"[^>]*>.*?<\/svg><\/a>\)\. Then send them this link\./);
   assert.doesNotMatch(html, /↗/);
   assert.match(html, /<button type="button" id="shareCopy">Copy link<\/button>/);
+});
+
+// docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
+test("Board settings' Sharing sets each person View or Full with one tap, saying what each level can do", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  let sharing = { link: null, people: [{ login: 'dana@github', name: 'Dana Reyes', level: 'full', now: true, at: null }, { login: 'sam@github', name: 'Sam', level: 'view', now: false, at: null }], refused: [] };
+  const posts = [];
+  page.win.fetch = async (url, opts = {}) => {
+    let body = {};
+    if (url === '/_hub/share/orch') body = sharing;
+    if (url.endsWith('/api/share')) { posts.push(JSON.parse(opts.body)); body = { share: [] }; }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick();
+  const list = root.querySelector('#shareList');
+  assert.match(list.innerHTML, /<span role="group" class="share-level" aria-label="Dana Reyes’s access"><button type="button" data-share-level="view" data-login="dana@github" aria-pressed="false">View<\/button><button type="button" data-share-level="full" data-login="dana@github" aria-pressed="true">Full<\/button><\/span>/);
+  assert.match(list.innerHTML, /Answers, taps card buttons and adds New tasks\. Merge and Board settings stay yours\./);
+  assert.match(list.innerHTML, /data-share-level="view" data-login="sam@github" aria-pressed="true"/);
+  assert.match(list.innerHTML, /Looks only\. Visit links open\./);
+  sharing = { ...sharing, people: sharing.people.map((p) => (p.login === 'sam@github' ? { ...p, level: 'full' } : p)) };
+  page.fire(list, 'click', { target: { closest: (sel) => (sel.includes('data-share-level') ? { dataset: { shareLevel: 'full', login: 'sam@github' } } : null) } });
+  await tick(); await tick();
+  assert.deepEqual(posts.at(-1), { login: 'sam@github', level: 'full' });
+  assert.match(list.innerHTML, /data-share-level="full" data-login="sam@github" aria-pressed="true"/);
+  view.unmount();
+});
+
+test("a Full person's board opens with a Full strip saying Merge and Board settings are the owner's", () => {
+  const { BoardView } = fakePage(memoryStorage().localStorage).win;
+  assert.match(BoardView.markup({ title: 'Orch', shared: { by: 'Love', full: true } }), /<p class="view-only-strip"><b>Full\.<\/b> Shared with you by Love\. You can answer and act\. Merge and Board settings are Love’s\.<\/p>/);
+  assert.match(BoardView.markup({ title: 'Orch', shared: { by: null, full: true } }), /<b>Full\.<\/b> Shared with you\. You can answer and act\. Merge and Board settings are the owner’s\./);
+});
+
+test("the shell marks a board someone has Full on, follows a level change on the stream, and hides Board settings and disables Merge at every level", async () => {
+  const sources = [];
+  class EventSource {
+    static CLOSED = 2;
+    constructor() { this.readyState = 1; this.listeners = new Map(); sources.push(this); }
+    addEventListener(type, fn) { this.listeners.set(type, fn); }
+    close() { this.readyState = EventSource.CLOSED; }
+  }
+  const sites = [{ route: 'shop', title: 'The Shop', board: true, icon: '' }, { route: 'other', title: 'Other', board: true, icon: '' }];
+  const { win, doc } = await shellPage('/shop/', { sidebarData: { sites, shared: { by: 'Love', full: ['shop'] } }, EventSource, fetch: () => new Promise(() => {}) });
+  const html = doc.documentElement;
+  const strip = () => doc.querySelector('.view-only-strip').textContent;
+  assert.deepEqual([html.classList.contains('shared-view'), html.classList.contains('shared-full')], [true, true]);
+  assert.match(strip(), /^Full\./);
+  win.AppShell.open('/other/');
+  assert.deepEqual([html.classList.contains('shared-view'), html.classList.contains('shared-full')], [true, false]);
+  assert.match(strip(), /^View only\./);
+  win.AppShell.open('/shop/');
+  sources[0].listeners.get('sidebar')({ data: JSON.stringify({ sites, shared: { by: 'Love', full: [] } }) });
+  assert.equal(html.classList.contains('shared-full'), false);
+  assert.match(strip(), /^View only\./);
+
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.shared-view:not\(\.shared-full\) :is\(#compose, \[data-composer\], \.actions button, button\[data-confirm\]\) \{ display: none !important; \}/);
+  assert.match(css, /\.shared-view :is\(#settingsLink, #archBulb\) \{ display: none !important; \}/);
+  assert.match(css, /\.shared-full button\[data-confirm="merge"\] \{[^}]*pointer-events: none;/);
 });
 
 test("a shared person's board opens with a View only strip naming who shared it", () => {

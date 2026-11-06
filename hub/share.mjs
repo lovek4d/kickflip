@@ -1,9 +1,11 @@
-// Sharing a board with another Tailscale identity, view only
-// (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md). A board's board.json `share` lists the
-// logins exactly as tailscale serve's Tailscale-User-Login sends them. The hub's gate (board/on-host.mjs ownerGate) calls
-// anyone else `other`; for a login some board shares with, shareReach says which paths it reaches instead: the shell and
-// its files, the sidebar and stream (sharedSidebar filters them to the shared boards), and the shared boards' own pages
-// and reads, by GET or HEAD alone. Both are allow-lists, checked on the hub's one parse of the path, which the hub then
+// Sharing a board with another Tailscale identity
+// (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md), View or Full
+// (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md). A board's board.json `share` lists the logins exactly
+// as tailscale serve's Tailscale-User-Login sends them: a bare login is View, {login, level: 'full'} is Full. The hub's
+// gate (board/on-host.mjs ownerGate) calls anyone else `other`; for a login some board shares with, shareReach says which
+// paths it reaches instead: the shell and its files, the sidebar and stream (sharedSidebar filters them to the shared
+// boards), the shared boards' own pages and reads by GET or HEAD, and on a Full board its event and upload POSTs, whose
+// kinds the board server checks. All are allow-lists, checked on the hub's one parse of the path, which the hub then
 // forwards as is to the board. The tracker keeps when each shared person was last seen on each board, whether they're
 // viewing now, and who was just refused at the door, for Board settings' Sharing section.
 import path from 'node:path';
@@ -11,15 +13,25 @@ import { isBoardSite, readJSON, saveJSON } from './boards.mjs';
 
 // A login as Tailscale-User-Login sends it: an email, or name@github for a GitHub sign-in.
 export const validLogin = (v) => typeof v === 'string' && v.length <= 200 && /^[^\s@]+@[^\s@]+$/.test(v);
+// board.json → [{login, level: 'view' | 'full'}], each login once, its first entry winning
+export function shareEntries(cfg) {
+  const entries = new Map();
+  for (const e of Array.isArray(cfg?.share) ? cfg.share : []) {
+    const login = typeof e === 'string' ? e : e?.login;
+    if (validLogin(login) && !entries.has(login)) entries.set(login, { login, level: e?.level === 'full' ? 'full' : 'view' });
+  }
+  return [...entries.values()];
+}
 // board.json → [login]
-export const shareOf = (cfg) => (Array.isArray(cfg?.share) ? [...new Set(cfg.share.filter(validLogin))] : []);
+export const shareOf = (cfg) => shareEntries(cfg).map((e) => e.login);
 
 // sites: the manifest's sites. board.json is read on each call, since Board settings edits it underneath.
-// → Set of the board routes whose share lists login
+// → Map of the board routes whose share lists login → its level there
 export function sharedRoutes(login, sites) {
-  const routes = new Set();
+  const routes = new Map();
   for (const [route, s] of Object.entries(sites || {})) {
-    if (isBoardSite(s) && shareOf(readJSON(path.join(s.dir, 'board.json'), {})).includes(login)) routes.add(route);
+    const entry = isBoardSite(s) && shareEntries(readJSON(path.join(s.dir, 'board.json'), {})).find((e) => e.login === login);
+    if (entry) routes.set(route, entry.level);
   }
   return routes;
 }
@@ -39,6 +51,8 @@ const BOARD_READS = new RegExp('^/(?:' + [
   '[\\w-][\\w.-]*\\.(?:js|mjs|css|png|svg|ico|webp|jpe?g|gif|woff2?)', 'prototypes/[a-z0-9-]+/[\\w-][\\w.-]*\\.js', 'uploads/[^/]+',
   'api/(?:board|questions|done|links|working|thread|notes|plan|try/main/log)',
 ].join('|') + ')$');
+// What a Full person writes, the path after the route: events, whose kind the board server checks, and attachments.
+const FULL_WRITES = new Set(['/_claude/events', '/api/upload']);
 
 // method and pathname from the request, pathname as the hub parses it (WHATWG URL, so already free of dot segments and
 // backslashes) and forwards it; routes, sharedRoutes for its login.
@@ -52,7 +66,8 @@ export function shareReach({ method = 'GET', pathname, routes }) {
   const rest = m[2] || '/';
   // The board strips its own /<route> again, so a path naming the route twice would reach past this check.
   if (rest === `/${m[1]}` || rest.startsWith(`/${m[1]}/`)) return 'view-only';
-  return read && BOARD_READS.test(rest) ? 'pass' : 'view-only';
+  if (read) return BOARD_READS.test(rest) ? 'pass' : 'view-only';
+  return method === 'POST' && routes.get(m[1]) === 'full' && FULL_WRITES.has(rest) ? 'pass' : 'view-only';
 }
 
 // The route a path names, or null for `/` and the hub's own paths.
@@ -63,10 +78,12 @@ export function routeOfPath(pathname) {
 }
 
 // What /_hub/sidebar.json and the stream's sidebar give a shared person: their shared boards alone, with no count or
-// context reading, which are the owner's; no hub row, usage, notifications or starting boards. by: the owner's name.
+// context reading, which are the owner's; no hub row, usage, notifications or starting boards. by: the owner's name;
+// full: the routes they have Full on, which the shell follows.
 export function sharedSidebar(data, routes, by) {
   const sites = (data?.sites || []).filter((s) => routes.has(s.route)).map(({ count, ctx, ...s }) => s);
-  return { code: data?.code ?? null, total: 0, start: sites[0]?.route ?? null, sites, starting: [], shared: { by: by || null } };
+  const full = [...routes].filter(([, level]) => level === 'full').map(([route]) => route);
+  return { code: data?.code ?? null, total: 0, start: sites[0]?.route ?? null, sites, starting: [], shared: { by: by || null, full } };
 }
 
 const REFUSED_FOR_MS = 60 * 60_000;

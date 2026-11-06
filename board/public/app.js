@@ -395,9 +395,15 @@ window.BoardView = (function () {
     B.every(30000, () => { if (!document.hidden) { loadBoard(); } });
   }
 
-  // shared: the shell's data.shared for someone the board is shared with, view only, whose board opens with a strip saying so.
+  // shared: {by, full} for someone the board is shared with, whose board opens with a strip saying what they can do there
+  // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md). → the strip's inside
+  function sharedStrip({ by, full }) {
+    const from = `Shared with you${by ? ` by ${BoardUI.esc(by)}` : ''}.`;
+    return full ? `<b>Full.</b> ${from} You can answer and act. Merge and Board settings are ${by ? `${BoardUI.esc(by)}’s` : 'the owner’s'}.`
+      : `<b>View only.</b> ${from} You can look and open Visit links.`;
+  }
   function markup({ title = '', shared = null } = {}) {
-    const strip = shared ? `<p class="view-only-strip"><b>View only.</b> Shared with you${shared.by ? ` by ${BoardUI.esc(shared.by)}` : ''}. You can look and open Visit links.</p>\n` : '';
+    const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
     return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', bulb: true, moon: true })}
 <div class="split">
 <main>
@@ -445,5 +451,5 @@ ${BoardNewTask.markup()}
 </dialog>`;
   }
 
-  return { part, create, page, markup };
+  return { part, create, page, markup, sharedStrip };
 })();
