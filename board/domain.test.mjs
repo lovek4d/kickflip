@@ -1786,6 +1786,19 @@ test('a planner\'s agent and status lines in the thread are marked planner and n
   ]);
 });
 
+// docs/adr/2026-11-07-0700-one-agents-status-lines-fold-into-one-line.md
+test("a thread's status line names the agent it belongs to: the newest started of its kind of work that was running at its time; a line no agent covers names none", () => {
+  const agents = {
+    old: { kind: 'claude', model: 'opus', label: 'Builder', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:10:00Z' },
+    build: { kind: 'claude', model: 'opus', label: 'Builder', started: '2026-10-23T10:20:00Z' },
+    proto: { kind: 'prototype', model: 'sonnet', label: 'Prototype', started: '2026-10-23T10:15:00Z' },
+  };
+  const status = (ts, planner) => ({ ts, who: 'claude', kind: 'status', text: `at ${ts}`, ...(planner ? { planner: true } : {}) });
+  const lines = [status('2026-10-23T09:00:00Z'), status('2026-10-23T10:05:00Z'), status('2026-10-23T10:16:00Z', true), status('2026-10-23T10:25:00Z'), status('2026-10-23T10:26:00Z', true)];
+  const got = threadOf('w/A1', { lines, agents }).filter((m) => m.kind === 'status').map((m) => [m.ts.slice(11, 16), m.run || null, m.running ?? null]);
+  assert.deepEqual(got, [['09:00', null, null], ['10:05', 'old', false], ['10:16', 'proto', true], ['10:25', 'build', true], ['10:26', 'proto', true]]);
+});
+
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
 test("a card's bare Grill and Prototype taps are muted request entries in its thread, one with text is the owner's message with the request as its footer status, an answer's status is answers submitted, and an ask sent as a Quick build says so under it", () => {
   const ev = (id, kind, data, ts) => ({ id, ts, kind, data: { key: 'w/A1', ...data }, reply: null });

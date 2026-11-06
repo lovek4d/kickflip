@@ -1623,6 +1623,20 @@ test("a card's open questions asked since it was last seen are one blue line in 
   assert.doesNotMatch(ui.MARK_ICONS.questions, /<circle/);
 });
 
+// docs/adr/2026-11-07-0700-one-agents-status-lines-fold-into-one-line.md
+test("one agent's status lines fold into one line with a caret, showing the agent, whether it runs and the count, and expanding to its lines; a lone line and a line no agent covers stay as they are", () => {
+  const st = (n, extra = {}) => ({ ts: ago(10 - n), who: 'claude', kind: 'status', text: `Step ${n}`, ...extra });
+  const mine = { agent: 'Claude Opus implementer', run: 'main', running: true };
+  const html = ui.threadMessages([st(1), st(2, mine), { ts: ago(7.5), who: 'claude', text: 'Between' }, st(3, mine), st(4, mine), st(5, { ...mine, run: 'solo', agent: 'Solo' })]);
+  assert.equal(html.match(/<details/g).length, 1);
+  assert.match(html, /<details class="msg calls status-fold"><summary><span class="mark" aria-hidden="true"><svg/);
+  assert.match(text(html), /^Step 1 · \S.* Claude Opus implementer · running · 3 status lines Step 2 · \S.* Step 3 · \S.* Step 4 · \S.* Between .*Step 5/);
+  assert.doesNotMatch(html, /<details[^>]* open/);
+  const done = ui.threadMessages([st(1, { ...mine, running: false, planner: true }), st(2, { ...mine, running: false, planner: true })]);
+  assert.match(done, /class="msg calls status-fold planner"/);
+  assert.match(text(done), /^Claude Opus implementer · finished · 2 status lines/);
+});
+
 test("a builder's judgment calls show collapsed under its lines, saying whether the session verified them, and count as no message", () => {
   const open = { ts: ago(1), who: 'claude', kind: 'calls', text: 'Claude Opus builder', calls: ['Kept <the> old name', 'Question: every agent?'], verified: null };
   const html = ui.threadMessages([open]);

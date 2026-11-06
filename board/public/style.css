@@ -420,6 +420,8 @@ button.sub.agent.stalled.nudging { color: var(--color-notice); cursor: default; 
 .msg.calls summary { cursor: pointer; color: var(--muted); list-style: none; }
 .msg.calls summary::-webkit-details-marker { display: none; }
 .msg.calls[open] summary .mark-icon { transform: rotate(90deg); }
+.msg.calls.status-fold summary { color: var(--color-notice); }
+.msg.calls.status-fold.planner summary { color: var(--accent); }
 .msg.calls ol { margin: 4px 0; padding-left: 23px; }
 .agent-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 5px; vertical-align: 1px; }
 /* Every thread status line's leading mark, icon or dot, sits centred in one 18px box, so the text after it always starts

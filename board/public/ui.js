@@ -103,6 +103,7 @@
     'answers submitted': mini('<path d="M20 6 9 17l-5-5"/>'),
     'question reopened': mini('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>'),
     'judgment calls': mini('<path d="m9 6 6 6-6 6"/>'),
+    'status lines': mini('<path d="m9 6 6 6-6 6"/>'),
     questions: mini('<path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/>', ' big'),
   };
   const mark = (inner = '') => `<span class="mark" aria-hidden="true">${inner}</span>`;

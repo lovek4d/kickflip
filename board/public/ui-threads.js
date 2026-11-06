@@ -42,6 +42,7 @@
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary.
     : m.request ? `<div class="msg request">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'status' && m.folded ? `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary>${statusMark('status lines')}${escText(m.agent)} · ${m.running ? 'running' : 'finished'} · ${m.folded.length} status line${m.folded.length === 1 ? '' : 's'}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`
     : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'calls' ? `<details class="msg calls"><summary>${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length} · ${m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet'}</summary><ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}</details>`
     : m.kind === 'agent' ? `<div class="msg agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}">${mark('<span class="agent-dot"></span>')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
@@ -52,6 +53,18 @@
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
         ${m.eventId && !batched ? msgFooter(m) : ''}
       </div>`);
+
+  // One agent's status lines (domain.mjs agentOfLine gives each its agent) become one line at the first one's place, with
+  // the lines in it; a line no agent covers, and an agent with one line, stay as they are.
+  function foldStatus(lines) {
+    const runs = new Map();
+    for (const m of lines) if (m.kind === 'status' && m.run) runs.set(m.run, [...(runs.get(m.run) || []), m]);
+    return lines.flatMap((m) => {
+      const run = m.kind === 'status' && m.run ? runs.get(m.run) : null;
+      if (!run || run.length < 2) return [m];
+      return m === run[0] ? [{ ...m, folded: run }] : [];
+    });
+  }
 
   const STEP = 3;
   const UNREAD_CAP = 10;
@@ -84,7 +97,7 @@
   // draws the open card's window, so lines after `upto` add below without hiding older ones; null draws every line.
   function threadMessages(msgs, links = {}, edits = new Map(), view = null) {
     if (!msgs.length) return '<div class="muted small">No messages here yet.</div>';
-    const lines = withReplies(msgs);
+    const lines = foldStatus(withReplies(msgs));
     const { start, hidden } = view ? threadWindow(lines, view, edits) : { start: 0, hidden: 0 };
     const shown = lines.slice(start);
     if (start && shown[0].kind === 'reply' && !shown[0].quote) shown[0] = { ...shown[0], quote: lines[start - 1].text || '' };
