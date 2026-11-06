@@ -122,7 +122,12 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-switch .ps-text[hidden] { display:none; }
 .ps-picked { padding:12px 11px; border-radius:999px; color:#fff; background:#1f9d55; white-space:nowrap; }
 .ps-note { background:#000d; color:#fff; border-radius:8px; padding:5px 10px; font:500 12px -apple-system, system-ui, sans-serif; text-align:center; }
-.ps-note[hidden] { display:none; }`;
+.ps-note[hidden] { display:none; }
+@media (min-width: 900px) {
+  .ps-pill { width:min(640px, 100%); }
+  .ps-switch .ps-text { width:min(640px, 100%); }
+  .ps-states { flex-wrap:wrap; overflow-x:visible; }
+}`;
 
   const typing = (el) => Boolean(el?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])'));
 
@@ -165,7 +170,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     function paint() {
       const now = state();
       pill.innerHTML = pillHtml({ name: takes[take], pick: now, states, state: shownState });
-      text.hidden = !(now.kind === 'pick' || now.kind === 'change');
+      text.hidden = !(now.kind === 'pick' || now.kind === 'change' || now.kind === 'picked');
     }
     function go(next) {
       take = next;

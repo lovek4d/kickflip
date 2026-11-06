@@ -140,7 +140,7 @@ function prototypePage(url, { framed = false, owner, resolved = [], drafts = {},
     await settle();
   };
   return { pick, settle, pillName: () => /<span class="ps-name"[^>]*>([^<]*)</.exec(part('.ps-pill')?.innerHTML || '')?.[1], pill: () => part('.ps-pill')?.innerHTML || '',
-    typeNote: (v) => { part('.ps-text').value = v; }, noteBox: () => part('.ps-text')?.value, draft: (id) => JSON.parse(win.localStorage.getItem('qdraft:' + id) ?? 'null'),
+    typeNote: (v) => { part('.ps-text').value = v; }, noteBox: () => part('.ps-text')?.value, noteHidden: () => part('.ps-text')?.hidden, draft: (id) => JSON.parse(win.localStorage.getItem('qdraft:' + id) ?? 'null'),
     sent, moves, loaded, styles, rendered, classes, controls, replacements, take: mounted.take, fetches: () => fetches, asked, backs: () => backs, listeners };
 }
 
@@ -167,6 +167,21 @@ test('the viewer keeps a drafted note and its pick, and Choose this drafts the n
   assert.match(page.pill(), />Choose this<\/button>/);
   await page.pick();
   assert.deepEqual(page.draft('q1'), { choice: 'A', note: 'Kept' });
+});
+
+test('the note field stays after a take is picked', async () => {
+  const picked = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { owner: [{ ...question, topic: 'item:w/A1' }], drafts: { q1: { choice: 'A', note: 'Kept' } } });
+  await picked.settle();
+  assert.match(picked.pill(), /Picked/);
+  assert.equal(picked.noteHidden(), false);
+  assert.equal(picked.noteBox(), 'Kept');
+});
+
+test('on desktop the bar is 640px and its state pills wrap; under 900px it is as before', () => {
+  const css = prototypePage('https://mac.ts.net/orch/prototype-snooze.html', { owner: [] }).styles;
+  assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.ps-pill \{[^}]*width:min\(640px, 100%\)/);
+  assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.ps-states \{[^}]*flex-wrap:wrap/);
+  assert.match(css, /\.ps-pill \{[^}]*width:min\(460px, 100%\)/);
 });
 
 test('?take= is no longer an embed: the page keeps its bar, top controls and question at any take', () => {
