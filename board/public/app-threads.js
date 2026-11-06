@@ -91,7 +91,6 @@ BoardView.part((B) => {
   // once, with whatever is typed, as /prototype, /grill or /visual in the text does on Reply. Nothing typed sends the
   // bare request (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
   const PLACEHOLDER = 'Reply in this thread… (/prototype, /grill or /visual asks for one)';
-  const QUICK_BUILD = 'Quick build';
 
   // A load while one for the same thread runs shares it, so a card the page inserts open isn't fetched twice; force
   // starts a new one, after a send. maxAge skips a thread that loaded that recently. from is a load already started
@@ -141,13 +140,12 @@ BoardView.part((B) => {
     const text = flag ? slashOf(ta.value).text : ta.value.trim();
     const id = f.dataset.composer;
     const files = BoardAttach.files(id, B.site.root);
-    // An empty box still sends Implement, the card's build action: on a card not yet ready it is a quick build, which the
-    // session marks ready and builds; on a ready one it goes bare, and the board server starts the build at once.
+    // An empty box still sends Implement, the card's build action: the board server marks the card ready as it is and
+    // starts the build at once (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md).
     const intent = flag ? null : button.dataset.intent || null;
     if ((!flag && !text && !files.length && intent !== 'build') || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;
-    const quick = intent === 'build' && !text && !files.length && !state.board?.items.find((i) => i.key === key)?.ready;
-    const data = { key, ...(text || !flag ? { text: quick ? QUICK_BUILD : text } : {}), ...(files.length ? { files } : {}), ...(intent ? { intent } : {}) };
+    const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(intent ? { intent } : {}) };
     // Spins until the thread shows the message (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
     const sending = (async () => {
       await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),

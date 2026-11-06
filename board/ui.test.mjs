@@ -1588,16 +1588,16 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   ]);
   assert.match(planner, /<div class="msg agent started planner"><span class="mark" aria-hidden="true"><span class="agent-dot"><\/span><\/span>Claude Sonnet prototype started/);
   assert.match(planner, /<div class="msg builder-status planner"><span class="mark" aria-hidden="true"><span class="working-dot"><\/span><\/span>Reading: the notes/);
-  // A bare Grill or Prototype tap, and a Quick build ask's note, are a muted request entry, not a message from the owner,
-  // led by its icon in the same box as the dots.
+  // A bare Grill or Prototype tap, and a New task sent with Implement, are a muted request entry, not a message from the
+  // owner, led by its icon in the same box as the dots; a Full person's names them
+  // (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md).
   const requests = ui.threadMessages([
-    { ts: ago(2), who: 'love', via: 'site', kind: 'grill-more', request: true, text: 'grill requested', eventId: 'g1', state: 'waiting', files: [] },
-    { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'prototype requested', eventId: 'p1', state: 'waiting', files: [] },
-    { ts: ago(0.5), who: 'love', kind: 'quick-build', request: true, text: 'quick build: no grill' },
+    { ts: ago(2), who: 'love', via: 'site', kind: 'grill-more', request: true, text: 'Grill requested', eventId: 'g1', state: 'waiting', files: [] },
+    { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'Prototype requested', eventId: 'p1', state: 'waiting', files: [] },
+    { ts: ago(0.5), who: 'love', kind: 'command', command: 'implement', request: true, mark: 'Implementation requested', text: 'Implementation requested', by: 'Dana Reyes' },
   ]);
-  assert.match(requests, new RegExp(`^<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['grill requested']}</span>grill requested <span class="muted">· [^<]+</span></div><div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>prototype requested <span class="muted">`));
-  assert.match(requests, new RegExp(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['quick build: no grill'].replace(/[.*+?()[\]]/g, '\\$&')}</span>quick build`));
-  assert.match(ui.MARK_ICONS['quick build: no grill'], /<path d="M13 2 4 14h7l-1 8 9-12h-7z"\/>/);
+  assert.match(requests, new RegExp(`^<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+</span></div><div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
+  assert.ok(requests.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Implementation requested']}</span>Implementation requested <span class="muted">· Dana Reyes · `));
   // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md: a reopened question's line
   // varies with its number, so it names its mark.
   const reopened = ui.threadMessages([{ ts: ago(0.2), who: 'love', kind: 'question-reopen', request: true, mark: 'question reopened', text: 'Question 2 was reopened' }]);
@@ -1615,14 +1615,14 @@ test('a builder status line, and an agent starting or finishing, reads as one li
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
 test("a request with text, a question's prototype request and an answer are the owner's message with the tap's status in the footer, Waiting for Claude to its right until Claude picks it up; a folded submit of answers carries one footer", () => {
-  const msg = (extra) => ({ ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', text: 'Phone width first', eventId: 'p1', state: 'waiting', files: [], status: 'prototype requested', ...extra });
+  const msg = (extra) => ({ ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', text: 'Phone width first', eventId: 'p1', state: 'waiting', files: [], status: 'Prototype requested', ...extra });
   const foot = (html) => /<div class="reply muted small">(.*?)<\/div>/s.exec(html)?.[1];
   const status = (words) => `<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`;
-  assert.equal(foot(ui.threadMessages([msg()])), `${status('prototype requested')}Waiting for Claude…`);
+  assert.equal(foot(ui.threadMessages([msg()])), `${status('Prototype requested')}Waiting for Claude…`);
   assert.match(ui.threadMessages([msg()]), /<div class="body">Phone width first<\/div>/);
-  assert.equal(foot(ui.threadMessages([msg({ state: 'answered' })])), status('prototype requested'));
-  assert.match(foot(ui.threadMessages([msg({ state: 'working' })])), /^<span class="foot-status">.*prototype requested<\/span><span class="thinking">/);
-  assert.equal(foot(ui.threadMessages([msg({ kind: 'grill-more', status: 'grill requested' })])), `${status('grill requested')}Waiting for Claude…`);
+  assert.equal(foot(ui.threadMessages([msg({ state: 'answered' })])), status('Prototype requested'));
+  assert.match(foot(ui.threadMessages([msg({ state: 'working' })])), /^<span class="foot-status">.*Prototype requested<\/span><span class="thinking">/);
+  assert.equal(foot(ui.threadMessages([msg({ kind: 'grill-more', status: 'Grill requested' })])), `${status('Grill requested')}Waiting for Claude…`);
   const answer = (id, ts) => ({ ts, who: 'love', via: 'questions', kind: 'owner-answer', text: `${id}?\n→ A`, eventId: id, state: 'waiting', files: [], status: 'answers submitted' });
   const submit = { ...answer('a1', ago(1)), text: 'a1?\n→ A\n\na2?\n→ B', answers: [{ eventId: 'a1', state: 'waiting', text: 'a1?\n→ A' }, { eventId: 'a2', state: 'waiting', text: 'a2?\n→ B' }] };
   const folded = ui.threadMessages([submit]);
@@ -2268,17 +2268,18 @@ test('a ↗ written in a question, its context and its options draws as the arro
   assert.equal(html.split('class="link-arrow"').length - 1, 4);
 });
 
-test("a Todo thread message's footer and a bare Implement request lead with an icon for Reply and Implement, as Quick build's does", () => {
+test("a Todo thread message's footer leads with an icon for Reply and Implement, and a bare Implement's line with Implement's", () => {
   const html = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'hello', status: 'Reply', eventId: 'm1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'go', status: 'Implement', eventId: 'm2', state: 'waiting', files: [] },
-    { ts: ago(0.5), who: 'love', via: 'site', kind: 'item-message', request: true, text: 'Implement', eventId: 'm3', state: 'waiting', files: [] },
+    { ts: ago(0.5), who: 'love', kind: 'command', command: 'implement', request: true, mark: 'Implementation requested', text: 'Implementation requested' },
   ]);
   for (const words of ['Reply', 'Implement']) {
     assert.match(ui.MARK_ICONS[words], /^<svg class="mark-icon"/);
     assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`), words);
   }
-  assert.ok(html.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implement`));
+  assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS.Implement);
+  assert.ok(html.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implementation requested`));
 });
 
 test('a ↗ in a card title, a card details line, a thread line and a question draws as the arrow icon, never the character', () => {
@@ -2294,25 +2295,25 @@ test('a ↗ in a card title, a card details line, a thread line and a question d
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
 test("a bare visual request is a request line led by the image mark, and the agent's page a plain link line that opens it full page", () => {
   const html = ui.threadMessages([
-    { ts: ago(2), who: 'love', via: 'site', kind: 'visual-request', request: true, text: 'visual requested', eventId: 'v1', state: 'waiting', files: [] },
+    { ts: ago(2), who: 'love', via: 'site', kind: 'visual-request', request: true, text: 'Visual requested', eventId: 'v1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'claude', kind: 'visual', text: 'How a land <moves>', link: 'visuals/A1/how-a-land-moves.html' },
   ]);
-  assert.match(ui.MARK_ICONS['visual requested'], /<rect x="3" y="3" width="18" height="18" rx="2"\/>/);
-  assert.ok(html.startsWith(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['visual requested']}</span>visual requested <span class="muted">`));
+  assert.match(ui.MARK_ICONS['Visual requested'], /<rect x="3" y="3" width="18" height="18" rx="2"\/>/);
+  assert.ok(html.startsWith(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Visual requested']}</span>Visual requested <span class="muted">`));
   assert.match(html, /<div class="msg link visual"><span class="mark" aria-hidden="true"><svg.*?<\/svg><\/span><a href="visuals\/A1\/how-a-land-moves\.html">How a land &lt;moves&gt; →<\/a> <span class="muted">· [^<]+<\/span><\/div>$/);
   assert.doesNotMatch(html, /target="_blank"|class="who"/);
 });
 
 // docs/adr/2026-11-07-0600-every-thread-status-line-carries-an-icon.md
 test('every kind of thread status or system line leads with an icon, so a new kind cannot ship without one', async () => {
-  const { ACTION_LABELS, INTENT_LABELS, QUICK_BUILD, ANSWERS_SUBMITTED } = await import('./domain.mjs');
-  // Each word domain.mjs puts on a request line or a message footer has an icon.
-  const words = [...Object.values(ACTION_LABELS).filter((w) => w !== ACTION_LABELS['mark-ready']), ...Object.values(INTENT_LABELS), QUICK_BUILD, ANSWERS_SUBMITTED];
+  const { ACTION_LABELS, INTENT_LABELS, COMMANDS, ANSWERS_SUBMITTED } = await import('./domain.mjs');
+  // Each word domain.mjs puts on a request line or a message footer has an icon: every command key's among them.
+  const words = [...Object.values(ACTION_LABELS).filter((w) => w !== ACTION_LABELS['mark-ready']), ...Object.values(INTENT_LABELS), ...Object.values(COMMANDS), ANSWERS_SUBMITTED];
   for (const w of words) assert.match(ui.MARK_ICONS[w] || '', /class="mark-icon/, `${w} has an icon`);
   // Each system line kind renders a mark holding an icon, or the dot of a builder or agent that is running.
   const sample = { ts: ago(1), who: 'claude', text: 'x', link: '#item=a', calls: ['c'], verified: null };
   for (const kind of ui.SYSTEM_KINDS) {
-    const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'quick-build' ? { text: QUICK_BUILD, request: true } : {}) }]);
+    const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'command' ? { command: 'hold', mark: COMMANDS.hold, text: 'Held until Fri', request: true } : {}) }]);
     assert.match(html, /<span class="mark" aria-hidden="true">(<svg class="mark-icon|<span class="(working|agent)-dot")/, `${kind} line has a mark`);
   }
   // A request line with no icon for its words renders an empty mark, which this catches.

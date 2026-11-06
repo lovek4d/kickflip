@@ -717,23 +717,31 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // answered. A work item's thread also takes the owner's messages from its asks' threads; the caller adds their lines.
 // agents is the item's builder records by agent name: each adds a line when it started and one when it finished,
 // which, like status lines, answer no message.
-// A Grill or Prototype tap with nothing typed, or a resolved question's re-ask, is a request entry, muted, not a message
-// from the owner; the session builds the planner's prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
+// docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
+// A button with no text box, or with nothing typed in it, posts a status line in the thread and never a message: a
+// muted request entry carrying its command key, whose words are COMMANDS[command] (ui.js MARK_ICONS holds each one's
+// icon). The orchestrator reads the key when the card has no clearly defined next step (SKILL.md lists each).
+// A Grill, Prototype or Visual tap with nothing typed, or a resolved question's re-ask, is such an entry from its event;
+// the session builds the planner's prompt from the event (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
+// A bare Implement, a Hold, Resume or Done, and a New task sent with Implement are such lines from the thread file or ask.
 // A request with text, a question's prototype request (its question, pick and note) and an answer are the owner's
 // messages, with the tap's words as their footer's status
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
-export const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'visual-request': 'visual requested', 'reask-request': 're-ask requested' };
+export const COMMANDS = {
+  implement: 'Implementation requested', prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
+  reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done',
+};
+const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'reask-request': 'reask' };
+export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };
 const REQUESTS = ['grill-more', 'prototype-request', 'visual-request'];
 export const ANSWERS_SUBMITTED = 'answers submitted';
-export const QUICK_BUILD = 'quick build: no grill';
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
 // A Todo card's thread box sends with Reply (intent: 'reply') or Implement (intent: 'build'), and its message's footer
-// names that button. A bare Implement is a request line. A one-button box's message carries no intent and has no footer.
+// names that button. A bare Implement records no event: the board server writes its status line. A one-button box's
+// message carries no intent and has no footer.
 export const INTENT_LABELS = { reply: 'Reply', build: 'Implement' };
 const intentLabel = (e) => INTENT_LABELS[e.data.intent];
-const bareMessage = (e) => e.kind === 'item-message' && !String(e.data.text || '').trim() && !e.data.files?.length;
 const actionText = (e, asked) => {
-  if (bareMessage(e) && e.data.intent === 'build') return intentLabel(e);
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || (e.data.files?.length ? '' : routeRecord(ACTION_LABELS, e.kind)) || '';
   const q = asked.get(e.data.question);
   const o = (q.options || []).find((x) => x.id === e.data.choice);
@@ -750,10 +758,13 @@ const REOPENED = 'question reopened';
 // its status); a thread message has its button's label as its status (intentLabel).
 // A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
+// A thread line a button wrote: its words can vary (Held until a time), so it names its mark.
+const commandLine = (command) => ({ kind: 'command', command, request: true, mark: COMMANDS[command] });
 const requestOf = (e, asked) => {
-  if (e.kind === 'item-message') return bareMessage(e) && e.data.intent === 'build' ? { request: true } : INTENT_LABELS[e.data.intent] ? { status: intentLabel(e) } : {};
-  if (!REQUESTS.includes(e.kind)) return e.kind === 'reask-request' ? { request: true } : {};
-  return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : { request: true };
+  if (e.kind === 'item-message') return INTENT_LABELS[e.data.intent] ? { status: intentLabel(e) } : {};
+  const command = { request: true, command: REQUEST_COMMANDS[e.kind] };
+  if (!REQUESTS.includes(e.kind)) return e.kind === 'reask-request' ? command : {};
+  return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : command;
 };
 // A Claude line answers the owner's messages before it; an agent's lines and the orchestrator's answer to a builder don't.
 const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
@@ -824,7 +835,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL ? { kind: VISUAL } : {}),
+    ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL ? { kind: VISUAL } : {}), ...(m.command ? commandLine(m.command) : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
@@ -837,7 +848,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
-        ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', kind: 'quick-build', request: true, text: QUICK_BUILD }] : []),
+        ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', ...commandLine('implement'), text: COMMANDS.implement }] : []),
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const lastClaude = claudeAtOf(msgs);

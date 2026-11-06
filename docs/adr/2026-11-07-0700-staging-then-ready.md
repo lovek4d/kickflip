@@ -10,7 +10,7 @@ A card's state is now `grilling | prototyping | staging | ready`.
 
 - **Only the board sets staging**, on an owner action. `item set` and `item add` refuse `--state staging`.
   - A Send that leaves an unstarted card with nothing open stages it: a gate "no", a note-only answer, a held or blocked card included. It doesn't when no take was picked, a planner or build runs on the card, or a gate "yes" moved it to prototyping.
-  - An Implement on a Todo card (with text, or bare on a card not ready) stages it in Todo, unholds it and resolves its open questions "Skipped: you tapped Implement". A bare Implement on a ready card starts the build, as before.
+  - An Implement with text on a Todo card stages it in Todo, unholds it and resolves its open questions "Skipped: you tapped Implement". A bare Implement on any Todo card marks it ready as it is and starts the build ([a button without a text box posts a keyed status line](2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md)).
   - A Reply on a ready card stages it.
 - **Code writes the owner's words into the card's notes**, verbatim, under a dated heading, making `<id>-notes.md` when the card has none. The owner, on gh297-fold: code writes the answers in, and the orchestrator only judges.
 - **`--state ready` is taken only from staging**, or on a card already ready. A Quick build ask filed `--from-ask` counts as its staging (gh297-quick). `item add --state ready` is refused: an agent's card lands in Todo and is grilled (gh297-agent-ready).

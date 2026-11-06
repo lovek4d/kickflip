@@ -99,11 +99,12 @@
 //                                ?board=0, as the hub posts, answers with no board, so the answer builds nothing after the line is written
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
-//                                Implement with no text or files on a ready card starts the build as card-build does,
-//                                with no event; any other on a Todo card stages it there, its open questions skipped
-//                                and its words in its notes (store.mjs stageImplement), and appends the message. Any
-//                                other message on a ready Todo card stages it again with its words in the notes
-//                                (store.mjs stageReply; docs/adr/2026-11-07-0700-staging-then-ready.md)
+//                                Implement with no text or files on a Todo or ready card writes its "Implementation
+//                                requested" line, marks the card ready as it is and starts the build as card-build does,
+//                                with no event (store.mjs implementAsIs). One with text or files on a Todo card stages it
+//                                there, its open questions skipped and its words in its notes (store.mjs stageImplement),
+//                                and appends the message. Any other message on a ready Todo card stages it again with its
+//                                words in the notes (store.mjs stageReply; docs/adr/2026-11-07-0700-staging-then-ready.md)
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
 //                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype
@@ -295,7 +296,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, startVisual, openAgents, isLanding, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1155,8 +1156,10 @@ const server = http.createServer(async (req, res) => {
         const key = String(body.key || '');
         const card = (await sharedBoard()).items.find((i) => i.key === key && i.kind === 'work');
         const bare = !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
-        if (body.intent === 'build' && card?.state === 'ready' && card.lane === 'todo' && bare) {
-          const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts));
+        // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement readies the
+        // card as it is and starts its build, with no event.
+        if (bare && (card?.ready || card?.lane === 'todo')) {
+          const started = await implementAsIs(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), shared ? shared.by.name || shared.by.login : undefined);
           return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
         }
         if (card?.lane === 'todo' && body.intent === 'build') await stageImplement(here, key, body);

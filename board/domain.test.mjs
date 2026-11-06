@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -365,7 +365,7 @@ test("a prototype request is its question's input until the round arrives: the q
   assert.deepEqual(view([{ ...plain, url: 'prototype-search.html?q=plain', resolved: 'Picked A', resolved_at: '2026-10-23T11:00:00Z' }], []).round, null);
 
   const thread = threadOf('w/A1', { events: [request('plain', '2026-10-23T10:00:00Z')], owner: { items: [plain] } });
-  assert.deepEqual(thread.map((m) => [m.kind, m.text, m.status, Boolean(m.request)]), [['prototype-request', 'Question 1 · Where does search sit?\n→ show it on a phone', 'prototype requested', false]]);
+  assert.deepEqual(thread.map((m) => [m.kind, m.text, m.status, Boolean(m.request)]), [['prototype-request', 'Question 1 · Where does search sit?\n→ show it on a phone', 'Prototype requested', false]]);
   const leaning = threadOf('w/A1', { events: [request('plain', '2026-10-23T10:00:00Z', 'B')], owner: { items: [plain] } });
   assert.deepEqual(leaning.map((m) => m.text), ['Question 1 · Where does search sit?\n→ B. Behind an icon\n→ show it on a phone']);
 });
@@ -1812,7 +1812,8 @@ test("a thread's status line names the agent it belongs to: the newest started o
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
-test("a card's bare Grill and Prototype taps are muted request entries in its thread, one with text is the owner's message with the request as its footer status, an answer's status is answers submitted, and an ask sent as a Quick build says so under it", () => {
+// docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
+test("a card's bare Grill and Prototype taps are muted request entries in its thread carrying their command key, one with text is the owner's message with the request as its footer status, an answer's status is answers submitted, and an ask sent with Implement reads Implementation requested under it", () => {
   const ev = (id, kind, data, ts) => ({ id, ts, kind, data: { key: 'w/A1', ...data }, reply: null });
   const events = [
     { id: 'a1', ts: '2026-10-23T09:00:00Z', kind: 'ask', data: { text: 'Add a badge', quick: true }, reply: null },
@@ -1821,22 +1822,35 @@ test("a card's bare Grill and Prototype taps are muted request entries in its th
     { id: 'q1a', ts: '2026-10-23T10:04:00Z', kind: 'owner-answer', data: { id: 'q1', label: 'A. Keep it', note: 'yes' }, reply: null },
   ];
   const msgs = threadOf('w/A1', { events, fromAsk: 'a1', owner: { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Keep it?' }] } });
-  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request), m.status || null]), [
-    ['ask', 'Add a badge', false, null], ['quick-build', 'quick build: no grill', true, null],
-    ['grill-more', 'grill requested', true, null], ['prototype-request', 'prototype requested', true, null],
-    ['grill-more', 'Ask about the colours', false, 'grill requested'], ['prototype-request', 'Phone width first', false, 'prototype requested'],
-    ['owner-answer', 'Question 1 · Keep it?\n→ A. Keep it · yes', false, 'answers submitted'],
+  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request), m.status || null, m.command || null]), [
+    ['ask', 'Add a badge', false, null, null], ['command', 'Implementation requested', true, null, 'implement'],
+    ['grill-more', 'Grill requested', true, null, 'grill'], ['prototype-request', 'Prototype requested', true, null, 'prototype'],
+    ['grill-more', 'Ask about the colours', false, 'Grill requested', null], ['prototype-request', 'Phone width first', false, 'Prototype requested', null],
+    ['owner-answer', 'Question 1 · Keep it?\n→ A. Keep it · yes', false, 'answers submitted', null],
   ]);
   assert.deepEqual(msgs.filter((m) => m.status).map((m) => m.state), ['waiting', 'waiting', 'waiting']);
   assert.equal(threadOf('w/A1', { events: [{ ...events[0], data: { text: 'Add a badge' } }], fromAsk: 'a1' }).length, 1);
 });
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("a thread message's footer names the button that sent it: Reply or Implement; a bare Implement is a request line; a one-button box's message has none", () => {
+test("a thread message's footer names the button that sent it: Reply or Implement; a one-button box's message has none", () => {
   const ev = (id, data) => ({ id, ts: `2026-10-23T10:0${id.slice(1)}:00Z`, kind: 'item-message', data: { key: 'w/A1', ...data }, reply: null });
-  const events = [ev('m1', { text: 'Use the blue', intent: 'build' }), ev('m2', { text: 'Just a reply', intent: 'reply' }), ev('m3', { text: 'Sent' }), ev('m4', { text: '', intent: 'build' })];
+  const events = [ev('m1', { text: 'Use the blue', intent: 'build' }), ev('m2', { text: 'Just a reply', intent: 'reply' }), ev('m3', { text: 'Sent' })];
   const shown = (opts) => threadOf('w/A1', { events, ...opts }).map((m) => [m.text, m.status || null, Boolean(m.request)]);
-  assert.deepEqual(shown({}), [['Use the blue', 'Implement', false], ['Just a reply', 'Reply', false], ['Sent', null, false], ['Implement', null, true]]);
+  assert.deepEqual(shown({}), [['Use the blue', 'Implement', false], ['Just a reply', 'Reply', false], ['Sent', null, false]]);
+});
+
+// docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
+test("a thread-file line a button wrote is a request line carrying its command key, naming its mark when its words vary", () => {
+  const lines = [
+    { ts: '2026-10-23T10:00:00Z', who: 'love', text: 'Implementation requested', command: 'implement' },
+    { ts: '2026-10-23T10:01:00Z', who: 'love', text: 'Held until Fri 10/24, 9:00 AM', command: 'hold', by: 'Dana Reyes' },
+    { ts: '2026-10-23T10:02:00Z', who: 'love', text: 'Earlier hand-typed line' },
+  ];
+  assert.deepEqual(threadOf('w/A1', { lines }).map((m) => [m.kind ?? null, m.command ?? null, Boolean(m.request), m.mark ?? null, m.by ?? null]), [
+    ['command', 'implement', true, 'Implementation requested', null], ['command', 'hold', true, 'Held', 'Dana Reyes'], [null, null, false, null, null],
+  ]);
+  assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done']);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
@@ -2094,7 +2108,7 @@ test("a re-ask of a resolved question is pending while its reask-request is newe
   assert.equal(ownerQuestion(q, [], [], [reask('2026-10-23T10:00:00Z')]).reask, null, 'one the question was resolved after is done');
   assert.deepEqual(ownerQuestion(q, [], [], [reask('2026-10-23T10:00:00Z'), reask('2026-10-23T12:00:00Z')]).reask, { id: 'r-2026-10-23T12:00:00Z', ts: '2026-10-23T12:00:00Z' });
   const msgs = threadOf('w/A1', { events: [reask('2026-10-23T12:00:00Z')], owner: { items: [q] } });
-  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request)]), [['reask-request', 're-ask requested', true]]);
+  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request)]), [['reask-request', 'Re-ask requested', true]]);
 });
 
 // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
@@ -2245,7 +2259,7 @@ test("a visual request is a request line, or the owner's message with visual req
   const lines = [{ ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'visual', text: 'How a land moves', link: 'visuals/A1/how-a-land-moves.html' }];
   const msgs = threadOf('w/A1', { events, lines });
   assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request), m.status || null, m.link || null]), [
-    ['visual-request', 'visual requested', true, null, null], ['visual-request', 'Draw the land queue', false, 'visual requested', null],
+    ['visual-request', 'Visual requested', true, null, null], ['visual-request', 'Draw the land queue', false, 'Visual requested', null],
     ['visual', 'How a land moves', false, null, 'visuals/A1/how-a-land-moves.html'],
   ]);
   assert.equal(msgs[1].state, 'answered', 'the page answers the request');

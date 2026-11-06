@@ -637,7 +637,7 @@ test("the owner's Hold kills the card's running builder, closes its record and s
     await send('card-hold', { key: 't/H1', hold: true });
     await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'the hold stops the agent');
     assert.ok(b.record('H1').done, 'its record closed, so nothing relaunches it');
-    assert.deepEqual(b.thread('H1').slice(-2).map((t) => t.text), ['Held.', 'Stopped its builder.']);
+    assert.deepEqual(b.thread('H1').slice(-2).map((t) => t.text), ['Held', 'Stopped its builder.']);
   } finally {
     child.kill();
     if (pid) try { process.kill(pid, 'SIGKILL'); } catch {}

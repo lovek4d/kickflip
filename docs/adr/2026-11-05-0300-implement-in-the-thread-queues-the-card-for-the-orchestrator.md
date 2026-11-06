@@ -1,10 +1,10 @@
 ---
-status: superseded in part by 2026-11-05-0802-todo-has-no-queue
+status: superseded in part by 2026-11-05-0802-todo-has-no-queue and 2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line
 ---
 
 # Implement in the thread queues the card for the orchestrator
 
-Superseded in part by [Todo has no queue](2026-11-05-0802-todo-has-no-queue.md): ready has the board server start the card's build at once, past the cap, or bumps it while a dep blocks it; no message or status line reads "queued".
+Superseded in part by [Todo has no queue](2026-11-05-0802-todo-has-no-queue.md): ready has the board server start the card's build at once, past the cap, or bumps it while a dep blocks it; no message or status line reads "queued". Superseded in part by [a button without a text box posts a keyed status line](2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md): an empty Implement on any Todo card readies it and starts its build, writing only an "Implementation requested" line.
 
 The owner, on #264 (a follow-up from #256): "more data for the incoming messages to clearly state intention deterministically, wondering if we can apply this information more later on". Settled in the grill and round 2 of the intent-lanes prototype:
 - gh264-lanes C: only a Todo card's thread has two buttons. "reply and build (or just implement rather) replaces the existing implement button on todo cards".

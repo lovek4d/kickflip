@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -352,13 +352,14 @@ export async function readUpload(site, file) {
 const VIA = ['github', 'slack'];
 // key is <wave>/<id>, or ask:<event id> for an ask's thread. by: the shared person whose tap an owner line is, by name
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
-export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by }) {
+// command is a button's key (domain.mjs COMMANDS), which makes the line its status line.
+export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by, command }) {
   needSite(site);
   if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
   else await loadItem(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by };
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by, command };
   const file = threadFile(site, key);
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
@@ -1850,7 +1851,7 @@ function closingLine(site, key, item, status, text, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, ownerStep, ownerDone, check }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, notesFile, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check }, options) {
   if (status !== undefined && clearStatus) fail('pass --status or --clear-status, not both');
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   checkState(state);
@@ -1991,7 +1992,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, next, clearN
   if (notesFile !== undefined || (state === 'ready' && site)) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (status === 'building') resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
-  if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who, by })).lines);
+  if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who, by, command })).lines);
   // The ticket stays open while the card waits on its owner step.
   const target = item.owner_step && FINISHED.includes(status) ? null : ticketTarget({ status, pr: pr ?? pushed ?? mergeReady });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo: boardRepoOf(site, wave) });
@@ -2082,7 +2083,8 @@ export async function recordOwnerTap(site, kind, data) {
   const { source, wave } = await loadWave(site, slug);
   // The owner's line, so it answers none of their messages that wait on Claude.
   const by = data.shared_by ? data.shared_by.name || data.shared_by.login : undefined;
-  const said = { text: 'Marked done.', who: 'love', by };
+  // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: each tap's line is its status line.
+  const said = { text: COMMANDS.done, who: 'love', by, command: 'done' };
   const item = wave.items.find((it) => it.id === id) || fail(`wave "${slug}" has no item "${id}"`);
   // A merged card waiting on its owner step closes on the owner's Done, staying merged.
   const stepOpen = kind === 'card-done' && Boolean(item.owner_step);
@@ -2094,7 +2096,8 @@ export async function recordOwnerTap(site, kind, data) {
   // A hold stops the card's builders, so their records close: an open record with an exited process is relaunched.
   if (data.hold) { await closeBuilders(source.dir, id, false); await publishStaged(site, key); }
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  return appendThread(site, key, { text: data.hold ? (at ? `Held until ${at}.` : 'Held.') : 'Resumed.', who: 'love', by });
+  return appendThread(site, key, data.hold ? { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', by, command: 'hold' }
+    : { text: COMMANDS.resume, who: 'love', by, command: 'resume' });
 }
 
 // --check's text → its stored form, or refuses it (shared/owner-check.mjs parseCheck).
@@ -2979,6 +2982,26 @@ async function tapRefusals(site, key) {
   if (held && ![...UNSTARTED, 'held'].includes(item.status)) fail("it's held. Unhold it, then tap Implement.");
   if (await unpickedPrototype(site, key)) fail('no take is picked on its prototypes, so it prototypes again. Pick a take from the next round, then tap Implement.');
   return { held, blockers: await blockerNames(site, key, item) };
+}
+
+// docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
+// A bare Implement, in the board server with no event: the owner's "Implementation requested" line, then the card marked
+// ready as it is, then its build started as the Build tap does (startTappedBuild), or bumped while a dep blocks it. by
+// names a Full person. One the tap refuses gets back the state it had. → startTappedBuild's result.
+export async function implementAsIs(site, key, worktree, by) {
+  await appendThread(site, key, { text: COMMANDS.implement, who: 'love', by, command: 'implement' });
+  const { item: before } = await loadItem(site, key);
+  const was = { state: before.state, unfiled: before.unfiled };
+  await writeCardState(site, key, { state: 'ready', unfiled: undefined });
+  const started = await startTappedBuild(site, key, worktree);
+  if (!started) await writeCardState(site, key, was);
+  return started;
+}
+async function writeCardState(site, key, { state, unfiled }) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (state === undefined) delete item.state; else item.state = state;
+  if (unfiled === undefined) delete item.unfiled; else item.unfiled = unfiled;
+  await writeJSON(source.file, wave);
 }
 
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md

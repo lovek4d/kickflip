@@ -221,7 +221,7 @@ test("a re-ask request on a resolved question is recorded, marks it pending in t
     const resolved = (await (await fetch(`${base}/api/questions?topic=${encodeURIComponent('item:t/K1')}`)).json()).questions;
     assert.deepEqual(resolved.map((q) => [q.id, q.reask?.ts === lines().at(-1).ts]), [['done', true]]);
     const thread = (await (await fetch(`${base}/api/thread?key=t%2FK1`)).json()).map((m) => [m.text, Boolean(m.request)]);
-    assert.deepEqual(thread, [['re-ask requested', true]]);
+    assert.deepEqual(thread, [['Re-ask requested', true]]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
@@ -416,7 +416,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     { id: 'B1', title: 'Tapped', next: 'Implement' }, { id: 'B2', title: 'Held', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', deps: ['B4'] }, { id: 'B4', title: 'Dep' },
     { id: 'B5', title: 'Held and blocked', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree' }, { id: 'B7', title: 'Leftover work' },
     { id: 'B8', title: 'Held and unstarted', held: true }, { id: 'B9', title: 'Held and waiting', held: true }, { id: 'B10', title: 'Held and grilled', held: true },
-    { id: 'B11', title: 'Ready', state: 'ready' },
+    { id: 'B11', title: 'Ready', state: 'ready' }, { id: 'B12', title: 'Grilling', state: 'grilling', unfiled: true }, { id: 'B13', title: 'Leftover work, prototyping', state: 'prototyping' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -442,14 +442,14 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const unheld = await card('B2');
     assert.deepEqual([unheld.held, unheld.lane, unheld.status, unheld.builder.progress, unheld.refusal], [false, 'progress', 'building', null, null]);
     assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
-    assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed.'], ['claude', 'Builder launched on Claude Opus']]);
+    assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed'], ['claude', 'Builder launched on Claude Opus']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
     // docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md: a held card that has an unstarted status is unheld by Implement too.
     for (const id of ['B8', 'B9']) {
       assert.equal((await post({ kind: 'card-build', key: `t/${id}` })).status, 200);
       const resumed = await card(id);
       assert.deepEqual([resumed.held, resumed.lane, resumed.status, resumed.refusal], [false, 'progress', 'building', null], id);
-      assert.deepEqual(thread(id).map((m) => m.text.replace(/ in .*/, '')), ['Resumed.', 'Builder launched on Claude Opus'], id);
+      assert.deepEqual(thread(id).map((m) => m.text.replace(/ in .*/, '')), ['Resumed', 'Builder launched on Claude Opus'], id);
     }
     // Grill leaves the hold alone.
     assert.equal((await post({ kind: 'grill-more', key: 't/B10' })).status, 200);
@@ -466,7 +466,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal((await post({ kind: 'card-build', key: 't/B5' })).status, 200);
     const unheldBumped = await card('B5');
     assert.deepEqual([unheldBumped.held, unheldBumped.lane, Boolean(unheldBumped.bumpedAt)], [false, 'todo', true]);
-    assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed.', 'Can’t start yet: waits on B4. Bumped to the top of Todo.']);
+    assert.deepEqual(thread('B5').map((m) => m.text), ['Resumed', 'Can’t start yet: waits on B4. Bumped to the top of Todo.']);
     assert.deepEqual(log().slice(before).filter((e) => e.kind === 'card-bump').map((e) => e.data.key), ['t/B3', 't/B5']);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more', 'card-bump'].includes(k)), []);
 
@@ -496,14 +496,25 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const kept = await card('B7');
     assert.deepEqual([kept.lane, kept.status, kept.refusal], ['todo', null, `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
 
-    // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md: an empty Implement on a
-    // ready card is the old Implement tap, starting the build with no event.
+    // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: an empty Implement, on a ready
+    // card or one still grilling, writes only its keyed status line, marks the card ready as it is and starts the build,
+    // with no event and nothing waiting on the orchestrator.
     const events = log().length;
-    assert.equal((await post({ kind: 'item-message', key: 't/B11', text: '', intent: 'build' })).status, 200);
-    const tapped = await card('B11');
-    assert.deepEqual([tapped.lane, tapped.status], ['progress', 'building']);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', 'B11.json'), 'utf8')).dispatched, 'tap');
+    for (const id of ['B11', 'B12']) {
+      assert.equal((await post({ kind: 'item-message', key: `t/${id}`, text: '', intent: 'build' })).status, 200);
+      const tapped = await card(id);
+      assert.deepEqual([tapped.lane, tapped.status, tapped.orchestrator], ['progress', 'building', null], id);
+      assert.deepEqual([wave().items.find((i) => i.id === id).state, 'unfiled' in wave().items.find((i) => i.id === id)], ['ready', false], id);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', `${id}.json`), 'utf8')).dispatched, 'tap');
+      assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text.replace(/ in .*/, '')]), [['love', 'implement', 'Implementation requested'], ['claude', undefined, 'Builder launched on Claude Opus']], id);
+    }
     assert.deepEqual(log().slice(events).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
+    // One the tap refuses keeps the state it had.
+    fs.mkdirSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B13'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B13', 'x'), 'x');
+    assert.equal((await post({ kind: 'item-message', key: 't/B13', text: '', intent: 'build' })).status, 200);
+    assert.deepEqual([wave().items.find((i) => i.id === 'B13').state, (await card('B13')).lane], ['prototyping', 'todo']);
+    assert.match(thread('B13').at(-1).text, /^Couldn't start implementing: /);
   } finally {
     fs.rmSync(manifest);
     fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
@@ -575,17 +586,17 @@ test("a new task is a New card until it becomes work, whose thread then holds th
   assert.deepEqual(await thread('t/A2'), [[id, 'Fix the header', 'answered'], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
 });
 
-test("a Quick build ask carries quick: true to the session, and its thread says so under the ask; a card's Grill and Prototype taps read as request entries", async () => {
+test("a Quick build ask carries quick: true to the session, and its thread reads Implementation requested under the ask; a card's Grill and Prototype taps read as request entries", async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'ask', text: 'Add a badge', quick: true });
   const logged = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).find((e) => e.id === id);
   assert.deepEqual(logged.data, { text: 'Add a badge', quick: true });
   const thread = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).map((m) => [m.text, Boolean(m.request)]);
-  assert.deepEqual(await thread(`ask:${id}`), [['Add a badge', false], ['quick build: no grill', true]]);
+  assert.deepEqual(await thread(`ask:${id}`), [['Add a badge', false], ['Implementation requested', true]]);
   const wave = JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ ...wave, items: [...wave.items, { id: 'Q1', title: 'Badge', from_ask: id }] }));
   const taps = [await post('/_claude/events', { kind: 'grill-more', key: 't/Q1' }), await post('/_claude/events', { kind: 'prototype-request', key: 't/Q1' })];
-  assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['quick build: no grill', true], ['grill requested', true], ['prototype requested', true]]);
+  assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['Implementation requested', true], ['Grill requested', true], ['Prototype requested', true]]);
   const card = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/Q1');
   assert.deepEqual([card.grilling, card.prototyping], [true, true]);
   fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify(wave));
@@ -607,6 +618,7 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   assert.deepEqual(await work().then((c) => [c.lane, c.held, c.finishable]), ['todo', false, true]);
   const filed = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items.find((i) => i.id === 'A2');
   const said = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__A2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.text);
+  const keys = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__A2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.command);
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true });
   assert.equal((await work()).held, true);
   assert.deepEqual([filed().held, filed().pick_up_at], [true, undefined]);
@@ -634,8 +646,10 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   assert.deepEqual(await work().then((c) => [c.lane, c.status, c.finishable]), ['done', 'done', false]);
   assert.deepEqual([filed().status, filed().held], ['done', undefined]);
   const lines = said();
-  assert.deepEqual([lines.slice(0, 2), lines.slice(4)], [['Held.', 'Resumed.'], ['Held.', 'Resumed.', 'Marked done.']]);
-  assert.match(lines[2], /^Held until .+\.$/);
+  // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: each tap's line is keyed.
+  assert.deepEqual([lines.slice(0, 2), lines.slice(4)], [['Held', 'Resumed'], ['Held', 'Resumed', 'Marked done']]);
+  assert.match(lines[2], /^Held until [^.]+$/);
+  assert.deepEqual(keys(), ['hold', 'resume', 'hold', 'hold', 'hold', 'resume', 'done']);
 });
 
 // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
@@ -1807,8 +1821,8 @@ test("a Full person's answers, messages, uploads and card taps are recorded name
     // A tap the server writes to the card's thread itself names them too.
     assert.equal((await send({ kind: 'card-hold', key: 't/F1', hold: true }, dana)).status, 200);
     const said = fs.readFileSync(path.join(site, 'data', 'threads', 't__F1.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).at(-1);
-    assert.deepEqual([said.text, said.who, said.by], ['Held.', 'love', 'Dana Reyes']);
-    assert.equal((await (await fetch(`${base}/api/thread?key=t%2FF1`)).json()).find((m) => m.text === 'Held.').by, 'Dana Reyes');
+    assert.deepEqual([said.text, said.who, said.by, said.command], ['Held', 'love', 'Dana Reyes', 'hold']);
+    assert.equal((await (await fetch(`${base}/api/thread?key=t%2FF1`)).json()).find((m) => m.text === 'Held').by, 'Dana Reyes');
     await send({ kind: 'card-hold', key: 't/F1', hold: false }, dana);
     // Their upload is stored like the owner's.
     const up = await fetch(`${base}/api/upload`, { method: 'POST', headers: { ...dana, 'x-filename': 'note.txt', 'content-type': 'text/plain' }, body: 'hi' });

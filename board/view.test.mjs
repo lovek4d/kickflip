@@ -2821,10 +2821,9 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
     ['item-message', { key: 'w/T1', text: 'Use the blue', intent: 'build' }], ['item-message', { key: 'w/T1', text: 'Just a reply', intent: 'reply' }], ['item-message', { key: 'w/P1', text: 'Later' }],
   ]);
-  // An empty box still sends Implement: a quick build on a card not yet ready, and bare on a ready one, which the board
-  // server builds at once.
+  // An empty box still sends Implement, bare, on a card ready or not: the board server readies it and builds at once.
   await send('w/T1', '', 'build');
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: 'Quick build', intent: 'build' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   await b.change({ board: boardOf([workCard('T1', { ready: true }), workCard('P1', { lane: 'progress' })]) });
   await send('w/T1', '', 'build');
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);

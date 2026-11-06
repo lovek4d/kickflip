@@ -39,8 +39,8 @@
     : m.kind === 'ask-link' ? `<div class="msg link">${statusMark('ask-link')}<a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
     : m.kind === 'visual' ? `<div class="msg link visual">${statusMark('visual')}<a href="${esc(m.link)}">${escText(m.text)} →</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    // A request line's mark is its words' icon, or m.mark's for a line whose words vary.
-    : m.request ? `<div class="msg request">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
+    : m.request ? `<div class="msg request">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.folded ? foldedRun(m, links, edits)
     : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
@@ -78,7 +78,7 @@
   const STEP = 3;
   const UNREAD_CAP = 10;
   // Every kind of system line; each leads with a mark, and a test renders each, so a new kind needs an entry in ui.js MARK_ICONS.
-  const SYSTEM_KINDS = ['status', 'agent', 'calls', 'ask-link', 'questions', 'visual', 'quick-build'];
+  const SYSTEM_KINDS = ['status', 'agent', 'calls', 'ask-link', 'questions', 'visual', 'command'];
   const NOT_MESSAGE = new Set(['status', 'agent', 'calls', 'ask-link', 'questions']);
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
   // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount); the
