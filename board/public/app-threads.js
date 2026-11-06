@@ -1,11 +1,11 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, attachButton, doneButton, doneTone, waitOn, newQuestionsLine } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, waitOn, newQuestionsLine } = BoardUI;
 
-  const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more' };
-  // A /prototype or /grill word in a message, the last one winning, and the message without it.
-  const SLASH = /(^|\s)\/(grill|prototype)(?=\s|$)/g;
+  const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request' };
+  // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it.
+  const SLASH = /(^|\s)\/(grill|prototype|visual)(?=\s|$)/g;
   const slashOf = (value) => ({ flag: [...value.matchAll(SLASH)].pop()?.[2] ?? null, text: value.replace(SLASH, '$1').replace(/ {2,}/g, ' ').trim() });
 
   const thread = (key) => `<div class="thread" data-thread="${esc(key)}"><div class="muted small">Loading thread…</div></div>`;
@@ -73,11 +73,11 @@ BoardView.part((B) => {
     // The reply form is built once per card, so a refresh never drops what is being typed.
     if (!el.querySelector('.msgs')) {
       const draft = store.get('draft:' + key, '');
-      // The row: What's left? at the left, the eye, fire and attach at its right, and the send buttons
+      // The row: What's left? at the left, the eye, fire, image and attach at its right, and the send buttons
       // (docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md).
       el.innerHTML = `<div class="msgs"></div><form data-reply="${esc(key)}" data-composer="item:${esc(key)}">${dropZone(`<textarea rows="2" placeholder="${esc(PLACEHOLDER)}">${esc(draft)}</textarea>`, { attach: false })}
         <div class="pending-files" data-files></div>
-        <div class="row"><button class="chip quick" type="button" data-quick="What's left?">What's left?</button><span class="icons">${protoButton(key)}${grillButton(key)}${attachButton()}</span>${sends('one')}</div></form>`;
+        <div class="row"><button class="chip quick" type="button" data-quick="What's left?">What's left?</button><span class="icons">${protoButton(key)}${grillButton(key)}${visualButton(key)}${attachButton()}</span>${sends('one')}</div></form>`;
       BoardAttach.paint('item:' + key, B.site.root);
     }
     syncSends(el, key);
@@ -87,9 +87,10 @@ BoardView.part((B) => {
   }
 
   // docs/adr/2026-11-05-0430-the-eye-and-fire-send-their-request-at-once.md
-  // The composer's eye asks for a prototype and its fire for a grill: a tap sends the request at once, with whatever is
-  // typed, as /prototype or /grill in the text does on Reply. Nothing typed sends the bare request.
-  const PLACEHOLDER = 'Reply in this thread… (/prototype or /grill asks for one)';
+  // The composer's eye asks for a prototype, its fire for a grill and its image for a visual: a tap sends the request at
+  // once, with whatever is typed, as /prototype, /grill or /visual in the text does on Reply. Nothing typed sends the
+  // bare request (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
+  const PLACEHOLDER = 'Reply in this thread… (/prototype, /grill or /visual asks for one)';
   const QUICK_BUILD = 'Quick build';
 
   // A load while one for the same thread runs shares it, so a card the page inserts open isn't fetched twice; force
@@ -157,8 +158,8 @@ BoardView.part((B) => {
     try { await waitOn(button, BoardUI.pending.within(sending, B.stillWaiting)); } catch (e) { B.failed(e); }
   }
   B.on(B.root, 'click', (ev) => {
-    const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill]');
-    if (b) post(b.closest('form'), b.hasAttribute('data-proto') ? 'prototype' : 'grill', b);
+    const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill], form[data-reply] button[data-visual]');
+    if (b) post(b.closest('form'), b.hasAttribute('data-proto') ? 'prototype' : b.hasAttribute('data-grill') ? 'grill' : 'visual', b);
   });
   B.on(B.root, 'submit', (ev) => {
     const f = ev.target.closest('form[data-reply]');
@@ -171,7 +172,7 @@ BoardView.part((B) => {
   // A composer's send buttons wait while its files upload, the ask's included (attach.js attach-change).
   B.on(B.root, 'attach-change', (ev) => {
     for (const b of ev.target.querySelectorAll('button[type=submit]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
-    if (ev.target.matches?.('form[data-reply]')) for (const b of ev.target.querySelectorAll('button[data-proto], button[data-grill]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
+    if (ev.target.matches?.('form[data-reply]')) for (const b of ev.target.querySelectorAll('button[data-proto], button[data-grill], button[data-visual]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
   });
 
   Object.assign(B, {

@@ -2762,7 +2762,7 @@ test("the thread's eye and fire send their request at once: nothing typed sends 
   const box = () => form().querySelector('textarea');
   const tap = async (button, text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: button }); await b.settle(); };
   const send = async (text) => { box().value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-nth="0"]') }); await b.settle(); };
-  assert.match(box().getAttribute('placeholder'), /\/prototype or \/grill/);
+  assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill or \/visual/);
   assert.equal(form().querySelector('[data-hint]'), null);
   assert.deepEqual([eye().getAttribute('aria-pressed'), fire().getAttribute('aria-pressed')], [null, null]);
   await tap(eye());
@@ -2855,16 +2855,16 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
 });
 
 // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-test("a thread box's row has What's left? at the left and the eye, fire and attach at its right, with no lightning and no attach in the text box, and the send pair below", async () => {
+test("a thread box's row has What's left? at the left and the eye, fire, image and attach at its right, with no lightning and no attach in the text box, and the send pair below", async () => {
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
   const row = (key) => [...form(key).querySelector('.row').children].map((el) => el.matches('.quick') ? 'chip' : el.matches('.icons') ? 'icons' : el.dataset.sends);
-  const icons = (key) => [...form(key).querySelector('.icons').children].map((el) => ['proto', 'grill'].find((k) => el.hasAttribute('data-' + k)) || (el.matches('label.attach') ? 'attach' : '?'));
+  const icons = (key) => [...form(key).querySelector('.icons').children].map((el) => ['proto', 'grill', 'visual'].find((k) => el.hasAttribute('data-' + k)) || (el.matches('label.attach') ? 'attach' : '?'));
   assert.deepEqual(row('w/T1'), ['chip', 'icons', 'todo']);
   assert.deepEqual(row('w/P1'), ['chip', 'icons', 'one']);
   for (const key of ['w/T1', 'w/P1']) {
-    assert.deepEqual(icons(key), ['proto', 'grill', 'attach']);
+    assert.deepEqual(icons(key), ['proto', 'grill', 'visual', 'attach']);
     assert.equal(form(key).querySelector('.dz .attach'), null);
     assert.ok(form(key).querySelector('.dz .dz-hint'));
   }
@@ -5666,4 +5666,28 @@ test('an In Progress pill is a faint orange tint on the plain border, and a sele
   const lines = css.split('\n');
   assert.match(lines[progress], /border-color: var\(--line\); background: color-mix\(in srgb, var\(--color-notice\) 12%, var\(--panel\)\)/);
   assert.match(lines[pressed], /border-color: var\(--accent\); background: color-mix\(in srgb, var\(--color-notice\) 12%, var\(--accent-soft\)\)/);
+});
+
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+test("the thread's image button, after the eye and fire and before attach, asks for a visual at once, with the typed text if any, as /visual does on Reply", async () => {
+  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] } });
+  await b.settle();
+  const form = () => b.root.querySelector('form[data-reply="w/A1"]');
+  const image = () => form().querySelector('button[data-visual]');
+  const box = () => form().querySelector('textarea');
+  const icons = [...form().querySelector('.icons').children];
+  assert.equal(icons.at(-2), image(), 'the image follows the eye and fire');
+  assert.ok(icons.at(-1).matches('label.attach'), 'attach follows the image');
+  assert.equal(image().getAttribute('aria-label'), 'Ask for a visual');
+  assert.match(box().getAttribute('placeholder'), /\/prototype, \/grill or \/visual asks for one/);
+  const tap = async (text = '') => { box().value = text; b.page.fire(b.root, 'click', { target: image() }); await b.settle(); };
+  await tap();
+  await tap('Draw the land queue');
+  box().value = '/visual Compare the two takes';
+  b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-nth="0"]') });
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
+    ['visual-request', { key: 'w/A1' }], ['visual-request', { key: 'w/A1', text: 'Draw the land queue' }], ['visual-request', { key: 'w/A1', text: 'Compare the two takes' }],
+  ]);
+  b.view.unmount();
 });

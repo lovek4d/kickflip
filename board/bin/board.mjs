@@ -40,6 +40,9 @@ command fails and changes nothing.
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
          queued push (tag ask-<eventId> or item-<wave>/<id>) to the message's first line, keeping
          "· and N replies", and prints the new body. It never pushes: the thread's unread mark carries it
+  visual add <wave>/<id> --file <page.html> --title <t>  a visual agent's page: copied to public/visuals/<id>/<slug>.html
+                                                         (a new name each time), linked by a visual line in the
+                                                         item's thread; prints the page's link
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
@@ -708,6 +711,7 @@ const COMMANDS = {
     return store.writeReply(site, id, f.html ?? readInput(f.file));
   }],
   thread: [['wave/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendThread(site, key, f)],
+  'visual add': [['wave/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);

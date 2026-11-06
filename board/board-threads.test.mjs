@@ -248,3 +248,23 @@ test("thread writes in an ask's thread and refuses an unknown ask", () => {
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e1.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', text: 'Answered here.' }]);
   assert.match(board('thread', 'ask:e9', '--site', 'orch', '--text', 'x').err, /no ask "e9"/);
 });
+
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+test("visual add places the agent's page under the site's public/visuals/<card>/, a new page each time, and links it from the thread", () => {
+  const page = path.join(home, 'land-queue.html');
+  fs.writeFileSync(page, '<!doctype html><title>Queue</title><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>');
+  const add = () => board('--site', 'orch', 'visual', 'add', 'w/A1', '--file', page, '--title', 'How a land moves');
+  assert.deepEqual(add(), { code: 0, err: '', out: 'visuals/A1/how-a-land-moves.html\n' });
+  assert.equal(fs.readFileSync(site('orch', 'public', 'visuals', 'A1', 'how-a-land-moves.html'), 'utf8'), fs.readFileSync(page, 'utf8'));
+  assert.equal(add().out, 'visuals/A1/how-a-land-moves-2.html\n', 'asking again makes a new page');
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ who, kind, text, link }) => [who, kind, text, link]), [
+    ['claude', 'visual', 'How a land moves', 'visuals/A1/how-a-land-moves.html'], ['claude', 'visual', 'How a land moves', 'visuals/A1/how-a-land-moves-2.html'],
+  ]);
+  const missing = board('--site', 'orch', 'visual', 'add', 'w/A1', '--file', path.join(home, 'nope.html'), '--title', 'X');
+  assert.equal(missing.code, 2);
+  assert.match(missing.err, /nope\.html/);
+  const plain = path.join(home, 'notes.txt');
+  fs.writeFileSync(plain, 'hi');
+  assert.match(board('--site', 'orch', 'visual', 'add', 'w/A1', '--file', plain, '--title', 'X').err, /\.html/);
+  assert.match(board('--site', 'orch', 'visual', 'add', 'w/A1', '--file', page).err, /--title/);
+});

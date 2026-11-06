@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, ITEM_STATUSES, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -102,7 +102,8 @@ const needSite = (site) => site || fail('this command needs --site <route>');
 const text = (v, name) => (typeof v === 'string' && v.trim() ? v.trim() : fail(`${name} must be non-empty text`));
 const optional = (v, check) => (v === undefined ? undefined : check(v));
 const PROTOTYPE_PAGE = /^prototype-[\w-]+\.html(?:[?#]\S*)?$/;
-const pageUrl = (v, name) => (typeof v === 'string' && (PROTOTYPE_PAGE.test(v) || /^https?:\/\/\S+$/.test(v)) ? v : fail(`${name} must be an http(s) URL or a site page such as prototype-<topic>.html?q=<id>`));
+const VISUAL_PAGE = /^visuals\/[\w-]+\/[\w-]+\.html$/;
+const pageUrl = (v, name) => (typeof v === 'string' && (PROTOTYPE_PAGE.test(v) || VISUAL_PAGE.test(v) || /^https?:\/\/\S+$/.test(v)) ? v : fail(`${name} must be an http(s) URL or a site page such as prototype-<topic>.html?q=<id>`));
 const bool = (v, name) => (typeof v === 'boolean' ? v : fail(`${name} must be true or false`));
 const domId = (v, name) => (typeof v === 'string' && /^[\w.-]+$/.test(v) ? v : fail(`${name} must use only letters, digits, "_", "." and "-"`));
 const onlyKeys = (o, keys, name) => {
@@ -1289,12 +1290,13 @@ export async function addQuestions(site, input) {
   return publishQuestions(site, owner, items, questions.filter((q) => !held.includes(q)), lines);
 }
 
-// The kind of the card's open planner record (grill or prototype), or null while none runs.
+// The kind of the card's open planner record (grill or prototype), or null while none runs. A visual agent posts no
+// questions, so it holds none back.
 async function runningPlanner(site, key) {
   const { source } = await loadItem(site, key);
   for (const file of await builderFiles(source.dir, parseKey(key).id)) {
     const record = await readJSON(file, null);
-    if (record?.started && !record.done && plans(record)) return record.kind;
+    if (record?.started && !record.done && plans(record) && record.kind !== VISUAL) return record.kind;
   }
   return null;
 }
@@ -2632,7 +2634,8 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
 }
 
 // The model a planner runs without --model (owner, #111's grill).
-const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus' };
+// A visual agent writes one page and should come back fast (owner, gh298-agent).
+const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus', [VISUAL]: 'sonnet' };
 
 // worktree, when given, makes the builder's worktree once every flag has passed (board/worktree.mjs makeWorktree), told
 // the worktrees the card's other open builder records keep ({busy: [path]}), and returns {path, branch, repo}, which the
@@ -2671,7 +2674,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const before = await readJSON(file, null);
   const tapOpen = (record) => ['tap', 'hub'].includes(record?.dispatched) && !record.done;
   if (dispatch === 'session' && tapOpen(before)) return { file, alreadyOpen: true, lines: [] };
-  if (agent !== 'main' && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
+  // A visual agent runs beside any other, the tap's record included.
+  if (agent !== 'main' && given !== VISUAL && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
   const takeUp = before?.dispatched && !before.done ? before : null;
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
@@ -2728,7 +2732,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   }
   if (remade && site) await appendThread(site, key, { text: remade });
   if (line) await statusToThread(site, key, agent, record, line, now);
-  const resolved = await resolveAnswered(site, key, 'Acted on: builder started');
+  const resolved = given === VISUAL ? [] : await resolveAnswered(site, key, 'Acted on: builder started');
   if (site && build) await clearNext(site, key);
   return {
     file, kind: k ?? null, model: claude ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
@@ -2882,9 +2886,9 @@ export async function abandonLaunch(site, key, why) {
   await appendLine(threadFile(site, key), { ts: now, who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${why}` });
 }
 
-// A planner the board server opened whose agent couldn't launch: its record closes and the thread says why.
-export async function abandonPlanner(site, key, text) {
-  const file = await builderFile(site, key);
+// A planner the board server opened whose agent couldn't launch: its record, the agent's, closes and the thread says why.
+export async function abandonPlanner(site, key, text, agent = 'main') {
+  const file = await builderFile(site, key, undefined, agent);
   const record = await readJSON(file, null);
   if (record && !record.done) await writeJSON(file, { ...record, done: new Date().toISOString() });
   await publishStaged(site, key);
@@ -2892,10 +2896,10 @@ export async function abandonPlanner(site, key, text) {
 }
 
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
-// The session id of the agent the board server just launched on a card (headless.mjs launchBuilder), on its main
-// builder record as session {id, at}. The agent's own builder start keeps it (launchedSession).
-export async function recordSession(site, key, id, pid) {
-  const file = await builderFile(site, key);
+// The session id of the agent the board server just launched on a card (headless.mjs launchBuilder), on its builder
+// record, the main one unless agent names another, as session {id, at}. The agent's own builder start keeps it (launchedSession).
+export async function recordSession(site, key, id, pid, agent = 'main') {
+  const file = await builderFile(site, key, undefined, agent);
   const record = await readJSON(file, null);
   await writeJSON(file, { ...record, session: { id, pid, at: new Date().toISOString() } });
 }
@@ -2967,6 +2971,42 @@ export async function startPlanner(site, key, kind) {
   if (open && !open.done) return null;
   const started = await startBuilder(site, key, { kind, dispatch: 'hub' });
   return { key, kind, model: started.model };
+}
+
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+// The board server's start of the visual agent for request, a visual-request event on the card (domain.mjs
+// visualsDue): its own record, agent visual-<request id>, opens dispatched 'hub' beside any other agent on the card.
+// → {key, kind, model, agent}, or null while a visual agent runs on the card or the request already has its record.
+export async function startVisual(site, key, request) {
+  const { source } = await loadItem(site, key);
+  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
+  if (records.some((r) => r?.kind === VISUAL && r.started && !r.done)) return null;
+  const agent = visualAgent(request);
+  if (await readJSON(await builderFile(site, key, undefined, agent), null)) return null;
+  const started = await startBuilder(site, key, { kind: VISUAL, agent, dispatch: 'hub' });
+  return { key, kind: VISUAL, model: started.model, agent };
+}
+
+// `visual add <wave/id> --file <html> --title <t>`: the visual agent's page, copied to the site's
+// public/visuals/<card id>/<slug of title>.html, a new name each time, and a visual line in the card's thread linking it.
+// → {lines: [the page's site-relative link]}
+export async function addVisual(site, key, { file, title }) {
+  needSite(site);
+  const name = text(title, '--title');
+  if (typeof file !== 'string' || !file.endsWith('.html')) fail('--file takes the page, an .html file');
+  const html = await fs.readFile(path.resolve(file), 'utf8').catch(() => fail(`--file ${file} can't be read`));
+  if (!html.trim()) fail(`--file ${file} is empty`);
+  await loadItem(site, key);
+  const { id } = parseKey(key);
+  const dir = path.join(site, 'public', 'visuals', id);
+  await fs.mkdir(dir, { recursive: true });
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60).replace(/^-+|-+$/g, '') || 'visual';
+  let page = `${slug}.html`;
+  for (let n = 2; existsSync(path.join(dir, page)); n++) page = `${slug}-${n}.html`;
+  await fs.writeFile(path.join(dir, page), html, { flag: 'wx' });
+  const link = `visuals/${id}/${page}`;
+  await appendThread(site, key, { text: name, link, kind: VISUAL });
+  return { lines: [link] };
 }
 
 // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md

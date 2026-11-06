@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
-import { builderBrief, landerBrief, plannerBrief, rebaseBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
+import { builderBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, readArchive } from './store.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
@@ -667,5 +667,50 @@ test('a stale lander entry for an archived Done card is dropped, and the card st
   } finally {
     child.kill();
     fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+test("a visual agent's brief has it start as its own agent, read the card and thread, write one page, place it with visual add and finish, touching nothing else", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  const brief = visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1', text: 'Draw the land queue' });
+  for (const want of [
+    'ENG-1', 'Make it go', '/s/waves/w/a1.md', `${b} builder start w/A1 --kind visual --agent visual-e1`, 'Draw the land queue',
+    `${b} visual add w/A1 --file`, '--title', `${b} builder done w/A1 --agent visual-e1`, 'CDN', 'Never push',
+  ]) assert.ok(brief.includes(want), `the visual brief has ${want}`);
+  assert.ok(!brief.includes('question add') && !brief.includes('item set'), 'a visual posts no question and moves no card');
+  assert.ok(brief.indexOf('visual add') < brief.indexOf(`${b} builder done`));
+  assert.match(visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1' }), /what the thread was last discussing/);
+});
+
+test("the owner's visual request launches a visual agent on Sonnet beside the card's build, as its own agent, and a second waits for the first to finish", async () => {
+  const b = oneLaunchBoard([{ id: 'V1', title: 'Show me', status: 'building' }]);
+  fs.mkdirSync(path.join(b.data, 'agents'), { recursive: true });
+  const build = { kind: 'claude', model: 'opus', started: new Date().toISOString(), worktree: { path: b.clone } };
+  fs.writeFileSync(path.join(b.data, 'agents', 'V1.json'), JSON.stringify(build));
+  const { child, send } = await b.start();
+  try {
+    const { id } = await send('visual-request', { key: 't/V1', text: 'Draw the queue' });
+    await until(() => b.runs().length === 1, 'the visual agent launches beside the build');
+    const [run] = b.runs();
+    assert.equal(run.cwd, fs.realpathSync(b.clone));
+    assert.match(run.argv[1], new RegExp(`builder start t/V1 --kind visual --agent visual-${id}`));
+    assert.match(run.argv[1], /Draw the queue/);
+    assert.equal(run.argv[run.argv.indexOf('--model') + 1], 'sonnet');
+    const visual = b.record(`V1@visual-${id}`);
+    assert.deepEqual([visual.kind, visual.model, visual.dispatched], ['visual', 'sonnet', 'hub']);
+    assert.deepEqual(b.record('V1'), build, "the build's record is untouched");
+    await until(() => /^Visual agent launched on Claude Sonnet in /.test(b.thread('V1').at(-1)?.text || ''), 'the launch line follows the run');
+
+    const second = await send('visual-request', { key: 't/V1' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(b.runs().length, 1, 'the second waits while the first runs');
+    fs.writeFileSync(path.join(b.data, 'agents', `V1@visual-${id}.json`), JSON.stringify({ ...visual, done: new Date().toISOString() }));
+    await until(() => b.runs().length === 2, 'the second launches once the first is done');
+    assert.match(b.runs()[1].argv[1], new RegExp(`--agent visual-${second.id}`));
+    assert.match(b.runs()[1].argv[1], /what the thread was last discussing/);
+  } finally {
+    child.kill();
+    fs.rmSync(b.home, { recursive: true, force: true });
   }
 });

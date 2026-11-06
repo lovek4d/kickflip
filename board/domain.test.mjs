@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits } from './domain.mjs';
+import { buildBoard, withHub, threadOf, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, startedByAnswer, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, visualsDue } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -2222,4 +2222,45 @@ test('rebasesDue lists each open card whose PR, draft or ready, conflicts, once 
     ['checking', pr(), { item: { status: 'checking' } }],
     ['done', pr(), { item: { status: 'done' } }],
   ]) assert.deepEqual(rebasesDue(items(p, extra), {}, 'main'), [], why);
+});
+
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+test("a visual request is a request line, or the owner's message with visual requested under it, and the agent's page is a visual link line that answers it", () => {
+  const ev = (id, data, ts) => ({ id, ts, kind: 'visual-request', data: { key: 'w/A1', ...data }, reply: null });
+  const events = [ev('v1', {}, '2026-10-23T10:00:00Z'), ev('v2', { text: 'Draw the land queue' }, '2026-10-23T10:01:00Z')];
+  const lines = [{ ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'visual', text: 'How a land moves', link: 'visuals/A1/how-a-land-moves.html' }];
+  const msgs = threadOf('w/A1', { events, lines });
+  assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request), m.status || null, m.link || null]), [
+    ['visual-request', 'visual requested', true, null, null], ['visual-request', 'Draw the land queue', false, 'visual requested', null],
+    ['visual', 'How a land moves', false, null, 'visuals/A1/how-a-land-moves.html'],
+  ]);
+  assert.equal(msgs[1].state, 'answered', 'the page answers the request');
+});
+
+test("a visual agent is a planner beside the card's work: its card shows the build, not the visual, it never stops a card arriving for its grill, and it counts toward the planner cap", () => {
+  const visual = { kind: 'visual', model: 'sonnet', started: '2026-10-23T10:00:00Z' };
+  const build = { kind: 'claude', model: 'opus', started: '2026-10-23T09:00:00Z' };
+  const board = (agents, items = [{ id: 'A1', title: 'One', state: 'grilling' }]) => buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, now: Date.parse('2026-10-23T10:01:00Z'), waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items } }] });
+  const one = (b) => b.items.find((i) => i.id === 'A1');
+  assert.equal(one(board({ A1: { 'visual-v1': visual } })).builder, null, 'a visual alone gives the card no status');
+  const both = one(board({ A1: { main: build, 'visual-v1': visual } }, [{ id: 'A1', title: 'One', status: 'building' }]));
+  assert.deepEqual([both.builder.kind, both.builder.planner], ['claude', false]);
+  const thread = threadOf('w/A1', { agents: { 'visual-v1': visual } });
+  assert.deepEqual(thread.map((m) => [m.text, m.planner]), [['Claude Sonnet visual started', true]]);
+  // A card in Todo with only a visual on it still arrives; the running visual takes one of the cap's planners.
+  const todo = [{ id: 'A1', title: 'One', state: 'grilling' }, { id: 'B1', title: 'Two', state: 'grilling' }];
+  assert.deepEqual(arrivalsOf(board({ B1: { 'visual-v1': { ...visual, done: '2026-10-23T10:00:30Z' } } }, todo).items), ['w/A1', 'w/B1']);
+  assert.deepEqual(arrivalsOf(board({ B1: { 'visual-v1': visual } }, todo).items, { cap: 1 }), []);
+});
+
+test('visualsDue names, per card with no visual agent running, its oldest visual request no agent has drawn', () => {
+  const ev = (id, key, ts) => ({ id, ts, kind: 'visual-request', data: { key }, reply: null });
+  const events = [ev('v1', 'w/A1', '2026-10-23T10:00:00Z'), ev('v2', 'w/A1', '2026-10-23T10:01:00Z'), ev('v3', 'w/B1', '2026-10-23T10:02:00Z'), ev('v4', 'w/C1', '2026-10-23T10:03:00Z'),
+    { id: 'g1', ts: '2026-10-23T10:04:00Z', kind: 'grill-more', data: { key: 'w/C1' }, reply: null }];
+  const items = [
+    { key: 'w/A1', lane: 'todo', agents: [{ name: 'visual-v1', kind: 'visual', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:03:00Z' }] },
+    { key: 'w/B1', lane: 'progress', agents: [{ name: 'visual-v0', kind: 'visual', started: '2026-10-23T09:00:00Z', done: null }] },
+    { key: 'w/C1', lane: 'todo', agents: [] },
+  ];
+  assert.deepEqual(visualsDue(items, events), [{ key: 'w/A1', request: events[1] }, { key: 'w/C1', request: events[3] }]);
 });

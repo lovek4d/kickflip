@@ -15,7 +15,7 @@ import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
 import { BoardError, appendThread, briefFacts, readBoardRules, recordSession } from './store.mjs';
-import { modelName, plans } from './domain.mjs';
+import { modelName, plans, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
 const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
@@ -146,6 +146,31 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
   ].join('\n');
 }
 
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+// The brief for a visual agent: one HTML page answering the owner's visual request in the card's thread. card as
+// plannerBrief's, with agent its record's name and the owner's text and files when the request carried them.
+export function visualBrief({ route, key, ref, title, notes, repo, agent, rules = [], links = [], text, files = [] }) {
+  const b = cli(route);
+  return [
+    `You are the headless visual agent for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The owner asked, in the card's thread, for a visual: one HTML page that answers in a visual way, such as a diagram, a flow or a comparison. It is not a prototype or a grill: no question, no takes. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code there, never restart the hub or a board server, and never push.`,
+    '',
+    `1. Run \`${b} builder start ${key} --kind visual --agent ${agent}\`. If it refuses, stop.`,
+    `2. Gather what the page needs: ${notes ? `the card's notes, ${notes}; ` : ''}its thread, in the board site's data/threads folder, and the code or docs it is about.`,
+    text ? `   The owner wrote: "${text}"` : '   The owner typed nothing: draw what the thread was last discussing.',
+    ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
+    '3. Write one HTML file outside the repo, such as in a temporary folder. Keep its own CSS and script inline; it may load a library such as Mermaid or D3 from a CDN. Make it read well at phone width (390px) and on a desktop, in the dark and the light theme (prefers-color-scheme).',
+    `4. Place it with \`${b} visual add ${key} --file <page.html> --title "<what it shows>"\`, which copies it to the board and links it in the thread.`,
+    '',
+    'Write nothing else: no notes, questions, card state, Next or progress lines.',
+    '',
+    ...linkLines(links),
+    ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, restart the hub or a board server, or do the orchestrator's work, it isn't yours; you never push or restart:"),
+    `To finish, run \`${b} builder done ${key} --agent ${agent}\`.`,
+    '',
+    'Never push.',
+  ].join('\n');
+}
+
 // The agents launchBuilder started, of agents each {pid, at} as store.mjs openAgents reads them, whose process still
 // runs. Pids get reused, so a pid counts only while its process started within LAUNCH_WINDOW before the session was
 // recorded; with no answer from ps, none does.
@@ -226,22 +251,24 @@ const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'lo
 // Launches the agent of a build startTappedBuild started ({key, kind, model}), the rebase run when the card has one
 // open (store.mjs startRebase's rebase_run, so a relaunch after a restart briefs it the same), with lander the lander of
 // a verified card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, text?, files?, question?,
-// note?, choice?}), through the adapter (agents.mjs launchAgent): a build or lander as its record's kind, a planner as
-// Claude. The session id it names goes on the card's main builder record and, with the log, in a thread line saying so.
+// note?, choice?}) or the visual agent startVisual opened ({key, kind: visual, model, agent, text?, files?}), through the
+// adapter (agents.mjs launchAgent): a build or lander as its record's kind, a planner as Claude. The session id it names
+// goes on the agent's builder record and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, text, files, question, note, choice }, { lander = false } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', text, files, question, note, choice }, { lander = false } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
   const { base, repo } = builderRepo(site);
   const planner = plans({ kind });
   const rebase = !planner && !lander && facts.rebasePR !== null;
-  const card = { ...facts, route, base, repo, rules, kind, text, files, question, note, choice, pr: facts.rebasePR };
-  const role = planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
+  const visual = kind === VISUAL;
+  const card = { ...facts, route, base, repo, rules, kind, agent, text, files, question, note, choice, pr: facts.rebasePR };
+  const role = visual ? 'Visual agent' : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
   const cwd = planner ? repo : facts.worktree;
-  const prompt = planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
+  const prompt = visual ? visualBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
   const launched = await launchAgent({ kind: planner ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
-  if (launched.sessionId) await recordSession(site, key, launched.sessionId, launched.pid);
+  if (launched.sessionId) await recordSession(site, key, launched.sessionId, launched.pid, agent);
   const session = launched.sessionId ? `, session ${launched.sessionId}` : '';
   await appendThread(site, key, { text: `${role} launched on ${modelName({ kind, model })} in ${cwd}${session}.`, log: path.basename(launched.log) });
   return launched;

@@ -111,6 +111,8 @@ const ON_CARD = {
   'card-hold': (c, e) => `${c} ${e.data?.hold ? 'held' : 'resumed'}`,
   'card-unblocked': (c) => `${c} unblocked`,
   'prototype-request': (c) => `prototype asked on ${c}`,
+  // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+  'visual-request': (c) => `visual asked on ${c}: the board launches its visual agent`,
   'reask-request': (c) => `question asked again on ${c}`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text}`,
   'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}`,

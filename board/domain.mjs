@@ -27,7 +27,7 @@ for (const file of ['ui-enums.js', 'ui-order.js']) vm.runInContext(fs.readFileSy
 export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE } = enums.BoardUI;
 const { laneOrder } = enums.BoardUI;
 
-export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'reask-request'];
+export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'visual-request', 'reask-request'];
 export const ITEM_STATUSES = ['building', 'fixing', 'checking', 'held', 'merged', 'done', 'dropped'];
 export const BUILDER_STALLED_AFTER = 10 * 60000;
 // How long a headless builder whose process lives may go without a status line or transcript movement before it reads
@@ -483,7 +483,11 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
 // other kind. A planner works toward a build, so it never starts a card or puts it in In Progress, and its lines are
 // the owner's blue (docs/adr/2026-11-03-0202-a-card-moves-to-in-progress-only-once-building-starts.md,
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
-const PLANNERS = new Set(['grill', 'prototype']);
+// A visual agent is a planner too, drawing one page for the thread beside whatever else runs on the card: it is no
+// card's work, so the card's status and its arrival for a grill pass it by
+// (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
+export const VISUAL = 'visual';
+const PLANNERS = new Set(['grill', 'prototype', VISUAL]);
 export const plans = (agent) => PLANNERS.has(agent.kind);
 export const builds = (agent) => !plans(agent);
 // A planner's word, never a builder phase: its card reads it before the planner's first line and leads each line with
@@ -564,7 +568,7 @@ function reachedPhaseOf(agents, lines = []) {
 // A run the orchestrator stopped (a record's stopped {run, at}, written since that record last started) reads stopped
 // with its words from the stop, gone and waiting on the orchestrator from then.
 function builderOf(agents, lines = [], now, movedAt = null, alive = null, commandRunning = false) {
-  const open = agents.filter((a) => a.started && !a.done);
+  const open = agents.filter((a) => a.started && !a.done && a.kind !== VISUAL);
   const planner = open.every(plans);
   const running = planner ? open : open.filter(builds);
   const since = running.map((a) => String(a.started || '')).sort()[0];
@@ -706,7 +710,8 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // A request with text, a question's prototype request (its question, pick and note) and an answer are the owner's
 // messages, with the tap's words as their footer's status
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
-const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'reask-request': 're-ask requested' };
+const ACTION_LABELS = { 'mark-ready': 'Mark ready', 'grill-more': 'grill requested', 'prototype-request': 'prototype requested', 'visual-request': 'visual requested', 'reask-request': 're-ask requested' };
+const REQUESTS = ['grill-more', 'prototype-request', 'visual-request'];
 const ANSWERS_SUBMITTED = 'answers submitted';
 const QUICK_BUILD = 'quick build: no grill';
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
@@ -728,7 +733,7 @@ const actionText = (e, asked) => {
 const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
 const requestOf = (e, asked) => {
   if (e.kind === 'item-message') return bareMessage(e) && e.data.intent === 'build' ? { request: true } : INTENT_LABELS[e.data.intent] ? { status: intentLabel(e) } : {};
-  if (e.kind !== 'grill-more' && e.kind !== 'prototype-request') return e.kind === 'reask-request' ? { request: true } : {};
+  if (!REQUESTS.includes(e.kind)) return e.kind === 'reask-request' ? { request: true } : {};
   return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : { request: true };
 };
 // A Claude line answers the owner's messages before it; an agent's lines and the orchestrator's answer to a builder don't.
@@ -789,7 +794,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}),
+    ...lines.map(withLog).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}) } : {}), ...(m.kind === VISUAL ? { kind: VISUAL } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
@@ -1302,8 +1307,25 @@ export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
   const arrived = open.filter((i) => i.buildable && i.state !== 'ready' && !i.unsorted && !i.blockedBy.length && !i.held && !i.working && !i.grilling && !i.prototyping
-    && !i.questions && !(i.agents || []).some(plans));
+    && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL));
   return arrived.slice(0, Math.max(0, cap - planners)).map((i) => i.key);
+}
+
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+// For built items and the event log: per card with no visual agent running, its oldest visual-request no agent has
+// drawn, the agent of request <id> being named visual-<id>, so a card's requests are drawn one after another.
+// → [{key, request}], request being the event.
+export const visualAgent = (request) => `${VISUAL}-${request.id}`;
+export function visualsDue(items, events) {
+  const out = [];
+  for (const it of items) {
+    const agents = it.agents || [];
+    if (agents.some((a) => a.kind === VISUAL && a.started && !a.done)) continue;
+    const drawn = new Set(agents.map((a) => a.name));
+    const request = events.find((e) => e.kind === 'visual-request' && e.data?.key === it.key && !drawn.has(visualAgent(e)));
+    if (request) out.push({ key: it.key, request });
+  }
+  return out;
 }
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md

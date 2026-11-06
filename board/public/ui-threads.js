@@ -37,6 +37,8 @@
   const line = (m, links, edits, batched = false) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body">${linkHtml(replyBody(m.reply), links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg link"><a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
+    // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
+    : m.kind === 'visual' ? `<div class="msg link visual"><a href="${esc(m.link)}">${escText(m.text)} →</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.request ? `<div class="msg request">${statusMark(m.text)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'status' ? `<div class="msg builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`

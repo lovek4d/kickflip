@@ -120,6 +120,9 @@
 //                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits).
 //                                Either one on a card launches a headless planner on it (startPlanner) unless an
 //                                agent already works on it, so the session acts only on prototype-overdue.
+//                                visual-request {key, text?, files?} asks for a visual: the server launches a
+//                                visual agent on the card beside any other agent, once no other visual runs there
+//                                (launchVisuals; docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md)
 //                                reask-request {key?, question} asks the session to ask a resolved question again from the
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
@@ -278,13 +281,13 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, startedByAnswer, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startRebase, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, startVisual, openAgents, isLanding, askImplement, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, dropPlannedStatus, startPlanner, stripDeadFields, pickUp, startRebase, startReleasedBuild, startTappedBuild, sendPush, recordOwnerTap, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleGates, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -388,7 +391,7 @@ async function readBody(req, limit = 64 * 1024) {
 // never carries it. board.json is read again here, so a level changed since the hub's check holds. Full takes answers,
 // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
 // the header's GitHub check stay the owner's, as does any kind not listed.
-const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', 'grill-more', 'item-message',
+const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', 'grill-more', 'visual-request', 'item-message',
   'ask', 'ask-edited', 'ask-withdrawn', 'ask-bump', 'ask-done', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
   'builder-nudge', 'lineup-move', 'plan-waves']);
 const VIEW_ONLY = 'This board is shared with you to look at only.';
@@ -611,7 +614,7 @@ async function snapshot(outside, archived = []) {
       prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? prCache.get(prKeyOf(p))?.value ?? null : await prState(p.repo, p.number);
     }));
   }));
-  const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'item-message', 'wave-triage', 'overnight-triage']);
+  const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'item-message', 'wave-triage', 'overnight-triage']);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
   await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {
     const lines = await readLines(threadFile(`ask:${e.id}`));
@@ -1245,6 +1248,7 @@ const server = http.createServer(async (req, res) => {
         };
         await launchPlanner(String(body.key), kind === 'grill-more' ? 'grill' : 'prototype', ask);
       }
+      if (kind === 'visual-request' && body.key) await launchVisuals((await sharedBoard()).items, await readLines(events));
       if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
       // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
       return json(res, 200, { id, board: await answerBoard(req, since) });
@@ -1467,6 +1471,7 @@ async function runAuto() {
   }
   if (!heldByPause) await launchLanders(items, stoppedKeys(items));
   if (!heldByPause) await launchRebases(items);
+  if (!heldByPause) await launchVisuals(items, log);
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   if (await checkTriage(settings, log, items, ready)) return;
   const startPull = async (key) => {
@@ -1518,6 +1523,35 @@ async function launchArrivals(cards) {
     await appendThread(here, key, { text: `Landed in Todo, so the board started its ${kind}.` });
     await launchPlanner(key, kind);
     dataVersion++;
+  }
+}
+
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+// Each card's oldest visual request no agent has drawn gets its visual agent, launched headless in the board's repo
+// beside whatever else runs on the card, once no other visual runs there (domain.mjs visualsDue, store.mjs startVisual),
+// so a visual agent's finish, which changes its record, brings in the card's next request. One that can't start or
+// launch leaves a thread line and its record, if any, closed. Passes run one at a time, the tap's and the auto pass's,
+// and startVisual reads the records again, so a request opens one record however stale items is.
+let visualsPass = Promise.resolve();
+function launchVisuals(items, log) {
+  const pass = visualsPass.then(() => drawVisuals(items, log));
+  visualsPass = pass.catch(() => {});
+  return pass;
+}
+async function drawVisuals(items, log) {
+  for (const { key, request } of visualsDue(items, log)) {
+    try {
+      const started = await startVisual(here, key, request);
+      if (!started) continue;
+      const { text, files } = request.data;
+      const ask = { ...(text ? { text: String(text) } : {}), ...(Array.isArray(files) && files.length ? { files } : {}) };
+      try { await launchBuilder(here, { ...started, ...ask }); } catch (e) {
+        await abandonPlanner(here, key, `Couldn't launch the visual agent (${e.message}).`, started.agent);
+      }
+    } catch (e) {
+      if (!(e instanceof BoardError)) throw e;
+      await appendThread(here, key, { text: `Couldn't start the visual agent: ${e.message}` });
+    }
   }
 }
 

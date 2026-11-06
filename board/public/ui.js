@@ -77,11 +77,15 @@
   const EYE = icon('<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>');
   const TRASH = icon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
   const FIRE = icon('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>');
+  const IMAGE_PATHS = '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>';
   // Asks Claude for throwaway prototypes of one item (docs/adr/2026-10-29-1639-prototypes-come-on-request.md): a
   // question's eye sends at once; a thread's eye is a toggle that Send carries (app-threads.js).
   const protoButton = (id, { label = 'Ask for prototypes' } = {}) => `<button type="button" class="attach proto-ask" data-proto="${esc(id)}" aria-label="${esc(label)}" title="${esc(label)}">${EYE}</button>`;
   // The thread's fire, the eye's twin for a grill.
   const grillButton = (id) => `<button type="button" class="attach proto-ask" data-grill="${esc(id)}" aria-label="Ask for a grill" title="Ask for a grill">${FIRE}</button>`;
+  // The thread's image, asking for a visual: a page an agent draws to answer in the thread (app-threads.js;
+  // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md).
+  const visualButton = (id) => `<button type="button" class="attach proto-ask" data-visual="${esc(id)}" aria-label="Ask for a visual" title="Ask for a visual">${icon(IMAGE_PATHS)}</button>`;
   // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
   // A thread status line's leading mark, its icon or dot centred in one fixed box so every line's text starts at the
   // same place: the request's eye, fire or quick build's lightning, Reply's arrow, Implement's code brackets, answers' check, new questions' plain question mark, a builder's dot.
@@ -89,6 +93,7 @@
   const MARK_ICONS = {
     'prototype requested': mini('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
     'grill requested': mini('<path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/>'),
+    'visual requested': mini(IMAGE_PATHS),
     'quick build: no grill': mini('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
     Reply: mini('<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>'),
     Implement: mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
@@ -380,6 +385,6 @@
   globalThis.BoardUI = {
     LINK_ARROW, escText,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, RESTARTING, restartNotice,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
   };
 })();

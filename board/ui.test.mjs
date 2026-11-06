@@ -2240,3 +2240,15 @@ test('a ↗ in a card title, a card details line, a thread line and a question d
     assert.match(html, /class="link-arrow"/);
   }
 });
+
+// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
+test("a bare visual request is a request line led by the image mark, and the agent's page a plain link line that opens it full page", () => {
+  const html = ui.threadMessages([
+    { ts: ago(2), who: 'love', via: 'site', kind: 'visual-request', request: true, text: 'visual requested', eventId: 'v1', state: 'waiting', files: [] },
+    { ts: ago(1), who: 'claude', kind: 'visual', text: 'How a land <moves>', link: 'visuals/A1/how-a-land-moves.html' },
+  ]);
+  assert.match(ui.MARK_ICONS['visual requested'], /<rect x="3" y="3" width="18" height="18" rx="2"\/>/);
+  assert.ok(html.startsWith(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['visual requested']}</span>visual requested <span class="muted">`));
+  assert.match(html, /<div class="msg link visual"><a href="visuals\/A1\/how-a-land-moves\.html">How a land &lt;moves&gt; →<\/a> <span class="muted">· [^<]+<\/span><\/div>$/);
+  assert.doesNotMatch(html, /target="_blank"|class="who"/);
+});
