@@ -757,3 +757,13 @@ test("agent wait marks its spawner waiting while the helper is open, and refuses
   assert.deepEqual([gone.code, gone.err], [1, "helper look's process exited without builder done; do its task yourself\n"]);
   assert.equal('waits' in record(), false);
 });
+
+test("builder done takes --text on a planner run and writes it as the run's closing thread line", () => {
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'grill').code, 0);
+  const done = board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Asked which badge stays');
+  assert.equal(done.code, 0, done.err);
+  assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ text, planner }) => [text, planner]).at(-1), ['Grilling: Asked which badge stays', true]);
+  assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder').code, 0);
+  assert.match(board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Review', '--text', 'x').err, /--text goes on/);
+});

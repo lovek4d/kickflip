@@ -144,7 +144,7 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
     ...(text ? [`   The owner asked for this ${grill ? 'grill' : 'prototype'}, writing: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     ...(question ? [`   The owner asked for prototypes of question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`] : []),
-    `5. Record what you learned in the card's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it.`,
+    `5. Record what you learned in the card's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it. Anything you leave open becomes a question with question add, never only a line in the notes, so the card can't go ready past it.`,
     ...(grill ? [
       `6. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end the card \`${b} item set ${key} --state prototyping\` instead and skip the prototype question. Otherwise the prototype question is what moves the card on: never set it ready yourself, and never leave a Next that asks the owner to mark it ready.`,
     ] : []),
@@ -218,18 +218,21 @@ export function helperBrief({ route, key, ref, title, notes, agent, task, writes
 export function intakeBrief({ route, repo, rules = [], waves = [], cards = [], event, key, kind, quick = false, thread = [] }) {
   const b = cli(route);
   const said = thread.map((m) => `- ${m.who}: ${m.text}${m.files?.length ? ` (attached: ${m.files.map((f) => f.path).join(', ')})` : ''}`);
-  // An Implement ask files to staging, for the orchestrator to judge; any other card to its grill or prototype.
-  const state = quick ? '--state staging --size <small|large>' : '--state <grilling|prototyping>';
+  // An Implement ask files to staging, for the orchestrator to judge; any other card to its grill or prototype. item add
+  // needs a state on a board, so the card is filed held and item set --from-ask unholds it: no planner starts between the
+  // two writes. #381 (item add --from-ask) and #411 (no intake triage) make it one write.
+  const added = quick ? '--state grilling --held' : '--state <grilling|prototyping> --held';
+  const state = quick ? '--state staging --unheld --size <small|large>' : '--unheld';
   const stateLine = quick
     ? '      The owner chose Implement: put the plan in the notes; the orchestrator judges it from staging before it goes ready.'
-    : "      --state prototyping when it changes the hub's or a board's UI, --state grilling for anything else; the board starts the grill or prototype itself.";
+    : "      --state prototyping when it changes the hub's or a board's UI, --state grilling for anything else; once unheld, the board starts the grill or prototype itself.";
   // The card's notes are the draft item add --notes-from seeds them with; a linked card gets its section with item notes.
   const fileIt = (from) => [
     `   1. Write its notes in ${DRAFT}: open with the owner's words verbatim, under "## Asked (owner, <date>)", then a short "## What it is" in plain words and a "## Related" line naming each linked card and how they overlap. Add that line to each linked card's notes with ${notesCommand(b, '<linked key>', 'Related')} on a draft of its own.`,
     `   2. ${from}`,
     stateLine,
   ];
-  const add = (title) => `\`${b} item add <wave> --title "${title}" --notes-from <draft.md>\``;
+  const add = (title) => `\`${b} item add <wave> --title "${title}" --notes-from <draft.md> ${added}\``;
   const jobs = {
     ask: [
       `Your job: sort new task ${event}, on card ${key}, one of these ways:`,

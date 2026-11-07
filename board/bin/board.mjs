@@ -223,7 +223,7 @@ command fails and changes nothing.
                                                          its wave file, read-only: the draft verbatim, or "# <title>"
                                                          then the --notes text. Refuses a draft that is any card's
                                                          notes file, live, done or archived, naming that card
-         [--pick-up-at <time>]                           holds it until then, as item set's --pick-up-at
+         [--pick-up-at <time> | --held]                  holds it until then, or until resumed, as item set's
          [--size small|large] [--model opus|sonnet]      as item set's
          [--parent <wave>/<id>]                          the card it was spun out of, such as one filed from
                                                          another card's thread, grill or answer: it reads as a
@@ -235,8 +235,8 @@ command fails and changes nothing.
          [--from-ask <eventId> --text <t>]               files the card from that ask in this one command, as
                                                          item set's --from-ask: no grill starts before the ask is on
                                                          the card. Needs --state
-                                                         Without --state it reads New and a card-added event
-                                                         brings in intake triage, which links and files it
+                                                         On a board --state is required, so no card an agent
+                                                         adds reads New
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
          card. Prints "<label> added as <key>": use the key in later commands
   item notes <wave>/<id> --heading <h>                 appends "## <h>" and the draft to the card's notes, making
@@ -490,7 +490,8 @@ command fails and changes nothing.
                                                          refuses with the reason and leaves the record open; one
                                                          refused while another agent's record is open names it.
                                                          A helper's done takes --text, its hand-back, which agent
-                                                         wait prints.
+                                                         wait prints. A grill's or prototype's done takes
+                                                         --text, what it asked, as the run's closing thread line.
                                                          --next stops a build without finishing it. Closing the
                                                          last record of a card left In Progress with no Next is
                                                          refused without --next, which sets it
@@ -765,7 +766,8 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ..
     if (text === undefined) throw new UsageError(`a helper hands back its result: pass --text "<what you did or found>"`);
     return store.stopBuilder(site, key, { ...f, note: text });
   }
-  if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card, the main build with a worktree and no --next, or on a helper\'s');
+  if (onBoard && text !== undefined && await store.isPlanner(site, key, f.agent)) return store.stopBuilder(site, key, { ...f, note: text, requireNext: true });
+  if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card, the main build with a worktree and no --next, or on a helper\'s or a planner\'s');
   return store.stopBuilder(site, key, { ...f, requireNext: true });
 }
 
@@ -802,10 +804,10 @@ const COMMANDS = {
     return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check, stopRun: () => stopForBlock(site, key) }, options);
   }],
-  'item add': [['wave[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'parent', 'size', 'model', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
+  'item add': [['wave[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, pickUpAt: f['pick-up-at'], parent: f.parent, size: f.size, model: f.model, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, size: f.size, model: f.model, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
   }],
   'item notes': [['wave/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');

@@ -130,3 +130,16 @@ test('an Implement message waiting from before staging becomes staging, keeping 
   ]);
   assert.deepEqual(await stageImplementAsks(site('audit')), []);
 });
+
+// docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: item add needs a state on a board, so intake triage
+// files a Quick build ask held and grilling, then stages and unholds it in its --from-ask.
+test('a Quick build ask filed held and grilling stages and unholds in one item set --from-ask', () => {
+  addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } });
+  write(`${home}/draft.md`, '# Quick\n');
+  const added = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--notes-from', `${home}/draft.md`, '--state', 'grilling', '--held');
+  assert.equal(added.code, 0, added.err);
+  assert.deepEqual([item('Q1').state, item('Q1').held], ['grilling', true]);
+  const filed = board('item', 'set', 'w/Q1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--state', 'staging', '--unheld', '--size', 'small');
+  assert.equal(filed.code, 0, filed.err);
+  assert.deepEqual([item('Q1').state, 'held' in item('Q1'), item('Q1').from_ask], ['staging', false, 'eq']);
+});

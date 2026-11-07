@@ -2629,10 +2629,10 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
 // (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: state files the card at once, with
-// relate its Related to. With intake, a site and no state, the card is unfiled, reading New, and a `card-added {key, title}`
-// event wakes the board's session to file it; once filed it arrives in Todo and gets its grill
-// (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is ready.
-async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, parent, size, model, state, relate, fromAsk, text: said, intake = false }, options) {
+// relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, state
+// is required, so no card an agent adds reads New; once filed it arrives in Todo and gets its grill
+// (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is held or ready.
+async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, held, parent, size, model, state, relate, fromAsk, text: said, intake = false }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
   checkState(state);
@@ -2645,6 +2645,7 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   if (ask && state === undefined) fail('--from-ask files a card, which reads New until it has a state: pass --state grilling, prototyping, or ready for a Quick build ask');
   if (state === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it grilling or prototyping` : 'item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
   if (state === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --state ready`);
+  if (intake && site && state === undefined) fail('item add files a card on a board: pass --state grilling or prototyping');
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
@@ -2658,12 +2659,11 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   const seed = notesFrom !== undefined ? body : `# ${item.title}\n${body && `\n${body}\n`}`;
   setBuildChoice(item, { size, model });
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
-  if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
+  const hold = holdOf({ held, pickUpAt });
+  if (hold) setHold(item, hold);
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (ask) item.from_ask = ask;
   if (state !== undefined) item.state = state;
-  // Without a site there is no board session to file it.
-  else if (intake && site) item.unfiled = true;
   await assignTicket(site, key, wave, item, ticket, options, source.dir, body);
   if (id === undefined) {
     item.id = cardIdOf(item.ticket);
@@ -2674,7 +2674,6 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   const added = `${slug}/${item.id}`;
   wave.items.push(item);
   await writeJSON(source.file, wave);
-  if (item.unfiled) await appendEvent(listBoards().find((b) => samePath(b.dir, site)) || { dir: site }, 'card-added', { key: added, title: item.title });
   if (ask) {
     await appendThread(site, added, { text: said });
     // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
@@ -3609,6 +3608,13 @@ export async function waitHelper(site, key, { name, agent = 'main', timeout = 9,
 export async function isHelper(site, key, agent = 'main') {
   if (agent === 'main') return false;
   return (await readJSON(await builderFile(site, key, undefined, agent), null))?.kind === HELPER;
+}
+
+// Whether agent's open record on the card is a planner's run (domain.mjs plans), whose builder done writes its --text as
+// the run's closing thread line.
+export async function isPlanner(site, key, agent = 'main') {
+  const record = await readJSON(await builderFile(site, key, undefined, agent), null);
+  return Boolean(record?.started && !record.done && plans(record));
 }
 
 // `visual add <wave/id> --file <html> --title <t>`: the visual agent's page, copied to the site's
