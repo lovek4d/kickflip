@@ -138,6 +138,15 @@ test('builder call appends a one-line call to the open record, calls prints them
   assert.deepEqual(['calls' in read(main), 'verified' in read(main), 'worktree' in read(main)], [false, false, false]);
 });
 
+test('builder asks --wait returns once every ask is answered and fails after its timeout while one waits', () => {
+  const orch = (...args) => board('--site', 'orch', ...args);
+  assert.equal(orch('builder', 'start', 'w/A1', '--kind', 'claude', '--model', 'opus').code, 0);
+  assert.equal(orch('builder', 'ask', 'w/A1', 'Spec contradicts the probe?').code, 0);
+  assert.match(orch('builder', 'asks', 'w/A1', '--wait', '--timeout', '0.001').err, /ask1 still waiting on the orchestrator after 0.001 minutes; run builder asks w\/A1 --wait again/);
+  assert.equal(orch('builder', 'answer', 'w/A1', 'ask1', '--text', 'Follow the probe.').code, 0);
+  assert.deepEqual(orch('builder', 'asks', 'w/A1', '--wait').out.trim().split('\n'), ['ask1. Spec contradicts the probe?', '  answered: Follow the probe.']);
+});
+
 test('builder ask posts to the thread as the builder and wakes the orchestrator, which answers or defers to the owner', () => {
   const main = at('waves', 'w', 'agents', 'A1.json');
   const orch = (...args) => board('--site', 'orch', ...args);

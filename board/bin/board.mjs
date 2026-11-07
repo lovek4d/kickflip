@@ -595,7 +595,8 @@ command fails and changes nothing.
   builder calls <wave>/<id> [--agent <name>]             prints the record's calls, numbered, then "verified <time>"
                                                          or "not verified yet"
   builder ask <wave>/<id> <question> [--agent <name>]    a running builder's one-line question for the board's session,
-                                                         which it asks at any point and carries on meanwhile: a thread
+                                                         which it asks only when blocked (every way forward would likely
+                                                         be wasted work), then waits with builder asks --wait: a thread
                                                          line named by its model ("Claude Opus builder"), never unread,
                                                          and a builder-ask {key, ask, agent, text} event. Prints its
                                                          id, ask<n>. Needs --site and an open builder record
@@ -606,8 +607,9 @@ command fails and changes nothing.
                                                          owner)" call on the asking agent's record. After its review the
                                                          session puts it to the owner as a card question with
                                                          "ask": "<ask>"; builder verified refuses until then
-  builder asks <wave>/<id>                               prints each ask, then its answer, its deferral or "waiting on
-                                                         the orchestrator"
+  builder asks <wave>/<id> [--wait] [--timeout <min>]    prints each ask, then its answer, its deferral or "waiting on
+                                                         the orchestrator"; --wait blocks until none is waiting, and
+                                                         after --timeout (9) minutes says so and fails: run it again
   builder verified <wave>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
          [--note <t>]                                    refuses while any record on the card has a call after it.
                                                          On a handed-back build (not done, no builder open, every
@@ -681,7 +683,7 @@ command fails and changes nothing.
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch', 'writes']);
+const BOOLEAN = new Set(['done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch', 'writes']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -921,7 +923,7 @@ const COMMANDS = {
   'builder ask': [['wave/id', '...text'], ['agent'], (site, [key, ...words], f) => store.askOrchestrator(site, key, words.join(' '), f)],
   'builder answer': [['wave/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text)],
   'builder defer': [['wave/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
-  'builder asks': [['wave/id'], [], (site, [key]) => store.listAsks(site, key)],
+  'builder asks': [['wave/id'], ['wait', 'timeout'], (site, [key], f) => store.listAsks(site, key, f)],
   'builder verified': [['wave/id'], ['dir', 'agent', 'note'], async (site, [key], f) => {
     await store.verifyCalls(site, key, f);
     const next = site && !f.dir ? await store.verifiedFinish(site, key) : null;

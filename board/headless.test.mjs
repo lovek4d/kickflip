@@ -113,7 +113,8 @@ test("every brief names the card's thread file, and a builder reads it with the 
   };
   for (const [name, brief] of Object.entries(briefs)) assert.ok(brief.includes(t), `the ${name} brief names the thread file`);
   const builder = briefs.builder;
-  assert.ok(builder.includes('who: love') && builder.includes('the notes win') && builder.includes('builder ask w/A1'), 'the notes win over the thread and the builder asks');
+  assert.ok(builder.includes('who: love') && builder.includes('the notes win'), 'the notes win over the thread');
+  assert.ok(builder.includes('Ask it only when you are blocked') && builder.includes('builder asks w/A1 --wait') && builder.includes('Found: <what>'), 'the brief asks only when blocked, waits with --wait, and files findings as calls');
   assert.ok(builder.includes('Read the thread again in checking'));
   assert.ok(!briefs.grill.includes('data/threads folder'), 'a planner gets the exact file, not the folder');
 });

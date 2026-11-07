@@ -3938,12 +3938,21 @@ export async function answerBuilder(site, key, id, reply, { deferred = false } =
   return { lines: [] };
 }
 
-// → {lines}: each ask, then its answer, deferral or "waiting on the orchestrator".
-export async function listAsks(site, key) {
+// → {lines}: each ask, then its answer, deferral or "waiting on the orchestrator". With wait it blocks until no ask is
+// waiting on the orchestrator, giving up after timeout minutes (9, under a Bash tool call's 10) so the builder runs it again.
+export async function listAsks(site, key, { wait = false, timeout = 9, every = 2000 } = {}) {
   needSite(site);
-  const asks = await builderAsks(site, key);
-  if (!asks.length) return { lines: ['no asks yet'] };
-  return { lines: asks.flatMap((a) => [`${a.id}. ${a.text}`, `  ${!a.answer ? 'waiting on the orchestrator' : `${a.deferred ? 'deferred' : 'answered'}: ${a.answer.text}`}`]) };
+  const minutes = Number(timeout);
+  if (!(minutes > 0)) fail('--timeout takes minutes, a number above 0');
+  const deadline = Date.now() + minutes * 60_000;
+  for (;;) {
+    const asks = await builderAsks(site, key);
+    if (!asks.length) return { lines: ['no asks yet'] };
+    const waiting = asks.filter((a) => !a.answer);
+    if (!wait || !waiting.length) return { lines: asks.flatMap((a) => [`${a.id}. ${a.text}`, `  ${!a.answer ? 'waiting on the orchestrator' : `${a.deferred ? 'deferred' : 'answered'}: ${a.answer.text}`}`]) };
+    if (Date.now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on the orchestrator after ${minutes} minutes; run builder asks ${key} --wait again`);
+    await new Promise((resolve) => setTimeout(resolve, every));
+  }
 }
 
 // A question naming a builder's ask ("ask": "ask<n>") is that deferred ask put to the owner.
