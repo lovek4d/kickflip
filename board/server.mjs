@@ -199,9 +199,11 @@
 //                                implementer slot max_implementers leaves free (domain.mjs pullOf), whether or not
 //                                the board is idle, each once, tracked in data/pulled.json, its record dispatched:
 //                                'hub', after the helpers board.mjs agent launch asked for (launchHelpers), which come
-//                                first; and each card that arrives in Todo (domain.mjs arrivalsOf) gets a grill
-//                                launched, up to max_planners running at once, the rest waiting in board order, busy
-//                                board or not. Neither appends an event.
+//                                first, and the landers and rebase runs, which come before those; a bumped card
+//                                starts past the cap, bumping out the newest unbumped build (stop.mjs bumpOut); and
+//                                each card that arrives in Todo (domain.mjs arrivalsOf) gets a grill launched, up to
+//                                max_planners running at once, a bumped card's past it, the rest waiting in board
+//                                order, busy board or not. Neither appends an event.
 //                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
 //                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
@@ -341,6 +343,7 @@ import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
 import { listBuildTargets } from './build-script.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
+import { bumpOut } from './stop.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, savedSlack, slackStatus } from '../hub/slack.mjs';
 import { collaborators, githubUser } from '../hub/pr-report.mjs';
 
@@ -603,7 +606,10 @@ async function readAgents(dir) {
 // manifest (its GitHub repo, git remote and branch) and the Slack bridge's topic items.
 async function outsideData() {
   const self = boardAt(here);
-  return { cfg: await config(), github: self?.github, local: self?.local, hub: self?.hub, remote: self?.remote, branch: self?.branch, topicItems: topicItems() };
+  // hostBusy: whether the host holds new work (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md), which a bumped
+  // ready card reads (domain.mjs hostHeld).
+  return { cfg: await config(), github: self?.github, local: self?.local, hub: self?.hub, remote: self?.remote, branch: self?.branch, topicItems: topicItems(),
+    hostBusy: readUsageGate({ dir: here }).machine.state === 'busy' };
 }
 
 // The wave files the board reads, each with its builder records.
@@ -696,7 +702,7 @@ async function snapshot(outside, archived = []) {
     ...items, moved, commandRunning, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
-    topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}),
+    topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
   };
 }
 
@@ -1466,8 +1472,9 @@ async function checkPickUps() {
 // The Auto jobs, run on every board change and once at start: the released starts, the arrivals' grills, triage, then
 // the pull, then a review. A card an Implement message asked for that ready released starts at once as the owner's
 // Build tap would, launching its builder, past the cap and whether Auto implement is on or not; the pull fills the
-// free implementer slots with Todo's top ready cards (domain.mjs pullOf, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
-// With Auto implement on, each card that arrived in Todo gets its grill, up to max_planners at once (launchArrivals).
+// free implementer slots with Todo's top ready cards (domain.mjs pullOf, docs/adr/2026-11-05-0802-todo-has-no-queue.md)
+// that the landers and rebase runs leave, a bumped card past the cap, bumping out a build
+// (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md). With Auto implement on, each card that arrived in Todo gets its grill, up to max_planners at once (launchArrivals).
 // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
 // board. An unanswered triage holds only the cards it names, until quiet hours end, and a card pulled and not yet started holds the
 // review. None goes out while usage is paused or the Mac is busy, nor, near the line, while the last Claude start hasn't
@@ -1497,16 +1504,22 @@ async function runAuto() {
   const log = await readLines(events);
   const { items, reviews } = await sharedBoard();
   const hold = await triageHold(log);
-  const { idle, pullable, waiting, pulls, helpers } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL), hold });
+  const pulled = await sentOf(PULL);
+  const cap = settings.max_implementers;
+  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: landers and rebase runs take the free
+  // slots first, a bumped card's past the cap, and the pull and helpers fill what they leave.
+  const room = { free: pullOf(items, { cap, pulled, hold }).free };
+  const free = room.free;
   const gate = readUsageGate({ dir: here });
   if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
   boardPaused = gate.manual === 'board';
   heldByPause = launchHeld(gate, 'claude');
-  const ready = idle && !heldByPause;
   if (!heldByPause) await launchQueuedPlanners();
   if (!heldByPause) await launchRounds(roundsDue(items));
-  if (!heldByPause) await launchLanders(items, stoppedKeys(items));
-  if (!heldByPause) await launchRebases(items);
+  if (!heldByPause) await launchLanders(items, stoppedKeys(items), room);
+  if (!heldByPause) await launchRebases(items, room);
+  const { idle, pullable, waiting, pulls, helpers, bumpOuts, pastCap } = pullOf(items, { cap, pulled, hold, taken: free - room.free });
+  const ready = idle && !heldByPause;
   if (!heldByPause) await launchVisuals(items, log);
   if (!heldByPause) await launchHelpers(helpers);
   await sortIntake();
@@ -1517,8 +1530,19 @@ async function runAuto() {
   // Near the line the pull starts one card a pass, and none once another launch is waiting on its first reading.
   const pullNow = (gate) => (launchHeld(gate, 'claude') ? [] : gate.near && !gate.near.going ? pulls.slice(0, 1) : pulls);
   const startPull = async (key) => {
+    // A bumped card past the cap bumps out the newest unbumped build first (domain.mjs pullOf bumpOuts).
+    for (const out of bumpOuts.filter((b) => b.by === key)) {
+      const entry = { call: 'bump-out', key: out.key, reason: `${key} is bumped and every implementer slot is full; this was the newest unbumped build.`, inputs: { by: key, cap } };
+      try {
+        logCall({ ...entry, result: 'bumped out', inputs: { ...entry.inputs, lines: await bumpOut(here, out.key, key) } });
+      } catch (e) {
+        if (!(e instanceof BoardError)) throw e;
+        logCall({ ...entry, result: 'refused', reason: `${entry.reason} The bump-out refused: ${e.message}` });
+      } finally { dataVersion++; }
+    }
     const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
-    logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready card in Todo.', inputs: { cap: settings.max_implementers, pullable, waiting } });
+    const why = pastCap.includes(key) ? 'It is bumped, so it starts past the cap.' : 'An implementer slot was free and it was the top ready card in Todo.';
+    logCall({ call: 'pull', key, result: startResult(started), reason: why, inputs: { cap, pullable, waiting } });
     return handOff(started);
   };
   if (await sendPulls(PULL, settings.auto_pull, waiting, heldByPause ? [] : pullNow(readUsageGate({ dir: here })), startPull)) return;
@@ -1881,8 +1905,9 @@ function runHeldMerge(key) {
 // on a handed-back card, so with none handed back (anyChecking false) and none sent back, landable's read of the wave
 // files is skipped. A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor
 // relaunched. A dead lander whose card is neither building nor handed back (landed, or archived) has its entry dropped;
-// relaunchLander would restore an archived card from the archive.
-async function launchLanders(items, stopped) {
+// relaunchLander would restore an archived card from the archive. room {free} is the implementer slots free: each
+// lander takes one, a bumped card's past the cap, bumped cards first, and one with none free waits for the next pass.
+async function launchLanders(items, stopped, room) {
   const anyChecking = items.some((i) => i.waitsOn === 'checking');
   const status = Object.fromEntries(items.map((i) => [i.key, i.waitsOn === 'checking' ? 'checking'
     : i.lane !== 'done' && i.agents?.some((a) => a.started && !a.done) ? 'building' : null]));
@@ -1905,10 +1930,11 @@ async function launchLanders(items, stopped) {
   };
   if (dropped.size) await save();
   if (!anyChecking && !pidGone.size) return;
-  const due = (await landable(here)).filter((c) => kept[c.key]?.verified !== c.verified);
+  const due = byBump(items, (await landable(here)).filter((c) => kept[c.key]?.verified !== c.verified));
   if (!due.length) return;
   for (const c of due) {
     if (launchHeldNow(c.kind ?? 'claude')) break;
+    if (!takeSlot(items, room, c.key)) continue;
     const entry = { call: 'lander', key: c.key, reason: 'Its build was verified and waits to land.', inputs: { verified: c.verified, before: kept[c.key] ?? null } };
     try {
       kept[c.key] = { verified: c.verified, pid: (await launchBuilder(here, c, { lander: true })).pid };
@@ -1923,20 +1949,33 @@ async function launchLanders(items, stopped) {
   await save();
 }
 
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+// The due runs [{key}] with the bumped cards' first, the earliest bump first, the rest in their order.
+const bumpOf = (items, key) => items.find((i) => i.key === key)?.bumpedAt || '';
+const byBump = (items, due) => [...due.filter((d) => bumpOf(items, d.key)).sort((a, b) => bumpOf(items, a.key).localeCompare(bumpOf(items, b.key))), ...due.filter((d) => !bumpOf(items, d.key))];
+// Whether a run on card key may launch into room {free}: a bumped card's always, past the cap, any other while a slot
+// is free. A launch takes its slot.
+function takeSlot(items, room, key) {
+  if (!bumpOf(items, key) && room.free <= 0) return false;
+  room.free--;
+  return true;
+}
+
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
 // data/rebases.json {<key>: {conflict, pid}}: the conflict (the PR's head @ the base) each rebase run was started for, so
 // each conflict gets one run, and its process. Each card whose open PR conflicts (domain.mjs rebasesDue) gets a headless
 // rebase run in its worktree, or one made from the PR's branch (store.mjs startRebase). A start or launch that fails
 // leaves a thread line and keeps its conflict, so it isn't retried until the PR's head or base moves.
-async function launchRebases(items) {
+async function launchRebases(items, room) {
   const file = path.join(data, 'rebases.json');
   const sent = await readJSON(file, {});
   const { base } = builderRepo(here);
-  const due = rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base);
+  const due = byBump(items, rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base));
   if (!due.length) return;
   try {
     for (const d of due) {
       if (launchHeldNow()) break;
+      if (!takeSlot(items, room, d.key)) continue;
       const id = d.key.split('/')[1];
       const entry = { call: 'rebase-run', key: d.key, reason: `Its PR #${d.pr} conflicts with ${base}.`, inputs: { pr: d.pr, conflict: d.conflict, before: sent[d.key] ?? null } };
       sent[d.key] = { conflict: d.conflict, pid: null };

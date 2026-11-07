@@ -58,6 +58,18 @@ export async function stopForBlock(site, key) {
   return agent ? stopAgent(site, key, ref, agent) : [];
 }
 
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+// The pull's bump-out of the card at key for bumped card by, past the cap: its board-launched build stops, marked
+// stopped first so nothing relaunches it, and the card goes back to Todo as ready (store.mjs sendBackBumpedOut). pullOf's
+// bumpOuts names only a card whose one run the board launched; one whose process is already gone has nothing to stop.
+// → its lines
+export async function bumpOut(site, key, by) {
+  await store.markStopped(site, key, 'build');
+  const agent = launchedAgents((await store.openRuns(site, key)).filter((r) => !plans(r)))[0];
+  const processes = agent ? await stopRuns([agent.pid]) : [];
+  return [await store.sendBackBumpedOut(site, key, by), ...pidLines(processes)];
+}
+
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 // The orchestrator's stall of a card it can't restart (item stall): the card is flagged with the reason, each open build
 // record is marked stopped so nothing relaunches it and its slot frees, and its board-launched run stops as builder stop

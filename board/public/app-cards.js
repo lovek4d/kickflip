@@ -311,8 +311,10 @@ BoardView.part((B) => {
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
-  // The latest bump among New cards takes no second bump (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md).
-  const latestBump = (it) => Boolean(it.isNew && it.bumpedAt) && !state.board.items.some((i) => i.isNew && (i.bumpedAt || '') > it.bumpedAt);
+  // A bumped New card takes no second bump, which would only move it behind the earlier bumps
+  // (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md,
+  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md).
+  const bumpedAsk = (it) => Boolean(it.isNew && it.bumpedAt);
   // band {step, actions} draws the card in a wave band (app-lanes.js).
   // Its open questions asked since this browser last opened it are one more unread message: the thread's "N new
   // questions" line (app-threads.js; docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
@@ -322,7 +324,7 @@ BoardView.part((B) => {
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread, top: latestBump(it), ...band })}</div>
+            <div class="title-wrap">${workLines(it, { unread, top: bumpedAsk(it), ...band })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;

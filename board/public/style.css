@@ -89,6 +89,8 @@ button.chip { border: 0; }
 /* The footer status of a stale card, and of one the orchestrator stalled (ui-cards.js timeLine). */
 .card-stale { color: var(--muted); }
 .card-stalled { color: var(--color-danger); }
+/* A bumped-out card's footer status, and a bumped ready card's while the host holds new work (ui-cards.js timeLine). */
+.card-bumped-out, .card-host-held { color: var(--muted); }
 .sub.next.idle { color: var(--muted); }
 .sub.refused { color: var(--color-danger); }
 .toast-stack { position: fixed; left: 50%; bottom: calc(var(--app-bottom, 0px) + 12px + env(safe-area-inset-bottom));

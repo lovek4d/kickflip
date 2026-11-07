@@ -1866,13 +1866,14 @@ async function checkAsk(site, eventId, name = '--from-ask') {
 
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // A card's stored lane (todo, progress, review, done), written only here, with lane_at; a move to Done writes closed_at
-// and a move out of it reopened_at, which the next move to Done clears. → the lane it left, undefined for a card never
-// placed.
+// and a move out of it reopened_at, which the next move to Done clears. A move out of Todo ends a bump-out
+// (sendBackBumpedOut). → the lane it left, undefined for a card never placed.
 function placeIn(item, to, now = new Date().toISOString()) {
   if (!LANES[to]) throw new Error(`no lane "${to}"`);
   const from = item.lane;
   item.lane = to;
   item.lane_at = now;
+  if (to !== 'todo') delete item.bumped_out;
   if (to === 'done') { item.closed_at = now; delete item.reopened_at; }
   else if (from === 'done') item.reopened_at = now;
   return from;
@@ -3351,6 +3352,24 @@ async function bumpBlocked(site, key, blockers) {
   return { key, ref: await cardName(site, key), bumped: blockers, line: `bumped: ${key} waits on ${names}, so it stays in Todo, bumped to the top` };
 }
 
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+// A card stop.mjs bumpOut bumped out for bumped card by: its open build records close, a hand-back ended, keeping its
+// worktree and branch on them, and it goes back to Todo as ready, bumped_out {by, at} until it starts again (placeIn).
+// → the line saying so
+export async function sendBackBumpedOut(site, key, by) {
+  const { source, wave, item } = await loadItem(site, key);
+  const now = new Date().toISOString();
+  placeIn(item, 'todo', now);
+  item.state = 'ready';
+  delete item.staged_at;
+  item.bumped_out = { by, at: now };
+  await writeJSON(source.file, wave);
+  await closeBuilders(source.dir, item.id, false, { endHandBack: true });
+  const name = await cardName(site, by);
+  await appendLine(threadFile(site, key), { ts: now, who: 'claude', text: `Bumped out by ${name}: back to Todo, ready. It starts again once a slot frees.` });
+  return `${await cardName(site, key)} bumped out by ${name}`;
+}
+
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 // A build the board server started whose agent couldn't launch goes back to Todo: its open main record closes, the card
 // goes back to Todo with no move line, and the thread says why, as a refusal the Todo card shows.
@@ -3433,17 +3452,16 @@ export async function clearStall(site, key) {
   delete item.stalled;
   await writeJSON(source.file, wave);
 }
-// The bump the card's land queues with: its latest card-bump when no card-unbump came after it and it was made once the
-// card's first build had started, as the board reads a bump (domain.mjs workItem), else null.
+// The bump the card's land queues with: its latest card-bump when no card-unbump came after it and it was made after
+// the card last closed, Done or merged, as the board reads a bump (domain.mjs workItem), else null.
 export async function landFirst(site, key) {
-  const { source } = await loadItem(site, key);
+  const { item } = await loadItem(site, key);
   const events = await readLines(path.join(site, 'data', 'events.jsonl'));
   const latest = (kind) => events.filter((e) => e.kind === kind && e.data?.key === key).map((e) => String(e.ts)).sort().pop() || '';
   const bump = latest('card-bump');
   if (!bump || latest('card-unbump') > bump) return null;
-  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
-  const firstBuild = records.filter((r) => r && builds(r)).map((r) => String(r.started || '')).filter(Boolean).sort()[0] || '';
-  return firstBuild && bump < firstBuild ? null : bump;
+  const closedAt = [item.closed_at, ...storedPRs(item).map((p) => p.merged_at)].filter(Boolean).map(String).sort().pop() || '';
+  return bump > closedAt ? bump : null;
 }
 // The orchestrator's bump (on) or unbump of a card, the event the owner's bump icon sends. → the event's time
 export async function bumpCard(site, key, on) {

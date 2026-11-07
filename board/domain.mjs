@@ -235,10 +235,10 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   // docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
   const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
   // docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md
-  const bumpable = lane === 'todo' || lane === 'progress';
-  // A bump made before the card's first build started clears when that build starts.
-  const firstBuild = agents.filter(builds).map((a) => String(a.started || '')).filter(Boolean).sort()[0] || '';
-  const bumpStands = bumpedAt && !(firstBuild && String(bumpedAt) < firstBuild);
+  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: every open card bumps, and a bump lasts
+  // until its unbump or the card's close, merged or Done; one made before the card last closed is over.
+  const bumpable = lane !== 'done';
+  const bumpStands = Boolean(bumpedAt) && !(doneAt && String(bumpedAt) <= doneAt);
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   // A held Merge handed to a lander (finish.mjs landHeld) is still merging; the card stays In Review while it runs.
   const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'command', MOVE].includes(m.kind) && !LANDER_HANDOFF.test(m.text || '')).map((m) => String(m.ts)).sort().pop() || '';
@@ -278,6 +278,9 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     // docs/adr/2026-11-07-0700-staging-then-ready.md: when the card was staged, and when it was last sent back for a round.
     stagedAt: lane === 'todo' && it.state === 'staging' ? it.staged_at || null : null, roundAt: it.round_at || null,
     deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
+    // A card the pull bumped out for a bump past the cap, back in Todo until it starts again (store.mjs sendBackBumpedOut);
+    // buildBoard names the card that bumped it out.
+    bumpedOut: it.bumped_out ? { key: it.bumped_out.by, at: it.bumped_out.at } : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
@@ -449,7 +452,6 @@ function placeOwnerWait(it, questionById, autoMerge) {
   if (!it.action || !ownerOnly || it.stalled) return;
   const lane = it.lane === 'todo' && ASKING.has(it.action.kind) ? 'todo' : 'review';
   Object.assign(it, { lane, waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label });
-  if (lane === 'review') Object.assign(it, { bumpable: false, bumpedAt: null });
 }
 
 // docs/adr/2026-10-29-1639-a-started-card-never-returns-to-todo.md
@@ -582,7 +584,8 @@ export function prototypeWaits(built, events) {
 function agentsOf(records = {}) {
   return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
-    log: r.session?.log || null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null,
+    // pid: the headless process the board launched for it (store.mjs recordSession), none for a session's own agent.
+    log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null,
     ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
@@ -1193,6 +1196,13 @@ export function buildBoard(snapshot) {
     it.ready = unstarted && it.state === 'ready' && !it.blocked && !it.action;
     // docs/adr/2026-11-07-0700-staging-then-ready.md
     it.staging = unstarted && it.state === 'staging';
+    // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped-out card reads so until it
+    // starts again, and a bumped ready card a busy host holds reads held.
+    if (it.kind === 'work') {
+      const by = it.bumpedOut && byKey.get(it.bumpedOut.key);
+      it.bumpedOut = unstarted && it.bumpedOut ? { ...it.bumpedOut, ref: by?.ref ?? it.bumpedOut.key.split('/').pop() } : null;
+      it.hostHeld = Boolean(snapshot.hostBusy) && it.ready && Boolean(it.bumpedAt) && !it.held;
+    }
   }
   linkCards(items, byKey, storedLinks);
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
@@ -1405,9 +1415,12 @@ export const MAX_IMPLEMENTERS = 10;
 // waiting lists the pulled cards not yet started that still hold a slot: pullable, or still in Todo with a session
 // working on them. helpers lists the requested helpers to launch now, {key, name}: every read-only one, then the
 // writing ones in board order up to the free slots, the cap less the implementers and waiting. Every writing helper
-// requested comes ahead of the pull, so pulls lists the pullable cards not pulled that fit the slots the helpers leave
-// (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
-export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] } = {}) {
+// requested comes ahead of the pull, so pulls lists the pullable cards not pulled that fit the slots the helpers leave,
+// and every bumped one, past the cap (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
+// taken is the slots the server's pass already filled with landers and rebase runs. free is the slots left before the
+// helpers and the pull; pastCap the bumped pulls past the cap, and bumpOuts [{key, by}] the builds to stop for them.
+// hold lists the cards an unanswered overnight triage names, which the pull leaves.
+export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [], taken = 0 } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const counts = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes)
     && !(a.waits && agents.some((h) => h.name === a.waits && !h.done));
@@ -1417,11 +1430,35 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] }
   const pullable = open.filter((i) => pullableCard(i) && !i.working).map((i) => i.key);
   const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
   const requested = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name, writes: a.writes })));
-  const free = Math.max(0, cap - implementers - waiting.length);
+  const free = Math.max(0, cap - implementers - waiting.length - taken);
   const writing = requested.filter((h) => h.writes);
   const helpers = [...requested.filter((h) => !h.writes), ...writing.slice(0, free)].map(({ key, name }) => ({ key, name }));
-  const pulls = pullable.filter((k) => !waiting.includes(k) && !hold.includes(k)).slice(0, Math.max(0, free - writing.length));
-  return { idle: !implementers && !open.some((i) => i.waitsOn === 'checking'), pullable, waiting, pulls, helpers };
+  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped card starts past the cap, and
+  // each one past it bumps out a build (bumpOutsOf).
+  const room = Math.max(0, free - writing.length);
+  const bumped = new Set(open.filter((i) => i.bumpedAt).map((i) => i.key));
+  const fresh = pullable.filter((k) => !waiting.includes(k) && !hold.includes(k));
+  const first = fresh.filter((k) => bumped.has(k));
+  const pulls = [...first, ...fresh.filter((k) => !bumped.has(k)).slice(0, Math.max(0, room - first.length))];
+  const pastCap = first.slice(room);
+  const bumpOuts = bumpOutsOf(open, counts).slice(0, pastCap.length).map((key, n) => ({ key, by: pastCap[n] }));
+  return { idle: !implementers && !open.some((i) => i.waitsOn === 'checking'), pullable, waiting, pulls, helpers, bumpOuts, pastCap, free };
+}
+// The open cards a bump past the cap may bump out, newest build first: an In Progress card not bumped or stalled, with
+// no PR, pushed branch or held Merge (store.mjs sendBackBumpedOut sends it back to Todo), whose one running implementer is a build
+// the board launched, neither landing nor a lander, nor checking. A session's own builder can't be stopped by the board,
+// and a card with a helper running would lose that work too. counts is pullOf's test of a slot-taking agent.
+function bumpOutsOf(open, counts) {
+  const newest = (i) => {
+    const agents = i.agents || [];
+    const running = agents.filter((a) => counts(a, agents));
+    const [run] = running;
+    const fits = i.lane === 'progress' && !i.bumpedAt && !i.stalled && i.waitsOn !== 'checking' && i.builder?.phase !== 'landing'
+      && !(i.prs || []).length && !i.pushed && !i.mergeReady && running.length === 1 && run.kind !== HELPER && run.pid && run.label !== LANDER
+      && !agents.some((a) => a.kind === HELPER && a.started && !a.done);
+    return fits ? String(run.started) : null;
+  };
+  return open.map((i) => ({ key: i.key, at: newest(i) })).filter((c) => c.at).sort((a, b) => b.at.localeCompare(a.at)).map((c) => c.key);
 }
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
@@ -1448,7 +1485,9 @@ export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
   const arrived = open.filter((i) => i.buildable && !['ready', 'staging'].includes(i.state) && !i.unsorted && !i.blocked && !i.held && !i.working && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL));
-  return arrived.slice(0, Math.max(0, cap - planners)).map((i) => i.key);
+  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped arrival gets its grill past the cap.
+  const bumped = arrived.filter((i) => i.bumpedAt);
+  return [...bumped, ...arrived.filter((i) => !i.bumpedAt).slice(0, Math.max(0, cap - planners - bumped.length))].map((i) => i.key);
 }
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
@@ -1666,10 +1705,13 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
 // picked when the watcher marked the event working. Not tied to a card, so it sits after the cards' waits.
 export const triageWaitOf = (event, picked = null) => ({ key: event.id, ref: event.data.date, title: `Overnight triage ${event.data.date}`, kind: 'triage', since: event.ts, picked, next: `Run the overnight triage and reply: board.mjs reply ${event.id}` });
 
-// The cards idle on the orchestrator in a built board, lanes top-down: In Progress, then Todo, each in the board's order.
-// → [{key, ref, title, kind, since, picked, next}]
+// The cards idle on the orchestrator in a built board: the bumped ones first across lanes, the earliest bump first
+// (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), then the rest lanes top-down, each in
+// the board's order. bumpedAt is the card's bump, null on an unbumped one.
+// → [{key, ref, title, kind, since, picked, next, bumpedAt}]
 export function orchestratorWaits(built) {
-  return built.items.filter((i) => i.orchestrator).map((i) => ({ key: i.key, ref: i.ref, title: i.title, ...i.orchestrator }));
+  const waits = built.items.filter((i) => i.orchestrator).map((i) => ({ key: i.key, ref: i.ref, title: i.title, ...i.orchestrator, bumpedAt: i.bumpedAt || null }));
+  return [...waits.filter((w) => w.bumpedAt).sort((a, b) => a.bumpedAt.localeCompare(b.bumpedAt)), ...waits.filter((w) => !w.bumpedAt)];
 }
 // How long a card waits on the orchestrator, not picked up, before the board pushes the owner about it once.
 export const ORCHESTRATOR_PUSH_AFTER = 30 * 60000;

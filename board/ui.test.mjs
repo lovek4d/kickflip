@@ -1560,6 +1560,21 @@ test("a ready card's time line reads ready in green after its hold and before it
   assert.doesNotMatch(ui.workLines(card), />New</);
 });
 
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+test('a bumped-out card reads "ready · bumped out by #N" in grey, linking to the bump, and a bumped ready card the host holds reads held while host recovers', () => {
+  const sortAt = ago(24 * 2);
+  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, ready: true };
+  const out = ui.workLines({ ...card, bumpedOut: { key: 'w/B1', ref: '#61', at: ago(1) } });
+  assert.equal(lines(out).at(-1), `${ui.cardTime(sortAt)} · ready · bumped out by #61`);
+  assert.match(out, /<span class="card-ready">ready<\/span><span class="sep"> · <\/span><a class="card-bumped-out" href="#item=w%2FB1">bumped out by #61<\/a>/);
+  const held = ui.workLines({ ...card, bumpedAt: ago(1), hostHeld: true });
+  assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · ready · held while host recovers`);
+  assert.match(held, /<span class="card-host-held">held while host recovers<\/span>/);
+  assert.doesNotMatch(ui.workLines(card), /bumped out|host/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /^\.card-bumped-out, \.card-host-held \{ color: var\(--muted\); \}$/m);
+});
+
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test("a staging card's time line reads staging in orange where ready reads, and its Status row says staging", () => {
   const sortAt = ago(24 * 2);

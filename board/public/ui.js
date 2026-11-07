@@ -124,8 +124,8 @@
   // Deletes or edits a pending ask or thread message; app-asks.js handles [data-withdraw] and [data-edit] on one path.
   const withdrawButton = (id) => `<button class="ghost icon" data-withdraw="${esc(id)}" aria-label="Delete" title="Delete">${TRASH}</button>`;
   const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
-  // A waiting ask's bump, which app-asks.js sends as ask-bump {id}, filled orange once bumped and disabled on the latest
-  // bump. A work card's is the same icon: app-cards.js sends card-bump {key} with no confirm, and on a bumped card, where
+  // A waiting ask's bump, which app-asks.js sends as ask-bump {id}, filled orange and disabled once
+  // bumped. A work card's is the same icon: app-cards.js sends card-bump {key} with no confirm, and on a bumped card, where
   // it is filled orange, card-unbump {key} (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
   const bumpButton = (it, top) => `<button class="ghost icon${it.bumpedAt ? ' bumped' : ''}" data-bump="${esc(it.id)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;

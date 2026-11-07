@@ -634,14 +634,14 @@ test('a new task is a New card in Todo with no action while it waits or works, a
   assert.deepEqual(msgs.map(({ who, text, state, reply }) => [who, text, state, reply]), [['love', 'a3 first line\nmore', 'replied', { html: 'Yes.' }]]);
 });
 
-test('Todo lists bumped cards first, the latest bump on top, then the rest oldest first, so a New ask sits below the older work', () => {
+test('Todo lists bumped cards first, the earliest bump on top, then the rest oldest first, so a New ask sits below the older work', () => {
   const bump = (id, ts) => ({ id: 'b' + ts, ts, kind: 'ask-bump', data: { id }, reply: null });
   const cardBump = { id: 'cb', ts: '2026-10-23T11:50:00Z', kind: 'card-bump', data: { key: 'w/T1' }, reply: null };
   const order = (events) => askBoard([...events, cardBump], { items: [{ id: 'T1', title: 'Planned' }] }).items.filter((i) => i.lane === 'todo').map((i) => i.key);
   const asks = [askAt('a1', '2026-10-23T09:00:00Z'), askAt('a2', '2026-10-23T10:00:00Z'), askAt('a3', '2026-10-23T11:00:00Z')];
   assert.deepEqual(order(asks), ['w/T1', 'ask:a1', 'ask:a2', 'ask:a3']);
-  assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:10:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['w/T1', 'ask:a2', 'ask:a3', 'ask:a1']);
-  assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:30:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['w/T1', 'ask:a3', 'ask:a2', 'ask:a1']);
+  assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:10:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['ask:a3', 'ask:a2', 'w/T1', 'ask:a1']);
+  assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:30:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['ask:a2', 'ask:a3', 'w/T1', 'ask:a1']);
 });
 
 test("an ask that became work or was folded into a card has no card of its own: that card's thread holds it and its thread, a folded one marked Moved, and its old links open that card", () => {
@@ -1039,7 +1039,8 @@ test('a withdrawn ask leaves the board', () => {
   assert.deepEqual(b.items.map((i) => i.key), ['w/A1']);
 });
 
-test('a bumped card that has not started, or is running, tops its lane, the latest bump first, a held Todo card bumps too, and a draft waiting on Ready takes no bump', () => {
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+test('a bumped card tops its lane, the earliest bump first, a held Todo card bumps too, and so does a draft waiting on Ready', () => {
   const bump = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-bump', data: { key }, reply: null });
   const items = [
     { id: 'A1', title: 'One' },
@@ -1056,17 +1057,17 @@ test('a bumped card that has not started, or is running, tops its lane, the late
   assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A5', at2), bump('w/A4', at2)]), [
     ['w/A5', 'progress', true, at2],
     ['w/A6', 'progress', true, null],
+    ['w/A1', 'todo', true, at1],
     ['w/A2', 'todo', true, at2],
     ['w/A4', 'todo', true, at2],
-    ['w/A1', 'todo', true, at1],
     ['w/A3', 'todo', true, null],
   ]);
-  assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A1', '2026-10-23T11:30:00Z')]).slice(2, 4).map(([key]) => key), ['w/A1', 'w/A2']);
+  assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A1', '2026-10-23T11:30:00Z')]).slice(2, 4).map(([key]) => key), ['w/A2', 'w/A1'], 'a bump again goes behind the earlier bumps');
   const draft = buildBoard({ fromWaves: false, prs: { 'o/r#7': greenDraft }, waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'D1', title: 'Draft', pr: 7 }] } }], events: [bump('w/D1', at1)] }).items[0];
-  assert.deepEqual([draft.lane, draft.waitsOn, draft.bumpable, draft.bumpedAt], ['review', 'ready', false, null]);
+  assert.deepEqual([draft.lane, draft.waitsOn, draft.bumpable, draft.bumpedAt], ['review', 'ready', true, at1]);
 });
 
-test('every In Progress card bumps, held or waiting on checking included, and a bump made before the build started clears when it starts', () => {
+test('every In Progress card bumps, held or waiting on checking included, and a bump made before the build started stays on the card', () => {
   const bump = (key, ts) => ({ id: 'c' + ts, ts, kind: 'card-bump', data: { key }, reply: null });
   const early = '2026-10-23T09:00:00Z';
   const late = '2026-10-23T11:00:00Z';
@@ -1074,7 +1075,7 @@ test('every In Progress card bumps, held or waiting on checking included, and a 
   const handedBack = { main: { started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z', handed_back: '2026-10-23T10:30:00Z' } };
   const b = askBoard([bump('w/A1', early), bump('w/A2', late)], { items, agents: { ...runningBuilders('A1'), A2: handedBack } });
   const card = (id) => b.items.find((i) => i.id === id);
-  assert.deepEqual(['A1', 'A2'].map((id) => [card(id).lane, card(id).bumpable, card(id).bumpedAt]), [['progress', true, null], ['progress', true, late]]);
+  assert.deepEqual(['A1', 'A2'].map((id) => [card(id).lane, card(id).bumpable, card(id).bumpedAt]), [['progress', true, early], ['progress', true, late]]);
   const again = askBoard([bump('w/A1', early), bump('w/A1', late)], { items, agents: runningBuilders('A1') }).items.find((i) => i.id === 'A1');
   assert.equal(again.bumpedAt, late);
 });
@@ -1648,6 +1649,93 @@ test('a card-unbump after a card-bump unbumps the card, and a later bump bumps i
   assert.equal(bumpedAt([bump('card-bump', 1)]), '2026-11-03T10:01:00.000Z');
   assert.equal(bumpedAt([bump('card-bump', 1), bump('card-unbump', 2)]), null);
   assert.equal(bumpedAt([bump('card-bump', 1), bump('card-unbump', 2), bump('card-bump', 3)]), '2026-11-03T10:03:00.000Z');
+});
+
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+test('a bump stays through In Review and ends when the card closes, merged or Done; a reopened card needs a new bump', () => {
+  const bump = (m) => ({ id: `b${m}`, ts: `2026-11-03T10:0${m}:00.000Z`, kind: 'card-bump', data: { key: 'w/A1' } });
+  const card = (opts) => board(opts).items.find((i) => i.key === 'w/A1');
+  const open = card({ pr: { ...greenDraft, isDraft: false }, events: [bump(1)] });
+  assert.deepEqual([open.lane, open.bumpable, open.bumpedAt], ['review', true, '2026-11-03T10:01:00.000Z']);
+  const merged = card({ pr: { ...greenDraft, isDraft: false, state: 'MERGED', mergedAt: '2026-11-03T10:05:00.000Z' }, events: [bump(1)] });
+  assert.deepEqual([merged.lane, merged.bumpable, merged.bumpedAt], ['done', false, null]);
+  const done = { pr: null, item: { pr: undefined, lane: 'done', lane_at: '2026-11-03T10:05:00.000Z', closed_at: '2026-11-03T10:05:00.000Z' } };
+  assert.equal(card({ ...done, events: [bump(1)] }).bumpedAt, null);
+  const msg = { id: 'm1', ts: '2026-11-03T10:06:00.000Z', kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null };
+  const reopened = card({ ...done, events: [bump(1), msg] });
+  assert.deepEqual([reopened.lane, reopened.reopened, reopened.bumpedAt], ['progress', true, null], 'a bump from before the close is over');
+  assert.equal(card({ ...done, events: [bump(1), msg, bump(7)] }).bumpedAt, '2026-11-03T10:07:00.000Z');
+});
+
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+test('a bumped ready card starts past the cap, bumping out the newest unbumped build, never a bumped one, a lander, one with a PR or a helper, or a session\'s own', () => {
+  const run = (started, more = {}) => ({ name: 'main', kind: 'claude', pid: 1, started, done: null, ...more });
+  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], bumpedAt: null, ...more });
+  const progress = (key, agent, more) => card(key, { lane: 'progress', buildable: false, state: null, agents: [agent], ...more });
+  const old = progress('w/P1', run('2026-11-06T10:00:00Z'));
+  const newest = progress('w/P2', run('2026-11-06T10:30:00Z'));
+  const bumped = progress('w/P3', run('2026-11-06T10:40:00Z'), { bumpedAt: '2026-11-06T09:00:00Z' });
+  const lander = progress('w/P4', run('2026-11-06T10:50:00Z', { label: 'Lander' }));
+  const rebase = progress('w/P5', run('2026-11-06T10:50:00Z', { label: 'Rebase' }), { prs: [{ number: 9 }] });
+  const helped = card('w/P8', { lane: 'progress', buildable: false, state: null, agents: [run('2026-11-06T10:50:00Z'), { name: 'tests', kind: 'helper', writes: false, started: '2026-11-06T10:51:00Z', done: null }] });
+  const session = progress('w/P6', run('2026-11-06T10:50:00Z', { pid: undefined }));
+  const landing = progress('w/P7', run('2026-11-06T10:50:00Z'), { builder: { phase: 'landing' } });
+  const top = card('w/T1', { bumpedAt: '2026-11-06T11:00:00Z' });
+  const next = card('w/T2', { bumpedAt: '2026-11-06T11:01:00Z' });
+  const plain = card('w/T3');
+  const full = [old, newest, bumped, lander, rebase, session, landing, helped];
+  const out = pullOf([...full, top, next, plain], { cap: 8 });
+  assert.deepEqual([out.pulls, out.pastCap, out.bumpOuts], [['w/T1', 'w/T2'], ['w/T1', 'w/T2'], [{ key: 'w/P2', by: 'w/T1' }, { key: 'w/P1', by: 'w/T2' }]], 'each bump past the cap bumps out the newest build left');
+  const room = pullOf([...full, top, plain], { cap: 9 });
+  assert.deepEqual([room.pulls, room.pastCap, room.bumpOuts], [['w/T1'], [], []], 'a free slot takes the bump with no bump-out, and the plain card waits');
+  const none = pullOf([bumped, lander, top], { cap: 2 });
+  assert.deepEqual([none.pulls, none.bumpOuts], [['w/T1'], []], 'with no build to bump out it still starts');
+  assert.deepEqual(pullOf([old, plain], { cap: 1 }).pulls, [], 'an unbumped card still waits for a slot');
+  assert.equal(pullOf([old, top], { cap: 1 }).free, 0);
+
+  // On a built board, a build the board launched carries its session's pid; a session's own build has none.
+  const launched = { started: '2026-11-06T10:00:00Z', kind: 'claude', session: { id: 's1', pid: 42, at: '2026-11-06T10:00:00Z' } };
+  const built = (record) => buildBoard({ fromWaves: false, events: [{ id: 'cb', ts: '2026-11-06T11:00:00Z', kind: 'card-bump', data: { key: 'w/T1' } }],
+    waves: [{ slug: 'w', agents: { P1: { main: record } }, wave: { internal: true, items: [{ id: 'P1', title: 'Running', lane: 'progress' }, { id: 'T1', title: 'Bumped', state: 'ready' }] } }] }).items;
+  assert.deepEqual(pullOf(built(launched), { cap: 1 }).bumpOuts, [{ key: 'w/P1', by: 'w/T1' }]);
+  assert.deepEqual(pullOf(built({ ...launched, session: undefined }), { cap: 1 }).bumpOuts, []);
+});
+
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+test('a bumped arrival gets its grill past max_planners', () => {
+  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, prototyping: false, working: false, held: false, agents: [], ...more });
+  const planning = card('w/G0', { state: 'grilling', agents: [{ kind: 'grill', started: '2026-11-06T10:00:00Z', done: null }] });
+  const items = [card('w/B1', { bumpedAt: '2026-11-06T10:00:00Z' }), card('w/A1'), card('w/A2')];
+  assert.deepEqual(arrivalsOf([planning, ...items], { cap: 1 }), ['w/B1']);
+  assert.deepEqual(arrivalsOf([planning, ...items], { cap: 2 }), ['w/B1'], 'the bump takes the free planner slot first');
+  assert.deepEqual(arrivalsOf([planning, ...items], { cap: 3 }), ['w/B1', 'w/A1']);
+});
+
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+test("the orchestrator's waits list bumped cards first across lanes, the earliest bump first, each carrying its bump", () => {
+  const wait = (key, lane, bumpedAt = null) => ({ key, ref: key, title: key, lane, bumpedAt, orchestrator: { kind: 'calls', since: '2026-11-06T10:00:00Z', picked: null, next: 'Verify' } });
+  const items = [wait('w/R1', 'review'), wait('w/P1', 'progress'), wait('w/P2', 'progress', '2026-11-06T09:30:00Z'), wait('w/T1', 'todo', '2026-11-06T09:00:00Z'), { key: 'w/X', orchestrator: null }];
+  const waits = orchestratorWaits({ items });
+  assert.deepEqual(waits.map((w) => [w.key, w.bumpedAt]), [['w/T1', '2026-11-06T09:00:00Z'], ['w/P2', '2026-11-06T09:30:00Z'], ['w/R1', null], ['w/P1', null]]);
+});
+
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
+test('a bumped-out card reads so in Todo, after the bumps and ahead of the other cards, until it starts again; a bumped ready card the host holds reads so', () => {
+  const at = (m) => `2026-11-06T10:${String(m).padStart(2, '0')}:00.000Z`;
+  const items = [
+    { id: 'B1', title: 'Bump', state: 'ready', created: at(5), lane: 'progress' },
+    { id: 'O1', title: 'Older', state: 'ready', created: at(1) },
+    { id: 'X1', title: 'Out', state: 'ready', created: at(3), bumped_out: { by: 'w/B1', at: at(20) } },
+    { id: 'T1', title: 'Bumped', state: 'ready', created: at(4) },
+  ];
+  const built = (more = {}) => buildBoard({ fromWaves: false, now: Date.parse(at(30)), events: [{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/T1' } }],
+    waves: [{ slug: 'w', agents: runningBuilders('B1'), wave: { internal: true, items } }], ...more });
+  const todo = built().items.filter((i) => i.lane === 'todo');
+  assert.deepEqual(todo.map((i) => [i.id, i.bumpedOut?.ref ?? null]), [['T1', null], ['X1', 'B1'], ['O1', null]]);
+  assert.deepEqual(todo.map((i) => i.hostHeld), [false, false, false]);
+  assert.deepEqual(built({ hostBusy: true }).items.filter((i) => i.lane === 'todo').map((i) => i.hostHeld), [true, false, false], 'only the bump reads held: the rest wait their turn anyway');
+  const started = buildBoard({ fromWaves: false, events: [], waves: [{ slug: 'w', agents: runningBuilders('X1'), wave: { internal: true, items: [{ ...items[2], lane: 'progress' }] } }] }).items[0];
+  assert.deepEqual([started.lane, started.bumpedOut], ['progress', null]);
 });
 
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md

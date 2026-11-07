@@ -9,8 +9,8 @@
 //                             what came in and on which card (plainLine); on a board it marks each ask,
 //                             item-message, wave-triage and overnight-triage working in data/working.json and answers a ping for the
 //                             session (board/store.mjs ackPing), then prints:
-//   waits <kind> <ref> <key> since <iso>[, picked up <iso>]: <next>
-//                             each card idle on the orchestrator, lanes top-down, from data/orchestrator-waits.json,
+//   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
+//                             each card idle on the orchestrator, bumped ones first, then lanes top-down, from data/orchestrator-waits.json,
 //                             which the board server keeps (board/server.mjs checkWaits): handle each one on every wake
 //                             (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md), then
 //   rule hub <text>           each hub rule (settings.json `rules`), then
@@ -154,7 +154,7 @@ async function plainLine(dir, line) {
 function waitLines(dir) {
   let waits = [];
   try { waits = JSON.parse(fs.readFileSync(path.resolve(dir, 'data', 'orchestrator-waits.json'), 'utf8')).waits || []; } catch {}
-  return waits.map((w) => `waits ${w.kind} ${w.ref} ${w.key} since ${w.since}${w.picked ? `, picked up ${w.picked}` : ''}: ${w.next}`);
+  return waits.map((w) => `waits ${w.kind} ${w.ref} ${w.key}${w.bumpedAt ? ' bumped' : ''} since ${w.since}${w.picked ? `, picked up ${w.picked}` : ''}: ${w.next}`);
 }
 
 const s0 = site();

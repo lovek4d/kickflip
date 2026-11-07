@@ -268,7 +268,9 @@
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed,
-  // staging in orange or ready in green (docs/adr/2026-11-07-0700-staging-then-ready.md), stalled in red or stale in grey
+  // staging in orange or ready in green (docs/adr/2026-11-07-0700-staging-then-ready.md), bumped out by the card whose
+  // bump took its slot, or held while host recovers on a bumped ready card a busy host holds, both grey
+  // (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), stalled in red or stale in grey
   // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
   // takes away when the card opens (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
@@ -277,6 +279,8 @@
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
     const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.staging && '<span class="card-staging">staging</span>', it.ready && '<span class="card-ready">ready</span>',
+      it.bumpedOut && `<a class="card-bumped-out" href="#item=${encodeURIComponent(it.bumpedOut.key)}">bumped out by ${esc(it.bumpedOut.ref)}</a>`,
+      it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
       it.stalled ? '<span class="card-stalled">stalled</span>' : it.stale && '<span class="card-stale">stale</span>'].filter(Boolean);
     const news = newWords(unread, 'message');
     const count = news ? `<span class="card-unread">${parts.length || bars ? SEP : ''}${news}</span>` : '';
@@ -296,7 +300,7 @@
       + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom hold until a date and time"></div></div></div>`;
   }
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
-  // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). top is whether it is the latest bump.
+  // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). top is whether it is bumped already.
   const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
   // A card waiting on its owner step has the owner's Done where the bump sits: a check icon that confirms, then sends
   // card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
