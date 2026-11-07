@@ -2477,7 +2477,7 @@ test('while typing, only the floating + is disabled: no header strip or docked b
 test('while typing on a phone the floating + is hidden, and on a wider screen it only dims', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\n:root\.typing \.fab \{ opacity: \.35; pointer-events: none; \}/);
-  assert.match(css, /@media \(max-width: 699px\) \{\s*:root\.typing \.fab \{ display: none; \}\s*\}/);
+  assert.match(css, /@media \(max-width: 699px\) \{\s*:root\.typing \.fab \{ display: none; \}/);
 });
 
 test('a ↗ written in a question, its context and its options draws as the arrow icon, never the character', () => {
@@ -2564,4 +2564,11 @@ test("a link's thread line is one link icon and a plain link to the other card, 
   assert.match(html, /^<div class="msg request"><span class="mark" aria-hidden="true"><svg class="mark-icon"/);
   assert.ok(html.includes('<a href="#item=w%2FA2">Follow-up #12: Tidy</a>'));
   assert.doesNotMatch(html, /unread/);
+});
+
+test('on a phone the board page bottom bar hides while a text field has focus, like the +', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const phone = /@media \(max-width: 699px\) \{([^@]*?)\n\}/.exec(css.slice(css.indexOf('Typing, a text field focused')))[1];
+  assert.match(phone, /:root\.typing \.fab \{ display: none; \}/);
+  assert.match(phone, /:root\.typing body > \.top, :root\.typing body\.has-sidebar > :not\(\.sidebar\) > \.top \{ display: none; \}/);
 });

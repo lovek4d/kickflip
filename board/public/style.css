@@ -772,6 +772,8 @@ main > * { transition: opacity .25s ease; }
 /* On a phone the + hides while typing, so it never sits over the keyboard's field. */
 @media (max-width: 699px) {
   :root.typing .fab { display: none; }
+  /* The board page bottom bar hides too; --app-bottom stays, so the page does not move. */
+  :root.typing body > .top, :root.typing body.has-sidebar > :not(.sidebar) > .top { display: none; }
 }
 
 .settings-modal { position: fixed; inset: max(12px, env(safe-area-inset-top)) 0 calc(12px + max(var(--kb, 0px), var(--app-bottom, 0px))); margin: auto; width: min(680px, calc(100% - 24px));
