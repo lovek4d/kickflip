@@ -2217,6 +2217,15 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.ok(text(sidebar).includes(`until ${until}`));
   assert.match(text(sidebar), /paused 3 todo/);
   assert.doesNotMatch(sidebar, />working</);
+  // Red beats grey and orange: a fault on a board row or the Hub row stays while a pause or busy host lasts.
+  const faulty = [{ route: 'a', title: 'A', board: true, icon: '', sub: '<span class="dot t-down" aria-hidden="true"></span><span class="word t-down">not listening</span><span class="lcs"><span class="lc">3 todo</span></span>' }];
+  const down = ui.sidebar({ pause, sites: faulty, hub: { tone: 'down', word: '1 site down', detail: '0 of 1 site up' } });
+  assert.equal([...down.matchAll(/class="word t-paused">paused/g)].length, 0);
+  assert.match(down, />not listening</);
+  assert.match(down, /class="word t-down">1 site down/);
+  const busyDown = ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy' } }, sites: [], hub: { tone: 'down', word: '1 site down', detail: 'x' } });
+  assert.match(busyDown, /class="word t-down">1 site down/);
+  assert.doesNotMatch(busyDown, />busy</);
   assert.match(ui.statusLine(ago(0), { pause }), new RegExp(`^<span class="fresh hold" title="Paused until ${until}\\. Updated [^"]*">now</span>$`));
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });

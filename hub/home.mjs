@@ -22,16 +22,15 @@ export function readNeeds(body) {
   };
 }
 
-// The most urgent thing a site is doing, or null when it is calm. state is the hub's process state; listen is a board's
+// The most urgent thing a site is doing (what waits on the owner is a red chip first in the lane chips, see statusLine), or null when it is calm. state is the hub's process state; listen is a board's
 // boards.mjs listenState, or 'full' for a deaf board whose context is full (usage.mjs contextFull), and undefined for a
 // site that isn't a board.
-export function siteStatus({ state, working, count: waiting, building, listen } = {}) {
+export function siteStatus({ state, working, building, listen } = {}) {
   if (state === 'down') return { tone: 'down', word: 'down' };
   if (listen === 'full') return { tone: 'down', word: 'context full' };
   if (listen === 'deaf') return { tone: 'down', word: 'not listening' };
   if (state === 'starting') return { tone: 'starting', word: 'starting' };
   if (state === 'stopped') return { tone: 'stopped', word: 'stopped' };
-  if (waiting) return { tone: 'needs', word: `${waiting} need you` };
   if (working) return { tone: 'working', word: 'working' };
   if (listen === 'waking') return { tone: 'asleep', word: 'waking…' };
   if (listen === 'asleep') return { tone: 'asleep', word: 'asleep' };
@@ -52,7 +51,8 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // siteStatus takes it. Its classes are styled by board/public/sidebar.css.
 export function statusLine(state, needs, listen) {
   const s = siteStatus({ state, ...needs, listen });
-  const chips = state === 'up' ? laneChips(needs?.lanes) : null;
+  const lane = state === 'up' ? laneChips(needs?.lanes) : null;
+  const chips = needs?.count ? [{ lane: 'needs', text: `${needs.count} need you` }, ...(lane || [])] : lane;
   const word = s ? `<span class="dot t-${s.tone}${s.tone === 'working' ? ' pulse' : ''}" aria-hidden="true"></span><span class="word t-${s.tone}">${esc(s.word)}</span>` : '';
   const lanes = chips === null ? '' : chips.length ? chips.map((c) => `<span class="lc lc-${c.lane}">${esc(c.text)}</span>`).join('') : '<span>nothing open</span>';
   return word || lanes ? `${word}${lanes ? `<span class="lcs">${lanes}</span>` : ''}` : '';

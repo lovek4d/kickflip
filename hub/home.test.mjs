@@ -2,29 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { siteStatus, laneChips, readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
 
-test('the status word is the most urgent of down, not listening, starting, need you, working, waking, asleep and implementing, every word lowercase', () => {
+test('the status word is the most urgent of down, not listening, starting, working, waking, asleep and implementing, every word lowercase', () => {
   const up = { state: 'up', working: 1, count: 2, lanes: { review: 1, progress: 0, todo: 0 }, building: true };
   const word = (s) => siteStatus(s)?.word ?? null;
   assert.equal(word({ ...up, state: 'down', listen: 'deaf' }), 'down');
   assert.equal(word({ ...up, state: 'starting', listen: 'deaf' }), 'not listening');
   assert.equal(word({ ...up, listen: 'deaf' }), 'not listening');
   assert.equal(siteStatus({ state: 'up', listen: 'deaf' }).tone, 'down');
-  assert.equal(word({ ...up, listen: 'listening' }), '2 need you');
-  assert.equal(word({ ...up, listen: 'asleep' }), '2 need you');
+  assert.equal(word({ ...up, listen: 'listening' }), 'working');
+  assert.equal(word({ ...up, listen: 'asleep' }), 'working');
   assert.equal(word({ ...up, count: 0, listen: 'asleep' }), 'working');
   assert.deepEqual(siteStatus({ ...up, working: 0, count: 0, listen: 'asleep' }), { tone: 'asleep', word: 'asleep' });
   assert.deepEqual(siteStatus({ ...up, working: 0, count: 0, listen: 'waking' }), { tone: 'asleep', word: 'waking…' });
-  assert.equal(word({ ...up, listen: 'waking' }), '2 need you');
+  assert.equal(word({ ...up, listen: 'waking' }), 'working');
   assert.equal(word({ ...up, state: 'down' }), 'down');
   assert.equal(word({ ...up, state: 'starting' }), 'starting');
-  assert.equal(word(up), '2 need you');
+  assert.equal(word(up), 'working');
+  assert.equal(word({ state: 'stopped', count: 3 }), 'stopped', 'need you is a chip, so it no longer hides starting or stopped');
   assert.equal(word({ ...up, count: 0 }), 'working');
   assert.equal(word({ ...up, working: 0, count: 0 }), 'implementing');
   assert.equal(word({ ...up, working: 0, count: 0, building: false }), null);
   assert.equal(word({ state: 'up' }), null);
   assert.deepEqual(
     ['down', 'starting'].map((state) => siteStatus({ state }).tone).concat(siteStatus(up).tone, siteStatus({ state: 'up', working: 1 }).tone, siteStatus({ state: 'up', building: true }).tone),
-    ['down', 'starting', 'needs', 'working', 'building'],
+    ['down', 'starting', 'working', 'working', 'building'],
   );
 });
 
@@ -57,12 +58,13 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
   const waiting = new Map([['ios', readNeeds({ items: [{ kind: 'Question' }], lanes: { review: 1, progress: 0, todo: 2 } })], ['learn', null]]);
   const [ios, learn, gone] = sidebarSites(rows, waiting, new Set(['ios', 'gone']));
   const [deaf] = sidebarSites(rows, waiting, new Set(['ios', 'gone']), new Map([['ios', 'deaf']]));
-  assert.match(deaf.sub, /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">not listening<\/span><span class="lcs"><span class="lc lc-review">1 review<\/span><span class="lc lc-todo">2 todo<\/span><\/span>$/);
+  assert.match(deaf.sub, /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">not listening<\/span><span class="lcs"><span class="lc lc-needs">1 need you<\/span><span class="lc lc-review">1 review<\/span><span class="lc lc-todo">2 todo<\/span><\/span>$/);
   assert.deepEqual([ios.board, learn.board, gone.board], [true, false, true]);
   assert.deepEqual([ios.count, learn.count, gone.count], [1, 0, 0]);
   assert.deepEqual([ios.created, learn.created], ['2026-10-22T19:19:11.878Z', null]);
   assert.match(ios.icon, /data-icon="phone"/);
-  assert.match(ios.sub, /1 need you.*1 review.*2 todo/);
+  assert.match(ios.sub, /<span class="lcs"><span class="lc lc-needs">1 need you<\/span><span class="lc lc-review">1 review<\/span>.*2 todo/);
+  assert.doesNotMatch(ios.sub, /word t-needs/);
   assert.equal(learn.sub, '');
   assert.match(gone.sub, />down</);
   const ctx = { percent: 62, at: '2026-11-03T10:00:00.000Z' };

@@ -173,12 +173,12 @@ html.sb-hub-down body.has-sidebar > .top .hub::after, html.sb-hub-down body.has-
 .sidebar .sb-ctx.stale { opacity: .6; }
 .sidebar .lcs { order: -1; flex: 1 1 100%; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .sidebar .lc { flex: none; font-size: 11px; font-weight: 600; border-radius: 6px; padding: 0 6px; line-height: 18px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
-.sidebar .lc-review { --tone: var(--accent); } .sidebar .lc-progress { --tone: var(--color-notice); } .sidebar .lc-todo { --tone: var(--muted); }
+.sidebar .lc-needs { --tone: var(--color-danger); } .sidebar .lc-review { --tone: var(--accent); } .sidebar .lc-progress { --tone: var(--color-notice); } .sidebar .lc-todo { --tone: var(--muted); }
 .sidebar .dot { flex: none; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tone); }
 @keyframes sb-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: no-preference) { .sidebar .dot.pulse { animation: sb-pulse 1.4s ease-in-out infinite; } }
 .sidebar .word { flex: none; font-weight: 600; color: var(--tone); }
-.sidebar .t-down, .sidebar .t-needs { --tone: var(--color-danger); }
+.sidebar .t-down { --tone: var(--color-danger); }
 .sidebar .t-starting { --tone: var(--color-notice); }
 .sidebar .t-stopped, .sidebar .t-asleep { --tone: var(--muted); }
 .sidebar .t-working { --tone: var(--color-notice); }

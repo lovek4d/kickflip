@@ -173,7 +173,7 @@ The badge on a site's row in the sidebar: how many things the site's `GET /_clau
 _Avoid_: unread count, inbox
 
 **Status word**:
-The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Paused while the **pause line** holds, otherwise Down, not listening (a board that is neither **listening**, waking nor **asleep**), Starting, Stopped (muted), "N need you", Working, waking… (muted), asleep (muted) or Building. Lane chips with the site's open-card counts follow it; a calm site shows only the chips ([the hub home shows status, not descriptions](docs/adr/2026-10-29-1639-the-hub-home-shows-status-not-descriptions.md), ["N need you" outranks Working](docs/adr/2026-11-01-1252-need-you-outranks-working.md)).
+The coloured word that leads a site's sub line in the sidebar when something urgent holds, most urgent first: Paused while the **pause line** holds, otherwise Down, not listening (a board that is neither **listening**, waking nor **asleep**), Starting, Stopped (muted), Working, waking… (muted), asleep (muted) or Building. Lane chips with the site's open-card counts follow it, led by a red "N need you" chip while anything waits, so the count never competes with the word ([need you is a chip](docs/adr/2026-11-07-1400-red-beats-orange-beats-blue-and-need-you-is-a-chip.md)); a calm site shows only the chips ([the hub home shows status, not descriptions](docs/adr/2026-10-29-1639-the-hub-home-shows-status-not-descriptions.md), ["N need you" outranks Working](docs/adr/2026-11-01-1252-need-you-outranks-working.md)).
 _Avoid_: activity line, subtitle
 
 ### Boards
@@ -267,7 +267,7 @@ A color named by what it means, `--color-quiet`, `--color-info`, `--color-notice
 _Avoid_: tone token, theme color, badge color
 
 **Colour rule**:
-A colour says whose turn it is: red (danger) for faults, such as failed, down, not listening or spending, and the sidebar's "N need you"; orange (notice) for attention and work, such as Action needed, the Needs you box, a New card, a Next line while it is someone's turn, a builder's line, Working or Starting; blue (info) only for review and notice, something for the owner to read or see, such as an unread review, a new version to reload or a changed line's flash; grey (quiet) for idle, such as ticket ids, a Todo or Done card's Next, the Done ring, Stopped or usage that is fine, which takes no other colour. Pick a new colour by it ([colour says who's waiting](docs/adr/2026-11-01-1817-colour-says-whos-waiting.md)).
+A colour says whose turn it is: red (danger) for faults, such as failed, down, not listening or spending, and the sidebar's "N need you" chip; orange (notice) for attention and work, such as Action needed, the Needs you box, a New card, a Next line while it is someone's turn, a builder's line, Working or Starting; blue (info) only for review and notice, something for the owner to read or see, such as an unread review, a new version to reload or a changed line's flash; grey (quiet) for idle, such as ticket ids, a Todo or Done card's Next, the Done ring, Stopped or usage that is fine, which takes no other colour. When several statuses compete for one mark, the order is red > orange > blue > green > grey (AGENTS.md). Pick a new colour by it ([colour says who's waiting](docs/adr/2026-11-01-1817-colour-says-whos-waiting.md)).
 _Avoid_: warning colour (for attention), action colour (for blue)
 
 **Follow-up**:
