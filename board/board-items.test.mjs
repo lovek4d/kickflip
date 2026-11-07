@@ -251,6 +251,16 @@ test('item notes appends a section, starting the notes of a card that has none, 
   assert.equal(board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Two\nlines', '--file', path.join(home, 'more.md')).code, 1);
 });
 
+test('item notes --file - and item add --notes-from - read the draft from stdin', () => {
+  const notes = run('board.mjs', ['item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Piped', '--file', '-'], 'From stdin.\n');
+  assert.equal(notes.code, 0, notes.err);
+  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# One\n\n## Piped\nFrom stdin.\n');
+  const added = run('board.mjs', ['item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'Two', '--notes-from', '-'], '# Two\n\nPiped seed.\n');
+  assert.equal(added.code, 0, added.err);
+  assert.equal(fs.readFileSync(notesOf('B2'), 'utf8'), '# Two\n\nPiped seed.\n');
+  assert.match(run('board.mjs', ['item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'H', '--file', '-'], '\n \n').err, /- is empty/);
+});
+
 test("a draft that is any card's notes file, live, done or archived, is refused naming the card, and --from folds another card's notes but never its own", () => {
   assert.equal(board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'Two', '--notes', 'Why two.').code, 0);
   const taken = board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'H', '--file', notesOf('B2'));

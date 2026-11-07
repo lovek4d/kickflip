@@ -2,7 +2,7 @@
 // ~/.claude/kickflip/sites; `site` null means a board over ~/.claude/waves alone. Every write
 // is validated first, JSON files are replaced by rename, and JSONL files are appended to.
 import fs from 'node:fs/promises';
-import { constants as fsConstants, existsSync } from 'node:fs';
+import { constants as fsConstants, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
@@ -1596,7 +1596,9 @@ async function cardsWithNotes(site) {
 }
 const realNotes = (card) => fs.realpath(path.resolve(card.dir, card.plan)).catch(() => null);
 // Refuses a draft that is any card's notes file, live, done or archived, naming that card; hint(card) ends the error.
+// A draft of - is stdin, which is no card's notes file.
 async function refuseCardNotes(site, draft, flag, hint) {
+  if (draft === '-') return readFileSync(0, 'utf8');
   const real = await fs.realpath(draft).catch(() => fail(`${flag} ${draft}: no such file`));
   for (const card of await cardsWithNotes(site)) {
     if (await realNotes(card) === real) fail(`${flag} ${draft} is the notes file of ${card.ref} "${card.title}" (${card.key}), and a card's notes are its own; ${hint(card)}`);
