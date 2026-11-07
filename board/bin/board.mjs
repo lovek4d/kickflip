@@ -37,6 +37,9 @@ command fails and changes nothing.
                                                          answered questions (topic item:ask:<eventId>), and one to
                                                          wave-triage its wave's, noting "Acted on: replied". A
                                                          reply to overnight-triage ends that triage
+         [--title <t>]                                   retitles the ask it answers, or whose thread the message
+                                                         is in, which then wears an Ask badge in place of its first
+                                                         line as title (data/ask-titles.json)
   thread <wave>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--who claude|love|<name>] [--via github|slack] of <wave>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
@@ -231,10 +234,11 @@ command fails and changes nothing.
                                                          from the + or New task has none
          [--state grilling|prototyping|ready]            files it at once, as item set's --state; the session's
          [--relate <id>,<wave>/<id>]                     own form, linking it with --relate in the same call.
-                                                         ready is for a Quick build ask (--from-ask), with --size
+                                                         ready is for a Quick build ask (--from-ask), with --size,
+                                                         and so is staging, which intake triage files it in
          [--from-ask <eventId> --text <t>]               files the card from that ask in this one command, as
                                                          item set's --from-ask: no grill starts before the ask is on
-                                                         the card. Needs --state
+                                                         the card, which takes the ask's place in Todo. Needs --state
                                                          On a board --state is required, so no card an agent
                                                          adds reads New
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
@@ -253,6 +257,7 @@ command fails and changes nothing.
                                                          card goes, its message and thread show in the item's
                                                          thread marked Moved, then the summary line. Again with
                                                          another item moves it there
+         [--title <t>]                                   retitles the ask, as reply's --title
   ask progress <eventId> [--next <text>]                 keeps an answered ask in In Review, --next as its next
                                                          line, until the owner's ask-done (the Done beside Reply
                                                          in its thread) or ask done is newer. Use it when the answer
@@ -781,9 +786,9 @@ const COMMANDS = {
     if (f.body === undefined) throw new UsageError('pr reply needs --body "<what Claude says>"');
     return store.postPR(site, pr, { replyTo, body: f.body });
   }],
-  reply: [['eventId'], ['html', 'file'], (site, [id], f) => {
+  reply: [['eventId'], ['html', 'file', 'title'], (site, [id], f) => {
     if ((f.html === undefined) === (f.file === undefined)) throw new UsageError('reply takes --html or --file');
-    return store.writeReply(site, id, f.html ?? readInput(f.file));
+    return store.writeReply(site, id, f.html ?? readInput(f.file), f.title);
   }],
   thread: [['wave/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendThread(site, key, f)],
   'visual add': [['wave/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
@@ -814,7 +819,7 @@ const COMMANDS = {
     if ((f.file === undefined) === (f.from === undefined)) throw new UsageError('item notes takes --file <draft.md> or --from <wave>/<id>');
     return store.addNotes(site, key, f);
   }],
-  'item relate-ask': [['eventId', 'wave/id'], ['summary'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary)],
+  'item relate-ask': [['eventId', 'wave/id'], ['summary', 'title'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary, f.title)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
   'intake handoff': [['eventId'], ['text'], (site, [id], f) => store.intakeHandoff(site, id, f.text)],

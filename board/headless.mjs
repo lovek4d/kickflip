@@ -218,33 +218,32 @@ export function helperBrief({ route, key, ref, title, notes, agent, task, writes
 export function intakeBrief({ route, repo, rules = [], waves = [], cards = [], event, key, kind, quick = false, thread = [] }) {
   const b = cli(route);
   const said = thread.map((m) => `- ${m.who}: ${m.text}${m.files?.length ? ` (attached: ${m.files.map((f) => f.path).join(', ')})` : ''}`);
-  // An Implement ask files to staging, for the orchestrator to judge; any other card to its grill or prototype. item add
-  // needs a state on a board, so the card is filed held and item set --from-ask unholds it: no planner starts between the
-  // two writes. #381 (item add --from-ask) and #411 (no intake triage) make it one write.
-  const added = quick ? '--state grilling --held' : '--state <grilling|prototyping> --held';
-  const state = quick ? '--state staging --unheld --size <small|large>' : '--unheld';
+  // An Implement ask files to staging, for the orchestrator to judge; any other card to its grill or prototype.
+  const state = quick ? '--state staging --size <small|large>' : '--state <grilling|prototyping>';
   const stateLine = quick
     ? '      The owner chose Implement: put the plan in the notes; the orchestrator judges it from staging before it goes ready.'
-    : "      --state prototyping when it changes the hub's or a board's UI, --state grilling for anything else; once unheld, the board starts the grill or prototype itself.";
+    : "      --state prototyping when it changes the hub's or a board's UI, --state grilling for anything else; the board starts the grill or prototype itself.";
   // The card's notes are the draft item add --notes-from seeds them with; a linked card gets its section with item notes.
   const fileIt = (from) => [
     `   1. Write its notes in ${DRAFT}: open with the owner's words verbatim, under "## Asked (owner, <date>)", then a short "## What it is" in plain words and a "## Related" line naming each linked card and how they overlap. Add that line to each linked card's notes with ${notesCommand(b, '<linked key>', 'Related')} on a draft of its own.`,
     `   2. ${from}`,
     stateLine,
   ];
-  const add = (title) => `\`${b} item add <wave> --title "${title}" --notes-from <draft.md> ${added}\``;
+  // docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md: one write files the ask, so no card reads New beside it.
+  const add = (title, ask, said) => `\`${b} item add <wave> --title "${title}" --notes-from <draft.md> --from-ask ${ask} --relate <keys> --text "${said}" ${state}\``;
+  const named = '--title "<the ask in plain words>"';
   const jobs = {
     ask: [
       `Your job: sort new task ${event}, on card ${key}, one of these ways:`,
-      `- Answer it, when it is a question or asks for nothing to build: \`${b} reply ${event} --file <reply.html>\`.`,
-      `- Fold it into the open card it is about: \`${b} item relate-ask ${event} <key> --summary "<one line>"\`, then add the owner's words verbatim to that card's notes with ${notesCommand(b, '<key>', 'Asked (owner, <date>)')}.`,
-      `- File it as a new card, its notes drafted first (step 1): ${add('<the change, in plain words>')} prints "<label> added as <key>"; use that key.`,
-      ...fileIt(`\`${b} item set <key> --from-ask ${event} --relate <keys> --text "<one line on what you filed>" ${state}\` (link every card it overlaps, depends on or would duplicate; --deps for one it truly waits on).`),
+      `- Answer it, when it is a question or asks for nothing to build: \`${b} reply ${event} --file <reply.html> ${named}\`.`,
+      `- Fold it into the open card it is about: \`${b} item relate-ask ${event} <key> --summary "<one line>" ${named}\`, then add the owner's words verbatim to that card's notes with ${notesCommand(b, '<key>', 'Asked (owner, <date>)')}.`,
+      '- File it as a new card, which takes its place:',
+      ...fileIt(`${add('<the change, in plain words>', event, '<one line on what you filed>')} (link every card it overlaps, depends on or would duplicate; --deps for one it truly waits on).`),
     ],
     'item-message': [
-      `Your job: the owner's message ${event} in the thread of new task ${key}, whose last line is theirs. Answer it with \`${b} reply ${event} --file <reply.html>\`, or, if it changes what the task asks, sort the task as the message now has it:`,
-      `- fold it: \`${b} item relate-ask ${key.slice(4)} <key> --summary "<one line>"\`; or file it: ${add('<the change>')}, with its notes drafted as in step 1, then`,
-      ...fileIt(`\`${b} item set <key> --from-ask ${key.slice(4)} --relate <keys> --text "<one line>" ${state}\`,`),
+      `Your job: the owner's message ${event} in the thread of new task ${key}, whose last line is theirs. Answer it with \`${b} reply ${event} --file <reply.html> ${named}\`, or, if it changes what the task asks, sort the task as the message now has it:`,
+      `- fold it: \`${b} item relate-ask ${key.slice(4)} <key> --summary "<one line>" ${named}\`; or file it:`,
+      ...fileIt(`${add('<the change>', key.slice(4), '<one line>')},`),
       `  then reply to the message saying what you did.`,
     ],
     'card-added': [

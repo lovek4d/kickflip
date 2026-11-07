@@ -133,14 +133,17 @@ async function loadItem(site, key) {
   return { ...loaded, item };
 }
 
-export async function writeReply(site, eventId, html) {
+export async function writeReply(site, eventId, html, title) {
   needSite(site);
   domId(eventId, 'the event id');
   const event = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
   if (!event) fail(`no event "${eventId}" in this site's data/events.jsonl`);
+  const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
+  const titled = title === undefined ? undefined : /^ask:(.+)$/.exec(key || '')?.[1] || fail(`reply --title names an ask: "${eventId}" is not an ask or a message in an ask's thread`);
+  if (titled) text(title, '--title');
   const file = path.join(site, 'data', 'replies', `${eventId}.html`);
   await replace(file, text(html, 'the reply'));
-  const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
+  if (titled) await titleAsk(site, titled, title);
   const lines = key ? await freshenPush(site, key, htmlText(html)) : [];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   const triaged = event.kind === 'wave-triage' ? ['lineup', 'wave'].filter((k) => typeof event.data?.[k] === 'string').map((k) => `${k}:${event.data[k]}`) : [];
@@ -423,7 +426,7 @@ export async function intakeHandoff(site, eventId, why) {
   return { lines: [] };
 }
 
-export async function relateAsk(site, eventId, key, summary) {
+export async function relateAsk(site, eventId, key, summary, title) {
   needSite(site);
   domId(eventId, 'the event id');
   const known = (await readLines(path.join(site, 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');
@@ -431,10 +434,23 @@ export async function relateAsk(site, eventId, key, summary) {
   await refuseMoved(site, eventId);
   await loadItem(site, key);
   const line = { ts: new Date().toISOString(), who: 'claude', text: text(summary, '--summary') };
+  if (title !== undefined) text(title, '--title');
   const links = await readAskLinks(site);
   await writeJSON(askLinksFile(site), { links: { ...links, [eventId]: key } });
   await appendLine(threadFile(site, key), line);
+  if (title !== undefined) await titleAsk(site, eventId, title);
   return askLinksFile(site);
+}
+
+// docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md
+// The titles triage gave asks that stay asks, data/ask-titles.json {titles: {<ask event id>: title}}, set by reply
+// --title and item relate-ask --title; an ask with none is titled by its first line (domain.mjs askItem).
+const askTitlesFile = (site) => path.join(site, 'data', 'ask-titles.json');
+export async function readAskTitles(site) {
+  return (await readJSON(askTitlesFile(site), {})).titles || {};
+}
+async function titleAsk(site, eventId, title) {
+  await writeJSON(askTitlesFile(site), { titles: { ...await readAskTitles(site), [eventId]: text(title, '--title') } });
 }
 
 // Moves a folded ask back out of the card it was folded into, to a card of its own.
@@ -2635,13 +2651,16 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, held, parent, size, model, state, relate, fromAsk, text: said, intake = false }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
-  checkState(state);
+  if (state !== 'staging' || fromAsk === undefined) checkState(state);
   if (said !== undefined) text(said, '--text');
   if (said !== undefined && fromAsk === undefined) fail('--text goes with --from-ask');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
+  // Intake triage files a Quick build ask in staging, as item set --from-ask does, for the orchestrator to judge
+  // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
+  if (state === 'staging' && !await quickAsk(site, ask)) checkState(state);
   if (ask && state === undefined) fail('--from-ask files a card, which reads New until it has a state: pass --state grilling, prototyping, or ready for a Quick build ask');
   if (state === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it grilling or prototyping` : 'item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
   if (state === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --state ready`);
@@ -2664,6 +2683,7 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (ask) item.from_ask = ask;
   if (state !== undefined) item.state = state;
+  if (state === 'staging') item.staged_at = created;
   await assignTicket(site, key, wave, item, ticket, options, source.dir, body);
   if (id === undefined) {
     item.id = cardIdOf(item.ticket);

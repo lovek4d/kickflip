@@ -823,20 +823,21 @@ test("an intake triage run's brief holds the board's index, the task and its thr
   for (const want of [
     '- ENG-1 w/A1 "Make it go", todo, grilling: /s/waves/w/a1.md', '- ENG-2 w/A2 "No notes", progress, ready: no notes',
     'love: Make the header blue', '/s/data/uploads/a.png', 'Use Node 22+', 'w: /s/waves/w',
-    `${b} reply e1 --file`, `${b} item relate-ask e1 <key> --summary`, `${b} item add <wave> --title`,
-    `${b} item set <key> --from-ask e1 --relate`, `${b} item add <wave> --title "<the change, in plain words>" --notes-from <draft.md> --state <grilling|prototyping> --held`,
-    '--text "<one line on what you filed>" --unheld',
+    `${b} reply e1 --file <reply.html> --title "<the ask in plain words>"`, `${b} item relate-ask e1 <key> --summary "<one line>" --title "<the ask in plain words>"`,
+    `${b} item add <wave> --title "<the change, in plain words>" --notes-from <draft.md> --from-ask e1 --relate <keys> --text "<one line on what you filed>" --state <grilling|prototyping>`,
     `${b} item notes <key> --heading "Asked (owner, <date>)" --file <draft.md>`, "outside the board's data folder", '--state <grilling|prototyping>', 'verbatim',
     `${b} intake handoff e1 --text`, 'Never push',
   ]) assert.ok(ask.includes(want), `the intake brief has ${want}`);
   assert.ok(!ask.includes('--notes-file'), 'the board names a card\'s notes file');
+  // docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md: one write, so no card reads New beside the ask.
+  assert.ok(!ask.includes('item set'), 'the ask is filed in one item add');
   assert.ok(!ask.includes('--state ready') && !ask.includes('--state staging'), 'intake never sets a card ready, and stages only a Quick build');
   const quick = intakeBrief({ ...intake, event: 'e1', key: 'ask:e1', kind: 'ask', quick: true, thread: [] });
-  assert.ok(quick.includes('--notes-from <draft.md> --state grilling --held'));
-  assert.ok(quick.includes('--from-ask e1 --relate <keys> --text "<one line on what you filed>" --state staging --unheld --size <small|large>'));
+  assert.ok(quick.includes('--from-ask e1 --relate <keys> --text "<one line on what you filed>" --state staging --size <small|large>'));
   assert.ok(!quick.includes('--state <grilling|prototyping>'));
   const message = intakeBrief({ ...intake, event: 'm1', key: 'ask:e1', kind: 'item-message', thread: [] });
   assert.ok(message.includes(`${b} reply m1 --file`) && message.includes(`${b} intake handoff m1 --text`));
+  assert.ok(message.includes('--from-ask e1 --relate <keys> --text "<one line>" --state <grilling|prototyping>') && !message.includes('item set'));
   const added = intakeBrief({ ...intake, event: 'c1', key: 'w/A2', kind: 'card-added', thread: [] });
   for (const want of ['w/A2', `${b} item set w/A2 --relate`, `${b} item notes w/A2 --heading "What it is" --file <draft.md>`, '--state <grilling|prototyping>', `${b} intake handoff c1 --text`]) assert.ok(added.includes(want), `the card-added brief has ${want}`);
 });

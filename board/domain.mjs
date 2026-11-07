@@ -485,16 +485,17 @@ export function owesNext(item, records) {
 // ask with either stays in Todo until a mark or the owner's Done closes it, since only Claude's progress mark puts an
 // ask in In Progress (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md,
 // docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md).
+// titled is the title triage gave it (data/ask-titles.json), else its first line titles it.
 // An ask with no ticket is named by when it was asked: the time today, else the short date and time.
 function askedLabel(iso, now = new Date()) {
   const d = new Date(iso);
   const at = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   return d.toDateString() === now.toDateString() ? at : `${d.getMonth() + 1}/${d.getDate()} ${at}`;
 }
-function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending) {
+function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending, titled) {
   const msg = msgs.find((m) => m.kind === 'ask' && m.eventId === e.id);
   const files = msg.files;
-  const title = (msg.text || '').trim().split('\n')[0] || files.map((f) => f.name).join(', ') || 'Ask';
+  const title = titled || (msg.text || '').trim().split('\n')[0] || files.map((f) => f.name).join(', ') || 'Ask';
   const answered = msg.state === 'replied' || msg.state === 'answered';
   const inProgress = mark?.state === 'progress' && !(String(doneAt || '') > String(mark.at || ''));
   const closed = !inProgress && (Boolean(mark) || Boolean(doneAt));
@@ -1015,7 +1016,7 @@ export const lineupPhases = (lineup) => lineup.phases || lineup.items.map((id) =
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
 //   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <wave>/<id>},
-//   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, owner: owner.json,
+//   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, askTitles: {<ask event id>: title}, owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   skipDraft: board.json's skip_draft (true leaves a draft to the hub's poll, which marks it ready once CI passes, so
 //   no draft gets the owner's review),
@@ -1086,6 +1087,9 @@ export function buildBoard(snapshot) {
         mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets,
       }));
       const card = items[items.length - 1];
+      // A card filed from an ask takes the ask's place: Todo sorts it by when the ask was sent
+      // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
+      if (asks.has(it.from_ask)) card.created = asks.get(it.from_ask).ts;
       storedLinks.set(key, { parent: it.parent ? linkKey(slug, it.parent) : null, related: (it.related || []).map((r) => linkKey(slug, r)) });
       if (card.lane === 'done') closedWork.set(key, card.closedAt || String(card.updatedAt || ''));
     });
@@ -1140,7 +1144,7 @@ export function buildBoard(snapshot) {
     const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links, index });
     for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
     claudeAt.set(key, claudeAtOf(msgs));
-    items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(routeRecord(askLinks, e.id)), routeRecord(askProgress, e.id), askDones.get(e.id), pendingOn(`item:${key}`)));
+    items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(routeRecord(askLinks, e.id)), routeRecord(askProgress, e.id), askDones.get(e.id), pendingOn(`item:${key}`), routeRecord(snapshot.askTitles || {}, e.id)));
   }
   for (const w of waves) {
     const cards = items.filter((i) => i.wave === w.slug);

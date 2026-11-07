@@ -2772,7 +2772,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
   return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, patched, server, storage, doc: page.win.document };
 }
-const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [] });
+const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [], ask: { askedAt: '2026-10-30T09:00:00.000Z' } });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [], doneArchived: 0 });
 const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
 

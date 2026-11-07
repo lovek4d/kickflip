@@ -764,6 +764,24 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   assert.match(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--state', 'ready', '--site', 'orch').err, /^--from-ask needs --text/);
 });
 
+// docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md
+test('reply and item relate-ask take --title, which retitles the ask in data/ask-titles.json; a message in its thread titles the ask', () => {
+  const titles = () => read(site('orch', 'data', 'ask-titles.json')).titles;
+  assert.equal(board('reply', 'e1', '--site', 'orch', '--html', '<p>Done.</p>', '--title', 'Header keeps its spacing').code, 0);
+  assert.deepEqual(titles(), { e1: 'Header keeps its spacing' });
+  addEvents({ id: 'e2', ts: '2026-10-23T10:05:00Z', kind: 'ask', data: { text: 'and the footer' } },
+    { id: 'm1', ts: '2026-10-23T10:06:00Z', kind: 'item-message', data: { key: 'ask:e1', text: 'one more' } },
+    { id: 'm2', ts: '2026-10-23T10:07:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'on a card' } });
+  const folded = board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--title', 'Footer spacing', '--site', 'orch');
+  assert.equal(folded.code, 0, folded.err);
+  assert.equal(board('reply', 'm1', '--site', 'orch', '--html', '<p>Yes.</p>', '--title', 'Header and its spacing').code, 0);
+  assert.deepEqual(titles(), { e1: 'Header and its spacing', e2: 'Footer spacing' });
+  assert.deepEqual(board('reply', 'm2', '--site', 'orch', '--html', '<p>x</p>', '--title', 'X'),
+    { code: 1, out: '', err: 'reply --title names an ask: "m2" is not an ask or a message in an ask\'s thread\n' });
+  assert.match(board('reply', 'e1', '--site', 'orch', '--html', '<p>x</p>', '--title', ' ').err, /--title/);
+  assert.deepEqual(titles(), { e1: 'Header and its spacing', e2: 'Footer spacing' });
+});
+
 test("ask move sends a New ask to another board with the owner's latest text, its attachments and its edits' and where it came from, and leaves it Done here with a line linking there", () => {
   boardsManifest();
   write(site('orch', 'data', 'uploads', '1700-shot.png'), 'png bytes');

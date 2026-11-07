@@ -53,7 +53,7 @@ test('item add --from-ask files a Quick build ask ready and a Discuss ask grilli
     [add('Q1', 'eq', '--state', 'ready'), /no size/],
     [add('Q1', 'ed', '--state', 'ready', '--size', 'small'), /not a Quick build ask/],
     [add('Q1', 'nope', '--state', 'ready', '--size', 'small'), /ask/],
-    [add('Q1', 'eq', '--state', 'staging'), /--state staging is set by the board/],
+    [add('Q1', 'ed', '--state', 'staging'), /--state staging is set by the board/],
     [add('Q1', 'eq'), /pass --state/],
     [board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Q1', '--from-ask', 'eq', '--state', 'ready', '--size', 'small'), /--text/],
   ];
@@ -66,6 +66,12 @@ test('item add --from-ask files a Quick build ask ready and a Discuss ask grilli
   const discuss = add('D1', 'ed', '--state', 'grilling');
   assert.equal(discuss.code, 0, discuss.err);
   assert.deepEqual([item('D1').state, item('D1').from_ask], ['grilling', 'ed']);
+  // docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md: intake triage files a Quick build ask in
+  // one write too, into staging, for the orchestrator to judge.
+  addEvents({ id: 'es', ts: '2026-11-06T10:02:00Z', kind: 'ask', data: { text: 'Fix the sidebar', quick: true } });
+  const staged = add('S1', 'es', '--state', 'staging', '--size', 'small');
+  assert.equal(staged.code, 0, staged.err);
+  assert.deepEqual([item('S1').state, Boolean(item('S1').staged_at), item('S1').from_ask], ['staging', true, 'es']);
 });
 
 // docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md

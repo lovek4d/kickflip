@@ -1217,7 +1217,7 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
 });
 
 test('the working line reads thinking, in one shared class on the card and in the thread', () => {
-  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
+  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true, ask: { askedAt: ago(1) } };
   assert.match(ui.workLines(ask), /<div class="line3 sub agent"><span class="thinking">/);
   assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true }]), /<div class="reply muted small"><span class="thinking">/);
 });
@@ -1448,7 +1448,12 @@ test("a New card reads New and its first line, then whether it was moved or edit
   assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /class="ghost icon bumped" data-bump="a1"[^>]* disabled/);
   assert.doesNotMatch(card({ state: 'waiting' }), /bumped/);
   assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
-  assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: '10:00', working: false })), ['Fix <it>', at]);
+  // docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md: a handled ask wears a quiet Ask where the
+  // ticket would be, and when it was asked moves to a line under its title.
+  const answered = card({ state: 'answered' }, { isNew: false, ref: '10:00', working: false, sortAt: ago(0.5) });
+  assert.deepEqual(lines(answered), ['Ask Fix <it>', `asked ${at}`, ui.cardTime(ago(0.5))]);
+  assert.match(answered, /<span class="chip tone-quiet"[^>]*>Ask<\/span>/);
+  assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: '10:00', next: 'Pick one' })), ['Ask Fix <it>', `asked ${at}`, 'Next: Pick one', at]);
   assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch', at]);
   const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
   assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', `${at} · Action needed`]);
@@ -1467,7 +1472,7 @@ test('ticket badges use the board source, link internally or externally, and lea
     assert.ok(html.includes(`href="${url}"`));
     assert.equal(html.includes('target="_blank"', 0) && html.indexOf('target="_blank"') < html.indexOf('</a>'), source !== 'internal');
     assert.doesNotMatch(html, /ENG-1/);
-    assert.doesNotMatch(ui.workLines({ ...card, kind: 'ask', isNew: false }), new RegExp(`>${id}<`));
+    assert.doesNotMatch(ui.workLines({ ...card, kind: 'ask', isNew: false, ask: { askedAt: ago(1) } }), new RegExp(`>${id}<`));
   }
   assert.match(ui.workLines({ ...workCard, linear: [...workCard.linear, { id: 'ENG-2', url: 'https://linear.app/another/issue/ENG-2' }] }), /ENG-1.*ENG-2/);
   const foreign = ui.workLines({ ...workCard, ticket: { id: 'INT-4', url: null, source: null } });
@@ -1511,9 +1516,10 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(ui.workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
   assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
-  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
-  assert.deepEqual(lines(ui.workLines(ask)), ['Fix it', 'thinking']);
-  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Fix it', 'thinking', '2 new messages']);
+  const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true, ask: { askedAt: ago(1) } };
+  const asked = `asked ${ui.cardTime(ago(1))}`;
+  assert.deepEqual(lines(ui.workLines(ask)), ['Ask Fix it', asked, 'thinking']);
+  assert.deepEqual(lines(ui.workLines(ask, { unread: 2 })), ['Ask Fix it', asked, 'thinking', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   const followup = { ...workCard, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, prs: [], reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five']);

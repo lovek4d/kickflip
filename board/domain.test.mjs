@@ -646,6 +646,17 @@ test('Todo lists bumped cards first, the earliest bump on top, then the rest old
   assert.deepEqual(order([...asks, bump('a3', '2026-10-23T11:30:00Z'), bump('a2', '2026-10-23T11:20:00Z')]), ['ask:a2', 'ask:a3', 'w/T1', 'ask:a1']);
 });
 
+// docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md
+test("an ask that stays an ask takes its triage title, and a card filed from an ask takes the ask's place in Todo, by when it was sent", () => {
+  const asks = [askAt('a1', '2026-10-23T08:00:00Z', { reply: { html: 'Yes.' } }), askAt('a2', '2026-10-23T09:00:00Z'), askAt('a3', '2026-10-23T10:00:00Z')];
+  const items = [{ id: 'T1', title: 'Sent between', created: '2026-10-23T09:30:00Z' }, { id: 'F1', title: 'Filed from a2', created: '2026-10-23T11:00:00Z', from_ask: 'a2' }];
+  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [{ slug: 'w', wave: { items } }], events: asks, askTitles: { a1: 'Triage title', a2: 'Never shown' } });
+  const of = (key) => b.items.find((i) => i.key === key);
+  assert.deepEqual([of('ask:a1').title, of('ask:a3').title, of('ask:a2')], ['Triage title', 'a3 first line', undefined]);
+  assert.deepEqual([of('w/F1').created, of('w/F1').sortAt], ['2026-10-23T09:00:00Z', '2026-10-23T09:00:00Z']);
+  assert.deepEqual(b.items.filter((i) => i.lane === 'todo').map((i) => i.key), ['w/F1', 'w/T1', 'ask:a3']);
+});
+
 test("an ask that became work or was folded into a card has no card of its own: that card's thread holds it and its thread, a folded one marked Moved, and its old links open that card", () => {
   const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
   const ask = askAt('a1', '2026-10-23T09:00:00Z', { data: { text: 'Fix the header', files: [shot] } });
