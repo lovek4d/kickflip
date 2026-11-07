@@ -6,4 +6,4 @@ Builders were already collecting judgment calls for review; most past asks ("my 
 
 A blocked builder asks, does any work the answer can't change, and waits with `builder asks <key> --wait`, which blocks until no ask is waiting and fails after `--timeout` minutes (9, under a Bash tool call's 10) so it is run again, as `agent wait` is. After 30 minutes without a reply the builder records the question as a "Question:" call and hands back.
 
-A problem found outside the card is a "Found: …" call, filed by the orchestrator at review, unless it stalls other cards' builds or lands, which is asked at once. The brief's thread line no longer sends a contradiction between the thread and the notes to an ask: the notes win and the builder records the contradiction as a call.
+A problem found outside the card is a "Found: …" call, filed by the orchestrator at review, unless it stalls other cards' builds or lands, which is asked at once. An owner message in the thread that contradicts the notes counts as blocked, since building either side may be thrown away: the brief's thread line keeps sending it to an ask (gh394-conflict).
