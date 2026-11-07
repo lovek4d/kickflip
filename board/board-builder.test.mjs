@@ -800,3 +800,15 @@ test("a builder start over a finished record keeps that run as a past record wit
   assert.equal(board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench').code, 0);
   assert.equal(pasts().length, 1);
 });
+
+// docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
+test("a past run's record is no agent of the card: builder list and a later done see only the live record", () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
+  assert.equal(board('builder', 'start', 'w/A1', '--label', 'Builder', '--kind', 'claude').code, 0);
+  assert.equal(board('builder', 'call', 'w/A1', 'A call').code, 0);
+  assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--label', 'Lander', '--kind', 'claude').code, 0);
+  assert.equal(fs.readdirSync(at('waves', 'w', 'agents')).filter((n) => n.startsWith('A1@past-')).length, 1);
+  const out = board('builder', 'list', 'w/A1', '--site', 'orch');
+  assert.doesNotMatch(out.out + out.err, /past-/);
+});

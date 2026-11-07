@@ -4175,10 +4175,11 @@ export async function checkNotReopened(site, key) {
   if (events.some((e) => e.kind === 'item-message' && e.data?.key === key && String(e.ts) > doneAt)) fail(`the owner reopened ${await cardName(site, key)} with a message; it closes on the owner's Done`);
 }
 
+// A card's live records: its past runs' (keepPastRun) are read by the thread alone.
 async function builderFiles(waveDir, id) {
   const dir = path.join(waveDir, 'agents');
   return (await fs.readdir(dir).catch(() => []))
-    .filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && n.endsWith('.json')))
+    .filter((n) => n === `${id}.json` || (n.startsWith(`${id}@`) && !n.startsWith(`${id}@past-`) && n.endsWith('.json')))
     .map((n) => path.join(dir, n));
 }
 

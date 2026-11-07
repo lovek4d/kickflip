@@ -2749,3 +2749,13 @@ test("a lander's started, status and finished lines carry the run of the build i
     ['Claude Opus lander started', build], ['Landing: rebasing', build],
   ]);
 });
+
+// docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
+test("a card with a past run's record shows only its live agents, while the thread still folds the past run's lines", () => {
+  const agents = { A1: {
+    main: { kind: 'claude', label: 'Lander', started: '2026-11-07T11:00:00Z' },
+    'past-1': { kind: 'claude', label: 'Builder', started: '2026-11-07T10:00:00Z', done: '2026-11-07T10:30:00Z' },
+  } };
+  const item = board({ agents }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual(item.agents.map((a) => a.name), ['main']);
+});

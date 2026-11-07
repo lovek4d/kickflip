@@ -584,9 +584,10 @@ export function prototypeWaits(built, events) {
   return out;
 }
 
-// An item's agents, oldest first, from its records by agent name.
-function agentsOf(records = {}) {
-  return Object.entries(records).filter(([, r]) => r && typeof r === 'object').map(([name, r]) => ({
+// An item's agents, oldest first, from its records by agent name. A past run's record (store.mjs keepPastRun, named
+// past-<ms>) is no agent of the card; only the thread, which folds its lines, asks for it with withPast.
+function agentsOf(records = {}, withPast = false) {
+  return Object.entries(records).filter(([name, r]) => r && typeof r === 'object' && (withPast || !name.startsWith('past-'))).map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
     // pid: the headless process the board launched for it (store.mjs recordSession), none for a session's own agent.
     log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null,
@@ -890,14 +891,14 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   // An answer is acted on, and waits on Claude no more, once its question is resolved after it, a later prototype
   // round names its question (round_of), or a build starts on the card after it.
   const rounded = new Set([...asked.values()].map((q) => q.round_of).filter(Boolean));
-  const buildsFrom = agentsOf(agents).filter(builds).map((a) => String(a.started || '')).filter(Boolean);
+  const buildsFrom = agentsOf(agents, true).filter(builds).map((a) => String(a.started || '')).filter(Boolean);
   const acted = new Set(answers
     .filter((e) => resolvedSince(asked.get(e.data.id), e.ts) || rounded.has(e.data.id) || buildsFrom.some((s) => s > String(e.ts))).map((e) => e.id));
-  const agentList = agentsOf(agents);
+  const agentList = agentsOf(agents, true);
   const msgs = [
     // First, so a start sorts above the status line `builder start` writes at the same moment.
     // A planner's lines are marked planner, which the thread draws in the owner's blue.
-    ...agentsOf(agents).flatMap((a) => [
+    ...agentList.flatMap((a) => [
       ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: sectionOf(agentList, a), finished: false, eta: a.done ? null : a.eta, ...(a.log ? { log: a.log } : {}), ...(plans(a) ? { planner: true } : {}) }] : []),
       ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: sectionOf(agentList, a), finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
       // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
