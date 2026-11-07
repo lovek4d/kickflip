@@ -52,18 +52,18 @@
         ${m.canDelete || m.canEdit ? `<div class="ask-actions">${m.canEdit ? editButton(m.eventId) : ''}${m.canDelete ? withdrawButton(m.eventId) : ''}</div>` : ''}
         <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
         <div class="body"${edits.has(m.eventId) ? ' hidden' : ''}>${m.html ? linkHtml(m.html, links) : linkText(m.text, links)}</div>${edits.has(m.eventId) ? editForm(m.eventId, edits.get(m.eventId).text) : ''}${attachments(m.files)}
-        ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">Open the log</a></div>` : ''}
+        ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
         ${m.eventId ? msgFooter(m) : ''}
       </div>`);
 
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
   // closed details line at its first line's place: the action, then its status, running or finished, and nothing after;
-  // expanding it shows the run's lines and, when the run has a log, an Open the log link.
+  // expanding it shows the run's lines and, when the run has a log, a View transcript link.
   function foldedRun(m, links, edits) {
     const tail = m.folded.some((f) => f.finished) ? 'finished' : 'running';
     const log = m.folded.find((f) => f.log)?.log;
-    const logLine = log ? `<div class="small fold-log"><a href="log.html?file=${encodeURIComponent(log)}">Open the log</a></div>` : '';
+    const logLine = log ? `<div class="small fold-log"><a href="log.html?file=${encodeURIComponent(log)}">View transcript</a></div>` : '';
     return `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary${tail === 'finished' ? ' class="finished"' : ''}>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}${logLine}</details>`;
   }
   function foldStatus(lines) {

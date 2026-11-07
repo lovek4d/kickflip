@@ -10,6 +10,7 @@ import { freePorts, until } from '../shared/test-helpers.mjs';
 import { miniDom } from './mini-dom.mjs';
 import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 import { freshSync, stamp, patchSince } from './sync.mjs';
+import { transcriptChunk } from './transcript.mjs';
 
 // The patch the server sends a page holding from once the board reads to, as board/sync.mjs makes it, between the
 // versions the two boards name.
@@ -5229,6 +5230,12 @@ function readerOnDom(logText) {
   const boardFetch = b.page.win.fetch;
   b.page.win.fetch = async (url, opts) => {
     const u = new URL(url, 'https://mac.ts.net/');
+    if (u.pathname.endsWith('/api/transcript')) {
+      b.gets.push(`${u.pathname}?${u.searchParams}`);
+      const bytes = Buffer.from(log.text);
+      const from = Number(u.searchParams.get('from'));
+      return { ok: true, status: 200, json: async () => ({ ...transcriptChunk(bytes.subarray(from), from), size: bytes.length }) };
+    }
     if (u.pathname.endsWith('/api/log')) { b.gets.push(`${u.pathname}?${u.searchParams}`); return { ok: true, status: 200, json: async () => ({ text: log.text, truncated: false, size: log.text.length }) }; }
     if (u.pathname.endsWith('/api/notes')) { b.gets.push(`${u.pathname}?${u.searchParams}`); return { ok: true, status: 200, json: async () => ({ key: 'w/A1', ref: 'A1', title: 'Work A1', markdown: '# The plan\n\nBuild it, then see [the prototype](prototype-reader.html).' }) }; }
     return boardFetch(url, opts);
@@ -5239,46 +5246,62 @@ function readerOnDom(logText) {
 }
 const streamLine = (e) => `${JSON.stringify(e)}\n`;
 const said = (text) => streamLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
-const called = (name, input) => streamLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name, input }] } });
-const answered = (content) => streamLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content }] } });
+const called = (name, input, id = 't1') => streamLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });
+const answered = (content, id = 't1') => streamLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] } });
 
-test("a builder's log opens in a sheet over the board: readable lines of its stream, following new ones while read at the end, a raw toggle, and Escape, a tap outside or Back closes it", async () => {
+test("a run's View transcript opens its transcript in a sheet over the board: Claude's words, each call one line with its output on tap, read on from where it left off, following new lines while read at the end, a raw toggle, and Escape, a tap outside or Back closes it", async () => {
   const r = readerOnDom(streamLine({ type: 'system', subtype: 'init', model: 'claude-sonnet-5-5', cwd: '/wt/A1' }) + said('Reading the notes first.')
     + called('Bash', { command: 'node --test board/view.test.mjs', description: 'Run the tests' }) + answered([{ type: 'text', text: 'ℹ pass 6' }]));
   await r.settle();
   const link = r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]');
-  assert.equal(link.textContent, 'Open the log');
+  assert.equal(link.textContent, 'View transcript');
   assert.equal(r.tap(link).defaultPrevented, true, 'the link opens the sheet in place of the log page');
   await r.settle();
   assert.equal(r.sheet().open, true);
   assert.deepEqual(JSON.parse(JSON.stringify(r.moves)), [['push', { idx: 4, reader: true }, 'https://mac.ts.net/']], 'Back has an entry to close it with');
-  assert.ok(r.gets.includes('/board-a/api/log?file=builder-A1-1.log'));
-  assert.equal(r.inSheet('#readerTitle').textContent, 'builder log');
+  assert.deepEqual(r.gets.filter((g) => /api\/(log|transcript)/.test(g)), ['/board-a/api/transcript?file=builder-A1-1.log&from=0']);
+  assert.equal(r.inSheet('#readerTitle').textContent, 'builder transcript');
   assert.equal(r.inSheet('.reader-ref').textContent, 'builder-A1-1.log');
   const rows = () => r.sheet().querySelectorAll('.reader-row').map((row) => [row.getAttribute('class').replace('reader-row ', ''), row.textContent]);
-  assert.deepEqual(rows(), [['sys', 'startclaude-sonnet-5-5 in /wt/A1'], ['text', 'Reading the notes first.'], ['tool', 'bashnode --test board/view.test.mjs'], ['out', 'ℹ pass 6']]);
+  assert.deepEqual(rows(), [['sys', 'startclaude-sonnet-5-5 in /wt/A1'], ['text', 'Reading the notes first.'], ['tool call', '▸bashnode --test board/view.test.mjs']]);
+  assert.equal(r.inSheet('.reader-out'), null, "a call's output is shut");
+  r.page.fire(r.sheet(), 'click', { target: r.inSheet('.reader-row.call .reader-tag') });
+  assert.deepEqual([rows()[2][1], r.inSheet('.reader-out').textContent], ['▾bashnode --test board/view.test.mjs', 'ℹ pass 6'], 'a tap on the call opens its output');
+  r.page.fire(r.sheet(), 'click', { target: r.inSheet('.reader-row.call') });
+  assert.equal(r.inSheet('.reader-out'), null, 'and a second tap shuts it');
   assert.equal(r.inSheet('.reader-status').textContent, 'following');
 
   // Read at the end, a new line scrolls into view; scrolled up, the sheet stays put and counts what came.
   const body = r.inSheet('.reader-body');
   Object.assign(body, { scrollHeight: 1000, clientHeight: 500, scrollTop: 500 });
+  const read = Buffer.byteLength(r.log.text);
   r.log.text += said('Committing.');
   r.page.runTimers(3000);
   await r.settle();
   assert.equal(rows().at(-1)[1], 'Committing.');
+  assert.equal(r.gets.at(-1), `/board-a/api/transcript?file=builder-A1-1.log&from=${read}`, 'each read starts where the last one ended');
   assert.equal(body.scrollTop, body.scrollHeight);
   body.scrollTop = 0;
   r.page.fire(body, 'scroll', { target: body });
   assert.equal(r.inSheet('.reader-status').textContent, 'paused');
-  r.log.text += called('Read', { file_path: '/wt/A1/board/public/app.js' });
+  r.log.text += called('Read', { file_path: '/wt/A1/board/public/app.js' }, 't2');
   r.page.runTimers(3000);
   await r.settle();
   assert.deepEqual([body.scrollTop, r.inSheet('.reader-new').hidden, r.inSheet('.reader-new').textContent], [0, false, '1 new line ↓']);
+  assert.equal(rows().at(-1)[0], 'tool', 'a call with no output yet has nothing to open');
+  r.log.text += answered('const app = 1;', 't2');
+  r.page.runTimers(3000);
+  await r.settle();
+  assert.equal(r.inSheet('.reader-new').textContent, '1 new line ↓', "an output joins its call's line, not a line of its own");
+  r.page.fire(r.sheet(), 'click', { target: r.sheet().querySelectorAll('.reader-row.call').at(-1) });
+  assert.equal(r.inSheet('.reader-out').textContent, 'const app = 1;', "the output that came later opens on the call's line");
   r.page.fire(r.sheet(), 'click', { target: r.inSheet('.reader-new') });
   assert.deepEqual([body.scrollTop, r.inSheet('.reader-new').hidden, r.inSheet('.reader-status').textContent], [1000, true, 'following']);
 
   r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="raw"]') });
+  await r.settle();
   assert.equal(r.inSheet('[data-reader="raw"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(r.gets.at(-1), '/board-a/api/log?file=builder-A1-1.log', 'raw reads the file as it is');
   assert.equal(r.inSheet('.reader-raw').textContent, r.log.text);
 
   // The run's result ends the following.

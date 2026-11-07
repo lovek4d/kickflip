@@ -52,7 +52,7 @@ test('a shared person reads the shell and their boards, and nothing else; a writ
     assert.equal(reach(p), 'other', p);
   }
   // Only what a shared view reads passes: the owner's reads, anything unlisted, and a path naming the route again don't.
-  for (const p of ['/orch/settings.html', '/orch/api/settings', '/orch/api/permissions', '/orch/api/rules', '/orch/api/reviewer-people', '/orch/api/log',
+  for (const p of ['/orch/settings.html', '/orch/api/settings', '/orch/api/permissions', '/orch/api/rules', '/orch/api/reviewer-people', '/orch/api/log', '/orch/api/transcript',
     '/orch/log.html', '/orch/api/stream', '/orch/_claude/events', '/orch/_claude/needs', '/orch/socket', '/orch//api/log', '/orch/orch/api/board', '/orch/orch',
     '/orch/api%2flog', '/orch/%2e%2e/api/log', '/orch/api/board/x']) {
     assert.equal(reach(p), 'view-only', p);

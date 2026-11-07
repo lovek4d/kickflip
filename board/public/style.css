@@ -898,6 +898,9 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
 .reader-row.sys, .reader-row.out { color: var(--muted); font-size: 12.5px; }
 .reader-row.out { padding-left: 28px; font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .reader-row.tool { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.reader-row.call { cursor: pointer; }
+.reader-caret { display: inline-block; width: 10px; margin-right: 4px; color: var(--muted); }
+.reader-out { margin: 2px 14px 4px 28px; padding: 6px 8px; border-left: 2px solid var(--line); color: var(--muted); font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; background: var(--chip); color: var(--accent); font-size: 11px; }
 .reader-raw, .reader-text { margin: 0; padding: 2px 14px 8px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .reader-md { padding: 4px 16px 12px; overflow-wrap: anywhere; line-height: 1.5; }

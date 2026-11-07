@@ -8,3 +8,5 @@ Owner, #404: the intake hand-off line should not also pass the reason, and intak
 - `foldedRun` summaries drop the newest status text and the trailing "log" link; the log is an "Open the log" link at the end of the open section. Only finished is green, the rest keep #397's colours.
 
 Superseded in part by [the orchestrator sorts new tasks itself](2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md): the intake run, its lines and its fold are gone; every fold still ends at its status, running or finished.
+
+The link inside the open section reads "View transcript" since [#434](2026-11-07-1224-view-transcript-reads-the-whole-run-as-rows.md).

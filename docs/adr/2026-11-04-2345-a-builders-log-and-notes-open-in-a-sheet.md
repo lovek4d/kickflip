@@ -10,3 +10,5 @@ Decision:
 - Rows and raw text wrap (`overflow-wrap: anywhere`) and the body never scrolls sideways (#252).
 
 Consequence: a headless log is now JSON lines, so reading one by hand means the sheet, log.html's raw text, or `jq`.
+
+Superseded in part by [View transcript reads the whole run as rows](2026-11-07-1224-view-transcript-reads-the-whole-run-as-rows.md): the link reads "View transcript" and the server turns the whole stream log into rows.

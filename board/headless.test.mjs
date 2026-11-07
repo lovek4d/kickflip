@@ -236,6 +236,15 @@ test("the server launches the builder for a tap and a pull instead of waking the
     assert.ok(tail.text.endsWith('last line\n') && tail.text.length < 262_144);
     for (const bad of ['../../site/board.json', '..%2F..%2Fsite%2Fboard.json', 'a/b.log', '.hidden.log', 'notes.txt', '']) assert.equal((await fetch(`${base}/api/log?file=${bad}`)).status, 400, bad);
     assert.equal((await fetch(`${base}/api/log?file=missing.log`)).status, 404);
+    // The transcript reads the whole log, start included, from a byte offset.
+    fs.writeFileSync(path.join(logs, launchLog), `${JSON.stringify({ type: 'system', subtype: 'init', model: 'm', cwd: '/wt' })}\n${'x'.repeat(300_000)}\nlast line\npart`);
+    const whole = await fetch(`${base}/api/transcript?file=${launchLog}&from=0`).then((r) => r.json());
+    assert.deepEqual(whole.rows.map((row) => row.body.slice(0, 9)), ['m in /wt', 'x'.repeat(9), 'last line']);
+    assert.deepEqual([whole.stream, whole.finished, whole.size - whole.next], [true, false, 4]);
+    const after = await fetch(`${base}/api/transcript?file=${launchLog}&from=${whole.next}`).then((r) => r.json());
+    assert.deepEqual([after.rows, after.next], [[], whole.next]);
+    for (const bad of ['file=a/b.log&from=0', `file=${launchLog}&from=-1`, `file=${launchLog}&from=x`, `file=${launchLog}`]) assert.equal((await fetch(`${base}/api/transcript?${bad}`)).status, 400, bad);
+    assert.equal((await fetch(`${base}/api/transcript?file=missing.log&from=0`)).status, 404);
     assert.match(await fetch(`${base}/log.html`).then((r) => r.text()), /api\/log\?file=/);
     assert.deepEqual(log().filter((e) => e.kind === 'card-build'), []);
 

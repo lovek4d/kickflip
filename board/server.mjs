@@ -264,7 +264,10 @@
 //   POST /api/try                {key}: forwards a card build, main retry or the prototype site's start (key prototypes) to the hub's loopback /_hub/build
 //   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
 //   GET  /api/log?file=<name>.log {text, truncated, size}: the last 256 KiB of that file in ~/.claude/kickflip/logs, by name
-//                                only; the board's reader sheet (app-reader.js) and log.html show it and re-read it while it grows
+//                                only; log.html and the reader sheet's raw toggle (app-reader.js) show it and re-read it while it grows
+//   GET  /api/transcript?file=<name>.log&from=<byte> {rows, next, size, stream, finished}: that log, whole, as transcript
+//                                rows from byte `from` to its last whole line (transcript.mjs readRunTranscript); the reader
+//                                sheet's View transcript reads it on from `next` while it grows
 //   GET  /api/try/main/log      {lines}: last 40 lines of main's log, from at most its last 64 KiB
 //   GET  /api/try/prototypes    {state, https, lines}: the hub's serve of the board's base prototype worktree, which a
 //                                served round's viewer frames, with its log's last 40 lines once it failed
@@ -306,7 +309,7 @@ async function tryLogTail(here, name) {
 // Claude's reply to event <id> is data/replies/<id>.html, or .json.
 import { topicItems } from './review.mjs';
 import { boardWorktree, builderRepo, helperWorktree, moveQueuedLand, prWorktree } from './worktree.mjs';
-import { transcriptMovedAt, transcriptCommandRunning } from './transcript.mjs';
+import { transcriptMovedAt, transcriptCommandRunning, readRunTranscript } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
@@ -1365,6 +1368,17 @@ const server = http.createServer(async (req, res) => {
         if (e.code === 'ENOENT') return json(res, 404, { error: 'No such log.' });
         throw e;
       } finally { await file?.close(); }
+    }
+    if (p === '/api/transcript' && req.method === 'GET') {
+      const name = url.searchParams.get('file') || '';
+      if (!/^[\w.-]+\.log$/.test(name) || name.startsWith('.')) return json(res, 400, { error: 'file takes a log file’s name.' });
+      if (!/^\d+$/.test(url.searchParams.get('from') || '')) return json(res, 400, { error: 'from takes a byte offset.' });
+      try {
+        return json(res, 200, await readRunTranscript(path.join(os.homedir(), '.claude', 'kickflip', 'logs', name), Number(url.searchParams.get('from'))));
+      } catch (e) {
+        if (e.code === 'ENOENT') return json(res, 404, { error: 'No such log.' });
+        throw e;
+      }
     }
     if (p === '/api/try/main/pull' && req.method === 'POST') {
       const body = await readBody(req);
