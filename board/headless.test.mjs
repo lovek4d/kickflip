@@ -7,7 +7,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, intakeBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
-import { briefFacts, archiveCards, readArchive } from './store.mjs';
+import { briefFacts, archiveCards, readArchive, threadFile } from './store.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
 // server and outlives it.
@@ -17,7 +17,7 @@ function stopFakeBuilders(seen) {
   for (const { pid } of runs) try { process.kill(pid, 'SIGKILL'); } catch {}
 }
 
-const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'] };
+const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'], thread: '/s/data/threads/w__A1.jsonl' };
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 test("a headless builder's brief names its card, notes, worktree and rules, and has it report, ask, record calls and finish with builder done", () => {
@@ -104,14 +104,28 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.ok(builderBrief({ ...card, rules: ['x'] }).includes('Rules from the hub and this board:\n- x'), "a builder's rules aren't relabelled");
 });
 
+// docs/adr/2026-11-11-1100-every-agent-brief-names-the-cards-thread-file.md
+test("every brief names the card's thread file, and a builder reads it with the notes, asks when it contradicts them, and reads it again in checking", () => {
+  const t = '/s/data/threads/w__A1.jsonl';
+  const briefs = {
+    builder: builderBrief(card), lander: landerBrief(card), rebase: rebaseBrief({ ...card, pr: 3 }), helper: helperBrief({ ...card, agent: 'h', task: 'x', cwd: '/wt/A1' }),
+    grill: plannerBrief({ ...card, kind: 'grill', repo: '/r/shop' }), visual: visualBrief({ ...card, repo: '/r/shop', agent: 'v' }),
+  };
+  for (const [name, brief] of Object.entries(briefs)) assert.ok(brief.includes(t), `the ${name} brief names the thread file`);
+  const builder = briefs.builder;
+  assert.ok(builder.includes('who: love') && builder.includes('the notes win') && builder.includes('builder ask w/A1'), 'the notes win over the thread and the builder asks');
+  assert.ok(builder.includes('Read the thread again in checking'));
+  assert.ok(!briefs.grill.includes('data/threads folder'), 'a planner gets the exact file, not the folder');
+});
+
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md
 test("a builder's and a planner's brief list the card's related cards with their notes, for context only; a lander's doesn't", () => {
   const links = [
-    { relation: 'related', ref: 'ENG-2', title: 'Sort the lane', lane: 'Todo', notes: '/s/waves/w/a2.md' },
-    { relation: 'parent', ref: 'ENG-3', title: 'The lane', lane: 'Done', notes: null },
+    { relation: 'related', ref: 'ENG-2', title: 'Sort the lane', lane: 'Todo', notes: '/s/waves/w/a2.md', thread: '/s/data/threads/w__A2.jsonl' },
+    { relation: 'parent', ref: 'ENG-3', title: 'The lane', lane: 'Done', notes: null, thread: '/s/data/threads/w__A3.jsonl' },
   ];
   for (const brief of [builderBrief({ ...card, links }), plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', links })]) {
-    for (const want of ['Related cards', "don't build their scope", 'ENG-2 "Sort the lane" (related, Todo): /s/waves/w/a2.md', 'ENG-3 "The lane" (parent, Done): no notes']) {
+    for (const want of ['Related cards', "don't build their scope", 'ENG-2 "Sort the lane" (related, Todo): notes /s/waves/w/a2.md, thread /s/data/threads/w__A2.jsonl', 'ENG-3 "The lane" (parent, Done): no notes, thread /s/data/threads/w__A3.jsonl']) {
       assert.ok(brief.includes(want), `the brief has ${want}`);
     }
   }
@@ -135,11 +149,12 @@ test("briefFacts gives a card's links: Related to set on either card, its Parent
     ] }));
     const { links } = await briefFacts(site, 't/A1');
     assert.deepEqual(links, [
-      { relation: 'parent', ref: 'P1', title: 'Par', lane: 'Done', notes: null },
-      { relation: 'depends on', ref: 'D1', title: 'Dep', lane: 'In Progress', notes: null },
-      { relation: 'related', ref: 'R1', title: 'Rel', lane: 'Todo', notes: path.join(site, 'data', 'r1.md') },
-      { relation: 'related', ref: 'R2', title: 'Rel back', lane: 'In Review', notes: null },
+      { relation: 'parent', ref: 'P1', title: 'Par', lane: 'Done', notes: null, thread: threadFile(site, 't/P1') },
+      { relation: 'depends on', ref: 'D1', title: 'Dep', lane: 'In Progress', notes: null, thread: threadFile(site, 't/D1') },
+      { relation: 'related', ref: 'R1', title: 'Rel', lane: 'Todo', notes: path.join(site, 'data', 'r1.md'), thread: threadFile(site, 't/R1') },
+      { relation: 'related', ref: 'R2', title: 'Rel back', lane: 'In Review', notes: null, thread: threadFile(site, 't/R2') },
     ]);
+    assert.equal((await briefFacts(site, 't/A1')).thread, threadFile(site, 't/A1'));
     assert.deepEqual((await briefFacts(site, 't/X1')).links, []);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });

@@ -3846,14 +3846,14 @@ export async function briefFacts(site, key) {
   const { source, item } = await loadItem(site, key);
   const said = (q, a) => [(q.options || []).find((o) => o.id === a.choice)?.label, a.note].filter(Boolean).join(': ') || 'answered';
   const answers = (await cardQuestions(site, key)).asked.filter((q) => q.ask && q.answers.length).map((q) => ({ ask: q.ask, question: q.question, answer: said(q, q.answers.at(-1)) }));
-  return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key),
+  return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, thread: threadFile(site, key), worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key),
     rebasePR: item.rebase_run?.pr ?? null };
 }
 
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md
 // The cards on the board that card key links: its Parent, the cards it depends on, and the cards it is Related to
 // (set on either card), in that order. → [{relation: parent|depends on|related, ref, title, status, notes: the notes
-// file's path or null}]; a link to a card no longer on the board is left out.
+// file's path or null, thread: the thread file's path}]; a link to a card no longer on the board is left out.
 async function cardLinks(site, key) {
   const cards = new Map();
   for (const entry of await itemSources(site)) {
@@ -3869,7 +3869,7 @@ async function cardLinks(site, key) {
   ].filter(([, k]) => cards.has(k));
   return Promise.all(linked.map(async ([relation, k]) => {
     const { entry, it } = cards.get(k);
-    return { relation, ref: await cardName(site, k), title: it.title || k, lane: LANES[it.lane || 'todo'], notes: it.plan ? path.join(entry.dir, it.plan) : null };
+    return { relation, ref: await cardName(site, k), title: it.title || k, lane: LANES[it.lane || 'todo'], notes: it.plan ? path.join(entry.dir, it.plan) : null, thread: threadFile(site, k) };
   }));
 }
 

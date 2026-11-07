@@ -28,9 +28,11 @@ const ruleLines = (rules, heading = 'Rules from the hub and this board:') => (ru
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: the cards the card links (briefFacts' links).
 const linkLines = (links) => (links.length ? [
   "Related cards: read their notes for context; don't build their scope.",
-  ...links.map((l) => `- ${l.ref} "${l.title}" (${l.relation}, ${l.lane}): ${l.notes || 'no notes'}`),
+  ...links.map((l) => `- ${l.ref} "${l.title}" (${l.relation}, ${l.lane}): ${l.notes ? `notes ${l.notes}` : 'no notes'}, thread ${l.thread}`),
   '',
 ] : []);
+// docs/adr/2026-11-11-1100-every-agent-brief-names-the-cards-thread-file.md: the card's thread, by its exact file.
+const threadLine = (thread) => `The card's thread, which holds the owner's messages (who: love): ${thread}. Read it live.`;
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md: builder done finishes the card.
 const finishSteps = ({ route, key, worktree, base }) => [
@@ -50,7 +52,7 @@ const helperSteps = (b, key) => [
 ];
 
 // The standard brief for a card's headless builder. card: {route, key, ref, title, notes, worktree, base, rules, links}.
-export function builderBrief({ route, key, ref, title, notes, worktree, base, rules = [], links = [] }) {
+export function builderBrief({ route, key, ref, title, notes, thread, worktree, base, rules = [], links = [] }) {
   const b = cli(route);
   return [
     `You are the headless builder for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person. Work only in ${worktree}. Never restart the hub or a board server, and never push.`,
@@ -67,6 +69,7 @@ export function builderBrief({ route, key, ref, title, notes, worktree, base, ru
     ...helperSteps(b, key),
     '',
     notes ? `Spec: the card's notes, ${notes}, all sections, where later sections override earlier ones.` : `The card has no notes file: build from its title, and record what you had to decide as calls.`,
+    `${threadLine(thread)} Read it with the notes: a message of the owner's is an instruction, but where it contradicts the notes, the notes win; ask with \`${b} builder ask ${key} "<question>"\` and carry on. Read the thread again in checking, before you finish, for anything the owner wrote during the build.`,
     '',
     ...linkLines(links),
     ...ruleLines(rules),
@@ -83,7 +86,7 @@ export function builderBrief({ route, key, ref, title, notes, worktree, base, ru
 
 // The brief for a lander, launched once the session verified a handed-back build's calls. card as builderBrief's, with
 // answers [{ask, question, answer}], the owner's answers to the asks the session deferred.
-export function landerBrief({ route, key, ref, title, worktree, base, answers = [] }) {
+export function landerBrief({ route, key, ref, title, thread, worktree, base, answers = [] }) {
   const b = cli(route);
   return [
     `You are the headless lander for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its build is done and the orchestrator verified its judgment calls; it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
@@ -94,6 +97,8 @@ export function landerBrief({ route, key, ref, title, worktree, base, answers = 
       "3. The owner answered the builder's deferred asks. Where an answer changes the build, change it, with its tests, and commit:",
       ...answers.map((a) => `- ${a.ask} "${a.question}": ${a.answer}`),
     ] : []),
+    '',
+    threadLine(thread),
     '',
     `To finish, run ${finishCommand({ route, key })}.`,
     ...finishSteps({ route, key, worktree, base }),
@@ -106,7 +111,7 @@ export function landerBrief({ route, key, ref, title, worktree, base, answers = 
 // The brief for a rebase run, launched when the card's open PR, pr, conflicts with its base. card as builderBrief's. Its
 // progress lines are the card's status line, so the brief gives their words; a conflict it can't resolve is a judgment
 // call, which hands the card to the orchestrator.
-export function rebaseBrief({ route, key, ref, title, worktree, base, pr }) {
+export function rebaseBrief({ route, key, ref, title, thread, worktree, base, pr }) {
   const b = cli(route);
   return [
     `You are the headless rebase run for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its PR #${pr} conflicts with ${base}; rebase its branch onto ${base} so the PR is clean again. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
@@ -115,6 +120,8 @@ export function rebaseBrief({ route, key, ref, title, worktree, base, pr }) {
     `2. Run \`git fetch origin\`, then \`${rebase(`origin/${base}`)}\`. Resolve each conflict keeping both sides' intent, \`git add\` it and continue with \`git -c core.commentChar=';' rebase --continue\`. Report each step with \`${b} builder progress ${key} --phase building "<line>"\`, the board adds the phase word, in these words: "Rebasing onto ${base} · resolving <n> files", then "Rebasing onto ${base} · suite running".`,
     "3. Run the full test suite once, in the foreground. Fix what the rebase broke, and commit each fix with `git -c core.commentChar=';' commit -F <file>`. A push with commits of its own is no longer rebase-only, so a merge after an approval won't count it as trivial.",
     `4. If a conflict or a failing test is past what you can resolve with confidence, run \`git -c core.commentChar=';' rebase --abort\` if a rebase is under way, record it with \`${b} builder call ${key} "Rebase failed in <the files or tests> · <why>"\`, and run the finish step: with the call it hands the card to the orchestrator.`,
+    '',
+    threadLine(thread),
     '',
     `To finish, run ${finishCommand({ route, key })}, the text saying what you resolved. It reruns the suite and pushes the branch to PR #${pr} with --force-with-lease; the PR stays as it is.`,
     `- If it refuses because someone pushed to the branch since your fetch, fetch and rebase again (step 2), then run done again.`,
@@ -127,14 +134,14 @@ export function rebaseBrief({ route, key, ref, title, worktree, base, pr }) {
 // The brief for a planner, a grill or a prototype, launched from the card and its notes so far. card as builderBrief's,
 // with kind grill or prototype, repo the board's repo folder it reads, the owner's text and files (uploads, {name, path})
 // when the request carried them, and for the owner's eye on one question, question (its id), note and choice.
-export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules = [], links = [], text, files = [], question, note, choice }) {
+export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo, rules = [], links = [], text, files = [], question, note, choice }) {
   const b = cli(route);
   const grill = kind === 'grill';
   return [
     `You are the headless ${grill ? 'grill' : 'prototype'} planner for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person: the owner answers on the board, and a later planner or builder picks up from their answers. Read and run in ${repo}; write no output code ${grill ? 'there' : `in ${repo} itself`}, never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind ${kind}\`. If it refuses, stop.`,
-    `2. Gather the context yourself: ${notes ? `the card's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the card has no notes file yet; '}its thread, in the board site's data/threads folder, the repo's docs/adr and CONTEXT.md, and the cards its notes and thread link.`,
+    `2. Gather the context yourself: ${notes ? `the card's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the card has no notes file yet; '}its thread, ${thread}, the repo's docs/adr and CONTEXT.md, and the cards its notes and thread link.`,
     `3. Report progress with \`${b} builder progress ${key} "<plain, 80 characters or fewer>"\` at least every 10 minutes.`,
     grill
       ? `4. Find every decision the card leaves open: read the code it touches and answer what the code answers yourself. Post each decision left as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first.`
@@ -160,13 +167,13 @@ export function plannerBrief({ route, key, ref, title, notes, kind, repo, rules 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
 // The brief for a visual agent: one HTML page answering the owner's visual request in the card's thread. card as
 // plannerBrief's, with agent its record's name and the owner's text and files when the request carried them.
-export function visualBrief({ route, key, ref, title, notes, repo, agent, rules = [], links = [], text, files = [] }) {
+export function visualBrief({ route, key, ref, title, notes, thread, repo, agent, rules = [], links = [], text, files = [] }) {
   const b = cli(route);
   return [
     `You are the headless visual agent for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The owner asked, in the card's thread, for a visual: one HTML page that answers in a visual way, such as a diagram, a flow or a comparison. It is not a prototype or a grill: no question, no takes. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code there, never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind visual --agent ${agent}\`. If it refuses, stop.`,
-    `2. Gather what the page needs: ${notes ? `the card's notes, ${notes}; ` : ''}its thread, in the board site's data/threads folder, and the code or docs it is about.`,
+    `2. Gather what the page needs: ${notes ? `the card's notes, ${notes}; ` : ''}its thread, ${thread}, and the code or docs it is about.`,
     text ? `   The owner wrote: "${text}"` : '   The owner typed nothing: draw what the thread was last discussing.',
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     '3. Write one HTML file outside the repo, such as in a temporary folder. Keep its own CSS and script inline; it may load a library such as Mermaid or D3 from a CDN. Make it read well at phone width (390px) and on a desktop, in the dark and the light theme (prefers-color-scheme).',
@@ -186,7 +193,7 @@ export function visualBrief({ route, key, ref, title, notes, repo, agent, rules 
 // The brief for a helper another agent on the card asked for (store.mjs requestHelper): its task, in cwd, its own
 // worktree when it writes, else the card's or the board's repo read-only. card as builderBrief's, with agent its name,
 // task, writes and cwd. It reports and finishes as its own agent, and its done --text is what its spawner reads.
-export function helperBrief({ route, key, ref, title, notes, agent, task, writes, cwd, rules = [], links = [] }) {
+export function helperBrief({ route, key, ref, title, notes, thread, agent, task, writes, cwd, rules = [], links = [] }) {
   const b = cli(route);
   return [
     `You are the headless helper ${agent} on card ${ref} (${key}, "${title}") on the kickflip board /${route}. Another agent working on the card asked the board for you to do one task beside it, and waits on your hand-back. Nobody watches this session, so never wait on a person. Never restart the hub or a board server, and never push.`,
@@ -201,6 +208,7 @@ export function helperBrief({ route, key, ref, title, notes, agent, task, writes
     `2. Report progress with \`${b} builder progress ${key} --agent ${agent} --phase reading|building|testing|checking "<plain, 80 characters or fewer>"\` at least every 10 minutes; the board adds your name and the phase word.`,
     "3. Do only the task. Don't ask the orchestrator or the owner, record no judgment calls and post no questions: put any decision you had to make in your hand-back.",
     notes ? `   The card's notes, for context: ${notes}.` : '',
+    `   ${threadLine(thread)}`,
     '',
     ...linkLines(links),
     ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, restart the hub or a board server, or do the orchestrator's work, it isn't yours; you never push or restart:"),
