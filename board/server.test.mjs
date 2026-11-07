@@ -35,7 +35,7 @@ before(async () => {
   ghDir = path.join(home, 'gh-fixtures');
   const ghBin = fakeGh(ghDir);
   const slackEnv = { KICKFLIP_SLACK_URL: slackServer.url, PATH: `${ghBin}:${process.env.PATH}` };
-  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', KICKFLIP_INTAKE: 'off', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv, ...slackEnv } });
+  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv, ...slackEnv } });
   await boardListening(child);
   await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
 });
@@ -1269,7 +1269,6 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ sites: { t: { dir: site } } }));
   fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: {}, rules: [{ id: 'h1', text: 'Screenshots in every PR', by: 'owner', at: 'x' }] }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'b1', text: 'Ask before\ntouching main', by: 'claude', at: 'x' }, { text: 'no id' }] }));
-  // A new task is intake triage's and wakes nobody, so a work card's message wakes the watcher here.
   const ask = () => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/A1', text: 'Wake' }) });
   const watch = async (session, wake = ask) => {
     ownSession(home, session);

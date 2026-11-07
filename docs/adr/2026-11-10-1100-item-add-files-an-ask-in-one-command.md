@@ -7,3 +7,5 @@ Filing an ask took `item add --state grilling` then `item set --from-ask`. The b
 - `--state ready` on `item add` without `--from-ask`, or on a Discuss ask, is refused.
 - After the write, add does what `item set --from-ask` does: sets `from_ask`, writes `--text` as the first thread line and drops the ask from ask-links. `item set --from-ask` stays for an ask filed onto an existing card.
 - Supersedes the staging ADR's "`item add --state ready` is refused" for a Quick build ask (2026-11-07-0700-staging-then-ready.md).
+
+Amended by [the orchestrator sorts new tasks itself](2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md): a Quick build ask filed ready also needs `--notes` or `--notes-from`, and `item set --from-ask` files one ready from any Todo phase.

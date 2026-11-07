@@ -29,11 +29,8 @@
 //                             <detail>` while the hub runs older code than its files (../hub/boards.mjs hubLink)
 //   handed-over <owner json>  another session took the route over: stop, don't relaunch
 //   Record-only events never wake the session (docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md):
-//   ./event-lines.mjs RECORD_ONLY, the board server's own taps and usage-resumed among them,
-//   and on a board the intake that intake triage sorts: ask, card-added, item-message on an ask's thread, and intake-handoff
-//   (docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md). The cursor moves past them at once, a ping
-//   is answered then, and their lines print, in order, ahead of the new events on the next wake, marked working only
-//   when they woke the session.
+//   ./event-lines.mjs RECORD_ONLY, the board server's own taps and usage-resumed among them. The cursor moves past them
+//   at once, a ping is answered then, and their lines print, in order, ahead of the new events on the next wake.
 //   site-removed              the route left the manifest: stop, don't relaunch
 // On start it writes <site dir>/data/watcher.json {pid, since}, and adds exited_at when it exits; a board reads it
 // to say whether a watcher runs (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
@@ -151,15 +148,13 @@ for (;;) {
   orphaned();
   const pending = (seen) => Object.fromEntries(Object.entries(seen).map(([f, lines]) => [f, [...(routeRecord(base.$quietHeld, f) || []), ...(routeRecord(base.$usageHeld, f) || []), ...lines.slice(routeRecord(base, f) || 0)]]));
   const eligible = (line, gate) => gate.state !== 'paused' || !heldUsageEvent(line);
-  const onBoard = boardOf(s) !== null;
-  const quiet = (line) => recordOnly(line, onBoard);
-  const wakes = (waiting, gate) => Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate) && !quiet(line)));
+  const wakes = (waiting, gate) => Object.values(waiting).some((lines) => lines.some((line) => eligible(line, gate) && !recordOnly(line)));
   const currentGate = readUsageGate({ dir: s.dir });
   const now = matching(s);
   if (!wakes(pending(now), currentGate)) {
     // Nothing to wake for: record-only lines are kept for the next wake, so the cursor can move past them.
-    const fresh = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter(quiet)]));
-    const rest = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter((l) => !quiet(l))]));
+    const fresh = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter(recordOnly)]));
+    const rest = Object.fromEntries(Object.entries(now).map(([f, lines]) => [f, lines.slice(routeRecord(base, f) || 0).filter((l) => !recordOnly(l))]));
     if (Object.values(fresh).some((l) => l.length)) {
       if (boardOf(s)) await ackPings(s.dir, Object.values(fresh).flat());
       const append = (kept, add) => Object.fromEntries(Object.keys(now).map((f) => [f, [...(routeRecord(kept, f) || []), ...add[f]]]));
@@ -187,7 +182,7 @@ for (;;) {
       const plain = await plainLine(s.dir, line);
       if (plain) console.log(plain);
       const e = parsed(line);
-      if (e && WORKING_KINDS.includes(e.kind) && typeof e.id === 'string' && !quiet(line)) started.push(e.id);
+      if (e && WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id);
     }
   }
   const board = boardOf(s);

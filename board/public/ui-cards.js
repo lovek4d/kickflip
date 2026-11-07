@@ -315,7 +315,10 @@
   const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep}`)}">${CHECK}</button>`;
   const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.ownerStep ? `<div class="ask-actions">${ownerDoneButton(it)}</div>`
     : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
-  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' && thinkingLine()].filter(Boolean).join(' · ');
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a New card reads a grey "waiting", its dot
+  // still, until the orchestrator picks it up (the watcher's working mark), then "thinking".
+  const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting</span>';
+  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? thinkingLine() : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
   // In a wave band (app-lanes.js), step is the number of the card's phase in its wave, shown inside its id chip, and actions replace
   // its bump with the band's ⋯ menu.
   function workLines(it, { unread = 0, top = false, step = 0, actions = null } = {}) {

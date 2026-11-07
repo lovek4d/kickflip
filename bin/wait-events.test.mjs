@@ -249,15 +249,6 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   assert.equal(child.exitCode, null);
   assert.equal(stdout, '');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'handshake.json'), 'utf8')).ack.id, 'p1');
-  // docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md: on a board, intake is intake triage's, so it
-  // wakes nobody; an intake wait the orchestrator owns comes as orchestrator-waits.
-  line('a1', 'ask', { text: 'New task' });
-  line('c1', 'card-added', { key: 'w/A2', title: 'Follow-up' });
-  line('m1', 'item-message', { key: 'ask:a0', text: 'One more thing' });
-  line('h1', 'intake-handoff', { event: 'a0', key: 'ask:a0', text: 'Unsure' });
-  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 11, 'intake lines moved the cursor');
-  assert.equal(child.exitCode, null);
-  assert.equal(stdout, '');
   // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap changes the card or starts
   // an agent in the board server, so it wakes nobody; text typed with Grill, Prototype or Visual goes to that agent.
   line('b1', 'card-hold', { key: 'w/A1', hold: true });
@@ -268,19 +259,35 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   line('b6', 'grill-more', { key: 'w/A1', text: 'Ask about the footer' });
   line('b7', 'prototype-request', { key: 'w/A1' });
   line('b8', 'visual-request', { key: 'w/A1', text: 'Draw it' });
-  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 19, 'tap lines moved the cursor');
+  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 15, 'tap lines moved the cursor');
   assert.equal(child.exitCode, null);
   assert.equal(stdout, '');
   line('w1', 'item-message', { key: 'w/A1', text: 'Wake' });
   assert.equal(await exited, 0);
   const lines = stdout.split('\n');
   const at = (kind) => lines.findIndex((l) => l.includes(`"kind":"${kind}"`));
-  assert.ok(at('main-pulled') >= 0 && at('main-pulled') < at('settings') && at('settings') < at('ask-done') && at('ask-done') < at('reviewers-removed') && at('reviewers-removed') < at('reviewers-added') && at('reviewers-added') < at('repo-changed') && at('repo-changed') < at('ping') && at('ping') < at('ask'));
-  assert.ok(at('ask') < at('card-added') && at('card-added') < at('intake-handoff'));
-  assert.ok(lines.findIndex((l) => l.includes('"id":"m1"')) < lines.findIndex((l) => l.includes('"id":"w1"')));
+  assert.ok(at('main-pulled') >= 0 && at('main-pulled') < at('settings') && at('settings') < at('ask-done') && at('ask-done') < at('reviewers-removed') && at('reviewers-removed') < at('reviewers-added') && at('reviewers-added') < at('repo-changed') && at('repo-changed') < at('ping') && at('ping') < at('card-hold'));
   assert.ok(lines.includes('ping p1 from the hub answered'));
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$quietHeld, undefined);
-  // Only the event that woke the session reads Working on it: the held intake lines are intake triage's.
+  // Only the event that woke the session reads Working on it.
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['w1']);
   assert.ok(lines.findIndex((l) => l.includes('"id":"b8"')) < lines.findIndex((l) => l.includes('"id":"w1"')), 'the taps print ahead of the message');
+});
+
+// docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
+test('on a board a new task wakes the session with its sort line and reads Working on it', { timeout: 60000 }, async (t) => {
+  const { home, dir } = shop(t);
+  const events = path.join(dir, 'data', 'events.jsonl');
+  write(path.join(dir, 'board.json'), { title: 'Shop' });
+  ownSession(home, 's1');
+  const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
+  t.after(() => { if (child.exitCode === null) child.kill(); });
+  let stdout = '';
+  child.stdout.on('data', (d) => { stdout += d; });
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  await until(() => fs.existsSync(path.join(dir, 'data', 'watcher.json')), 'watcher started');
+  fs.appendFileSync(events, JSON.stringify({ id: 'a1', kind: 'ask', ts: new Date().toISOString(), data: { text: 'New task' } }) + '\n');
+  assert.equal(await exited, 0);
+  assert.ok(stdout.split('\n').includes('new task a1 received: sort it: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply'), stdout);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['a1']);
 });

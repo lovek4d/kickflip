@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PHASES, handedBackAt, intakeKeyOf, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupSteps, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, INTAKE_AGENT, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupSteps, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -362,13 +362,13 @@ const VIA = ['github', 'slack'];
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // command is a button's key (domain.mjs COMMANDS), which makes the line its status line; card, on a link's line, the other
 // card's key, whose ref and title the thread draws when it renders (domain.mjs threadOf).
-export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by, command, card, intake }) {
+export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by, command, card }) {
   needSite(site);
   if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
   else await loadItem(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by, command, card, intake };
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by, command, card };
   const file = threadFile(site, key);
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
@@ -414,21 +414,6 @@ export async function eventCard(site, eventId) {
   if (e?.kind === 'ask') return cardName(site, `ask:${eventId}`);
   if (typeof e?.data?.key === 'string') return cardName(site, e.data.key);
   return `the ${e?.kind} event`;
-}
-
-// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
-// `intake handoff <eventId> --text <why>`: an intake triage run unsure how to sort intake event eventId hands it to the
-// orchestrator, as an intake-handoff {event, key, text} event, whose wait (domain.mjs intakeWaits) wakes it, and a
-// status line in the card's thread, the last of its intake run's fold, without the why. → {lines: []}
-export async function intakeHandoff(site, eventId, why) {
-  needSite(site);
-  domId(eventId, 'the event id');
-  const said = text(why, '--text');
-  const e = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((x) => x.id === eventId) || fail(`no event "${eventId}" in this site's data/events.jsonl`);
-  const key = intakeKeyOf(e) || fail(`event "${eventId}" isn't intake: a new task, the owner's message in an ask's thread, or a card an agent added`);
-  await appendEvent({ dir: site }, 'intake-handoff', { event: eventId, key, text: said });
-  await appendThread(site, key, { text: 'Intake triage handed this to the orchestrator', kind: 'status', intake: { event: eventId, agent: INTAKE_AGENT, end: 'handed off' } });
-  return { lines: [] };
 }
 
 export async function relateAsk(site, eventId, key, summary, title) {
@@ -2011,10 +1996,10 @@ function checkPhase(phase, state) {
   if (phase !== undefined && !AGENT_PHASES.includes(phase)) fail('--phase takes ready, grilling or prototyping');
 }
 const NOT_STAGED = "a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
-// Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. It is
-// filed --from-ask --phase staging, the one filing that stages a card, so the orchestrator judges it before it goes
-// ready (docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md).
-export async function quickAsk(site, eventId) {
+// Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. The
+// orchestrator files it --from-ask --phase ready, its filing the judgment staging would ask for
+// (docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md).
+async function quickAsk(site, eventId) {
   const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));
   return events.some((e) => (e.kind === 'ask' && e.id === eventId && e.data?.quick === true) || (e.kind === 'item-message' && e.data?.key === `ask:${eventId}` && e.data?.intent === 'build'));
 }
@@ -2190,8 +2175,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
-  // A Quick build ask files --from-ask straight to staging (quickAsk, checked below once the ask is known).
-  if (state !== undefined || phase !== 'staging' || fromAsk === undefined) checkPhase(phase, state);
+  checkPhase(phase, state);
   if (force && !done) fail('--force goes with --done');
   if (fromAsk !== undefined && done) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
@@ -2206,15 +2190,15 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: filing a Quick build ask is the orchestrator's
+  // judgment, so it goes ready from any phase.
   const quick = ask !== undefined && await quickAsk(site, ask);
-  if (phase === 'staging' && !quick) checkPhase(phase);
   const { source, wave, item } = await loadItem(site, key);
   if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo card's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
-  if (phase === 'ready' && quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} came from a Quick build ask: file it --phase staging, and the orchestrator judges it before it goes ready`);
-  if (phase === 'ready' && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
+  if (phase === 'ready' && !quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-  if (ask && phase === undefined && !item.phase) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling or prototyping, or staging for a Quick build ask');
+  if (ask && phase === undefined && !item.phase) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask');
   const wasFinished = closed(item);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
@@ -2313,7 +2297,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
     // docs/adr/2026-11-07-0700-staging-then-ready.md: sent back from staging or ready, the card gets its round from the board (domain.mjs roundsDue).
     if (phase !== 'ready' && ['staging', 'ready'].includes(item.phase)) item.round_at = new Date().toISOString();
     item.phase = phase;
-    if (phase === 'staging') item.staged_at = new Date().toISOString(); else delete item.staged_at;
+    delete item.staged_at;
     delete item.unfiled;
   }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the phase the card is in.
@@ -2763,19 +2747,19 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, held, parent, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
-  if (state !== undefined || phase !== 'staging' || fromAsk === undefined) checkPhase(phase, state);
+  checkPhase(phase, state);
   if (said !== undefined) text(said, '--text');
   if (said !== undefined && fromAsk === undefined) fail('--text goes with --from-ask');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
-  // Intake triage files a Quick build ask in staging, as item set --from-ask does, for the orchestrator to judge
-  // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
-  if (phase === 'staging' && !await quickAsk(site, ask)) checkPhase(phase);
   if (ask && phase === undefined) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask');
   if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it grilling or prototyping` : 'item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
   if (phase === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --phase ready`);
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a new card has no questions yet, so its notes
+  // are complete once they hold more than its title.
+  if (phase === 'ready' && !(notes ?? '').trim() && notesFrom === undefined) fail('a new ready card has no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready');
   if (intake && site && phase === undefined) fail('item add files a card on a board: pass --phase grilling or prototyping');
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
@@ -2795,7 +2779,6 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (ask) item.from_ask = ask;
   if (phase !== undefined) item.phase = phase;
-  if (phase === 'staging') item.staged_at = created;
   await assignTicket(site, key, wave, item, ticket, options, source.dir, body);
   if (id === undefined) {
     item.id = cardIdOf(item.ticket);

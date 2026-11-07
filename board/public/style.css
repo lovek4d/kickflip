@@ -389,6 +389,9 @@ button.attach:disabled { opacity: .35; }
 /* The session's working line, "thinking", is the owner's blue with one font, size, weight and pulse on the card and in the thread. */
 .thinking { color: var(--accent); font-size: 12px; font-weight: 600; }
 .thinking .working-dot { background: currentColor; }
+/* A New card's "waiting", until the orchestrator picks it up: grey, its dot still. */
+.pickup-wait { color: var(--muted); font-size: 12px; font-weight: 600; }
+.pickup-wait .working-dot { background: currentColor; animation: none; }
 .msg.link { padding: 0 10px; margin: 4px 0; font-size: 13px; }
 .msg.builder-status { padding: 0 10px; margin: 4px 0; font-size: 12px; color: var(--color-notice); overflow-wrap: anywhere; }
 .msg.builder-status .working-dot { animation: none; }

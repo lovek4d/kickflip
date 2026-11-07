@@ -1,7 +1,7 @@
 // What each event kind tells the session that bin/wait-events.mjs wakes: a record-only kind wakes nothing, and every
 // other kind the board writes has an action line here and an entry in SKILL.md
 // (docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md; bin/event-lines.test.mjs keeps it so).
-import { intakeKeyOf, waitsAgainLine } from '../board/domain.mjs';
+import { waitsAgainLine } from '../board/domain.mjs';
 
 // docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md,
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap the board server applies
@@ -9,18 +9,13 @@ import { intakeKeyOf, waitsAgainLine } from '../board/domain.mjs';
 // pause (usage-resumed) wakes nobody either: the watcher reads the gate itself, and the work it held wakes the session.
 export const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
   'card-hold', 'card-done', 'card-unbump', 'card-unblocked', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed'];
-// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md: on a board, intake (a new task, the owner's
-// message in an ask's thread, an agent-added card) is intake triage's, and its hand-off reaches the session as an
-// intake wait in orchestrator-waits, so none of them wakes the session.
-const parsed = (line) => { try { return JSON.parse(line); } catch { return null; } };
-export const recordOnly = (line, board) => {
-  const e = parsed(line);
-  return RECORD_ONLY.includes(e?.kind) || (Boolean(board) && e !== null && (e.kind === 'intake-handoff' || intakeKeyOf(e) !== null));
-};
+const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
+export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 
 // The kinds whose line reads from the event alone.
 export const PLAIN = {
-  ask: (e) => `new task ${e.id} received: intake triage sorts it`,
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
+  ask: (e) => `new task ${e.id} received: sort it: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply`,
   'owner-answer': (e) => `answer received to question ${e.data?.id}: act on it on its card`,
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
@@ -41,7 +36,7 @@ export const PLAIN = {
 // The kinds whose line names the card the event is on.
 export const ON_CARD = {
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-  'item-message': (c, e) => (String(e.data?.key).startsWith('ask:') ? `message received from ${c}'s thread: intake triage answers it`
+  'item-message': (c, e) => (String(e.data?.key).startsWith('ask:') && e.data?.intent === 'build' ? `Implement asked on ${c}: file it with item add --from-ask --phase ready, with its --size and notes`
     : e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping` : `message received from ${c}'s thread: reply in its thread`),
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
   'card-bump': (c) => `${c} bumped: handle its waits lines first; with none, leave it`,
@@ -58,6 +53,5 @@ export const ON_CARD = {
   'reask-request': (c) => `question asked again on ${c}: ask it again with question add reask_of`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text} (builder answer it, or builder defer it)`,
   'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}; fix it with item set --check, or drop it`,
-  'card-added': (c) => `${c} added by an agent: intake triage links and files it`,
-  'intake-handoff': (c, e) => `intake triage handed ${c} to you: ${e.data?.text}`,
+  'card-added': (c) => `${c} added by an agent: link it and file it: item notes, then item set --relate and --phase`,
 };

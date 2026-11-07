@@ -249,7 +249,6 @@ test('failed reopen keeps the session lock until rollback so a queued resume can
 test('reopen rewinds to the cursor saved before stopping even if the old watcher advanced while closed', async () => {
   const { dir } = fixture();
   const cursor = path.join(dir, 'data', `.watch-cursor-${id}.json`);
-  // A builder's ask, since a new task is intake triage's and wakes nobody on a board.
   const event = JSON.stringify({ id: 'waiting', kind: 'builder-ask', ts: new Date().toISOString(), data: { key: 'shop/S1', ask: 'a1', text: 'Do this next' } });
   write(path.join(dir, 'data', 'events.jsonl'), event + '\n');
   write(cursor, { 'data/events.jsonl': 0 });

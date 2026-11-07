@@ -173,9 +173,6 @@
 //                                A card whose open PR conflicts gets one headless rebase run per head and base, tracked
 //                                in data/rebases.json (domain.mjs rebasesDue, store.mjs startRebase;
 //                                docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
-//                                Each new task (ask), owner message in an ask's thread and card-added card gets one
-//                                intake triage run on Sonnet, one at a time, tracked in data/intake-runs.json (runIntake;
-//                                docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md).
 //                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
 //                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
@@ -323,14 +320,14 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeHung, intakeStranded, INTAKE_AGENT, INTAKE_TIMEOUT_AFTER, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
-import { BOARD_CLI, launchBuilder, launchIntake, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, intakeHandoff, quickAsk, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
+import { BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1526,7 +1523,6 @@ async function runAuto() {
   const ready = idle && !heldByPause;
   if (!heldByPause) await launchVisuals(items, log);
   if (!heldByPause) await launchHelpers(helpers);
-  await sortIntake();
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   await checkTriage(settings, log, items, ready);
   const held = pullable.filter((k) => hold.includes(k));
@@ -1675,97 +1671,6 @@ async function drawVisuals(items, log) {
       await appendThread(here, key, { text: `Couldn't start the visual agent: ${e.message}` });
     }
   }
-}
-
-// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
-// data/intake-runs.json {<event id>: {key, pid, at, folds, ended?, closed?}} (folds: its thread lines fold into one section, closed once a line ends it): the intake triage runs, one at a time. Each pass marks a
-// run whose process has gone ended, hands the orchestrator each event a run ended without sorting (domain.mjs
-// intakeStranded), and, unless the board's launches are held (launchHeldNow), launches a run on the next due intake event
-// (intakeDue) with the board's index: every open work card's label, key, title, lane, state and notes file. A run that
-// can't launch hands its event off at once, and one open 10 minutes (INTAKE_TIMEOUT_AFTER) after its launch is stopped
-// and ended with timedOut, its event handed off as timed out, with no relaunch. KICKFLIP_INTAKE=off skips the pass (the
-// server tests set it). Passes run one at a time, on every board change and once a minute.
-let intakePass = Promise.resolve();
-function sortIntake() {
-  const pass = intakePass.then(runIntake).catch((err) => console.error('Intake check failed:', err.message));
-  intakePass = pass;
-  return pass;
-}
-async function runIntake() {
-  if (process.env.KICKFLIP_INTAKE === 'off') return;
-  const file = path.join(data, 'intake-runs.json');
-  const runs = await readJSON(file, {});
-  const save = async () => {
-    await fs.mkdir(data, { recursive: true });
-    await fs.writeFile(file + '.tmp', JSON.stringify(runs) + '\n');
-    await fs.rename(file + '.tmp', file);
-  };
-  const now = () => new Date().toISOString();
-  const gone = Object.values(runs).filter((r) => !r.ended && !(r.pid && pidAlive(r.pid)));
-  for (const r of gone) r.ended = now();
-  // A run open past INTAKE_TIMEOUT_AFTER is stopped (its process group: SIGTERM, then SIGKILL after 5s) and ended, so
-  // the next event's run can start on this pass, and its event goes to the orchestrator as timed out.
-  const hung = intakeHung(runs, Date.now()).map((event) => runs[event]);
-  for (const r of hung) {
-    r.ended = now();
-    r.timedOut = true;
-    if (!r.pid) continue;
-    try { process.kill(-r.pid, 'SIGTERM'); } catch { continue; }
-    setTimeout(() => { try { process.kill(-r.pid, 'SIGKILL'); } catch {} }, 5000).unref();
-  }
-  if (gone.length || hung.length) await save();
-  const log = await readLines(events);
-  let { items } = await sharedBoard();
-  // A run that looks to have left its event unsorted is checked on a board built afresh, so a sort it wrote just
-  // before it exited counts.
-  if (intakeStranded(items, log, runs).length) {
-    dataVersion++;
-    ({ items } = await sharedBoard());
-  }
-  let closedAny = false;
-  for (const d of intakeStranded(items, log, runs)) {
-    const timedOut = runs[d.event].timedOut;
-    const why = timedOut ? `the intake triage run timed out after ${INTAKE_TIMEOUT_AFTER / 60000} minutes` : 'the intake triage run ended without sorting it';
-    logCall({ call: 'intake-handoff', key: d.key, result: 'handed off', reason: timedOut ? 'Its intake triage run timed out.' : 'Its intake triage run ended without sorting it.', inputs: { event: d.event, kind: d.kind, run: runs[d.event] } });
-    runs[d.event].closed = true;
-    closedAny = true;
-    await intakeHandoff(here, d.event, why);
-  }
-  // A run that ended with its event sorted closes its fold in the card's thread; one handed off closed it with its hand-off line.
-  for (const [event, r] of Object.entries(runs)) {
-    if (!r.folds || !r.ended || r.closed) continue;
-    r.closed = true;
-    closedAny = true;
-    await appendThread(here, r.key, { text: 'Intake triage finished', kind: 'status', intake: { event, agent: INTAKE_AGENT, end: 'finished' } });
-  }
-  if (closedAny) await save();
-  if (launchHeldNow()) return;
-  const due = intakeDue(items, log, runs);
-  if (!due) return;
-  runs[due.event] = { key: due.key, pid: null, at: now(), folds: true };
-  await save();
-  const entry = { call: 'intake-run', key: due.key, reason: `Intake event ${due.event} (${due.kind}) waits to be sorted.`, inputs: { event: due.event, kind: due.kind } };
-  try {
-    const sources = await itemSources(here);
-    const notes = new Map();
-    for (const src of sources) for (const it of (await readJSON(src.file, null))?.items || []) if (it.plan) notes.set(`${src.slug}/${it.id}`, path.join(src.dir, it.plan));
-    const cards = items.filter((i) => i.kind === 'work' && i.lane !== 'done').map((i) => ({ ref: i.ref, key: i.key, title: i.title, lane: i.lane, phase: i.phase, notes: notes.get(i.key) ?? null }));
-    const askId = due.key.startsWith('ask:') ? due.key.slice(4) : null;
-    const launched = await launchIntake(here, {
-      ...due, cards, waves: sources.map(({ slug, dir }) => ({ slug, dir })), quick: askId !== null && await quickAsk(here, askId),
-      thread: (await thread(due.key)).map(({ who, text, files }) => ({ who, text, files })),
-    });
-    runs[due.event].pid = launched.pid;
-    // Its exit brings in the next pass: the hand-off of what it left unsorted, and the next event's run.
-    launched.exited.then(sortIntake);
-    logCall({ ...entry, result: 'launched' });
-  } catch (e) {
-    logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-    runs[due.event].ended = now();
-    runs[due.event].closed = true;
-    await intakeHandoff(here, due.event, `intake triage couldn't launch (${e.message})`);
-  }
-  await save();
 }
 
 // A planner, kind grill or prototype, the owner asked for or a card's arrival in Todo started, opens on the card and
@@ -2301,7 +2206,6 @@ setInterval(() => {
   dataVersion++;
   checkPrototypeWaits();
   reviveHeadless();
-  sortIntake();
   // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
   publishUnscreened(here).then((keys) => { if (keys.length) dataVersion++; }, (err) => console.error('Screen publish failed:', err.message));
   checkPickUps();

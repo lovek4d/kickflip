@@ -1439,7 +1439,11 @@ test("a New card reads New and its first line, then whether it was moved or edit
   const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, prs: [], deps: [], blockedBy: [], created: sent, updatedAt: sent, sortAt: sent,
     bumpedAt: ask.bumpedAt || null, ask: { askedAt: sent, bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
   const at = ui.cardTime(sent);
-  assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', at]);
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: grey "waiting", its dot still, until the
+  // orchestrator picks the task up, then the blue "thinking".
+  assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', 'waiting', at]);
+  assert.match(card({ state: 'waiting' }), /<span class="pickup-wait"><span class="working-dot" aria-hidden="true"><\/span>waiting<\/span>/);
+  assert.doesNotMatch(card({ state: 'waiting' }), /class="thinking"/);
   assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['New Fix <it>', 'Edited · thinking', at]);
   assert.deepEqual([...card({ state: 'waiting' }).matchAll(/data-(bump|edit|withdraw)="a1"/g)].map((m) => m[1]), ['bump', 'edit', 'withdraw']);
   assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /class="ghost icon bumped" data-bump="a1"[^>]* disabled/);
@@ -1451,7 +1455,7 @@ test("a New card reads New and its first line, then whether it was moved or edit
   assert.deepEqual(lines(answered), ['Ask Fix <it>', `asked ${at}`, ui.cardTime(ago(0.5))]);
   assert.match(answered, /<span class="chip tone-quiet"[^>]*>Ask<\/span>/);
   assert.deepEqual(lines(card({ state: 'answered' }, { isNew: false, ref: '10:00', next: 'Pick one' })), ['Ask Fix <it>', `asked ${at}`, 'Next: Pick one', at]);
-  assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch', at]);
+  assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch · waiting', at]);
   const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
   assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', `${at} · Action needed`]);
 });
@@ -1911,7 +1915,7 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
   assert.deepEqual(waits(acted), ['Q10']);
 });
 
-test("a run's fold ends its summary at its status (running, finished or handed off); its log is a link inside the open section, and a run with no log has none", () => {
+test("a run's fold ends its summary at its status (running or finished); its log is a link inside the open section, and a run with no log has none", () => {
   const started = (extra = {}) => ({ ts: ago(3), who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Opus grill', text: 'Claude Opus grill started', finished: false, planner: true, ...extra });
   const status = { ts: ago(2), who: 'claude', kind: 'status', run: 'r1', agent: 'Claude Opus grill', planner: true, text: 'Reading' };
   const done = { ts: ago(1), who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Opus grill', text: 'Claude Opus grill finished', finished: true, planner: true };
@@ -1919,13 +1923,6 @@ test("a run's fold ends its summary at its status (running, finished or handed o
   assert.match(running, /Claude Opus grill · running<\/summary>.*<a href="log\.html\?file=planner-A1-2026\.log">Open the log<\/a><\/div><\/details>$/);
   assert.match(ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status, done]), /grill · finished<\/summary>/);
   assert.doesNotMatch(ui.threadMessages([started(), status]), /Open the log/);
-  const launch = { ts: ago(3), who: 'claude', kind: 'status', run: 'intake:e1', agent: 'Claude Sonnet intake triage', text: 'Claude Sonnet intake triage', log: 'intake-e1.log' };
-  const handoff = { ts: ago(1), who: 'claude', kind: 'status', run: 'intake:e1', agent: 'Claude Sonnet intake triage', text: 'Intake triage handed this to the orchestrator', end: 'handed off' };
-  assert.match(text(ui.threadMessages([launch])), /^Claude Sonnet intake triage · running/);
-  const handed = ui.threadMessages([launch, handoff]);
-  assert.equal(handed.match(/<details/g).length, 1);
-  assert.match(text(handed), /^Claude Sonnet intake triage · handed off.*Intake triage handed this to the orchestrator.*Open the log$/);
-  assert.match(text(ui.threadMessages([launch, { ...handoff, text: 'Intake triage finished', end: 'finished' }])), /^Claude Sonnet intake triage · finished/);
 });
 
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {

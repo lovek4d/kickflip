@@ -15,3 +15,5 @@ The Opus orchestrator sorted every new task itself: each `ask` event woke it to 
 **The watcher.** On a board, `ask`, `card-added`, `item-message` on an ask's thread and `intake-handoff` are record-only (bin/wait-events.mjs): they move the cursor and print on the next wake, but never wake the session, and the watcher marks working only the events that woke it, so intake's events never read Working on it under Opus. `ask-edited`, `ask-bump` and `ask-withdrawn` still wake Opus as before.
 
 **Not done.** No prototype (gh317-proto no): the only visible change is the thread lines. A run that hangs has no time limit, and holds the next intake event until its process exits or the server's process check finds it gone.
+
+Superseded by [the orchestrator sorts new tasks itself](2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md): there is no intake run; new tasks wake the orchestrator, and a Quick build ask files straight to ready.

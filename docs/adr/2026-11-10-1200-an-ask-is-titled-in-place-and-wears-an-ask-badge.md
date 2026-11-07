@@ -9,3 +9,5 @@ Asks and cards stay separate records. The data already made a filed card the ask
 - `reply <eventId> --title <t>` and `item relate-ask … --title <t>` retitle an ask that stays an ask. The title is stored in `data/ask-titles.json` `{titles: {<ask event id>: title}}`; a reply to a message in an ask's thread titles that ask, and `--title` on a reply to any other event is refused before anything is written. An ask with no title keeps its first line.
 - An ask that is no longer New (answered, folded, in progress or waiting on its questions) wears a quiet `Ask` badge where a work card's ticket is, and "asked <time>" moves to a line under its title (prototype round 1, take A). A New ask still wears `New`.
 - An ask's ticket is still assigned only when it becomes a card.
+
+Superseded in part by [the orchestrator sorts new tasks itself](2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md): the orchestrator, not intake triage, files and retitles an ask, and a Quick build ask files ready, not staging.

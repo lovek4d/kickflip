@@ -55,7 +55,7 @@ test('every kind the code writes is record-only, or has a line telling the sessi
 });
 
 test('every kind that wakes the session has an entry in SKILL.md', () => {
-  const wakes = [...new Set([...writtenKinds(), ...Object.keys(PLAIN), ...Object.keys(ON_CARD)])].filter((k) => !recordOnly(JSON.stringify(event(k)), true));
+  const wakes = [...new Set([...writtenKinds(), ...Object.keys(PLAIN), ...Object.keys(ON_CARD)])].filter((k) => !recordOnly(JSON.stringify(event(k))));
   const absent = wakes.filter((k) => !new RegExp('`' + k + '[ `]').test(skill));
   assert.deepEqual(absent, []);
 });
@@ -68,7 +68,7 @@ test('SKILL.md describes no event that nothing writes, and the record-only and l
 });
 
 test('usage-resumed and the taps the board applies itself are record-only; a bump, a typed message and an answer wake', () => {
-  const quiet = (k) => recordOnly(JSON.stringify(event(k)), true);
+  const quiet = (k) => recordOnly(JSON.stringify(event(k)));
   for (const k of ['usage-resumed', 'card-hold', 'card-done', 'card-unbump', 'grill-more', 'prototype-request', 'visual-request']) assert.equal(quiet(k), true, k);
   for (const k of ['card-bump', 'item-message', 'owner-answer', 'builder-ask', 'orchestrator-waits']) assert.equal(quiet(k), false, k);
   assert.equal(ON_CARD['card-bump']('#3', event('card-bump')), '#3 bumped: handle its waits lines first; with none, leave it');
@@ -80,4 +80,17 @@ test("every wait kind the board puts on the orchestrator's waits list is named i
   for (const k of ['ask', 'staging', 'screen', 'intake', 'triage', 'calls', 'stale']) assert.ok(kinds.includes(k), k);
   const watch = skill.split('\n').find((l) => l.startsWith('5. **Watch.**'));
   assert.deepEqual(kinds.filter((k) => !new RegExp('`' + k + '`(,| or| on)').test(watch)), []);
+});
+
+// docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
+test('a new task, a message in an ask thread and an agent-added card wake the session with what to do, and nothing hands intake off any more', () => {
+  const wakes = (e) => !recordOnly(JSON.stringify(e));
+  assert.equal(wakes({ id: 'a1', kind: 'ask', data: { text: 'Fix it' } }), true);
+  assert.equal(wakes(event('card-added', { key: 'w/A2' })), true);
+  assert.equal(wakes(event('item-message', { key: 'ask:a1', text: 'More' })), true);
+  assert.equal(PLAIN.ask({ id: 'a1' }), 'new task a1 received: sort it: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply');
+  assert.equal(ON_CARD['card-added']('#7'), '#7 added by an agent: link it and file it: item notes, then item set --relate and --phase');
+  assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1' })), "message received from the ask's thread: reply in its thread");
+  assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1', text: '', intent: 'build' })), 'Implement asked on the ask: file it with item add --from-ask --phase ready, with its --size and notes');
+  assert.equal(Object.hasOwn(ON_CARD, 'intake-handoff'), false);
 });

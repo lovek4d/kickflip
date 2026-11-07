@@ -511,7 +511,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending, titled) {
   const handled = done || inProgress || asked || onClaude;
   // An owner message Claude hasn't answered puts the next step back with Claude.
   const ownerPending = msgs.some((m) => m.who === 'love' && m.kind !== 'ask' && (m.state === 'waiting' || m.state === 'working'));
-  // The owner's thread messages still owed an answer, by event id (intakeDue).
+  // The owner's thread messages still owed an answer, by event id (intakeWaits).
   const owed = msgs.filter((m) => m.who === 'love' && m.kind === 'item-message').flatMap(stateEntries).filter(([, s]) => s === 'waiting' || s === 'working').map(([id]) => id);
   const state = handled ? 'answered' : msg.state;
   const bumped = handled ? null : bumpedAt || null;
@@ -650,8 +650,6 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
 // Records written before kind became the provider hold kind opus or sonnet, which read as kind claude with that model.
 const MODEL_NAMES = { opus: 'Claude Opus', sonnet: 'Claude Sonnet', codex: 'Codex' };
 export const modelName = ({ model, kind }) => MODEL_NAMES[model] || MODEL_NAMES[kind] || (kind === 'claude' ? MODEL_NAMES.opus : null);
-// The name an intake triage run's fold goes by in its card's thread.
-export const INTAKE_AGENT = `${modelName({ kind: 'claude', model: 'sonnet' })} intake triage`;
 export const providerOf = (kind) => (kind === 'opus' || kind === 'sonnet' ? 'claude' : kind);
 
 // "Claude Opus implementer", "Claude Sonnet implementer", "Codex benchmarks": the model once, never "Claude Opus · Opus
@@ -900,7 +898,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...(m.intake ? { run: `intake:${m.intake.event}`, agent: m.intake.agent, ...(m.intake.end ? { end: m.intake.end } : {}) } : agentOfLine(agentList, m)) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
+    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
@@ -1253,7 +1251,7 @@ export function buildBoard(snapshot) {
     it.orchestrator = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt))) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
-  intakeWaits(items, events);
+  intakeWaits(items, events, working);
   screenWaits(items, snapshot.screening || {});
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
@@ -1528,10 +1526,10 @@ export function visualsDue(items, events) {
   return out;
 }
 
-// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
+// docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
 // Intake is what reaches the board unsorted: a new task (ask), the owner's message in an ask's thread (item-message
-// keyed ask:<id>), and a card an agent added with no state (card-added). The card an intake event is on, or null.
-export const intakeKeyOf = (e) => (e.kind === 'ask' ? `ask:${e.id}`
+// keyed ask:<id>), and a card an agent added with no phase (card-added). The card an intake event is on, or null.
+const intakeKeyOf = (e) => (e.kind === 'ask' ? `ask:${e.id}`
   : e.kind === 'card-added' ? e.data?.key ?? null
   : e.kind === 'item-message' && String(e.data?.key || '').startsWith('ask:') ? e.data.key
   : null);
@@ -1544,44 +1542,21 @@ function unsorted(items, e, key) {
   if (e.kind === 'card-added') return it.kind === 'work' && it.unfiled;
   return (it.ask?.owed || []).includes(e.id);
 }
-// The intake events still to sort, oldest first, for built items and the event log: unsorted, and not handed to the
-// orchestrator by an intake-handoff. → [{event, key, kind}]
-function intakeOpen(items, events) {
+const INTAKE_NEXT = {
+  ask: 'Sort the new task: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply',
+  'item-message': "Answer the owner's message in the ask's thread: reply to it",
+  'card-added': 'Link and file the card an agent added: item notes, then item set --relate and --phase',
+};
+// The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
+// its oldest such event, picked up once the watcher marked that event working (working, data/working.json).
+function intakeWaits(items, events, working) {
   const byKey = new Map(items.map((i) => [i.key, i]));
-  const handedOff = new Set(events.filter((e) => e.kind === 'intake-handoff').map((e) => e.data?.event));
-  return events.flatMap((e) => {
+  const waited = new Set();
+  for (const e of events) {
     const key = intakeKeyOf(e);
-    return key && !handedOff.has(e.id) && unsorted(byKey, e, key) ? [{ event: e.id, key, kind: e.kind }] : [];
-  });
-}
-// The intake event an intake triage run sorts next, for built items, the event log and runs, data/intake-runs.json
-// {<event id>: {key, pid, at, ended?}}: none while a run is open; else the oldest open intake event with no run.
-// → {event, key, kind} or null.
-export function intakeDue(items, events, runs) {
-  if (Object.values(runs).some((r) => !r.ended)) return null;
-  return intakeOpen(items, events).find((d) => !routeRecord(runs, d.event)) ?? null;
-}
-// How long an intake triage run may stay open from its launch before it counts as hung, whatever it is doing.
-export const INTAKE_TIMEOUT_AFTER = BUILDER_STALE_AFTER;
-// The intake events whose run is open at least INTAKE_TIMEOUT_AFTER after its launch (`at`), for the runs and now in ms.
-export function intakeHung(runs, now) {
-  return Object.entries(runs).filter(([, r]) => !r.ended && now - Date.parse(r.at) >= INTAKE_TIMEOUT_AFTER).map(([event]) => event);
-}
-// The intake events whose run has ended with the event still open, each for the orchestrator's hand-off.
-// → [{event, key, kind}]
-export function intakeStranded(items, events, runs) {
-  return intakeOpen(items, events).filter((d) => routeRecord(runs, d.event)?.ended);
-}
-// The orchestrator's wait on each intake event triage handed it (intake-handoff {event, key, text}) while the event
-// is still unsorted, on its card's item as orchestrator.
-function intakeWaits(items, events) {
-  const byKey = new Map(items.map((i) => [i.key, i]));
-  const byId = new Map(events.map((e) => [e.id, e]));
-  for (const h of events.filter((e) => e.kind === 'intake-handoff')) {
-    const e = byId.get(h.data?.event);
-    const key = e && intakeKeyOf(e);
-    if (!key || !unsorted(byKey, e, key)) continue;
-    byKey.get(key).orchestrator = { kind: 'intake', since: String(h.ts), picked: null, next: `Sort what intake triage handed you: ${h.data.text}` };
+    if (!key || waited.has(key) || !unsorted(byKey, e, key)) continue;
+    waited.add(key);
+    byKey.get(key).orchestrator = { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind] };
   }
 }
 

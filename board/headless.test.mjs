@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
-import { builderBrief, helperBrief, intakeBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
+import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, readArchive, threadFile } from './store.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
@@ -829,89 +829,20 @@ test("a visual agent's brief has it start as its own agent, read the card and th
   assert.match(visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1' }), /what the thread was last discussing/);
 });
 
-// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
-test("an intake triage run's brief holds the board's index, the task and its thread, and has it reply, fold or file it, staging a Quick build, or hand it off", () => {
-  const b = `node ${BOARD_CLI} --site shop`;
-  const intake = { route: 'shop', repo: '/r/shop', rules: ['Use Node 22+'], waves: [{ slug: 'w', dir: '/s/waves/w' }],
-    cards: [{ ref: 'ENG-1', key: 'w/A1', title: 'Make it go', lane: 'todo', phase: 'grilling', notes: '/s/waves/w/a1.md' }, { ref: 'ENG-2', key: 'w/A2', title: 'No notes', lane: 'progress', phase: 'ready', notes: null }] };
-  const ask = intakeBrief({ ...intake, event: 'e1', key: 'ask:e1', kind: 'ask', thread: [{ who: 'love', text: 'Make the header blue', files: [{ path: '/s/data/uploads/a.png' }] }] });
-  for (const want of [
-    '- ENG-1 w/A1 "Make it go", todo, grilling: /s/waves/w/a1.md', '- ENG-2 w/A2 "No notes", progress, ready: no notes',
-    'love: Make the header blue', '/s/data/uploads/a.png', 'Use Node 22+', 'w: /s/waves/w',
-    `${b} reply e1 --file <reply.html> --title "<the ask in plain words>"`, `${b} item relate-ask e1 <key> --summary "<one line>" --title "<the ask in plain words>"`,
-    `${b} item add <wave> --title "<the change, in plain words>" --notes-from <draft.md> --from-ask e1 --relate <keys> --text "<one line on what you filed>" --phase <grilling|prototyping>`,
-    `${b} item notes <key> --heading "Asked (owner, <date>)" --file <draft.md>`, "outside the board's data folder", '--phase <grilling|prototyping>', 'verbatim',
-    `${b} intake handoff e1 --text`, 'Never push',
-  ]) assert.ok(ask.includes(want), `the intake brief has ${want}`);
-  assert.ok(!ask.includes('--notes-file'), 'the board names a card\'s notes file');
-  // docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md: one write, so no card reads New beside the ask.
-  assert.ok(!ask.includes('item set'), 'the ask is filed in one item add');
-  assert.ok(!ask.includes('--phase ready') && !ask.includes('--phase staging'), 'intake never sets a card ready, and stages only a Quick build');
-  const quick = intakeBrief({ ...intake, event: 'e1', key: 'ask:e1', kind: 'ask', quick: true, thread: [] });
-  assert.ok(quick.includes('--from-ask e1 --relate <keys> --text "<one line on what you filed>" --phase staging --size <small|large>'));
-  assert.ok(!quick.includes('--phase <grilling|prototyping>'));
-  const message = intakeBrief({ ...intake, event: 'm1', key: 'ask:e1', kind: 'item-message', thread: [] });
-  assert.ok(message.includes(`${b} reply m1 --file`) && message.includes(`${b} intake handoff m1 --text`));
-  assert.ok(message.includes('--from-ask e1 --relate <keys> --text "<one line>" --phase <grilling|prototyping>') && !message.includes('item set'));
-  const added = intakeBrief({ ...intake, event: 'c1', key: 'w/A2', kind: 'card-added', thread: [] });
-  for (const want of ['w/A2', `${b} item set w/A2 --relate`, `${b} item notes w/A2 --heading "What it is" --file <draft.md>`, '--phase <grilling|prototyping>', `${b} intake handoff c1 --text`]) assert.ok(added.includes(want), `the card-added brief has ${want}`);
-});
-
-test("a new task launches an intake triage run on Sonnet in the board's repo, one at a time, and one that ends with it unsorted hands it to the orchestrator", async () => {
+// docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
+test('a new task launches no agent: it waits on the orchestrator, which sorts it', async () => {
   const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', phase: 'grilling', lane: 'progress' }]);
   const { child, send } = await b.start();
   try {
     const { id } = await send('ask', { text: 'Make the header blue' });
-    await until(() => b.runs().length === 1, 'the intake run launches');
-    const [run] = b.runs();
-    assert.equal(run.cwd, fs.realpathSync(b.clone));
-    assert.equal(run.argv[run.argv.indexOf('--model') + 1], 'sonnet');
-    assert.match(run.argv[1], /Make the header blue/);
-    assert.match(run.argv[1], new RegExp(`intake handoff ${id} --text`));
-    const askThread = () => fs.readFileSync(path.join(b.data, 'threads', `ask__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
-    await until(() => fs.existsSync(path.join(b.data, 'threads', `ask__${id}.jsonl`)) && askThread()[0].text === 'Claude Sonnet intake triage', 'the launch line');
-    // The fake run exits without sorting it: the board hands it to the orchestrator, and launches no second run.
-    await until(() => b.events().includes('intake-handoff') && askThread().at(-1).text.startsWith('Intake triage handed'), 'the stranded task is handed off');
-    assert.match(askThread().at(-1).text, /^Intake triage handed this to the orchestrator$/);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(b.data, 'intake-runs.json'), 'utf8'))[id].key, `ask:${id}`);
+    const waitsFile = path.join(b.data, 'orchestrator-waits.json');
+    await until(() => fs.existsSync(waitsFile) && JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits.some((w) => w.key === `ask:${id}` && w.kind === 'intake'), 'the intake wait');
     await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 1);
+    assert.equal(b.runs().length, 0);
+    assert.equal(fs.existsSync(path.join(b.data, 'intake-runs.json')), false);
   } finally {
     child.kill();
     fs.rmSync(b.home, { recursive: true, force: true });
-  }
-});
-
-// docs/adr/2026-11-06-1200-a-hung-intake-run-times-out-and-hands-its-ask-to-the-orchestrator.md
-test('an intake run open 10 minutes is stopped and its ask handed to the orchestrator as timed out, and the next ask launches its run', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-hung-'));
-  const seen = path.join(home, 'claude-runs.jsonl');
-  const hang = path.join(home, 'claude-hang');
-  fs.writeFileSync(hang, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ pid: process.pid }) + '\\n');\nsetTimeout(() => {}, 120000);\n`);
-  fs.chmodSync(hang, 0o755);
-  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', phase: 'grilling', lane: 'progress' }], hang);
-  const { child, send } = await b.start();
-  const runsFile = path.join(b.data, 'intake-runs.json');
-  const readRuns = () => (fs.existsSync(runsFile) ? JSON.parse(fs.readFileSync(runsFile, 'utf8')) : {});
-  try {
-    const { id } = await send('ask', { text: 'Make the header blue' });
-    await until(() => readRuns()[id]?.pid, 'the intake run launches');
-    const { pid } = readRuns()[id];
-    const threadFile = path.join(b.data, 'threads', `ask__${id}.jsonl`);
-    process.kill(pid, 0);
-    fs.writeFileSync(runsFile, JSON.stringify({ [id]: { ...readRuns()[id], at: new Date(Date.now() - 11 * 60000).toISOString() } }));
-    const second = await send('ask', { text: 'Make the footer red' });
-    const askThread = () => (fs.existsSync(threadFile) ? fs.readFileSync(threadFile, 'utf8').trim().split('\n').map(JSON.parse) : []);
-    await until(() => askThread().at(-1)?.text.startsWith('Intake triage handed'), 'the hung ask is handed off');
-    assert.equal(askThread().at(-1).text, 'Intake triage handed this to the orchestrator');
-    assert.equal(readRuns()[id].timedOut, true);
-    await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'the hung run is stopped');
-    await until(() => readRuns()[second.id]?.pid, "the next ask's run launches on the same pass");
-  } finally {
-    child.kill();
-    for (const r of readRuns() && Object.values(readRuns())) if (r.pid) try { process.kill(-r.pid, 'SIGKILL'); } catch {}
-    fs.rmSync(b.home, { recursive: true, force: true });
-    fs.rmSync(home, { recursive: true, force: true });
   }
 });
 

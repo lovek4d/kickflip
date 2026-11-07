@@ -233,7 +233,8 @@ exit 1
 `);
   write(path.join(home, 'bin', 'codex'), '#!/bin/sh\nexit 1\n');
   for (const bin of ['gh', 'git', 'codex']) fs.chmodSync(path.join(home, 'bin', bin), 0o755);
-  for (const route of ['orch', 'shop']) write(site(route, 'data', 'events.jsonl'), JSON.stringify({ id: `e-${route}`, ts: ago(30), kind: 'ask', data: {} }) + '\n');
+  // Past DEAF_AFTER, so a board not listening is pushed, but short of ORCHESTRATOR_PUSH_AFTER, so the New task's intake wait isn't.
+  for (const route of ['orch', 'shop']) write(site(route, 'data', 'events.jsonl'), JSON.stringify({ id: `e-${route}`, ts: ago(20), kind: 'ask', data: {} }) + '\n');
   write(site('shop', 'data', '.watch-cursor-s-shop.json'), { 'data/events.jsonl': 0 });
   orchWatcher = sleeper();
   orchSession = liveSession('s-orch');

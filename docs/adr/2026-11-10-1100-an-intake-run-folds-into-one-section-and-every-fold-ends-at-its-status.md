@@ -6,3 +6,5 @@ Owner, #404: the intake hand-off line should not also pass the reason, and intak
 - The hand-off line (`intakeHandoff`) reads "Intake triage handed this to the orchestrator" with no reason and ends the fold `handed off`. The reason stays in the `intake-handoff` event's `text`, which the orchestrator's intake wait reads (so #384's "timed out after <limit>" no longer shows in the thread, only there).
 - A run that ends with its event sorted gets a closing line, "Intake triage finished", from the server's intake pass (`data/intake-runs.json` `folds`, `closed`); runs launched before this have no `folds` and get none.
 - `foldedRun` summaries drop the newest status text and the trailing "log" link; the log is an "Open the log" link at the end of the open section. Only finished is green, the rest keep #397's colours.
+
+Superseded in part by [the orchestrator sorts new tasks itself](2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md): the intake run, its lines and its fold are gone; every fold still ends at its status, running or finished.

@@ -14,8 +14,8 @@ import { processStarts, ps } from '../hub/live.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
-import { BoardError, appendThread, briefFacts, readBoardRules, recordSession } from './store.mjs';
-import { HELPER, INTAKE_AGENT, plans, VISUAL } from './domain.mjs';
+import { BoardError, briefFacts, readBoardRules, recordSession } from './store.mjs';
+import { HELPER, plans, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
 const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
@@ -216,80 +216,6 @@ export function helperBrief({ route, key, ref, title, notes, thread, agent, task
     '',
     'Never push.',
   ].filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n');
-}
-
-// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
-// The brief for an intake triage run on one intake event: event, its kind (ask, item-message on an ask's thread, or
-// card-added) and key, the card it is on. cards is the board's index, every open work card {ref, key, title, lane,
-// phase, notes: its notes file or null}; waves {slug, dir} where a new card can go; thread the card's messages
-// {who, text, files?}; quick whether the ask asked for an Implement. It sorts that one event and exits: thread lines are its report.
-export function intakeBrief({ route, repo, rules = [], waves = [], cards = [], event, key, kind, quick = false, thread = [] }) {
-  const b = cli(route);
-  const said = thread.map((m) => `- ${m.who}: ${m.text}${m.files?.length ? ` (attached: ${m.files.map((f) => f.path).join(', ')})` : ''}`);
-  // An Implement ask files to staging, for the orchestrator to judge; any other card to its grill or prototype.
-  const phase = quick ? '--phase staging --size <small|large>' : '--phase <grilling|prototyping>';
-  const phaseLine = quick
-    ? '      The owner chose Implement: put the plan in the notes; the orchestrator judges it from staging before it goes ready.'
-    : "      --phase prototyping when it changes the hub's or a board's UI, --phase grilling for anything else; the board starts the grill or prototype itself.";
-  // The card's notes are the draft item add --notes-from seeds them with; a linked card gets its section with item notes.
-  const fileIt = (from) => [
-    `   1. Write its notes in ${DRAFT}: open with the owner's words verbatim, under "## Asked (owner, <date>)", then a short "## What it is" in plain words and a "## Related" line naming each linked card and how they overlap. Add that line to each linked card's notes with ${notesCommand(b, '<linked key>', 'Related')} on a draft of its own.`,
-    `   2. ${from}`,
-    phaseLine,
-  ];
-  // docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md: one write files the ask, so no card reads New beside it.
-  const add = (title, ask, said) => `\`${b} item add <wave> --title "${title}" --notes-from <draft.md> --from-ask ${ask} --relate <keys> --text "${said}" ${phase}\``;
-  const named = '--title "<the ask in plain words>"';
-  const jobs = {
-    ask: [
-      `Your job: sort new task ${event}, on card ${key}, one of these ways:`,
-      `- Answer it, when it is a question or asks for nothing to build: \`${b} reply ${event} --file <reply.html> ${named}\`.`,
-      `- Fold it into the open card it is about: \`${b} item relate-ask ${event} <key> --summary "<one line>" ${named}\`, then add the owner's words verbatim to that card's notes with ${notesCommand(b, '<key>', 'Asked (owner, <date>)')}.`,
-      '- File it as a new card, which takes its place:',
-      ...fileIt(`${add('<the change, in plain words>', event, '<one line on what you filed>')} (link every card it overlaps, depends on or would duplicate; --deps for one it truly waits on).`),
-    ],
-    'item-message': [
-      `Your job: the owner's message ${event} in the thread of new task ${key}, whose last line is theirs. Answer it with \`${b} reply ${event} --file <reply.html> ${named}\`, or, if it changes what the task asks, sort the task as the message now has it:`,
-      `- fold it: \`${b} item relate-ask ${key.slice(4)} <key> --summary "<one line>" ${named}\`; or file it:`,
-      ...fileIt(`${add('<the change>', key.slice(4), '<one line>')},`),
-      `  then reply to the message saying what you did.`,
-    ],
-    'card-added': [
-      `Your job: card ${key}, which an agent added unfiled (card-added ${event}). Read its notes and the cards its title looks related to, add what it is, why and where it came from to its notes with ${notesCommand(b, key, 'What it is')}, and a "Related" section naming each linked card to it and to each linked card's notes the same way, each from a draft of its own. Then file it in one call:`,
-      `\`${b} item set ${key} --relate <keys> --text "<one line>" --phase <grilling|prototyping>\`: prototyping when it changes the hub's or a board's UI, grilling for anything else.`,
-    ],
-  };
-  return [
-    `You are an intake triage run on the kickflip board /${route}. The board launched you to sort one thing that reached it unsorted; nobody watches this session, so never wait on a person. Work in ${repo}, reading only: you write only through the board's CLI, \`${b} <command>\`, notes included. Never set a card ready, never build, never push, and never restart the hub or a board server.`,
-    '',
-    ...jobs[kind],
-    '',
-    `If you can't tell how to sort it (which card it belongs to, or what it asks), don't guess: \`${b} intake handoff ${event} --text "<what you are unsure of>"\` hands it to the orchestrator, and stop.`,
-    'Each command writes its own line in the thread, which is your report; add one with `' + b + ' thread ' + key + ' --text "<line>"` only for what those lines leave unsaid. Every line stands alone: name cards by their label.',
-    '',
-    `The thread of ${key}:`,
-    ...(said.length ? said : ['- (no messages)']),
-    '',
-    "The board's open cards, as label key \"title\", lane, phase: notes file. Read the notes of any card whose title looks related before you choose.",
-    ...(cards.length ? cards.map((c) => `- ${c.ref} ${c.key} "${c.title}", ${c.lane}, ${c.phase || 'no phase'}: ${c.notes || 'no notes'}`) : ['- (none)']),
-    '',
-    'Waves a new card can go in, as slug: folder:',
-    ...waves.map((w) => `- ${w.slug}: ${w.dir}`),
-    '',
-    ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, build or restart, it isn't yours:"),
-    'Sort that one thing, then exit. Never push.',
-  ].join('\n');
-}
-
-// Launches the intake triage run on Sonnet in the board's repo (intakeBrief's), with a thread line on its card naming
-// it, a status line, so the task still reads New. → {pid, sessionId, log, exited}; rejects when it can't start.
-export async function launchIntake(site, intake) {
-  const route = boardAt(site)?.route ?? path.basename(site);
-  const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
-  const { repo } = builderRepo(site);
-  const launched = await launchAgent({ kind: 'claude', model: 'sonnet', cwd: repo, site, prompt: intakeBrief({ ...intake, route, repo, rules }), log: logFile(intake.event, 'intake') });
-  await appendThread(site, intake.key, { text: INTAKE_AGENT, kind: 'status', log: path.basename(launched.log), intake: { event: intake.event, agent: INTAKE_AGENT } });
-  return launched;
 }
 
 // The agents launchBuilder started, of agents each {pid, at} as store.mjs openAgents reads them, whose process still
