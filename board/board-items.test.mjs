@@ -811,7 +811,7 @@ test("ask move sends a New ask to another board with the owner's latest text, it
   assert.equal(file.path, site('audit', 'data', file.url));
   assert.equal(fs.readFileSync(site('audit', 'data', file.url), 'utf8'), 'png bytes');
   assert.equal(read(site('audit', 'data', 'uploads', '.meta', `${file.url.slice(8)}.json`)).name, 'shot.png');
-  const link = `/audit/#item=ask%3A${moved.id}`;
+  const link = `/audit/#selectedCard=ask%3A${moved.id}`;
   assert.match(r.out, new RegExp(`moved to ${link.replace(/[/#%]/g, '\\$&')}`));
   const mark = read(site('orch', 'data', 'ask-progress.json')).asks.e2;
   assert.deepEqual([mark.state, mark.moved], ['done', { route: 'audit', title: 'Audit', id: moved.id }]);

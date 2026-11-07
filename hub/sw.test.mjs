@@ -269,7 +269,7 @@ test('installing saves the shell from `/` and the files it links, so one visit i
 });
 
 test("a push tap routes in place in a window that answers, and navigates one that doesn't within 1.5 s or has no app", async () => {
-  const URL_ = `${ORIGIN}/hub-orchestrator/#item=w%2F1&reply`;
+  const URL_ = `${ORIGIN}/hub-orchestrator/#selectedCard=w%2F1&reply`;
   const tap = (w) => w.dispatch('notificationclick', { notification: { data: { url: URL_ }, close() {} } });
   const win = (answer) => {
     const x = { focused: 0, navigated: [], posted: [], focus: async () => { x.focused++; }, navigate: async (u) => { x.navigated.push(u); } };
@@ -306,8 +306,8 @@ test("a push tap routes in place in a window that answers, and navigates one tha
 test('a push under a tag replaces the notification with that tag and alerts again; one without a tag never sets renotify', async () => {
   const w = worker();
   const push = (msg) => w.dispatch('push', { data: { json: () => msg } });
-  await Promise.all((await push({ title: 'A1 asks: Which layout?', body: 'Grid · List', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' })).waits);
-  await Promise.all((await push({ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' })).waits);
+  await Promise.all((await push({ title: 'A1 asks: Which layout?', body: 'Grid · List', url: '/orch/#selectedCard=w%2FA1', tag: 'item-w/A1' })).waits);
+  await Promise.all((await push({ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#selectedCard=w%2FA1', tag: 'item-w/A1' })).waits);
   await Promise.all((await push({ title: "Orch isn't listening", url: '/orch/' })).waits);
   assert.deepEqual(w.shown.map(({ title, tag, renotify }) => [title, tag, renotify]), [
     ['A1 asks: Which layout?', 'item-w/A1', true],

@@ -54,13 +54,13 @@ test('deliver refuses a push with no kind or an info kind, sending and queueing 
 });
 
 test('an immediate push goes at once in the day, replacing a queued one with its tag, and queues while pushes are held', async () => {
-  await inChild(`return push.deliver({ title: 'A1 asks: Which layout?', body: 'Queued', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' }, { kind: 'action', at: ${NOON} });`);
+  await inChild(`return push.deliver({ title: 'A1 asks: Which layout?', body: 'Queued', url: '/orch/#selectedCard=w%2FA1', tag: 'item-w/A1' }, { kind: 'action', at: ${NOON} });`);
   await inChild(`return push.deliver({ title: 'A2 waits on Ready', url: '/orch/' }, { kind: 'action', at: ${NOON} });`);
   assert.equal(read(pushFile('queue.json')).items.length, 2);
 
-  const now = await inChild(`return push.deliver({ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' }, { kind: 'action', immediate: true, at: ${NOON} });`);
+  const now = await inChild(`return push.deliver({ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#selectedCard=w%2FA1', tag: 'item-w/A1' }, { kind: 'action', immediate: true, at: ${NOON} });`);
   assert.ok(now.sent);
-  assert.deepEqual(seen(), [{ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#item=w%2FA1', tag: 'item-w/A1' }]);
+  assert.deepEqual(seen(), [{ title: 'A1 asks: Which colour?', body: 'Blue · Red', url: '/orch/#selectedCard=w%2FA1', tag: 'item-w/A1' }]);
   assert.deepEqual(read(pushFile('queue.json')).items.map((i) => i.title), ['A2 waits on Ready']);
 
   const held = await inChild(`return push.deliver({ title: 'One needs you', url: '/orch/', tag: 'item-w/A1' }, { kind: 'action', immediate: true, at: ${NIGHT} });`);
@@ -72,15 +72,15 @@ test('an immediate push goes at once in the day, replacing a queued one with its
 test('flushing the queue sends a board\'s one push as it is, its several as one summary of what waits now, and a failed send keeps them queued', async () => {
   await inChild(`
     await push.deliver({ title: '2 questions need you', body: 'Which layout?', url: '/orch/questions.html', tag: 'questions-orch' }, { kind: 'action', at: ${NOON} });
-    await push.deliver({ title: 'B5 needs you', body: 'Pick one', url: '/orch/#item=w%2FB5', tag: 'item-w/B5' }, { kind: 'action', at: ${NOON} });
+    await push.deliver({ title: 'B5 needs you', body: 'Pick one', url: '/orch/#selectedCard=w%2FB5', tag: 'item-w/B5' }, { kind: 'action', at: ${NOON} });
     await push.deliver({ title: 'A3 waits on Merge', url: '/orch/' }, { kind: 'action', at: ${NOON} });
-    await push.deliver({ title: 'I2 waits on Ready', url: '/ios/#item=w%2FI2', tag: 'item-w/I2' }, { kind: 'action', at: ${NOON} });`);
+    await push.deliver({ title: 'I2 waits on Ready', url: '/ios/#selectedCard=w%2FI2', tag: 'item-w/I2' }, { kind: 'action', at: ${NOON} });`);
   device.needs = orchWaits(4, '2 questions · 2 drafts waiting on Ready');
   const r = await inChild('return push.flushQueue();');
   assert.deepEqual([r.count, r.sent, r.ok], [4, 2, true]);
   assert.deepEqual(seen(), [
     { title: '4 need you on orch', body: '2 questions · 2 drafts waiting on Ready', url: '/orch/', tag: 'summary:orch' },
-    { title: 'I2 waits on Ready', body: '', url: '/ios/#item=w%2FI2', tag: 'item-w/I2' },
+    { title: 'I2 waits on Ready', body: '', url: '/ios/#selectedCard=w%2FI2', tag: 'item-w/I2' },
   ]);
   assert.deepEqual(device.received.map((m) => m.badge), [5, 5]);
   assert.deepEqual(read(pushFile('queue.json')).items, []);

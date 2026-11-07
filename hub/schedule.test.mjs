@@ -109,14 +109,14 @@ test('wakesDue names the one daily wake at the end of quiet hours', () => {
 
 test('notifications sends a board\'s one push as it is, keeping the newest of a tag', () => {
   const queue = [
-    { id: '1', title: 'Answered: keep it?', body: 'First', url: '/x/#item=ask%3Ae1', tag: 'ask-e1', kind: 'action' },
+    { id: '1', title: 'Answered: keep it?', body: 'First', url: '/x/#selectedCard=ask%3Ae1', tag: 'ask-e1', kind: 'action' },
     { id: '2', title: 'Allow Bash?', url: '/y/', kind: 'prompt' },
-    { id: '3', title: 'Answered: keep it?', body: 'Latest', url: '/x/#item=ask%3Ae1', tag: 'ask-e1', kind: 'action' },
+    { id: '3', title: 'Answered: keep it?', body: 'Latest', url: '/x/#selectedCard=ask%3Ae1', tag: 'ask-e1', kind: 'action' },
     { id: '4', title: 'Hub is down', kind: 'fault' },
   ];
   assert.deepEqual(notifications(queue, { x: { count: 0, summary: '' } }), [
     { title: 'Allow Bash?', body: '', url: '/y/', tag: undefined, kind: 'prompt', members: ['2'] },
-    { title: 'Answered: keep it?', body: 'Latest', url: '/x/#item=ask%3Ae1', tag: 'ask-e1', kind: 'action', members: ['3'] },
+    { title: 'Answered: keep it?', body: 'Latest', url: '/x/#selectedCard=ask%3Ae1', tag: 'ask-e1', kind: 'action', members: ['3'] },
     { title: 'Hub is down', body: '', url: '/', tag: undefined, kind: 'fault', members: ['4'] },
   ]);
   assert.deepEqual(notifications([]), []);
@@ -124,16 +124,16 @@ test('notifications sends a board\'s one push as it is, keeping the newest of a 
 
 test('notifications sends a board with several pushes as one summary of what waits on it now, and nothing when nothing waits', () => {
   const queue = [
-    { id: '1', title: 'A1 asks: Which layout?', url: '/x/#item=w%2FA1', tag: 'item-w/A1', kind: 'action' },
-    { id: '2', title: 'B5 waits on Ready', url: '/y/#item=w%2FB5', tag: 'item-w/B5', kind: 'action' },
-    { id: '3', title: 'A2 waits on Merge', url: '/x/#item=w%2FA2', tag: 'item-w/A2', kind: 'action' },
+    { id: '1', title: 'A1 asks: Which layout?', url: '/x/#selectedCard=w%2FA1', tag: 'item-w/A1', kind: 'action' },
+    { id: '2', title: 'B5 waits on Ready', url: '/y/#selectedCard=w%2FB5', tag: 'item-w/B5', kind: 'action' },
+    { id: '3', title: 'A2 waits on Merge', url: '/x/#selectedCard=w%2FA2', tag: 'item-w/A2', kind: 'action' },
     { id: '4', title: 'Allow Bash?', url: '/y/', tag: 'prompt-p1', kind: 'prompt' },
-    { id: '5', title: 'C1 waits on Ready', url: '/z/#item=w%2FC1', kind: 'action' },
-    { id: '6', title: 'C2 waits on Ready', url: '/z/#item=w%2FC2', kind: 'action' },
-    { id: '7', title: 'D1 asks: Keep it?', url: '/w/#item=w%2FD1', kind: 'action' },
+    { id: '5', title: 'C1 waits on Ready', url: '/z/#selectedCard=w%2FC1', kind: 'action' },
+    { id: '6', title: 'C2 waits on Ready', url: '/z/#selectedCard=w%2FC2', kind: 'action' },
+    { id: '7', title: 'D1 asks: Keep it?', url: '/w/#selectedCard=w%2FD1', kind: 'action' },
     { id: '8', title: 'D2 waits on Ready', url: '/w/', kind: 'action' },
     { id: '9', title: 'D3 waits on Merge', url: '/w/', kind: 'action' },
-    { id: '10', title: 'A1 asks: Which colour?', url: '/x/#item=w%2FA1', tag: 'item-w/A1', kind: 'action' },
+    { id: '10', title: 'A1 asks: Which colour?', url: '/x/#selectedCard=w%2FA1', tag: 'item-w/A1', kind: 'action' },
   ];
   const sites = {
     x: { count: 3, summary: '1 question · 2 drafts waiting on Ready' },

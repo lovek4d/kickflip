@@ -43,7 +43,7 @@ export function ticketIn(source, id) {
 export function ticketBadge(source, id, { repo, key } = {}) {
   const n = ticketIn(source, id);
   if (!n) return null;
-  if (source.source === 'internal') return { id: `${keyOf(source)}-${n}`, url: `#item=${encodeURIComponent(key)}`, source: 'internal' };
+  if (source.source === 'internal') return { id: `${keyOf(source)}-${n}`, url: `#selectedCard=${encodeURIComponent(key)}`, source: 'internal' };
   if (source.source === 'github') return repo ? { id: `#${n}`, url: `https://github.com/${repo}/issues/${n}`, source: 'github' } : null;
   const ref = `${source.team}-${n}`;
   return { id: ref, url: `https://linear.app/${source.workspace}/issue/${ref}`, source: 'linear' };

@@ -184,7 +184,7 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   assert.equal(board('reply', 'm1', '--site', 'orch', '--html', `<p>${long}</p>`).code, 0);
   const bodies = queue();
   assert.equal(bodies['ask-e1'], 'Third & final · and 1 reply');
-  assert.equal(urls()['item-w/A1'], '/orch/#item=w%2FA1&reply');
+  assert.equal(urls()['item-w/A1'], '/orch/#selectedCard=w%2FA1&reply');
   assert.ok(bodies['item-w/A1'].length <= 160 && bodies['item-w/A1'].endsWith('…') && long.startsWith(bodies['item-w/A1'].slice(0, -1)));
 
   write(queueFile, { items: [] });
@@ -220,7 +220,7 @@ test('a push without an allowed kind is refused with one line, board.mjs allowin
 test("after a thread's push has gone, Claude's lines and replies there push nothing; a card whose action changes pushes again under its tag", () => withDevice(async (b, received) => {
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', ts: '2026-10-23T10:05:00Z', kind: 'item-message', data: { key: 'w/A1' } }) + '\n');
   const seen = () => received.map(({ title, body, url, tag }) => [tag, title, body, url]);
-  const url = '/orch/#item=w%2FA1';
+  const url = '/orch/#selectedCard=w%2FA1';
 
   assert.equal((await b('push', '--site', 'orch', '--kind', 'fault', '--now', '--title', 'A1 asks: Which layout?', '--body', 'Grid · List', '--url', url, '--tag', 'item-w/A1')).code, 0);
   assert.equal((await b('thread', 'w/A1', '--site', 'orch', '--text', 'Grid fits the phone')).code, 0);

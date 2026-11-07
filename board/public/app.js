@@ -173,7 +173,7 @@ window.BoardView = (function () {
     };
   }
 
-  // The board itself, after every part: rendering, the #item= hash, loading and the change signal.
+  // The board itself, after every part: rendering, the URL fragment, loading and the change signal.
   function start(B) {
     const { $, $$, store, state, steady, markSeen } = B;
     const { setHTML, preloadKeys } = BoardUI;

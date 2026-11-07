@@ -216,7 +216,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
       } catch { /* keep the last question shown */ }
       if (fromPush && pickedChoice(question)) {
         const card = /^item:(.+)$/.exec(question.topic || '')?.[1];
-        replaceWith(site.url(card ? `#item=${encodeURIComponent(card)}&reply` : 'questions.html'));
+        replaceWith(site.url(card ? `#selectedCard=${encodeURIComponent(card)}&reply` : 'questions.html'));
         return;
       }
       if (question && !text.value) text.value = readDraft(qid).note || '';

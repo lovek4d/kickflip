@@ -68,7 +68,7 @@
   function blockedWords(it) {
     const deps = it.blockedBy || [];
     const waits = it.bumpedAt && !it.held;
-    const refs = deps.map((d, i) => `<a class="card-blocked" href="#item=${encodeURIComponent(d.key)}">${i ? '' : waits ? 'waits on ' : 'blocked by '}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
+    const refs = deps.map((d, i) => `<a class="card-blocked" href="#selectedCard=${encodeURIComponent(d.key)}">${i ? '' : waits ? 'waits on ' : 'blocked by '}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
     const until = it.blockedUntil ? `${deps.length ? ' and until' : waits ? 'waits until' : 'blocked until'} ${it.blockedUntil}` : '';
     const tail = until + (it.blockReason && (refs || until) ? `, ${it.blockReason}` : '');
     return refs + (tail ? `<span class="card-blocked">${esc(tail)}</span>` : '');
@@ -99,7 +99,7 @@
     if (!t) return null;
     const words = tryWords(t.kind);
     if (t.state === 'running') return { tone: 'notice', html: spinner + esc(words.going), attrs: { role: 'status' } };
-    if (t.state === 'failed') return { tone: 'danger', html: `${esc(words.failed)} ${LINK_ARROW}`, href: `#item=${encodeURIComponent(it.key)}`,
+    if (t.state === 'failed') return { tone: 'danger', html: `${esc(words.failed)} ${LINK_ARROW}`, href: `#selectedCard=${encodeURIComponent(it.key)}`,
       title: 'The build script stopped with an error. Tap for its log in the card’s thread.', attrs: { 'data-try-log': it.key } };
     if (t.state !== 'ready' || !t.url) return null;
     return { tone: t.stale ? 'quiet' : 'ready', html: `${esc(words.done)}${t.stale ? ' (stale)' : ''} ${LINK_ARROW}`, href: t.url,
@@ -286,7 +286,7 @@
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
     const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it),
-      it.bumpedOut && `<a class="card-bumped-out" href="#item=${encodeURIComponent(it.bumpedOut.key)}">bumped out by ${esc(it.bumpedOut.ref)}</a>`,
+      it.bumpedOut && `<a class="card-bumped-out" href="#selectedCard=${encodeURIComponent(it.bumpedOut.key)}">bumped out by ${esc(it.bumpedOut.ref)}</a>`,
       it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
       it.stalled ? '<span class="card-stalled">stalled</span>' : it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', phaseWord(it)].filter(Boolean);
     const news = newWords(unread, 'message');

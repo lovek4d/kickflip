@@ -20,7 +20,7 @@ export async function prototypePage(site, proto) {
     return { key: t.key, label: t.label, src: st?.isFile() ? `${src}?v=${versionOf(st)}` : null, file: src };
   }));
   const title = `${proto.title} · prototype`;
-  const header = { lead: 'back', backHref: proto.card ? `./#item=${encodeURIComponent(proto.card)}` : './', title, controls: false };
+  const header = { lead: 'back', backHref: proto.card ? `./#selectedCard=${encodeURIComponent(proto.card)}` : './', title, controls: false };
   const fill = { prototypeTitle: esc(title), prototypeHeader: `<!--header ${scriptJSON(header).replace(/>/g, '\\u003e')}-->`, prototypeData: scriptJSON({ topic: proto.topic, title: proto.title, takes,
     ...(proto.served ? { served: proto.served, states: proto.states || null } : {}) }) };
   return (await fs.readFile(PROTOTYPE_TEMPLATE, 'utf8')).replace(/\{\{(prototypeTitle|prototypeHeader|prototypeData)\}\}/g, (_, k) => fill[k]);

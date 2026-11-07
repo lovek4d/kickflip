@@ -4,7 +4,7 @@
 (globalThis.AppViews ||= {}).notes = {
   className: 'view-notes',
   title: () => 'Notes',
-  markup: ({ item, wave }) => `${BoardUI.header({ lead: 'back', title: 'Notes', titleId: 'ref', backHref: wave ? './' : `./#item=${encodeURIComponent(item || '')}`, controls: false })}
+  markup: ({ item, wave }) => `${BoardUI.header({ lead: 'back', title: 'Notes', titleId: 'ref', backHref: wave ? './' : `./#selectedCard=${encodeURIComponent(item || '')}`, controls: false })}
 <main>
   <article class="plan" id="plan"><p class="muted">Loading the notes…</p></article>
 </main>`,

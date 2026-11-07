@@ -2111,7 +2111,7 @@ async function stepWaits() {
   const waits = [];
   for (const w of step.waits) {
     if (w.kind !== 'triage' && !w.picked && !w.pushed && Date.now() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
-      await sendOwnPush({ kind: 'reminder', title: `${w.ref} waits on the orchestrator`, body: `${w.title}: ${w.next}`, url: `/${route}/#item=${encodeURIComponent(w.key)}`, tag: `wait-${w.key}`, now: true },
+      await sendOwnPush({ kind: 'reminder', title: `${w.ref} waits on the orchestrator`, body: `${w.title}: ${w.next}`, url: `/${route}/#selectedCard=${encodeURIComponent(w.key)}`, tag: `wait-${w.key}`, now: true },
         { key: w.key, reason: `It has waited on the orchestrator since ${w.since} and nobody picked it up.`, inputs: { kind: w.kind, since: w.since } });
       waits.push({ ...w, pushed: true });
     } else waits.push(w);

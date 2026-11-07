@@ -68,7 +68,7 @@
     return anyLink(url, url) + esc(raw.slice(url.length));
   }
 
-  const cardLink = (ref, ctx) => `<a href="${esc(`${ctx.base || ''}#item=${encodeURIComponent(record(ctx.refs, ref))}`)}">${esc(ref)}</a>`;
+  const cardLink = (ref, ctx) => `<a href="${esc(`${ctx.base || ''}#selectedCard=${encodeURIComponent(record(ctx.refs, ref))}`)}">${esc(ref)}</a>`;
 
   // The longest hyphen-prefix of a word that is a known ref or a Linear id, then the rest as text.
   function wordLink(word, ctx) {

@@ -97,7 +97,7 @@ globalThis.AppRouter = (function () {
   function parentsOf(view, { boards = new Set(), card = null, wide = false } = {}) {
     const q = questionOf(view, boards);
     if (!q && view?.kind !== 'questions') return [];
-    const board = { kind: 'board', route: view.route, hash: card ? `#item=${encodeURIComponent(card)}` : '' };
+    const board = { kind: 'board', route: view.route, hash: card ? `#selectedCard=${encodeURIComponent(card)}` : '' };
     return q && !wide ? [board, { kind: 'questions', route: view.route, id: q }] : [board];
   }
 

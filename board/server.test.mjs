@@ -598,7 +598,7 @@ test("a new task is a New card until it becomes work, whose thread then holds th
   const reply = await post('/_claude/events', { kind: 'item-message', key: `ask:${id}`, text: 'Also the footer' });
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', `ask__${id}.jsonl`), JSON.stringify({ ts: new Date(Date.now() + 60000).toISOString(), who: 'claude', text: 'Footer too.' }) + '\n');
-  assert.deepEqual(await thread(`ask:${id}`), [[id, 'Fix the header', 'answered'], ['#item=t%2FA2', 'Became A2', undefined], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
+  assert.deepEqual(await thread(`ask:${id}`), [[id, 'Fix the header', 'answered'], ['#selectedCard=t%2FA2', 'Became A2', undefined], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
   assert.deepEqual([await card(), (await board()).moved], [undefined, { [`ask:${id}`]: 't/A2' }]);
   assert.deepEqual(await thread('t/A2'), [[id, 'Fix the header', 'answered'], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
 });
@@ -863,10 +863,10 @@ test("the board, its Settings, Waiting on you and Notes serve the app shell, wit
 
   const pub = path.join(site, 'public');
   fs.mkdirSync(pub, { recursive: true });
-  fs.writeFileSync(path.join(pub, 'prototype-hdr.html'), '<title>{{title}}</title><!--header {"lead":"back","title":"Take","backHref":"./#item=t%2FP1"}-->');
+  fs.writeFileSync(path.join(pub, 'prototype-hdr.html'), '<title>{{title}}</title><!--header {"lead":"back","title":"Take","backHref":"./#selectedCard=t%2FP1"}-->');
   try {
     const page = await (await fetch(`${base}/prototype-hdr.html`)).text();
-    assert.match(page, /^<title>T<\/title><header class="top"><div class="brand"><a class="hub" href="[^"]*" aria-label="Boards"><img[^>]*><\/a><a class="back" href="\.\/#item=t%2FP1" aria-label="Back to the board">/);
+    assert.match(page, /^<title>T<\/title><header class="top"><div class="brand"><a class="hub" href="[^"]*" aria-label="Boards"><img[^>]*><\/a><a class="back" href="\.\/#selectedCard=t%2FP1" aria-label="Back to the board">/);
     assert.doesNotMatch(page, /<!--header/);
   } finally { fs.rmSync(path.join(pub, 'prototype-hdr.html')); }
 });
@@ -884,7 +884,7 @@ test('a recorded prototype is the one template with its record filled in, and no
   try {
     const page = await (await fetch(`${base}/prototype-moon.html?take=A&q=q1`)).text();
     assert.match(page, /<title>Moon &lt;\/script&gt;&lt;b&gt; · prototype<\/title>/);
-    assert.match(page, /<header class="top"><div class="brand"><a class="hub" href="[^"]*" aria-label="Boards"><img[^>]*><\/a><a class="back" href="\.\/#item=t%2FP1" aria-label="Back to the board">[\s\S]*<h1>Moon &lt;\/script&gt;&lt;b&gt; · prototype<\/h1>/);
+    assert.match(page, /<header class="top"><div class="brand"><a class="hub" href="[^"]*" aria-label="Boards"><img[^>]*><\/a><a class="back" href="\.\/#selectedCard=t%2FP1" aria-label="Back to the board">[\s\S]*<h1>Moon &lt;\/script&gt;&lt;b&gt; · prototype<\/h1>/);
     const json = /<script id="prototypeData" type="application\/json">(.*?)<\/script>/.exec(page)[1];
     assert.doesNotMatch(json, /</);
     const data = JSON.parse(json);
@@ -1140,7 +1140,7 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     const internal = await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json();
     assert.deepEqual(internal.settings.tickets, { source: 'internal', prefix: 'OPS' });
     const cards = (await (await fetch(`${base}/api/board`)).json()).items;
-    assert.deepEqual(['A1', 'B2'].map((id) => cards.find((i) => i.id === id).ticket), [{ id: 'INT-3', url: null, source: null }, { id: 'OPS-4', url: '#item=t%2FB2', source: 'internal' }]);
+    assert.deepEqual(['A1', 'B2'].map((id) => cards.find((i) => i.id === id).ticket), [{ id: 'INT-3', url: null, source: null }, { id: 'OPS-4', url: '#selectedCard=t%2FB2', source: 'internal' }]);
     assert.equal((await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json()).id, null);
     assert.equal((await save({ tickets: { source: 'internal', prefix: 'bad1' } })).status, 400);
     assert.deepEqual((await settingsEvents()).find((e) => e.tickets), { tickets: { source: 'internal', prefix: 'OPS' } });

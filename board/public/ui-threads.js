@@ -3,9 +3,9 @@
 (function () {
   const { esc, escText, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
-  // A link to a card on this board (#item=<key>) or on another board (/<route>/#item=<key>, an ask's move), or ''.
+  // A link to a card on this board (#selectedCard=<key>) or on another board (/<route>/#selectedCard=<key>, an ask's move), or ''.
   function cardLink(link) {
-    const key = /^(?:\/[\w-]+\/)?#item=([^&]+)/.exec(link)?.[1];
+    const key = /^(?:\/[\w-]+\/)?#(?:selectedCard|item)=([^&]+)/.exec(link)?.[1];
     if (!key) return '';
     let ask = key.startsWith('ask:');
     try { ask = decodeURIComponent(key).startsWith('ask:'); } catch {}

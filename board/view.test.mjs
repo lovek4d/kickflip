@@ -1179,14 +1179,14 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
   assert.equal(tap(lesson, 'https://mac.ts.net/learn/lesson-2.html'), false);
   assert.equal(tap(lesson, 'https://mac.ts.net/learn/lesson-1.html#part-2'), false);
   assert.equal(tap(lesson, 'https://mac.ts.net/learn/notes.pdf'), false);
-  assert.equal(tap(lesson, 'https://mac.ts.net/board-a/#item=w%2FA1'), true);
+  assert.equal(tap(lesson, 'https://mac.ts.net/board-a/#selectedCard=w%2FA1'), true);
   assert.equal(tap(lesson, 'https://mac.ts.net/_hub/settings'), true);
   assert.equal(tap(lesson, 'https://mac.ts.net/learn/lesson-2.html', { target: '_top' }), true);
-  assert.deepEqual(opened, ['https://mac.ts.net/board-a/#item=w%2FA1', 'https://mac.ts.net/_hub/settings', 'https://mac.ts.net/learn/lesson-2.html']);
+  assert.deepEqual(opened, ['https://mac.ts.net/board-a/#selectedCard=w%2FA1', 'https://mac.ts.net/_hub/settings', 'https://mac.ts.net/learn/lesson-2.html']);
 
   const proto = land('https://mac.ts.net/board-a/prototype-x.html?q=q1', { title: 'Prototype', header: true });
   assert.deepEqual([loads.at(-1), root.classList.contains('own-header')], [['/board-a/prototype-x.html?q=q1', 'Prototype'], true]);
-  assert.equal(tap(proto, 'https://mac.ts.net/board-a/#item=w%2FA1', { cls: 'back' }), true);
+  assert.equal(tap(proto, 'https://mac.ts.net/board-a/#selectedCard=w%2FA1', { cls: 'back' }), true);
   assert.deepEqual([ups, opened.length], [['/board-a/prototype-x.html?q=q1'], 3]);
   const own = land('https://mac.ts.net/learn/', { title: 'Course', header: true });
   assert.deepEqual([tap(own, 'https://mac.ts.net/_hub/', { cls: 'hub' }), toggles, opened.length], [true, 1, 3]);
@@ -1686,7 +1686,7 @@ test('the shell uses the inline or fetched boot code, adopts the first live code
 test('a reload forgets the saved shell and waits for the worker reply or one second, keeping the URL and dirty-view guard', async () => {
   for (const responds of [true, false]) {
     let reloads = 0;
-    const { win, doc, page } = await shellPage('/shop/#item=w%2FA1', { reload: () => reloads++ });
+    const { win, doc, page } = await shellPage('/shop/#selectedCard=w%2FA1', { reload: () => reloads++ });
     let reply;
     let closed = 0;
     const sent = [];
@@ -1717,7 +1717,7 @@ test('a reload forgets the saved shell and waits for the worker reply or one sec
     page.runTimers(0);
     page.runTimers(1000);
     assert.equal(reloads, 1);
-    assert.equal(win.location.pathname + win.location.hash, '/shop/#item=w%2FA1');
+    assert.equal(win.location.pathname + win.location.hash, '/shop/#selectedCard=w%2FA1');
   }
 });
 
@@ -2892,9 +2892,9 @@ test("an open card shows its workflow buttons below a final details line of Note
     workCard('P1', { ...asking, action: { kind: 'pick', url: 'questions.html#q7', label: 'Prototypes ready: pick a take' }, resolvedBy: 'openQuestions' }),
     workCard('D1', { lane: 'review', actionButton: null, pr: draft, hasNotes: true, install, action: { kind: 'ready', url: draft.url, label: 'Tap Ready on GitHub' }, resolvedBy: 'github' }),
     workCard('R1', { lane: 'review', actionButton: null, pr: ready, install }),
-    workCard('S1', { lane: 'review', actionButton: null, pr: ready, manualSteps: ['Run the backfill'], action: { kind: 'steps', url: '#item=w%2FS1', label: 'Run the manual steps, then merge' }, resolvedBy: 'github' }),
-    workCard('M1', { lane: 'review', actionButton: null, pr: ready, action: { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }),
-    { ...askCard('a1', 'review'), ref: '10:00', actionButton: null, finishable: true, action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'done' },
+    workCard('S1', { lane: 'review', actionButton: null, pr: ready, manualSteps: ['Run the backfill'], action: { kind: 'steps', url: '#selectedCard=w%2FS1', label: 'Run the manual steps, then merge' }, resolvedBy: 'github' }),
+    workCard('M1', { lane: 'review', actionButton: null, pr: ready, action: { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }),
+    { ...askCard('a1', 'review'), ref: '10:00', actionButton: null, finishable: true, action: { kind: 'done', url: '#selectedCard=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'done' },
     { ...askCard('a2', 'done'), ref: '10:00', actionButton: null },
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
@@ -3069,7 +3069,7 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
     workCard('P1', { lane: 'progress', finishable: true, holdable: true }),
     workCard('R1', { lane: 'review', finishable: true, holdable: true, awaitsDone: true }),
     workCard('S1', { lane: 'review', stale: true, finishable: true, holdable: true }),
-    { ...askCard('a1', 'review'), ref: '10:00', finishable: true, resolvedBy: 'done', action: { kind: 'done', url: '#item=ask%3Aa1', label: 'Tap Done' } },
+    { ...askCard('a1', 'review'), ref: '10:00', finishable: true, resolvedBy: 'done', action: { kind: 'done', url: '#selectedCard=ask%3Aa1', label: 'Tap Done' } },
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: Object.fromEntries(cards.map((c) => [c.key, []])), confirm: true });
   await b.settle();
@@ -3162,7 +3162,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   const scrolled = [];
   b.root.querySelector('details.item').scrollIntoView = () => scrolled.push('card');
   b.root.querySelector('.thread').scrollIntoView = () => scrolled.push('thread');
-  b.page.win.location.hash = '#item=w%2FR1';
+  b.page.win.location.hash = '#selectedCard=w%2FR1';
   const event = b.page.fire(b.root, 'click', { target: b.root.querySelector('.external-links [data-try-log]') });
   assert.equal(event.defaultPrevented, true);
   assert.deepEqual(scrolled, ['thread']);
@@ -3542,7 +3542,7 @@ test("deleting a New card is one events POST: its trash icon waits, the card sta
 });
 
 test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their button, disabled with its label kept, while the card stays as it was; Done closes its card once the server answers, and a refusal toasts the server's reason", async () => {
-  const merge = { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' };
+  const merge = { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' };
   const holdChoices = [{ value: '1h', label: '1h', ms: 3_600_000 }];
   const cards = [workCard('T1', { finishable: true, holdable: true }), workCard('H1', { held: true, holdable: true }), workCard('M1', { lane: 'review', action: merge })];
   const sends = heldSends();
@@ -3581,10 +3581,10 @@ test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their bu
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
 test("a Merge tap spins until a board shows the card left In Review or the merge refused, with no idle Merge in between, even when a reload races the POST", async () => {
-  const merge = { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' };
+  const merge = { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' };
   const at = (s) => `2026-10-30T10:00:0${s}.000Z`;
   const boardAt = (s, cards) => ({ ...boardOf(cards), generatedAt: at(s), version: `v${s}` });
-  const idle = (id) => workCard(id, { lane: 'review', action: { ...merge, url: `#item=w%2F${id}` } });
+  const idle = (id) => workCard(id, { lane: 'review', action: { ...merge, url: `#selectedCard=w%2F${id}` } });
   const merging = (id) => workCard(id, { lane: 'review', merging: true, action: null, next: 'Merging' });
   let answer;
   const send = () => new Promise((resolve) => { answer = resolve; });
@@ -3813,7 +3813,7 @@ test("a stale card's grey status line is no button, closed or open, and a stalle
     assert.equal(b.root.querySelector('[data-confirm="nudge"]'), null);
     b.view.unmount();
   }
-  const stalled = workCard('S1', { lane: 'progress', stalled: 'Crashed twice', action: { kind: 'stalled', url: '#item=w%2FS1', label: 'stalled: Crashed twice' }, resolvedBy: 'reply' });
+  const stalled = workCard('S1', { lane: 'progress', stalled: 'Crashed twice', action: { kind: 'stalled', url: '#selectedCard=w%2FS1', label: 'stalled: Crashed twice' }, resolvedBy: 'reply' });
   const b = boardOnDom({ open: ['w/S1'], board: boardOf([stalled]), threads: { 'w/S1': [] } });
   await b.settle();
   const send = b.root.querySelector('form[data-reply="w/S1"] button[type="submit"]');
@@ -4568,11 +4568,11 @@ test("from 900px every questions URL, a link, a push or a hand-off, shows the bo
   const s = await shellPage('/_hub/', { width: 1280 });
   const focused = [];
   s.win.BoardView.create = () => ({ B: { state: {}, focusQuestion: (id) => { focused.push(id); return true; } }, mount() {}, unmount() {} });
-  s.win.AppShell.open('/shop/#item=w%2FA1');
+  s.win.AppShell.open('/shop/#selectedCard=w%2FA1');
   const board = s.doc.querySelector('.view-board');
   const count = s.entries().length;
   assert.equal(s.win.AppShell.open('/shop/questions.html?from=push#q2'), true, 'a push tap');
-  assert.deepEqual([s.doc.querySelector('.view-board'), s.win.location.pathname + s.win.location.hash, s.entries().length, focused], [board, '/shop/#item=w%2FA1', count, ['q2']], 'the open card stays open');
+  assert.deepEqual([s.doc.querySelector('.view-board'), s.win.location.pathname + s.win.location.hash, s.entries().length, focused], [board, '/shop/#selectedCard=w%2FA1', count, ['q2']], 'the open card stays open');
   focused.length = 0;
   const a = s.doc.createElement('a');
   a.setAttribute('href', 'questions.html#q3');
@@ -4645,7 +4645,7 @@ test("from 900px a prototype URL, a link, a push, a cold load or a widening, sho
 
 test('the board gear opens a board-only modal over the same board, closes without history entries and keeps back to Hub', async () => {
   const { win, doc, page, entries, position, boardUnmounts } = await shellPage('/_hub/');
-  win.AppShell.open('/shop/#item=w%2FA1');
+  win.AppShell.open('/shop/#selectedCard=w%2FA1');
   const board = doc.querySelector('.view-board');
   const count = entries().length;
   const baseline = page.left();
@@ -4668,7 +4668,7 @@ test('the board gear opens a board-only modal over the same board, closes withou
   const dismiss = modal.querySelector('[data-settings-dismiss]');
   page.fire(modal, 'click', { target: dismiss });
   assert.equal(doc.querySelector('#boardSettingsModal'), null);
-  assert.equal(win.location.pathname + win.location.hash, '/shop/#item=w%2FA1');
+  assert.equal(win.location.pathname + win.location.hash, '/shop/#selectedCard=w%2FA1');
   assert.equal(doc.activeElement, gear);
   assert.equal(entries().length, count);
   assert.deepEqual(page.left(), baseline);
@@ -4781,7 +4781,7 @@ test("switching to another board through the sidebar and back returns to the pag
   desktop = true;
   reply().focus();
   await switchTo('other');
-  win.AppShell.open('/shop/#item=ask%3Ab1');
+  win.AppShell.open('/shop/#selectedCard=ask%3Ab1');
   await settle();
   assert.deepEqual(shown(), ['/shop/', 0, null]);
 });
@@ -4968,7 +4968,7 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.deepEqual(b.root.querySelectorAll('.wb[data-band="mon"] .wn').map((n) => n.textContent), ['2', '4']);
   const done = b.root.querySelector('.wb[data-band="mon"] .wb-done');
   assert.equal(done.textContent, '1 done · A1');
-  assert.equal(done.querySelector('a').getAttribute('href'), '#item=w%2FA1');
+  assert.equal(done.querySelector('a').getAttribute('href'), '#selectedCard=w%2FA1');
   assert.deepEqual(shown('pilot'), []);
   b.page.fire(b.root, 'click', { target: head('go') });
   await b.settle();
@@ -5615,7 +5615,7 @@ const topicNeed = (id, n) => ({ kind: 'Question', title: `Topic ${id}`, text: ''
 
 test("on a phone, Needs you is a deck showing one thing at a time: a tap on an option marks it, turning it into Send, and a tap on the marked option sends that answer; Next and Prev step through without looping, dots count what waits, and the foot links to every open question", async () => {
   const questions = [deckQuestion('q1', 't1'), deckQuestion('q2', 't1'), deckQuestion('q3', 't2', { url: 'prototype-shell.html?q=q3' })];
-  const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#item=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#item=w%2FGH-9' } };
+  const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#selectedCard=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#selectedCard=w%2FGH-9' } };
   const board = deckBoard(questions, [topicNeed('t1', 2), topicNeed('t2', 1), action]);
   const b = boardOnDom({ board, threads: {}, send: (kind, data, server) => {
     for (const a of data.answers) server.board.owner.find((q) => q.id === a.id).state = 'answered';
@@ -5645,7 +5645,7 @@ test("on a phone, Needs you is a deck showing one thing at a time: a tap on an o
   assert.equal(card().dataset.deck, 'q:q3');
   assert.deepEqual([card().querySelector('a.deck-proto').textContent, card().querySelector('a.deck-proto').getAttribute('href')], ['View prototypes', 'prototype-shell.html?q=q3']);
   await tap('[data-deck-next]');
-  assert.deepEqual([card().dataset.deck, card().querySelector('a.button').getAttribute('href'), card().querySelector('a.button').textContent], ['l:w/GH-9', '#item=w%2FGH-9', 'Merge']);
+  assert.deepEqual([card().dataset.deck, card().querySelector('a.button').getAttribute('href'), card().querySelector('a.button').textContent], ['l:w/GH-9', '#selectedCard=w%2FGH-9', 'Merge']);
   assert.deepEqual(off(), [false, true], 'Next is off on the last thing');
   await tap('[data-deck-prev]');
   assert.equal(card().dataset.deck, 'q:q3', 'Prev steps back');
@@ -5692,7 +5692,7 @@ test("on a desktop the board's Needs you sits in a pane beside the lanes, with t
   assert.deepEqual(pane.querySelectorAll('.needs-questions section.q').map((s) => s.dataset.q), ['q1']);
   assert.equal(pane.querySelector('.needs-questions header'), null, 'the pane has no header of its own');
   assert.equal(pane.querySelector('#waiting').hidden, true, 'a line that only asks questions is left to Waiting on you, so the orange section is gone');
-  const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#item=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#item=w%2FGH-9' } };
+  const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#selectedCard=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#selectedCard=w%2FGH-9' } };
   await wide.change({ board: deckBoard([deckQuestion('q1', 't1')], [topicNeed('t1', 1), action]) });
   assert.deepEqual([pane.querySelector('#waiting').hidden, pane.querySelectorAll('#waiting li').map((li) => li.querySelector('a').textContent)], [false, ['GH-9: Merge it']]);
   const narrow = boardOnDom({ board: deckBoard([deckQuestion('q1', 't1')], [topicNeed('t1', 1)]), threads: {} });
@@ -5995,7 +5995,7 @@ test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Needs 
   const ready = { state: 'OPEN', isDraft: false, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const full = {
     lane: 'review', holdable: true, hasNotes: true, pr: ready, try: { kind: 'web', script: true, changes: true },
-    action: { kind: 'merge', url: '#item=w%2FM1', label: 'Merge' }, resolvedBy: 'merge',
+    action: { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' }, resolvedBy: 'merge',
   };
   const cards = [
     workCard('F1', { ...full, actionButton: 'openQuestions', questions: { first: 'q7', open: 1, state: 'open' } }),

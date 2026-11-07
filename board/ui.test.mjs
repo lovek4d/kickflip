@@ -472,7 +472,7 @@ test("switch mode numbers the first nine boards in sidebar order, and gives ever
 });
 
 test("a back arrow goes one step back after a page on this hub, and to its href after a push, on that push's reloads, or with nothing before it", () => {
-  const script = /<script>([\s\S]*)<\/script>$/.exec(ui.header({ lead: 'back', backHref: './#item=w%2FA1', title: 'Prototype' }))[1];
+  const script = /<script>([\s\S]*)<\/script>$/.exec(ui.header({ lead: 'back', backHref: './#selectedCard=w%2FA1', title: 'Prototype' }))[1];
   const store = new Map();
   const tap = ({ url, referrer = '', depth = 2, nav = 'navigate', state = null }) => {
     let onClick = null;
@@ -529,7 +529,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
   const table = [
     ['/', { kind: 'start' }],
     ['/orch/', { kind: 'board', route: 'orch', hash: '' }],
-    ['/orch/#item=w%2FA1&reply', { kind: 'board', route: 'orch', hash: '#item=w%2FA1&reply' }],
+    ['/orch/#selectedCard=w%2FA1&reply', { kind: 'board', route: 'orch', hash: '#selectedCard=w%2FA1&reply' }],
     ['/orch/settings.html', { kind: 'settings', route: 'orch' }],
     ['/orch/questions.html#q-1', { kind: 'questions', route: 'orch', id: 'q-1' }],
     ['/orch/notes.html?item=w%2FA1', { kind: 'notes', route: 'orch', item: 'w/A1' }],
@@ -558,7 +558,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
   assert.equal(viewOf('https://elsewhere.example/orch/', { boards: new Set(['orch']), base }), null);
   for (const url of ['/orch/uploads/1-shot.png', '/orch/api/board', '/learn', '/_hub/kickflip.png', '/sw.js']) assert.equal(read(url), null, url);
   assert.deepEqual(table.filter(([, view]) => mounted(view)).map(([url]) => url),
-    ['/orch/', '/orch/#item=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1', '/orch/notes.html?wave=mon',
+    ['/orch/', '/orch/#selectedCard=w%2FA1&reply', '/orch/settings.html', '/orch/questions.html#q-1', '/orch/notes.html?item=w%2FA1', '/orch/notes.html?wave=mon',
       '/_hub/', '/_hub/settings', '/_hub/settings#rules', '/_hub/#quiet',
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
@@ -620,7 +620,7 @@ test("in the app, a view's back arrow goes one step back after a view, and to it
 
   const inApp = app('https://mac.ts.net/orch/');
   assert.equal(inApp.tap('notes.html?item=w%2FA1'), 'push notes');
-  assert.equal(inApp.tap('./#item=w%2FA1', 'back'), 'back');
+  assert.equal(inApp.tap('./#selectedCard=w%2FA1', 'back'), 'back');
   inApp.router.push('https://mac.ts.net/orch/notes.html?item=w%2FA2&from=push');
   assert.deepEqual([inApp.location.href, plain(inApp.history.state)], ['https://mac.ts.net/orch/notes.html?item=w%2FA2', { idx: 1, pushed: true }]);
   assert.equal(inApp.tap('./', 'back'), 'push board');
@@ -634,7 +634,7 @@ test("in the app, back follows the page tree: a prototype goes up to Waiting on 
   const cold = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
   assert.deepEqual(cold.stack(), ['', 'questions.html#q1', 'prototype-x.html?q=q1']);
   assert.deepEqual(plain(cold.history.state), { idx: 2, up: 2, pushed: true });
-  assert.equal(cold.tap('./#item=w%2FA1', { cls: 'back' }), 'back');
+  assert.equal(cold.tap('./#selectedCard=w%2FA1', { cls: 'back' }), 'back');
   assert.deepEqual([cold.stack(), cold.shown.at(-1)], [['', 'questions.html#q1'], 'pop questions']);
   assert.equal(cold.tap('./', { cls: 'back' }), 'back');
   assert.deepEqual([cold.stack(), cold.shown.at(-1)], [[''], 'pop board']);
@@ -650,21 +650,21 @@ test("in the app, back follows the page tree: a prototype goes up to Waiting on 
 
   const thread = appHistory('https://mac.ts.net/orch/');
   thread.tap('questions.html#q1', { card: 'w/A1' });
-  assert.deepEqual(thread.stack(), ['#item=w%2FA1', 'questions.html#q1']);
+  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1', 'questions.html#q1']);
   thread.tap('prototype-x.html?q=q2&variant=B');
-  assert.deepEqual(thread.stack(), ['#item=w%2FA1', 'questions.html#q2', 'prototype-x.html?q=q2&variant=B']);
+  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1', 'questions.html#q2', 'prototype-x.html?q=q2&variant=B']);
   thread.router.replace('https://mac.ts.net/orch/prototype-y.html?q=q3');
-  assert.deepEqual([thread.stack(), plain(thread.history.state)], [['#item=w%2FA1', 'questions.html#q2', 'prototype-y.html?q=q3'], { idx: 2, up: 2 }]);
+  assert.deepEqual([thread.stack(), plain(thread.history.state)], [['#selectedCard=w%2FA1', 'questions.html#q2', 'prototype-y.html?q=q3'], { idx: 2, up: 2 }]);
   assert.equal(thread.router.replace('https://mac.ts.net/orch/questions.html#q4'), 'up');
-  assert.deepEqual([thread.stack(), thread.shown.at(-1)], [['#item=w%2FA1', 'questions.html#q4'], 'pop questions']);
+  assert.deepEqual([thread.stack(), thread.shown.at(-1)], [['#selectedCard=w%2FA1', 'questions.html#q4'], 'pop questions']);
   assert.equal(thread.tap('./', { cls: 'back' }), 'back');
-  assert.deepEqual(thread.stack(), ['#item=w%2FA1']);
+  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1']);
 
   const line = appHistory('https://mac.ts.net/orch/');
   line.tap('prototype-x.html?q=q1', { card: 'w/A1' });
-  assert.deepEqual(line.stack(), ['#item=w%2FA1', 'questions.html#q1', 'prototype-x.html?q=q1']);
+  assert.deepEqual(line.stack(), ['#selectedCard=w%2FA1', 'questions.html#q1', 'prototype-x.html?q=q1']);
 
-  const needs = appHistory('https://mac.ts.net/orch/#item=w%2FA1&reply');
+  const needs = appHistory('https://mac.ts.net/orch/#selectedCard=w%2FA1&reply');
   needs.tap('questions.html#q1');
   assert.deepEqual(needs.stack(), ['', 'questions.html#q1']);
   needs.tap('#q2');
@@ -673,8 +673,8 @@ test("in the app, back follows the page tree: a prototype goes up to Waiting on 
   assert.deepEqual(needs.stack(), ['']);
 
   const picked = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
-  picked.router.replace('https://mac.ts.net/orch/#item=w%2FA1&reply');
-  assert.deepEqual([picked.stack(), picked.shown.at(-1)], [['#item=w%2FA1&reply'], 'pop board']);
+  picked.router.replace('https://mac.ts.net/orch/#selectedCard=w%2FA1&reply');
+  assert.deepEqual([picked.stack(), picked.shown.at(-1)], [['#selectedCard=w%2FA1&reply'], 'pop board']);
 });
 
 test("from 900px, back from a prototype goes to the board, since Waiting on you is the board's pane and no page of its own sits between", () => {
@@ -685,7 +685,7 @@ test("from 900px, back from a prototype goes to the board, since Waiting on you 
 
   const thread = appHistory('https://mac.ts.net/orch/', null, { wide: true });
   thread.tap('prototype-x.html?q=q2&variant=B', { card: 'w/A1' });
-  assert.deepEqual(thread.stack(), ['#item=w%2FA1', 'prototype-x.html?q=q2&variant=B']);
+  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1', 'prototype-x.html?q=q2&variant=B']);
   assert.equal(thread.router.replace('https://mac.ts.net/orch/'), 'up');
   assert.deepEqual([thread.stack(), thread.shown.at(-1)], [[''], 'pop board']);
 });
@@ -820,7 +820,7 @@ test('a take with nothing to see draws its boxes and arrows, coloured by meaning
     [['Poll', ''], ['Wake', ''], ['boards.mjs', 'in tone-info'], ['Unused', 'in tone-quiet']]);
   assert.equal((a.match(/<line /g) || []).length, 3);
   assert.match(text(a), /In practice A new feature asks INT-54 \.$/);
-  assert.deepEqual(anchors(a), [['./#item=site%2FS54', 'INT-54', false]]);
+  assert.deepEqual(anchors(a), [['./#selectedCard=site%2FS54', 'INT-54', false]]);
   assert.match(b, /<div class="flow-box tone-danger">Each &lt;own&gt; read<\/div>/);
   assert.match(text(b), /In practice Nothing to build\. Each feature forgets a kind\.$/);
   assert.match(html, /<a class="button proto-view" href="prototype-seams\.html\?q=q1">View prototypes<\/a>/);
@@ -1065,7 +1065,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
   assert.deepEqual([...B.detail(card).matchAll(/<a class="card-link" href="([^"]*)">([^<]*)<\/a>/g)].map(([, href, ref]) => [href, ref]),
-    [['#item=w%2FGH-53', '#53'], ['#item=w%2FGH-94', '#94'], ['#item=w%2FGH-95', '#95'], ['#item=w%2FGH-75', '#75'], ['#item=w%2FGH-80', '#80'], ['#item=w%2FGH-99', '#99']]);
+    [['#selectedCard=w%2FGH-53', '#53'], ['#selectedCard=w%2FGH-94', '#94'], ['#selectedCard=w%2FGH-95', '#95'], ['#selectedCard=w%2FGH-75', '#75'], ['#selectedCard=w%2FGH-80', '#80'], ['#selectedCard=w%2FGH-99', '#99']]);
   assert.deepEqual(rows({ ...card, parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] }), [['Wave', 'W'], ['Status', 'to do']]);
   // The Status row reads the card's lane and agent, never the wave file's stored lane
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
@@ -1182,10 +1182,10 @@ test('a side page names the board it holds by its version, and an unchanged boar
 
 test("an open card waiting on the owner's Merge shows a Merge button that confirms first, and waits, disabled with its label kept behind the spinner, while the session merges it", () => {
   const merge = (it) => { const html = ui.mergeButton(it); return html && [text(html), / disabled aria-busy="true"/.test(html), /data-confirm="merge"/.test(html), /data-key="w\/A1"/.test(html)]; };
-  const waiting = { key: 'w/A1', action: { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, merging: false };
+  const waiting = { key: 'w/A1', action: { kind: 'merge', url: '#selectedCard=w%2FA1', label: 'Merge' }, merging: false };
   assert.deepEqual(merge(waiting), ['Merge', false, true, true]);
   assert.deepEqual(merge({ key: 'w/A1', action: null, merging: true }), ['Merge', true, true, true]);
-  assert.equal(merge({ key: 'w/A1', action: { kind: 'steps', url: '#item=w%2FA1', label: 'Run the manual steps, then merge' }, merging: false }), '');
+  assert.equal(merge({ key: 'w/A1', action: { kind: 'steps', url: '#selectedCard=w%2FA1', label: 'Run the manual steps, then merge' }, merging: false }), '');
   assert.equal(merge({ key: 'w/A1', action: null, merging: false }), '');
   assert.equal(merge(undefined), '');
 });
@@ -1201,7 +1201,7 @@ test('a blocked card shows its Merge disabled, its tooltip naming what blocks it
 
 test("the Merge button keeps its colour from idle through the tap and the merge", () => {
   const cls = (it) => /class="([^"]*)"/.exec(ui.mergeButton(it))[1];
-  const idle = { key: 'w/A1', action: { kind: 'merge', url: '#item=w%2FA1', label: 'Merge' }, resolvedBy: 'merge', merging: false };
+  const idle = { key: 'w/A1', action: { kind: 'merge', url: '#selectedCard=w%2FA1', label: 'Merge' }, resolvedBy: 'merge', merging: false };
   assert.equal(cls(idle), 'resolves');
   ui.pending.start('w/A1:merge', () => false);
   assert.equal(cls(idle), 'resolves');
@@ -1272,9 +1272,9 @@ test('a stale builder has no badge and no nudge: its status line goes grey with 
 });
 
 test('the footer status reads red stalled on a card the orchestrator stalled, in place of stale, after the time and beside its Action needed', () => {
-  const action = { kind: 'stalled', url: '#item=w%2FB5', label: 'stalled: Crashed twice' };
+  const action = { kind: 'stalled', url: '#selectedCard=w%2FB5', label: 'stalled: Crashed twice' };
   const html = ui.workLines({ ...workCard, lane: 'progress', sortAt: ago(5), stale: true, stalled: 'Crashed twice', action });
-  assert.match(html, /<time [^>]*>[^<]*<\/time><span class="sep"> · <\/span><a class="card-action" href="#item=w%2FB5" title="stalled: Crashed twice"[^>]*>Action needed<\/a><span class="sep"> · <\/span><span class="card-stalled">stalled<\/span>/);
+  assert.match(html, /<time [^>]*>[^<]*<\/time><span class="sep"> · <\/span><a class="card-action" href="#selectedCard=w%2FB5" title="stalled: Crashed twice"[^>]*>Action needed<\/a><span class="sep"> · <\/span><span class="card-stalled">stalled<\/span>/);
   assert.doesNotMatch(html, /card-stale"/);
   const review = ui.workLines({ ...workCard, lane: 'review', sortAt: ago(60 * 24 * 8), stale: true });
   assert.match(review, /<\/time><span class="sep"> · <\/span><span class="card-stale">stale<\/span>/);
@@ -1484,7 +1484,7 @@ const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five'
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
 test('ticket badges use the board source, link internally or externally, and leave asks without a ticket', () => {
-  for (const [source, id, url] of [['internal', 'OPS-9', '#item=w%2FB5'], ['github', '#9', 'https://github.com/o/r/issues/9'], ['linear', 'ENG-9', 'https://linear.app/another/issue/ENG-9']]) {
+  for (const [source, id, url] of [['internal', 'OPS-9', '#selectedCard=w%2FB5'], ['github', '#9', 'https://github.com/o/r/issues/9'], ['linear', 'ENG-9', 'https://linear.app/another/issue/ENG-9']]) {
     const card = { ...workCard, ticket: { source, id, url } };
     const html = ui.workLines(card);
     assert.match(html, new RegExp(`>${id.replace('#', '#')}<`));
@@ -1513,8 +1513,8 @@ test('a work card reads its title, then its next step or builder, its chips, and
     ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', 'Action needed · 3 new messages']);
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
-  assert.match(ui.workLines(blocked), /<div class="line6 sub card-time"><a class="card-blocked" href="#item=site%2FS2">blocked by INT-2<\/a><\/div>/);
-  assert.match(ui.workLines({ ...blocked, blockedBy: [{ key: 'site/S1', ref: 'INT-1' }, { key: 'site/S2', ref: 'INT-2' }] }), />blocked by INT-1<\/a><span class="sep">, <\/span><a class="card-blocked" href="#item=site%2FS2">INT-2<\/a>/);
+  assert.match(ui.workLines(blocked), /<div class="line6 sub card-time"><a class="card-blocked" href="#selectedCard=site%2FS2">blocked by INT-2<\/a><\/div>/);
+  assert.match(ui.workLines({ ...blocked, blockedBy: [{ key: 'site/S1', ref: 'INT-1' }, { key: 'site/S2', ref: 'INT-2' }] }), />blocked by INT-1<\/a><span class="sep">, <\/span><a class="card-blocked" href="#selectedCard=site%2FS2">INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [] })), ['INT-3 Five']);
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md: a condition and a reason read on the time line.
   const until = { ...blocked, blockedBy: [], blockedUntil: 'the CI run on main is green', blockReason: 'the suite is red <now>' };
@@ -1524,7 +1524,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(ui.workLines({ ...blocked, blockReason: 'shares the send bar' }), />blocked by INT-2<\/a><span class="card-blocked">, shares the send bar<\/span><\/div>/);
   assert.match(ui.workLines({ ...until, blockedBy: blocked.blockedBy }), />blocked by INT-2<\/a><span class="card-blocked"> and until the CI run on main is green, the suite is red &lt;now&gt;<\/span><\/div>/);
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: a bumped blocked card waits for the pull; held, it is blocked as before (below).
-  assert.match(ui.workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#item=site%2FS2">waits on INT-2<\/a>/);
+  assert.match(ui.workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#selectedCard=site%2FS2">waits on INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.
@@ -1591,7 +1591,7 @@ test('a bumped-out card reads "bumped out by #N · ready", the bump in grey, lin
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, ready: true, phase: 'ready' };
   const out = ui.workLines({ ...card, bumpedOut: { key: 'w/B1', ref: '#61', at: ago(1) } });
   assert.equal(lines(out).at(-1), `${ui.cardTime(sortAt)} · bumped out by #61 · ready`);
-  assert.match(out, /<a class="card-bumped-out" href="#item=w%2FB1">bumped out by #61<\/a><span class="sep"> · <\/span><span class="card-phase ph-success">ready<\/span>/);
+  assert.match(out, /<a class="card-bumped-out" href="#selectedCard=w%2FB1">bumped out by #61<\/a><span class="sep"> · <\/span><span class="card-phase ph-success">ready<\/span>/);
   const held = ui.workLines({ ...card, bumpedAt: ago(1), hostHeld: true });
   assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · held while host recovers · ready`);
   assert.match(held, /<span class="card-host-held">held while host recovers<\/span>/);
@@ -1652,7 +1652,7 @@ test('try badges share ready, stale, running, failed and absent states for both 
     }
     const error = render({ ...card, try: { kind, state: 'failed' } });
     assert.equal(text(error), failed);
-    assert.match(error, /tone-danger.*href="#item=w%2FB5"/);
+    assert.match(error, /tone-danger.*href="#selectedCard=w%2FB5"/);
     assert.equal(render({ ...card, try: { kind } }), '');
     assert.equal(render({ ...card, lane: 'done' }), '');
   }
@@ -1944,12 +1944,12 @@ test("a run's fold ends its summary at its status (running or finished); its log
 });
 
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {
-  assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'ask-link', text: 'Became INT-21', link: '#item=site%2FS21' }]), /<a href="#item=site%2FS21">Became INT-21 →<\/a>/);
-  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Asked to keep it', link: '#item=ask:e1' }]);
-  assert.match(html, /<a href="#item=ask:e1">Open the task →<\/a>/);
+  assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'ask-link', text: 'Became INT-21', link: '#selectedCard=site%2FS21' }]), /<a href="#selectedCard=site%2FS21">Became INT-21 →<\/a>/);
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Asked to keep it', link: '#selectedCard=ask:e1' }]);
+  assert.match(html, /<a href="#selectedCard=ask:e1">Open the task →<\/a>/);
   assert.doesNotMatch(html, /target="_blank"/);
-  const moved = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Moved to Audit.', link: '/audit/#item=ask%3Ab1' }]);
-  assert.match(moved, /<a href="\/audit\/#item=ask%3Ab1">Open the task →<\/a>/);
+  const moved = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Moved to Audit.', link: '/audit/#selectedCard=ask%3Ab1' }]);
+  assert.match(moved, /<a href="\/audit\/#selectedCard=ask%3Ab1">Open the task →<\/a>/);
   const arrived = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Fix the header', from: 'Orch', eventId: 'b1', reply: null, state: 'waiting' }]);
   assert.match(text(arrived), /^You · Moved from Orch · .* Fix the header Waiting for Claude…$/);
 });
@@ -2004,11 +2004,11 @@ const refLine = 'INT-54 shipped, INT-99 did not. ENG-2310, OPS-7 and ENG-2467 ne
 test('a thread line links each ref the board knows to its card, Linear ids and PRs to their pages, and bare URLs, leaving the text as written', () => {
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: refLine }], ui.linkContext(boardItems, 'att/A1'));
   assert.deepEqual(anchors(html), [
-    ['#item=site%2FS54', 'INT-54', false],
+    ['#selectedCard=site%2FS54', 'INT-54', false],
     ['https://linear.app/acme/issue/ENG-2310', 'ENG-2310', true],
     ['https://linear.app/acme/issue/OPS-7', 'OPS-7', true],
-    ['#item=att%2FENG-2467', 'ENG-2467', false],
-    ['#item=att%2FA1', 'A1', false],
+    ['#selectedCard=att%2FENG-2467', 'ENG-2467', false],
+    ['#selectedCard=att%2FA1', 'A1', false],
     ['https://github.com/acme/app/pull/3116', 'acme/app#3116', true],
     ['https://github.com/acme/app/pull/3050', 'app#3050', true],
     ['https://github.com/acme/app/pull/2988', '#2988', true],
@@ -2033,14 +2033,14 @@ test("a Linear id links in its board's own workspace, and a board without a work
 test("a bare #n opens the card it is the ticket of from any thread, else links only in a thread whose item has a repo, and a wave's short id links only from that wave's cards", () => {
   const line = [{ ts: ago(1), who: 'claude', text: 'A1 and A2 wait on #2988' }];
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'elig/A1'))), [
-    ['#item=elig%2FA1', 'A1', false], ['https://github.com/o/r/pull/2988', '#2988', true],
+    ['#selectedCard=elig%2FA1', 'A1', false], ['https://github.com/o/r/pull/2988', '#2988', true],
   ]);
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'site/S54'))), []);
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'ask:e9'))), []);
   const hub = [...boardItems, { key: 'hub/INT-269', wave: 'hub', kind: 'work', id: 'INT-269', ref: '#27', internal: true, linear: [], repo: null }];
   const ticketed = [{ ts: ago(1), who: 'claude', text: '#27 was INT-269; #2988 is a PR' }];
   for (const key of ['ask:e9', 'elig/A1']) {
-    assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, key))).slice(0, 2), [['#item=hub%2FINT-269', '#27', false], ['#item=hub%2FINT-269', 'INT-269', false]]);
+    assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, key))).slice(0, 2), [['#selectedCard=hub%2FINT-269', '#27', false], ['#selectedCard=hub%2FINT-269', 'INT-269', false]]);
   }
   assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, 'elig/A1'))).at(-1), ['https://github.com/o/r/pull/2988', '#2988', true]);
 });
@@ -2048,7 +2048,7 @@ test("a bare #n opens the card it is the ticket of from any thread, else links o
 test('a linked thread line still shows markup in its text as text', () => {
   const html = ui.threadMessages([{ ts: ago(1), who: 'love', text: '<b>INT-54</b> <img src=x>' }], ui.linkContext(boardItems, 'site/S54'));
   assert.doesNotMatch(html, /<b>|<img/);
-  assert.deepEqual(anchors(html), [['#item=site%2FS54', 'INT-54', false]]);
+  assert.deepEqual(anchors(html), [['#selectedCard=site%2FS54', 'INT-54', false]]);
   assert.ok(shown(html).includes('<b>INT-54</b> <img src=x>'));
 });
 
@@ -2076,10 +2076,10 @@ test('an HTML line and a reply link refs in their text but leave existing links 
   ], links);
   assert.deepEqual(anchors(html), [
     ['https://x.test/', 'INT-54 notes', false],
-    ['#item=site%2FS54', 'INT-54', false],
+    ['#selectedCard=site%2FS54', 'INT-54', false],
     ['https://x.test/b?c=1&amp;d=2', 'https://x.test/b?c=1&d=2', true],
-    ['#item=site%2FINT-56', 'INT-56', false],
-    ['#item=site%2FINT-56', 'INT-56', false],
+    ['#selectedCard=site%2FINT-56', 'INT-56', false],
+    ['#selectedCard=site%2FINT-56', 'INT-56', false],
     ['https://linear.app/acme/issue/ENG-2310', 'ENG-2310', true],
   ]);
   assert.match(html, /&rarr; done<\/p><pre>INT-54<\/pre>/);
@@ -2090,13 +2090,13 @@ test('a question card and a full plan link refs too, to the board page from anot
   const onPage = ui.linkContext(boardItems, 'site/S54', { base: './' });
   const q = { ...question, question: 'Keep INT-54?', context: 'See ENG-2310', state: 'replied', answers: [{ ts: ago(1), choice: 'A', note: 'Like INT-56', reply: { html: '<p>Done in INT-54</p>' } }] };
   assert.deepEqual(anchors(ui.questionCard(q, { links: onPage })), [
-    ['./#item=site%2FS54', 'INT-54', false],
+    ['./#selectedCard=site%2FS54', 'INT-54', false],
     ['https://linear.app/acme/issue/ENG-2310', 'ENG-2310', true],
-    ['./#item=site%2FINT-56', 'INT-56', false],
-    ['./#item=site%2FS54', 'INT-54', false],
+    ['./#selectedCard=site%2FINT-56', 'INT-56', false],
+    ['./#selectedCard=site%2FS54', 'INT-54', false],
   ]);
   assert.deepEqual(anchors(ui.markdown('Builds on INT-54, see [notes](https://x.test/n).\n\n```\nINT-54\n```', onPage)), [
-    ['./#item=site%2FS54', 'INT-54', false], ['https://x.test/n', 'notes', true],
+    ['./#selectedCard=site%2FS54', 'INT-54', false], ['https://x.test/n', 'notes', true],
   ]);
 });
 
@@ -2566,7 +2566,7 @@ test('every kind of thread status or system line leads with an icon, so a new ki
   const words = [...Object.values(ACTION_LABELS).filter((w) => w !== ACTION_LABELS['mark-ready']), ...Object.values(INTENT_LABELS), ...Object.values(COMMANDS), ANSWERS_SUBMITTED];
   for (const w of words) assert.match(ui.MARK_ICONS[w] || '', /class="mark-icon/, `${w} has an icon`);
   // Each system line kind renders a mark holding an icon, or the dot of a builder or agent that is running.
-  const sample = { ts: ago(1), who: 'claude', text: 'x', link: '#item=a', calls: ['c'], verified: null };
+  const sample = { ts: ago(1), who: 'claude', text: 'x', link: '#selectedCard=a', calls: ['c'], verified: null };
   for (const kind of ui.SYSTEM_KINDS) {
     const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'command' ? { command: 'hold', mark: COMMANDS.hold, text: 'Held until Fri', request: true } : {}) }]);
     assert.match(html, /<span class="mark" aria-hidden="true">(<svg class="mark-icon|<span class="(working|agent)-dot")/, `${kind} line has a mark`);
@@ -2587,9 +2587,9 @@ test('a held card reads gray while blocked and action stay orange', () => {
 });
 
 test("a link's thread line is one link icon and a plain link to the other card, and is never unread", () => {
-  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'followup', request: true, mark: 'Follow-up', text: 'Follow-up #12: Tidy', link: '#item=w%2FA2', card: 'w/A2' }], { seenAt: ago(5) });
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'followup', request: true, mark: 'Follow-up', text: 'Follow-up #12: Tidy', link: '#selectedCard=w%2FA2', card: 'w/A2' }], { seenAt: ago(5) });
   assert.match(html, /^<div class="msg request"><span class="mark" aria-hidden="true"><svg class="mark-icon"/);
-  assert.ok(html.includes('<a href="#item=w%2FA2">Follow-up #12: Tidy</a>'));
+  assert.ok(html.includes('<a href="#selectedCard=w%2FA2">Follow-up #12: Tidy</a>'));
   assert.doesNotMatch(html, /unread/);
 });
 

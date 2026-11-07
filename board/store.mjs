@@ -243,7 +243,7 @@ function htmlText(html) {
     });
 }
 
-// Where a push lands (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). A card or ask link (#item=) gains
+// Where a push lands (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). A card or ask link (#selectedCard=) gains
 // &reply, so the board opens that thread with its reply box focused. A page other than the board gains from=push, so
 // the back arrow of a page outside the page tree goes to the card or the board
 // (docs/adr/2026-10-30-1125-back-follows-the-page-tree.md), and a prototype page tied to a question (?q=) sends the owner to the
@@ -251,11 +251,11 @@ function htmlText(html) {
 export function pushUrl(url) {
   if (!url || !url.startsWith('/')) return url;
   const u = new URL(url, 'http://board');
-  if (/^#item=[^&]+$/.test(u.hash)) u.hash = `${u.hash}&reply`;
+  if (/^#(?:selectedCard|item)=[^&]+$/.test(u.hash)) u.hash = `${u.hash}&reply`;
   if (/\/[\w-]+\.html$/.test(u.pathname) && !u.pathname.endsWith('/index.html')) u.searchParams.set('from', 'push');
   return u.pathname + u.search + u.hash;
 }
-const threadUrl = (site, key) => `/${path.basename(site)}/#item=${encodeURIComponent(key)}&reply`;
+const threadUrl = (site, key) => `/${path.basename(site)}/#selectedCard=${encodeURIComponent(key)}&reply`;
 
 // Claude's latest message in a thread becomes the body of that thread's queued push, keeping its "· and N replies",
 // and the push now opens that thread at its reply box, whatever page it first linked. It never sends a push: a line
@@ -545,7 +545,7 @@ export async function moveAsk(site, eventId, route) {
   const at = new Date().toISOString();
   const asks = await readAskProgress(site);
   await writeJSON(askProgressFile(site), { asks: { ...asks, [eventId]: { state: 'done', at, moved } } });
-  const link = `/${route}/#item=${encodeURIComponent(`ask:${id}`)}`;
+  const link = `/${route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`;
   await appendLine(threadFile(site, `ask:${eventId}`), { ts: at, who: 'claude', text: `Moved to ${target.title}.`, link });
   // The ask has already gone to the other board, so a closing card's open question can't stop it.
   for (const key of state?.items || []) await setItem(site, key, { done: true, force: true, text: `Closed: its ask moved to ${target.title}.` });

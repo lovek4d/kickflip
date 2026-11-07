@@ -365,7 +365,7 @@ const mergeable = (pr, needsApproval) => !mergeBlockers(pr, { needsApproval }).l
 // (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 function actionOf(it, questionById, autoMerge) {
   if (closedLane(it)) return null;
-  const thread = `#item=${encodeURIComponent(it.key)}`;
+  const thread = `#selectedCard=${encodeURIComponent(it.key)}`;
   if (it.stalled) return { kind: ACTION_KIND.stalled, url: thread, label: `stalled: ${it.stalled}` };
   if (asking(it)) {
     const q = questionById.get(it.questions.first);
@@ -819,7 +819,7 @@ const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e
 // card's ref and title as they stand now, and it links to the card.
 const linkLine = (m, cards) => {
   const other = cards.get(m.card);
-  return { ...m, text: `${COMMANDS[m.command]} ${other ? `${other.ref}: ${other.title}` : m.card}`, link: `#item=${encodeURIComponent(m.card)}` };
+  return { ...m, text: `${COMMANDS[m.command]} ${other ? `${other.ref}: ${other.title}` : m.card}`, link: `#selectedCard=${encodeURIComponent(m.card)}` };
 };
 // A thread line a button wrote: its words can vary (Held until a time), so it names its mark.
 const commandLine = (command) => ({ kind: 'command', command, request: true, mark: COMMANDS[command] });
@@ -912,7 +912,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', ...commandLine('implement'), text: COMMANDS.implement }] : []),
-        ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#item=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
+        ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#selectedCard=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const lastClaude = claudeAtOf(msgs);
   const { edits, editFiles } = index;
@@ -1366,7 +1366,7 @@ function needsOf(items, topics, questions) {
     if (!asking && !ready && !other) return null;
     const title = `${it.ref}: ${it.title}`;
     const text = [title, asking && plural(asking.open, 'question'), ready && 'Ready on GitHub', other?.label].filter(Boolean).join(' · ');
-    return { kind: asking ? 'Question' : ready ? 'Tap Ready' : 'Action needed', title, text, url: `#item=${encodeURIComponent(it.key)}`, key: it.key, questions: asking, ready, action: other,
+    return { kind: asking ? 'Question' : ready ? 'Tap Ready' : 'Action needed', title, text, url: `#selectedCard=${encodeURIComponent(it.key)}`, key: it.key, questions: asking, ready, action: other,
       since: it.created || null, progress: it.lane === 'progress' };
   }).filter(Boolean);
   return [...fromTopics, ...fromItems].sort(oldestFirst);
@@ -1669,7 +1669,7 @@ export function ownerActions(built) {
   const cards = built.items.filter((it) => it.action).map((it) => {
     const questions = ASKING.has(it.action.kind) ? open(it.questions.topic) : [];
     return { tag: pushTag(it.key), kind: it.action.kind, title: `${it.ref}: ${it.action.label}`, body: questions[0]?.question || it.title,
-      url: questions.length ? it.action.url : `#item=${encodeURIComponent(it.key)}`, now: !queued.includes(it.action.kind), questions };
+      url: questions.length ? it.action.url : `#selectedCard=${encodeURIComponent(it.key)}`, now: !queued.includes(it.action.kind), questions };
   });
   const topics = built.needs.filter((line) => line.topic).map((line) => {
     const questions = open(line.topic);

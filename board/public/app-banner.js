@@ -33,7 +33,7 @@ BoardView.part((B) => {
     if (!open) return;
     const key = open.dataset.answer;
     markSeen(d.items.find((i) => i.key === key));
-    const hash = `#item=${encodeURIComponent(key)}`;
+    const hash = `#selectedCard=${encodeURIComponent(key)}`;
     if (location.hash === hash) history.replaceState(null, '', location.pathname + location.search);
     location.hash = hash;
   });
