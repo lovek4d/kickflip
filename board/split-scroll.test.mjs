@@ -32,3 +32,10 @@ test('the desktop right pane never scrolls sideways: its content wraps to the pa
   assert.match(wide, /\.needs-pane \* \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
   assert.match(wide, /\.needs-pane pre[^{]*\{[^}]*white-space: pre-wrap;/);
 });
+
+test('the Send bar stacks above the notes\' attach buttons, with equal padding above and below', () => {
+  const bar = css.match(/\.view-questions \.bar \{[^}]*\}/)[0];
+  const clip = css.match(/\.dz > \.attach \{[^}]*z-index: (\d+)/);
+  assert.match(bar, /padding: 10px 0 max\(10px, env\(safe-area-inset-bottom\)\)/);
+  assert.ok(Number(bar.match(/z-index: (\d+)/)?.[1]) > Number(clip[1]));
+});

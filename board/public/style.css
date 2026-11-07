@@ -685,7 +685,7 @@ main > * { transition: opacity .25s ease; }
 .view-questions .q.resolved .opt:has(input:checked) .det { display: block; }
 .view-questions .q.resolved .opt:not(:has(input:checked)) { opacity: .6; }
 .view-questions .q.resolved .reask-line { margin-top: 10px; }
-.view-questions .bar { position: sticky; bottom: var(--app-bottom, 0px); padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg);
+.view-questions .bar { position: sticky; bottom: var(--app-bottom, 0px); padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg); z-index: 2;
   display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
 .view-questions .bar .send-hint { margin-left: auto; }
 /* The + rides above the sticky Send bar rather than over its Send. */
