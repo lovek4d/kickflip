@@ -282,6 +282,10 @@ _Avoid_: filed from, origin, epic
 Similar cards that should be cross-referenced, shown on both cards. The session links a new card in the call that files it: `item set --relate` adds links, `--unrelate` takes them off on both cards, and `--related` replaces the list. Planner and builder briefs list a card's Related to, Parent and deps with their notes, for context ([the orchestrator links a new card when it files it](docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md)). It neither blocks nor orders anything; Blocked by does that ([cards wait on explicit blocked-by links](docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md)).
 _Avoid_: sibling, link (alone)
 
+**Split**:
+A card a grill broke into a **lineup** of smaller cards: the grill planner proposes it, when the code shows separable parts, as one question, Split as proposed or Keep as one card, and on Split the orchestrator files the cards when the card stages, as Children of the original, which closes Done "Split into …"; a card already in a lineup splits into it at its place ([a grill can propose splitting its card into a wave](docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md)). Wave triage's splits are of a lineup's cards after filing.
+_Avoid_: breakdown, epic
+
 **Plan waves**:
 The Show more row at the foot of Todo, shown when two or more work cards there are neither held nor blocked. Confirming sends `plan-waves {keys}`, and the session triages those cards into one or more lineups and asks to confirm each as a board question ([Plan waves plans from any Todo cards](docs/adr/2026-11-03-0509-plan-waves-plans-from-any-todo-cards.md)).
 _Avoid_: backlog item, todo

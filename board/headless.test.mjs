@@ -87,6 +87,10 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.match(grill, /End every grill with one more question, "Prototype round first\?", whose options are yes and no, with "prototype_gate": true/);
   assert.ok(grill.includes('Recommend yes when the card changes the hub\'s or a board\'s UI, no otherwise') && grill.includes('Ask it even when it is your only question'));
   assert.ok(!proto.includes('prototype_gate'));
+  // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a grill proposes a split as one question.
+  assert.ok(grill.includes('separable parts') && grill.includes('"Split as proposed"') && grill.includes('"Keep as one card"'));
+  assert.ok(grill.includes('ahead of the prototype question'));
+  assert.ok(!proto.includes('Split as proposed'));
   // A grill sets no ready itself: the gate's answer moves the card; the owner asking for prototypes ends it prototyping.
   assert.ok(grill.includes(`end the card \`${b} item set w/A1 --phase prototyping\` instead and skip the prototype question`));
   assert.ok(grill.includes('never set it ready yourself'));
