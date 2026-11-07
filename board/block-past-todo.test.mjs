@@ -44,15 +44,14 @@ test('blocking a card In Progress stops its board-launched builder, keeps its wo
   assert.deepEqual(threadOf().map((l) => l.text), ['build stopped by orchestrator', 'Blocked by ENG-1: back to Todo. It starts again once nothing blocks it.']);
 });
 
-test('blocking a handed-back card, with nothing running, sends it back to Todo; blocking one already blocked again changes nothing more', () => {
+test('blocking a handed-back card, with nothing running, leaves it In Progress with its hand-back', () => {
   setA1({ lane: 'progress', phase: 'ready' });
   write(recordFile(), { started: new Date(Date.now() - 60_000).toISOString(), done: now(), handed_back: now(), kind: 'claude' });
   const r = onOrch('item', 'set', 'w/A1', '--blocked-until', 'the API ships');
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual([itemOf().lane, itemOf().blocked_until], ['todo', 'the API ships']);
-  assert.deepEqual(threadOf().map((l) => l.text), ['Blocked until the API ships: back to Todo. It starts again once nothing blocks it.']);
-  assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
-  assert.equal(threadOf().length, 1, 'a Todo card has nothing to send back');
+  assert.deepEqual([itemOf().lane, itemOf().blocked_until], ['progress', 'the API ships']);
+  assert.deepEqual(threadOf().map((l) => l.text), ['Blocked until the API ships: it stays In Progress.']);
+  assert.ok(record().handed_back, 'its hand-back stays');
 });
 
 test("blocking a card whose builder runs in a session the board didn't launch is refused, and changes nothing", () => {
@@ -109,9 +108,18 @@ test("a blocked card's held Merge can't be tapped, and the lander skips its veri
 });
 
 test('a finishing dep unblocks a card In Review, waking the orchestrator', () => {
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', pr: 7, deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', pr: 7, lane: 'review', deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
   const r = onOrch('item', 'set', 'w/ENG-1', '--done', '--text', 'Done.');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /unblocked: w\/A1/);
   assert.ok(events().some((e) => e.kind === 'card-unblocked' && e.data.key === 'w/A1'));
+  assert.ok(itemOf().unblocked_at, 'it records when the block ended, which makes the orchestrator wait');
+});
+
+test('--next naming an unfinished card by its #number is refused without --deps', () => {
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'review' }, { id: 'ENG-1', title: 'Later', ticket: '#398', lane: 'progress' }] });
+  const r = onOrch('item', 'set', 'w/A1', '--next', 'Tag once #398 lands');
+  assert.equal(r.code, 1);
+  assert.match(r.err, /names unfinished card w\/ENG-1; add it with --deps/);
+  assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1', '--next', 'Tag once #398 lands').code, 0);
 });

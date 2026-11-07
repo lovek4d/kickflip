@@ -2058,22 +2058,31 @@ async function unblockedBy(site, key) {
   for (const s of await itemSources(site)) {
     const wave = await readJSON(s.file, null);
     for (const it of Array.isArray(wave?.items) ? wave.items : []) {
-      if (leftTodo(it) || it.blocked_until || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      if (closed(it) || it.blocked_until || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
       if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
     }
   }
   return out;
 }
 
+// docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo records when its block
+// ended, which domain.mjs orchestratorWaitOf reads as a wait until the session writes on the card. ts is its Unblocked line's.
+async function markUnblocked(site, key, ts) {
+  const { source, wave, item } = await loadItem(site, key);
+  if (!leftTodo(item)) return;
+  item.unblocked_at = ts;
+  await writeJSON(source.file, wave);
+}
+
 async function checkNextDeps(site, key, item, next) {
-  const mentions = new Set(next.match(/[\w-]+(?:\.[\w-]+)*(?:\/[\w-]+(?:\.[\w-]+)*)*/g) || []);
+  const mentions = new Set(next.match(/#?[\w-]+(?:\.[\w-]+)*(?:\/[\w-]+(?:\.[\w-]+)*)*/g) || []);
   const deps = new Set((item.deps || []).map((d) => depKey(parseKey(key).wave, d)));
   for (const source of await itemSources(site)) {
     const wave = await readJSON(source.file, null);
     for (const other of wave?.items || []) {
       const otherKey = `${source.slug}/${other.id}`;
       if (otherKey === key || deps.has(otherKey) || closed(other)) continue;
-      const names = [other.id, refOf(wave, other)].flatMap((id) => [id, `${source.slug}/${id}`]);
+      const names = [other.id, refOf(wave, other), other.ticket].filter(Boolean).flatMap((id) => [id, `${source.slug}/${id}`]);
       if (names.some((name) => mentions.has(name))) fail(`--next names unfinished card ${otherKey}; add it with --deps`);
     }
   }
@@ -2317,14 +2326,15 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   // it back to Todo. stopRun, item set's, stops its board-launched build first and refuses a session's; the worktree and
   // branch stay on its records, and it reads ready in Todo, so the pull starts it again once nothing blocks it.
   const blocked = (deps !== undefined || blockedUntil) && !done && inProgress(item, records) ? await blockWords(site, key, item) : '';
-  const stops = blocked && records.some((r) => r?.started && !r.done && builds(r)) ? await stopRun() : [];
+  const running = records.some((r) => r?.started && !r.done && builds(r));
+  const stops = blocked && running ? await stopRun() : [];
   // The moves this write makes (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a close
   // and a block write their own lines, the rest a move line.
   const repo = boardRepoOf(site, wave);
   let moveLine = null;
   const moveTo = (to, why) => { if (item.lane !== to && placeIn(item, to, undefined, movedPhase(item, to, landed)) !== undefined && why) moveLine = `Moved to ${LANES[to]}: ${why}`; };
   if (done) moveTo('done', null);
-  else if (blocked) moveTo('todo', null);
+  else if (blocked && running) moveTo('todo', null);
   else if (handover && item.lane !== 'done') {
     moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
   } else if (start && !closed(item)) moveTo('progress', 'a build started');
@@ -2333,9 +2343,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (readied) await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'readied', text: COMMANDS.readied });
-  if (blocked) {
+  if (blocked && running) {
     await closeBuilders(source.dir, item.id, false, { endHandBack: true });
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: back to Todo. It starts again once nothing blocks it.` });
+  } else if (blocked) {
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: it stays In Progress.` });
   }
   if (unlink) await unlink();
   if (linked) await postLinkLines(site, key, linked, await linksOf(site, key));
@@ -2360,7 +2372,9 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   if (lifted && !closed(item) && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) {
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Unblocked: ${lifted}.` });
+    const ts = new Date().toISOString();
+    await appendLine(threadFile(site, key), { ts, who: 'claude', text: `Unblocked: ${lifted}.` });
+    await markUnblocked(site, key, ts);
     await appendEvent({ dir: site }, 'card-unblocked', { key });
     resolved.unshift(`unblocked: ${key}`);
   }
@@ -2370,6 +2384,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   const ts = new Date().toISOString();
   for (const k of unblocked) {
     await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${await cardName(site, key)} is done.` });
+    await markUnblocked(site, k, ts);
     await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };

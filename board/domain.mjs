@@ -324,7 +324,7 @@ function waitFactsOf(it, { agents, thread, events, refusedAt }) {
   const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', 'command', MOVE, BUILD_REFUSED].includes(m.kind)).map((m) => m.ts);
   return {
     handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
-    grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt,
+    grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, unblockedAt: it.unblocked_at || null,
     unverified: agents.some((a) => a.calls.some((c) => !a.verified || String(c.at) > String(a.verified.at))),
     writes: [...lines, ...agents.flatMap((a) => [a.verified?.at, a.started])].filter(Boolean).map(String).sort(),
   };
@@ -1250,7 +1250,7 @@ export function buildBoard(snapshot) {
     const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
     // A rebase run's hand-back, its stale run or a stale review waits on the orchestrator from In Review (laneOf); a
     // card the orchestrator stalled waits on the owner alone.
-    it.orchestrator = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && it.stale)) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
+    it.orchestrator = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt))) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
   intakeWaits(items, events);
@@ -1742,6 +1742,9 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
     : it.prototyping && facts.prototypeAt && !running('prototype') ? { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' }
     : it.refusal && facts.refusedAt ? { kind: 'refused', since: facts.refusedAt, next: it.refusal }
     : it.next === NO_NEXT && lastBuild ? { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' }
+    // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.
+    : facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.blocked && !facts.writes.some((t) => t > facts.unblockedAt)
+      ? { kind: 'unblocked', since: facts.unblockedAt, next: "Its block ended: act on what it waited for, or set its Next" }
     : null;
   if (!wait?.since) return null;
   const since = String(wait.since);

@@ -2441,6 +2441,13 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   assert.deepEqual(shape(refusal), [['w/A1', 'refused', at, null]]);
   assert.equal(refusal[0].next, "Couldn't start implementing: no repo");
 
+  // A card past Todo whose block ended waits until the session writes on it.
+  const unblocked = { lane: 'review', unblocked_at: at };
+  assert.deepEqual(shape(one(unblocked)), [['w/A1', 'unblocked', at, null]]);
+  assert.deepEqual(one({ ...unblocked, lane: 'todo' }), [], 'a Todo card is the pull\'s');
+  assert.deepEqual(one({ ...unblocked, blocked_until: 'the API ships' }), [], 'blocked again');
+  assert.equal(one(unblocked, { threads: { 'w/A1': [{ ts: later, who: 'claude', text: 'On it.' }] } }).length, 0, 'the session wrote on it');
+
   // A started card with no live builder and nothing placing it waits from its last build's end.
   assert.deepEqual(shape(one({ lane: 'progress', lane_at: '2026-11-04T09:00:00Z' }, { agents: { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', done: at } } } })),
     [['w/A1', 'unowned', at, null]]);

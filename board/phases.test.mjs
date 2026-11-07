@@ -56,14 +56,14 @@ test('moveCard writes the lane and its phase together; a phase change inside a l
   await assert.rejects(moveCard(dir, 'audit/A1', 'review', 'x', 'closing'), /no In Review phase "closing"/);
 });
 
-test("the store's own moves write the phase: a build's start reads reading, a block back to Todo ready, a close merged or closed", () => {
+test("the store's own moves write the phase: a build's start reads reading, a block that leaves it in place, a close merged or closed", () => {
   write(site('audit', 'data', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'Two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'Four', lane: 'progress', phase: 'testing' }] });
   assert.equal(board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude').code, 0);
   assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'reading']);
   write(site('audit', 'data', 'agents', 'A4.json'), { kind: 'claude', started: '2026-11-04T09:00:00Z', done: '2026-11-04T10:00:00Z', handed_back: '2026-11-04T10:00:00Z' });
   const blocked = board('item', 'set', 'audit/A4', '--site', 'audit', '--blocked-until', 'the API ships');
   assert.equal(blocked.code, 0, blocked.err);
-  assert.deepEqual([auditItem('A4').lane, auditItem('A4').phase], ['todo', 'ready']);
+  assert.deepEqual([auditItem('A4').lane, auditItem('A4').phase], ['progress', 'testing'], 'a handed-back card stays where it is');
   assert.equal(board('item', 'set', 'audit/A2', '--site', 'audit', '--done', '--text', 'Dropped: superseded.').code, 0);
   assert.deepEqual([auditItem('A2').lane, auditItem('A2').phase], ['done', 'closed']);
 });
