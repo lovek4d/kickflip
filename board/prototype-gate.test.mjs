@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { addQuestions, settleAnswers } from './store.mjs';
+import { addQuestions, resolveQuestion, settleAnswers } from './store.mjs';
 
 // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
 const yesNo = [{ id: 'yes', label: 'Yes', recommended: true }, { id: 'no', label: 'No' }];
@@ -53,6 +53,46 @@ test('yes moves a grilling card to prototyping and asks for its prototype planne
   assert.deepEqual(await settleAnswers(site, [answer('q-other', 'a'), answer('q-gate', 'yes')]), { prototype: ['t/A1'], staged: [] });
   assert.equal(card(), 'prototyping');
   assert.match(resolved('q-gate'), /^Prototype round: yes/);
+});
+
+// docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
+test('yes waits for every question: the card stays grilling while another is open and moves to prototyping on the Send that answers the last, in either order', async () => {
+  const first = world();
+  await addQuestions(first.site, [other, gate]);
+  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-gate', 'yes')]), { prototype: [], staged: [] });
+  assert.equal(first.card(), 'grilling', 'q-other is still open');
+  assert.match(first.resolved('q-gate'), /^Prototype round: yes/);
+  assert.equal(first.thread().at(-1).text, 'You asked for a prototype round, so the board moves the card to prototyping once every question is answered.');
+  assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: ['t/A1'], staged: [] });
+  assert.equal(first.card(), 'prototyping');
+  assert.equal(first.thread().at(-1).text, 'You asked for a prototype round, so the board moved the card to prototyping.');
+
+  const last = world();
+  await addQuestions(last.site, [other, gate]);
+  await settleAnswers(last.site, [last.answer('q-other', 'a')]);
+  assert.equal(last.card(), 'grilling');
+  assert.deepEqual(await settleAnswers(last.site, [last.answer('q-gate', 'yes')]), { prototype: ['t/A1'], staged: [] });
+  assert.equal(last.card(), 'prototyping');
+});
+
+test('a remaining question the orchestrator resolves counts as answered: the grilling card moves on as a Send would, and the board starts its prototype planner', async () => {
+  const yes = world();
+  await addQuestions(yes.site, [other, gate]);
+  await settleAnswers(yes.site, [yes.answer('q-gate', 'yes', 'Show it as a badge, so Which? is settled')]);
+  await resolveQuestion(yes.site, 'q-other', 'Settled by your note on q-gate');
+  assert.equal(yes.card(), 'prototyping');
+  assert.ok(yes.read().round_at, 'round_at asks the board server for its prototype planner (domain.mjs roundsDue)');
+
+  const no = world();
+  await addQuestions(no.site, [other, gate]);
+  await settleAnswers(no.site, [no.answer('q-gate', 'no')]);
+  await resolveQuestion(no.site, 'q-other', 'Settled by your note');
+  assert.equal(no.card(), 'staging');
+
+  const prototyping = world('prototyping');
+  await addQuestions(prototyping.site, other);
+  await resolveQuestion(prototyping.site, 'q-other', 'Not needed');
+  assert.equal(prototyping.card(), 'prototyping', 'a card not grilling keeps its phase');
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md

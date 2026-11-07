@@ -14,3 +14,5 @@ Considered:
 - **A Board / Needs you switch, or a pull-up sheet, on a phone** (round 3). The owner set both aside: no sheet and no switch on a phone.
 - **Grouped by ask, or flags on the cards** (round 5 B and C). The owner picked the deck.
 - **A tap on an option that sends the answer at once as `owner-answers`** (the builder's first version). The owner overruled it on gh248-deck-send, picking "Draft, then Send": "send at once would damage notes experience, simple for now". Round 5 drew it that way too.
+
+The deck's "Draft, then Send" is superseded by [a deck option sends on a second tap](2026-11-07-1212-a-deck-option-sends-on-a-second-tap.md).

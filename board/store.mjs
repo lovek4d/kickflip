@@ -1470,28 +1470,23 @@ function checkGate(flag, q, name) {
 }
 
 // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md,
-// docs/adr/2026-11-07-0700-staging-then-ready.md
-// The owner's Send acted on with no orchestrator step. A prototype_gate question resolves; answered yes it moves its
-// card, while still grilling, to prototyping. Every answer on a card goes into the card's notes verbatim. A card the
-// Send leaves with nothing open is staged (stageable), but not one yes just moved to prototyping.
+// docs/adr/2026-11-07-0700-staging-then-ready.md, docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
+// The owner's Send acted on with no orchestrator step. A prototype_gate question resolves; answered yes while another
+// of its card's questions is open, a thread line says the card waits for them. Every answer on a card goes into the
+// card's notes verbatim, and the card then moves on once nothing is left open (moveOnAnswered).
 // → {prototype: [keys], staged: [keys]}: the cards whose prototype planner the server starts, and the cards staged.
 export async function settleAnswers(site, answers) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const asked = new Map((owner.items || []).map((q) => [q.id, q]));
-  const prototype = [];
   for (const a of answers) {
     const q = asked.get(String(a.id));
     if (!q?.prototype_gate || !['yes', 'no'].includes(a.choice)) continue;
-    setResolved(owner, [q.id], `Prototype round: ${a.choice}. The board moved the card on.`);
+    setResolved(owner, [q.id], `Prototype round: ${a.choice}. The board moves the card on once every question is answered.`);
     await writeJSON(ownerFile(site), owner);
-    if (a.choice === 'no') continue;
     const key = q.topic.slice(5);
-    await followUp(site, key, 'moving it to prototyping', async () => {
-      if ((await loadItem(site, key)).item.phase !== 'grilling') return;
-      await setItem(site, key, { phase: 'prototyping' });
-      await appendThread(site, key, { text: 'You asked for a prototype round, so the board moved the card to prototyping.' });
-      prototype.push(key);
-    });
+    if (a.choice === 'yes' && (await loadItem(site, key).catch(() => null))?.item.phase === 'grilling' && await hasOpenQuestion(site, key)) {
+      await appendThread(site, key, { text: 'You asked for a prototype round, so the board moves the card to prototyping once every question is answered.' });
+    }
   }
   const byCard = new Map();
   for (const a of answers) {
@@ -1499,17 +1494,42 @@ export async function settleAnswers(site, answers) {
     const key = cardOfTopic(q?.topic);
     if (key) byCard.set(key, [...(byCard.get(key) || []), answerLine(q, a)]);
   }
+  const prototype = [];
   const staged = [];
   for (const [key, said] of byCard) {
     if (!(await loadItem(site, key).catch(() => null))) continue;
     await followUp(site, key, 'writing them into its notes', async () => {
       await appendNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
-      if (prototype.includes(key) || !(await stageable(site, key))) return;
-      await stage(site, key);
-      staged.push(key);
+      const moved = await moveOnAnswered(site, key);
+      if (moved === 'prototyping') prototype.push(key);
+      if (moved === 'staging') staged.push(key);
     });
   }
   return { prototype, staged };
+}
+
+// docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
+// A card moves on once none of its questions is open: a grilling card whose prototype question was last answered yes to
+// prototyping, with a thread line; any other stageable card to staging. round_at, which moveOnAnswered sets when asked,
+// has the board server start the prototype planner (domain.mjs roundsDue), for a move made outside the server.
+// → 'prototyping', 'staging' or null when the card stays.
+async function moveOnAnswered(site, key, { roundAt = false } = {}) {
+  const { item } = await loadItem(site, key);
+  const { asked } = await cardQuestions(site, key);
+  if (asked.some((q) => q.state === 'open')) return null;
+  if (item.phase === 'grilling' && asked.some((q) => q.prototype_gate && q.answers.at(-1)?.choice === 'yes')) {
+    await setItem(site, key, { phase: 'prototyping' });
+    if (roundAt) {
+      const { source, wave, item: moved } = await loadItem(site, key);
+      moved.round_at = new Date().toISOString();
+      await writeJSON(source.file, wave);
+    }
+    await appendThread(site, key, { text: 'You asked for a prototype round, so the board moved the card to prototyping.' });
+    return 'prototyping';
+  }
+  if (!(await stageable(site, key))) return null;
+  await stage(site, key);
+  return 'staging';
 }
 
 // docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
@@ -1745,6 +1765,10 @@ export async function resolveQuestion(site, id, note) {
   if (pageTopic(q.url)) roundSettled(owner, q, answers);
   const file = await markResolved(site, owner, [id], said);
   await clearWaitedNext(site, q.topic);
+  // docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md: a question the orchestrator
+  // closes counts as answered, so the grilling card it leaves with nothing open moves on.
+  const key = cardOfTopic(q.topic);
+  if (key && (await loadItem(site, key).catch(() => null))?.item.phase === 'grilling') await moveOnAnswered(site, key, { roundAt: true });
   return file;
 }
 

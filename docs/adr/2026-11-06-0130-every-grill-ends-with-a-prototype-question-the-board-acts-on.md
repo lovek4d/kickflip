@@ -9,3 +9,5 @@ The planner never sets a card ready itself any more; where the owner asked for p
 A gate answered with no note needs no mention in the card's notes for ready (checkNotesComplete); the answers to the other questions still do.
 
 From #320, related to #319 (a grill's questions land together).
+
+Amended by [a grill waits for every answer before it changes phase](2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md): yes moves the card only once none of its questions is open.

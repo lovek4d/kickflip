@@ -944,6 +944,7 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
 .deck-opts { display: flex; flex-direction: column; gap: 6px; }
 .deck-opts button { text-align: left; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
 .deck-opts button.rec { border-color: var(--accent); }
+.deck-opts button.armed { background: var(--color-notice); border-color: var(--color-notice); color: #000; font-weight: 600; }
 .deck-opts .rec-word { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
 .deck-opts small { display: block; color: var(--muted); font-size: 12.5px; }
 .deck-prompt { margin: 0; padding: 0; list-style: none; }

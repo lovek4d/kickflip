@@ -1,8 +1,10 @@
 // The board view's Needs you (domain.mjs needsOf), led by the board session's pending prompts, answered in place
 // (prompts.js). It draws twice, and the stylesheet shows one by width
 // (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md):
-// - on a phone, #needsDeck at the top of the board: one thing at a time, a question's options drafting its answer on the tap
-//   (the draft Send on the questions page sends) and a prompt's buttons answering it, Prev and Next beside a dot for each thing waiting, and All open questions at its foot;
+// - on a phone, #needsDeck at the top of the board: one thing at a time, a question's option marked on the first tap,
+//   turning into Send “<label>”, and sent with the question's drafted note and files on a tap on it
+//   (docs/adr/2026-11-07-1212-a-deck-option-sends-on-a-second-tap.md), a prompt's buttons answering it, Prev and Next
+//   beside a dot for each thing waiting, and All open questions at its foot;
 // - from 900px, #waiting, one line each, in the pane beside the lanes, over Waiting on you mounted there
 //   (view-questions.js, embedded) while the width lasts. Waiting on you shows the questions there, so #waiting leaves out
 //   a line that only asks questions, and with nothing else left the orange section is gone. Every questions URL lands
@@ -12,7 +14,7 @@
 // Needs app-core.js.
 BoardView.part((B) => {
   const { $, plural, state, toast } = B;
-  const { esc, escText, promptItem, choiceLabel, isPrototype, getDraft, setDraft } = BoardUI;
+  const { esc, escText, promptItem, choiceLabel, isPrototype, getDraft, setDraft, noteOf, waitOn } = BoardUI;
 
   const prompts = PromptAnswers.wire(B, {
     list: () => (state.board?.needs || []).filter((line) => line.prompt).map((line) => line.prompt),
@@ -80,11 +82,17 @@ BoardView.part((B) => {
         html: `<h3>${line.key ? `<a href="${esc(line.url)}">${escText(title)}</a>` : escText(title)}</h3>${line.review ? '<p class="ctx">review held for you</p>' : ''}<div class="deck-acts"><a class="button primary" href="${esc(href)}"${attrs}>${esc(label)}</a></div>` }];
     });
   }
+  // The marked option, the question's drafted pick, reads Send “<label>”.
   const questionHtml = (q) => {
-    const picked = getDraft(q.id).choice;
+    const marked = getDraft(q.id).choice;
+    const optionHtml = (o) => {
+      const armed = o.id === marked;
+      const label = armed ? `Send “${esc(o.label)}”` : `${esc(choiceLabel(q, o.id))}${o.recommended ? ' <span class="rec-word">recommended</span>' : ''}`;
+      return `<button type="button" class="${[o.recommended && 'rec', armed && 'armed'].filter(Boolean).join(' ')}" aria-pressed="${armed}" data-deck-pick="${esc(o.id)}"><span class="lbl">${label}</span>${o.detail ? `<small>${escText(o.detail)}</small>` : ''}</button>`;
+    };
     return `<h3>${escText(q.question)}</h3>${q.context ? `<p class="ctx">${escText(q.context)}</p>` : ''}
     ${isPrototype(q.url) ? `<a class="button deck-proto" href="${esc(q.url)}">View prototypes</a>` : ''}
-    <div class="deck-opts" role="group" aria-label="${esc(q.question)}">${q.options.map((o) => `<button type="button" class="${o.recommended ? 'rec' : ''}" aria-pressed="${o.id === picked}" data-deck-pick="${esc(o.id)}"><span class="lbl">${esc(choiceLabel(q, o.id))}${o.recommended ? ' <span class="rec-word">recommended</span>' : ''}</span>${o.detail ? `<small>${escText(o.detail)}</small>` : ''}</button>`).join('')}</div>`;
+    <div class="deck-opts" role="group" aria-label="${esc(q.question)}">${q.options.map(optionHtml).join('')}</div>`;
   };
 
   // The thing on screen, by id, so an arrival or a repaint keeps it; once it is gone the deck shows what took its place.
@@ -120,10 +128,28 @@ BoardView.part((B) => {
     const opt = ev.target.closest('button[data-deck-pick]');
     if (!opt) return;
     const id = opt.closest('[data-deck]').dataset.deck.slice(2);
-    setDraft(id, { ...getDraft(id), choice: opt.dataset.deckPick });
-    showing = deck[stepFrom(1)].id;
-    renderNeeds(state.board);
+    const choice = opt.dataset.deckPick;
+    const draft = getDraft(id);
+    if (draft.choice !== choice) {
+      setDraft(id, { ...draft, choice });
+      renderNeeds(state.board);
+      return;
+    }
+    sendAnswer((state.board.owner || []).find((q) => q.id === id), choice, opt);
   });
+
+  // The marked option's tap sends it with the question's drafted note and files, as the questions page's Send does, and
+  // spins until the board shows the question answered, which takes it off the deck. Files still uploading hold it.
+  async function sendAnswer(q, choice, button) {
+    const composer = 'q:' + q.id;
+    if (BoardAttach.busy(composer, B.site.root)) { toast('Wait for the upload to finish'); return; }
+    const files = BoardAttach.files(composer, B.site.root);
+    const answer = { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: noteOf(q, getDraft(q.id)).trim(), ...(files.length ? { files } : {}) };
+    const sent = () => { setDraft(q.id, {}); BoardAttach.clear(composer, B.site.root); };
+    try {
+      await waitOn(button, BoardUI.pending.within(B.send('owner-answers', { answers: [answer] }, sent), B.stillWaiting));
+    } catch (e) { B.failed(e); }
+  }
 
   // From 900px, Waiting on you in the pane under the Needs you lines, mounted while the width lasts.
   let questions = null;
