@@ -1310,7 +1310,7 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     assert.match(pinged[2], /^event data\/events\.jsonl .*"kind":"item-message"/);
     // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
     const triage = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'tt1', ts: new Date().toISOString(), kind: 'overnight-triage', data: { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['w/A1', 'w/A2'] } }) + '\n');
-    assert.equal((await watch('triage', triage))[1], 'Overnight triage 2026-11-03 asked: 2 cards wait on your answers');
+    assert.equal((await watch('triage', triage))[1], 'Overnight triage 2026-11-03 asks Claude to reply: 2 cards wait on open questions; run the triage, then board.mjs reply tt1');
     assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events.tt1));
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));

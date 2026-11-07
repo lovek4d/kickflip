@@ -1407,7 +1407,7 @@ export const MAX_IMPLEMENTERS = 10;
 // writing ones in board order up to the free slots, the cap less the implementers and waiting. Every writing helper
 // requested comes ahead of the pull, so pulls lists the pullable cards not pulled that fit the slots the helpers leave
 // (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
-export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
+export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const counts = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes)
     && !(a.waits && agents.some((h) => h.name === a.waits && !h.done));
@@ -1420,7 +1420,7 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [] } = {}) {
   const free = Math.max(0, cap - implementers - waiting.length);
   const writing = requested.filter((h) => h.writes);
   const helpers = [...requested.filter((h) => !h.writes), ...writing.slice(0, free)].map(({ key, name }) => ({ key, name }));
-  const pulls = pullable.filter((k) => !waiting.includes(k)).slice(0, Math.max(0, free - writing.length));
+  const pulls = pullable.filter((k) => !waiting.includes(k) && !hold.includes(k)).slice(0, Math.max(0, free - writing.length));
   return { idle: !implementers && !open.some((i) => i.waitsOn === 'checking'), pullable, waiting, pulls, helpers };
 }
 
@@ -1661,6 +1661,10 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const picked = [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
   return { kind: wait.kind, since, picked, next: wait.next };
 }
+
+// An overnight triage the session hasn't replied to, as an orchestrator wait: key is the event id the reply names,
+// picked when the watcher marked the event working. Not tied to a card, so it sits after the cards' waits.
+export const triageWaitOf = (event, picked = null) => ({ key: event.id, ref: event.data.date, title: `Overnight triage ${event.data.date}`, kind: 'triage', since: event.ts, picked, next: `Run the overnight triage and reply: board.mjs reply ${event.id}` });
 
 // The cards idle on the orchestrator in a built board, lanes top-down: In Progress, then Todo, each in the board's order.
 // → [{key, ref, title, kind, since, picked, next}]

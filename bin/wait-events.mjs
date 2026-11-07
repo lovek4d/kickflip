@@ -106,7 +106,7 @@ const PLAIN = {
   'owner-answer': (e) => `answer received to question ${e.data?.id}`,
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
-  'overnight-triage': (e) => `Overnight triage ${e.data?.date} asked: ${e.data?.cards?.length} cards wait on your answers`,
+  'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${e.data?.cards?.length} cards wait on open questions; run the triage, then board.mjs reply ${e.id}`,
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle`,
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
   'orchestrator-waits': (e) => [e.data?.added?.length && `waiting on you now: ${e.data.added.join(', ')}`,

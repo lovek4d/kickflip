@@ -205,8 +205,9 @@
 //                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
 //                                end, an idle board with two or more cards waiting on open questions (domain.mjs
 //                                triageOf) gets overnight-triage {date, topic, cards} first, unless nothing changed
-//                                since the last triage, tracked in data/triaged.json; no pull goes out until Claude
-//                                replies to it
+//                                since the last triage, tracked in data/triaged.json; until Claude
+//                                replies to it the pull leaves the cards it names, to the end of quiet hours, and it is an
+//                                orchestrator wait of kind triage
 //                                With auto_review on, an idle board with nothing pulled sends pr-review {pr, head, repo,
 //                                title, author, url, touches, asked} for the next incoming PR the hub's poll listed in
 //                                data/incoming.json (../hub/incoming.mjs) and no review covers at its head, one at a
@@ -317,8 +318,8 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeHung, intakeStranded, INTAKE_TIMEOUT_AFTER, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
-import { localDay, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
+import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeHung, intakeStranded, INTAKE_TIMEOUT_AFTER, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
@@ -1468,7 +1469,7 @@ async function checkPickUps() {
 // free implementer slots with Todo's top ready cards (domain.mjs pullOf, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 // With Auto implement on, each card that arrived in Todo gets its grill, up to max_planners at once (launchArrivals).
 // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
-// board. A triage sent or under way holds the pull until its reply, and a card pulled and not yet started holds the
+// board. An unanswered triage holds only the cards it names, until quiet hours end, and a card pulled and not yet started holds the
 // review. None goes out while usage is paused or the Mac is busy, nor, near the line, while the last Claude start hasn't
 // reported its usage (shared/usage-gate.mjs launchHeld), each launch checking again (launchHeldNow), so near the line a
 // pass starts one agent; the minute check runs the jobs again once the hold lifts, since it lives outside the board's
@@ -1495,7 +1496,8 @@ async function runAuto() {
   const settings = settingsOf(await config());
   const log = await readLines(events);
   const { items, reviews } = await sharedBoard();
-  const { idle, pullable, waiting, pulls, helpers } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL) });
+  const hold = await triageHold(log);
+  const { idle, pullable, waiting, pulls, helpers } = pullOf(items, { cap: settings.max_implementers, pulled: await sentOf(PULL), hold });
   const gate = readUsageGate({ dir: here });
   if (boardPaused && gate.state !== 'paused') await appendEvent('usage-resumed', { window: 'manual' });
   boardPaused = gate.manual === 'board';
@@ -1509,7 +1511,9 @@ async function runAuto() {
   if (!heldByPause) await launchHelpers(helpers);
   await sortIntake();
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
-  if (await checkTriage(settings, log, items, ready)) return;
+  await checkTriage(settings, log, items, ready);
+  const held = pullable.filter((k) => hold.includes(k));
+  if (held.length) logCall({ call: 'pull', result: 'held', reason: 'An overnight triage waits for the session\'s reply and names these cards, so the pull leaves them until it is answered or quiet hours end.', inputs: { cards: held } });
   // Near the line the pull starts one card a pass, and none once another launch is waiting on its first reading.
   const pullNow = (gate) => (launchHeld(gate, 'claude') ? [] : gate.near && !gate.near.going ? pulls.slice(0, 1) : pulls);
   const startPull = async (key) => {
@@ -1969,8 +1973,8 @@ async function triageNight() {
 }
 
 // data/triaged.json {seen}: what the last triage saw (domain.mjs triageOf), kept current until that triage's reply so
-// its own merges and dedupes don't read as a change. The event log says when the last triage went out. → true while a
-// triage is under way or was just sent.
+// its own merges and dedupes don't read as a change. The event log says when the last triage went out. No new triage
+// goes out while the last has no reply.
 async function checkTriage(settings, log, items, ready) {
   const file = path.join(data, 'triaged.json');
   const marker = await readJSON(file, {});
@@ -1981,17 +1985,29 @@ async function checkTriage(settings, log, items, ready) {
     await fs.rename(file + '.tmp', file);
   };
   const last = log.filter((e) => e.kind === 'overnight-triage').at(-1);
-  if (last && !(await withReply(last)).reply) { if (marker.seen !== seen) await save(); return true; }
-  if (!settings.auto_triage || !ready || waiting.length < 2 || seen === marker.seen) return false;
+  if (last && !(await withReply(last)).reply) { if (marker.seen !== seen) await save(); return; }
+  if (!settings.auto_triage || !ready || waiting.length < 2 || seen === marker.seen) return;
   const date = await triageNight();
-  if (!date || last?.data?.date === date) return false;
+  if (!date || last?.data?.date === date) return;
   const topic = `overnight-triage-${date}`;
   const owner = await readJSON(path.join(data, 'owner.json'), { topics: [] });
   if (!(owner.topics || []).some((t) => t.id === topic)) await addTopic(here, { id: topic, title: `Overnight triage ${date}` });
   logCall({ call: 'triage', result: 'sent', reason: `Auto triage is on, ${waiting.length} cards wait on answers, and tonight's triage hadn't gone out.`, inputs: { date, cards: waiting } });
   await appendEvent('overnight-triage', { date, topic, cards: waiting });
   await save();
-  return true;
+}
+
+// The last overnight-triage event when the session hasn't replied to it, else null.
+async function unansweredTriage(log) {
+  const last = log.filter((e) => e.kind === 'overnight-triage').at(-1);
+  return last && !(await withReply(last)).reply ? last : null;
+}
+
+// The cards an unanswered overnight triage holds back from the pull: the ones it names, until quiet hours end.
+async function triageHold(log) {
+  const last = await unansweredTriage(log);
+  const quiet = quietOf(await readJSON(path.join(os.homedir(), '.claude', 'kickflip', 'settings.json'), {}));
+  return last && quietAt(new Date(), quiet) ? last.data.cards || [] : [];
 }
 
 // Whether the minute check runs the Auto jobs for an overnight triage: auto_triage is on, and tonight's hasn't gone out.
@@ -2109,10 +2125,12 @@ async function stepWaits() {
   const file = path.join(data, 'orchestrator-waits.json');
   const stored = await readJSON(file, null);
   const previous = stored?.waits || [];
-  const step = waitsStep(previous, orchestratorWaits(await sharedBoard()), new Date());
+  const triage = await unansweredTriage(await readLines(events));
+  const current = [...orchestratorWaits(await sharedBoard()), ...(triage ? [triageWaitOf(triage, routeRecord(await readWorking(here), triage.id))] : [])];
+  const step = waitsStep(previous, current, new Date());
   const waits = [];
   for (const w of step.waits) {
-    if (!w.picked && !w.pushed && Date.now() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
+    if (w.kind !== 'triage' && !w.picked && !w.pushed && Date.now() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
       await sendOwnPush({ kind: 'reminder', title: `${w.ref} waits on the orchestrator`, body: `${w.title}: ${w.next}`, url: `/${route}/#item=${encodeURIComponent(w.key)}`, tag: `wait-${w.key}`, now: true },
         { key: w.key, reason: `It has waited on the orchestrator since ${w.since} and nobody picked it up.`, inputs: { kind: w.kind, since: w.since } });
       waits.push({ ...w, pushed: true });
