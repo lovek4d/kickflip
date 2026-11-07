@@ -8,4 +8,6 @@ The owner (#360), verbatim: "Thread and open questions are still a bit tough to 
 - Removed from #325: the visualViewport dock (`kb-up`, `--keyboard`, `--keyboard-top`, `.docked`), the 26px header strip with "· typing", and the docked Questions bar and thread row.
 - Kept: nothing of #325 was independent of docking. The sheets' own keyboard fit (`--kb`, dialogs.js fitSheet) is separate and untouched.
 
+Amended by #423, the owner verbatim: "+ should fully hide when text fields are focused, not just dim. and only on mobile". Under 700px wide (the phone layout) `:root.typing .fab` is `display: none`; wider screens keep the dim and the disabled taps.
+
 Not checked on a phone.

@@ -2448,6 +2448,13 @@ test('while typing, only the floating + is disabled: no header strip or docked b
   assert.doesNotMatch(css, /kb-up|\.docked|--keyboard/);
 });
 
+// docs/adr/2026-11-07-0600-typing-only-disables-the-plus-button.md
+test('while typing on a phone the floating + is hidden, and on a wider screen it only dims', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\n:root\.typing \.fab \{ opacity: \.35; pointer-events: none; \}/);
+  assert.match(css, /@media \(max-width: 699px\) \{\s*:root\.typing \.fab \{ display: none; \}\s*\}/);
+});
+
 test('a ↗ written in a question, its context and its options draws as the arrow icon, never the character', () => {
   const q = { ...question, question: 'See Notes ↗ first?', context: 'Open take A↗︎ for more', options: [{ id: 'A', label: 'Notes ↗', detail: 'Open take B ↗' }, { id: 'B', label: 'Drop' }] };
   const html = ui.questionCard(q);
