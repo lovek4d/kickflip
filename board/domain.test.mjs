@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, visualsDue, intakeDue, intakeStranded, intakeHung, INTAKE_TIMEOUT_AFTER } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, visualsDue, intakeDue, intakeStranded, intakeHung, INTAKE_TIMEOUT_AFTER } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -300,6 +300,8 @@ test('a review gone stale waits on the orchestrator from the day it crossed seve
   assert.match(wait.next, /stale/i);
   const said = { 'w/A1': [{ ts: '2026-11-01T00:00:00Z', who: 'claude', text: 'Pinged Ann.' }] };
   assert.equal(waits(8, said)[0].picked, '2026-11-01T00:00:00Z');
+  // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md: a stale review re-wakes daily once picked up.
+  assert.deepEqual([wait.daily, waits(8, said)[0].daily], [true, true]);
 });
 
 test('a review waits with its age, and reads stale in In Review after a week', () => {
@@ -2576,9 +2578,10 @@ test("a Done card that had questions keeps its quiet Questions button, and a car
 });
 
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
-test('a wait still open re-wakes the session every 15 minutes until picked up, then hourly from an hour after pickup, in one batch per check', () => {
+test('a wait still open re-wakes the session every 15 minutes until picked up, then hourly from an hour after pickup (daily for a stale review), in one batch per check', () => {
   assert.equal(REWAKE_AFTER, 15 * 60000);
   assert.equal(PICKED_REWAKE_AFTER, 60 * 60000);
+  assert.equal(DAILY_REWAKE_AFTER, 24 * 60 * 60000);
   const base = Date.parse('2026-11-05T10:00:00Z');
   const at = (min) => new Date(base + min * 60000);
   const iso = (min) => at(min).toISOString();
@@ -2606,6 +2609,16 @@ test('a wait still open re-wakes the session every 15 minutes until picked up, t
   assert.deepEqual(keys(waitsStep(hour.waits, [picked], at(140)).again), ['w/A1']);
   assert.deepEqual(waitsStep([], [picked], at(21)), { waits: [{ ...picked, bumped: iso(21) }], added: [], again: [] }, 'one that joins picked up wakes nothing');
 
+  // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md: a daily wait (a stale review) re-wakes
+  // every 15 minutes until picked up, then once a day from its pickup; a change on its PR wakes the session by github-change.
+  const review = wait({ kind: 'stale', daily: true });
+  const reviewJoined = waitsStep([], [review], at(1)).waits;
+  assert.deepEqual(keys(waitsStep(reviewJoined, [review], at(16)).again), ['w/A1']);
+  const reviewPicked = wait({ kind: 'stale', daily: true, picked: iso(20) });
+  assert.deepEqual(waitsStep(reviewJoined, [reviewPicked], at(80)).again, [], 'not hourly');
+  assert.deepEqual(waitsStep(reviewJoined, [reviewPicked], at(20 + 1439)).again, []);
+  assert.deepEqual(keys(waitsStep(reviewJoined, [reviewPicked], at(20 + 1440)).again), ['w/A1']);
+
   // A new kind or since is a new wait: it joins, it doesn't re-wake.
   const anew = waitsStep(due.waits, [wait({ kind: 'ask', since: iso(40) })], at(41));
   assert.deepEqual([anew.added, anew.again], [['w/A1'], []]);
@@ -2630,6 +2643,9 @@ test('a builder whose launch the board holds for a usage pause is no wait on the
   const quiet = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z' } } };
   const built = (alive) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), alive, waves: [{ slug: 'w', agents: quiet, wave: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] });
   assert.deepEqual(orchestratorWaits(built()).map((w) => w.kind), ['stale']);
+  // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md: a stale run gets one restart, then a stall.
+  assert.match(orchestratorWaits(built())[0].next, /restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it/);
+  assert.equal(orchestratorWaits(built())[0].daily, undefined);
   const held = built({ 'w/A1': 'held' });
   assert.deepEqual(orchestratorWaits(held), []);
   const card = held.items.find((i) => i.key === 'w/A1');

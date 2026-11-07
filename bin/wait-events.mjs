@@ -111,6 +111,8 @@ const PLAIN = {
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
   'orchestrator-waits': (e) => [e.data?.added?.length && `waiting on you now: ${e.data.added.join(', ')}`,
     e.data?.again?.length && waitsAgainLine(e.data.again, Date.parse(e.ts))].filter(Boolean).join(' · '),
+  // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
+  'check-github': (e) => (e.data?.reason === 'morning' ? 'the daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any card stuck with no wait; a thread line on each card you act on, nothing else' : 'check-github received'),
   'review-answer': (e) => `${e.data?.answer === 'skip' ? 'skip' : 'post'} answered on the review of PR #${e.data?.pr}`,
 };
 const ON_CARD = {

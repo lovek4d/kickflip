@@ -32,6 +32,7 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   write(events, '');
   const add = (kind, data) => fs.appendFileSync(events, JSON.stringify({ id: kind, kind, ts: new Date().toISOString(), data }) + '\n');
   for (const kind of ['github-change', 'check-github', 'card-unblocked']) add(kind);
+  add('check-github', { reason: 'morning' });
   const start = () => {
     const child = spawn(process.execPath, [new URL('./wait-events.mjs', import.meta.url).pathname, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
     children.push(child);
@@ -65,8 +66,8 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.match(out.stdout, /Stay orange\?\nwaits calls A1 w\/A1 since 2026-11-04T10:00:00.000Z: Verify the builder's judgment calls\nwaits answer A2 w\/A2 bumped since 2026-11-04T10:05:00.000Z, picked up 2026-11-04T10:06:00.000Z: Act on the owner's answer\nrule hub /);
   assert.match(out.stdout, new RegExp(`rule hub Hub rule[^]*rule board Board rule[^]*setting auto-merge off[^]*\\nquiet [^\\n]*AskUserQuestion[^]*usage paused ${reset} five_hour 91%`));
   const saved = JSON.parse(fs.readFileSync(cursor, 'utf8'));
-  assert.equal(saved['data/events.jsonl'], 7);
-  assert.equal(saved.$usageHeld['data/events.jsonl'].length, 3);
+  assert.equal(saved['data/events.jsonl'], 8);
+  assert.equal(saved.$usageHeld['data/events.jsonl'].length, 4);
   const second = start();
   // The watcher writes its file in place, so a read can land between the truncate and the write.
   const watcherPid = () => { try { return JSON.parse(fs.readFileSync(watcher, 'utf8')).pid; } catch { return null; } };
@@ -77,6 +78,8 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   const resumed = await second.done;
   assert.deepEqual([resumed.code, resumed.stderr], [0, '']);
   for (const kind of ['github-change', 'check-github', 'card-unblocked']) assert.ok(resumed.stdout.includes(`"kind":"${kind}"`));
+  // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
+  assert.match(resumed.stdout, /"reason":"morning".*\nthe daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any card stuck with no wait; a thread line on each card you act on, nothing else$/m);
   assert.doesNotMatch(resumed.stdout, /item-message|usage paused/);
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$usageHeld, undefined);
 });

@@ -1675,8 +1675,11 @@ export function strictlyIdle(built, { pulled = [] } = {}) {
 // them (stale); a grill or prototype asked for with no planner of that kind running; a refusal by the pull; or a started
 // card with no live builder and nothing else placing it (unowned). since is when it began to wait, and picked when the
 // session first wrote on the card after that (waitFactsOf), or the watcher marked one of its events working, which the
-// card reads as Orchestrator review. → {kind, since, picked, next}, next saying what it waits for.
+// card reads as Orchestrator review. → {kind, since, picked, next, daily?}, next saying what it waits for, and daily on a
+// stale review, which re-wakes once a day after pickup (waitsStep).
 const STALL_NEXT = "item stall it with the reason when it can't go on";
+// docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
+const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
 const STAGING_NEXT = 'Judge the staged card: item set --state ready, or --state grilling or prototyping for another round';
 function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
@@ -1685,9 +1688,9 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
     : it.staging ? { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT }
     : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
     : ASKING.has(it.action?.kind) ? null
-    : it.builder?.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: start it again when it should run, or drop the card` }
-    : it.builder?.stale ? { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent or stopped, then restart or finish its run, or ${STALL_NEXT}` }
-    : it.lane === 'review' && it.stale ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), next: `Find out why the review went stale and fix what you can: rebase, CI, comments, a silent reviewer, or ${STALL_NEXT}` }
+    : it.builder?.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the card` }
+    : it.builder?.stale ? { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` }
+    : it.lane === 'review' && it.stale ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale and fix what you can: rebase, CI, comments; if only a reviewer owes it, a thread line naming who; or ${STALL_NEXT}` }
     : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
       : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }
     : it.grilling && facts.grillAt && !running('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }
@@ -1698,7 +1701,7 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   if (!wait?.since) return null;
   const since = String(wait.since);
   const picked = [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
-  return { kind: wait.kind, since, picked, next: wait.next };
+  return { kind: wait.kind, since, picked, next: wait.next, ...(wait.daily ? { daily: true } : {}) };
 }
 
 // An overnight triage the session hasn't replied to, as an orchestrator wait: key is the event id the reply names,
@@ -1720,11 +1723,14 @@ export const ORCHESTRATOR_PUSH_AFTER = 30 * 60000;
 // How long a wait nobody picked up goes between wakes, and how long a picked-up one that stays open goes, from its pickup.
 export const REWAKE_AFTER = 15 * 60000;
 export const PICKED_REWAKE_AFTER = 60 * 60000;
+// docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
+// How long a picked-up daily wait (a stale review) goes between wakes: a change on its PR wakes the session sooner, by github-change.
+export const DAILY_REWAKE_AFTER = 24 * 60 * 60000;
 // One check of the cards idle on the orchestrator, for the stored list (data/orchestrator-waits.json) and the current
 // waits (orchestratorWaits) at now: each entry carries bumped, its last wake, and keeps pushed. A wait joins the list when
 // its key, kind and since are new, and wakes the session then unless it is already picked up. After that it wakes again
 // once REWAKE_AFTER passes since its last wake (or its since, for an entry stored before bumped), and once picked up,
-// once PICKED_REWAKE_AFTER passes since the later of its pickup and its last wake.
+// once PICKED_REWAKE_AFTER (DAILY_REWAKE_AFTER for a daily wait) passes since the later of its pickup and its last wake.
 // → {waits, added: [key], again: [{key, ref, kind, since, next}]}
 export function waitsStep(previous, current, now) {
   const at = now.toISOString();
@@ -1737,7 +1743,7 @@ export function waitsStep(previous, current, now) {
       return { ...w, bumped: at };
     }
     const last = w.picked ? [w.picked, was.bumped].filter(Boolean).sort().pop() : was.bumped || w.since;
-    const due = now - Date.parse(last) >= (w.picked ? PICKED_REWAKE_AFTER : REWAKE_AFTER);
+    const due = now - Date.parse(last) >= (!w.picked ? REWAKE_AFTER : w.daily ? DAILY_REWAKE_AFTER : PICKED_REWAKE_AFTER);
     if (due) again.push({ key: w.key, ref: w.ref, kind: w.kind, since: w.since, next: w.next });
     return { ...w, bumped: due ? at : was.bumped || w.since, ...(was.pushed ? { pushed: true } : {}) };
   });
