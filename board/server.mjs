@@ -782,23 +782,28 @@ async function setupOf(links) {
 // (ui-cards.js holdPicker).
 const HOLD_CHOICES = CHOICES.map(([value, label]) => ({ value, label, ms: value === FOREVER ? null : durationEnd(new Date(0), value) - new Date(0) }));
 
-// What Board settings' Reviewers picks from: the workspace's Slack people and the board repo's GitHub collaborators.
-// A list that can't be fetched is null (Slack) or empty (GitHub, where a typed login still works), with the reason.
+// What Board settings' Reviewers picks from: the workspace's Slack people and the board repo's GitHub collaborators,
+// asked at once. A list that can't be fetched is null (Slack) or empty (GitHub, where a typed login still works), with the
+// reason; one that takes longer than PEOPLE_WAIT_MS is given up on the same way, so the answer comes before the hub's
+// proxy gives up on the board and the page reads that as a restart.
+const PEOPLE_WAIT_MS = Number(process.env.KICKFLIP_PEOPLE_WAIT_MS) || 12_000;
+const withinWait = (work, what) => Promise.race([work, new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} did not answer in time`)), PEOPLE_WAIT_MS).unref())]);
 async function reviewerPeople() {
   const out = { slack: null, github: [] };
   const slack = savedSlack();
-  if (!slack || slackStatus().refused) out.slackProblem = SLACK_NEEDS_TOKEN;
-  else {
-    try { out.slack = await slack.people(); }
-    catch (e) {
-      if (!(e instanceof SlackError)) throw e;
-      out.slackProblem = e.message === 'Slack: missing_scope' ? 'Slack needs the users:read scope; update the app on Hub settings › Slack.' : e.message;
-    }
-  }
   const repo = boardAt(here)?.github;
-  if (repo) {
-    try { out.github = await collaborators(repo); } catch (e) { out.githubProblem = `GitHub: ${e.message}`; }
+  const [slackAnswer, githubAnswer] = await Promise.allSettled([
+    !slack || slackStatus().refused ? Promise.resolve(null) : withinWait(slack.people(), 'Slack'),
+    repo ? withinWait(collaborators(repo), 'GitHub') : Promise.resolve([]),
+  ]);
+  if (!slack || slackStatus().refused) out.slackProblem = SLACK_NEEDS_TOKEN;
+  else if (slackAnswer.status === 'fulfilled') out.slack = slackAnswer.value;
+  else {
+    const e = slackAnswer.reason;
+    out.slackProblem = e.message === 'Slack: missing_scope' ? 'Slack needs the users:read scope; update the app on Hub settings › Slack.' : e.message;
   }
+  if (githubAnswer.status === 'fulfilled') out.github = githubAnswer.value;
+  else out.githubProblem = `GitHub: ${githubAnswer.reason.message}`;
   return out;
 }
 

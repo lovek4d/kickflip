@@ -1,7 +1,7 @@
 // Board Settings, a modal the app shell (shell.js) mounts over its board for /<route>/settings.html.
 // Saving reviewers sends a `reviewers` event {add: [{name, slack_user, github}], remove: [name]}; the server writes both
-// itself and the list redraws from its answer. Add picks a Slack member and a GitHub login from lists the server fetches
-// (GET api/reviewer-people), or a typed login, and stays off until both are chosen. Tickets save on each change, and Done, ✕,
+// itself and the list redraws from its answer. Add searches the Slack members the server fetches (GET api/reviewer-people), then
+// takes a GitHub login guessed from the name or typed, and stays off until a member and a login are there. Tickets save on each change, and Done, ✕,
 // Escape and the backdrop wait for that save to land before closing. An unsaved edit marks [data-dirty], and the shell
 // asks before closing the modal then. Sharing (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md)
 // lists the hub's GET /_hub/share/<route>, who it's shared with, each View or Full, and who was just refused, and saves
@@ -76,9 +76,9 @@
   <p class="muted small">Everyone here gets each PR link on this board once it's ready, and the weekday digest. Someone you add also gets the links of PRs already in review.</p>
   <div id="list"><p class="muted small">Loading…</p></div>
   <form class="add pick" id="addForm">
-    <div class="pick-col"><input id="slackFilter" placeholder="Slack member" autocomplete="off"><div id="slackPeople" class="pick-list"><p class="muted small">Loading…</p></div></div>
-    <div class="pick-col"><input id="githubFilter" placeholder="GitHub login" autocomplete="off"><div id="githubPeople" class="pick-list"><p class="muted small">Loading…</p></div></div>
-    <button type="submit" id="addBtn" disabled>Add</button>
+    <input id="slackFilter" placeholder="Search Slack members" autocomplete="off">
+    <div id="slackPeople" class="pick-list"><p class="muted small">Loading…</p></div>
+    <div class="login-row" id="loginRow" hidden><input id="githubFilter" placeholder="GitHub login" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="submit" id="addBtn" disabled>Add</button></div>
   </form>
   <p class="muted small" id="pickStatus" role="status"></p>
   <div class="row" style="margin-top:12px"><span class="muted small" id="saveStatus"></span><button class="primary" id="save" disabled>Save</button></div>
@@ -362,40 +362,72 @@
       render();
     });
 
-    // The pickers: tap a Slack member and a GitHub login (or type one), then Add stages them for Save.
-    let people = { slack: [], github: [] };
-    const picked = { slack: null, github: '' };
+    // The picker: search the Slack members and tap one, then the GitHub login field holds a guess from the name (or what
+    // the person types), and Add stages them for Save. people is null while loading, 'failed' once the list can't be read.
+    let people = null;
+    const picked = { slack: null };
     const fits = (text, filter) => text.toLowerCase().includes(filter.trim().toLowerCase());
-    function renderPick() {
-      const slackFilter = $('#slackFilter').value, githubFilter = $('#githubFilter').value.trim();
-      const taken = new Set([...current, ...add.keys()].map((n) => n.toLowerCase()));
-      const slack = (people.slack || []).filter((p) => fits(p.name, slackFilter) && !taken.has(p.name.toLowerCase()));
-      $('#slackPeople').innerHTML = people.slack ? slack.map((p) => `<button type="button" class="ghost" data-slack="${esc(p.id)}" data-name="${esc(p.name)}" aria-pressed="${picked.slack?.id === p.id}">${esc(p.name)}</button>`).join('') || '<p class="muted small">No one matches.</p>'
-        : `<p class="muted small">${esc(people.slackProblem || 'Slack members are not available.')} <a href="/_hub/settings">Hub settings</a></p>`;
-      const logins = people.github.filter((l) => fits(l, githubFilter));
-      const typed = githubFilter && !people.github.some((l) => l.toLowerCase() === githubFilter.toLowerCase()) ? [githubFilter] : [];
-      $('#githubPeople').innerHTML = [...typed, ...logins].map((l) => `<button type="button" class="ghost" data-github="${esc(l)}" aria-pressed="${picked.github === l}">${typed.includes(l) ? `Use ${esc(l)}` : esc(l)}</button>`).join('')
-        + (people.githubProblem ? `<p class="muted small">${esc(people.githubProblem)}</p>` : '');
-      $('#addBtn').disabled = !picked.slack || !picked.github;
+    const squash = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+    // The collaborator whose login is a plain spelling of the name: first+last, first, last, or first initial + last.
+    function guessLogin(name, logins) {
+      const words = name.toLowerCase().split(/\s+/).map(squash).filter(Boolean);
+      if (!words.length) return '';
+      const first = words[0], last = words.at(-1);
+      const spellings = [first + last, first, last, first[0] + last];
+      for (const spelling of spellings) {
+        const hit = logins.find((l) => squash(l) === spelling);
+        if (hit) return hit;
+      }
+      return '';
     }
-    get(site.url('api/reviewer-people'), waitIn('#slackPeople')).then(({ body }) => { if (!B.alive()) return; people = { github: [], ...body }; renderPick(); })
-      .catch(() => { if (B.alive()) $('#slackPeople').innerHTML = '<p class="muted small">Offline. Is the host awake?</p>'; });
+    const problem = (text) => `<p class="muted small problem">${esc(text)} <button type="button" class="ghost" data-retry>Retry</button></p>`;
+    function renderPick() {
+      const taken = new Set([...current, ...add.keys()].map((n) => n.toLowerCase()));
+      const list = $('#slackPeople');
+      $('#slackFilter').hidden = Boolean(picked.slack);
+      $('#loginRow').hidden = !picked.slack;
+      if (picked.slack) {
+        list.innerHTML = `<span class="chip">${esc(picked.slack.name)} <button type="button" class="ghost" data-unpick aria-label="Choose someone else">✕</button></span>`;
+        $('#pickStatus').textContent = people?.githubProblem ? `${people.githubProblem} Type their login.` : '';
+      } else if (people === 'failed') list.innerHTML = problem("Couldn't load the list.");
+      else if (!people) list.innerHTML = '<p class="muted small">Loading…</p>';
+      else if (!people.slack) list.innerHTML = `<p class="muted small">${esc(people.slackProblem || 'Slack members are not available.')} <a href="/_hub/settings">Hub settings</a></p>`;
+      else list.innerHTML = people.slack.filter((p) => fits(p.name, $('#slackFilter').value) && !taken.has(p.name.toLowerCase()))
+        .map((p) => `<button type="button" class="ghost" data-slack="${esc(p.id)}" data-name="${esc(p.name)}">${esc(p.name)}</button>`).join('') || '<p class="muted small">No one matches.</p>';
+      $('#addBtn').disabled = !picked.slack || !$('#githubFilter').value.trim();
+    }
+    function loadPeople() {
+      people = null;
+      renderPick();
+      // The wait says "Board restarting…" only when the hub marked a restart; any other wait leaves Loading… until the
+      // list arrives or the retries give out.
+      const wait = (ms, down) => { if (down?.state === 'restarting') $('#slackPeople').innerHTML = restartNotice(); };
+      get(site.url('api/reviewer-people'), wait).then(({ ok, body }) => { if (!B.alive()) return; people = ok ? { github: [], ...body } : 'failed'; renderPick(); })
+        .catch(() => { if (B.alive()) { people = 'failed'; renderPick(); } });
+    }
+    loadPeople();
     B.on($('#slackFilter'), 'input', renderPick);
     B.on($('#githubFilter'), 'input', renderPick);
     B.on($('#slackPeople'), 'click', (ev) => {
-      const b = ev.target.closest('button[data-slack]');
-      if (b) { picked.slack = { id: b.dataset.slack, name: b.dataset.name }; renderPick(); }
-    });
-    B.on($('#githubPeople'), 'click', (ev) => {
-      const b = ev.target.closest('button[data-github]');
-      if (b) { picked.github = b.dataset.github; renderPick(); }
+      const b = ev.target.closest('button');
+      if (!b) return;
+      if (b.dataset.retry !== undefined) { loadPeople(); return; }
+      if (b.dataset.unpick !== undefined) { picked.slack = null; $('#githubFilter').value = ''; renderPick(); return; }
+      if (!b.dataset.slack) return;
+      picked.slack = { id: b.dataset.slack, name: b.dataset.name };
+      $('#githubFilter').value = guessLogin(picked.slack.name, people.github);
+      renderPick();
+      $('#pickStatus').textContent = $('#githubFilter').value ? 'Guessed from their name. Change it if it is wrong.' : $('#pickStatus').textContent;
+      $('#githubFilter').focus?.();
     });
     B.on($('#addForm'), 'submit', (ev) => {
       ev.preventDefault();
-      if (!picked.slack || !picked.github) return;
-      add.set(picked.slack.name, { name: picked.slack.name, slack_user: picked.slack.id, github: picked.github });
-      picked.slack = null; picked.github = '';
+      const github = $('#githubFilter').value.trim();
+      if (!picked.slack || !github) return;
+      add.set(picked.slack.name, { name: picked.slack.name, slack_user: picked.slack.id, github });
+      picked.slack = null;
       $('#slackFilter').value = ''; $('#githubFilter').value = '';
+      $('#pickStatus').textContent = '';
       renderPick();
       render();
     });

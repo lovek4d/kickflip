@@ -503,7 +503,7 @@ test("Board Settings' Build target lists the repo's build scripts with a default
 });
 
 // docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md
-test("Board Settings' reviewers Add picks a Slack member and a GitHub login, stays off until both are chosen, and Save sends the person and draws the server's list", async () => {
+test("Board Settings' reviewers Add searches one list of Slack members, guesses the GitHub login from the name, stays off until a login is there, and Save sends the person and draws the server's list", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
   const sent = [];
@@ -541,11 +541,11 @@ test("Board Settings' reviewers Add picks a Slack member and a GitHub login, sta
   assert.doesNotMatch(root.querySelector('#slackPeople').innerHTML, />Bob</, 'someone already a reviewer is not offered');
   assert.equal(addBtn.disabled, true);
   tap('#slackPeople', 'slack', 'U3', { name: 'Cy Doe' });
-  assert.equal(addBtn.disabled, true, 'a Slack member alone is not enough');
-  root.querySelector('#githubFilter').value = 'newbie';
+  assert.equal(addBtn.disabled, true, 'a Slack member with no guessable login is not enough');
+  assert.match(root.querySelector('#slackPeople').innerHTML, /Cy Doe/, 'the chosen member shows as a chip');
+  assert.equal(root.querySelector('#githubFilter').value, '', 'cy-gh is no spelling of Cy Doe');
+  root.querySelector('#githubFilter').value = 'cy-gh';
   page.fire(root.querySelector('#githubFilter'), 'input');
-  assert.match(root.querySelector('#githubPeople').innerHTML, /Use newbie/);
-  tap('#githubPeople', 'github', 'cy-gh');
   assert.equal(addBtn.disabled, false);
   page.fire(root.querySelector('#addForm'), 'submit');
   assert.match(list.innerHTML, /Cy Doe[^]*new[^]*github: cy-gh/);
@@ -559,6 +559,35 @@ test("Board Settings' reviewers Add picks a Slack member and a GitHub login, sta
   await saveNow();
   assert.equal(status.textContent, 'this board has no reviewer "Bob"');
   assert.equal(save.disabled, false, 'a refused Save keeps what was staged');
+  view.unmount();
+});
+
+// docs/adr/2026-11-07-1200-the-reviewer-picker-searches-one-list-and-says-what-it-waits-on.md
+test("Board Settings' reviewer picker guesses a login from the Slack name, and says Couldn't load with Retry, never Board restarting, when the board answers with errors", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  let failing = true;
+  page.win.fetch = async (url) => {
+    if (url.endsWith('/api/reviewer-people') && failing) return { ok: false, status: 502, headers: { get: () => null }, text: async () => 'bad gateway', json: async () => { throw new Error('no'); } };
+    const body = url.endsWith('/api/board') ? { reviewers: [], reviewerGithub: {} }
+      : url.endsWith('/api/reviewer-people') ? { slack: [{ id: 'U5', name: 'Grace Hopper' }], github: ['ghopper', 'zed'] } : {};
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  page.win.BoardUI.fetchJSON = ((real) => (url, opts = {}) => real(url, { ...opts, limit: url.endsWith('/api/reviewer-people') ? 0 : opts.limit }))(page.win.BoardUI.fetchJSON);
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick(); await tick();
+  const people = root.querySelector('#slackPeople');
+  assert.match(people.innerHTML, /Couldn(&#39;|')t load the list/);
+  assert.match(people.innerHTML, /data-retry/);
+  assert.doesNotMatch(root.innerHTML, /Board restarting/);
+  failing = false;
+  page.fire(people, 'click', { target: { closest: () => ({ dataset: { retry: '' } }) } });
+  await tick(); await tick();
+  assert.match(people.innerHTML, /Grace Hopper/);
+  page.fire(people, 'click', { target: { closest: () => ({ dataset: { slack: 'U5', name: 'Grace Hopper' } }) } });
+  assert.equal(root.querySelector('#githubFilter').value, 'ghopper', 'first initial and last name match a collaborator');
+  assert.equal(root.querySelector('#addBtn').disabled, false);
   view.unmount();
 });
 
