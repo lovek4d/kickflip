@@ -13,6 +13,16 @@ test('at phone width every box in the stage is capped to the stage, so a fixed-w
   assert.match(read('prototype.html'), /@media \(max-width: 599px\) \{\s*#stage :where\([^)]*div[^)]*\)[^{]*\{[^}]*max-width: 100%[^}]*min-width: 0/);
 });
 
+test('under 900px the viewer bar is a full-width footer on the bottom edge, and the page above it ends at the footer\'s measured height', () => {
+  const css = read('prototype-switcher.js').match(/@media \(max-width: 899px\) \{.*?\n\}/s)?.[0] ?? '';
+  assert.match(css, /\.ps-switch \{[^}]*left:0; right:0; bottom:var\(--app-bottom, 0px\)/);
+  assert.match(css, /\.ps-pill \{[^}]*border-radius:0/);
+  assert.match(read('prototype-switcher.js'), /setProperty\('--ps-footer-h'/);
+  const page = read('prototype.html');
+  assert.match(page, /@media \(max-width: 899px\) \{\s*main\.proto-main \{[^}]*var\(--ps-footer-h, 150px\)/);
+  assert.match(page, /\.kit-served \{ height: calc\(100dvh - 60px - var\(--ps-footer-h, 150px\)/);
+});
+
 test('the viewer note field is at least 16px, so iOS Safari does not zoom on focus', () => {
   const rule = read('prototype-switcher.js').match(/\.ps-switch \.ps-text \{[^}]*\}/)?.[0] ?? '';
   const px = Number(rule.match(/font:\s*\d+\s+(\d+)px/)?.[1]);

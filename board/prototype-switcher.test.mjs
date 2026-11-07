@@ -115,11 +115,12 @@ function prototypePage(url, { framed = false, owner, resolved = [], drafts = {},
   const u = new URL(url);
   const win = {
     URL, URLSearchParams, Map, Set, JSON,
+    ResizeObserver: class { observe() {} },
     location: { href: u.href, search: u.search, replace: (to) => moves.push(['load', String(to)]) },
     history: { replaceState: (...args) => replacements.push(args) },
     localStorage: storage(Object.fromEntries(Object.entries(drafts).map(([id, d]) => ['qdraft:' + id, JSON.stringify(d)]))),
     sessionStorage: storage(),
-    document: { getElementById: () => null, head: { insertAdjacentHTML: (_, html) => { styles += html; } }, body: { append: (el) => controls.push(el) }, documentElement: { classList: { add: (name) => classes.push(name) } },
+    document: { getElementById: () => null, head: { insertAdjacentHTML: (_, html) => { styles += html; } }, body: { append: (el) => controls.push(el) }, documentElement: { style: { setProperty() {} }, classList: { add: (name) => classes.push(name) } },
       createElement: el, querySelector: (sel) => (sel === 'header.top a.back' ? backLink : null), addEventListener: (type, fn) => listeners.push({ target: 'document', type, fn }) },
     fetch: async (to) => { fetches++; asked.push(String(to)); return { json: async () => (/api\/questions/.test(to) ? { questions: resolved } : { owner, ownerTopics: topics, items: [{ key: 'w/A1', ref: 'INT-1', questions: { topic: 'item:w/A1' }, prototypes: rounds && { open: false, rounds } }] }) }; },
     ClaudeSite: { url: (p) => new URL(p, 'https://mac.ts.net/orch/').href, send: async (kind, data) => { sent.push([kind, data]); return {}; } },

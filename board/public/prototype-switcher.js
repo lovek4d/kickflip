@@ -123,6 +123,14 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-picked { padding:12px 11px; border-radius:999px; color:#fff; background:#1f9d55; white-space:nowrap; }
 .ps-note { background:#000d; color:#fff; border-radius:8px; padding:5px 10px; font:500 12px -apple-system, system-ui, sans-serif; text-align:center; }
 .ps-note[hidden] { display:none; }
+@media (max-width: 899px) {
+  .ps-switch { left:0; right:0; bottom:var(--app-bottom, 0px); align-items:stretch; gap:0; background:#202026; border-top:1px solid #fff3;
+    padding:6px 6px calc(6px + env(safe-area-inset-bottom)); box-sizing:border-box; }
+  .ps-switch > * { max-width:none; }
+  .ps-pill { width:auto; background:transparent; border:0; border-radius:0; padding:0; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  .ps-switch .ps-text { width:auto; margin-bottom:6px; }
+  .ps-note { margin-bottom:6px; }
+}
 @media (min-width: 900px) {
   .ps-pill { width:min(640px, 100%); }
   .ps-switch .ps-text { width:min(640px, 100%); }
@@ -150,6 +158,8 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     box.innerHTML = '<div class="ps-note" role="status" hidden></div><textarea class="ps-text" rows="2" placeholder="Note with your pick (optional)" aria-label="Note with your pick" hidden></textarea><div class="ps-pill"></div>';
     if (above) box.prepend(above);
     document.body.append(box);
+    // The phone footer's height, so the page above it ends where it starts (prototype.html reads --ps-footer-h).
+    new ResizeObserver(() => document.documentElement.style.setProperty('--ps-footer-h', `${box.offsetHeight}px`)).observe(box);
     const pill = box.querySelector('.ps-pill');
     const noteEl = box.querySelector('.ps-note');
     const text = box.querySelector('.ps-text');
