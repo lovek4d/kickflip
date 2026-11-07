@@ -4262,6 +4262,23 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'sent 1 answer · 2 still open', hash: '#q1' });
 });
 
+test('on a phone, two taps on a pill open its card on the board, one tap only picks the topic, and the pill reads the whole title', async () => {
+  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: '#422: Open-items pills' }],
+    questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T2')], at: 'q1' });
+  await v.settle();
+  const opened = [];
+  v.page.win.AppShell = { open: (href) => { opened.push(href); return true; } };
+  const pill = (id) => v.root.querySelector(`button[data-topic="${id}"]`);
+  assert.deepEqual([pill('item:w/T1').querySelector('.name').textContent, pill('item:w/T2').querySelector('.name').textContent], ['INT-1: Search', '#422: Open-items pills']);
+  v.page.fire(v.root, 'click', { target: pill('item:w/T2') });
+  await v.settle();
+  assert.deepEqual(opened, [], 'one tap only picks the topic');
+  v.page.fire(v.root, 'click', { target: pill('item:w/T2') });
+  assert.equal(opened.length, 1);
+  assert.match(opened[0], /\/#item=w%2FT2$/);
+});
+
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
 test("Waiting on you loads a topic's resolved questions only once the topic shows, and its Send draws from the POST's board with no reload of its own", async () => {
   const question = (id, topic, state = 'open') => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state });
@@ -5667,7 +5684,7 @@ test("on a phone the board header's ? carries the open-question count as a badge
   b.view.unmount();
 });
 
-test("on a desktop, double-clicking a pill in the pane opens that topic's card on the board and scrolls to it, a wave topic opens its band, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
+test("on a desktop, tapping a pill twice in the pane opens that topic's card on the board and scrolls to it, a wave topic opens its band, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
   const idle = { running: false, questions: 0 };
   const band = { kind: 'lineup', slug: 'alpha', title: 'Alpha', goal: null, keys: ['w/T1'], phases: [['w/T1']], next: null, merged: 0, total: 1, triage: idle };
   const board = { ...deckBoard([deckQuestion('q1', 'item:w/T1'), deckQuestion('q2', 'wave:alpha'), deckQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')], waveBands: [band] };
@@ -5675,7 +5692,7 @@ test("on a desktop, double-clicking a pill in the pane opens that topic's card o
   await wide.settle();
   const scrolled = [];
   wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.band || this.dataset.topic); };
-  const dbl = async (id) => { wide.page.fire(wide.root, 'dblclick', { target: wide.root.querySelector(`#needsPane button[data-topic="${id}"]`) }); await wide.settle(); };
+  const dbl = async (id) => { const target = wide.root.querySelector(`#needsPane button[data-topic="${id}"]`); const slot = wide.root.querySelector('#needsPane .needs-questions'); wide.page.fire(slot, 'click', { target }); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
   await dbl('item:w/T1');
   assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#item=w%2FT1', true, 'w/T1'], 'a card topic opens its card');
   scrolled.length = 0;

@@ -663,7 +663,8 @@ main > * { transition: opacity .25s ease; }
 .view-questions .q details > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .view-questions .topics { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 8px; margin-bottom: 4px; }
 .view-questions .topics button { min-width: 0; border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 13px;
-  background: var(--panel); color: var(--text); white-space: normal; text-align: left; overflow-wrap: anywhere; }
+  background: var(--panel); color: var(--text); display: inline-flex; max-width: 100%; text-align: left; }
+.view-questions .topics .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .view-questions .topics button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 .view-questions .topics button.progress { border-color: var(--line); background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); }
 .view-questions .topics button.progress[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--color-notice) 12%, var(--accent-soft)); }

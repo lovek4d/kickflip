@@ -876,9 +876,9 @@ test("a resolved question keeps Claude's reply under the note, and one with no a
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it' }), /class="ans/);
 });
 
-test('a topic pill is named by the card id its title starts with, else by its whole title', () => {
-  assert.deepEqual(['INT-92: Hub home rows', 'B5: Lane chips', 'Release plan', 'INT-92 without a colon', 'Other'].map((title) => ui.topicName({ title })),
-    ['INT-92', 'B5', 'Release plan', 'INT-92 without a colon', 'Other']);
+test('a topic pill reads its whole title, a Linear and a GitHub card alike', () => {
+  const titles = ['INT-92: Hub home rows', 'B5: Lane chips', '#422: Open-items pills', 'Release plan'];
+  assert.deepEqual(titles.map((title) => ui.topicName({ title })), titles);
 });
 
 test('an ask topic pill reads the time it appeared, not its title', () => {
@@ -891,7 +891,7 @@ test("a card's topic, which the board sends with no title, takes its name from i
   const cards = [{ key: 'w/B5', kind: 'work', ref: 'B5', title: 'Lane chips' }, { key: 'ask:e1', kind: 'ask', ref: 'New', title: 'Fix it', ask: { askedAt: at.toISOString() } }];
   const named = ui.cardTopics([{ id: 'item:w/B5', card: 'w/B5', open: 1 }, { id: 'item:ask:e1', card: 'ask:e1', open: 1 }, { id: 'plan', title: 'Release plan' }, { id: 'item:w/Z', card: 'w/Z', title: 'Z9: Archived' }], cards);
   assert.deepEqual(plain(named.map((t) => [t.title, t.summary ?? null, ui.topicName(t)])),
-    [['B5: Lane chips', null, 'B5'], ['New: Fix it', null, ui.cardTime(at.toISOString())], ['Release plan', null, 'Release plan'], ['Z9: Archived', null, 'Z9']]);
+    [['B5: Lane chips', null, 'B5: Lane chips'], ['New: Fix it', null, ui.cardTime(at.toISOString())], ['Release plan', null, 'Release plan'], ['Z9: Archived', null, 'Z9: Archived']]);
 });
 
 test('the topic row shows only topics with an open question, the current one kept, and the rest wait on Claude', () => {

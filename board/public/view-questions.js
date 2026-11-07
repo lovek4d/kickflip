@@ -85,7 +85,7 @@
       return `<div class="topics" role="group" aria-label="Topics">${list.map((t) => pillHtml(t)).join('')}</div>`;
     }
     // An arrival (arrive) slides in with a glow and settles (style.css .arrived).
-    const pillHtml = (t, arrived = false) => `<button class="${arrived ? 'arrived ' : ''}${t.progress ? 'progress' : ''}" data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}">${esc(topicName(t))}<span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
+    const pillHtml = (t, arrived = false) => `<button class="${arrived ? 'arrived ' : ''}${t.progress ? 'progress' : ''}" data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}"><span class="name">${esc(topicName(t))}</span><span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
     const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
 
     // Only open questions changed here since their last answer, with files attached, reopened with a pick, or with a
@@ -150,10 +150,12 @@
       updateBar();
     }
 
+    // A toast names a topic by its card's ref, the title up to its colon; an ask by its time.
+    const toastName = (t) => (t.askedAt ? topicName(t) : String(t.title).match(/^(\S+):/)?.[1] || t.title);
     // The topic a tap on this page acts for, the pills before it and its name, which moveOn reads once it is recorded.
     function leaving() {
       const from = soloId ? topicOf(soloId)?.id : topicId;
-      return { from, pills: topicRow(topics, from).pills, name: topicName(topics.find((t) => t.id === from) || { title: '' }) };
+      return { from, pills: topicRow(topics, from).pills, name: toastName(topics.find((t) => t.id === from) || { title: '' }) };
     }
     // After a recorded tap: a load that started before it went out would read its question as still open.
     // `footer` is a line or, for a Send, a function of the reloaded board giving the whole line.
@@ -364,6 +366,14 @@
       scroll(0);
     }
 
+    let lastTap = { id: null, at: 0 };
+    // item:<key> is a card, wave:<slug> a band. Embedded, the board is beside the pane; alone, it is the page before this one.
+    function openOnBoard(id) {
+      if (ctx.embedded) return ctx.openOnBoard(id);
+      if (!id.startsWith('item:')) return;
+      const href = new URL(`./#item=${encodeURIComponent(id.slice(5))}`, location.href).href;
+      if (!AppShell.open(href)) location.assign(href);
+    }
     B.on(root, 'click', (ev) => {
       if (ev.target.id === 'showAll') { soloId = null; sentLine = ''; shown = ''; render(); return; }
       const eye = ev.target.closest && ev.target.closest('[data-proto]');
@@ -372,6 +382,10 @@
       if (reopenBadge) { if (!reopenBadge.disabled) reopen(byId(reopenBadge.dataset.reopen), reopenBadge); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) {
+        // Two taps on one pill within 300ms open its card on the board; a touch screen sends no dblclick.
+        const now = Date.now();
+        if (lastTap.id === b.dataset.topic && now - lastTap.at < 300) { lastTap = { id: null, at: 0 }; openOnBoard(b.dataset.topic); return; }
+        lastTap = { id: b.dataset.topic, at: now };
         soloId = null; setTopic(b.dataset.topic); sentLine = ''; shown = '';
         const first = topics.find((t) => t.id === topicId)?.questions[0];
         if (first) setHash(first);

@@ -129,8 +129,8 @@
       ${answerHistory(q, links)}
     </section>`;
   }
-  // A card's pill is its ID, or for an ask (item:ask:<id>) the time it appeared; other topics keep their title.
-  const topicName = (t) => (t.askedAt ? BoardUI.cardTime(t.askedAt) : (String(t.title).match(/^([A-Z]+-\d+|[A-Z]\d+):/) || [])[1] || t.title);
+  // A pill reads its topic's title, a card's being its ref then its title, whichever tracker it comes from; an ask (item:ask:<id>) reads the time it appeared.
+  const topicName = (t) => (t.askedAt ? BoardUI.cardTime(t.askedAt) : t.title);
   // /api/board's ownerTopics, each card's topic named from its card, which the board sends in its place while the card
   // is on the board (board/server.mjs pageBoard). cards: the board's items.
   function cardTopics(topics, cards) {

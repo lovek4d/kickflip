@@ -6,7 +6,7 @@
 // - from 900px, #waiting, one line each, in the pane beside the lanes, over Waiting on you mounted there
 //   (view-questions.js, embedded) while the width lasts. Waiting on you shows the questions there, so #waiting leaves out
 //   a line that only asks questions, and with nothing else left the orange section is gone. Every questions URL lands
-//   here at that width (shell.js go, focusQuestion), and a pill's double-click focuses its card on the board
+//   here at that width (shell.js go, focusQuestion), and two taps on a pill focus its card on the board
 //   (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md).
 // Below 900px the header's ? opens Waiting on you, with the open-question count as its badge.
 // Needs app-core.js.
@@ -127,13 +127,19 @@ BoardView.part((B) => {
 
   // From 900px, Waiting on you in the pane under the Needs you lines, mounted while the width lasts.
   let questions = null;
+  // Two taps on a pane pill focus its topic on the board: item:<key> is a card (an ask is one, ask:<id>),
+  // wave:<slug> a band; any other topic, or one the board doesn't show, does nothing.
+  function openOnBoard(id) {
+    if (id.startsWith('item:')) B.focusOnBoard({ key: id.slice(5) });
+    else if (id.startsWith('wave:')) B.focusOnBoard({ slug: id.slice(5) });
+  }
   function fitPane() {
     if (wide.matches === Boolean(questions)) return;
     if (state.board) renderNeeds(state.board);
     if (questions) { questions.unmount(); questions.slot.remove(); questions = null; return; }
     $('#needsPane').insertAdjacentHTML('beforeend', `<div class="view-questions needs-questions">${AppViews.questions.markup({ embedded: true })}</div>`);
     const slot = $('#needsPane .needs-questions');
-    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true }), { slot });
+    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, openOnBoard }), { slot });
     questions.mount();
   }
   // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question
@@ -147,15 +153,6 @@ BoardView.part((B) => {
     pill?.scrollIntoView({ block: 'nearest' });
     return true;
   }
-  // A double-click on a pane pill focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>),
-  // wave:<slug> a band; any other topic, or one the board doesn't show, does nothing.
-  B.on(B.root, 'dblclick', (ev) => {
-    const pill = questions && ev.target.closest?.('button[data-topic]');
-    if (!pill || !questions.slot.contains(pill)) return;
-    const id = pill.dataset.topic;
-    if (id.startsWith('item:')) B.focusOnBoard({ key: id.slice(5) });
-    else if (id.startsWith('wave:')) B.focusOnBoard({ slug: id.slice(5) });
-  });
   fitPane();
   B.on(wide, 'change', fitPane);
   B.atUnmount(() => { questions?.unmount(); questions = null; });
