@@ -1635,7 +1635,7 @@ test('a staging card stays in Todo waiting on the orchestrator, and is neither p
   const b = buildBoard({ fromWaves: false, now: Date.parse(at(30)), waves: [{ slug: 'w', wave: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
   assert.deepEqual([card('S1').lane, card('S1').staging, card('S1').ready, card('S1').next, card('S1').stagedAt], ['todo', true, false, null, at(1)]);
-  assert.deepEqual(card('S1').orchestrator, { kind: 'staging', since: at(1), picked: null, next: 'Judge the staged card: item set --phase ready, or --phase grilling or prototyping for another round' });
+  assert.deepEqual(card('S1').orchestrator, { kind: 'staging', since: at(1), picked: null, next: 'Judge the staged card against the whole board: item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round' });
   assert.deepEqual([card('R1').staging, card('R1').ready, card('R1').orchestrator], [false, true, null]);
   assert.deepEqual(pullOf(b.items).pullable, ['w/R1']);
   assert.equal('starts' in pullOf(b.items), false);
@@ -2738,4 +2738,15 @@ test("a run gone silent reads stale and waits on the orchestrator; one the orche
   const review = buildBoard({ now: Date.parse('2026-11-06T00:00:00Z'), topicItems: sent, prs: { 'o/r#7': { ...greenDraft, isDraft: false } }, waves: [{ slug: 'w', wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }],
     items: [{ id: 'A1', title: 'One', pr: 7, lane: 'review', stalled: { reason: 'Ann left', at: '2026-11-05T00:00:00Z' } }] } }] });
   assert.deepEqual([card(review).lane, card(review).stalled, card(review).action.kind, card(review).orchestrator], ['review', 'Ann left', 'stalled', null]);
+});
+
+// docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
+test("a finished grill's screened questions are the card's screen wait, ahead of any other, and a card with none has no screen wait", () => {
+  const since = '2026-11-07T10:00:00.000Z';
+  const items = [{ id: 'A1', title: 'One', state: 'grilling' }, { id: 'A2', title: 'Two', state: 'grilling' }];
+  const built = (screening) => buildBoard({ fromWaves: false, now: Date.parse('2026-11-07T10:05:00Z'), waves: [{ slug: 'w', agents: {}, wave: { items } }], events: [], screening });
+  assert.deepEqual(orchestratorWaits(built({ 'w/A1': { since, ids: ['q1', 'q-gate'] } })).map(({ key, kind, since: s, picked, next }) => [key, kind, s, picked, next]),
+    [['w/A1', 'screen', since, null, "Screen the grill's questions q1, q-gate: question settle <id> --note for each the board already answers, then question publish w/A1; left 15 minutes unscreened, they reach the owner as they are"]]);
+  assert.deepEqual(orchestratorWaits(built({})), []);
+  assert.deepEqual(orchestratorWaits(built(undefined)), []);
 });

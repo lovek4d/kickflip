@@ -1254,6 +1254,7 @@ export function buildBoard(snapshot) {
     delete it.waitFacts;
   }
   intakeWaits(items, events);
+  screenWaits(items, snapshot.screening || {});
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
 
@@ -1584,6 +1585,16 @@ function intakeWaits(items, events) {
   }
 }
 
+// docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
+// The orchestrator's wait on each card whose finished grill left questions for it to screen (store.mjs readScreening,
+// {<key>: {since, ids}}), on its card's item as orchestrator, ahead of any other wait the card has.
+function screenWaits(items, screening) {
+  for (const it of items) {
+    const s = routeRecord(screening, it.key);
+    if (s) it.orchestrator = { kind: 'screen', since: s.since, picked: null, next: `Screen the grill's questions ${s.ids.join(', ')}: question settle <id> --note for each the board already answers, then question publish ${it.key}; left 15 minutes unscreened, they reach the owner as they are` };
+  }
+}
+
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
 // For built items: the Todo a triage looks at, one line per Todo card, with its key, title and deps, sorted, so a card
 // added, dropped, renamed or relinked changes it. '' when Todo is empty.
@@ -1714,7 +1725,7 @@ export function strictlyIdle(built, { pulled = [] } = {}) {
 const STALL_NEXT = "item stall it with the reason when it can't go on";
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
-const STAGING_NEXT = 'Judge the staged card: item set --phase ready, or --phase grilling or prototyping for another round';
+const STAGING_NEXT = 'Judge the staged card against the whole board: item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round';
 function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;

@@ -129,10 +129,10 @@ test('item set --phase sets ready, grilling or prototyping, with --from-ask too,
   write(at('waves', 'w', 'wave.json'), named);
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a ready card's Next never asks to mark it ready.
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'Mark ready').code, 0);
-  const refused = board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small');
+  const refused = board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small', '--text', 'Checked.');
   assert.deepEqual(refused, { code: 1, out: '', err: 'w/A1 would read ready with Next "Mark ready", which asks for the phase it is already in; pass --next with what happens next, or --clear-next\n' });
   assert.equal(state(), 'staging');
-  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small', '--clear-next').code, 0);
+  assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small', '--clear-next', '--text', 'Checked.').code, 0);
   assert.equal(state(), 'ready');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'mark it ready').code, 1);
 });
@@ -162,8 +162,8 @@ test('ready refuses a card without a size, without a notes file, or whose notes 
   write(at('waves', 'w', 'wave.json'), wave);
   fs.chmodSync(notesOf('A1'), 0o644);
   fs.appendFileSync(notesOf('A1'), '\n- q1: keep it.\n');
-  const ready = board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready');
-  assert.equal(ready.code, 0);
+  const ready = board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--text', 'Checked.');
+  assert.equal(ready.code, 0, ready.err);
   assert.match(ready.out, /resolved: q1/);
   assert.equal(state(), 'ready');
   assert.ok(read(site('orch', 'data', 'owner.json')).items.find((q) => q.id === 'q1').resolved);

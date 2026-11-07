@@ -365,6 +365,9 @@ test("question add on a card with a planner running stages its questions; the pl
   assert.equal(add('q1').code, 1);
   assert.equal(add('q3').code, 0);
   assert.equal(board('--site', 'orch', 'builder', 'done', 'w/A1', '--next', 'x').code, 0);
+  // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md: a grill's wait on the orchestrator first.
+  assert.deepEqual(read(owner).items, []);
+  assert.equal(board('question', 'publish', 'w/A1', '--site', 'orch').code, 0);
   assert.deepEqual(read(owner).items.map((q) => q.id), ['q1', 'q2', 'q3']);
   assert.equal(new Set(read(owner).items.map((q) => q.asked_at)).size, 1);
   assert.match(add('q4').out, /added/);

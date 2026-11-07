@@ -248,6 +248,7 @@ const KNOWN = {
   'board/store.mjs askNotNew': 'a list of the cards an ask became, read only',
   'board/store.mjs reviewDigest': "a reviewer's list of PRs",
   'board/store.mjs publishQuestions': "owner.json's questions",
+  'board/store.mjs settleQuestion': "owner.json's questions: a screened one, settled",
   'board/store.mjs restoreArchived': 'an archived card and its questions back, with the ticket they had',
   'board/domain.mjs buildBoard': 'the board view, read only',
   'board/server.mjs thread': "an archived card's questions read beside owner.json's, read only",

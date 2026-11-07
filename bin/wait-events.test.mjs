@@ -55,15 +55,15 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   add('builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Stay orange?' });
   const out = await first.done;
   assert.deepEqual([out.code, out.stderr], [0, '']);
-  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread$/m);
+  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread: reply in its thread$/m);
   // docs/adr/2026-11-07-0700-staging-then-ready.md
-  assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: it is staging, the message in its notes; judge it, then item set --phase ready, or --phase grilling or prototyping$/m);
+  assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping$/m);
   // A builder's ask wakes the session while usage is paused: the builder is mid-build.
-  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"builder-ask".*\nask1 from A1's builder: Stay orange\?$/m);
+  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"builder-ask".*\nask1 from A1's builder: Stay orange\? \(builder answer it, or builder defer it\)$/m);
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"orchestrator-waits".*\nwaiting on you now: w\/A3 · still waiting on you: A1 calls for 2h: Verify the builder's judgment calls$/m);
   assert.doesNotMatch(out.stdout, /"kind":"github-change"|"kind":"check-github"|"kind":"card-unblocked"/);
   // Every wake walks the cards idle on the orchestrator, lanes top-down, after the events and before the rules.
-  assert.match(out.stdout, /Stay orange\?\nwaits calls A1 w\/A1 since 2026-11-04T10:00:00.000Z: Verify the builder's judgment calls\nwaits answer A2 w\/A2 bumped since 2026-11-04T10:05:00.000Z, picked up 2026-11-04T10:06:00.000Z: Act on the owner's answer\nrule hub /);
+  assert.match(out.stdout, /Stay orange\? \(builder answer it, or builder defer it\)\nwaits calls A1 w\/A1 since 2026-11-04T10:00:00.000Z: Verify the builder's judgment calls\nwaits answer A2 w\/A2 bumped since 2026-11-04T10:05:00.000Z, picked up 2026-11-04T10:06:00.000Z: Act on the owner's answer\nrule hub /);
   assert.match(out.stdout, new RegExp(`rule hub Hub rule[^]*rule board Board rule[^]*setting auto-merge off[^]*\\nquiet [^\\n]*AskUserQuestion[^]*usage paused ${reset} five_hour 91%`));
   const saved = JSON.parse(fs.readFileSync(cursor, 'utf8'));
   assert.equal(saved['data/events.jsonl'], 8);

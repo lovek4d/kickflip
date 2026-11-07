@@ -6,7 +6,7 @@
 // counting lines that match `filter` (a regex; every line when unset).
 // Prints and exits on:
 //   event <file> <line>       new matching lines (several, batched for 2 s), each followed by one plain line saying
-//                             what came in and on which card (plainLine); on a board it marks each ask,
+//                             what came in, on which card and what to do (plainLine, from ./event-lines.mjs); on a board it marks each ask,
 //                             item-message, wave-triage and overnight-triage working in data/working.json and answers a ping for the
 //                             session (board/store.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
@@ -29,7 +29,7 @@
 //                             <detail>` while the hub runs older code than its files (../hub/boards.mjs hubLink)
 //   handed-over <owner json>  another session took the route over: stop, don't relaunch
 //   Record-only events never wake the session (docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md):
-//   main-pulled, settings, ask-done, reviewers-removed, reviewers-added, question-reopen, repo-changed and ping (hello, as old boards wrote it),
+//   ./event-lines.mjs RECORD_ONLY, the board server's own taps and usage-resumed among them,
 //   and on a board the intake that intake triage sorts: ask, card-added, item-message on an ask's thread, and intake-handoff
 //   (docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md). The cursor moves past them at once, a ping
 //   is answered then, and their lines print, in order, ahead of the new events on the next wake, marked working only
@@ -50,7 +50,7 @@ import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mj
 import { parentOf, sessionGone } from '../hub/live.mjs';
 import { ackPing, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
-import { intakeKeyOf, waitsAgainLine } from '../board/domain.mjs';
+import { recordOnly, PLAIN, ON_CARD } from './event-lines.mjs';
 
 const [route, session] = process.argv.slice(2);
 if (!route || !session) { console.error('usage: wait-events.mjs <route> <session-id>'); process.exit(2); }
@@ -76,18 +76,7 @@ const QUIET = "quiet The owner doesn't read this session's terminal. Answer a pr
   + 'show, such as the hub being down, gets one line here. Each message to the owner stands alone in its card\'s thread: name cards '
   + 'by label (#96), and a pointer such as "above" or "here" must make sense in that thread, never point into this session.';
 
-// docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap the board server applies
-// itself (Hold, Resume, Done, Unbump, a bare or worded Grill, Prototype or Visual) and an unblock wake nobody.
-const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
-  'card-hold', 'card-done', 'card-unbump', 'card-unblocked', 'grill-more', 'prototype-request', 'visual-request'];
 const parsed = (line) => { try { return JSON.parse(line); } catch { return null; } };
-// docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md: on a board, intake (a new task, the owner's
-// message in an ask's thread, an agent-added card) is intake triage's, and its hand-off reaches the session as an
-// intake wait in orchestrator-waits, so none of them wakes the session.
-const recordOnly = (line, board) => {
-  const e = parsed(line);
-  return RECORD_ONLY.includes(e?.kind) || (Boolean(board) && e !== null && (e.kind === 'intake-handoff' || intakeKeyOf(e) !== null));
-};
 // A board is a site with a board.json; other sites get no rules.
 function boardOf(s) {
   try { return JSON.parse(fs.readFileSync(path.resolve(s.dir, 'board.json'), 'utf8')); } catch (e) { return e.code === 'ENOENT' ? null : {}; }
@@ -100,43 +89,6 @@ async function ackPings(dir, lines) {
     if ((e.kind === 'ping' || e.kind === 'hello') && typeof e.id === 'string') await ackPing(dir, e.id).catch((err) => console.log(`ping ${e.id} not answered (${err.message})`));
   }
 }
-
-const PLAIN = {
-  ask: (e) => `new task ${e.id} received: intake triage sorts it`,
-  'owner-answer': (e) => `answer received to question ${e.data?.id}`,
-  ping: (e) => `ping ${e.id} from the hub answered`,
-  hello: (e) => `ping ${e.id} from the hub answered`,
-  'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${e.data?.cards?.length} cards wait on open questions; run the triage, then board.mjs reply ${e.id}`,
-  'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle`,
-  // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
-  'orchestrator-waits': (e) => [e.data?.added?.length && `waiting on you now: ${e.data.added.join(', ')}`,
-    e.data?.again?.length && waitsAgainLine(e.data.again, Date.parse(e.ts))].filter(Boolean).join(' · '),
-  // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
-  'check-github': (e) => (e.data?.reason === 'morning' ? 'the daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any card stuck with no wait; a thread line on each card you act on, nothing else' : 'check-github received'),
-  'review-answer': (e) => `${e.data?.answer === 'skip' ? 'skip' : 'post'} answered on the review of PR #${e.data?.pr}`,
-};
-const ON_CARD = {
-  // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-  'item-message': (c, e) => (String(e.data?.key).startsWith('ask:') ? `message received from ${c}'s thread: intake triage answers it`
-    : e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it, then item set --phase ready, or --phase grilling or prototyping` : `message received from ${c}'s thread`),
-  'card-merge': (c) => `merge asked on ${c}`,
-  'card-done': (c) => `${c} marked done`,
-  'card-bump': (c) => `${c} bumped`,
-  'ask-bump': (c) => `${c} bumped`,
-  'ask-edited': (c) => `${c} edited`,
-  'ask-done': (c) => `${c} marked done`,
-  'ask-withdrawn': (c) => `${c} deleted`,
-  'card-hold': (c, e) => `${c} ${e.data?.hold ? 'held' : 'resumed'}`,
-  'card-unblocked': (c) => `${c} unblocked`,
-  'prototype-request': (c) => `prototype asked on ${c}`,
-  // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
-  'visual-request': (c) => `visual asked on ${c}: the board launches its visual agent`,
-  'reask-request': (c) => `question asked again on ${c}`,
-  'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text}`,
-  'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}`,
-  'card-added': (c) => `${c} added by an agent: intake triage links and files it`,
-  'intake-handoff': (c, e) => `intake triage handed ${c} to you: ${e.data?.text}`,
-};
 
 // One plain line per event line, from its kind and card (data.key, or data.id for an ask-* event), or null for a
 // line that isn't an event. A card name that can't be read falls back to the key, so the cursor still moves.

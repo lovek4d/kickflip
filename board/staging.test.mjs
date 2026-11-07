@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { home, at, site, write, read, lines, board, question, addEvents } from './board-fixture.mjs';
 
@@ -22,7 +23,7 @@ test('only the board stages a card: item set and item add refuse --phase staging
 test('ready comes only from staging, or a card already ready; staging to ready clears when it was staged', () => {
   write(at('waves', 'w', 'a1.md'), '# A1\n');
   setState({ plan: 'a1.md' });
-  const ready = () => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small');
+  const ready = () => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small', ...(item().phase === 'staging' ? ['--text', 'No other card covers it.'] : []));
   for (const from of [undefined, 'grilling', 'prototyping']) {
     setState({ phase: from });
     assert.deepEqual(ready(), { code: 1, out: '', err: `w/A1 reads ${from || 'new'}, not staging; a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n` });
@@ -35,6 +36,22 @@ test('ready comes only from staging, or a card already ready; staging to ready c
   assert.equal(ready().code, 0, 'a ready card can be set ready again');
   // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md: only the move to ready writes the line.
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => [m.who, m.command, m.text]), [['claude', 'readied', 'Marked as ready']]);
+});
+
+// docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
+test("staging to ready needs the orchestrator's judgment as --text, which goes into the card's notes; a ready card takes none", () => {
+  write(at('waves', 'w', 'a1.md'), '# A1\n');
+  setState({ plan: 'a1.md', phase: 'staging', staged_at: '2026-11-06T10:00:00.000Z', size: 'small' });
+  const set = (...more) => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', ...more);
+  assert.deepEqual(set(), { code: 1, out: '', err: 'w/A1 goes ready from staging on your judgment: pass --text "<what you checked it against on the board>", which goes into its notes\n' });
+  assert.equal(item().phase, 'staging');
+  const r = set('--text', 'No open card overlaps it; #12 lands first and touches other files.');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(item().phase, 'ready');
+  assert.match(fs.readFileSync(at('waves', 'w', 'a1.md'), 'utf8'), /\n## Ready \(orchestrator, \d\d\/\d\d \d\d:\d\d\)\nNo open card overlaps it; #12 lands first and touches other files\.\n$/);
+  assert.deepEqual(set('--text', 'Again.'), { code: 1, out: '', err: 'w/A1 reads ready, not staging, so there is no judgment for --text to record\n' });
+  assert.equal(set().code, 0);
+  assert.match(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'x', '--text', 'y').err, /--text goes with --from-ask, --done, or --phase ready on a staging card/);
 });
 
 test('item add without --from-ask files a card grilling or prototyping, never ready', () => {

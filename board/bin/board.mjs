@@ -88,6 +88,12 @@ command fails and changes nothing.
          prototype page until an answer settles its round: a pick, with a note or none, or an answer to
          an "Is this it?" confirm already on the board. A question already resolved, such as one an
          answer with a note and no option resolved, is left as it is
+  question settle <id> --note <text>                    a question a finished grill left for the orchestrator to screen
+         (a screen wait), which the board already answers: it is published resolved "Settled by the
+         orchestrator: <text>", and the answer goes into the card's notes. Refuses the prototype question,
+         which is the owner's
+  question publish <wave>/<id>                          passes the rest of the card's screened questions on to the owner.
+         The board server publishes any left unscreened 15 minutes on, with a thread line
   question move <id>,<id>,… --to <wave>/<id> [--block <wave>/<id>,…]   merges open questions that ask one thing onto
          one card: the first id moves to that card (topic item:<card>), the others resolve "Duplicate of
          <card>'s question <first id>". Each --block card, in order, is blocked by the one before it (the
@@ -800,6 +806,8 @@ const COMMANDS = {
     return { ...(await store.addQuestions(site, input, process.env.KICKFLIP_RENDER_CHECK === 'off' ? undefined : checkTakesRender)), asked: [input].flat() };
   }],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
+  'question settle': [['id'], ['note'], (site, [id], f) => store.settleQuestion(site, id, f.note)],
+  'question publish': [['key'], [], async (site, [key]) => ({ ids: await store.publishScreened(site, key) })],
   'question move': [['ids'], ['to', 'block'], (site, [ids], f) => store.moveQuestions(site, ids.split(',').filter(Boolean), f.to, (f.block || '').split(',').filter(Boolean))],
   'prototype add': [['topic'], ['title', '...take', 'card', 'served', '...state'], (site, [topic], f) => store.addPrototype(site, { topic, title: f.title, card: f.card, takes: f.take, served: f.served, states: f.state })],
   'prototype base': [[], [], (site) => prototypeBase(site)],
@@ -1012,6 +1020,8 @@ const SAID = {
     return `${plural(asked.map((q) => q.id), 'question')} ${staged === asked.length ? 'staged' : 'added'}${on}`;
   },
   'question resolve': (site, [id]) => `question ${id} resolved`,
+  'question settle': (site, [id]) => `question ${id} settled`,
+  'question publish': async (site, [key], f, { ids }) => `${plural(ids, 'question')} on ${await card(site, key)} passed to the owner`,
   'question move': (site, [ids], f) => `questions ${ids} merged onto ${f.to}`,
   'prototype add': async (site, [topic], f) => `prototype ${topic} recorded${f.card ? ` for ${await card(site, f.card)}` : ''}`,
   'prototype rm': (site, [topic]) => `prototype ${topic} removed`,

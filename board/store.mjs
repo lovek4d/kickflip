@@ -98,6 +98,11 @@ const ownerFile = (site) => path.join(site, 'data', 'owner.json');
 // data/staged-questions.json {<wave>/<id>: [question]}: questions added to a card while a planner of it runs, held back from
 // owner.json until it finishes (docs/adr/2026-11-06-0100-a-grills-questions-appear-together-once-the-grill-is-done.md).
 const stagedFile = (site) => path.join(site, 'data', 'staged-questions.json');
+// data/screening.json {<wave>/<id>: <iso>}: the cards whose grill has finished with questions staged, which wait on the
+// orchestrator to screen them, since when, until question publish, or SCREEN_AFTER, publishes them
+// (docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md).
+const screeningFile = (site) => path.join(site, 'data', 'screening.json');
+export const SCREEN_AFTER = 15 * 60 * 1000;
 const needSite = (site) => site || fail('this command needs --site <route>');
 const text = (v, name) => (typeof v === 'string' && v.trim() ? v.trim() : fail(`${name} must be non-empty text`));
 const optional = (v, check) => (v === undefined ? undefined : check(v));
@@ -1366,15 +1371,71 @@ async function runningPlanner(site, key) {
 }
 
 // Publishes the card's staged questions in the order added, with one write, once no planner of it runs. A planner that
-// finishes, fails or is stopped all end here, so none is lost.
-async function publishStaged(site, key) {
+// finishes, fails or is stopped all end here, so none is lost. With screen, a finished grill's, they stay staged and the
+// card waits on the orchestrator to screen them (screeningFile) instead.
+async function publishStaged(site, key, { screen = false } = {}) {
   if (!site || await runningPlanner(site, key)) return;
   const staged = await readJSON(stagedFile(site), {});
   if (!staged[key]) return;
+  const screening = await readJSON(screeningFile(site), {});
+  if (screen) {
+    if (!screening[key]) await writeJSON(screeningFile(site), { ...screening, [key]: new Date().toISOString() });
+    return;
+  }
   const { [key]: questions, ...rest } = staged;
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   await publishQuestions(site, owner, owner.items || [], questions, []);
   await writeJSON(stagedFile(site), rest);
+  if (screening[key]) await writeJSON(screeningFile(site), withoutKey(screening, key));
+}
+const withoutKey = (map, key) => Object.fromEntries(Object.entries(map).filter(([k]) => k !== key));
+
+// The cards whose questions wait on the orchestrator to screen them: → {<key>: {since, ids}}, ids in the order added.
+export async function readScreening(site) {
+  const screening = await readJSON(screeningFile(site), {});
+  const staged = await readJSON(stagedFile(site), {});
+  return Object.fromEntries(Object.entries(screening).filter(([key]) => staged[key]).map(([key, since]) => [key, { since, ids: staged[key].map((q) => q.id) }]));
+}
+
+// The orchestrator settles one screened question the board already answers: it publishes resolved, "Settled by the
+// orchestrator: <note>", and its answer goes into the card's notes as an owner's answer does. The prototype question
+// is the owner's, so it is never settled.
+export async function settleQuestion(site, id, note) {
+  needSite(site);
+  const said = text(note, '--note');
+  const staged = await readJSON(stagedFile(site), {});
+  const screening = await readJSON(screeningFile(site), {});
+  const key = Object.keys(staged).find((k) => staged[k].some((q) => q.id === id));
+  if (!key) fail(`no staged question "${id}"; question settle takes a question a finished grill left for you to screen`);
+  if (!screening[key]) fail(`${id} waits for ${key}'s planner to finish`);
+  const q = staged[key].find((x) => x.id === id);
+  if (q.prototype_gate) fail(`${id} is the card's prototype question, which is the owner's; question publish ${key} passes it on`);
+  const at = new Date().toISOString();
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...(owner.items || []), { ...q, asked_at: at, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at }] });
+  const left = staged[key].filter((x) => x.id !== id);
+  await writeJSON(stagedFile(site), left.length ? { ...staged, [key]: left } : withoutKey(staged, key));
+  if (!left.length) await writeJSON(screeningFile(site), withoutKey(screening, key));
+  await appendNotes(site, key, `Answers (orchestrator, ${noteStamp()})`, `- ${id} (${q.question}): settled by the orchestrator. "${said}"`);
+  return ownerFile(site);
+}
+
+// The orchestrator passes the rest of a card's screened questions on to the owner. → the ids published.
+export async function publishScreened(site, key) {
+  needSite(site);
+  const ids = (await readScreening(site))[key]?.ids || fail(`${key} has no questions waiting on you to screen`);
+  await publishStaged(site, key);
+  return ids;
+}
+
+// Every card's screened questions left SCREEN_AFTER unscreened at now publish, with a thread line saying so. → [key]
+export async function publishUnscreened(site, now = new Date()) {
+  const due = Object.entries(await readScreening(site)).filter(([, s]) => now - Date.parse(s.since) >= SCREEN_AFTER).map(([key]) => key);
+  for (const key of due) {
+    await publishStaged(site, key);
+    await appendThread(site, key, { text: "The orchestrator didn't screen the grill's questions within 15 minutes, so the board passed them to you as they are." });
+  }
+  return due;
 }
 
 async function publishQuestions(site, owner, items, questions, lines) {
@@ -1615,6 +1676,7 @@ async function stageable(site, key) {
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
   if (records.some((r) => r?.started && !r.done && r.kind !== VISUAL)) return false;
   if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open')) return false;
+  if ((await readJSON(stagedFile(site), {}))[key]) return false;
   return !(await unpickedPrototype(site, key));
 }
 // Stages the card, keeping the time of a stage it is already in, with a "Marked as staging" status line when it newly stages.
@@ -2126,7 +2188,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (said !== undefined) text(said, '--text');
   if (ownerStep !== undefined) text(ownerStep, '--owner-step');
   const spec = check === undefined || check === '' ? check : checkSpec(check);
-  if (said !== undefined && fromAsk === undefined && !done) fail('--text goes with --from-ask or --done');
+  if (said !== undefined && fromAsk === undefined && !done && phase !== 'ready') fail('--text goes with --from-ask, --done, or --phase ready on a staging card');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
@@ -2232,6 +2294,11 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
     await checkNotesComplete(site, key, source.dir, item);
   }
+  // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md: a staging card goes ready on
+  // the orchestrator's judgment against the whole board, which --text records in its notes.
+  const judged = phase === 'ready' && item.phase === 'staging' && fromAsk === undefined;
+  if (judged && said === undefined) fail(`${key} goes ready from staging on your judgment: pass --text "<what you checked it against on the board>", which goes into its notes`);
+  if (phase === 'ready' && !judged && said !== undefined && fromAsk === undefined && !done) fail(`${key} reads ${item.phase || 'no phase'}, not staging, so there is no judgment for --text to record`);
   const readied = phase === 'ready' && item.phase !== 'ready';
   if (phase !== undefined) {
     // docs/adr/2026-11-07-0700-staging-then-ready.md: sent back from staging or ready, the card gets its round from the board (domain.mjs roundsDue).
@@ -2264,6 +2331,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, wave, item, ticket, options, source.dir);
   await writeJSON(source.file, wave);
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
+  if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (readied) await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'readied', text: COMMANDS.readied });
   if (blocked) {
     await closeBuilders(source.dir, item.id, false, { endHandBack: true });
@@ -4121,7 +4189,7 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
     fail(`builder done closes ${key}'s last open builder, which leaves it In Progress with no Next; pass --next "<what happens next>", or record a judgment call with builder call ${key} or land`);
   }
   await writeJSON(file, stopped);
-  await publishStaged(site, key);
+  await publishStaged(site, key, { screen: record.kind === 'grill' });
   if (note) await statusToThread(site, key, agent, record, { detail: note }, done);
   if (next !== undefined) await writeJSON(source.file, wave);
   return file;
