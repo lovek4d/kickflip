@@ -2226,6 +2226,9 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const busyDown = ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy' } }, sites: [], hub: { tone: 'down', word: '1 site down', detail: 'x' } });
   assert.match(busyDown, /class="word t-down">1 site down/);
   assert.doesNotMatch(busyDown, />busy</);
+  const degradedPaused = ui.sidebar({ pause, sites: [], hub: { tone: 'wait', word: 'degraded', detail: 'x' } });
+  assert.match(degradedPaused, /class="word t-wait">degraded/);
+  assert.doesNotMatch(degradedPaused, /class="word t-paused">paused/);
   assert.match(ui.statusLine(ago(0), { pause }), new RegExp(`^<span class="fresh hold" title="Paused until ${until}\\. Updated [^"]*">now</span>$`));
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });

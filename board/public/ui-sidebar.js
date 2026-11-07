@@ -209,7 +209,7 @@
     // (docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md).
     const busy = hubBusy(data);
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
-    // A red fault on the row keeps its word: red beats the grey pause (AGENTS.md).
+    // A red fault on a board row keeps its word, and a down or degraded hub keeps the Hub row: red and orange beat the grey pause (AGENTS.md).
     const holdWord = (s) => (paused || s.pause?.state === 'paused') && !/class="word t-down"/.test(s.sub || '') ? word('paused', 'paused') : '';
     const siteRow = (s) => {
       const sub = s.board && holdWord(s) ? holdWord(s) + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
@@ -228,7 +228,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage);
-    const hub = data?.hub?.tone === 'down' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: 'the host is busy' } : data?.hub;
+    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: 'the host is busy' } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')
