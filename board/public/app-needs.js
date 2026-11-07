@@ -231,6 +231,9 @@ BoardView.part((B) => {
     else viewer.sheet = !viewer.sheet;
     paintViewer();
   });
+  // A push to a card's thread (#item=<key>&reply, board/store.mjs pushUrl), the switcher's for a question already picked
+  // among them, closes the viewer, so the thread it sent the owner to shows.
+  B.on(window, 'hashchange', () => { if (/^#item=[^&]+&reply$/.test(location.hash)) closeViewer(); });
 
   fitPane();
   B.on(wide, 'change', fitPane);

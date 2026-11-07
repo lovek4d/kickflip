@@ -5766,6 +5766,12 @@ test("on a desktop a prototype opens in the right pane under a top bar of ‹ Op
   await tap(widen());
   assert.equal(wide.view.B.focusQuestion('q1'), true);
   assert.deepEqual([viewer(), pane.classList.contains('viewing'), pane.classList.contains('widened'), pill('item:w/T1').getAttribute('aria-pressed')], [null, false, false, 'true'], 'Choose this, through the shell, does the same');
+  const hashTo = async (hash) => { wide.page.win.location.hash = hash; wide.page.fire(vm.runInContext('window', wide.page.win), 'hashchange'); await wide.settle(); };
+  wide.view.B.openViewer('prototype-x2.html?q=q2');
+  await hashTo('#item=w%2FT1');
+  assert.ok(viewer(), 'a card opened on the board leaves the viewer open');
+  await hashTo('#item=w%2FP1&reply');
+  assert.deepEqual([viewer(), pane.classList.contains('viewing')], [null, false], "a push to a card's thread closes the viewer, so the thread shows");
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
   assert.equal(narrow.view.B.openViewer('prototype-x2.html?q=q2'), false, 'a phone has no pane');
