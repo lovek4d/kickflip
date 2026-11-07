@@ -41,7 +41,7 @@
     : m.kind === 'visual' ? `<div class="msg link visual">${statusMark('visual')}<a href="${esc(m.link)}">${escText(m.text)} →</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
     : m.request && m.card ? `<div class="msg request">${statusMark(m.mark)}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.request ? `<div class="msg request">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
+    : m.request ? `<div class="msg request${m.command === 'readied' ? ' readied' : ''}">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? `<div class="msg request move">${statusMark('move')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`

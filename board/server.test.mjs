@@ -518,24 +518,20 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.deepEqual([kept.lane, kept.storedLane, kept.refusal], ['todo', 'todo', `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
 
     // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: an empty Implement, on a ready
-    // card or one still grilling, writes only its keyed status line, marks the card ready as it is and starts the build,
-    // with no event and nothing waiting on the orchestrator.
+    // card or one still grilling, writes its keyed status line and stages the card, with no
+    // event and no build.
     const events = log().length;
+    // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md: it stages the card, with "Marked as
+    // staging" after the request line, and starts no build.
     for (const id of ['B11', 'B12']) {
       assert.equal((await post({ kind: 'item-message', key: `t/${id}`, text: '', intent: 'build' })).status, 200);
       const tapped = await card(id);
-      assert.deepEqual([tapped.lane, tapped.storedLane, tapped.orchestrator], ['progress', 'progress', null], id);
-      assert.deepEqual([wave().items.find((i) => i.id === id).state, 'unfiled' in wave().items.find((i) => i.id === id)], ['ready', false], id);
-      assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'agents', `${id}.json`), 'utf8')).dispatched, 'tap');
-      assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text.replace(/ in .*/, '')]), [['love', 'implement', 'Implementation requested'], ['claude', undefined, 'Moved to In Progress: a build started']], id);
+      assert.deepEqual([tapped.lane, tapped.storedLane, tapped.staging], ['todo', 'todo', true], id);
+      assert.deepEqual([wave().items.find((i) => i.id === id).state, 'unfiled' in wave().items.find((i) => i.id === id)], ['staging', false], id);
+      assert.equal(fs.existsSync(path.join(site, 'data', 'agents', `${id}.json`)), false, id);
+      assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text]), [['love', 'implement', 'Implementation requested'], ['claude', 'staged', 'Marked as staging']], id);
     }
     assert.deepEqual(log().slice(events).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
-    // One the tap refuses keeps the state it had.
-    fs.mkdirSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B13'), { recursive: true });
-    fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'worktrees', 'B13', 'x'), 'x');
-    assert.equal((await post({ kind: 'item-message', key: 't/B13', text: '', intent: 'build' })).status, 200);
-    assert.deepEqual([wave().items.find((i) => i.id === 'B13').state, (await card('B13')).lane], ['prototyping', 'todo']);
-    assert.match(thread('B13').at(-1).text, /^Couldn't start implementing: /);
   } finally {
     fs.rmSync(manifest);
     fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });

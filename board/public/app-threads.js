@@ -144,8 +144,8 @@ BoardView.part((B) => {
     const text = flag ? slashOf(ta.value).text : ta.value.trim();
     const id = f.dataset.composer;
     const files = BoardAttach.files(id, B.site.root);
-    // An empty box still sends Implement, the card's build action: the board server marks the card ready as it is and
-    // starts the build at once (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md).
+    // An empty box still sends Implement, the card's build action: the board server stages the card for the
+    // orchestrator's review (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md).
     const intent = flag ? null : button.dataset.intent || null;
     if ((!flag && !text && !files.length && intent !== 'build') || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;

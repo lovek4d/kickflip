@@ -33,6 +33,8 @@ test('ready comes only from staging, or a card already ready; staging to ready c
   assert.equal(r.code, 0, r.err);
   assert.deepEqual([item().state, item().staged_at], ['ready', undefined]);
   assert.equal(ready().code, 0, 'a ready card can be set ready again');
+  // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md: only the move to ready writes the line.
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => [m.who, m.command, m.text]), [['claude', 'readied', 'Marked as ready']]);
 });
 
 test('item add files a card grilling or prototyping, never ready', () => {

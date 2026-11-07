@@ -2491,6 +2491,15 @@ test("a bare visual request is a request line led by the image mark, and the age
   assert.doesNotMatch(html, /target="_blank"|class="who"/);
 });
 
+// docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md
+test('a "Marked as staging" line is a bare gray status line and a "Marked as ready" line is the same in green', () => {
+  const line = (command, text) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: text, text });
+  const html = ui.threadMessages([line('staged', 'Marked as staging'), line('readied', 'Marked as ready')]);
+  assert.ok(html.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">`));
+  assert.ok(html.includes(`<div class="msg request readied"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as ready']}</span>Marked as ready <span class="muted">`));
+  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.msg\.request\.readied \{ color: var\(--color-success\); \}/);
+});
+
 // docs/adr/2026-11-07-0600-every-thread-status-line-carries-an-icon.md
 test('every kind of thread status or system line leads with an icon, so a new kind cannot ship without one', async () => {
   const { ACTION_LABELS, INTENT_LABELS, COMMANDS, ANSWERS_SUBMITTED } = await import('./domain.mjs');

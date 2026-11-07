@@ -778,6 +778,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 export const COMMANDS = {
   implement: 'Implementation requested', prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
   reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done',
+  staged: 'Marked as staging', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
 };
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'reask-request': 'reask' };

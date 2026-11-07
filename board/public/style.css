@@ -387,6 +387,7 @@ button.attach:disabled { opacity: .35; }
 .msg.builder-status { padding: 0 10px; margin: 4px 0; font-size: 12px; color: var(--color-notice); overflow-wrap: anywhere; }
 .msg.builder-status .working-dot { animation: none; }
 .msg.request { padding: 0 10px; margin: 4px 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.msg.request.readied { color: var(--color-success); }
 .msg.agent { padding: 0 10px; margin: 4px 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .msg.agent.started { color: var(--color-notice); } .msg.agent.finished { color: var(--color-success); }
 .msg.agent .muted { font-weight: 400; }

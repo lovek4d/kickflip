@@ -1443,7 +1443,7 @@ export async function settleAnswers(site, answers) {
     await followUp(site, key, 'writing them into its notes', async () => {
       await appendNotes(site, key, `Answers (owner, ${noteStamp()})`, said.join('\n'));
       if (prototype.includes(key) || !(await stageable(site, key))) return;
-      await stage(site, key, 'answers');
+      await stage(site, key);
       staged.push(key);
     });
   }
@@ -1601,20 +1601,14 @@ async function stageable(site, key) {
   if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open')) return false;
   return !(await unpickedPrototype(site, key));
 }
-// The thread line of each owner action that stages a card.
-const STAGED_LINES = {
-  answers: 'Staging: your answers are in its notes; the orchestrator judges them next.',
-  implement: 'Staging: your Implement is in its notes; the orchestrator judges it next.',
-  reply: 'Back to staging: your reply is in its notes; the orchestrator judges it before it goes ready again.',
-};
-// Stages the card, keeping the time of a stage it is already in, with why's thread line when it newly stages.
-async function stage(site, key, why) {
+// Stages the card, keeping the time of a stage it is already in, with a "Marked as staging" status line when it newly stages.
+async function stage(site, key) {
   const { source, wave, item } = await loadItem(site, key);
   if (item.state === 'staging') return;
   Object.assign(item, { state: 'staging', staged_at: new Date().toISOString() });
   delete item.unfiled;
   await writeJSON(source.file, wave);
-  await appendThread(site, key, { text: STAGED_LINES[why] });
+  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'staged', text: COMMANDS.staged });
 }
 // The owner's words from a thread message, text then any attached files, as one notes body, or '' when it carried none.
 const messageWords = ({ text: said, files }) => [String(said || '').trim(), ...(Array.isArray(files) ? files : []).map((f) => `Attached: ${f?.path || f?.name || f}`)].filter(Boolean).join('\n');
@@ -1629,13 +1623,13 @@ export async function stageImplement(site, key, message) {
   if (open.length) await markResolved(site, owner, open, 'Skipped: you tapped Implement');
   const words = messageWords(message);
   if (words) await appendNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
-  await stage(site, key, 'implement');
+  await stage(site, key);
 }
 // A Reply on a ready Todo card: its words go into the notes, and it is staged again.
 export async function stageReply(site, key, message) {
   const words = messageWords(message);
   if (words) await appendNotes(site, key, `Reply (owner, ${noteStamp()}), verbatim`, words);
-  await stage(site, key, 'reply');
+  await stage(site, key);
 }
 // The owner's Grill or Prototype tap (kind grill or prototype) on a ready or staging card takes it out of that state,
 // to grilling or prototyping; the tap launches the planner itself.
@@ -2192,6 +2186,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
     await checkNotesComplete(site, key, source.dir, item);
   }
+  const readied = state === 'ready' && item.state !== 'ready';
   if (state !== undefined) {
     // docs/adr/2026-11-07-0700-staging-then-ready.md: sent back from staging or ready, the card gets its round from the board (domain.mjs roundsDue).
     if (state !== 'ready' && ['staging', 'ready'].includes(item.state)) item.round_at = new Date().toISOString();
@@ -2223,6 +2218,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, wave, item, ticket, options, source.dir);
   await writeJSON(source.file, wave);
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
+  if (readied) await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'readied', text: COMMANDS.readied });
   if (blocked) {
     await closeBuilders(source.dir, item.id, false, { endHandBack: true });
     await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: back to Todo. It starts again once nothing blocks it.` });
@@ -3322,23 +3318,12 @@ async function tapRefusals(site, key) {
 }
 
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
-// A bare Implement, in the board server with no event: the owner's "Implementation requested" line, then the card marked
-// ready as it is, then its build started as the Build tap does (startTappedBuild), or bumped while a dep blocks it. by
-// names a Full person. One the tap refuses gets back the state it had. → startTappedBuild's result.
-export async function implementAsIs(site, key, worktree, by) {
+// A bare Implement, in the board server with no event: the owner's "Implementation requested" line, then the card
+// staged as an Implement with text stages it (stageImplement), for the orchestrator's review before it goes ready. by
+// names a Full person.
+export async function implementAsIs(site, key, by) {
   await appendThread(site, key, { text: COMMANDS.implement, who: 'love', by, command: 'implement' });
-  const { item: before } = await loadItem(site, key);
-  const was = { state: before.state, unfiled: before.unfiled };
-  await writeCardState(site, key, { state: 'ready', unfiled: undefined });
-  const started = await startTappedBuild(site, key, worktree);
-  if (!started) await writeCardState(site, key, was);
-  return started;
-}
-async function writeCardState(site, key, { state, unfiled }) {
-  const { source, wave, item } = await loadItem(site, key);
-  if (state === undefined) delete item.state; else item.state = state;
-  if (unfiled === undefined) delete item.unfiled; else item.unfiled = unfiled;
-  await writeJSON(source.file, wave);
+  await stageImplement(site, key, {});
 }
 
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md
