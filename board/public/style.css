@@ -762,6 +762,8 @@ main > * { transition: opacity .25s ease; }
   :root:has(body > .top, body.has-sidebar > :not(.sidebar) > .top) {
     --app-bottom: calc(49px + max(4px, env(safe-area-inset-bottom)));
   }
+  /* The nav under the bar already pads the safe area (--app-bottom), so the gap under Send stays the 10px above it. */
+  .view-questions .bar { padding-bottom: 10px; }
   body > .top, body.has-sidebar > :not(.sidebar) > .top {
     position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 7;
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));

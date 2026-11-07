@@ -39,3 +39,8 @@ test('the Send bar stacks above the notes\' attach buttons, with equal padding a
   assert.match(bar, /padding: 10px 0 max\(10px, env\(safe-area-inset-bottom\)\)/);
   assert.ok(Number(bar.match(/z-index: (\d+)/)?.[1]) > Number(clip[1]));
 });
+
+test('on a phone the Send bar keeps 10px under Send, the nav below it already padding the safe area', () => {
+  const phone = css.slice(css.indexOf('@media (max-width: 899px)'));
+  assert.match(phone, /\.view-questions \.bar \{ padding-bottom: 10px; \}/);
+});
