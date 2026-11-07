@@ -776,3 +776,27 @@ test("builder done takes --text on a planner run and writes it as the run's clos
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder').code, 0);
   assert.match(board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Review', '--text', 'x').err, /--text goes on/);
 });
+
+// docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
+test("a builder start over a finished record keeps that run as a past record with its label, kind, times and log, and none of its calls, worktree or hand-back; an unfinished record and another agent's are not kept", () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
+  const main = at('waves', 'w', 'agents', 'A1.json');
+  const pasts = () => fs.readdirSync(at('waves', 'w', 'agents')).filter((n) => n.startsWith('A1@past-'));
+  assert.equal(board('builder', 'start', 'w/A1', '--label', 'Builder', '--kind', 'claude').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--label', 'Again', '--kind', 'claude').code, 0);
+  assert.deepEqual(pasts(), []);
+  assert.equal(board('builder', 'call', 'w/A1', 'Kept the name').code, 0);
+  write(main, { ...read(main), worktree: { path: '/wt/A1', branch: 'A1', repo: '/repo' }, session: { id: 's', pid: 1, log: 'builder-A1.log', at: '2026-11-07T10:00:00Z' } });
+  const first = read(main);
+  assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch').code, 0);
+  const done = read(main).done;
+  assert.equal(board('builder', 'start', 'w/A1', '--label', 'Lander', '--kind', 'claude').code, 0);
+  const [past] = pasts();
+  assert.equal(pasts().length, 1);
+  assert.deepEqual(read(at('waves', 'w', 'agents', past)), { label: 'Again', kind: 'claude', model: first.model, started: first.started, done, session: { log: 'builder-A1.log' } });
+  assert.equal(read(main).label, 'Lander');
+  assert.equal(board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench').code, 0);
+  assert.equal(board('builder', 'done', 'w/A1', '--agent', 'bench').code, 0);
+  assert.equal(board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench').code, 0);
+  assert.equal(pasts().length, 1);
+});

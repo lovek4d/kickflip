@@ -58,10 +58,11 @@
       </div>`);
 
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
-  // closed details line at its first line's place: the action, then its status, running or finished, and nothing after;
+  // closed details line at its first line's place: the action, then its status, finished when its newest line is a finished
+  // line and running otherwise, and nothing after;
   // expanding it shows the run's lines and, when the run has a log, a View transcript link.
   function foldedRun(m, links, edits) {
-    const tail = m.folded.some((f) => f.finished) ? 'finished' : 'running';
+    const tail = m.folded.at(-1).finished ? 'finished' : 'running';
     const log = m.folded.find((f) => f.log)?.log;
     const logLine = log ? `<div class="small fold-log"><a href="log.html?file=${encodeURIComponent(log)}">View transcript</a></div>` : '';
     return `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary${tail === 'finished' ? ' class="finished"' : ''}>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}${logLine}</details>`;

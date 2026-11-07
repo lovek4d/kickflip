@@ -3412,6 +3412,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     if (marking) await restoreLane(site, key, was);
     throw e;
   }
+  await keepPastRun(file, before);
   await writeJSON(file, wt ? { ...record, worktree: wt } : record);
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: any other main build, not the
   // rebase run nor the lander of its hand-back, ends the card's rebase run, so its push isn't counted as one.
@@ -3430,6 +3431,17 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     file, kind: k ?? null, model: claude ?? null, reason: pick?.reason ?? null, worktree: wt?.path ?? null,
     lines: [...(asked === 'build' ? [`kind: ${k}. ${pick.reason}`] : []), ...(modelName(record) ? [`model: ${modelName(record)}`] : []), ...(site ? [`ref: ${await cardName(site, key)}`] : []), ...(wt ? [`worktree: ${wt.path}`] : []), ...(remade ? [remade] : []), ...marked.lines, ...resolved],
   };
+}
+
+// docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
+// A start over a finished main record keeps that run beside it as agents/<id>@past-<started ms>.json, so the thread still
+// folds its lines into a section. The copy holds the run's label, kind, model, times and log, never its calls, worktree
+// or hand-back, which belong to the open record.
+async function keepPastRun(file, before) {
+  if (!before?.started || !before.done || !file.endsWith('.json') || path.basename(file).includes('@')) return;
+  const { label, kind, model, started, done, session } = before;
+  const past = path.join(path.dirname(file), `${path.basename(file, '.json')}@past-${Date.parse(started)}.json`);
+  await writeJSON(past, { label, ...(kind ? { kind } : {}), ...(model ? { model } : {}), started, done, ...(session?.log ? { session: { log: session.log } } : {}) });
 }
 
 // The owner's Build tap, in the board server: it refuses what a build's builder start refuses, in the owner's words,
@@ -3899,10 +3911,13 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
 
 // The finish step's own landing line, so the card's fifth bar lights while it rebases and lands, whoever finishes it.
 export async function landingLine(site, key) {
-  await loadItem(site, key);
+  const { source } = await loadItem(site, key);
   const file = threadFile(site, key);
   if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.phase === 'landing') return;
-  await appendLine(file, { ts: new Date().toISOString(), who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing' });
+  // It joins the section of the card's newest build, which a lander's lines join after it.
+  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
+  const run = records.filter((r) => r?.started && builds(r) && r.label !== LANDER).map((r) => r.started).sort().pop();
+  await appendLine(file, { ts: new Date().toISOString(), who: 'claude', kind: 'status', phase: 'landing', text: 'Landing: rebasing onto main and landing', ...(run ? { run } : {}) });
 }
 
 // A judgment call is one line a builder records as it decides, kept on its record as {at, text}; the session's

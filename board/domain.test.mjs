@@ -2726,3 +2726,26 @@ test("a finished grill's screened questions are the card's screen wait, ahead of
   assert.deepEqual(orchestratorWaits(built({})), []);
   assert.deepEqual(orchestratorWaits(built(undefined)), []);
 });
+
+// docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
+test("a lander's started, status and finished lines carry the run of the build it lands, and a landing line with that run joins it, so the build and its landing are one section", () => {
+  const agents = {
+    main: { kind: 'claude', model: 'opus', label: 'Lander', started: '2026-11-07T11:00:00Z' },
+    'past-1': { kind: 'claude', model: 'opus', label: 'Builder', started: '2026-11-07T10:00:00Z', done: '2026-11-07T10:30:00Z' },
+    'past-0': { kind: 'grill', model: 'opus', label: 'Grill', started: '2026-11-07T09:00:00Z', done: '2026-11-07T09:30:00Z' },
+  };
+  const lines = [
+    { ts: '2026-11-07T10:10:00Z', who: 'claude', kind: 'status', text: 'Building: x', run: '2026-11-07T10:00:00Z' },
+    { ts: '2026-11-07T10:40:00Z', who: 'claude', kind: 'status', text: 'Landing: rebasing onto main and landing', run: '2026-11-07T10:00:00Z' },
+    { ts: '2026-11-07T11:05:00Z', who: 'claude', kind: 'status', text: 'Landing: rebasing', run: '2026-11-07T11:00:00Z' },
+    { ts: '2026-11-07T09:10:00Z', who: 'claude', kind: 'status', text: 'Grilling: y', run: '2026-11-07T09:00:00Z', planner: true },
+  ];
+  const got = threadOf('w/A1', { lines, agents }).filter((m) => m.kind === 'status' || m.kind === 'agent').map((m) => [m.text, m.run]);
+  const build = '2026-11-07T10:00:00Z';
+  assert.deepEqual(got, [
+    ['Claude Opus grill started', '2026-11-07T09:00:00Z'], ['Grilling: y', '2026-11-07T09:00:00Z'], ['Claude Opus grill finished', '2026-11-07T09:00:00Z'],
+    ['Claude Opus implementer started', build], ['Building: x', build], ['Claude Opus implementer finished', build],
+    ['Landing: rebasing onto main and landing', build],
+    ['Claude Opus lander started', build], ['Landing: rebasing', build],
+  ]);
+});

@@ -874,7 +874,13 @@ const withLog = (m) => {
 function agentOfLine(agentList, m) {
   const own = m.run ? agentList.find((a) => a.started === m.run)
     : agentList.filter((a) => plans(a) === Boolean(m.planner) && a.started && String(a.started) <= String(m.ts) && (!a.done || String(m.ts) <= String(a.done))).pop();
-  return own ? { agent: agentName(own), run: own.started, running: !own.done } : {};
+  return own ? { agent: agentName(own), run: sectionOf(agentList, own), running: !own.done } : {};
+}
+// The run whose section an agent's lines belong to: its own started time, except a lander, whose lines join the build it
+// lands, the newest build before it (docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md).
+function sectionOf(agentList, a) {
+  if (a.label !== LANDER) return a.started;
+  return agentList.filter((x) => builds(x) && x.label !== LANDER && x.started && String(x.started) < String(a.started)).pop()?.started ?? a.started;
 }
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
@@ -892,8 +898,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     // First, so a start sorts above the status line `builder start` writes at the same moment.
     // A planner's lines are marked planner, which the thread draws in the owner's blue.
     ...agentsOf(agents).flatMap((a) => [
-      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: a.started, finished: false, eta: a.done ? null : a.eta, ...(a.log ? { log: a.log } : {}), ...(plans(a) ? { planner: true } : {}) }] : []),
-      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: a.started, finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.started ? [{ ts: a.started, who: 'claude', kind: 'agent', text: `${agentName(a)} started`, agent: agentName(a), run: sectionOf(agentList, a), finished: false, eta: a.done ? null : a.eta, ...(a.log ? { log: a.log } : {}), ...(plans(a) ? { planner: true } : {}) }] : []),
+      ...(a.done ? [{ ts: a.done, who: 'claude', kind: 'agent', text: `${agentName(a)} finished`, agent: agentName(a), run: sectionOf(agentList, a), finished: true, eta: null, ...(plans(a) ? { planner: true } : {}) }] : []),
       // Its judgment calls, one entry under its lines: at its finish, or at its newest call while it runs
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),

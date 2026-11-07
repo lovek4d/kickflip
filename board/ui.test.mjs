@@ -2599,3 +2599,18 @@ test('on a phone the board page bottom bar hides while a text field has focus, l
   assert.match(phone, /:root\.typing \.fab \{ display: none; \}/);
   assert.match(phone, /:root\.typing body > \.top, :root\.typing body\.has-sidebar > :not\(\.sidebar\) > \.top \{ display: none; \}/);
 });
+
+// docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
+test("a run's section reads finished or running by its newest line, so a finished build that lands reads running again with its finished line kept in place", () => {
+  const r = { agent: 'Claude implementer', run: 'build' };
+  const l = (n, extra) => ({ ts: ago(10 - n), who: 'claude', ...extra, ...r });
+  const lines = [l(1, { kind: 'agent', text: 'started', finished: false }), l(2, { kind: 'status', text: 'Building: x' }), l(3, { kind: 'agent', text: 'finished', finished: true })];
+  assert.match(ui.threadMessages(lines), /<summary class="finished">/);
+  const landing = ui.threadMessages([...lines, l(4, { kind: 'status', text: 'Landing: rebasing' })]);
+  assert.match(landing, /<summary><span/);
+  assert.doesNotMatch(landing, /<summary class="finished">/);
+  assert.match(text(landing), /^Claude implementer · running/);
+  assert.match(text(landing), /finished · \S.* Landing: rebasing/);
+  const relanded = ui.threadMessages([...lines, l(4, { kind: 'agent', text: 'lander started', finished: false }), l(5, { kind: 'agent', text: 'lander finished', finished: true })]);
+  assert.match(relanded, /<summary class="finished">/);
+});
