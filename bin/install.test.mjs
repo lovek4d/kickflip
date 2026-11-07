@@ -364,7 +364,10 @@ test('the init command configures links and settings before the hub service and 
   assert.equal(fs.statSync(settingsFile()).ino, inode);
 });
 
-test('the update command installs the latest package before restarting the hub and refuses a clone', () => {
+test('the update command installs the latest package into the prefix that owns the install before restarting the hub, refuses a clone and an install outside a prefix', () => {
+  const prefix = path.join(home, 'prefix');
+  const root = path.join(prefix, 'lib', 'node_modules', '@lovek4d', 'kickflip');
+  fs.mkdirSync(root, { recursive: true });
   for (const dir of ['bin', 'board', 'hub', 'shared', 'starter', 'hooks-plugin']) {
     fs.cpSync(path.join(cloneRoot(), dir), path.join(root, dir), { recursive: true, filter: (file) => !file.endsWith('.test.mjs') });
   }
@@ -385,7 +388,7 @@ test('the update command installs the latest package before restarting the hub a
   assert.equal(installed.status, 0, installed.stderr);
   assert.equal(installed.stdout, '0.4.2 > 0.4.3\nrestarted the hub\n');
   assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), [
-    'npm i -g @lovek4d/kickflip@latest',
+    `npm i -g --prefix ${prefix} @lovek4d/kickflip@latest`,
     restartCall,
   ]);
   fs.unlinkSync(log);
@@ -394,19 +397,25 @@ test('the update command installs the latest package before restarting the hub a
   const pulled = kickflip(root, 'update', '--no-restart');
   assert.equal(pulled.status, 0, pulled.stderr);
   assert.equal(pulled.stdout, '0.4.3 > 0.4.4\n');
-  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['npm i -g @lovek4d/kickflip@latest']);
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), [`npm i -g --prefix ${prefix} @lovek4d/kickflip@latest`]);
   fs.unlinkSync(log);
   stub('npm');
   const unchanged = run(root);
   assert.equal(unchanged.status, 0, unchanged.stderr);
   assert.equal(unchanged.stdout, 'no new version available\n');
-  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['npm i -g @lovek4d/kickflip@latest']);
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), [`npm i -g --prefix ${prefix} @lovek4d/kickflip@latest`]);
   fs.unlinkSync(log);
   const restarted = kickflip(root, 'restart');
   assert.equal(restarted.status, 0, restarted.stderr);
   assert.equal(restarted.stdout, 'restarted the hub\n');
   assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), [restartCall]);
   fs.unlinkSync(log);
+  const stray = path.join(home, 'stray');
+  fs.cpSync(root, stray, { recursive: true });
+  const outside = run(stray);
+  assert.equal(outside.status, 1, outside.stderr);
+  assert.ok(outside.stderr.includes('the npm prefix that owns it is unknown'));
+  assert.equal(fs.existsSync(log), false);
   const clone = run(cloneRoot());
   assert.equal(clone.status, 2, clone.stderr);
   assert.ok(clone.stderr.includes(`${cloneRoot()} is a clone; update it with git pull`));

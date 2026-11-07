@@ -67,7 +67,23 @@ test('a check that finds a newer version pulls it at once, once while it runs, a
   assert.equal(pulled, 0);
   await up.check();
   assert.equal(runs.length, 2);
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '0.4.0' }));
   finish({ ok: true });
   await new Promise(setImmediate);
   assert.equal(pulled, 1);
+});
+
+test('a pull that finishes OK but leaves the installed version where it was logs both versions, does not call pulled and retries at the next check', async () => {
+  const root = install({ version: '0.6.0' });
+  const logs = [];
+  let runs = 0;
+  let pulled = 0;
+  const up = upgrader({ root, fetch: registry('0.6.1').fetch, run: async () => { runs++; return { ok: true }; }, pulled: () => pulled++, log: (...a) => logs.push(a.join(' ')) });
+  await up.check();
+  await new Promise(setImmediate);
+  await up.check();
+  await new Promise(setImmediate);
+  assert.equal(runs, 2);
+  assert.equal(pulled, 0);
+  assert.deepEqual(logs, ['update left v0.6.0; npm has 0.6.1', 'update left v0.6.0; npm has 0.6.1']);
 });

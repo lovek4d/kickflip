@@ -861,7 +861,11 @@ const commands = {
     if (fs.existsSync(path.join(SKILL, '.git'))) fail(`${SKILL} is a clone; update it with git pull`, 2);
     const installedVersion = () => JSON.parse(fs.readFileSync(path.join(SKILL, 'package.json'), 'utf8')).version;
     const before = installedVersion();
-    const result = spawnSync('npm', ['i', '-g', '@lovek4d/kickflip@latest'], { stdio: 'inherit' });
+    const layout = ['lib', 'node_modules', '@lovek4d', 'kickflip'];
+    const folders = SKILL.split(path.sep);
+    if (layout.some((name, i) => folders.at(i - layout.length) !== name)) fail(`${SKILL} is not under <prefix>/${layout.join('/')}, so the npm prefix that owns it is unknown`);
+    const prefix = path.resolve(SKILL, ...layout.map(() => '..'));
+    const result = spawnSync('npm', ['i', '-g', '--prefix', prefix, '@lovek4d/kickflip@latest'], { stdio: 'inherit' });
     if (result.status !== 0) fail(`npm update failed${result.error ? ': ' + result.error.message : ''}`);
     const after = installedVersion();
     if (after === before) return out('no new version available');
