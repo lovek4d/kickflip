@@ -736,7 +736,7 @@ test("intake handoff hands an intake event to the orchestrator: an intake-handof
   const ev = lines(site('orch', 'data', 'events.jsonl')).at(-1);
   assert.deepEqual([ev.kind, ev.data], ['intake-handoff', { event: 'e1', key: 'ask:e1', text: 'Not sure which card it belongs to' }]);
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e1.jsonl')).map(({ ts, ...m }) => m),
-    [{ who: 'claude', kind: 'status', text: 'Intake triage handed this to the orchestrator: Not sure which card it belongs to' }]);
+    [{ who: 'claude', kind: 'status', text: 'Intake triage handed this to the orchestrator', intake: { event: 'e1', agent: 'Claude Sonnet intake triage', end: 'handed off' } }]);
   addEvents({ id: 'm9', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'x' } });
   assert.deepEqual(board('intake', 'handoff', 'm9', '--site', 'orch', '--text', 'x'),
     { code: 1, out: '', err: `event "m9" isn't intake: a new task, the owner's message in an ask's thread, or a card an agent added\n` });

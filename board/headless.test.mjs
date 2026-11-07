@@ -857,7 +857,7 @@ test("a new task launches an intake triage run on Sonnet in the board's repo, on
     await until(() => fs.existsSync(path.join(b.data, 'threads', `ask__${id}.jsonl`)) && askThread()[0].text === 'Claude Sonnet intake triage', 'the launch line');
     // The fake run exits without sorting it: the board hands it to the orchestrator, and launches no second run.
     await until(() => b.events().includes('intake-handoff') && askThread().at(-1).text.startsWith('Intake triage handed'), 'the stranded task is handed off');
-    assert.match(askThread().at(-1).text, /^Intake triage handed this to the orchestrator: the intake triage run ended without sorting it/);
+    assert.match(askThread().at(-1).text, /^Intake triage handed this to the orchestrator$/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(b.data, 'intake-runs.json'), 'utf8'))[id].key, `ask:${id}`);
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 1);
@@ -888,7 +888,7 @@ test('an intake run open 10 minutes is stopped and its ask handed to the orchest
     const second = await send('ask', { text: 'Make the footer red' });
     const askThread = () => (fs.existsSync(threadFile) ? fs.readFileSync(threadFile, 'utf8').trim().split('\n').map(JSON.parse) : []);
     await until(() => askThread().at(-1)?.text.startsWith('Intake triage handed'), 'the hung ask is handed off');
-    assert.equal(askThread().at(-1).text, 'Intake triage handed this to the orchestrator: the intake triage run timed out after 10 minutes');
+    assert.equal(askThread().at(-1).text, 'Intake triage handed this to the orchestrator');
     assert.equal(readRuns()[id].timedOut, true);
     await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'the hung run is stopped');
     await until(() => readRuns()[second.id]?.pid, "the next ask's run launches on the same pass");

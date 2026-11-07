@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, handedBackAt, intakeKeyOf, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, handedBackAt, intakeKeyOf, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, INTAKE_AGENT, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -357,13 +357,13 @@ const VIA = ['github', 'slack'];
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // command is a button's key (domain.mjs COMMANDS), which makes the line its status line; card, on a link's line, the other
 // card's key, whose ref and title the thread draws when it renders (domain.mjs threadOf).
-export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by, command, card }) {
+export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by, command, card, intake }) {
   needSite(site);
   if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
   else await loadItem(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by, command, card };
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by, command, card, intake };
   const file = threadFile(site, key);
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
@@ -414,7 +414,7 @@ export async function eventCard(site, eventId) {
 // docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
 // `intake handoff <eventId> --text <why>`: an intake triage run unsure how to sort intake event eventId hands it to the
 // orchestrator, as an intake-handoff {event, key, text} event, whose wait (domain.mjs intakeWaits) wakes it, and a
-// status line in the card's thread saying why. → {lines: []}
+// status line in the card's thread, the last of its intake run's fold, without the why. → {lines: []}
 export async function intakeHandoff(site, eventId, why) {
   needSite(site);
   domId(eventId, 'the event id');
@@ -422,7 +422,7 @@ export async function intakeHandoff(site, eventId, why) {
   const e = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((x) => x.id === eventId) || fail(`no event "${eventId}" in this site's data/events.jsonl`);
   const key = intakeKeyOf(e) || fail(`event "${eventId}" isn't intake: a new task, the owner's message in an ask's thread, or a card an agent added`);
   await appendEvent({ dir: site }, 'intake-handoff', { event: eventId, key, text: said });
-  await appendThread(site, key, { text: `Intake triage handed this to the orchestrator: ${said}`, kind: 'status' });
+  await appendThread(site, key, { text: 'Intake triage handed this to the orchestrator', kind: 'status', intake: { event: eventId, agent: INTAKE_AGENT, end: 'handed off' } });
   return { lines: [] };
 }
 

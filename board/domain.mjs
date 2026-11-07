@@ -647,6 +647,8 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
 // Records written before kind became the provider hold kind opus or sonnet, which read as kind claude with that model.
 const MODEL_NAMES = { opus: 'Claude Opus', sonnet: 'Claude Sonnet', codex: 'Codex' };
 export const modelName = ({ model, kind }) => MODEL_NAMES[model] || MODEL_NAMES[kind] || (kind === 'claude' ? MODEL_NAMES.opus : null);
+// The name an intake triage run's fold goes by in its card's thread.
+export const INTAKE_AGENT = `${modelName({ kind: 'claude', model: 'sonnet' })} intake triage`;
 export const providerOf = (kind) => (kind === 'opus' || kind === 'sonnet' ? 'claude' : kind);
 
 // "Claude Opus implementer", "Claude Sonnet implementer", "Codex benchmarks": the model once, never "Claude Opus · Opus
@@ -895,7 +897,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
+    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...(m.intake ? { run: `intake:${m.intake.event}`, agent: m.intake.agent, ...(m.intake.end ? { end: m.intake.end } : {}) } : agentOfLine(agentList, m)) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,

@@ -321,7 +321,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeHung, intakeStranded, INTAKE_TIMEOUT_AFTER, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, intakeDue, intakeHung, intakeStranded, INTAKE_AGENT, INTAKE_TIMEOUT_AFTER, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -1675,7 +1675,7 @@ async function drawVisuals(items, log) {
 }
 
 // docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
-// data/intake-runs.json {<event id>: {key, pid, at, ended?}}: the intake triage runs, one at a time. Each pass marks a
+// data/intake-runs.json {<event id>: {key, pid, at, folds, ended?, closed?}} (folds: its thread lines fold into one section, closed once a line ends it): the intake triage runs, one at a time. Each pass marks a
 // run whose process has gone ended, hands the orchestrator each event a run ended without sorting (domain.mjs
 // intakeStranded), and, unless the board's launches are held (launchHeldNow), launches a run on the next due intake event
 // (intakeDue) with the board's index: every open work card's label, key, title, lane, state and notes file. A run that
@@ -1723,12 +1723,20 @@ async function runIntake() {
     const timedOut = runs[d.event].timedOut;
     const why = timedOut ? `the intake triage run timed out after ${INTAKE_TIMEOUT_AFTER / 60000} minutes` : 'the intake triage run ended without sorting it';
     logCall({ call: 'intake-handoff', key: d.key, result: 'handed off', reason: timedOut ? 'Its intake triage run timed out.' : 'Its intake triage run ended without sorting it.', inputs: { event: d.event, kind: d.kind, run: runs[d.event] } });
+    runs[d.event].closed = true;
     await intakeHandoff(here, d.event, why);
   }
+  // A run that ended with its event sorted closes its fold in the card's thread; one handed off closed it with its hand-off line.
+  for (const [event, r] of Object.entries(runs)) {
+    if (!r.folds || !r.ended || r.closed) continue;
+    r.closed = true;
+    await appendThread(here, r.key, { text: 'Intake triage finished', kind: 'status', intake: { event, agent: INTAKE_AGENT, end: 'finished' } });
+  }
+  await save();
   if (launchHeldNow()) return;
   const due = intakeDue(items, log, runs);
   if (!due) return;
-  runs[due.event] = { key: due.key, pid: null, at: now() };
+  runs[due.event] = { key: due.key, pid: null, at: now(), folds: true };
   await save();
   const entry = { call: 'intake-run', key: due.key, reason: `Intake event ${due.event} (${due.kind}) waits to be sorted.`, inputs: { event: due.event, kind: due.kind } };
   try {
@@ -1748,6 +1756,7 @@ async function runIntake() {
   } catch (e) {
     logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
     runs[due.event].ended = now();
+    runs[due.event].closed = true;
     await intakeHandoff(here, due.event, `intake triage couldn't launch (${e.message})`);
   }
   await save();

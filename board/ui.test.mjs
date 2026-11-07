@@ -1822,7 +1822,7 @@ test("one agent run folds into one closed line with a caret holding its started 
   const html = ui.threadMessages([ln(0), agentLine(1, false, live), ln(2, live), { ts: ago(7.5), who: 'claude', text: 'Between' }, ln(3, live), { ts: ago(6), who: 'love', text: 'Owner says' }]);
   assert.equal(html.match(/<details/g).length, 1);
   assert.match(html, /<details class="msg calls status-fold"><summary><span class="mark" aria-hidden="true"><svg/);
-  assert.match(text(html), /^Step 0 · \S.* Claude main · running · Step 3(?! · \d+ status)/);
+  assert.match(text(html), /^Step 0 · \S.* Claude main · running(?! ·)/);
   assert.match(text(html), /Claude main started · \S.* Step 2 · \S.* Step 3 · \S.* Between .*Owner says/);
   assert.doesNotMatch(html, /<details[^>]* open/);
   const p = run('grill', false, true);
@@ -1914,14 +1914,21 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
   assert.deepEqual(waits(acted), ['Q10']);
 });
 
-test("a run's fold ends its summary with a log link, running or finished, and a run with no log has none", () => {
+test("a run's fold ends its summary at its status (running, finished or handed off); its log is a link inside the open section, and a run with no log has none", () => {
   const started = (extra = {}) => ({ ts: ago(3), who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Opus grill', text: 'Claude Opus grill started', finished: false, planner: true, ...extra });
   const status = { ts: ago(2), who: 'claude', kind: 'status', run: 'r1', agent: 'Claude Opus grill', planner: true, text: 'Reading' };
   const done = { ts: ago(1), who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Opus grill', text: 'Claude Opus grill finished', finished: true, planner: true };
   const running = ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status]);
-  assert.match(running, /<summary>.*running · Reading <a class="fold-log" href="log\.html\?file=planner-A1-2026\.log">log<\/a><\/summary>/);
-  assert.match(ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status, done]), /finished <a class="fold-log" href="log\.html\?file=planner-A1-2026\.log">log<\/a><\/summary>/);
-  assert.doesNotMatch(ui.threadMessages([started(), status]), /fold-log/);
+  assert.match(running, /Claude Opus grill · running<\/summary>.*<a href="log\.html\?file=planner-A1-2026\.log">Open the log<\/a><\/div><\/details>$/);
+  assert.match(ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status, done]), /grill · finished<\/summary>/);
+  assert.doesNotMatch(ui.threadMessages([started(), status]), /Open the log/);
+  const launch = { ts: ago(3), who: 'claude', kind: 'status', run: 'intake:e1', agent: 'Claude Sonnet intake triage', text: 'Claude Sonnet intake triage', log: 'intake-e1.log' };
+  const handoff = { ts: ago(1), who: 'claude', kind: 'status', run: 'intake:e1', agent: 'Claude Sonnet intake triage', text: 'Intake triage handed this to the orchestrator', end: 'handed off' };
+  assert.match(text(ui.threadMessages([launch])), /^Claude Sonnet intake triage · running/);
+  const handed = ui.threadMessages([launch, handoff]);
+  assert.equal(handed.match(/<details/g).length, 1);
+  assert.match(text(handed), /^Claude Sonnet intake triage · handed off.*Intake triage handed this to the orchestrator.*Open the log$/);
+  assert.match(text(ui.threadMessages([launch, { ...handoff, text: 'Intake triage finished', end: 'finished' }])), /^Claude Sonnet intake triage · finished/);
 });
 
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {

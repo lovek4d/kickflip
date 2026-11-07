@@ -57,17 +57,17 @@
         ${m.eventId ? msgFooter(m) : ''}
       </div>`);
 
-  // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
-  // closed details line at its started line's place: the agent, running with its newest status text or finished, and
-  // no line count, and ending with a log link beside the summary when the run has a log; expanding it shows the run's lines.
+  // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`; an intake
+  // triage run's launch line and its closing line share one too) is one closed details line at its first line's place:
+  // the action, then its status, running, finished or handed off, and nothing after; expanding it shows the run's lines
+  // and, when the run has a log, an Open the log link.
   function foldedRun(m, links, edits) {
-    const statuses = m.folded.filter((f) => f.kind === 'status');
-    const running = !m.folded.some((f) => f.finished);
-    const newest = statuses.at(-1);
-    const tail = running ? (newest ? `running · ${escText(newest.text)}` : 'running') : 'finished';
+    const handedOff = m.folded.some((f) => f.end === 'handed off');
+    const running = !handedOff && !m.folded.some((f) => f.finished || f.end === 'finished');
+    const tail = handedOff ? 'handed off' : running ? 'running' : 'finished';
     const log = m.folded.find((f) => f.log)?.log;
-    const logLink = log ? ` <a class="fold-log" href="log.html?file=${encodeURIComponent(log)}">log</a>` : '';
-    return `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary${running ? '' : ' class="finished"'}>${statusMark('status lines')}${escText(m.agent)} · ${tail}${logLink}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}</details>`;
+    const logLine = log ? `<div class="small fold-log"><a href="log.html?file=${encodeURIComponent(log)}">Open the log</a></div>` : '';
+    return `<details class="msg calls status-fold${m.planner ? ' planner' : ''}"><summary${tail === 'finished' ? ' class="finished"' : ''}>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}${logLine}</details>`;
   }
   function foldStatus(lines) {
     const runs = new Map();

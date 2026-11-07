@@ -15,7 +15,7 @@ import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
 import { BoardError, appendThread, briefFacts, readBoardRules, recordSession } from './store.mjs';
-import { HELPER, modelName, plans, VISUAL } from './domain.mjs';
+import { HELPER, INTAKE_AGENT, plans, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
 const cli = (route) => `node ${BOARD_CLI} --site ${route}`;
@@ -280,7 +280,7 @@ export async function launchIntake(site, intake) {
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
   const { repo } = builderRepo(site);
   const launched = await launchAgent({ kind: 'claude', model: 'sonnet', cwd: repo, site, prompt: intakeBrief({ ...intake, route, repo, rules }), log: logFile(intake.event, 'intake') });
-  await appendThread(site, intake.key, { text: `${modelName({ kind: 'claude', model: 'sonnet' })} intake triage`, kind: 'status', log: path.basename(launched.log) });
+  await appendThread(site, intake.key, { text: INTAKE_AGENT, kind: 'status', log: path.basename(launched.log), intake: { event: intake.event, agent: INTAKE_AGENT } });
   return launched;
 }
 
