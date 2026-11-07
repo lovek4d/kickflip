@@ -138,3 +138,63 @@ test("the served viewer frames the page at the base worktree's port with the tak
   assert.match(failed, /npm ERR! &lt;missing&gt;\nexit 1/);
   assert.match(failed, /<button type="button" data-kit-served="retry">Try again<\/button>/);
 });
+
+// docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md
+test('the served viewer keeps polling while the frame shows: Starting while the serve is down, and a new frame at the same take and state once a new run is ready', async () => {
+  const timers = [];
+  const answers = [];
+  const posts = [];
+  const stage = Object.assign(new EventTarget(), { innerHTML: '', frame: null, replaceChildren(el) { this.frame = el; this.innerHTML = ''; } });
+  let switcher;
+  const context = vm.createContext({
+    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/orch/prototype-look.html' }, URL, EventTarget, clearTimeout, setInterval, clearInterval,
+    setTimeout: (fn) => timers.push(fn),
+    fetch: async (url, opts) => {
+      if (opts?.method === 'POST') { posts.push(url); return {}; }
+      const next = answers.shift();
+      if (next instanceof Error) throw next;
+      return { json: async () => next };
+    },
+    ClaudeSite: { url: (p) => `/orch/${p}` },
+    PrototypeSwitcher: { mount(opts) { switcher = opts; opts.render(opts.initial, 'busy'); return {}; } },
+    document: Object.assign(new EventTarget(), {
+      documentElement: { dataset: {} },
+      getElementById: (id) => (id === 'stage' ? stage : null),
+      createElement: () => Object.assign(new EventTarget(), { contentWindow: { postMessage() {} } }),
+    }),
+  });
+  context.window = context;
+  vm.runInContext(fs.readFileSync(new URL('./public/prototype-kit.js', import.meta.url), 'utf8'), context);
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  // Answers the next poll with answer, and returns what the stage shows after it.
+  const step = async (answer) => {
+    answers.push(answer);
+    timers.shift()();
+    await settle();
+    return stage.frame ? stage.frame.src : stage.innerHTML;
+  };
+  answers.push({ state: 'running' });
+  context.PrototypeKit.start({ served: '/proto/look', title: 'Look', takes: [{ key: 'A', label: 'A' }, { key: 'B', label: 'B' }], states: [{ key: 'busy', label: 'Busy' }] });
+  await settle();
+  assert.match(stage.innerHTML, /Starting the prototype site/);
+  assert.equal(await step({ state: 'ready', https: 8500, since: 's1' }), 'https://mac.ts.net:8500/proto/look?variant=A&state=busy');
+  const first = stage.frame;
+  switcher.render('B', 'busy');
+  assert.equal(await step({ state: 'ready', https: 8500, since: 's1' }), first.src);
+  assert.equal(stage.frame, first, 'the same run keeps its frame');
+  assert.equal(await step(new Error('the board is out of reach')), first.src);
+  assert.equal(stage.frame, first, 'a poll that fails keeps the frame');
+  stage.frame = null;
+  assert.match(await step({ state: null }), /Starting the prototype site/);
+  assert.match(await step({ state: 'running' }), /Starting the prototype site/);
+  assert.equal(await step({ state: 'ready', https: 8500, since: 's2' }), 'https://mac.ts.net:8500/proto/look?variant=B&state=busy');
+  const second = stage.frame;
+  assert.notEqual(second, first);
+  // A run that restarted between two polls still gets a new frame.
+  await step({ state: 'ready', https: 8500, since: 's3' });
+  assert.notEqual(stage.frame, second);
+  assert.equal(timers.length, 1, 'it keeps polling');
+  stage.frame = null;
+  assert.match(await step({ state: 'failed', lines: ['exit 1'] }), /didn’t start/);
+  assert.equal(timers.length, 0, 'a failed serve waits for Try again');
+});

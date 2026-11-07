@@ -1129,3 +1129,37 @@ test("the board's base prototype worktree is served while an open question links
   assert.match(fs.readFileSync(path.join(site, 'data', 'try', 'prototypes.log'), 'utf8'), /port 32126/);
   assert.deepEqual(thread(), []);
 });
+
+// docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md
+test("a move of the base worktree to a new commit restarts its serve on the same https port as a new run, and an unmoved base keeps its run", async (t) => {
+  fakeRelays(t);
+  const logs = [];
+  manager = createTryManager({ now: () => clock, answers: async () => true, log: (line) => logs.push(line) });
+  const base = path.join(home, '.claude', 'kickflip', 'worktrees', 'orch-prototypes');
+  git(repo, 'worktree', 'add', '--quiet', '--detach', base, 'main');
+  t.after(() => git(repo, 'worktree', 'remove', '--force', base));
+  const counter = path.join(home, 'base-port');
+  setScript(`const fs = require('node:fs'); const f = ${JSON.stringify(counter)}; const n = fs.existsSync(f) ? Number(fs.readFileSync(f, 'utf8')) + 1 : 32125;
+fs.writeFileSync(f, String(n)); console.log('port ' + n); setInterval(() => {}, 1000);`, base);
+  write(path.join(site, 'data', 'owner.json'), { topics: [], items: [{ id: 'q1', topic: 'item:w/A1', question: 'Which?', url: 'prototype-look.html?q=q1', options: [{ id: 'A', label: 'A' }] }] });
+  write(path.join(site, 'data', 'prototypes.json'), { prototypes: [{ topic: 'look', title: 'Look', served: '/proto/look', takes: [{ key: 'A', label: 'A' }] }] });
+  await tick();
+  await until(() => state().prototypes?.state === 'ready');
+  const first = state().prototypes;
+  assert.ok(first.since);
+  clock += 60_000;
+  await tick();
+  assert.equal(state().prototypes.since, first.since);
+  assert.equal(manager.lookup('orch', 'prototypes', { manifest }).port, 32125);
+
+  write(path.join(repo, 'moved.txt'), 'moved');
+  const moved = commit(repo, 'moved');
+  git(base, 'checkout', '--quiet', '--detach', moved);
+  clock += 60_000;
+  await tick();
+  await until(() => state().prototypes?.state === 'ready' && manager.lookup('orch', 'prototypes', { manifest })?.port === 32126);
+  assert.equal(state().prototypes.https, first.https);
+  assert.equal(state().prototypes.sha, moved);
+  assert.notEqual(state().prototypes.since, first.since);
+  assert.ok(logs.some((line) => line.includes(`prototypes: the base moved to ${moved.slice(0, 7)}; restarting its serve`)), logs.join('\n'));
+});

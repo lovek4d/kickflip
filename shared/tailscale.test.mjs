@@ -83,3 +83,15 @@ test('the install hint names the download page and the cask on macOS, the instal
   assert.equal(tailscaleInstallCommand('darwin'), 'brew install --cask tailscale-app');
   assert.equal(tailscaleInstallCommand('linux'), 'curl -fsSL https://tailscale.com/install.sh | sh');
 });
+
+test('KICKFLIP_TAILSCALE names the one tailscale CLI kickflip runs, over a Running daemon elsewhere on PATH or in the app', () => {
+  const apps = [path.join(home, 'Applications')];
+  const brew = executable(path.join(home, 'bin', 'tailscale'));
+  executable(bundle(apps[0]));
+  const stub = executable(path.join(home, 'stub', 'tailscale'));
+  const options = { env: { PATH: path.join(home, 'bin'), KICKFLIP_TAILSCALE: stub }, platform: 'darwin', apps };
+  const asked = [];
+  assert.equal(tailscaleBin({ ...options, running: (file) => { asked.push(file); return file === brew; } }), stub);
+  assert.deepEqual(asked, []);
+  assert.deepEqual(tailscaleSkipped(stub, options), []);
+});

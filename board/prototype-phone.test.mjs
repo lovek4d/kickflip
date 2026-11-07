@@ -69,11 +69,13 @@ const PROBE = `<script>addEventListener('load', () => setTimeout(() => {
     mockScrolls: mock.parentElement.scrollWidth > mock.parentElement.clientWidth }), '*');
 }, 800))</script>`;
 
-test('at phone width a take that pairs panels with grid or a non-wrapping flex row stacks them, and a 720px mock scrolls in its box without cutting the page off', { skip: !fs.existsSync(CHROME) }, async () => {
+// Serves the real prototype page, with header in its header slot and probe before </body>, and loads it at 390px in
+// headless Chrome; → what the probe posted, parsed.
+async function phoneProbe({ header = '', probe }) {
   const pub = fileURLToPath(new URL('./public/', import.meta.url));
   const data = { topic: 't', title: 't', takes: [{ key: 'A', label: 'A', src: 'prototypes/t/A.js', file: 'prototypes/t/A.js' }] };
-  const page = fs.readFileSync(`${pub}prototype.html`, 'utf8').replace('{{prototypeTitle}}', 't').replace('{{prototypeHeader}}', '')
-    .replace('{{prototypeData}}', JSON.stringify(data)).replace('</body>', `${PROBE}</body>`);
+  const page = fs.readFileSync(`${pub}prototype.html`, 'utf8').replace('{{prototypeTitle}}', 't').replace('{{prototypeHeader}}', header)
+    .replace('{{prototypeData}}', JSON.stringify(data)).replace('</body>', `${probe}</body>`);
   const server = http.createServer((req, res) => {
     const p = new URL(req.url, 'http://x').pathname;
     if (p === '/frame.html') return res.setHeader('content-type', 'text/html'), res.end('<body><iframe style="width:390px;height:800px;border:0" src="/page.html"></iframe><script>addEventListener("message", (e) => { const d = document.createElement("pre"); d.id = "probe"; d.textContent = e.data; document.body.append(d); })</script>');
@@ -86,15 +88,30 @@ test('at phone width a take that pairs panels with grid or a non-wrapping flex r
   });
   await new Promise((ok) => server.listen(0, ok));
   try {
+    // Chrome under load can exit non-zero at teardown after it has dumped the DOM, so its output is read either way.
     const { stdout } = await promisify(execFile)(CHROME, ['--headless=new', '--disable-gpu', '--window-size=390,900', '--virtual-time-budget=6000', '--dump-dom',
-      `http://localhost:${server.address().port}/frame.html`], { encoding: 'utf8', timeout: 60000 });
-    const probe = /<pre id="probe">(.*?)<\/pre>/s.exec(stdout)?.[1];
-    assert.ok(probe, 'the page reported its layout');
-    const got = JSON.parse(probe.replace(/&quot;/g, '"'));
-    assert.equal(got.gridStacked, true, 'the grid pair stacks');
-    assert.equal(got.flexStacked, true, 'the non-wrapping flex pair stacks');
-    assert.equal(got.mockWidth, 720, 'the 720px mock keeps its width');
-    assert.equal(got.mockScrolls, true, 'the mock scrolls inside its box');
-    assert.ok(got.scrollWidth <= got.innerWidth, `the page is not cut off: ${got.scrollWidth} wide in ${got.innerWidth}`);
+      `http://localhost:${server.address().port}/frame.html`], { encoding: 'utf8', timeout: 60000 }).catch((e) => ({ stdout: e.stdout || '' }));
+    const posted = /<pre id="probe">(.*?)<\/pre>/s.exec(stdout)?.[1];
+    assert.ok(posted, 'the page reported its layout');
+    return JSON.parse(posted.replace(/&quot;/g, '"'));
   } finally { server.close(); }
+}
+
+test('at phone width a take that pairs panels with grid or a non-wrapping flex row stacks them, and a 720px mock scrolls in its box without cutting the page off', { skip: !fs.existsSync(CHROME) }, async () => {
+  const got = await phoneProbe({ probe: PROBE });
+  assert.equal(got.gridStacked, true, 'the grid pair stacks');
+  assert.equal(got.flexStacked, true, 'the non-wrapping flex pair stacks');
+  assert.equal(got.mockWidth, 720, 'the 720px mock keeps its width');
+  assert.equal(got.mockScrolls, true, 'the mock scrolls inside its box');
+  assert.ok(got.scrollWidth <= got.innerWidth, `the page is not cut off: ${got.scrollWidth} wide in ${got.innerWidth}`);
+});
+
+// The page's header bar is hidden, so nothing is below the footer: its bottom is the window's.
+test('at phone width the viewer footer sits on the bottom edge with no gap below it, though the page has a hidden header bar', { skip: !fs.existsSync(CHROME) }, async () => {
+  const probe = `<script>addEventListener('load', () => setTimeout(() => {
+  parent.postMessage(JSON.stringify({ footerBottom: document.querySelector('.ps-switch').getBoundingClientRect().bottom, innerHeight,
+    appBottom: getComputedStyle(document.documentElement).getPropertyValue('--app-bottom').trim() }), '*');
+}, 800))</script>`;
+  const got = await phoneProbe({ header: '<header class="top"><a class="back" href="./">Back</a></header>', probe });
+  assert.equal(got.footerBottom, got.innerHeight, `the footer ends ${got.innerHeight - got.footerBottom}px above the bottom (--app-bottom: ${got.appBottom})`);
 });

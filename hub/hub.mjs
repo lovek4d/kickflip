@@ -362,7 +362,7 @@ async function serverAnswers(route) {
 }
 async function reconcile() {
   if (shuttingDown) return;
-  selfRestart.check();
+  if (CODE_RESTARTS) selfRestart.check();
   const { sites } = loadManifest();
   for (const route of [...procs.keys()]) {
     if (closingResponses.has(route)) continue;
@@ -383,7 +383,7 @@ async function reconcile() {
       continue;
     }
     // docs/adr/2026-11-04-0056-a-board-server-whose-code-changed-restarts-between-builders.md
-    const onDisk = p?.child && p.code && !p.stopping && !restarting.has(route) && !closingResponses.has(route) ? boardCode(site) : null;
+    const onDisk = CODE_RESTARTS && p?.child && p.code && !p.stopping && !restarting.has(route) && !closingResponses.has(route) ? boardCode(site) : null;
     if (onDisk && onDisk !== p.code) {
       if (!(await openBoardBuilders(site.dir)).length) {
         log(`${route} runs older code than its files; restarting it`);
@@ -404,7 +404,10 @@ async function reconcile() {
     if (p.child && p.up) Object.assign(p, { state: 'up' }, p.stopping ? {} : { why: undefined });
   }
 }
-// The hub restarts itself for new code once it is whole on disk (self-restart.mjs).
+// The hub restarts itself for new code once it is whole on disk (self-restart.mjs), and a board server whose code
+// changed between builders (reconcile above), unless KICKFLIP_CODE_RESTARTS=off: a try run's demo hub, which the hub
+// serving it restarts whole when its worktree moves.
+const CODE_RESTARTS = process.env.KICKFLIP_CODE_RESTARTS !== 'off';
 const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), log });
 const reconciling = setInterval(() => reconcile().catch((e) => log('reconcile failed:', e.message)), 2000);
 reconcile().catch((e) => log('reconcile failed:', e.message));

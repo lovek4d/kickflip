@@ -76,6 +76,8 @@
 
   const CSS = `
 body > header.top { display:none; }
+/* style.css sets --app-bottom on a phone for the bar the header becomes; hidden here, it leaves nothing to clear. */
+:root { --app-bottom:0px !important; }
 main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-top { position:fixed; left:10px; right:10px; top:calc(10px + env(safe-area-inset-top)); z-index:31; display:flex; justify-content:space-between;
   align-items:flex-start; pointer-events:none; font:600 13px -apple-system, system-ui, sans-serif; }

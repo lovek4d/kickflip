@@ -77,3 +77,36 @@ test('a board server whose code changed on disk restarts once its board has no r
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+// docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md
+test('with KICKFLIP_CODE_RESTARTS=off, as a try run\'s demo hub runs, a board server whose code changed keeps running', async () => {
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'stale-board-')));
+  const [port, shopPort] = await freePorts(2);
+  for (const tool of ['gh', 'tailscale', 'launchctl', 'systemctl', 'codex', 'caffeinate', 'claude', 'tmux']) { write(path.join(home, 'bin', tool), '#!/bin/sh\nexit 1\n'); fs.chmodSync(path.join(home, 'bin', tool), 0o755); }
+  const pkg = fakePackage(home);
+  const dir = path.join(home, '.claude', 'kickflip', 'sites', 'shop');
+  write(path.join(dir, 'board.json'), { title: 'Shop', items: 'data/cards.json' });
+  write(path.join(dir, 'data', 'cards.json'), { items: [{ id: 'A1', title: 'One' }] });
+  write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { version: 1, migrated: ['hub-flag'], sites: {
+    shop: { title: 'Shop', dir, port: shopPort, cmd: [process.execPath, path.join(pkg, 'board', 'server.mjs'), dir] },
+  } });
+  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CODE_RESTARTS: 'off', PATH: `${path.join(home, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin` } });
+  let out = '';
+  hub.stdout.on('data', (d) => { out += d; });
+  hub.stderr.on('data', (d) => { out += d; });
+  const pid = () => fetch(`http://127.0.0.1:${shopPort}/`).then((r) => r.json()).then((j) => j.pid, () => null);
+  try {
+    await until(() => out.includes('hub on'), 'the hub starts');
+    await until(async () => Boolean(await pid()), 'the Shop server answers');
+    const first = await pid();
+    write(path.join(pkg, 'board', 'dep.mjs'), 'export const v = 2;\n');
+    // The hub checks every 2 seconds.
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    assert.equal(await pid(), first);
+    assert.doesNotMatch(out, /older code than its files/);
+  } finally {
+    hub.kill();
+    await new Promise((resolve) => hub.once('exit', resolve));
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

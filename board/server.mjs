@@ -269,8 +269,9 @@
 //                                rows from byte `from` to its last whole line (transcript.mjs readRunTranscript); the reader
 //                                sheet's View transcript reads it on from `next` while it grows
 //   GET  /api/try/main/log      {lines}: last 40 lines of main's log, from at most its last 64 KiB
-//   GET  /api/try/prototypes    {state, https, lines}: the hub's serve of the board's base prototype worktree, which a
-//                                served round's viewer frames, with its log's last 40 lines once it failed
+//   GET  /api/try/prototypes    {state, https, since, lines}: the hub's serve of the board's base prototype worktree,
+//                                which a served round's viewer frames, since when its ready run started, and its log's
+//                                last 40 lines once it failed
 //                                (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md)
 // The last 40 lines of a hub run's log, data/try/<name>.log, from at most its last 64 KiB; [] with no log.
 async function tryLogTail(here, name) {
@@ -1350,7 +1351,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/try/main/log' && req.method === 'GET') return json(res, 200, { lines: await tryLogTail(here, 'main') });
     if (p === '/api/try/prototypes' && req.method === 'GET') {
       const run = (await readJSON(path.join(here, 'data', 'try.json'), {}))?.prototypes || {};
-      return json(res, 200, { state: run.state || null, https: run.state === 'ready' ? run.https || null : null, lines: run.state === 'failed' ? await tryLogTail(here, 'prototypes') : [] });
+      return json(res, 200, { state: run.state || null, https: run.state === 'ready' ? run.https || null : null, since: run.state === 'ready' ? run.since || null : null, lines: run.state === 'failed' ? await tryLogTail(here, 'prototypes') : [] });
     }
     if (p === '/api/log' && req.method === 'GET') {
       const name = url.searchParams.get('file') || '';

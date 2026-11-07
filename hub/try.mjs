@@ -334,7 +334,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
     const { state } = stateOf(board);
     const previous = entryOf(state, key);
-    const entry = { ...(isCard(key) ? previous : {}), ...metadata, sha, script: true, state: 'running', ...(isCard(key) ? { at: stamp(), head: sha } : {}) };
+    // since: when the base serve's run started, so a viewer tells a new run from the one it framed.
+    const entry = { ...(isCard(key) ? previous : {}), ...metadata, sha, script: true, state: 'running', ...(isCard(key) ? { at: stamp(), head: sha } : {}), ...(key === BASE_KEY ? { since: stamp() } : {}) };
     delete entry.port;
     delete entry.https;
     const logFile = logFileOf(board, key);
@@ -482,7 +483,9 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     return exists(dir) && fs.statSync(dir).isDirectory() ? fs.realpathSync(dir) : '';
   };
   // Serves the base worktree while an open question links a served round, and stops it once none does; a failed serve
-  // waits for Try again (start with BASE_KEY) while a round stays open.
+  // waits for Try again (start with BASE_KEY) while a round stays open. A ready serve whose worktree moved to another
+  // commit (prototype base) restarts on the same https port, so every open page reloads into the new tree whole
+  // (docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md).
   async function serveBase(board, manifest) {
     const { state } = stateOf(board);
     const id = runKey(board, BASE_KEY);
@@ -493,7 +496,11 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       if (state.prototypes) { state.prototypes = null; persist(board); }
       return;
     }
-    if (run || starting.has(id) || state.prototypes?.state === 'failed' || await waiting()) return;
+    if (run?.ready && !run.stopped && !starting.has(id)) {
+      const head = await git(open, 'rev-parse', 'HEAD');
+      if (head === state.prototypes?.sha) return;
+      log(`try /${board.route} prototypes: the base moved to ${head.slice(0, 7)}; restarting its serve`);
+    } else if (run || starting.has(id) || state.prototypes?.state === 'failed' || await waiting()) return;
     try { await start({ route: board.route, key: BASE_KEY }, { manifest }); }
     catch (e) {
       if ([409, 503].includes(e.status)) return;

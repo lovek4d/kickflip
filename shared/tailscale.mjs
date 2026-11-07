@@ -13,8 +13,10 @@ const isExecutable = (file) => {
 };
 
 // Every tailscale CLI on this host, in the order kickflip tries them: each executable `tailscale` on env's PATH, then on
-// macOS the GUI app's own binary in apps. → [path]
+// macOS the GUI app's own binary in apps. env KICKFLIP_TAILSCALE names the only one, as a try run's demo hub is given
+// its failing stub so it never touches the host's Tailscale. → [path]
 export function tailscaleCandidates({ env = process.env, platform = process.platform, apps = ['/Applications', path.join(os.homedir(), 'Applications')] } = {}) {
+  if (env.KICKFLIP_TAILSCALE) return [env.KICKFLIP_TAILSCALE];
   const found = (env.PATH || '').split(path.delimiter).filter(Boolean).map((dir) => path.join(dir, 'tailscale'));
   if (platform === 'darwin') found.push(...apps.map((dir) => path.join(dir, APP_CLI)));
   return [...new Set(found)].filter(isExecutable);

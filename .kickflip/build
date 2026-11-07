@@ -76,11 +76,15 @@ async function main() {
   for (const name of ['claude', 'gh', 'codex', 'tailscale', 'launchctl', 'systemctl', 'loginctl', 'osascript']) {
     fs.writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   }
+  // The demo hub runs the stubs, so it never reaches the host's Tailscale (whose daemon kickflip would otherwise pick
+  // over a stub first on PATH), and never restarts itself or its board for new code: the hub that serves this
+  // worktree restarts the whole run when the worktree moves.
   hub = spawn(process.execPath, [path.join(worktree, 'hub', 'hub.mjs')], {
     cwd: worktree,
     env: {
       ...process.env, HOME: home, PATH: bin + path.delimiter + (process.env.PATH || ''),
       KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false',
+      KICKFLIP_TAILSCALE: path.join(bin, 'tailscale'), KICKFLIP_CODE_RESTARTS: 'off',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

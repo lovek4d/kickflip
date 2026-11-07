@@ -6,14 +6,18 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-test('the repo build script announces a private working hub and stops with its process group', async (t) => {
+test('the repo build script announces a private working hub that never runs the host\'s tailscale, and stops with its process group', async (t) => {
   const root = fileURLToPath(new URL('../', import.meta.url));
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'build-test-'));
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
-  for (const name of ['claude', 'gh', 'codex', 'tailscale', 'launchctl', 'systemctl', 'loginctl', 'osascript']) {
+  for (const name of ['claude', 'gh', 'codex', 'launchctl', 'systemctl', 'loginctl', 'osascript']) {
     fs.writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 1\n', { mode: 0o700 });
   }
+  // The host's tailscale, its daemon Running: the demo hub must never call it, or its startup turns off the real hub's
+  // try ports.
+  const calls = path.join(home, 'tailscale-calls');
+  fs.writeFileSync(path.join(bin, 'tailscale'), `#!/bin/sh\necho "$@" >> '${calls}'\necho '{"BackendState":"Running"}'\n`, { mode: 0o700 });
   const child = spawn(path.join(root, '.kickflip/build'), ['main', root], {
     cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, HOME: home, PATH: bin + path.delimiter + process.env.PATH, KICKFLIP_CLAUDE: '/usr/bin/false' },
@@ -56,6 +60,8 @@ test('the repo build script announces a private working hub and stops with its p
   assert.equal(response.status, 200);
   await response.text();
   assert.equal(closed, false, stderr);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  assert.equal(fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : '', '');
   signal('SIGTERM');
   await Promise.race([
     close,

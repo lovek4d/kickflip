@@ -205,25 +205,39 @@
     const stage = document.getElementById('stage');
     let at = { take: null, state: null };
     let frame = null;
+    // The run the frame shows: its since from api/try/prototypes.
+    let framed = null;
     let origin = null;
     let started = false;
     const serve = () => fetch(site.url('api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'prototypes' }) }).catch(() => {});
     const post = () => frame.contentWindow.postMessage({ kickflip: 'prototype', ...at }, origin);
+    // Polls the serve while the page is open (docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md):
+    // a ready run the frame doesn't show, the first or a new one after a restart or a base move, gets a new frame at the
+    // current take and state; a serve that's down shows Starting. A poll that can't reach the board leaves the stage.
     async function poll() {
-      let run = {};
-      try { run = await (await fetch(site.url('api/try/prototypes'), { cache: 'no-store' })).json(); } catch { /* the board is out of reach; ask again */ }
-      if (run.state === 'ready' && run.https) {
-        const src = servedSrc({ https: run.https, path: data.served, ...at });
-        origin = new URL(src).origin;
-        frame = document.createElement('iframe');
-        frame.className = 'kit-served';
-        frame.title = data.title;
-        frame.src = src;
-        // A switch made while the page loaded reaches it once it has.
-        nativeAdd.call(frame, 'load', post);
-        stage.replaceChildren(frame);
+      let run;
+      try { run = await (await fetch(site.url('api/try/prototypes'), { cache: 'no-store' })).json(); } catch {
+        if (!frame) stage.innerHTML = servedStatus({});
+        wait(poll, 1500);
         return;
       }
+      if (run.state === 'ready' && run.https) {
+        if (!frame || (run.since ?? null) !== framed) {
+          const src = servedSrc({ https: run.https, path: data.served, ...at });
+          origin = new URL(src).origin;
+          framed = run.since ?? null;
+          frame = document.createElement('iframe');
+          frame.className = 'kit-served';
+          frame.title = data.title;
+          frame.src = src;
+          // A switch made while the page loaded reaches it once it has.
+          nativeAdd.call(frame, 'load', post);
+          stage.replaceChildren(frame);
+        }
+        wait(poll, 3000);
+        return;
+      }
+      frame = null;
       stage.innerHTML = servedStatus(run);
       // A serve that's down is started once from here; a failed one waits for Try again.
       if (!run.state && !started) { started = true; serve(); }
