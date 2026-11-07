@@ -80,10 +80,10 @@ globalThis.AppRouter = (function () {
 
   // The page tree (docs/adr/2026-10-30-1125-back-follows-the-page-tree.md): a board, its Waiting on you, and a prototype page tied
   // to one of its questions by ?q=, framed. levelOf → 0, 1 or 2 down the tree, or null for a view outside it.
+  // A board's prototype page, which from 900px opens in the board's right pane (shell.js go).
+  const isPrototype = (view, boards) => view?.kind === 'frame' && boards.has(view.route) && /^\/[^/]+\/prototype-[\w-]+\.html$/.test(new URL(view.url, 'http://hub').pathname);
   function questionOf(view, boards) {
-    if (view?.kind !== 'frame' || !boards.has(view.route)) return null;
-    const u = new URL(view.url, 'http://hub');
-    return /^\/[^/]+\/prototype-[\w-]+\.html$/.test(u.pathname) ? u.searchParams.get('q') || null : null;
+    return isPrototype(view, boards) ? new URL(view.url, 'http://hub').searchParams.get('q') || null : null;
   }
   // wide: from 900px Waiting on you is the board's pane, so a prototype's parent is the board itself.
   function levelOf(view, { boards = new Set(), wide = false } = {}) {
@@ -224,5 +224,5 @@ globalThis.AppRouter = (function () {
     return { push: (href, from) => write('push', href, from), replace: (href) => write('replace', href), up };
   }
 
-  return { viewOf, urlOf, mounted, entryOf, listen };
+  return { viewOf, urlOf, mounted, entryOf, isPrototype, listen };
 })();

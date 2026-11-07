@@ -983,6 +983,25 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
   .needs-pane * { min-width: 0; overflow-wrap: anywhere; }
   .needs-pane pre, .needs-pane code { white-space: pre-wrap; }
   .needs-pane :is(.deck-opts, .row, .actions, .btns) { flex-wrap: wrap; }
+  /* A prototype in the pane (app-needs.js openViewer): a top bar over the framed page, whose footer ends the pane; ⤢
+     (.widened) lays the pane over the lanes, from the sidebar's edge. */
+  .needs-pane.viewing { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+  .needs-pane.viewing > :not(.pane-viewer) { display: none; }
+  .needs-pane.viewing.widened { position: fixed; top: 56px; left: var(--sidebar-w, 0px); right: 0; bottom: 0; height: auto; z-index: 7; border-left: 0; background: var(--bg); }
+  .pane-viewer { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .pv-top { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .pv-top .pv-grow { flex: 1; }
+  .pv-top button { min-height: 36px; border-radius: 8px; font-weight: 600; }
+  .pv-top .pv-back { border: 0; background: transparent; color: var(--text); padding: 6px 8px; }
+  .pv-top .pv-back:hover { background: var(--line); }
+  .pv-top .pv-widen { width: 36px; padding: 0; font-size: 17px; }
+  .pv-top .pv-widen[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .pv-top .ps-chip { border-radius: 999px; padding: 0 14px; }
+  .pv-frame { flex: 1; min-height: 0; width: 100%; border: 0; display: block; background: var(--panel); }
+  .pane-viewer .ps-sheet { position: absolute; left: 8px; right: 8px; top: 56px; z-index: 2; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+  .pane-viewer .ps-sheet h3 { margin: 0 0 6px; font-size: 14px; }
+  .pane-viewer .ps-sheet button { display: flex; justify-content: space-between; gap: 12px; width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); padding: 10px 2px; text-align: left; }
+  .pane-viewer .ps-sheet button span + span { color: var(--muted); }
 }
 /* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
 body .view-questions main { padding-bottom: var(--app-bottom, 0px); }

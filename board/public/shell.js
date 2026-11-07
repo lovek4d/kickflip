@@ -246,24 +246,30 @@ window.AppShell = (function () {
     // Board and Waiting on you are a board's two pages (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md):
     // from 900px the board shows Waiting on you in its pane, so every view of the questions page, a link, a push, a
     // hand-off, a history entry or a cold load, shows the board at its own URL and opens the question's topic there (id,
-    // or null for none). A board just shown takes a moment to fill its pane, so the pane is asked again until it has.
-    function focusPane(id, tries = 50) {
-      if (current?.view.kind !== 'board' || current.v.B.focusQuestion?.(id) || tries <= 0) return;
-      setTimeout(() => focusPane(id, tries - 1), 100);
+    // or null for none). A board's prototype page does the same and opens in the pane
+    // (docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md).
+    const inPane = (view) => wide.matches && (view?.kind === 'questions' || AppRouter.isPrototype(view, boards()));
+    // ask(B) → true once the board's pane did what the view asks. A board just shown takes a moment to fill its pane, so
+    // the pane is asked again until it has.
+    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openViewer?.(href));
+    function askPane(ask, tries = 50) {
+      if (current?.view.kind !== 'board' || ask(current.v.B) || tries <= 0) return;
+      setTimeout(() => askPane(ask, tries - 1), 100);
     }
     function go(view, href, how, from) {
       if (!AppRouter.mounted(view)) return false;
-      if (view.kind === 'questions' && wide.matches) {
+      if (inPane(view)) {
+        const ask = paneAsk(view, href);
         const board = { kind: 'board', route: view.route, hash: '' };
         const boardHref = new URL(AppRouter.urlOf(board), location.href).href;
         if (how === 'pop') history.replaceState(history.state, '', boardHref);
-        // On its own board it only opens the topic, so the URL, history and an open card stay as they are.
+        // On its own board it only asks the pane, so the URL, history and an open card stay as they are.
         else if (current?.view.kind === 'board' && current.route === view.route && !settings) {
-          focusPane(view.id);
+          askPane(ask);
           sidebar.close();
           return true;
         }
-        return Promise.resolve(go(board, boardHref, how, from)).then((shown) => { if (shown) focusPane(view.id); return shown; });
+        return Promise.resolve(go(board, boardHref, how, from)).then((shown) => { if (shown) askPane(ask); return shown; });
       }
       if (view.kind === 'settings') {
         if (current?.view.kind === 'board' && current.route === view.route) {
@@ -317,15 +323,15 @@ window.AppShell = (function () {
     if (!AppRouter.mounted(first)) { location.replace('/_hub/'); return; }
 
     let pane = null;
-    if (first.kind === 'questions' && wide.matches) {
-      pane = { id: first.id };
+    if (inPane(first)) {
+      pane = paneAsk(first, location.href);
       first = { kind: 'board', route: first.route, hash: '' };
       history.replaceState(history.state, '', AppRouter.urlOf(first));
     }
     router = AppRouter.listen({ boards, go, wide: () => wide.matches });
-    // Widening past 900px on Waiting on you swaps to the board with that topic open in the pane.
+    // Widening past 900px on Waiting on you or a prototype swaps to the board with it open in the pane.
     wide.addEventListener('change', () => {
-      if (wide.matches && current?.view.kind === 'questions') go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'replace');
+      if (current && inPane(current.view)) go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'replace');
     });
     opener = (url, { replace = false, frames = true } = {}) => {
       const view = AppRouter.viewOf(url, { boards: boards() });
@@ -342,7 +348,7 @@ window.AppShell = (function () {
     navigator.serviceWorker?.startMessages?.();
 
     show(first);
-    if (pane) focusPane(pane.id);
+    if (pane) askPane(pane);
     openStream();
     addEventListener('visibilitychange', () => { if (!document.hidden) openStream(); });
     addEventListener('pageshow', openStream);

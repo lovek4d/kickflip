@@ -1,13 +1,15 @@
-// The full-bleed prototype viewer's floating controls (docs/adr/2026-10-29-1639-prototypes-come-on-request.md,
+// The full-bleed prototype viewer's controls (docs/adr/2026-10-29-1639-prototypes-come-on-request.md,
 // docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md,
-// docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md).
+// docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md,
+// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md).
 // Load it with a relative src after claude.js, on a page whose header leads with the back arrow, then call
 //   const sw = PrototypeSwitcher.mount({ takes: { A: 'A. Name', … }, states: { empty: 'No cards', … }?, initial: 'A', render(take, state) {…}, above: el? })
 // render runs at mount and on each switch of take or state; sw.take is the current key. A served round's named states
 // (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md) are a row of chips above the
 // pager, the state kept in ?state=, else the first. The page's header is hidden: a ✕ at the top
-// right goes back as its back arrow does, and the bottom bar holds the ‹ take › pager. ←/→ and a sideways swipe switch
-// unless a field has focus, and the take stays in ?variant=. With ?q=<owner question id>, the bar's second row offers
+// right goes back as its back arrow does, and the footer, full width on the bottom edge at every width, holds the
+// ‹ take › pager. Framed in the board's right pane, the pane's top bar takes the ✕'s and the Round pill's place. ←/→
+// and a sideways swipe switch unless a field has focus, and the take stays in ?variant=. With ?q=<owner question id>, the bar's second row offers
 // the take as that question's pick: a take is pickable when an option's id equals its key. Choose this drafts it, with
 // the note typed above the bar, in the {choice, note} questions.html keeps for that question, and goes back to the
 // question, whose Send sends it. A card with more than one prototype round gets a Round pill at the top left, which
@@ -65,20 +67,6 @@
     return `${chips}<div class="ps-row"><button type="button" data-ps="prev" aria-label="Previous take">‹</button><span class="ps-name" title="${esc(name)}">${esc(name)}</span><button type="button" data-ps="next" aria-label="Next take">›</button></div>${control ? `<div class="ps-row ps-act">${control}</div>` : ''}`;
   }
 
-  // rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds lists them
-  // ({n, q, url, confirm, state}). The pill names the round qid is in, out of the newest round's number; a card with a
-  // single round gets none.
-  function roundPill(rounds, qid) {
-    const at = (rounds || []).find((r) => r.q === qid);
-    if (!at || rounds.length < 2) return '';
-    return `<button type="button" class="ps-chip" data-ps-top="rounds">Round ${at.n} of ${Math.max(...rounds.map((r) => r.n))} · earlier</button>`;
-  }
-  const ROUND_WORD = { open: 'open', requested: 'prototype requested' };
-  function roundSheet({ ref, rounds, qid }) {
-    const rows = [...rounds].reverse().map((r) => `<button type="button" data-ps-round="${esc(r.url)}"><span>Round ${r.n}${r.confirm ? ' confirm' : ''}${r.q === qid ? ' · showing' : ''}</span><span>${ROUND_WORD[r.state] || 'answered'}</span></button>`);
-    return `<div class="ps-sheet" role="dialog" aria-label="Rounds"><h3>Rounds on ${esc(ref)}</h3>${rows.join('')}</div>`;
-  }
-
   // A touch from start to end: 1 for a swipe left (the next take), -1 for a swipe right, 0 for anything else: under
   // 50px sideways, more down than across, or starting at the left edge, where the drawer's and the browser's swipes are.
   const swipeStep = (start, end) => {
@@ -102,11 +90,10 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-sheet button { display:flex; justify-content:space-between; gap:12px; width:100%; border:0; border-top:1px solid #fff2; background:transparent; color:#fff;
   padding:12px 2px; font:inherit; font-weight:500; text-align:left; cursor:pointer; }
 .ps-sheet button span + span { opacity:.7; }
-.ps-switch { position:fixed; left:10px; right:10px; bottom:calc(var(--app-bottom, 0px) + 12px + env(safe-area-inset-bottom)); z-index:30;
-  display:flex; flex-direction:column; align-items:center; gap:6px; pointer-events:none; }
-.ps-switch > * { pointer-events:auto; max-width:100%; min-width:0; box-sizing:border-box; }
-.ps-pill { display:flex; flex-direction:column; gap:6px; width:min(460px, 100%); background:#202026eb; border:1px solid #fff3; border-radius:18px; padding:6px;
-  box-shadow:0 6px 24px #0008; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); font:600 13px -apple-system, system-ui, sans-serif; }
+.ps-switch { position:fixed; left:0; right:0; bottom:var(--app-bottom, 0px); z-index:30; display:flex; flex-direction:column; align-items:stretch;
+  background:#202026; border-top:1px solid #fff3; padding:6px 6px calc(6px + env(safe-area-inset-bottom)); box-sizing:border-box; }
+.ps-switch > * { min-width:0; box-sizing:border-box; }
+.ps-pill { display:flex; flex-direction:column; gap:6px; border-radius:0; font:600 13px -apple-system, system-ui, sans-serif; }
 .ps-row { display:flex; align-items:center; gap:2px; min-width:0; }
 .ps-pill button { color:#fff; background:transparent; border:0; border-radius:999px; padding:7px 11px; font:inherit; white-space:nowrap; cursor:pointer; }
 .ps-pill button { flex-shrink:0; min-width:44px; min-height:44px; }
@@ -117,26 +104,22 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-pill .ps-states button[aria-pressed="true"] { background:#fff; color:#000; font-weight:700; }
 .ps-pill .ps-pick { background:var(--accent, #fff); color:var(--on-accent, #000); font-weight:700; }
 .ps-closed { box-sizing:border-box; min-height:44px; display:flex; align-items:center; justify-content:center; padding:0 11px; border-radius:999px; color:#fffa; background:#fff1; white-space:nowrap; }
-.ps-switch .ps-text { width:min(420px, 100%); resize:none; border-radius:12px; border:1px solid #fff3; background:#000d; color:#fff;
-  padding:7px 10px; font:400 16px -apple-system, system-ui, sans-serif; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); }
+.ps-switch .ps-text { margin-bottom:6px; resize:none; border-radius:12px; border:1px solid #fff3; background:#000d; color:#fff;
+  padding:7px 10px; font:400 16px -apple-system, system-ui, sans-serif; }
 .ps-switch .ps-text::placeholder { color:#fffa; }
 .ps-switch .ps-text[hidden] { display:none; }
 .ps-picked { box-sizing:border-box; min-height:44px; display:flex; align-items:center; justify-content:center; padding:0 11px; border-radius:999px; color:#fff; background:#1f9d55; white-space:nowrap; }
-.ps-note { background:#000d; color:#fff; border-radius:8px; padding:5px 10px; font:500 12px -apple-system, system-ui, sans-serif; text-align:center; }
+.ps-note { margin-bottom:6px; background:#000d; color:#fff; border-radius:8px; padding:5px 10px; font:500 12px -apple-system, system-ui, sans-serif; text-align:center; }
 .ps-note[hidden] { display:none; }
-@media (max-width: 899px) {
-  .ps-switch { left:0; right:0; bottom:var(--app-bottom, 0px); align-items:stretch; gap:0; background:#202026; border-top:1px solid #fff3;
-    padding:6px 6px calc(6px + env(safe-area-inset-bottom)); box-sizing:border-box; }
-  .ps-switch > * { max-width:none; }
-  .ps-pill { width:auto; background:transparent; border:0; border-radius:0; padding:0; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
-  .ps-switch .ps-text { width:auto; margin-bottom:6px; }
-  .ps-note { margin-bottom:6px; }
-}
 @media (min-width: 900px) {
+  .ps-switch { align-items:center; }
   .ps-pill { width:min(640px, 100%); }
   .ps-switch .ps-text { width:min(640px, 100%); }
   .ps-states { flex-wrap:wrap; overflow-x:visible; }
-}`;
+}
+.ps-pane main.proto-main { padding-top:0; }
+.ps-pane .ps-top { display:none; }
+.ps-pane .ps-states { flex-wrap:wrap; overflow-x:visible; justify-content:center; }`;
 
   const typing = (el) => Boolean(el?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])'));
 
@@ -147,6 +130,8 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     const qid = params.get('q');
     const site = globalThis.ClaudeSite;
     if (!document.getElementById('ps-style')) document.head.insertAdjacentHTML('beforeend', `<style id="ps-style">${CSS}</style>`);
+    // Framed in the board's right pane (app-needs.js openViewer), whose top bar holds the way back and the Round pill.
+    if (window.frameElement?.closest('.needs-pane')) document.documentElement.classList.add('ps-pane');
     let take = startTake(keys, params.get('variant'), initial);
     let question = null;
     // A push opened this page (board/store.mjs pushUrl). Read once and dropped from the URL, so a reload stays on the
@@ -160,7 +145,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     if (above) box.prepend(above);
     box.classList.add('ps-pending');
     document.body.append(box);
-    // The phone footer's height, so the page above it ends where it starts (prototype.html reads --ps-footer-h).
+    // The footer's height, so the page above it ends where it starts (prototype.html reads --ps-footer-h).
     const measure = () => document.documentElement.style.setProperty('--ps-footer-h', `${box.offsetHeight}px`);
     new ResizeObserver(measure).observe(box);
     const pill = box.querySelector('.ps-pill');
@@ -174,6 +159,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     let sheet = false;
     const paintTop = () => {
       const rounds = boardCard?.prototypes?.rounds;
+      const { roundPill, roundSheet } = globalThis.BoardUI;
       top.innerHTML = `${roundPill(rounds, qid)}<button type="button" class="ps-close" data-ps-top="close" aria-label="Close">✕</button>${sheet && rounds ? roundSheet({ ref: boardCard.ref, rounds, qid }) : ''}`;
     };
     paintTop();
@@ -291,5 +277,5 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     return { takes: keys, get take() { return take; }, get state() { return shownState; }, go, show };
   }
 
-  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, pillHtml, roundPill, roundSheet, swipeStep, mount };
+  globalThis.PrototypeSwitcher = { takeAt, startTake, pickedChoice, pickState, pillHtml, swipeStep, mount };
 })();

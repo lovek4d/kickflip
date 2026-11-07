@@ -4604,6 +4604,45 @@ test('widening past 900px on Questions swaps to the board with that topic open i
   assert.deepEqual([s.doc.querySelector('.view-board'), s.win.location.pathname], [board, '/shop/']);
 });
 
+// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md
+test("from 900px a prototype URL, a link, a push, a cold load or a widening, shows the board at the board's URL with the prototype open in its pane; a phone frames the full page", async () => {
+  const stub = (opened) => () => ({ B: { state: {}, openViewer: (url) => { opened.push(url); return true; } }, mount() {}, unmount() {} });
+  const s = await shellPage('/_hub/', { width: 1280 });
+  const opened = [];
+  s.win.BoardView.create = stub(opened);
+  s.win.AppShell.open('/shop/#item=w%2FA1');
+  const board = s.doc.querySelector('.view-board');
+  const count = s.entries().length;
+  assert.equal(s.win.AppShell.open('/shop/prototype-x.html?q=q2&from=push'), true, 'a push tap');
+  assert.deepEqual([s.doc.querySelector('.view-board'), s.doc.querySelector('.view-frame'), s.win.location.pathname + s.win.location.hash, s.entries().length],
+    [board, null, '/shop/#item=w%2FA1', count], 'the open card stays open, with no history entry');
+  assert.deepEqual(opened.map((u) => new URL(u).pathname + new URL(u).search), ['/shop/prototype-x.html?q=q2&from=push']);
+  opened.length = 0;
+  const a = s.doc.createElement('a');
+  a.setAttribute('href', 'prototype-x.html?q=q3');
+  board.appendChild(a);
+  s.tap(a);
+  assert.deepEqual([s.doc.querySelector('.view-board'), opened.map((u) => new URL(u).pathname + new URL(u).search)], [board, ['/shop/prototype-x.html?q=q3']], 'a link on the board');
+  opened.length = 0;
+  s.win.AppShell.open('/other/prototype-y.html?q=q9');
+  await new Promise(setImmediate);
+  assert.deepEqual([s.win.location.pathname, s.doc.querySelector('.view-frame'), opened.map((u) => new URL(u).pathname)], ['/other/', null, ['/other/prototype-y.html']], "another board's prototype opens that board");
+
+  const cold = await shellPage('/shop/prototype-x.html?q=q2', { width: 1280 });
+  assert.deepEqual([cold.win.location.pathname, Boolean(cold.doc.querySelector('.view-board')), cold.doc.querySelector('.view-frame')], ['/shop/', true, null], 'a cold load lands on the board URL');
+
+  const phoneOpened = [];
+  const phone = await shellPage('/_hub/');
+  phone.win.BoardView.create = stub(phoneOpened);
+  phone.win.AppShell.open('/shop/');
+  phone.win.AppShell.open('/shop/prototype-x.html?q=q2');
+  assert.deepEqual([Boolean(phone.doc.querySelector('.view-frame')), phoneOpened], [true, []], 'a phone frames the full page');
+  phone.resize(1280);
+  await new Promise(setImmediate);
+  assert.deepEqual([phone.doc.querySelector('.view-frame'), Boolean(phone.doc.querySelector('.view-board')), phone.win.location.pathname, phoneOpened.map((u) => new URL(u).pathname)],
+    [null, true, '/shop/', ['/shop/prototype-x.html']], 'widening past 900px swaps to the board with the prototype in its pane');
+});
+
 test('the board gear opens a board-only modal over the same board, closes without history entries and keeps back to Hub', async () => {
   const { win, doc, page, entries, position, boardUnmounts } = await shellPage('/_hub/');
   win.AppShell.open('/shop/#item=w%2FA1');
@@ -5691,6 +5730,45 @@ test("on a desktop, focusQuestion opens a question's or topic's topic in the pan
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
   assert.equal(narrow.view.B.focusQuestion('q2'), false, 'a phone has no pane');
+});
+
+// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md
+test("on a desktop a prototype opens in the right pane under a top bar of ‹ Open questions, ⤢ and the card's Round pill; ⤢ widens it over the lanes and back, ‹ and a focused question return to Waiting on you, and a phone has no pane", async () => {
+  const round = (n, q, state) => ({ n, q, url: `prototype-x${n}.html?q=${q}`, confirm: false, state });
+  const board = { ...deckBoard([deckQuestion('q1', 'item:w/T1'), deckQuestion('q2', 'item:w/P1', { url: 'prototype-x2.html?q=q2' })], []),
+    items: [workCard('T1'), workCard('P1', { ref: '#287', questions: { topic: 'item:w/P1' }, prototypes: { open: true, rounds: [round(1, 'q0', 'resolved'), round(2, 'q2', 'open')] } })] };
+  const wide = boardOnDom({ board, threads: {}, width: 1280 });
+  const pane = wide.root.querySelector('#needsPane');
+  assert.equal(wide.view.B.openViewer('prototype-x2.html?q=q2'), true, 'the pane opens it before the board loads');
+  await wide.settle();
+  const viewer = () => pane.querySelector('.pane-viewer');
+  const frame = () => viewer().querySelector('iframe.pv-frame');
+  assert.ok(pane.classList.contains('viewing'));
+  assert.equal(frame().getAttribute('src'), 'prototype-x2.html?q=q2');
+  const top = viewer().querySelector('.pv-top');
+  assert.deepEqual([...top.children].map((el) => el.textContent.trim()), ['‹ Open questions', '', '⤢', 'Round 2 of 2 · earlier']);
+  const tap = async (target) => { wide.page.fire(wide.root, 'click', { target }); await wide.settle(); };
+  const widen = () => viewer().querySelector('[data-pv="widen"]');
+  await tap(widen());
+  assert.deepEqual([pane.classList.contains('widened'), widen().getAttribute('aria-pressed')], [true, 'true'], '⤢ widens the pane over the lanes');
+  await tap(widen());
+  assert.deepEqual([pane.classList.contains('widened'), widen().getAttribute('aria-pressed')], [false, 'false'], 'and back');
+  await tap(viewer().querySelector('[data-ps-top="rounds"]'));
+  assert.match(viewer().querySelector('.ps-sheet').textContent, /Rounds on #287/);
+  await tap(viewer().querySelector('[data-ps-round="prototype-x1.html?q=q0"]'));
+  assert.deepEqual([frame().getAttribute('src'), viewer().querySelector('.ps-sheet')], ['prototype-x1.html?q=q0', null], 'a round in the sheet opens in the same pane');
+  await tap(viewer().querySelector('[data-ps-top="rounds"]'));
+  await tap(viewer().querySelector('[data-ps-round="prototype-x2.html?q=q2"]'));
+  await tap(viewer().querySelector('[data-pv="back"]'));
+  const pill = (id) => pane.querySelector(`.needs-questions button[data-topic="${id}"]`);
+  assert.deepEqual([viewer(), pane.classList.contains('viewing'), pill('item:w/P1').getAttribute('aria-pressed')], [null, false, 'true'], "‹ returns to Waiting on you with the round's question focused");
+  wide.view.B.openViewer('prototype-x2.html?q=q2');
+  await tap(widen());
+  assert.equal(wide.view.B.focusQuestion('q1'), true);
+  assert.deepEqual([viewer(), pane.classList.contains('viewing'), pane.classList.contains('widened'), pill('item:w/T1').getAttribute('aria-pressed')], [null, false, false, 'true'], 'Choose this, through the shell, does the same');
+  const narrow = boardOnDom({ board, threads: {} });
+  await narrow.settle();
+  assert.equal(narrow.view.B.openViewer('prototype-x2.html?q=q2'), false, 'a phone has no pane');
 });
 
 // docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md

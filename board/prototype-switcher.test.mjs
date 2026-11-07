@@ -80,15 +80,16 @@ test("the bar shows the take's name between ‹ and ›, and below it, on its ow
   assert.match(html, /data-ps="prev" aria-label="Previous take"/);
   assert.match(html, /data-ps="next" aria-label="Next take"/);
   const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html', { owner: [] });
-  assert.match(page.styles, /\.ps-switch\s*\{[^}]*left:10px;[^}]*right:10px;/);
-  assert.match(page.styles, /\.ps-switch > \*\s*\{[^}]*max-width:100%;[^}]*box-sizing:border-box;/);
+  assert.match(page.styles, /\.ps-switch\s*\{[^}]*left:0; right:0;/);
+  assert.match(page.styles, /\.ps-switch > \*\s*\{[^}]*min-width:0;[^}]*box-sizing:border-box;/);
   assert.match(page.styles, /\.ps-name\s*\{[^}]*min-width:0;[^}]*overflow:hidden;[^}]*text-overflow:ellipsis;/);
   assert.match(page.styles, /\.ps-pill button\s*\{[^}]*flex-shrink:0;[^}]*min-width:44px;[^}]*min-height:44px;/);
 });
 
 // resolved: the questions of its topic /api/board leaves out, which /api/questions answers. drafts: this device's
-// unsent {choice, note} by question id, as questions.html keeps them.
-function prototypePage(url, { framed = false, owner, resolved = [], drafts = {}, rounds = null }) {
+// unsent {choice, note} by question id, as questions.html keeps them. pane: framed in the board's right pane
+// (app-needs.js openViewer).
+function prototypePage(url, { framed = false, pane = false, owner, resolved = [], drafts = {}, rounds = null }) {
   const listeners = [];
   const el = () => {
     const e = { hidden: false, value: '', textContent: '', innerHTML: '', parts: {}, classList: { add() {}, remove() {} },
@@ -127,8 +128,10 @@ function prototypePage(url, { framed = false, owner, resolved = [], drafts = {},
     ClaudeSite: { url: (p) => new URL(p, 'https://mac.ts.net/orch/').href, send: async (kind, data) => { sent.push([kind, data]); return {}; } },
   };
   win.window = win;
-  win.top = framed ? { AppShell: { open: (to, opts) => { moves.push(['app', to, { ...opts }]); return true; } } } : win;
+  if (pane) win.frameElement = { closest: (sel) => (sel === '.needs-pane' ? {} : null) };
+  win.top = framed || pane ? { AppShell: { open: (to, opts) => { moves.push(['app', to, { ...opts }]); return true; } } } : win;
   vm.createContext(win);
+  for (const file of ['ui.js', 'ui-links.js', 'ui-questions.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   const loaded = [];
   win.document.head.append = (script) => { loaded.push(script.src); script.onload?.(); };
   vm.runInContext(fs.readFileSync(new URL('./public/prototype-switcher.js', import.meta.url), 'utf8'), win);
@@ -179,11 +182,24 @@ test('the note field stays after a take is picked', async () => {
   assert.equal(picked.noteBox(), 'Kept');
 });
 
-test('on desktop the bar is 640px and its state pills wrap; under 900px it is as before', () => {
+// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md
+test('the bar is the full-width footer at every width, and from 900px its pill and note are 640px and its state pills wrap', () => {
   const css = prototypePage('https://mac.ts.net/orch/prototype-snooze.html', { owner: [] }).styles;
+  assert.match(css, /\n\.ps-switch \{[^}]*left:0; right:0; bottom:var\(--app-bottom, 0px\);[^}]*background:#202026; border-top:1px solid #fff3;/);
+  assert.match(css, /\n\.ps-pill \{[^}]*border-radius:0;/);
+  assert.doesNotMatch(css, /max-width: 899px/, 'no floating bar at any width');
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.ps-pill \{[^}]*width:min\(640px, 100%\)/);
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.ps-states \{[^}]*flex-wrap:wrap/);
-  assert.match(css, /\.ps-pill \{[^}]*width:min\(460px, 100%\)/);
+});
+
+// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md
+test("framed in the board's right pane, the page hides its ✕ and Round pill, which the pane's top bar holds, starts at the top and wraps its state pills", () => {
+  const inPane = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { pane: true, owner: [question] });
+  assert.deepEqual(inPane.classes, ['ps-pane']);
+  assert.match(inPane.styles, /\.ps-pane \.ps-top \{ display:none; \}/);
+  assert.match(inPane.styles, /\.ps-pane main\.proto-main \{ padding-top:0; \}/);
+  assert.match(inPane.styles, /\.ps-pane \.ps-states \{[^}]*flex-wrap:wrap;/);
+  assert.deepEqual(prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed: true, owner: [question] }).classes, [], 'a page framed anywhere else keeps them');
 });
 
 test('?take= is no longer an embed: the page keeps its bar, top controls and question at any take', () => {
@@ -213,16 +229,16 @@ const rounds = [
 ];
 
 test("the viewer's round pill names the round it shows of the card's rounds, and only a card with an earlier round gets one", () => {
-  assert.equal(text(sw.roundPill(rounds, 'q1')), 'Round 2 of 2 · earlier');
-  assert.equal(text(sw.roundPill(rounds, 'q0')), 'Round 1 of 2 · earlier');
-  assert.match(sw.roundPill(rounds, 'q1'), /data-ps-top="rounds"/);
-  assert.equal(sw.roundPill([rounds[2]], 'q1'), '');
-  assert.equal(sw.roundPill(rounds, 'gone'), '');
-  assert.equal(sw.roundPill(null, 'q1'), '');
+  assert.equal(text(ui.roundPill(rounds, 'q1')), 'Round 2 of 2 · earlier');
+  assert.equal(text(ui.roundPill(rounds, 'q0')), 'Round 1 of 2 · earlier');
+  assert.match(ui.roundPill(rounds, 'q1'), /data-ps-top="rounds"/);
+  assert.equal(ui.roundPill([rounds[2]], 'q1'), '');
+  assert.equal(ui.roundPill(rounds, 'gone'), '');
+  assert.equal(ui.roundPill(null, 'q1'), '');
 });
 
 test("the rounds sheet lists the card's rounds newest first, the one showing marked, each saying whether it is open or answered", () => {
-  const sheet = sw.roundSheet({ ref: '#287', rounds, qid: 'q0' });
+  const sheet = ui.roundSheet({ ref: '#287', rounds, qid: 'q0' });
   assert.match(sheet, /<h3>Rounds on #287<\/h3>/);
   const rows = [...sheet.matchAll(/<button type="button" data-ps-round="([^"]+)">(.*?)<\/button>/g)].map(([, url, body]) => [url, text(body)]);
   assert.deepEqual(rows, [

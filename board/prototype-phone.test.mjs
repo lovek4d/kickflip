@@ -13,16 +13,22 @@ test('at phone width every box in the stage is capped to the stage, so a fixed-w
   assert.match(read('prototype.html'), /@media \(max-width: 599px\) \{\s*#stage :where\([^)]*div[^)]*\)[^{]*\{[^}]*max-width: 100%[^}]*min-width: 0/);
 });
 
-test('under 900px the viewer bar is a full-width footer on the bottom edge, and the page above it ends at the footer\'s measured height', () => {
-  const css = read('prototype-switcher.js').match(/@media \(max-width: 899px\) \{.*?\n\}/s)?.[0] ?? '';
-  assert.match(css, /\.ps-switch \{[^}]*left:0; right:0; bottom:var\(--app-bottom, 0px\)/);
-  assert.match(css, /\.ps-pill \{[^}]*border-radius:0/);
-  assert.match(read('prototype-switcher.js'), /setProperty\('--ps-footer-h'/);
+// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md
+test('the viewer bar is a full-width footer on the bottom edge at every width, and the page above it ends at the footer\'s measured height', () => {
+  const js = read('prototype-switcher.js');
+  assert.match(js, /\n\.ps-switch \{[^}]*left:0; right:0; bottom:var\(--app-bottom, 0px\)/);
+  assert.match(js, /\n\.ps-pill \{[^}]*border-radius:0/);
+  assert.match(js, /setProperty\('--ps-footer-h'/);
   const page = read('prototype.html');
-  assert.match(page, /@media \(max-width: 899px\) \{\s*main\.proto-main \{[^}]*var\(--ps-footer-h, 150px\)/);
-  assert.match(page, /\.kit-served \{ height: calc\(100dvh - 60px - var\(--ps-footer-h, 150px\)/);
-  // The footer's measured height already includes its bottom inset, so the frame doesn't subtract the inset again.
-  assert.doesNotMatch(page.match(/@media \(max-width: 899px\) \{\s*main\.proto-main.*?\n  \}/s)?.[0] ?? '', /safe-area-inset-bottom/);
+  assert.doesNotMatch(page, /@media \(max-width: 899px\) \{\s*(main\.proto-main|\.kit-served)/);
+  assert.match(page, /main\.proto-main \{[^}]*padding-bottom: calc\(var\(--ps-footer-h, 150px\) \+ var\(--app-bottom, 0px\)\)/);
+  const served = page.match(/\n  \.kit-served \{[^}]*\}/)?.[0] ?? '';
+  assert.match(served, /height: calc\(100dvh - 60px - var\(--ps-footer-h, 150px\) - var\(--app-bottom, 0px\) - env\(safe-area-inset-top\)\)/);
+  // The footer's measured height already includes its bottom inset, so neither subtracts the inset again.
+  assert.doesNotMatch(served, /safe-area-inset-bottom/);
+  assert.doesNotMatch(page.match(/main\.proto-main \{[^}]*\}/)?.[0] ?? '', /safe-area-inset-bottom/);
+  // In the board's right pane there is no ✕ row above the page, so the frame runs from the top to the footer.
+  assert.match(page, /\.ps-pane \.kit-served \{ height: calc\(100dvh - var\(--ps-footer-h, 150px\)\); \}/);
 });
 
 test('the viewer footer and Round pill stay hidden until the first load settles, then show once', () => {

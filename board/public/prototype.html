@@ -10,8 +10,9 @@
 <link rel="stylesheet" href="sidebar.css">
 <style>
   /* The one page every recorded prototype is (board/server.mjs fills the {{…}} slots; prototype-kit.js documents what a
-     take gets). main keeps room below the stage for the viewer's bar and its note. */
-  main.proto-main { max-width: none; padding-left: 0; padding-right: 0; padding-bottom: calc(150px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
+     take gets). main keeps room below the stage for the viewer's footer, at its measured height (prototype-switcher.js),
+     which already holds the bottom inset. */
+  main.proto-main { max-width: none; padding-left: 0; padding-right: 0; padding-bottom: calc(var(--ps-footer-h, 150px) + var(--app-bottom, 0px)); }
   /* kit.hub() is a whole page with its own gutter and header, so it goes edge to edge. */
   main.proto-main:has(> #stage > .kit-hub) { padding-top: 0; }
   /* contain and the transform make the stage the containing block of everything in it, position: fixed included, and
@@ -20,17 +21,15 @@
   #stage:has(> .kit-hub) { padding: 0; }
   #stage .top { position: static; }
   #stage .hub-view main { padding-bottom: 16px; }
-  /* A served round's page, framed from the board's base prototype worktree, edge to edge above the viewer's bar. */
+  /* A served round's page, framed from the board's base prototype worktree, edge to edge from under the ✕ row to the
+     viewer's footer; in the board's right pane (.ps-pane) there is no ✕ row, so it starts at the top. */
   #stage:has(> .kit-served) { max-width: none; padding: 0; }
-  .kit-served { display: block; width: 100%; min-height: 320px; height: calc(100dvh - 210px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border: 0; background: var(--panel); }
+  .kit-served { display: block; width: 100%; min-height: 320px; height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top)); border: 0; background: var(--panel); }
+  .ps-pane .kit-served { height: calc(100dvh - var(--ps-footer-h, 150px)); }
   .kit-served-failed pre { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
   .kit-missing { margin: 0; padding: 16px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); overflow-wrap: anywhere; }
   #protoToast { position: fixed; z-index: 40; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100vw - 32px); }
   #protoToast[hidden] { display: none; }
-  @media (max-width: 899px) {
-    main.proto-main { padding-bottom: calc(var(--ps-footer-h, 150px) + var(--app-bottom, 0px)); }
-    .kit-served { height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top)); }
-  }
   @media (max-width: 899px) { #protoToast { top: max(12px, env(safe-area-inset-top)); } }
 
   /* A take's own boxes are capped to the stage at phone width, so a fixed-width panel never cuts off. prototype-kit.js

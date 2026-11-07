@@ -174,5 +174,20 @@
     },
   };
 
-  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, option, answerHistory, questionCard, roundChip, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
+  // A prototype viewer's Round pill and its sheet, on the full page (prototype-switcher.js) and in the board's right pane
+  // (app-needs.js). rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds
+  // lists them ({n, q, url, confirm, state}). The pill names the round qid is in, out of the newest round's number; a
+  // card with a single round gets none.
+  function roundPill(rounds, qid) {
+    const at = (rounds || []).find((r) => r.q === qid);
+    if (!at || rounds.length < 2) return '';
+    return `<button type="button" class="ps-chip" data-ps-top="rounds">Round ${at.n} of ${Math.max(...rounds.map((r) => r.n))} · earlier</button>`;
+  }
+  const ROUND_WORD = { open: 'open', requested: 'prototype requested' };
+  function roundSheet({ ref, rounds, qid }) {
+    const rows = [...rounds].reverse().map((r) => `<button type="button" data-ps-round="${esc(r.url)}"><span>Round ${r.n}${r.confirm ? ' confirm' : ''}${r.q === qid ? ' · showing' : ''}</span><span>${ROUND_WORD[r.state] || 'answered'}</span></button>`);
+    return `<div class="ps-sheet" role="dialog" aria-label="Rounds"><h3>Rounds on ${esc(ref)}</h3>${rows.join('')}</div>`;
+  }
+
+  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, option, answerHistory, questionCard, roundChip, roundPill, roundSheet, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
 })();
