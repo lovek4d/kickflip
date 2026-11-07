@@ -167,7 +167,7 @@ BoardView.part((B) => {
     if (questions) { closeViewer(); questions.unmount(); questions.slot.remove(); questions = null; return; }
     $('#needsPane').insertAdjacentHTML('beforeend', `<div class="view-questions needs-questions">${AppViews.questions.markup({ embedded: true })}</div>`);
     const slot = $('#needsPane .needs-questions');
-    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, openOnBoard }), { slot });
+    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, openOnBoard, onTopic: (id) => B.saveFragment({ openItemsCard: id }) }), { slot });
     questions.mount();
   }
   // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question

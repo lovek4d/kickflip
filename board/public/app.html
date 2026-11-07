@@ -22,7 +22,7 @@ window.BoardBoot = (function () {
   const get = (u) => { const p = fetch(base + u, { cache: 'no-store' }).then((r) => (r.ok ? r.json().catch(() => { throw unanswered(r); }) : Promise.reject(unanswered(r)))); p.catch(() => {}); return p; };
   let open = [];
   try { open = JSON.parse(localStorage.getItem(`site:${route}:openItems`) || '[]'); } catch {}
-  const focus = /^#item=([^&]+)/.exec(location.hash);
+  const focus = /[#&](?:selectedCard|item)=([^&]+)/.exec(location.hash);
   if (focus) open.push(decodeURIComponent(focus[1]));
   let since = null;
   try { const c = JSON.parse(localStorage.getItem(`site:${route}:copyVersion`) || 'null'); if (c?.build === document.documentElement.dataset.build && Number.isInteger(c.version)) since = c.version; } catch {}

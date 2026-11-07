@@ -389,6 +389,7 @@
         soloId = null; setTopic(b.dataset.topic); sentLine = ''; shown = '';
         const first = topics.find((t) => t.id === topicId)?.questions[0];
         if (first) setHash(first);
+        ctx.onTopic?.(topicId);
         render(); scroll(0);
       }
     });
@@ -455,6 +456,7 @@
       if (!loaded) return false;
       const topic = topics.find((t) => t.id === id);
       if (topic) { soloId = null; setTopic(topic.id); } else pick(id || '');
+      ctx.onTopic?.(topicId);
       sentLine = '';
       shown = '';
       render();

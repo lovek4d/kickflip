@@ -391,6 +391,13 @@ BoardView.part((B) => {
     drawn = true;
   }
 
+  // A card the owner opens is the URL's selected card. A card restored open on load fires toggle too, so the tap is
+  // what counts, not the toggle.
+  B.on(B.root, 'click', (ev) => {
+    const card = ev.target.closest?.('details.item > summary')?.parentNode;
+    if (card && !card.open) B.saveFragment({ selectedCard: card.dataset.key });
+  });
+
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
     if (!el.matches?.('details.item')) return;

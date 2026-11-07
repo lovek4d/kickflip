@@ -3,7 +3,7 @@
 // ui.test.mjs runs them in node:vm. listen() catches clicks on links to a view the shell mounts, and back and forward.
 // A view is {kind, …}:
 //   start                       `/`, which the shell turns into the last board
-//   board {route, hash}         /<route>/, hash such as #item=<key>&reply
+//   board {route, hash}         /<route>/, hash such as #selectedCard=<key>&openItemsCard=<topic id>, or the older #item=<key>&reply
 //   settings {route}            /<route>/settings.html, a request to open the modal over that board
 //   questions {route, id}       /<route>/questions.html#<id>
 //   notes {route, item | wave}  /<route>/notes.html?item=<key> or ?wave=<lineup slug>, and plan.html, which the board
@@ -45,6 +45,7 @@ globalThis.AppRouter = (function () {
     if (page === 'questions.html') {
       let id = null;
       try { id = u.hash.length > 1 ? decodeURIComponent(u.hash.slice(1)) : null; } catch { id = u.hash.slice(1); }
+      if (id?.startsWith('openItemsCard=')) id = id.slice('openItemsCard='.length);
       return { kind: 'questions', route, id };
     }
     if (page === 'notes.html' || page === 'plan.html') {
@@ -224,5 +225,32 @@ globalThis.AppRouter = (function () {
     return { push: (href, from) => write('push', href, from), replace: (href) => write('replace', href), up };
   }
 
-  return { viewOf, urlOf, mounted, entryOf, isPrototype, listen };
+  // A board's fragment is &-joined keys: selectedCard=<key> (the focused card), openItemsCard=<topic id> (the selected
+  // open-items pill), review=<PR number>, and a bare reply. The older #item=<key> reads as selectedCard.
+  // → {selectedCard, openItemsCard, review, reply}, each null or false when absent.
+  function fragmentOf(hash) {
+    const out = { selectedCard: null, openItemsCard: null, review: null, reply: false };
+    const decode = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
+    for (const part of String(hash).replace(/^#/, '').split('&')) {
+      const eq = part.indexOf('=');
+      const [k, v] = eq < 0 ? [part, ''] : [part.slice(0, eq), part.slice(eq + 1)];
+      if (k === 'selectedCard' || k === 'item') out.selectedCard = decode(v) || null;
+      else if (k === 'openItemsCard') out.openItemsCard = decode(v) || null;
+      else if (k === 'review' && /^\d+$/.test(v)) out.review = Number(v);
+      else if (k === 'reply') out.reply = true;
+    }
+    return out;
+  }
+  // hash with the named keys of changes replaced (null drops one) → the new fragment, '' for none. A #review= link is
+  // alone in its fragment, so a change to a card or pill replaces it; reply is spent once the card is shown.
+  function hashWith(hash, changes) {
+    const now = fragmentOf(hash);
+    const next = { selectedCard: now.selectedCard, openItemsCard: now.openItemsCard, ...changes };
+    const parts = [];
+    if (next.selectedCard) parts.push(`selectedCard=${encodeURIComponent(next.selectedCard)}`);
+    if (next.openItemsCard) parts.push(`openItemsCard=${encodeURIComponent(next.openItemsCard)}`);
+    return parts.length ? '#' + parts.join('&') : '';
+  }
+
+  return { viewOf, urlOf, mounted, entryOf, isPrototype, listen, fragmentOf, hashWith };
 })();

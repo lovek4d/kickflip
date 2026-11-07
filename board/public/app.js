@@ -206,31 +206,41 @@ window.BoardView = (function () {
     }
 
     // #review=<PR number> opens that review in the Auto Review lane (app-lanes.js openReview), as a held review's push does.
-    // #item=<wave>/<id> opens that card; push notifications link here, with &reply to land in the thread's reply box
+    // #selectedCard=<wave>/<id> (or the older #item=) opens that card, and &openItemsCard=<topic id> opens that pill in the pane; push notifications link here, with &reply to land in the thread's reply box
     // (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). An ask now in a work item's thread opens that item.
     let focusKey = null;
     let replyKey = null;
     let hashRead = false;
     // A board this page left goes back to where the owner left it once it first renders, unless its URL names a card.
-    const returnToPlace = () => B.restorePlace({ linked: /^#(?:item|review)=/.test(location.hash) });
+    const returnToPlace = () => B.restorePlace({ linked: /^#(?:selectedCard|item|review)=/.test(location.hash) });
+    // The pane's pill the fragment names opens once the pane has loaded; a phone has no pane, its pill is the Waiting on
+    // you page (shell.js go).
+    function openPill(id, tries = 50) {
+      if (!id || !matchMedia('(min-width: 900px)').matches || B.focusQuestion?.(id) || tries <= 0) return;
+      B.later(100, () => openPill(id, tries - 1));
+    }
     function readHash() {
-      const review = /^#review=(\d+)$/.exec(location.hash);
-      if (review && state.board) { B.openReview(Number(review[1])); return; }
-      const m = /^#item=([^&]+)(&reply)?$/.exec(location.hash);
-      if (!m) return;
-      focusKey = decodeURIComponent(m[1]);
-      focusKey = BoardUI.record(state.board?.moved, focusKey) || focusKey;
-      replyKey = m[2] ? focusKey : null;
+      const { selectedCard, openItemsCard, review, reply } = AppRouter.fragmentOf(location.hash);
+      if (review && state.board) { B.openReview(review); return; }
+      openPill(openItemsCard);
+      if (!selectedCard) return;
+      focusKey = BoardUI.record(state.board?.moved, selectedCard) || selectedCard;
+      replyKey = reply ? focusKey : null;
       state.openItems.add(focusKey);
       state.restored.delete(focusKey);
       const it = state.board?.items.find((i) => i.key === focusKey);
       if (it) { const s = store.get('lanes', {}); s[it.lane] = true; store.set('lanes', s); B.openBand({ key: focusKey }); }
       if (it?.fold) store.set(B.FOLDS[it.fold].store, true);
     }
+    // The owner's own moves rewrite the fragment in place, with no history entry and no hashchange.
+    B.saveFragment = (changes) => {
+      const hash = AppRouter.hashWith(location.hash, changes);
+      if (hash !== location.hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
+    };
     B.on(window, 'hashchange', () => { readHash(); if (state.board) { render(); scrollToFocus(); } });
     // A card link whose hash is already the page's fires no hashchange, so its tap opens the card here.
     B.on(B.root, 'click', (ev) => {
-      const a = ev.target.closest?.('a[href^="#item="]');
+      const a = ev.target.closest?.('a[href^="#item="], a[href^="#selectedCard="]');
       if (!a || ev.defaultPrevented || a.getAttribute('href') !== location.hash || !state.board) return;
       ev.preventDefault();
       readHash(); render(); scrollToFocus();
@@ -239,7 +249,7 @@ window.BoardView = (function () {
     function focusOnBoard({ key, slug }) {
       const band = slug && state.board?.waveBands?.find((b) => b.slug === slug);
       if (!band && !state.board?.items.some((i) => i.key === key)) return false;
-      if (key) { location.hash = `#item=${encodeURIComponent(key)}`; readHash(); } else B.openBand({ slug });
+      if (key) { location.hash = AppRouter.hashWith(location.hash, { selectedCard: key }); readHash(); } else B.openBand({ slug });
       render();
       if (key) scrollToFocus(); else $(`section.wb[data-band="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'start' });
       return true;

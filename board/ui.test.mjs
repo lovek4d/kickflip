@@ -502,6 +502,24 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
   assert.equal(tap({ url: `${page}&from=push`, state: { idx: 3 } }), 'href');
 });
 
+test("a board's fragment names the focused card and the selected open-items pill, reads the older #item= link as the card, and rewrites one key without the other", () => {
+  const routerContext = vm.createContext({ URL });
+  vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
+  const { fragmentOf, hashWith, viewOf } = routerContext.AppRouter;
+  const base = { review: null, reply: false };
+  assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA2')), { selectedCard: 'w/A1', openItemsCard: 'item:w/A2', ...base });
+  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { selectedCard: 'w/A1', openItemsCard: null, review: null, reply: true });
+  assert.deepEqual(plain(fragmentOf('#review=12')), { selectedCard: null, openItemsCard: null, review: 12, reply: false });
+  assert.deepEqual(plain(fragmentOf('')), { selectedCard: null, openItemsCard: null, ...base });
+  assert.equal(hashWith('#item=w%2FA1&reply', { openItemsCard: 'q-1' }), '#selectedCard=w%2FA1&openItemsCard=q-1');
+  assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { selectedCard: 'w/B' }), '#selectedCard=w%2FB&openItemsCard=q-1');
+  assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { openItemsCard: null }), '#selectedCard=w%2FA1');
+  assert.equal(hashWith('#selectedCard=w%2FA1', { selectedCard: null }), '');
+  const read = (url) => plain(viewOf(`https://mac.ts.net${url}`, { boards: new Set(['orch']), base: 'https://mac.ts.net/orch/' }));
+  assert.deepEqual(read('/orch/#selectedCard=w%2FA1&openItemsCard=q-1'), { kind: 'board', route: 'orch', hash: '#selectedCard=w%2FA1&openItemsCard=q-1' });
+  assert.deepEqual(read('/orch/questions.html#openItemsCard=q-1'), { kind: 'questions', route: 'orch', id: 'q-1' });
+});
+
 test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board, its Settings, Waiting on you and Notes, the hub's pages, and every other page in a frame, in place", () => {
   const routerContext = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);

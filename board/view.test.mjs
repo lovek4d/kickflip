@@ -5808,13 +5808,13 @@ test("on a desktop, tapping a pill twice in the pane opens that topic's card on 
   wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.band || this.dataset.topic); };
   const dbl = async (id) => { const target = wide.root.querySelector(`#needsPane button[data-topic="${id}"]`); const slot = wide.root.querySelector('#needsPane .needs-questions'); wide.page.fire(slot, 'click', { target }); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
   await dbl('item:w/T1');
-  assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#item=w%2FT1', true, 'w/T1'], 'a card topic opens its card');
+  assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1', true, 'w/T1'], 'a card topic opens its card');
   scrolled.length = 0;
   await dbl('wave:alpha');
   assert.deepEqual(scrolled, ['alpha'], 'a wave topic scrolls to its band');
   scrolled.length = 0;
   await dbl('item:w/T9');
-  assert.deepEqual([scrolled, wide.page.win.location.hash], [[], '#item=w%2FT1'], 'a topic with nothing on the board does nothing');
+  assert.deepEqual([scrolled, wide.page.win.location.hash], [[], '#selectedCard=w%2FT1'], 'a topic with nothing on the board does nothing');
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
   assert.equal(narrow.root.querySelector('#needsPane button[data-topic]'), null, 'a phone has no pane to double-click');
