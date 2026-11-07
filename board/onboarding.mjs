@@ -53,6 +53,6 @@ export function onboardingItems(waveFile, { prefix = 'INT', hasBuild, now = new 
   return cards.map((c, i) => {
     const plan = `${c.id}-notes.md`;
     fs.writeFileSync(path.join(path.dirname(waveFile), plan), c.notes);
-    return { id: c.id, title: c.title, created: new Date(now.getTime() + i).toISOString(), state: 'grilling', ticket: `${prefix}-${i + 1}`, plan };
+    return { id: c.id, title: c.title, created: new Date(now.getTime() + i).toISOString(), phase: 'grilling', ticket: `${prefix}-${i + 1}`, plan };
   });
 }

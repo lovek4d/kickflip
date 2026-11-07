@@ -84,8 +84,12 @@ button.chip { border: 0; }
 .sub.next { color: var(--color-notice); }
 .card-hold { color: var(--color-quiet); }
 .card-blocked, .card-action { color: var(--color-notice); }
-.card-ready { color: var(--color-success); }
-.card-staging { color: var(--color-notice); }
+/* docs/adr/2026-11-11-1200-every-lane-has-phases.md: a card's phase word, toned by who acts next (ui-cards.js PHASE_LOOK). */
+.card-phase.ph-quiet { color: var(--color-quiet); }
+.card-phase.ph-info { color: var(--color-info); }
+.card-phase.ph-notice { color: var(--color-notice); }
+.card-phase.ph-success { color: var(--color-success); }
+.card-phase.ph-merged { color: var(--color-merged); }
 /* The footer status of a stale card, and of one the orchestrator stalled (ui-cards.js timeLine). */
 .card-stale { color: var(--muted); }
 .card-stalled { color: var(--color-danger); }
@@ -413,7 +417,6 @@ button.attach:disabled { opacity: .35; }
 .sub.agent.stale .working-dot { animation: none; }
 /* The one class every paused status takes, gray: the card and thread line, the header, the hub banner. */
 .paused { color: var(--muted); font-weight: 600; }
-.phase-bars.in-todo { --bar-fill: var(--muted); }
 .msg.calls { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
 .msg.calls summary { cursor: pointer; color: var(--muted); list-style: none; }
 .msg.calls summary::-webkit-details-marker { display: none; }

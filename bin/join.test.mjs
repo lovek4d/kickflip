@@ -238,7 +238,7 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'board.json'), 'utf8')), { title: 'My app', items: 'data/wave.json' });
   const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'wave.json'), 'utf8'));
   assert.equal(wave.title, 'My app');
-  assert.deepEqual(wave.items.map((i) => [i.id, i.state, i.ticket, i.plan]), [
+  assert.deepEqual(wave.items.map((i) => [i.id, i.phase, i.ticket, i.plan]), [
     ['onboard-build', 'grilling', 'INT-1', 'onboard-build-notes.md'],
     ['onboard-context', 'grilling', 'INT-2', 'onboard-context-notes.md'],
   ]);

@@ -7,5 +7,14 @@
   const ACTION_KIND = Object.freeze({ pick: 'pick', questions: 'questions', ready: 'ready', steps: 'steps', merge: 'merge', done: 'done', stalled: 'stalled' });
   const BUILDER_KIND = Object.freeze({ install: 'install' });
   const PR_STATE = Object.freeze({ open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' });
-  Object.assign(globalThis.BoardUI ||= {}, { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE });
+  // Each lane's phases, in order, which a card stores beside its lane (docs/adr/2026-11-11-1200-every-lane-has-phases.md).
+  // In Progress's are the five build steps its progress bar draws; a review's "reviewers" and "merge" read "pending review"
+  // and "pending merge" on the card (ui-cards.js PHASE_LOOK).
+  const PHASES = Object.freeze({
+    todo: Object.freeze(['new', 'grilling', 'prototyping', 'staging', 'ready']),
+    progress: Object.freeze(['reading', 'building', 'testing', 'checking', 'landing']),
+    review: Object.freeze(['draft', 'reviewers', 'merge', 'stale']),
+    done: Object.freeze(['merged', 'closed']),
+  });
+  Object.assign(globalThis.BoardUI ||= {}, { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES });
 })();

@@ -232,13 +232,13 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   const added = board('item', 'add', 'w/A9', '--title', 'Nine', '--size', 'small', '--model', 'sonnet');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items.at(-1).size, read(at('waves', 'w', 'wave.json')).items.at(-1).model], ['small', 'sonnet']);
-  assert.equal('state' in read(at('waves', 'w', 'wave.json')).items.at(-1), false, 'a card added without --state gets its grill from the board');
+  assert.equal('phase' in read(at('waves', 'w', 'wave.json')).items.at(-1), false, 'a card added without --phase gets its grill from the board');
   // docs/adr/2026-11-07-0700-staging-then-ready.md: item add never files a card ready; it reaches ready through staging.
   const count = () => read(at('waves', 'w', 'wave.json')).items.length;
   const before = count();
-  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'planned').err, /--state takes ready, grilling or prototyping/);
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--phase', 'planned').err, /--phase takes ready, grilling or prototyping/);
   write(at('waves', 'w', 'q1.md'), '# Quick\n');
-  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--state', 'ready', '--size', 'small').err, /item add files a card grilling or prototyping/);
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--phase', 'ready', '--size', 'small').err, /item add files a card grilling or prototyping/);
   assert.equal(count(), before, 'a refused add writes no card');
 
   write(at('kickflip', 'settings.json'), { claudeModel: 'sonnet' });

@@ -68,10 +68,10 @@ test("item add gives a new card a ticket in the board's current source, named or
   const b = board('add');
   for (const [name, source, pattern] of SOURCES) {
     await saveBoardSettings(b.site, { tickets: source });
-    assert.equal(await cli('add', 'item', 'add', `add/${name}`, '--state', 'grilling', '--title', `On ${name}`), 0);
+    assert.equal(await cli('add', 'item', 'add', `add/${name}`, '--phase', 'grilling', '--title', `On ${name}`), 0);
     assert.match(b.item(name).ticket, pattern);
     const count = b.items().length;
-    assert.equal(await cli('add', 'item', 'add', 'add', '--state', 'grilling', '--title', `Named on ${name}`), 0);
+    assert.equal(await cli('add', 'item', 'add', 'add', '--phase', 'grilling', '--title', `Named on ${name}`), 0);
     const named = b.items().at(-1);
     assert.equal(b.items().length, count + 1);
     assert.match(named.ticket, pattern);
@@ -85,7 +85,7 @@ test("a follow-up, item add --parent, gets a ticket in the board's current sourc
   const b = board('follow');
   for (const [name, source, pattern] of SOURCES) {
     await saveBoardSettings(b.site, { tickets: source });
-    assert.equal(await cli('follow', 'item', 'add', `follow/${name}`, '--state', 'grilling', '--title', `Later on ${name}`, '--parent', 'OLD'), 0);
+    assert.equal(await cli('follow', 'item', 'add', `follow/${name}`, '--phase', 'grilling', '--title', `Later on ${name}`, '--parent', 'OLD'), 0);
     assert.deepEqual([b.item(name).parent, pattern.test(b.item(name).ticket)], ['follow/OLD', true]);
   }
   assert.deepEqual(b.item('OLD'), OLD);
@@ -99,11 +99,11 @@ test("item set --from-ask gives a card with no ticket one in the board's current
     const wave = read(path.join(b.site, 'data', 'wave.json'));
     write(path.join(b.site, 'data', 'wave.json'), { ...wave, items: [...wave.items, { id: name, title: `Asked on ${name}` }] });
     b.ask(`e-${name}`);
-    assert.equal(await cli('asked', 'item', 'set', `asked/${name}`, '--from-ask', `e-${name}`, '--state', 'grilling', '--text', 'On it.'), 0);
+    assert.equal(await cli('asked', 'item', 'set', `asked/${name}`, '--from-ask', `e-${name}`, '--phase', 'grilling', '--text', 'On it.'), 0);
     assert.match(b.item(name).ticket, pattern);
   }
   b.ask('e-old');
-  assert.equal(await cli('asked', 'item', 'set', 'asked/OLD', '--from-ask', 'e-old', '--state', 'grilling', '--text', 'On it.'), 0);
+  assert.equal(await cli('asked', 'item', 'set', 'asked/OLD', '--from-ask', 'e-old', '--phase', 'grilling', '--text', 'On it.'), 0);
   assert.equal(b.item('OLD').ticket, 'INT-1');
 });
 
@@ -119,8 +119,8 @@ test("ask move makes no card, and the card the moved ask becomes gets a ticket i
     assert.deepEqual([from.items().length, to.items().length], [1, SOURCES.findIndex(([n]) => n === name) + 1]);
     const moved = fs.readFileSync(path.join(to.site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).at(-1);
     assert.equal(moved.data.from.id, `m-${name}`);
-    assert.equal(await cli('target', 'item', 'add', `target/${name}`, '--state', 'grilling', '--title', `Moved on ${name}`), 0);
-    assert.equal(await cli('target', 'item', 'set', `target/${name}`, '--from-ask', moved.id, '--state', 'grilling', '--text', 'On it.'), 0);
+    assert.equal(await cli('target', 'item', 'add', `target/${name}`, '--phase', 'grilling', '--title', `Moved on ${name}`), 0);
+    assert.equal(await cli('target', 'item', 'set', `target/${name}`, '--from-ask', moved.id, '--phase', 'grilling', '--text', 'On it.'), 0);
     assert.match(to.item(name).ticket, pattern);
   }
   assert.deepEqual([from.item('OLD'), to.item('OLD')], [OLD, OLD]);
@@ -204,8 +204,8 @@ test('a card on a board still on Linear after its key went is refused, never lef
   const before = fs.readFileSync(waveFile, 'utf8');
   const errors = [];
   t.mock.method(console, 'error', (...args) => errors.push(args.join(' ')));
-  assert.equal(await cli('stale', 'item', 'add', 'stale/X', '--state', 'grilling', '--title', 'X'), 1);
-  assert.equal(await cli('stale', 'item', 'add', 'stale', '--state', 'grilling', '--title', 'Y'), 1);
+  assert.equal(await cli('stale', 'item', 'add', 'stale/X', '--phase', 'grilling', '--title', 'X'), 1);
+  assert.equal(await cli('stale', 'item', 'add', 'stale', '--phase', 'grilling', '--title', 'Y'), 1);
   assert.deepEqual(errors, [NO_KEY, NO_KEY]);
   assert.equal(fs.readFileSync(waveFile, 'utf8'), before);
 });
@@ -218,7 +218,7 @@ test('once Hub has no Linear key, every board on Linear falls back to internal t
   const onGithub = board('on-github');
   await saveBoardSettings(onLinear.site, { tickets: LINEAR });
   await saveBoardSettings(onGithub.site, { tickets: { source: 'github' } });
-  assert.equal(await cli('was-linear', 'item', 'add', 'was-linear/L1', '--state', 'grilling', '--title', 'On Linear'), 0);
+  assert.equal(await cli('was-linear', 'item', 'add', 'was-linear/L1', '--phase', 'grilling', '--title', 'On Linear'), 0);
   const filed = onLinear.item('L1');
   assert.match(filed.ticket, /^ENG-\d+$/);
   assert.deepEqual(await fallBackFromLinear(), []);
@@ -231,7 +231,7 @@ test('once Hub has no Linear key, every board on Linear falls back to internal t
   assert.deepEqual(read(path.join(onLinear.site, 'board.json')).tickets, { source: 'internal', prefix: 'INT' });
   assert.deepEqual(read(path.join(onGithub.site, 'board.json')).tickets, { source: 'github' });
   assert.deepEqual([onLinear.item('OLD'), onLinear.item('L1')], [OLD, filed]);
-  assert.equal(await cli('was-linear', 'item', 'add', 'was-linear/I1', '--state', 'grilling', '--title', 'After'), 0);
+  assert.equal(await cli('was-linear', 'item', 'add', 'was-linear/I1', '--phase', 'grilling', '--title', 'After'), 0);
   assert.equal(onLinear.item('I1').ticket, 'INT-2');
   assert.deepEqual(await fallBackFromLinear(), []);
 });

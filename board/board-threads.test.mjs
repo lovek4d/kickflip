@@ -105,7 +105,7 @@ test('thread refuses an unknown item, an empty text, an unknown channel and inva
 test('a refusal exits non-zero with one line naming the bad flag, and changes nothing', () => {
   for (const [args, code, err] of [
     [['item', 'set', 'w/A1', '--site', 'orch', '--colour', 'red'], 2, /^item set does not take --colour\b/],
-    [['item', 'set', 'w/A1', '--site', 'orch', '--state', 'shipped'], 1, /^--state takes /],
+    [['item', 'set', 'w/A1', '--site', 'orch', '--phase', 'shipped'], 1, /^--phase takes /],
   ]) {
     const r = board(...args);
     assert.equal(r.code, code, args.join(' '));

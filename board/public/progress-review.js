@@ -15,10 +15,10 @@
     const { BUILD_PHASES, START_STEPS } = BoardUI;
     const build = () => [...BUILD_PHASES];
     return [
-      { id: 'grill', name: 'Grilling', lane: 'todo', when: 'A grill planner reads a Todo card and asks its questions', steps: build(),
-        card: { builder: { planner: true, kind: 'grill', progress: 'Grilling · the notes', phase: null, at: ago(2) } } },
-      { id: 'prototype', name: 'Prototyping', lane: 'todo', when: 'A prototype planner draws a Todo card’s takes', steps: build(),
-        card: { builder: { planner: true, kind: 'prototype', progress: 'Prototyping · the takes', phase: null, at: ago(2) } } },
+      { id: 'grill', name: 'Grilling', lane: 'todo', when: 'A grill planner reads a Todo card and asks its questions', steps: [],
+        card: { phase: 'grilling', builder: { planner: true, kind: 'grill', progress: 'Grilling · the notes', phase: null, at: ago(2) } } },
+      { id: 'prototype', name: 'Prototyping', lane: 'todo', when: 'A prototype planner draws a Todo card’s takes', steps: [],
+        card: { phase: 'prototyping', builder: { planner: true, kind: 'prototype', progress: 'Prototyping · the takes', phase: null, at: ago(2) } } },
       { id: 'build', name: 'Build', lane: 'progress', when: 'A builder works the card, step by step', steps: build(),
         card: { builder: { progress: 'Testing · the suite', phase: 'testing', at: ago(2) } } },
       { id: 'check', name: 'Orchestrator review', lane: 'progress', when: 'The orchestrator checks the builder’s calls, on step 4', steps: build(),

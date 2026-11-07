@@ -1061,7 +1061,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     [{ lane: 'progress', builder: null, reachedPhase: 'testing' }, 'stopped at testing'],
     [{ lane: 'todo', builder: { progress: 'Grilling · x', planner: true, kind: 'grill' } }, 'grilling'],
     [{ lane: 'todo', grilling: true }, 'preheating'],
-    [{ lane: 'todo', ready: true }, 'ready'],
+    [{ lane: 'todo', ready: true, phase: 'ready' }, 'ready'],
     [{ lane: 'review' }, 'in review'],
     [{ lane: 'done' }, 'done'],
   ]) assert.deepEqual(rows({ ...bare, ...extra }), [['Wave', 'W'], ['Status', want]], JSON.stringify(extra));
@@ -1288,7 +1288,6 @@ test("one progress bar draws every bar: count steps, done of them filled, the on
     '<span class="phase-bars" role="img" aria-label="B &lt;2&gt;" title="B &lt;2&gt;"><i class="done"></i><i class="now"></i><i class=""></i></span>');
   assert.equal(ui.progressBar({ count: 3, done: 0, percent: 30, label: 'x' }),
     '<span class="phase-bars" role="img" aria-label="x" title="x"><i class="fill" style="--p:30%"></i><i class=""></i><i class=""></i></span>');
-  assert.equal(ui.progressBar({ count: 5, done: 2, now: 1, tone: 'in-todo', label: 'Prototyping' }).slice(0, 33), '<span class="phase-bars in-todo" ');
   assert.equal(bar({ count: 4, done: 4, label: 'x' }), '<i class="done"></i>'.repeat(4));
   assert.equal(bar({ count: 4, done: 0, label: 'x' }), '<i class=""></i>'.repeat(4));
   // A dimmed bar is written without its pulse, so the markup, not CSS, says nothing pulses.
@@ -1362,16 +1361,15 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-test("a planner's line on a card is marked planner, keeping its dot, orange in In Progress and grey in Todo, where a running grill or prototype draws grey dashes; a Grill or Prototype request no planner has picked up reads preheating in grey, with no dot, until the planner's line takes it", () => {
+test("a planner's line on a card is marked planner, keeping its dot, orange in In Progress and grey in Todo, where a running grill or prototype draws no bar; a Grill or Prototype request no planner has picked up reads preheating in grey, with no dot, until the planner's line takes it", () => {
   const planner = { progress: 'Prototyping · the takes', kind: 'prototype', phase: null, at: null, planner: true };
   for (const [lane, tone] of [['todo', 'in-todo'], ['progress', 'in-progress']]) {
     const html = ui.workLines({ ...workCard, lane, sortAt: '2020-01-01T10:00:00.000Z', builder: planner });
     assert.match(html, new RegExp(`<div class="line3 sub agent planner ${tone}"><span class="working-dot" aria-hidden="true"></span>Prototyping · the takes</div>`));
     assert.doesNotMatch(html, /Building/);
   }
-  const dashes = (builder) => /<span class="phase-bars in-todo" role="img" aria-label="(\w+)"[^>]*>((?:<i class="\w*"><\/i>){5})<\/span>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', builder }));
-  assert.deepEqual(dashes(planner).slice(1), ['Prototyping', '<i class="done"></i><i class="now"></i><i class=""></i><i class=""></i><i class=""></i>']);
-  assert.deepEqual(dashes({ ...planner, kind: 'grill' }).slice(1), ['Grilling', '<i class="now"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i>']);
+  // docs/adr/2026-11-11-1200-every-lane-has-phases.md: a Todo card's grill or prototype reads as its phase word instead.
+  for (const kind of ['prototype', 'grill']) assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', builder: { ...planner, kind } }), /phase-bars/);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'progress', sortAt: '2020-01-01T10:00:00.000Z', builder: planner }), /phase-bars/, 'no dashes in In Progress');
   const line = (it) => /<div class="line3 sub agent planner in-todo">.*?<\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
   const asked = (it) => /<div class="line3 sub asked">([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
@@ -1421,8 +1419,7 @@ test("a run's line, dot and bar take its card's lane colour: grey in Todo, orang
   assert.equal(rule('.sub.agent.in-todo'), 'color: var(--muted);');
   assert.equal(rule('.sub.agent.in-progress'), 'color: var(--color-notice);');
   assert.equal(rule('.sub.agent.in-review'), 'color: var(--color-info);');
-  assert.equal(rule('.phase-bars.in-todo'), '--bar-fill: var(--muted);');
-  // One pulse for every bar, in the bar's own fill, so a Todo bar pulses grey and an In Progress one orange.
+  // One pulse for every bar, in the bar's own fill.
   assert.match(css, /@keyframes pulse-fill \{ 50% \{ background-color: color-mix\(in srgb, var\(--bar-fill\) 35%, transparent\); \} \}/);
   assert.doesNotMatch(css, /pulse-fill-plan|\.phase-bars\.plan/);
 });
@@ -1557,24 +1554,24 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
 test("a ready card's time line reads ready in green after its hold and before its unread messages, and an unsorted work card shows its ticket, never New", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt };
-  const html = ui.workLines({ ...card, held: true, ready: true }, { unread: 2 });
+  const html = ui.workLines({ ...card, held: true, ready: true, phase: 'ready' }, { unread: 2 });
   assert.equal(lines(html).at(-1), `${ui.cardTime(sortAt)} · held · ready · 2 new messages`);
-  assert.match(html, /<span class="card-ready">ready<\/span><span class="card-unread">/);
-  assert.doesNotMatch(ui.workLines(card), /card-ready/);
+  assert.match(html, /<span class="card-phase ph-success">ready<\/span><span class="card-unread">/);
+  assert.doesNotMatch(ui.workLines(card), /card-phase/);
   assert.deepEqual(lines(ui.workLines({ ...card, unsorted: true }))[0], 'ENG-1 Five');
   assert.doesNotMatch(ui.workLines({ ...card, unsorted: true }), />New</);
   assert.doesNotMatch(ui.workLines(card), />New</);
 });
 
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-test('a bumped-out card reads "ready · bumped out by #N" in grey, linking to the bump, and a bumped ready card the host holds reads held while host recovers', () => {
+test('a bumped-out card reads "bumped out by #N · ready", the bump in grey, linking to the bump, and a bumped ready card the host holds reads held while host recovers', () => {
   const sortAt = ago(24 * 2);
-  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, ready: true };
+  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, ready: true, phase: 'ready' };
   const out = ui.workLines({ ...card, bumpedOut: { key: 'w/B1', ref: '#61', at: ago(1) } });
-  assert.equal(lines(out).at(-1), `${ui.cardTime(sortAt)} · ready · bumped out by #61`);
-  assert.match(out, /<span class="card-ready">ready<\/span><span class="sep"> · <\/span><a class="card-bumped-out" href="#item=w%2FB1">bumped out by #61<\/a>/);
+  assert.equal(lines(out).at(-1), `${ui.cardTime(sortAt)} · bumped out by #61 · ready`);
+  assert.match(out, /<a class="card-bumped-out" href="#item=w%2FB1">bumped out by #61<\/a><span class="sep"> · <\/span><span class="card-phase ph-success">ready<\/span>/);
   const held = ui.workLines({ ...card, bumpedAt: ago(1), hostHeld: true });
-  assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · ready · held while host recovers`);
+  assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · held while host recovers · ready`);
   assert.match(held, /<span class="card-host-held">held while host recovers<\/span>/);
   assert.doesNotMatch(ui.workLines(card), /bumped out|host/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
@@ -1584,14 +1581,14 @@ test('a bumped-out card reads "ready · bumped out by #N" in grey, linking to th
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test("a staging card's time line reads staging in orange where ready reads, and its Status row says staging", () => {
   const sortAt = ago(24 * 2);
-  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, staging: true };
+  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, staging: true, phase: 'staging' };
   const html = ui.workLines({ ...card, held: true }, { unread: 1 });
   assert.equal(lines(html).at(-1), `${ui.cardTime(sortAt)} · held · staging · 1 new message`);
-  assert.match(html, /<span class="card-staging">staging<\/span><span class="card-unread">/);
-  assert.doesNotMatch(html, /card-ready/);
+  assert.match(html, /<span class="card-phase ph-notice">staging<\/span><span class="card-unread">/);
+  assert.doesNotMatch(html, /ph-success/);
   assert.equal(ui.statusWord(card), 'staging');
-  assert.equal(ui.statusWord({ ...card, staging: false, ready: true }), 'ready');
-  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.card-staging \{ color: var\(--color-notice\); \}/);
+  assert.equal(ui.statusWord({ ...card, staging: false, ready: true, phase: 'ready' }), 'ready');
+  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.card-phase\.ph-notice \{ color: var\(--color-notice\); \}/);
 });
 
 test("a card's time reads the time only today, adds the day before today, and adds the year past 365 days", () => {

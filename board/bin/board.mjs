@@ -148,11 +148,13 @@ command fails and changes nothing.
                                                          whose thread opens with the ask and its thread, then --text
                                                          as the item's first line; it leaves a card it was folded into; refuses a card
                                                          from another ask (use item relate-ask), and one with no
-                                                         state when --state is missing
-         [--state ready|grilling|prototyping]            what a card from an ask does next; it reads New until set.
+                                                         phase when --phase is missing
+         [--phase ready|grilling|prototyping]            a Todo card's phase: what it does next; it reads New
+                                                         until set. Refused on a card in another lane, whose phase
+                                                         the board sets, and as --state, its old name.
                                                          Staging is the board's: it stages a card on the owner's
                                                          Send, Implement or Reply on a ready card, and refuses
-                                                         --state staging, bar --from-ask on a Quick build ask,
+                                                         --phase staging, bar --from-ask on a Quick build ask,
                                                          which files it staging for the orchestrator to judge.
                                                          ready refuses a card not staging or ready, a Quick
                                                          build ask's included, a card with an open question, and
@@ -232,14 +234,14 @@ command fails and changes nothing.
                                                          another card's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A card
                                                          from the + or New task has none
-         [--state grilling|prototyping|ready]            files it at once, as item set's --state; the session's
+         [--phase grilling|prototyping|ready]            files it at once, as item set's --phase; the session's
          [--relate <id>,<wave>/<id>]                     own form, linking it with --relate in the same call.
                                                          ready is for a Quick build ask (--from-ask), with --size,
                                                          and so is staging, which intake triage files it in
          [--from-ask <eventId> --text <t>]               files the card from that ask in this one command, as
                                                          item set's --from-ask: no grill starts before the ask is on
-                                                         the card, which takes the ask's place in Todo. Needs --state
-                                                         On a board --state is required, so no card an agent
+                                                         the card, which takes the ask's place in Todo. Needs --phase
+                                                         On a board --phase is required, so no card an agent
                                                          adds reads New
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
          card. Prints "<label> added as <key>": use the key in later commands
@@ -278,26 +280,26 @@ command fails and changes nothing.
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
   lineup create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards in
-         --phase <wave>/<id>,… [--phase …]               phases, all from one wave file, one --phase per phase
+         --step <wave>/<id>,… [--step …]                 steps, all from one wave file, one --step per step
          (--note <t> | --file <f>)                       in build order. Each card is then blocked by every card
-                                                         of the phase before (its other deps stay), so one
-                                                         phase's cards build side by side, and the note goes to
+                                                         of the step before (its other deps stay), so one
+                                                         step's cards build side by side, and the note goes to
                                                          lineup-<slug>.md beside the wave file.
                                                          Todo shows it as a band of its cards in order, numbered
-                                                         by phase, its goal on its name, and Notes opens the
+                                                         by step, its goal on its name, and Notes opens the
                                                          goal, the order and the note. Refuses a card already in
                                                          another open wave. Prints the order by card label, one
-                                                         phase's cards by commas and the phases by arrows
-  lineup add <slug> <wave>/<id> [--after <wave>/<id>]    puts a card in the wave as a phase of its own, last
-                                                         unless --after's phase, and links the phases again
+                                                         step's cards by commas and the steps by arrows
+  lineup add <slug> <wave>/<id> [--after <wave>/<id>]    puts a card in the wave as a step of its own, last
+                                                         unless --after's step, and links the steps again
   lineup remove <slug> <wave>/<id>                       takes a card out: it loses its links to the wave's cards,
-                                                         its phase goes if it held only that card, and the phases
+                                                         its step goes if it held only that card, and the steps
                                                          are linked again
   lineup set <slug> [--title <t>] [--goal <t>]           renames the wave, sets its goal, rewrites its note or
-         [--note <t> | --file <f>]                       puts its cards in new phases (--phase per phase, every
-         [--phase <wave>/<id>,… …]                       card once) and links them again. A card's ⋯ in its
+         [--note <t> | --file <f>]                       puts its cards in new steps (--step per step, every
+         [--step <wave>/<id>,… …]                        card once) and links them again. A card's ⋯ in its
                                                          band swaps it with the Todo card before or after it,
-                                                         each taking the other's phase
+                                                         each taking the other's step
   lineup finish <slug>                                   the wave's band leaves Todo; its cards keep their
                                                          links. A wave whose cards are all Done leaves it too
          A band's Triage sends wave-triage {lineup}, or {wave} for a wave file's band; it reads
@@ -803,16 +805,16 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
+  'item set': [['wave/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
-    return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
+    return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check, stopRun: () => stopForBlock(site, key) }, options);
   }],
-  'item add': [['wave[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
+  'item add': [['wave[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, size: f.size, model: f.model, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
   }],
   'item notes': [['wave/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
@@ -826,10 +828,10 @@ const COMMANDS = {
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
-  'lineup create': [['slug'], ['title', 'goal', '...phase', 'note', 'file'], (site, [slug], f) => store.createLineup(site, slug, { title: f.title, goal: f.goal, phases: f.phase, note: noteOf(f) })],
+  'lineup create': [['slug'], ['title', 'goal', '...step', '...phase', 'note', 'file'], (site, [slug], f) => store.createLineup(site, slug, { title: f.title, goal: f.goal, steps: f.step, phase: f.phase, note: noteOf(f) })],
   'lineup add': [['slug', 'wave/id'], ['after'], (site, [slug, key], f) => store.changeLineup(site, slug, { add: key, after: f.after })],
   'lineup remove': [['slug', 'wave/id'], [], (site, [slug, key]) => store.changeLineup(site, slug, { remove: key })],
-  'lineup set': [['slug'], ['title', 'goal', 'note', 'file', '...phase'], (site, [slug], f) => store.changeLineup(site, slug, { title: f.title, goal: f.goal, note: noteOf(f), phases: f.phase })],
+  'lineup set': [['slug'], ['title', 'goal', 'note', 'file', '...step', '...phase'], (site, [slug], f) => store.changeLineup(site, slug, { title: f.title, goal: f.goal, note: noteOf(f), steps: f.step, phase: f.phase })],
   'lineup finish': [['slug'], [], (site, [slug]) => store.finishLineup(site, slug)],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {
@@ -983,7 +985,7 @@ function itemChanges(f) {
   return [
     f.done && 'done',
     f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
-    f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.state,
+    f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.phase,
     f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),
     f.deps !== undefined && (f.deps ? `blocked by ${f.deps}` : 'deps cleared'),
     f.parent !== undefined && (f.parent ? `parent ${f.parent}` : 'parent cleared'), f.related !== undefined && (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),

@@ -30,14 +30,14 @@ test("a bump-out stops the card's board-launched builder, keeps its worktree, an
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
   t.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
   await new Promise((r) => setTimeout(r, 200));
-  setA1({ lane: 'progress', state: 'staging', staged_at: now() });
+  setA1({ lane: 'progress', phase: 'staging', staged_at: now() });
   const tree = { path: path.join(home, 'tree'), branch: 'A1', repo: path.join(home, 'repo') };
   write(recordFile(), { started: new Date(Date.now() - 60_000).toISOString(), kind: 'claude', model: 'opus', worktree: tree, session: { id: 's1', pid: child.pid, at: now() } });
   const lines = await bumpOut(site('orch'), 'w/A1', 'w/ENG-1');
   assert.match(lines[0], /^A1 bumped out by ENG-1$/);
   await until(() => !alive(child.pid), 'the builder is gone');
   const item = itemOf();
-  assert.deepEqual([item.lane, item.state, item.staged_at, item.bumped_out?.by], ['todo', 'ready', undefined, 'w/ENG-1']);
+  assert.deepEqual([item.lane, item.phase, item.staged_at, item.bumped_out?.by], ['todo', 'ready', undefined, 'w/ENG-1']);
   assert.equal(typeof record().done, 'string', 'its record closes, so nothing relaunches it');
   assert.deepEqual(record().worktree, tree);
   assert.deepEqual(threadOf().map((l) => l.text), ['Bumped out by ENG-1: back to Todo, ready. It starts again once a slot frees.']);

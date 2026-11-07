@@ -19,15 +19,17 @@ test('the review page lays out every bar and status line the board draws, in the
     ['build', 'progress'], ['check', 'progress'], ['install', 'progress'], ['start', 'progress'],
     ['rebase', 'review'], ['merging', 'review'], ['stopped', 'review']]);
   const steps = Object.fromEntries(entries.map((e) => [e.id, e.steps]));
-  for (const id of ['grill', 'prototype', 'build', 'check', 'install']) assert.deepEqual(plain(steps[id]), plain(ui.BUILD_PHASES), id);
+  for (const id of ['build', 'check', 'install']) assert.deepEqual(plain(steps[id]), plain(ui.BUILD_PHASES), id);
   assert.deepEqual(plain(steps.start), Object.values(plain(ui.START_STEPS)));
-  for (const id of ['rebase', 'merging', 'stopped']) assert.deepEqual(plain(steps[id]), [], `${id} is a status line, no bar`);
+  for (const id of ['grill', 'prototype', 'rebase', 'merging', 'stopped']) assert.deepEqual(plain(steps[id]), [], `${id} is a status line, no bar`);
   // The steps are the entry's own copy, so a rename on the page never reaches the board's renderers.
   steps.build[0] = 'renamed';
   assert.equal(ui.BUILD_PHASES[0], 'reading');
   const drawn = Object.fromEntries(entries.map((e) => [e.id, review.cardHtml(e)]));
   assert.match(drawn.grill, /class="line3 sub agent planner in-todo"/);
-  assert.match(drawn.grill, /class="phase-bars in-todo"/);
+  // docs/adr/2026-11-11-1200-every-lane-has-phases.md: a Todo planner draws no bar; its card reads its phase word.
+  assert.doesNotMatch(drawn.grill, /phase-bars/);
+  assert.match(drawn.grill, /<span class="card-phase ph-info">grilling<\/span>/);
   assert.match(drawn.build, /class="line3 sub agent in-progress"/);
   assert.match(drawn.check, /aria-label="Orchestrator review, step 4 of 5"/);
   assert.match(drawn.start, /class="sb-steps"><span class="phase-bars"/);
@@ -88,7 +90,7 @@ test('the page draws the lanes with their colours, opens a tapped card beneath, 
   assert.equal(p.sent[0].kind, 'ask');
   const lines = p.sent[0].text.split('\n');
   assert.equal(lines[0], 'Progress bar review');
-  assert.ok(lines.includes('Grilling, Todo: reading › building › testing › checking › landing'), 'an untouched bar reads with no was');
+  assert.ok(lines.includes('Grilling, Todo: a status line, no bar'), 'an untouched line reads with no was');
   assert.equal(lines[2], 'Lane colours: Todo #999999 (was #6b6b76), In Progress #d97706, In Review #2b6cb0');
   assert.ok(lines.includes('Building (was Build), In Progress: building › planning › testing › checking › landing (was reading › building › testing › checking › landing)'), p.sent[0].text);
   assert.ok(lines.includes('Rebase run, In Progress (was In Review): a status line, no bar'));

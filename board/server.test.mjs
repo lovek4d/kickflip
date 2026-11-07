@@ -106,8 +106,8 @@ test("the owner's last answer on an unstarted card stages it, held or blocked to
   const ask = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'A', label: 'This' }] });
   const answer = (id) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice: 'A' }) });
   const unblocked = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind === 'card-unblocked').map((e) => e.data.key);
-  const states = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items.map((i) => i.state ?? null);
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Two questions', state: 'grilling' }, { id: 'S2', title: 'Blocked', deps: ['S3'], state: 'grilling' }, { id: 'S3', title: 'Dep' }, { id: 'S4', title: 'Held', held: true, state: 'grilling' }] }));
+  const states = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items.map((i) => i.phase ?? null);
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Two questions', phase: 'grilling' }, { id: 'S2', title: 'Blocked', deps: ['S3'], phase: 'grilling' }, { id: 'S3', title: 'Dep' }, { id: 'S4', title: 'Held', held: true, phase: 'grilling' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('s1a', 't/S1'), ask('s1b', 't/S1'), ask('s2', 't/S2'), ask('s4', 't/S4')] }));
   const before = unblocked().length;
   try {
@@ -167,7 +167,7 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     assert.equal(r.status, 200);
     assert.deepEqual([last().kind, last().data.prototype_again], ['owner-answer', true]);
     const card = (await r.json()).board.items.find((i) => i.key === 't/P1');
-    assert.deepEqual([card.state, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
+    assert.deepEqual([card.phase, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
     await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'question-reopen', question: 'moon' }) });
     assert.equal((await answer('moon', 'B', '')).status, 200);
     assert.equal(last().data.prototype_again, undefined);
@@ -196,7 +196,7 @@ test("a prototype request on a question keeps its note and pick on the event and
     assert.deepEqual([b.owner.map((q) => [q.id, q.state]), b.ownerTopics.find((t) => t.id === 'item:t/R1').open], [[['where', 'requested']], 0]);
     assert.deepEqual(b.ownerTopics.find((t) => t.id === 'item:t/R1').round, { n: 1, state: 'making' });
     const card = b.items.find((i) => i.key === 't/R1');
-    assert.deepEqual([card.state, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
+    assert.deepEqual([card.phase, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
@@ -438,7 +438,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     { id: 'B1', title: 'Tapped', lane: 'todo', next: 'Implement' }, { id: 'B2', title: 'Held', lane: 'todo', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', lane: 'todo', deps: ['B4'] }, { id: 'B4', title: 'Dep', lane: 'todo' },
     { id: 'B5', title: 'Held and blocked', lane: 'todo', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree', lane: 'todo' }, { id: 'B7', title: 'Leftover work', lane: 'todo' },
     { id: 'B8', title: 'Held and unstarted', lane: 'todo', held: true }, { id: 'B9', title: 'Held and waiting', lane: 'todo', held: true }, { id: 'B10', title: 'Held and grilled', lane: 'todo', held: true },
-    { id: 'B11', title: 'Ready', lane: 'todo', state: 'ready' }, { id: 'B12', title: 'Grilling', lane: 'todo', state: 'grilling', unfiled: true }, { id: 'B13', title: 'Leftover work, prototyping', lane: 'todo', state: 'prototyping' },
+    { id: 'B11', title: 'Ready', lane: 'todo', phase: 'ready' }, { id: 'B12', title: 'Grilling', lane: 'todo', phase: 'grilling', unfiled: true }, { id: 'B13', title: 'Leftover work, prototyping', lane: 'todo', phase: 'prototyping' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -527,7 +527,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
       assert.equal((await post({ kind: 'item-message', key: `t/${id}`, text: '', intent: 'build' })).status, 200);
       const tapped = await card(id);
       assert.deepEqual([tapped.lane, tapped.storedLane, tapped.staging], ['todo', 'todo', true], id);
-      assert.deepEqual([wave().items.find((i) => i.id === id).state, 'unfiled' in wave().items.find((i) => i.id === id)], ['staging', false], id);
+      assert.deepEqual([wave().items.find((i) => i.id === id).phase, 'unfiled' in wave().items.find((i) => i.id === id)], ['staging', false], id);
       assert.equal(fs.existsSync(path.join(site, 'data', 'agents', `${id}.json`)), false, id);
       assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text]), [['love', 'implement', 'Implementation requested'], ['claude', 'staged', 'Marked as staging']], id);
     }
@@ -542,7 +542,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test("an Implement message stages a Todo card where it is, its words in the notes and its open questions skipped; a Reply stages a ready card and leaves any other", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Implement', held: true }, { id: 'IR1', title: 'Reply', state: 'grilling' }, { id: 'IR2', title: 'Ready reply', state: 'ready' }, { id: 'IG1', title: 'Ready grill', state: 'ready' }, { id: 'IP1', title: 'Staged prototype', state: 'staging' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Implement', held: true }, { id: 'IR1', title: 'Reply', phase: 'grilling' }, { id: 'IR2', title: 'Ready reply', phase: 'ready' }, { id: 'IG1', title: 'Ready grill', phase: 'ready' }, { id: 'IP1', title: 'Staged prototype', phase: 'staging' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'i1q', topic: 'item:t/I1', question: 'Which?', options: [{ id: 'A', label: 'This' }] }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const item = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items.find((i) => i.id === id);
@@ -554,7 +554,7 @@ test("an Implement message stages a Todo card where it is, its words in the note
     const card = sent.board.items.find((i) => i.id === 'I1');
     const staged = item('I1').staged_at;
     assert.ok(staged);
-    assert.deepEqual([card.lane, card.held, card.staging, card.orchestrator.kind, item('I1').state, item('I1').plan], ['todo', false, true, 'staging', 'staging', 'i1-notes.md']);
+    assert.deepEqual([card.lane, card.held, card.staging, card.orchestrator.kind, item('I1').phase, item('I1').plan], ['todo', false, true, 'staging', 'staging', 'i1-notes.md']);
     assert.match(notes('I1'), /^# Implement\n\n## Implement \(owner, \d\d\/\d\d \d\d:\d\d\), verbatim\nUse the blue\n$/);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Skipped: you tapped Implement');
     assert.deepEqual(log().filter((e) => e.kind === 'item-message').at(-1).data, { key: 't/I1', text: 'Use the blue', intent: 'build' });
@@ -565,15 +565,15 @@ test("an Implement message stages a Todo card where it is, its words in the note
     assert.match(notes('I1'), /\nAnd the red\n$/);
 
     const replied = await post({ kind: 'item-message', key: 't/IR1', text: 'Why blue?', intent: 'reply' });
-    assert.deepEqual([replied.board.items.find((i) => i.id === 'IR1').lane, item('IR1').state], ['todo', 'grilling']);
+    assert.deepEqual([replied.board.items.find((i) => i.id === 'IR1').lane, item('IR1').phase], ['todo', 'grilling']);
     assert.deepEqual(await footer('t/IR1'), [['Why blue?', 'Reply']]);
     const back = await post({ kind: 'item-message', key: 't/IR2', text: 'Also the weekend', intent: 'reply' });
-    assert.deepEqual([back.board.items.find((i) => i.id === 'IR2').staging, item('IR2').state], [true, 'staging']);
+    assert.deepEqual([back.board.items.find((i) => i.id === 'IR2').staging, item('IR2').phase], [true, 'staging']);
     assert.match(notes('IR2'), /## Reply \(owner, .*\), verbatim\nAlso the weekend\n$/);
     // A Grill or Prototype tap takes a ready or staging card out of it.
     await post({ kind: 'grill-more', key: 't/IG1' });
     await post({ kind: 'prototype-request', key: 't/IP1' });
-    assert.deepEqual([item('IG1').state, item('IP1').state, item('IP1').staged_at], ['grilling', 'prototyping', undefined]);
+    assert.deepEqual([item('IG1').phase, item('IP1').phase, item('IP1').staged_at], ['grilling', 'prototyping', undefined]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 

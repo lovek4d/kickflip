@@ -328,7 +328,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, launchIntake, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BoardError, intakeHandoff, quickAsk, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -1209,7 +1209,7 @@ const server = http.createServer(async (req, res) => {
           return json(res, 200, { id: null, board: await answerBoard(req, since) });
         }
         if (card?.lane === 'todo' && body.intent === 'build') await stageImplement(here, key, body);
-        else if (card?.lane === 'todo' && card.state === 'ready') await stageReply(here, key, body);
+        else if (card?.lane === 'todo' && card.phase === 'ready') await stageReply(here, key, body);
         dataVersion++;
       }
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
@@ -1217,7 +1217,7 @@ const server = http.createServer(async (req, res) => {
         const slug = String(body.lineup || '');
         const phases = lineupMoved(await sharedBoard(), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
         if (!phases) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
-        try { await changeLineup(here, slug, { phases: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        try { await changeLineup(here, slug, { steps: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
         return json(res, 200, { id: null, board: await answerBoard(req, since) });
       }
       if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0] ?? null, board: await answerBoard(req, since) });
@@ -1598,10 +1598,10 @@ async function handOff(started) {
 // prototyping, the owner having asked for one, a grill for any other. Its open record keeps it off the list from then
 // on, so the cached board is dropped, as handOff does, before the next pass reads it.
 async function launchArrivals(cards) {
-  for (const { key, state } of cards) {
+  for (const { key, phase } of cards) {
     if (launchHeldNow()) return;
-    const kind = state === 'prototyping' ? 'prototype' : 'grill';
-    logCall({ call: 'arrival-planner', key, result: kind, reason: state === 'prototyping' ? 'It landed in Todo filed prototyping.' : 'It landed in Todo, not filed prototyping.', inputs: { state: state ?? null } });
+    const kind = phase === 'prototyping' ? 'prototype' : 'grill';
+    logCall({ call: 'arrival-planner', key, result: kind, reason: phase === 'prototyping' ? 'It landed in Todo filed prototyping.' : 'It landed in Todo, not filed prototyping.', inputs: { phase } });
     await appendThread(here, key, { text: `Landed in Todo, so the board started its ${kind}.` });
     await launchPlanner(key, kind);
     dataVersion++;
@@ -1746,7 +1746,7 @@ async function runIntake() {
     const sources = await itemSources(here);
     const notes = new Map();
     for (const src of sources) for (const it of (await readJSON(src.file, null))?.items || []) if (it.plan) notes.set(`${src.slug}/${it.id}`, path.join(src.dir, it.plan));
-    const cards = items.filter((i) => i.kind === 'work' && i.lane !== 'done').map((i) => ({ ref: i.ref, key: i.key, title: i.title, lane: i.lane, state: i.state, notes: notes.get(i.key) ?? null }));
+    const cards = items.filter((i) => i.kind === 'work' && i.lane !== 'done').map((i) => ({ ref: i.ref, key: i.key, title: i.title, lane: i.lane, phase: i.phase, notes: notes.get(i.key) ?? null }));
     const askId = due.key.startsWith('ask:') ? due.key.slice(4) : null;
     const launched = await launchIntake(here, {
       ...due, cards, waves: sources.map(({ slug, dir }) => ({ slug, dir })), quick: askId !== null && await quickAsk(here, askId),
@@ -2234,7 +2234,7 @@ async function stepIdle() {
 
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // Each card the build places in a lane other than its stored one moves there (domain.mjs movesOf, store.mjs moveCard),
-// with a thread line saying why, as the server starts and after each board change. A settle asked for while one runs
+// with a thread line saying why, and each whose phase in its lane changed takes it quietly, as the server starts and after each board change. A settle asked for while one runs
 // runs again after it.
 let settling = null;
 let settleAgain = false;
@@ -2245,7 +2245,7 @@ function settleLanes() {
       settleAgain = false;
       try {
         const moves = movesOf(await sharedBoard());
-        for (const m of moves) await moveCard(here, m.key, m.to, m.why);
+        for (const m of moves) await moveCard(here, m.key, m.to, m.why, m.phase);
         if (moves.length) dataVersion++;
       } catch (err) { console.error('Lane settle failed:', err.message); }
     } while (settleAgain);
@@ -2285,6 +2285,7 @@ async function archiveDone() {
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
 try { for (const line of await migrateStatuses(here)) console.log(line); } catch (e) { console.error('status migration:', e.message); }
+try { for (const line of await migratePhases(here)) console.log(line); } catch (e) { console.error('phase migration:', e.message); }
 try { for (const line of await stageImplementAsks(here)) console.log(line); } catch (e) { console.error('staging migration:', e.message); }
 try { for (const line of await splitSharedNotes(here)) console.log(line); } catch (e) { console.error('notes split:', e.message); }
 try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }

@@ -25,10 +25,10 @@ function fakeBuilder(t) {
   return child.pid;
 }
 
-test('blocking a card In Progress stops its board-launched builder, keeps its worktree and ready state, and sends it back to Todo', async (t) => {
+test('blocking a card In Progress stops its board-launched builder, keeps its worktree and ready phase, and sends it back to Todo', async (t) => {
   const pid = fakeBuilder(t);
   await new Promise((r) => setTimeout(r, 200));
-  setA1({ lane: 'progress', state: 'ready' });
+  setA1({ lane: 'progress', phase: 'ready' });
   const tree = { path: path.join(home, 'tree'), branch: 'A1', repo: path.join(home, 'repo') };
   write(recordFile(), { started: new Date(Date.now() - 60_000).toISOString(), kind: 'claude', model: 'opus', worktree: tree, session: { id: 's1', pid, at: now() } });
   const r = await runAsync('board.mjs', ['--site', 'orch', 'item', 'set', 'w/A1', '--deps', 'ENG-1']);
@@ -36,7 +36,7 @@ test('blocking a card In Progress stops its board-launched builder, keeps its wo
   assert.match(r.out, /A1: build stopped by orchestrator/);
   await until(() => !alive(pid), 'the builder is gone');
   const item = itemOf();
-  assert.deepEqual([item.lane, item.state, item.deps], ['todo', 'ready', ['ENG-1']]);
+  assert.deepEqual([item.lane, item.phase, item.deps], ['todo', 'ready', ['ENG-1']]);
   const rec = record();
   assert.equal(typeof rec.done, 'string', 'its record closes, so nothing relaunches it and the card leaves In Progress');
   assert.equal(rec.stopped.run, 'build');
@@ -45,7 +45,7 @@ test('blocking a card In Progress stops its board-launched builder, keeps its wo
 });
 
 test('blocking a handed-back card, with nothing running, sends it back to Todo; blocking one already blocked again changes nothing more', () => {
-  setA1({ lane: 'progress', state: 'ready' });
+  setA1({ lane: 'progress', phase: 'ready' });
   write(recordFile(), { started: new Date(Date.now() - 60_000).toISOString(), done: now(), handed_back: now(), kind: 'claude' });
   const r = onOrch('item', 'set', 'w/A1', '--blocked-until', 'the API ships');
   assert.equal(r.code, 0, r.err);
@@ -56,7 +56,7 @@ test('blocking a handed-back card, with nothing running, sends it back to Todo; 
 });
 
 test("blocking a card whose builder runs in a session the board didn't launch is refused, and changes nothing", () => {
-  setA1({ lane: 'progress', state: 'ready' });
+  setA1({ lane: 'progress', phase: 'ready' });
   write(recordFile(), { started: now(), kind: 'claude' });
   const r = onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1');
   assert.equal(r.code, 1);
@@ -68,7 +68,7 @@ test("blocking a card whose builder runs in a session the board didn't launch is
 test('a blocked card In Review stays there, and merge refuses it naming what blocks it, before asking GitHub', () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
-  write(waveFile(), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, state: 'ready', lane: 'review' }, { id: 'ENG-1', title: 'Later' }] });
+  write(waveFile(), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, phase: 'ready', lane: 'review' }, { id: 'ENG-1', title: 'Later' }] });
   writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' }));
   assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
   assert.deepEqual([itemOf().pr, fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl'))], [7, false], 'In Review, nothing is sent back');

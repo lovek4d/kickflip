@@ -10,13 +10,13 @@ const yesNo = [{ id: 'yes', label: 'Yes', recommended: true }, { id: 'no', label
 const other = { id: 'q-other', topic: 'item:t/A1', question: 'Which?', options: [{ id: 'a', label: 'A' }] };
 const gate = { id: 'q-gate', topic: 'item:t/A1', question: 'Prototype round first?', options: yesNo, prototype_gate: true };
 
-function world(state = 'grilling') {
+function world(phase = 'grilling') {
   const site = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
   const data = path.join(site, 'data');
   fs.mkdirSync(data);
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
   fs.writeFileSync(path.join(data, 'notes.md'), 'q-other: A\n');
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'Card', state, size: 'small', plan: 'notes.md' }] }));
+  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'Card', phase, size: 'small', plan: 'notes.md' }] }));
   fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [] }));
   fs.writeFileSync(path.join(data, 'events.jsonl'), '');
   const answer = (id, choice, note = '') => {
@@ -26,7 +26,7 @@ function world(state = 'grilling') {
   };
   const read = () => JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items[0];
   const item = (fields) => fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ ...read(), ...fields }] }));
-  const card = () => read().state;
+  const card = () => read().phase;
   const notes = (file) => fs.readFileSync(path.join(data, file), 'utf8');
   const thread = () => fs.readFileSync(path.join(data, 'threads', 't__A1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const resolved = (id) => JSON.parse(fs.readFileSync(path.join(data, 'owner.json'), 'utf8')).items.find((q) => q.id === id).resolved ?? null;
@@ -144,7 +144,7 @@ test('a card whose notes file is gone gets a fresh one at the same path with its
 test('a follow-up that fails on one card posts its reason to that card and leaves the other cards settled', async () => {
   const w = world('grilling');
   const wave = JSON.parse(fs.readFileSync(path.join(w.site, 'data', 'wave.json'), 'utf8'));
-  fs.writeFileSync(path.join(w.site, 'data', 'wave.json'), JSON.stringify({ items: [{ ...wave.items[0], plan: '../escaped.md' }, { id: 'A2', title: 'Second', state: 'grilling', size: 'small', plan: 'notes.md' }] }));
+  fs.writeFileSync(path.join(w.site, 'data', 'wave.json'), JSON.stringify({ items: [{ ...wave.items[0], plan: '../escaped.md' }, { id: 'A2', title: 'Second', phase: 'grilling', size: 'small', plan: 'notes.md' }] }));
   await addQuestions(w.site, other);
   await addQuestions(w.site, { ...other, id: 'q-second', topic: 'item:t/A2' });
   const result = await settleAnswers(w.site, [w.answer('q-other', 'a'), w.answer('q-second', 'a')]);

@@ -88,10 +88,10 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.ok(grill.includes('Recommend yes when the card changes the hub\'s or a board\'s UI, no otherwise') && grill.includes('Ask it even when it is your only question'));
   assert.ok(!proto.includes('prototype_gate'));
   // A grill sets no ready itself: the gate's answer moves the card; the owner asking for prototypes ends it prototyping.
-  assert.ok(grill.includes(`end the card \`${b} item set w/A1 --state prototyping\` instead and skip the prototype question`));
+  assert.ok(grill.includes(`end the card \`${b} item set w/A1 --phase prototyping\` instead and skip the prototype question`));
   assert.ok(grill.includes('never set it ready yourself'));
   assert.ok(grill.includes('never leave a Next that asks the owner to mark it ready'));
-  assert.ok(!proto.includes('--state ready'));
+  assert.ok(!proto.includes('--phase ready'));
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: Codex has no skills, so they're named only as extras.
   assert.ok(grill.includes('Invoke the grilling skill with the Skill tool') && proto.includes('Invoke the prototype skill with the Skill tool'));
   assert.ok(!/Follow the (grilling|prototype) skill/.test(grill + proto));
@@ -189,8 +189,8 @@ test("the server launches the builder for a tap and a pull instead of waking the
   fs.writeFileSync(path.join(data, 'agents', 'H3.json'), JSON.stringify(verified));
   fs.writeFileSync(path.join(data, 'agents', 'H4.json'), JSON.stringify({ ...verified, worktree: { ...verified.worktree, path: lander, branch: 'H4' } }));
   fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [
-    { id: 'H1', title: 'Tapped', state: 'ready', size: 'large', plan: 'h1.md' },
-    { id: 'H2', title: 'Pulled', state: 'ready', size: 'large' },
+    { id: 'H1', title: 'Tapped', phase: 'ready', size: 'large', plan: 'h1.md' },
+    { id: 'H2', title: 'Pulled', phase: 'ready', size: 'large' },
     { id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" },
     { id: 'H4', title: 'Asked', lane: 'progress', next: "Answer the builder's questions" },
   ] }));
@@ -618,8 +618,8 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
 
 test("the server launches a planner for the owner's Grill and Prototype taps and for a card arriving in Todo, from the card, in the board's repo", async () => {
   const b = oneLaunchBoard([
-    { id: 'G1', title: 'Grill me', state: 'grilling' },
-    { id: 'P1', title: 'Draw me', state: 'prototyping' },
+    { id: 'G1', title: 'Grill me', phase: 'grilling' },
+    { id: 'P1', title: 'Draw me', phase: 'prototyping' },
     { id: 'Q1', title: 'Plan me' },
   ]);
   const { child, send } = await b.start();
@@ -673,7 +673,7 @@ const reportUsage = (home, used) => {
 };
 
 test('a grill or prototype asked for during a pause waits on the card and launches when the pause lifts', async () => {
-  const b = oneLaunchBoard([{ id: 'G1', title: 'Grill me', state: 'grilling' }]);
+  const b = oneLaunchBoard([{ id: 'G1', title: 'Grill me', phase: 'grilling' }]);
   usageAt(b.home, 95);
   const { child, send } = await b.start({ fastMinute: true });
   try {
@@ -694,7 +694,7 @@ test('a grill or prototype asked for during a pause waits on the card and launch
 });
 
 test('within twice the buffer of the line the board starts one agent, and the next once that one has reported its usage', async () => {
-  const b = oneLaunchBoard([{ id: 'A1', title: 'First', state: 'grilling' }, { id: 'A2', title: 'Second', state: 'grilling' }], undefined, { init: true });
+  const b = oneLaunchBoard([{ id: 'A1', title: 'First', phase: 'grilling' }, { id: 'A2', title: 'Second', phase: 'grilling' }], undefined, { init: true });
   fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', auto_pull: true, max_planners: 2 }));
   usageAt(b.home, 85);
   const { child } = await b.start({ fastMinute: true });
@@ -711,7 +711,7 @@ test('within twice the buffer of the line the board starts one agent, and the ne
 });
 
 test('a build whose builder fails to launch goes back to Todo with the reason, and wakes no session', async () => {
-  const b = oneLaunchBoard([{ id: 'F1', title: 'Fail me', state: 'ready', size: 'large' }], path.join(os.tmpdir(), 'no-such-claude-here'));
+  const b = oneLaunchBoard([{ id: 'F1', title: 'Fail me', phase: 'ready', size: 'large' }], path.join(os.tmpdir(), 'no-such-claude-here'));
   const { child, send } = await b.start();
   try {
     const tapped = await send('card-build', { key: 't/F1' });
@@ -746,7 +746,7 @@ test("the owner's Hold kills the card's running builder, closes its record and s
   const fake = path.join(home, 'claude');
   fs.writeFileSync(fake, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\n${untilTestEnds()};\n`);
   fs.chmodSync(fake, 0o755);
-  const b = oneLaunchBoard([{ id: 'H1', title: 'Hold me', state: 'ready', size: 'large' }], fake);
+  const b = oneLaunchBoard([{ id: 'H1', title: 'Hold me', phase: 'ready', size: 'large' }], fake);
   const { child, send } = await b.start();
   let pid, resumed;
   try {
@@ -775,7 +775,7 @@ test("the owner's Hold kills the card's running builder, closes its record and s
 
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
 test("Resume relaunches the grill a Hold stopped, and neither tap wakes a session", async () => {
-  const b = oneLaunchBoard([{ id: 'G2', title: 'Grill me', state: 'grilling' }]);
+  const b = oneLaunchBoard([{ id: 'G2', title: 'Grill me', phase: 'grilling' }]);
   const { child, send } = await b.start();
   try {
     await send('grill-more', { key: 't/G2', text: 'Ask about the footer' });
@@ -833,32 +833,32 @@ test("a visual agent's brief has it start as its own agent, read the card and th
 test("an intake triage run's brief holds the board's index, the task and its thread, and has it reply, fold or file it, staging a Quick build, or hand it off", () => {
   const b = `node ${BOARD_CLI} --site shop`;
   const intake = { route: 'shop', repo: '/r/shop', rules: ['Use Node 22+'], waves: [{ slug: 'w', dir: '/s/waves/w' }],
-    cards: [{ ref: 'ENG-1', key: 'w/A1', title: 'Make it go', lane: 'todo', state: 'grilling', notes: '/s/waves/w/a1.md' }, { ref: 'ENG-2', key: 'w/A2', title: 'No notes', lane: 'progress', state: 'ready', notes: null }] };
+    cards: [{ ref: 'ENG-1', key: 'w/A1', title: 'Make it go', lane: 'todo', phase: 'grilling', notes: '/s/waves/w/a1.md' }, { ref: 'ENG-2', key: 'w/A2', title: 'No notes', lane: 'progress', phase: 'ready', notes: null }] };
   const ask = intakeBrief({ ...intake, event: 'e1', key: 'ask:e1', kind: 'ask', thread: [{ who: 'love', text: 'Make the header blue', files: [{ path: '/s/data/uploads/a.png' }] }] });
   for (const want of [
     '- ENG-1 w/A1 "Make it go", todo, grilling: /s/waves/w/a1.md', '- ENG-2 w/A2 "No notes", progress, ready: no notes',
     'love: Make the header blue', '/s/data/uploads/a.png', 'Use Node 22+', 'w: /s/waves/w',
     `${b} reply e1 --file <reply.html> --title "<the ask in plain words>"`, `${b} item relate-ask e1 <key> --summary "<one line>" --title "<the ask in plain words>"`,
-    `${b} item add <wave> --title "<the change, in plain words>" --notes-from <draft.md> --from-ask e1 --relate <keys> --text "<one line on what you filed>" --state <grilling|prototyping>`,
-    `${b} item notes <key> --heading "Asked (owner, <date>)" --file <draft.md>`, "outside the board's data folder", '--state <grilling|prototyping>', 'verbatim',
+    `${b} item add <wave> --title "<the change, in plain words>" --notes-from <draft.md> --from-ask e1 --relate <keys> --text "<one line on what you filed>" --phase <grilling|prototyping>`,
+    `${b} item notes <key> --heading "Asked (owner, <date>)" --file <draft.md>`, "outside the board's data folder", '--phase <grilling|prototyping>', 'verbatim',
     `${b} intake handoff e1 --text`, 'Never push',
   ]) assert.ok(ask.includes(want), `the intake brief has ${want}`);
   assert.ok(!ask.includes('--notes-file'), 'the board names a card\'s notes file');
   // docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md: one write, so no card reads New beside the ask.
   assert.ok(!ask.includes('item set'), 'the ask is filed in one item add');
-  assert.ok(!ask.includes('--state ready') && !ask.includes('--state staging'), 'intake never sets a card ready, and stages only a Quick build');
+  assert.ok(!ask.includes('--phase ready') && !ask.includes('--phase staging'), 'intake never sets a card ready, and stages only a Quick build');
   const quick = intakeBrief({ ...intake, event: 'e1', key: 'ask:e1', kind: 'ask', quick: true, thread: [] });
-  assert.ok(quick.includes('--from-ask e1 --relate <keys> --text "<one line on what you filed>" --state staging --size <small|large>'));
-  assert.ok(!quick.includes('--state <grilling|prototyping>'));
+  assert.ok(quick.includes('--from-ask e1 --relate <keys> --text "<one line on what you filed>" --phase staging --size <small|large>'));
+  assert.ok(!quick.includes('--phase <grilling|prototyping>'));
   const message = intakeBrief({ ...intake, event: 'm1', key: 'ask:e1', kind: 'item-message', thread: [] });
   assert.ok(message.includes(`${b} reply m1 --file`) && message.includes(`${b} intake handoff m1 --text`));
-  assert.ok(message.includes('--from-ask e1 --relate <keys> --text "<one line>" --state <grilling|prototyping>') && !message.includes('item set'));
+  assert.ok(message.includes('--from-ask e1 --relate <keys> --text "<one line>" --phase <grilling|prototyping>') && !message.includes('item set'));
   const added = intakeBrief({ ...intake, event: 'c1', key: 'w/A2', kind: 'card-added', thread: [] });
-  for (const want of ['w/A2', `${b} item set w/A2 --relate`, `${b} item notes w/A2 --heading "What it is" --file <draft.md>`, '--state <grilling|prototyping>', `${b} intake handoff c1 --text`]) assert.ok(added.includes(want), `the card-added brief has ${want}`);
+  for (const want of ['w/A2', `${b} item set w/A2 --relate`, `${b} item notes w/A2 --heading "What it is" --file <draft.md>`, '--phase <grilling|prototyping>', `${b} intake handoff c1 --text`]) assert.ok(added.includes(want), `the card-added brief has ${want}`);
 });
 
 test("a new task launches an intake triage run on Sonnet in the board's repo, one at a time, and one that ends with it unsorted hands it to the orchestrator", async () => {
-  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', state: 'grilling', lane: 'progress' }]);
+  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', phase: 'grilling', lane: 'progress' }]);
   const { child, send } = await b.start();
   try {
     const { id } = await send('ask', { text: 'Make the header blue' });
@@ -889,7 +889,7 @@ test('an intake run open 10 minutes is stopped and its ask handed to the orchest
   const hang = path.join(home, 'claude-hang');
   fs.writeFileSync(hang, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ pid: process.pid }) + '\\n');\nsetTimeout(() => {}, 120000);\n`);
   fs.chmodSync(hang, 0o755);
-  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', state: 'grilling', lane: 'progress' }], hang);
+  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', phase: 'grilling', lane: 'progress' }], hang);
   const { child, send } = await b.start();
   const runsFile = path.join(b.data, 'intake-runs.json');
   const readRuns = () => (fs.existsSync(runsFile) ? JSON.parse(fs.readFileSync(runsFile, 'utf8')) : {});

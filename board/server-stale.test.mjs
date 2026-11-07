@@ -215,13 +215,13 @@ test('with auto implement on the board starts and launches the build of the top 
   put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: true, max_implementers: 2 }));
   const wave = { items: [
     { id: 'A0', title: 'Running', lane: 'progress' },
-    { id: 'A1', title: 'Held', lane: 'todo', state: 'ready', held: true },
-    { id: 'A2', title: 'Blocked', state: 'ready', deps: ['A3'] },
-    { id: 'A3', title: 'Asking', lane: 'todo', state: 'ready' },
-    { id: 'A4', title: 'Next', lane: 'todo', state: 'ready' },
-    { id: 'A5', title: 'Bumped', lane: 'todo', state: 'ready' },
-    { id: 'A6', title: 'Last', lane: 'todo', state: 'ready' },
-    { id: 'A7', title: 'Spare', lane: 'todo', state: 'ready' },
+    { id: 'A1', title: 'Held', lane: 'todo', phase: 'ready', held: true },
+    { id: 'A2', title: 'Blocked', phase: 'ready', deps: ['A3'] },
+    { id: 'A3', title: 'Asking', lane: 'todo', phase: 'ready' },
+    { id: 'A4', title: 'Next', lane: 'todo', phase: 'ready' },
+    { id: 'A5', title: 'Bumped', lane: 'todo', phase: 'ready' },
+    { id: 'A6', title: 'Last', lane: 'todo', phase: 'ready' },
+    { id: 'A7', title: 'Spare', lane: 'todo', phase: 'ready' },
   ], followups: [{ id: 'F1', title: 'Follow-up', from: 'A0', filed: iso(now) }] };
   fs.writeFileSync(waveFile, JSON.stringify(wave));
   fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
@@ -321,7 +321,7 @@ test('with auto implement on the board starts and launches the build of the top 
   await until(() => pulls().length === 4, 'the pull waits for the pause to end');
   assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6', 't/A7']);
   assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
-  // The follow-up, filed with no state, is no pull but arrived in Todo, so it got its grill.
+  // The follow-up, filed with no phase, is no pull but arrived in Todo, so it got its grill.
   assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.']);
 });
 
@@ -339,8 +339,8 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   fs.mkdirSync(path.join(dataDir, 'threads'));
   put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
   put(waveFile, JSON.stringify({ items: [
-    { id: 'Q1', title: 'Asked', state: 'grilling', implement_at: iso(now - 60000) },
-    { id: 'G1', title: 'Again', state: 'grilling', round_at: iso(now - 30000) },
+    { id: 'Q1', title: 'Asked', phase: 'grilling', implement_at: iso(now - 60000) },
+    { id: 'G1', title: 'Again', phase: 'grilling', round_at: iso(now - 30000) },
   ] }));
   put(path.join(dataDir, 'agents', 'G1.json'), JSON.stringify({ kind: 'grill', started: iso(now - 120000), done: iso(now - 90000) }));
   fs.writeFileSync(setup, "import http from 'node:http'; http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };");
@@ -356,7 +356,7 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   const thread = fs.readFileSync(path.join(dataDir, 'threads', 't__G1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l).text);
   assert.equal(thread[0], 'Back to grilling, so the board started its grill.');
   const q1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1');
-  assert.deepEqual([q1.state, q1.staged_at, q1.implement_at], ['staging', iso(now - 60000), undefined]);
+  assert.deepEqual([q1.phase, q1.staged_at, q1.implement_at], ['staging', iso(now - 60000), undefined]);
   assert.deepEqual(launched('claude', 'codex', 'prototype'), [], 'a staging card starts nothing');
 });
 
@@ -381,7 +381,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   boardJSON(false);
   const wave = { items: [
     { id: 'A0', title: 'Running', lane: 'progress' },
-    { id: 'A1', title: 'One', lane: 'todo', state: 'ready' },
+    { id: 'A1', title: 'One', lane: 'todo', phase: 'ready' },
     { id: 'A2', title: 'Two', lane: 'todo' },
     { id: 'A3', title: 'Three', lane: 'todo' },
   ] };
@@ -523,11 +523,11 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
   put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: true, max_planners: 2 }));
   const wave = { items: [
-    { id: 'B1', title: 'Asking', lane: 'todo', state: 'grilling' },
-    { id: 'B2', title: 'Filed prototyping', lane: 'todo', state: 'prototyping' },
-    { id: 'B3', title: 'A follow-up', lane: 'todo', state: 'grilling', parent: 't/B1' },
+    { id: 'B1', title: 'Asking', lane: 'todo', phase: 'grilling' },
+    { id: 'B2', title: 'Filed prototyping', lane: 'todo', phase: 'prototyping' },
+    { id: 'B3', title: 'A follow-up', lane: 'todo', phase: 'grilling', parent: 't/B1' },
     { id: 'B4', title: 'Past the cap', lane: 'todo' },
-    { id: 'B5', title: 'Quick build', lane: 'todo', state: 'ready' },
+    { id: 'B5', title: 'Quick build', lane: 'todo', phase: 'ready' },
   ].map((it, n) => ({ ...it, created: iso(now - (n + 1) * 60000) })) };
   fs.writeFileSync(waveFile, JSON.stringify(wave));
   const question = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'a', label: 'A' }] });
@@ -597,10 +597,10 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   assert.deepEqual(thread('B2')[0], 'Landed in Todo, so the board started its prototype.');
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
   const arrivals = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.call === 'arrival-planner');
-  assert.deepEqual(arrivals.map((e) => [e.key, e.result, e.reason, e.inputs.state]).sort(), [
+  assert.deepEqual(arrivals.map((e) => [e.key, e.result, e.reason, e.inputs.phase]).sort(), [
     ['t/B2', 'prototype', 'It landed in Todo filed prototyping.', 'prototyping'],
     ['t/B3', 'grill', 'It landed in Todo, not filed prototyping.', 'grilling'],
-    ['t/B4', 'grill', 'It landed in Todo, not filed prototyping.', null],
+    ['t/B4', 'grill', 'It landed in Todo, not filed prototyping.', 'new'],
   ]);
   // B3's grill finishes with no questions: one grill per arrival, so it isn't grilled again.
   put(agentFile('B3'), JSON.stringify({ ...JSON.parse(fs.readFileSync(agentFile('B3'), 'utf8')), done: iso(now) }));

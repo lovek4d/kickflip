@@ -752,7 +752,7 @@ async function settlePushed(board, repo, branch, log) {
     if (tip) { try { await git(repo, 'merge-base', '--is-ancestor', tip, `refs/remotes/origin/${branch}`); merged = true; } catch {} }
     if (!merged && heads.has(card.branch)) continue;
     try {
-      await setItem(board.dir, card.key, { done: true, force: true, text: merged ? `${card.branch} is merged into ${branch} on ${host}, so this card is Done.`
+      await setItem(board.dir, card.key, { done: true, force: true, landed: merged, text: merged ? `${card.branch} is merged into ${branch} on ${host}, so this card is Done.`
         : `${card.branch} is gone from ${host}, so this card is Done.` });
     } catch (e) { log(`pushed ${card.key}: ${e.message}`); }
   }

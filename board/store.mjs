@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, handedBackAt, intakeKeyOf, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupPhases, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, INTAKE_AGENT, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PHASES, handedBackAt, intakeKeyOf, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupSteps, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, INTAKE_AGENT, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -1441,8 +1441,8 @@ export async function settleAnswers(site, answers) {
     if (a.choice === 'no') continue;
     const key = q.topic.slice(5);
     await followUp(site, key, 'moving it to prototyping', async () => {
-      if ((await loadItem(site, key)).item.state !== 'grilling') return;
-      await setItem(site, key, { state: 'prototyping' });
+      if ((await loadItem(site, key)).item.phase !== 'grilling') return;
+      await setItem(site, key, { phase: 'prototyping' });
       await appendThread(site, key, { text: 'You asked for a prototype round, so the board moved the card to prototyping.' });
       prototype.push(key);
     });
@@ -1620,8 +1620,8 @@ async function stageable(site, key) {
 // Stages the card, keeping the time of a stage it is already in, with a "Marked as staging" status line when it newly stages.
 async function stage(site, key) {
   const { source, wave, item } = await loadItem(site, key);
-  if (item.state === 'staging') return;
-  Object.assign(item, { state: 'staging', staged_at: new Date().toISOString() });
+  if (item.phase === 'staging') return;
+  Object.assign(item, { phase: 'staging', staged_at: new Date().toISOString() });
   delete item.unfiled;
   await writeJSON(source.file, wave);
   await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'staged', text: COMMANDS.staged });
@@ -1647,12 +1647,12 @@ export async function stageReply(site, key, message) {
   if (words) await appendNotes(site, key, `Reply (owner, ${noteStamp()}), verbatim`, words);
   await stage(site, key);
 }
-// The owner's Grill or Prototype tap (kind grill or prototype) on a ready or staging card takes it out of that state,
+// The owner's Grill or Prototype tap (kind grill or prototype) on a ready or staging card takes it out of that phase,
 // to grilling or prototyping; the tap launches the planner itself.
 export async function planAgain(site, key, kind) {
   const { source, wave, item } = await loadItem(site, key);
-  if (!['ready', 'staging'].includes(item.state) || leftTodo(item)) return;
-  item.state = kind === 'prototype' ? 'prototyping' : 'grilling';
+  if (!['ready', 'staging'].includes(item.phase) || leftTodo(item)) return;
+  item.phase = kind === 'prototype' ? 'prototyping' : 'grilling';
   delete item.staged_at;
   await writeJSON(source.file, wave);
 }
@@ -1660,8 +1660,8 @@ export async function planAgain(site, key, kind) {
 // the answer's Send stages it again.
 async function grillAgain(site, key) {
   const loaded = await loadItem(site, key).catch(() => null);
-  if (!loaded || !['ready', 'staging'].includes(loaded.item.state) || leftTodo(loaded.item)) return;
-  loaded.item.state = 'grilling';
+  if (!loaded || !['ready', 'staging'].includes(loaded.item.phase) || leftTodo(loaded.item)) return;
+  loaded.item.phase = 'grilling';
   delete loaded.item.staged_at;
   await writeJSON(loaded.source.file, loaded.wave);
   await appendThread(site, key, { text: 'A new question on it, so it is grilling until you answer.' });
@@ -1883,10 +1883,16 @@ async function checkAsk(site, eventId, name = '--from-ask') {
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // A card's stored lane (todo, progress, review, done), written only here, with lane_at; a move to Done writes closed_at
 // and a move out of it reopened_at, which the next move to Done clears. A move out of Todo ends a bump-out
-// (sendBackBumpedOut). → the lane it left, undefined for a card never placed.
-function placeIn(item, to, now = new Date().toISOString()) {
+// (sendBackBumpedOut).
+// docs/adr/2026-11-11-1200-every-lane-has-phases.md: the card's phase in the lane is written with it (setPhase), phase
+// when given, else what the move says: a card coming back to Todo from another lane is ready, as a build left it, one
+// staying in Todo keeps its phase, a build's start reads reading, a close merged when one of its PRs merged or it landed
+// (landed) and closed otherwise, and In Review's waits for the board's settle pass (domain.mjs movesOf). → the lane it
+// left, undefined for a card never placed.
+function placeIn(item, to, now = new Date().toISOString(), phase = movedPhase(item, to)) {
   if (!LANES[to]) throw new Error(`no lane "${to}"`);
   const from = item.lane;
+  setPhase(item, to, phase);
   item.lane = to;
   item.lane_at = now;
   if (to !== 'todo') delete item.bumped_out;
@@ -1894,13 +1900,30 @@ function placeIn(item, to, now = new Date().toISOString()) {
   else if (from === 'done') item.reopened_at = now;
   return from;
 }
-// Moves the card at key to lane `to`, with why as a move line in its thread, unless it is there already. A card's first
-// placement writes no line. → the line, or null.
-export async function moveCard(site, key, to, why) {
+function movedPhase(item, to, landed = false) {
+  if (to === 'todo') return leftTodo(item) ? 'ready' : item.phase ?? null;
+  if (to === 'progress') return 'reading';
+  if (to === 'done') return landed || storedPRs(item).some((p) => p.merged_at) ? 'merged' : 'closed';
+  return null;
+}
+// A card's phase in lane `to`, one of that lane's PHASES; null takes it off, which a new Todo card reads as new.
+function setPhase(item, to, phase) {
+  if (phase !== null && !PHASES[to].includes(phase)) throw new Error(`no ${LANES[to]} phase "${phase}"`);
+  if (phase === null) delete item.phase; else item.phase = phase;
+}
+// Moves the card at key to lane `to`, with why as a move line in its thread, and phase as its phase there, unless it is
+// there already. A card's first placement writes no line, and nor does a phase change within its lane. → the line, or
+// null.
+export async function moveCard(site, key, to, why, phase) {
   const { source, wave, item } = await loadItem(site, key);
-  if (item.lane === to) return null;
+  if (item.lane === to && (phase === undefined || (item.phase ?? null) === phase)) return null;
+  if (item.lane === to) {
+    setPhase(item, to, phase);
+    await writeJSON(source.file, wave);
+    return null;
+  }
   const now = new Date().toISOString();
-  const from = placeIn(item, to, now);
+  const from = placeIn(item, to, now, phase);
   await writeJSON(source.file, wave);
   if (from === undefined) return null;
   const line = { ts: now, who: 'claude', kind: MOVE, text: `Moved to ${LANES[to]}: ${text(why, 'why')}` };
@@ -1913,16 +1936,18 @@ const closed = (item) => item?.lane === 'done' || Boolean(item?.reopened_at);
 // Whether the card has left Todo: it is stored in another lane.
 const leftTodo = (item) => Boolean(item?.lane) && item.lane !== 'todo';
 export const isFinished = async (site, key) => closed((await loadItem(site, key)).item);
-// docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-07-0700-staging-then-ready.md:
-// a card's state. Staging is the board's alone, set on an owner action; --state takes the rest.
-const AGENT_STATES = ['ready', 'grilling', 'prototyping'];
-function checkState(state) {
-  if (state === 'staging') fail('--state staging is set by the board, on an owner action; pass ready, grilling or prototyping');
-  if (state !== undefined && !AGENT_STATES.includes(state)) fail('--state takes ready, grilling or prototyping');
+// docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-07-0700-staging-then-ready.md,
+// docs/adr/2026-11-11-1200-every-lane-has-phases.md: a Todo card's phase. Staging is the board's alone, set on an owner
+// action; --phase takes the rest. --state was its name before every lane had phases.
+const AGENT_PHASES = ['ready', 'grilling', 'prototyping'];
+function checkPhase(phase, state) {
+  if (state !== undefined) fail(`--state is now --phase: pass --phase ${AGENT_PHASES.includes(state) ? state : 'ready, grilling or prototyping'}`);
+  if (phase === 'staging') fail('--phase staging is set by the board, on an owner action; pass ready, grilling or prototyping');
+  if (phase !== undefined && !AGENT_PHASES.includes(phase)) fail('--phase takes ready, grilling or prototyping');
 }
 const NOT_STAGED = "a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
 // Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. It is
-// filed --from-ask --state staging, the one filing that stages a card, so the orchestrator judges it before it goes
+// filed --from-ask --phase staging, the one filing that stages a card, so the orchestrator judges it before it goes
 // ready (docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md).
 export async function quickAsk(site, eventId) {
   const events = await readLines(path.join(needSite(site), 'data', 'events.jsonl'));
@@ -1995,8 +2020,8 @@ async function checkNextDeps(site, key, item, next) {
 const NOTES_COMMAND = (key) => `item notes ${key} --heading "<heading>" --file <draft.md>`;
 function checkSizeAndNotes(key, item) {
   const starts = 'a builder starts from it, so pass';
-  if (!item.size) fail(`${key} has no size; ${starts} --size small or large with --state ready`);
-  if (!item.plan) fail(`${key} has no notes file; a builder starts from it, so add its notes with ${NOTES_COMMAND(key)} before --state ready`);
+  if (!item.size) fail(`${key} has no size; ${starts} --size small or large with --phase ready`);
+  if (!item.plan) fail(`${key} has no notes file; a builder starts from it, so add its notes with ${NOTES_COMMAND(key)} before --phase ready`);
 }
 async function checkNotesComplete(site, key, dir, item) {
   checkSizeAndNotes(key, item);
@@ -2087,12 +2112,12 @@ function markMerged(item, merged, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, done, merged, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, done, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   // A Quick build ask files --from-ask straight to staging (quickAsk, checked below once the ask is known).
-  if (state !== 'staging' || fromAsk === undefined) checkState(state);
+  if (state !== undefined || phase !== 'staging' || fromAsk === undefined) checkPhase(phase, state);
   if (force && !done) fail('--force goes with --done');
   if (fromAsk !== undefined && done) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) text(said, '--text');
@@ -2104,17 +2129,18 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, state, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --state, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
+  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   const quick = ask !== undefined && await quickAsk(site, ask);
-  if (state === 'staging' && !quick) checkState(state);
+  if (phase === 'staging' && !quick) checkPhase(phase);
   const { source, wave, item } = await loadItem(site, key);
-  if (state === 'ready' && quick && !['staging', 'ready'].includes(item.state)) fail(`${key} came from a Quick build ask: file it --state staging, and the orchestrator judges it before it goes ready`);
-  if (state === 'ready' && !['staging', 'ready'].includes(item.state)) fail(`${key} reads ${item.state || 'no state'}, not staging; ${NOT_STAGED}`);
+  if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo card's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
+  if (phase === 'ready' && quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} came from a Quick build ask: file it --phase staging, and the orchestrator judges it before it goes ready`);
+  if (phase === 'ready' && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-  if (ask && state === undefined && !item.state) fail('--from-ask files a card, which reads New until it has a state: pass --state grilling or prototyping, or staging for a Quick build ask');
+  if (ask && phase === undefined && !item.phase) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling or prototyping, or staging for a Quick build ask');
   const wasFinished = closed(item);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
@@ -2198,35 +2224,35 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   }
   if (ask) item.from_ask = ask;
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md: ready leaves the owner nothing to decide.
-  if (state === 'ready' && site) {
+  if (phase === 'ready' && site) {
     const open = (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id);
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
     await checkNotesComplete(site, key, source.dir, item);
   }
-  const readied = state === 'ready' && item.state !== 'ready';
-  if (state !== undefined) {
+  const readied = phase === 'ready' && item.phase !== 'ready';
+  if (phase !== undefined) {
     // docs/adr/2026-11-07-0700-staging-then-ready.md: sent back from staging or ready, the card gets its round from the board (domain.mjs roundsDue).
-    if (state !== 'ready' && ['staging', 'ready'].includes(item.state)) item.round_at = new Date().toISOString();
-    item.state = state;
-    if (state === 'staging') item.staged_at = new Date().toISOString(); else delete item.staged_at;
+    if (phase !== 'ready' && ['staging', 'ready'].includes(item.phase)) item.round_at = new Date().toISOString();
+    item.phase = phase;
+    if (phase === 'staging') item.staged_at = new Date().toISOString(); else delete item.staged_at;
     delete item.unfiled;
   }
-  // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the state the card is in.
-  if (item.state === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the state it is already in; pass --next with what happens next, or --clear-next`);
+  // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the phase the card is in.
+  if (item.phase === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the phase it is already in; pass --next with what happens next, or --clear-next`);
   if (built) item.install = built;
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: a build's start goes with its record.
   if (!owedBefore && !start && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
   // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a block on a card In Progress sends
   // it back to Todo. stopRun, item set's, stops its board-launched build first and refuses a session's; the worktree and
-  // branch stay on its records, and its state stays, so the pull starts it again once nothing blocks it.
+  // branch stay on its records, and it reads ready in Todo, so the pull starts it again once nothing blocks it.
   const blocked = (deps !== undefined || blockedUntil) && !done && inProgress(item, records) ? await blockWords(site, key, item) : '';
   const stops = blocked && records.some((r) => r?.started && !r.done && builds(r)) ? await stopRun() : [];
   // The moves this write makes (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a close
   // and a block write their own lines, the rest a move line.
   const repo = boardRepoOf(site, wave);
   let moveLine = null;
-  const moveTo = (to, why) => { if (item.lane !== to && placeIn(item, to) !== undefined && why) moveLine = `Moved to ${LANES[to]}: ${why}`; };
+  const moveTo = (to, why) => { if (item.lane !== to && placeIn(item, to, undefined, movedPhase(item, to, landed)) !== undefined && why) moveLine = `Moved to ${LANES[to]}: ${why}`; };
   if (done) moveTo('done', null);
   else if (blocked) moveTo('todo', null);
   else if (handover && item.lane !== 'done') {
@@ -2245,7 +2271,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   const resolved = [...stops, ...await resolve()];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   // Ready checked that the notes name every answered question, so it resolves them as item notes does.
-  if (state === 'ready' && site) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
+  if (phase === 'ready' && site) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (start) resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
   if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who, by, command })).lines);
@@ -2644,14 +2670,14 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // → {file, key}. A new card starts in Todo, placed as it is made. key is <wave>/<id>, or <wave>
 // alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
 // (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
-// docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: state files the card at once, with
-// relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, state
+// docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: phase files the card at once, with
+// relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
 // is required, so no card an agent adds reads New; once filed it arrives in Todo and gets its grill
 // (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is held or ready.
-async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, held, parent, size, model, state, relate, fromAsk, text: said, intake = false }, options) {
+async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, held, parent, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
-  if (state !== 'staging' || fromAsk === undefined) checkState(state);
+  if (state !== undefined || phase !== 'staging' || fromAsk === undefined) checkPhase(phase, state);
   if (said !== undefined) text(said, '--text');
   if (said !== undefined && fromAsk === undefined) fail('--text goes with --from-ask');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
@@ -2660,11 +2686,11 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   if (ask) await refuseMoved(site, ask);
   // Intake triage files a Quick build ask in staging, as item set --from-ask does, for the orchestrator to judge
   // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
-  if (state === 'staging' && !await quickAsk(site, ask)) checkState(state);
-  if (ask && state === undefined) fail('--from-ask files a card, which reads New until it has a state: pass --state grilling, prototyping, or ready for a Quick build ask');
-  if (state === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it grilling or prototyping` : 'item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
-  if (state === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --state ready`);
-  if (intake && site && state === undefined) fail('item add files a card on a board: pass --state grilling or prototyping');
+  if (phase === 'staging' && !await quickAsk(site, ask)) checkPhase(phase);
+  if (ask && phase === undefined) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask');
+  if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it grilling or prototyping` : 'item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
+  if (phase === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --phase ready`);
+  if (intake && site && phase === undefined) fail('item add files a card on a board: pass --phase grilling or prototyping');
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
@@ -2682,8 +2708,8 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   if (hold) setHold(item, hold);
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (ask) item.from_ask = ask;
-  if (state !== undefined) item.state = state;
-  if (state === 'staging') item.staged_at = created;
+  if (phase !== undefined) item.phase = phase;
+  if (phase === 'staging') item.staged_at = created;
   await assignTicket(site, key, wave, item, ticket, options, source.dir, body);
   if (id === undefined) {
     item.id = cardIdOf(item.ticket);
@@ -2824,6 +2850,45 @@ export const migrateStatuses = (site) => ticketWrite(site, async () => {
   return lines;
 });
 
+// docs/adr/2026-11-11-1200-every-lane-has-phases.md
+// A card's Todo `state` becomes its `phase`, and a Done card with none takes how it closed: merged when one of its PRs
+// merged, or with no PRs when a build ran on it, which landed it; closed otherwise. → whether it changed.
+function stateToPhase(item, built) {
+  const doneWithout = item.lane === 'done' && !PHASES.done.includes(item.phase);
+  if (!('state' in item) && !doneWithout) return false;
+  if ('state' in item && item.state !== undefined) item.phase = item.state;
+  delete item.state;
+  if (doneWithout) {
+    const prs = storedPRs(item);
+    item.phase = prs.some((p) => p.merged_at) || (!prs.length && built) ? 'merged' : 'closed';
+  }
+  return true;
+}
+// stateToPhase over every card of a site's wave files and its archive, before the board server's other start-up
+// passes. → one line per file changed.
+export const migratePhases = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  const sources = await itemSources(site);
+  const built = async (dir, it) => Boolean(dir) && it.lane === 'done' && (await Promise.all((await builderFiles(dir, it.id)).map((f) => readJSON(f, null)))).some((r) => r?.started && builds(r));
+  for (const entry of sources) {
+    const wave = await readJSON(entry.file, null);
+    let changed = 0;
+    for (const it of Array.isArray(wave?.items) ? wave.items : []) if (stateToPhase(it, await built(entry.dir, it))) changed++;
+    if (!changed) continue;
+    await writeJSON(entry.file, wave);
+    lines.push(`${entry.slug}: ${changed} cards' states became phases`);
+  }
+  await archiveWrite(site, async () => {
+    const cards = await readArchive(site);
+    let changed = 0;
+    for (const c of cards) if (c.item && stateToPhase(c.item, await built(sources.find((e) => e.slug === (c.wave || parseKey(c.key).wave))?.dir, c.item))) changed++;
+    if (!changed) return;
+    await writeArchive(site, cards);
+    lines.push(`archive: ${changed} cards' states became phases`);
+  });
+  return lines;
+});
+
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 // An Implement message's wait from before staging, implement_at, becomes staging, keeping its time as staged_at; a card
 // already ready, which the old release would have started, stays ready. Run by the board server as it starts. → one
@@ -2835,7 +2900,7 @@ export const stageImplementAsks = (site) => ticketWrite(site, async () => {
     const asked = (Array.isArray(wave?.items) ? wave.items : []).filter((it) => it.implement_at);
     if (!asked.length) continue;
     for (const it of asked) {
-      if (it.state !== 'ready') Object.assign(it, { state: 'staging', staged_at: it.implement_at });
+      if (it.phase !== 'ready') Object.assign(it, { phase: 'staging', staged_at: it.implement_at });
       delete it.implement_at;
     }
     await writeJSON(entry.file, wave);
@@ -2971,8 +3036,9 @@ export const stripDeadFields = (site) => archiveWrite(site, async () => {
 
 // A lineup is what the owner calls a wave: a named set of one wave file's cards in build order, kept in that file's
 // `lineups` (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md). Its note is lineup-<slug>.md beside
-// the file. Its cards are in phases, and each card is blocked by every card of the phase before
-// (docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md); every write keeps them as `phases`, in place of a chain's `items`.
+// the file. Its cards are in wave steps, and each card is blocked by every card of the step before
+// (docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md, which called them phases); every write keeps them as `phases`,
+// in place of a chain's `items`.
 export const lineupNoteFile = (slug) => `lineup-${slug}.md`;
 const lineupSlug = (v) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`a wave's slug uses only a-z, 0-9 and "-", not "${v}"`));
 
@@ -2998,20 +3064,21 @@ function lineupCards(source, wave, keys, slug) {
     const { wave: from, id } = parseKey(key);
     if (from !== source.slug) fail(`${key} is not in wave file "${source.slug}"; a wave's cards share one file`);
     if (!wave.items.some((it) => it.id === id)) fail(`wave "${from}" has no item "${id}"`);
-    const other = (wave.lineups || []).find((l) => l.slug !== slug && !l.finished_at && lineupPhases(l).flat().includes(id));
+    const other = (wave.lineups || []).find((l) => l.slug !== slug && !l.finished_at && lineupSteps(l).flat().includes(id));
     if (other) fail(`${key} is already in the wave "${other.slug}"; lineup remove ${other.slug} ${key} first`);
     return id;
   });
 }
 
-// Each --phase value, "<wave>/<id>,…", as its keys. → [[key, …], …]
-function phaseKeys(values) {
-  const phases = [values ?? []].flat().map((v) => String(v).split(',').map((k) => k.trim()).filter(Boolean));
-  if (!phases.length || phases.some((p) => !p.length)) fail('--phase takes one phase\'s cards, as <wave>/<id>,<wave>/<id>, once per phase in build order');
-  return phases;
+// Each --step value, "<wave>/<id>,…", as its keys; --phase was its name before every lane had phases. → [[key, …], …]
+function stepKeys(values, phase) {
+  if (phase !== undefined) fail("--phase is now --step: pass one --step per wave step, as <wave>/<id>,<wave>/<id>, in build order");
+  const steps = [values ?? []].flat().map((v) => String(v).split(',').map((k) => k.trim()).filter(Boolean));
+  if (!steps.length || steps.some((p) => !p.length)) fail('--step takes one step\'s cards, as <wave>/<id>,<wave>/<id>, once per step in build order');
+  return steps;
 }
 
-// Each card in members drops its blocked-by links to the others, then each card is blocked by every card of the phase
+// Each card in members drops its blocked-by links to the others, then each card is blocked by every card of the step
 // before its own.
 function chain(source, wave, members, phases) {
   const inLineup = new Set(members.map((id) => `${source.slug}/${id}`));
@@ -3031,12 +3098,12 @@ async function writeLineup(site, source, wave, lineup, note) {
   return { file: source.file, lines: [`order: ${orderLine(wave, lineup.phases, tickets)}`] };
 }
 
-// A wave's phases by card label: one phase's cards by commas, the phases by arrows.
+// A wave's steps by card label: one step's cards by commas, the steps by arrows.
 const orderLine = (wave, phases, tickets) => phases.map((p) => p.map((id) => refOf(wave, wave.items.find((it) => it.id === id) || { id }, tickets)).join(', ')).join(' → ');
 
-export async function createLineup(site, slug, { title, goal, phases, note }) {
+export async function createLineup(site, slug, { title, goal, steps, phase, note }) {
   lineupSlug(slug);
-  const keys = phaseKeys(phases);
+  const keys = stepKeys(steps, phase);
   if (note === undefined) fail('lineup create needs the wave note, as --note <text> or --file <path>');
   const sources = await itemSources(site);
   if (sources.some((s) => s.slug === slug)) fail(`"${slug}" is a wave file on this board; pick another slug`);
@@ -3044,22 +3111,23 @@ export async function createLineup(site, slug, { title, goal, phases, note }) {
   const source = sources.find((s) => s.slug === parseKey(keys[0][0]).wave) || fail(`this board has no wave "${parseKey(keys[0][0]).wave}"`);
   const { wave } = await loadWave(site, source.slug);
   const ids = keys.map((p) => lineupCards(source, wave, p, slug));
-  if (new Set(ids.flat()).size !== ids.flat().length) fail('--phase names a card twice');
+  if (new Set(ids.flat()).size !== ids.flat().length) fail('--step names a card twice');
   const lineup = { slug, title: text(title, '--title'), goal: text(goal, '--goal'), phases: ids, created: new Date().toISOString() };
   chain(source, wave, ids.flat(), ids);
   wave.lineups = [...(wave.lineups || []), lineup];
   return writeLineup(site, source, wave, lineup, note);
 }
 
-// Adds a card as a phase of its own after --after's phase (default last), removes one (an emptied phase goes) or puts
-// every card in new phases (a band's ⋯ move, domain.mjs lineupMoved), then links the phases again; also renames, sets
+// Adds a card as a step of its own after --after's step (default last), removes one (an emptied step goes) or puts
+// every card in new steps (a band's ⋯ move, domain.mjs lineupMoved), then links the steps again; also renames, sets
 // the goal or rewrites the note.
-export async function changeLineup(site, slug, { add, after, remove, phases, title, goal, note }) {
-  if ([add, remove, phases, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass --add, --remove, --phase, --title, --goal, --note or --file');
+export async function changeLineup(site, slug, { add, after, remove, steps, phase, title, goal, note }) {
+  if (phase !== undefined) stepKeys(undefined, phase);
+  if ([add, remove, steps, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass --add, --remove, --step, --title, --goal, --note or --file');
   if (after !== undefined && add === undefined) fail('--after goes with --add');
   const { source, wave, lineup } = await findLineup(site, slug);
   if (lineup.finished_at) fail(`the wave "${slug}" is finished`);
-  lineup.phases = lineupPhases(lineup);
+  lineup.phases = lineupSteps(lineup);
   delete lineup.items;
   const before = lineup.phases.flat();
   if (add !== undefined) {
@@ -3075,10 +3143,10 @@ export async function changeLineup(site, slug, { add, after, remove, phases, tit
     if (before.length === 1) fail(`${remove} is the wave's last card; lineup finish ${slug} ends the wave`);
     lineup.phases = lineup.phases.map((p) => p.filter((x) => x !== id)).filter((p) => p.length);
   }
-  if (phases !== undefined) {
-    const ids = phaseKeys(phases).map((p) => lineupCards(source, wave, p, slug));
+  if (steps !== undefined) {
+    const ids = stepKeys(steps).map((p) => lineupCards(source, wave, p, slug));
     const flat = ids.flat();
-    if (flat.length !== before.length || new Set(flat).size !== flat.length || flat.some((id) => !before.includes(id))) fail("--phase lists each of the wave's cards once");
+    if (flat.length !== before.length || new Set(flat).size !== flat.length || flat.some((id) => !before.includes(id))) fail("--step lists each of the wave's cards once");
     lineup.phases = ids;
   }
   if (title !== undefined) lineup.title = text(title, '--title');
@@ -3099,7 +3167,7 @@ export async function finishLineup(site, slug) {
 export async function readLineupNotes(site, slug, tickets) {
   const { source, wave, lineup } = await findLineup(site, slug);
   const note = await fs.readFile(path.join(source.dir, lineupNoteFile(slug)), 'utf8').catch(() => '');
-  return { title: lineup.title, markdown: `**Goal** ${lineup.goal}\n\n**Order** ${orderLine(wave, lineupPhases(lineup), tickets)}\n\n${note}` };
+  return { title: lineup.title, markdown: `**Goal** ${lineup.goal}\n\n**Order** ${orderLine(wave, lineupSteps(lineup), tickets)}\n\n${note}` };
 }
 
 // One record per agent on an item: agents/<id>.json for agent main, agents/<id>@<agent>.json for any other
@@ -3115,15 +3183,16 @@ async function builderFile(site, key, dir, agent = 'main') {
 const isoTime = (v, name) => (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v) && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : fail(`${name} takes an ISO time such as 2026-10-23T16:30:00-07:00`));
 
 // A progress line is a phase and a detail of at most DETAIL_CAP characters; a longer one is refused, never cut
-// (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md).
-const PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
+// (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md). The phases are In Progress's
+// (domain.mjs PHASES).
+const BUILD_PHASES = PHASES.progress;
 const DETAIL_CAP = 80;
 const PHASE_LIST = 'reading, building, testing, checking or landing';
 // A planner's line takes no phase: it reads its kind's word, and a --phase passed for one is dropped
 // (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
 function progressLine(site, phase, detail, name) {
   if (!site) fail(`${name} needs --site, since the line goes to the item's thread`);
-  if (phase !== undefined && !PHASES.includes(phase)) fail(`--phase takes ${PHASE_LIST}, not "${phase}"`);
+  if (phase !== undefined && !BUILD_PHASES.includes(phase)) fail(`--phase takes ${PHASE_LIST}, not "${phase}"`);
   const words = text(detail, name);
   if (words.length > DETAIL_CAP) fail(`${name} is ${words.length} characters; the cap is ${DETAIL_CAP}. Say it shorter.`);
   return { phase, detail: words };
@@ -3378,8 +3447,7 @@ async function bumpBlocked(site, key, blockers) {
 export async function sendBackBumpedOut(site, key, by) {
   const { source, wave, item } = await loadItem(site, key);
   const now = new Date().toISOString();
-  placeIn(item, 'todo', now);
-  item.state = 'ready';
+  placeIn(item, 'todo', now, 'ready');
   delete item.staged_at;
   item.bumped_out = { by, at: now };
   await writeJSON(source.file, wave);

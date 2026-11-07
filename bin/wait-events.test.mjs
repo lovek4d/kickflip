@@ -57,7 +57,7 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   assert.deepEqual([out.code, out.stderr], [0, '']);
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread$/m);
   // docs/adr/2026-11-07-0700-staging-then-ready.md
-  assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: it is staging, the message in its notes; judge it, then item set --state ready, or --state grilling or prototyping$/m);
+  assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: it is staging, the message in its notes; judge it, then item set --phase ready, or --phase grilling or prototyping$/m);
   // A builder's ask wakes the session while usage is paused: the builder is mid-build.
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"builder-ask".*\nask1 from A1's builder: Stay orange\?$/m);
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"orchestrator-waits".*\nwaiting on you now: w\/A3 · still waiting on you: A1 calls for 2h: Verify the builder's judgment calls$/m);

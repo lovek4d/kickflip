@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-progress-bar.js.
 (function () {
-  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, LINK_ARROW, progressBar } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
@@ -172,23 +172,15 @@
   // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
   // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
-  const BUILD_PHASES = ['reading', 'building', 'testing', 'checking', 'landing'];
+  const BUILD_PHASES = PHASES.progress;
   const stepWords = (phase) => `step ${BUILD_PHASES.indexOf(phase) + 1} of ${BUILD_PHASES.length}`;
   const ALL_DONE = `all ${BUILD_PHASES.length} steps done`;
-  // A card's progress bar (ui-progress-bar.js), or null off In Progress and on a card only a planner works on: how many
-  // phases it reached, which of them is running, whether it dims because the card waits on something other than a builder (its
-  // questions, a blocker or queue, a reopening) or its build is stale, and its label. An install is no build: its card keeps the phase its
-  // build reached, undimmed
-  // (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md).
-  // A Todo card a grill or prototype runs on draws the planner's dashes instead, in Todo's grey, the grill's first and the
-  // prototype's second running (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md,
-  // docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md).
+  // A card's progress bar (ui-progress-bar.js), In Progress's phase, or null off In Progress and on a card only a planner
+  // works on: how many phases it reached, which of them is running, whether it dims because the card waits on something
+  // other than a builder (its questions, a blocker or queue, a reopening) or its build is stale, and its label. An install
+  // is no build: its card keeps the phase its build reached, undimmed
+  // (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md, docs/adr/2026-11-11-1200-every-lane-has-phases.md).
   function phaseStrip(it) {
-    if (it.lane === 'todo' && it.builder?.planner) {
-      const prototype = it.builder.kind === 'prototype';
-      const done = prototype ? 2 : 1;
-      return { count: BUILD_PHASES.length, done, now: done - 1, tone: 'in-todo', label: prototype ? 'Prototyping' : 'Grilling' };
-    }
     if (it.lane !== 'progress' || it.builder?.planner) return null;
     const all = BUILD_PHASES.length;
     // Orchestrator review is the checking phase, before landing (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
@@ -245,7 +237,7 @@
     if (it.waitsOn === 'checking') return 'Orchestrator review';
     if (it.lane === 'done') return 'done';
     if (it.grilling || it.prototyping) return 'preheating';
-    if (it.lane === 'todo') return it.staging ? 'staging' : it.ready ? 'ready' : 'to do';
+    if (it.lane === 'todo') return it.phase && (it.ready || it.phase !== 'ready') ? PHASE_LOOK[it.phase][0] : 'to do';
     if (it.lane === 'progress') return it.reachedPhase ? `stopped at ${it.reachedPhase}` : 'in progress';
     return 'in review';
   }
@@ -267,21 +259,36 @@
       : `Held until ${d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' })}, ${clock(d)}. ${it.lane === 'todo' ? 'It starts on its own then, once nothing else blocks it.' : 'Claude picks it up again then.'}`;
     return `<span class="card-hold" title="${esc(title)}">${esc(d ? `held until ${heldUntilWords(it.heldUntil)}` : 'held')}</span>`;
   }
+  // docs/adr/2026-11-11-1200-every-lane-has-phases.md
+  // A Todo, In Review or Done card's phase as a word, toned by who acts next: grey while a machine waits, blue while
+  // Claude works, orange while it waits on the owner, green once it can go and purple once merged. In Progress shows its
+  // phase only as its progress bar, and a card In Review for an owner wait other than the merge has none. Ready reads
+  // only on a card that can start (domain.mjs ready), so a blocked one shows what blocks it instead.
+  const PHASE_LOOK = {
+    new: ['new', 'quiet'], grilling: ['grilling', 'info'], prototyping: ['prototyping', 'info'], staging: ['staging', 'notice'], ready: ['ready', 'success'],
+    draft: ['draft', 'quiet'], reviewers: ['pending review', 'notice'], merge: ['pending merge', 'notice'], stale: ['stale', 'quiet'],
+    merged: ['merged', 'merged'], closed: ['closed', 'quiet'],
+  };
+  function phaseWord(it) {
+    if (it.kind !== 'work' || it.lane === 'progress' || !it.phase || (it.phase === 'ready' && !it.ready)) return '';
+    const [word, tone] = PHASE_LOOK[it.phase];
+    return `<span class="card-phase ph-${tone}">${word}</span>`;
+  }
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed,
-  // staging in orange or ready in green (docs/adr/2026-11-07-0700-staging-then-ready.md), bumped out by the card whose
-  // bump took its slot, or held while host recovers on a bumped ready card a busy host holds, both grey
-  // (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), stalled in red or stale in grey
-  // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
+  // bumped out by the card whose bump took its slot, or held while host recovers on a bumped ready card a busy host holds,
+  // both grey (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), stalled in red or a build's stale
+  // in grey (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md), a stale review reading it
+  // once, as its phase, then the phase word (phaseWord), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
   // takes away when the card opens (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
   const newWords = (n, word) => n && `${n} new ${word}${n === 1 ? '' : 's'}`;
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
-    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it), it.staging && '<span class="card-staging">staging</span>', it.ready && '<span class="card-ready">ready</span>',
+    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it),
       it.bumpedOut && `<a class="card-bumped-out" href="#item=${encodeURIComponent(it.bumpedOut.key)}">bumped out by ${esc(it.bumpedOut.ref)}</a>`,
       it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
-      it.stalled ? '<span class="card-stalled">stalled</span>' : it.stale && '<span class="card-stale">stale</span>'].filter(Boolean);
+      it.stalled ? '<span class="card-stalled">stalled</span>' : it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', phaseWord(it)].filter(Boolean);
     const news = newWords(unread, 'message');
     const count = news ? `<span class="card-unread">${parts.length || bars ? SEP : ''}${news}</span>` : '';
     const tail = bars ? `${parts.length ? SEP : ''}${bars}` : '';

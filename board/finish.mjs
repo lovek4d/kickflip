@@ -65,7 +65,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
     await store.appendThread(site, key, { text });
     return { said: 'verified; waits for your Merge', lines: set.lines };
   }
-  const closed = await store.setItem(site, key, { done: true, text, ownerStep, check });
+  const closed = await store.setItem(site, key, { done: true, landed: true, text, ownerStep, check });
   return {
     said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
     lines: [...closed.lines, ...await pushBase(site, key, repo, base)],

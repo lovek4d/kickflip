@@ -51,3 +51,5 @@ This amends:
 - [a card whose code landed stays in In Review while an owner step remains](2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md): the card is stored in Done and shown in In Review;
 - [kickflip reaches Linear](2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md): a ticket follows the card's moves, and a close moves it to Done whatever the reason;
 - [no waiting status](2026-11-07-0300-no-waiting-status-no-watchers-md-no-checked-command.md): there are no statuses left.
+
+Amended by [every lane has phases](2026-11-11-1200-every-lane-has-phases.md): Todo's `state` is now its `phase`, and every lane stores one.

@@ -5,7 +5,7 @@ import { site, lines, board } from './board-fixture.mjs';
 // docs/adr/2026-11-06-1130-linking-two-cards-posts-a-keyed-line-in-both-threads.md
 const thread = (id) => lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)).map(({ ts, ...m }) => m);
 const set = (id, ...args) => assert.equal(board('item', 'set', `audit/${id}`, '--site', 'audit', ...args).code, 0, args.join(' '));
-const add = (id, ...args) => assert.equal(board('item', 'add', `audit/${id}`, '--site', 'audit', '--title', id, '--state', 'grilling', ...args).code, 0, args.join(' '));
+const add = (id, ...args) => assert.equal(board('item', 'add', `audit/${id}`, '--site', 'audit', '--title', id, '--phase', 'grilling', ...args).code, 0, args.join(' '));
 const line = (command, card) => ({ who: 'claude', text: { related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of' }[command], command, card });
 
 test('a new link posts a keyed line naming the other card in both threads, once; an unlink posts an Unrelated line in both', () => {

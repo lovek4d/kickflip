@@ -4,7 +4,7 @@ import { pullOf, triageWaitOf } from './domain.mjs';
 
 // docs/adr/2026-11-06-1634-an-unanswered-triage-holds-only-its-cards-until-quiet-hours-end.md
 test('the pull skips the cards a triage holds and takes the next ready one', () => {
-  const items = [1, 2].map((n) => ({ key: `w/R${n}`, kind: 'work', lane: 'todo', ready: true, buildable: true, state: 'ready', agents: [] }));
+  const items = [1, 2].map((n) => ({ key: `w/R${n}`, kind: 'work', lane: 'todo', ready: true, buildable: true, phase: 'ready', agents: [] }));
   assert.deepEqual(pullOf(items, { cap: 1 }).pulls, ['w/R1']);
   assert.deepEqual(pullOf(items, { cap: 1, hold: ['w/R1'] }).pulls, ['w/R2']);
 });

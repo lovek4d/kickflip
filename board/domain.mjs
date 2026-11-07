@@ -24,7 +24,7 @@ import { buildScriptOf } from './build-script.mjs';
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
 const enums = vm.createContext({});
 for (const file of ['ui-enums.js', 'ui-order.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), enums);
-export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE } = enums.BoardUI;
+export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES } = enums.BoardUI;
 const { laneOrder } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'visual-request', 'reask-request'];
@@ -276,7 +276,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
     // docs/adr/2026-11-07-0700-staging-then-ready.md: when the card was staged, and when it was last sent back for a round.
-    stagedAt: lane === 'todo' && it.state === 'staging' ? it.staged_at || null : null, roundAt: it.round_at || null,
+    stagedAt: lane === 'todo' && it.phase === 'staging' ? it.staged_at || null : null, roundAt: it.round_at || null,
     deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     // A card the pull bumped out for a bump past the cap, back in Todo until it starts again (store.mjs sendBackBumpedOut);
     // buildBoard names the card that bumped it out.
@@ -302,7 +302,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr || prs[least]?.kept, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: planningOf('grill', events, agents, askedAt), prototyping: planningOf('prototype', events, agents, askedAt),
-    state: it.state || null,
+    storedPhase: it.phase || null, phase: null,
     updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
     waitFacts: waitFactsOf(it, { agents, thread, events, refusedAt: refusal ? newest.ts : null }),
@@ -953,7 +953,7 @@ export const stateEntries = (m) => (m.answers || [m]).filter((a) => a.eventId).m
 // then on a board over ~/.claude/waves each unfinished wave file. A lineup is open until finished_at or until all its
 // cards are Done. A band's keys are its cards, a lineup's in build order and a wave file's in lane order; next is a
 // lineup's first ready Todo card, else its first Todo card with a word for why not, and a lineup's phases are its keys by
-// phase (lineupPhases), for its step numbers; a wave file's are null. A band's kind is
+// wave step (lineupSteps), for its step numbers; a wave file's are null. A band's kind is
 // lineup or wave (a wave file). Triage runs from the newest wave-triage {<kind>: <slug>} event until that event's
 // reply, and its questions use topic <kind>:<slug>. Each lineup card gets `lineup` {slug, title}, an open lineup's over a
 // finished one's, which arch-review.mjs archOf counts a review's wave by.
@@ -986,7 +986,7 @@ function nextOf(cards) {
   if (!it) return null;
   const ready = it.ready && it.buildable;
   const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `waits on ${it.blockedBy.map((d) => d.ref).join(', ')}` : it.blockedUntil ? `blocked until ${it.blockedUntil}`
-    : it.action ? 'needs you' : it.state || 'not ready';
+    : it.action ? 'needs you' : it.phase === 'new' ? 'not ready' : it.phase;
   return { key: it.key, ref: it.ref, ready, word };
 }
 
@@ -1011,9 +1011,10 @@ export function lineupMoved(built, slug, key, by) {
 }
 
 // docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
-// A lineup's cards by phase, [[id, …], …] in build order: each card is blocked by every card of the phase before, and
-// one phase's cards build side by side. A lineup made before phases has items [id, …] instead, one card per phase.
-export const lineupPhases = (lineup) => lineup.phases || lineup.items.map((id) => [id]);
+// A lineup's cards by wave step (its stored `phases`), [[id, …], …] in build order: each card is blocked by every card
+// of the step before, and one step's cards build side by side. A lineup made before steps has items [id, …] instead,
+// one card per step.
+export const lineupSteps = (lineup) => lineup.phases || lineup.items.map((id) => [id]);
 
 // snapshot: {waves: [{slug, wave, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
@@ -1156,7 +1157,7 @@ export function buildBoard(snapshot) {
   for (const i of items) i.lineup = null;
   const declared = new Set((owner.topics || []).map((t) => t.id));
   const lineups = snapshot.waves.flatMap(({ slug, wave }) => (wave.lineups || []).map((l) => {
-    const phases = lineupPhases(l).map((p) => p.map((id) => `${slug}/${id}`));
+    const phases = lineupSteps(l).map((p) => p.map((id) => `${slug}/${id}`));
     return { ...l, phases, keys: phases.flat() };
   }));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
@@ -1191,17 +1192,17 @@ export function buildBoard(snapshot) {
     placeOwnerWait(it, questionById, autoMerge);
     if (it.lane === 'todo' && it.kind === 'work' && !it.held && started(it.storedLane, it.agents)) it.lane = 'progress';
     it.unpicked = it.kind === 'work' && it.lane === 'todo' && Boolean(noTakePicked(questions, it.key));
-    if (it.unpicked) it.state = 'prototyping';
+    if (it.kind === 'work') it.phase = phaseOf(it);
     if (it.unpicked && !it.action) it.next = PROTOTYPE_AGAIN;
     it.buildable = buildableOf(it);
     // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md: an unstarted card from an ask, or one an agent
     // added (docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md), is unsorted until its session
-    // sets its state (shown as its ticket, never New), and ready once Ready with nothing blocking it or waiting on the owner.
+    // sets its phase (shown as its ticket, never New), and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
-    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !it.state;
-    it.ready = unstarted && it.state === 'ready' && !it.blocked && !it.action;
+    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && it.phase === 'new';
+    it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.action;
     // docs/adr/2026-11-07-0700-staging-then-ready.md
-    it.staging = unstarted && it.state === 'staging';
+    it.staging = unstarted && it.phase === 'staging';
     // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped-out card reads so until it
     // starts again, and a bumped ready card a busy host holds reads held.
     if (it.kind === 'work') {
@@ -1402,7 +1403,7 @@ export function needsAnswer(b) {
 // A card ready to build: an unstarted work card that isn't held, with state ready and nothing blocking it. Ready says
 // the rest: it comes only from staging, and a question, a Grill or Prototype tap, or a Reply takes a card out of it
 // (docs/adr/2026-11-07-0700-staging-then-ready.md).
-const pullableCard = (i) => i.buildable && i.state === 'ready' && !i.held && !i.blocked;
+const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.held && !i.blocked;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum parallel implementers when board.json sets none.
@@ -1489,7 +1490,7 @@ export const MAX_PLANNERS = 3;
 export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
-  const arrived = open.filter((i) => i.buildable && !['ready', 'staging'].includes(i.state) && !i.unsorted && !i.blocked && !i.held && !i.working && !i.grilling && !i.prototyping
+  const arrived = open.filter((i) => i.buildable && !['ready', 'staging'].includes(i.phase) && !i.unsorted && !i.blocked && !i.held && !i.working && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL));
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped arrival gets its grill past the cap.
   const bumped = arrived.filter((i) => i.bumpedAt);
@@ -1501,9 +1502,9 @@ export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
 // planner has started since, and none runs. The board launches each, so the orchestrator never starts a planner.
 // → [{key, kind}], kind grill or prototype.
 export function roundsDue(items) {
-  return items.filter((i) => i.kind === 'work' && i.lane === 'todo' && i.roundAt && ['grilling', 'prototyping'].includes(i.state)
+  return items.filter((i) => i.kind === 'work' && i.lane === 'todo' && i.roundAt && ['grilling', 'prototyping'].includes(i.phase)
     && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL && a.started && (String(a.started) >= String(i.roundAt) || !a.done)))
-    .map((i) => ({ key: i.key, kind: i.state === 'grilling' ? 'grill' : 'prototype' }));
+    .map((i) => ({ key: i.key, kind: i.phase === 'grilling' ? 'grill' : 'prototype' }));
 }
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
@@ -1605,7 +1606,7 @@ export const DONE_KEPT = 100;
 // The fields of a Done card the page draws: the Done lane's card and its open detail (ui-cards.js workLines,
 // app-cards.js), the wave bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes, Questions and
 // Prototypes buttons, and ui-snapshot.js updateSign. No page file reads `agents`, and the rest are set on a Done card only to be sent.
-export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'wave', 'waveTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
+export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'wave', 'waveTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
   'review', 'reviewers', 'risky', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));
@@ -1621,17 +1622,41 @@ export function archivedOf(built, keep = DONE_KEPT) {
     .slice(keep).filter((i) => i.storedLane === 'done' && !i.reopened && !banded.has(i.key) && !linked.has(i.key) && (!i.questions || i.questions.state === 'resolved'));
 }
 
+// docs/adr/2026-11-11-1200-every-lane-has-phases.md
+// A work card's phase in the lane the board shows it in (PHASES). Todo's is the stored one, new until set; a card whose
+// prototype answer picked no take prototypes again, and one stored in another lane reads ready, as its move back writes.
+// In Progress's is the step its build reached, the orchestrator's check being checking. In Review's is stale past seven
+// days, else what the review waits on: the draft, the reviewers, or the merge, a pushed branch's included; a card there
+// for another owner wait has none. Done's is how it closed, merged or closed, which a card not yet moved there reads from
+// its PRs.
+const REVIEW_PHASE = { ready: 'draft', ci: 'draft', reviewers: 'reviewers', merge: 'merge' };
+function phaseOf(it) {
+  if (it.lane === 'todo') {
+    if (it.unpicked) return 'prototyping';
+    if (PHASES.todo.includes(it.storedPhase)) return it.storedPhase;
+    return it.storedLane && it.storedLane !== 'todo' ? 'ready' : 'new';
+  }
+  if (it.lane === 'progress') return it.waitsOn === 'checking' ? 'checking' : (it.builder && !it.builder.planner && it.builder.kind !== BUILDER_KIND.install && it.builder.phase) || it.reachedPhase || 'reading';
+  if (it.lane === 'review') return it.stale ? 'stale' : it.waitsOn === 'owner' && it.pushed ? 'merge' : REVIEW_PHASE[it.waitsOn] ?? null;
+  if (it.storedLane === 'done' && PHASES.done.includes(it.storedPhase)) return it.storedPhase;
+  return it.prs.some((p) => p.status === PR_STATE.merged) ? 'merged' : 'closed';
+}
+
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // The moves the board server's settle pass makes after a build (store.mjs moveCard): each work card whose built lane
 // differs from its stored one moves to it, with why as its thread line. Done is left to what closes
 // a card (item set --done, a land, a merge, the owner's Done), which records why itself, and a stored Done shown
 // elsewhere moves only once a message or question reopened it: an owner step shows a landed card in In Review while it
 // stays Done. → [{key, to, why}]
+// docs/adr/2026-11-11-1200-every-lane-has-phases.md: each move carries the card's phase there, and a card staying in
+// In Progress or In Review whose phase changed moves within its lane, which writes no line. Todo's and Done's phases
+// are their writers' (item set --phase, the board's staging, a close).
 export function movesOf(built) {
   return built.items.filter((i) => i.kind === 'work').flatMap((i) => {
     const to = i.lane;
-    if (to === i.storedLane || to === 'done' || (i.storedLane === 'done' && !i.reopened)) return [];
-    return [{ key: i.key, to, why: moveWhy(i, to) }];
+    if (to === 'done' || (i.storedLane === 'done' && !i.reopened)) return [];
+    if (to === i.storedLane && (to === 'todo' || i.phase === i.storedPhase)) return [];
+    return [{ key: i.key, to, phase: i.phase, why: moveWhy(i, to) }];
   });
 }
 function moveWhy(i, to) {
@@ -1686,7 +1711,7 @@ export function strictlyIdle(built, { pulled = [] } = {}) {
 const STALL_NEXT = "item stall it with the reason when it can't go on";
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
-const STAGING_NEXT = 'Judge the staged card: item set --state ready, or --state grilling or prototyping for another round';
+const STAGING_NEXT = 'Judge the staged card: item set --phase ready, or --phase grilling or prototyping for another round';
 function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;

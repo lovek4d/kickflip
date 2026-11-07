@@ -10,7 +10,7 @@ const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'onboarding-'));
 test('onboarding cards are filed grilling with Internal tickets under the board prefix, each with a notes file', () => {
   const d = dir();
   const items = onboardingItems(path.join(d, 'wave.json'), { prefix: 'ACME', hasBuild: false });
-  assert.deepEqual(items.map((i) => [i.id, i.state, i.ticket]), [['onboard-build', 'grilling', 'ACME-1'], ['onboard-context', 'grilling', 'ACME-2']]);
+  assert.deepEqual(items.map((i) => [i.id, i.phase, i.ticket]), [['onboard-build', 'grilling', 'ACME-1'], ['onboard-context', 'grilling', 'ACME-2']]);
   for (const i of items) assert.match(fs.readFileSync(path.join(d, i.plan), 'utf8'), /^# /);
 });
 
