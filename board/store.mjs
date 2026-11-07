@@ -2631,11 +2631,19 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // relate its Related to. With intake, a site and no state, the card is unfiled, reading New, and a `card-added {key, title}`
 // event wakes the board's session to file it; once filed it arrives in Todo and gets its grill
 // (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is ready.
-async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, parent, size, model, state, relate, intake = false }, options) {
+async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, parent, size, model, state, relate, fromAsk, text: said, intake = false }, options) {
   const { wave: slug, id } = key.includes('/') ? parseKey(key) : { wave: key };
   if (id !== undefined) domId(id, 'the item id');
   checkState(state);
-  if (state === 'ready') fail("item add files a card grilling or prototyping; it reaches ready through staging, on the owner's Send, Implement or Reply");
+  if (said !== undefined) text(said, '--text');
+  if (said !== undefined && fromAsk === undefined) fail('--text goes with --from-ask');
+  if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
+  // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
+  const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
+  if (ask) await refuseMoved(site, ask);
+  if (ask && state === undefined) fail('--from-ask files a card, which reads New until it has a state: pass --state grilling, prototyping, or ready for a Quick build ask');
+  if (state === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it grilling or prototyping` : 'item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
+  if (state === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --state ready`);
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
@@ -2651,6 +2659,7 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
   if (pickUpAt !== undefined) setHold(item, { until: pickUpTime(pickUpAt) });
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
+  if (ask) item.from_ask = ask;
   if (state !== undefined) item.state = state;
   // Without a site there is no board session to file it.
   else if (intake && site) item.unfiled = true;
@@ -2665,6 +2674,12 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   wave.items.push(item);
   await writeJSON(source.file, wave);
   if (item.unfiled) await appendEvent(listBoards().find((b) => samePath(b.dir, site)) || { dir: site }, 'card-added', { key: added, title: item.title });
+  if (ask) {
+    await appendThread(site, added, { text: said });
+    // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
+    const links = await readAskLinks(site);
+    if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
+  }
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added));
   return { file: source.file, key: added, lines: [] };
 }

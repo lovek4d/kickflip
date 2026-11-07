@@ -37,11 +37,35 @@ test('ready comes only from staging, or a card already ready; staging to ready c
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => [m.who, m.command, m.text]), [['claude', 'readied', 'Marked as ready']]);
 });
 
-test('item add files a card grilling or prototyping, never ready', () => {
+test('item add without --from-ask files a card grilling or prototyping, never ready', () => {
   const r = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--state', 'ready', '--size', 'small');
-  assert.deepEqual(r, { code: 1, out: '', err: "item add files a card grilling or prototyping; it reaches ready through staging, on the owner's Send, Implement or Reply\n" });
+  assert.deepEqual(r, { code: 1, out: '', err: "item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
   assert.equal(item('Q1'), undefined);
   assert.equal(board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--state', 'grilling').code, 0);
+});
+
+// docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md
+test('item add --from-ask files a Quick build ask ready and a Discuss ask grilling, with the ask as the card\'s first line, and a refusal writes nothing', () => {
+  addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } },
+    { id: 'ed', ts: '2026-11-06T10:01:00Z', kind: 'ask', data: { text: 'Rethink the footer' } });
+  const add = (id, ask, ...more) => board('item', 'add', `w/${id}`, '--site', 'orch', '--title', id, '--from-ask', ask, '--text', 'Filed.', ...more);
+  const refusals = [
+    [add('Q1', 'eq', '--state', 'ready'), /no size/],
+    [add('Q1', 'ed', '--state', 'ready', '--size', 'small'), /not a Quick build ask/],
+    [add('Q1', 'nope', '--state', 'ready', '--size', 'small'), /ask/],
+    [add('Q1', 'eq', '--state', 'staging'), /--state staging is set by the board/],
+    [add('Q1', 'eq'), /pass --state/],
+    [board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Q1', '--from-ask', 'eq', '--state', 'ready', '--size', 'small'), /--text/],
+  ];
+  for (const [r, why] of refusals) assert.ok(r.code === 1 && why.test(r.err), r.err);
+  assert.equal(item('Q1'), undefined);
+  const quick = add('Q1', 'eq', '--state', 'ready', '--size', 'small');
+  assert.equal(quick.code, 0, quick.err);
+  assert.deepEqual([item('Q1').state, item('Q1').from_ask, item('Q1').size, item('Q1').unfiled], ['ready', 'eq', 'small', undefined]);
+  assert.ok(lines(site('orch', 'data', 'threads', 'w__Q1.jsonl')).some((m) => m.text === 'Filed.'));
+  const discuss = add('D1', 'ed', '--state', 'grilling');
+  assert.equal(discuss.code, 0, discuss.err);
+  assert.deepEqual([item('D1').state, item('D1').from_ask], ['grilling', 'ed']);
 });
 
 // docs/adr/2026-11-06-0204-intake-triage-sorts-new-tasks-on-sonnet.md
