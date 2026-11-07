@@ -931,7 +931,7 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
 .deck-prompt li.prompt { padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .deck-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .deck-bar { display: flex; align-items: center; gap: 10px; padding: 0 14px 10px; }
-.deck-dots { flex: 1; display: flex; flex-wrap: wrap; gap: 5px; }
+.deck-dots { flex: 1; display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
 .deck-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
 .deck-dots i.on { background: var(--color-notice); }
 .deck-bar button { border-radius: 999px; padding: 5px 12px; font-size: 13px; }

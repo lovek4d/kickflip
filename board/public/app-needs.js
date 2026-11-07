@@ -2,7 +2,7 @@
 // (prompts.js). It draws twice, and the stylesheet shows one by width
 // (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md):
 // - on a phone, #needsDeck at the top of the board: one thing at a time, a question's options drafting its answer on the tap
-//   (the draft Send on the questions page sends) and a prompt's buttons answering it, Skip to the next, a dot for each thing waiting, and All open questions at its foot;
+//   (the draft Send on the questions page sends) and a prompt's buttons answering it, Prev and Next beside a dot for each thing waiting, and All open questions at its foot;
 // - from 900px, #waiting, one line each, in the pane beside the lanes, over Waiting on you mounted there
 //   (view-questions.js, embedded) while the width lasts. Waiting on you shows the questions there, so #waiting leaves out
 //   a line that only asks questions, and with nothing else left the orange section is gone. Every questions URL lands
@@ -98,19 +98,22 @@ BoardView.part((B) => {
     if (!deck.length) { el.innerHTML = ''; showing = null; return; }
     const now = deck.find((x) => x.id === showing) || deck[Math.min(Math.max(before, 0), deck.length - 1)];
     showing = now.id;
+    const at = deck.indexOf(now);
     const open = (d.owner || []).filter((q) => q.state === 'open').length;
     const drafted = (d.owner || []).filter((q) => q.state === 'open' && 'choice' in getDraft(q.id)).length;
     BoardUI.setHTML(el, `<div class="deck-head"><h2>Needs you</h2><span class="deck-n">${deck.length}</span></div>
       <div class="deck-card" data-deck="${esc(now.id)}"><p class="deck-what">${escText(now.what)}</p>${now.html}</div>
-      ${deck.length > 1 ? `<div class="deck-bar"><span class="deck-dots" aria-hidden="true">${deck.map((x) => `<i${x === now ? ' class="on"' : ''}></i>`).join('')}</span><button type="button" class="ghost" data-deck-skip>Skip →</button></div>` : ''}
+      ${deck.length > 1 ? `<div class="deck-bar"><button type="button" class="ghost" data-deck-prev${at === 0 ? ' disabled' : ''}>← Prev</button><span class="deck-dots" aria-hidden="true">${deck.map((x) => `<i${x === now ? ' class="on"' : ''}></i>`).join('')}</span><button type="button" class="ghost" data-deck-next${at === deck.length - 1 ? ' disabled' : ''}>Next →</button></div>` : ''}
       ${open ? `<a class="deck-more" href="questions.html">All open questions · ${open}${drafted ? ` · ${drafted} drafted, Send there` : ''}</a>` : ''}`);
   }
 
+  // The deck's index one step from the thing on screen; the ends hold.
+  const stepFrom = (step) => Math.min(Math.max(deck.findIndex((x) => x.id === showing) + step, 0), deck.length - 1);
   B.on(B.root, 'click', (ev) => {
     if (!ev.target.closest?.('#needsDeck')) return;
-    if (ev.target.closest('[data-deck-skip]')) {
-      const at = deck.findIndex((x) => x.id === showing);
-      showing = deck[(at + 1) % deck.length].id;
+    const step = ev.target.closest('[data-deck-prev]') ? -1 : ev.target.closest('[data-deck-next]') ? 1 : 0;
+    if (step) {
+      showing = deck[stepFrom(step)].id;
       renderNeeds(state.board);
       return;
     }
@@ -118,8 +121,7 @@ BoardView.part((B) => {
     if (!opt) return;
     const id = opt.closest('[data-deck]').dataset.deck.slice(2);
     setDraft(id, { ...getDraft(id), choice: opt.dataset.deckPick });
-    const at = deck.findIndex((x) => x.id === showing);
-    showing = deck[(at + 1) % deck.length].id;
+    showing = deck[stepFrom(1)].id;
     renderNeeds(state.board);
   });
 

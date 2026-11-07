@@ -5505,7 +5505,7 @@ const deckBoard = (questions, needs) => {
 };
 const topicNeed = (id, n) => ({ kind: 'Question', title: `Topic ${id}`, text: '', url: `questions.html#${id}`, topic: id, band: null, questions: { open: n, url: `questions.html#${id}` }, ready: null });
 
-test("on a phone, Needs you is a deck showing one thing at a time: a tap on an option drafts its answer for Send on the questions page, Skip moves on, dots count what waits, and the foot links to every open question", async () => {
+test("on a phone, Needs you is a deck showing one thing at a time: a tap on an option drafts its answer for Send on the questions page, Next and Prev step through without looping, dots count what waits, and the foot links to every open question", async () => {
   const questions = [deckQuestion('q1', 't1'), deckQuestion('q2', 't1'), deckQuestion('q3', 't2', { url: 'prototype-shell.html?q=q3' })];
   const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#item=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#item=w%2FGH-9' } };
   const board = deckBoard(questions, [topicNeed('t1', 2), topicNeed('t2', 1), action]);
@@ -5527,15 +5527,23 @@ test("on a phone, Needs you is a deck showing one thing at a time: a tap on an o
   assert.deepEqual([deck().querySelector('a.deck-more').getAttribute('href'), deck().querySelector('a.deck-more').textContent.trim()], ['questions.html', 'All open questions · 3']);
   assert.equal(card().querySelector('a.deck-proto'), null, 'a question with no prototype has no View prototypes');
 
-  await tap('[data-deck-skip]');
+  const off = () => [deck().querySelector('[data-deck-prev]').hasAttribute('disabled'), deck().querySelector('[data-deck-next]').hasAttribute('disabled')];
+  assert.equal(deck().querySelector('[data-deck-skip]'), null, 'Skip is gone');
+  assert.deepEqual(off(), [true, false], 'Prev is off on the first thing');
+  await tap('[data-deck-next]');
   assert.equal(card().dataset.deck, 'q:q2');
-  await tap('[data-deck-skip]');
+  assert.deepEqual(off(), [false, false]);
+  await tap('[data-deck-next]');
   assert.equal(card().dataset.deck, 'q:q3');
   assert.deepEqual([card().querySelector('a.deck-proto').textContent, card().querySelector('a.deck-proto').getAttribute('href')], ['View prototypes', 'prototype-shell.html?q=q3']);
-  await tap('[data-deck-skip]');
+  await tap('[data-deck-next]');
   assert.deepEqual([card().dataset.deck, card().querySelector('a.button').getAttribute('href'), card().querySelector('a.button').textContent], ['l:w/GH-9', '#item=w%2FGH-9', 'Merge']);
-  await tap('[data-deck-skip]');
-  assert.equal(card().dataset.deck, 'q:q1', 'Skip past the last goes back to the first');
+  assert.deepEqual(off(), [false, true], 'Next is off on the last thing');
+  await tap('[data-deck-prev]');
+  assert.equal(card().dataset.deck, 'q:q3', 'Prev steps back');
+  await tap('[data-deck-prev]');
+  await tap('[data-deck-prev]');
+  assert.equal(card().dataset.deck, 'q:q1');
 
   b.page.win.localStorage.setItem('qdraft:q1', JSON.stringify({ note: 'keep this note' }));
   await tap('[data-deck-pick="B"]');
@@ -5543,9 +5551,7 @@ test("on a phone, Needs you is a deck showing one thing at a time: a tap on an o
   assert.deepEqual(JSON.parse(b.page.win.localStorage.getItem('qdraft:q1')), { note: 'keep this note', choice: 'B' }, 'it drafts the pick in the questions page store, keeping the note');
   assert.deepEqual([card().dataset.deck, deck().querySelector('.deck-n').textContent], ['q:q2', '4']);
   assert.match(deck().querySelector('a.deck-more').textContent, /3 · 1 drafted/);
-  await tap('[data-deck-skip]');
-  await tap('[data-deck-skip]');
-  await tap('[data-deck-skip]');
+  await tap('[data-deck-prev]');
   assert.deepEqual([card().dataset.deck, card().querySelector('[data-deck-pick="B"]').getAttribute('aria-pressed')], ['q:q1', 'true'], 'the drafted pick shows as picked');
 });
 
@@ -5554,7 +5560,7 @@ test("the phone's deck keeps the thing it shows when another arrives, adding onl
   const b = boardOnDom({ board, threads: {} });
   await b.settle();
   const deck = () => b.root.querySelector('#needsDeck');
-  b.page.fire(b.root, 'click', { target: deck().querySelector('[data-deck-skip]') });
+  b.page.fire(b.root, 'click', { target: deck().querySelector('[data-deck-next]') });
   await b.settle();
   const shown = deck().querySelector('.deck-card');
   assert.equal(shown.dataset.deck, 'q:q2');
