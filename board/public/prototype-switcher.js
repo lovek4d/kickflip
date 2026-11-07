@@ -92,6 +92,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
 .ps-top { position:fixed; left:10px; right:10px; top:calc(10px + env(safe-area-inset-top)); z-index:31; display:flex; justify-content:space-between;
   align-items:flex-start; pointer-events:none; font:600 13px -apple-system, system-ui, sans-serif; }
 .ps-top > * { pointer-events:auto; }
+.ps-pending { visibility:hidden; }
 .ps-chip, .ps-close { color:#fff; background:#000a; border:1px solid #fff4; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); font:inherit; cursor:pointer; }
 .ps-chip { border-radius:999px; padding:0 14px; min-height:40px; }
 .ps-close { margin-left:auto; width:40px; height:40px; border-radius:50%; font-size:17px; line-height:1; }
@@ -157,15 +158,17 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     box.className = 'ps-switch';
     box.innerHTML = '<div class="ps-note" role="status" hidden></div><textarea class="ps-text" rows="2" placeholder="Note with your pick (optional)" aria-label="Note with your pick" hidden></textarea><div class="ps-pill"></div>';
     if (above) box.prepend(above);
+    box.classList.add('ps-pending');
     document.body.append(box);
     // The phone footer's height, so the page above it ends where it starts (prototype.html reads --ps-footer-h).
-    new ResizeObserver(() => document.documentElement.style.setProperty('--ps-footer-h', `${box.offsetHeight}px`)).observe(box);
+    const measure = () => document.documentElement.style.setProperty('--ps-footer-h', `${box.offsetHeight}px`);
+    new ResizeObserver(measure).observe(box);
     const pill = box.querySelector('.ps-pill');
     const noteEl = box.querySelector('.ps-note');
     const text = box.querySelector('.ps-text');
     // The ✕ and, on a card with earlier rounds, the Round pill and its sheet. boardCard: /api/board's card the question is on.
     const top = document.createElement('div');
-    top.className = 'ps-top';
+    top.className = 'ps-top ps-pending';
     document.body.append(top);
     let boardCard = null;
     let sheet = false;
@@ -196,7 +199,20 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
       render(take, shownState);
     }
 
+    // The footer and the Round pill stay hidden until the first load settles (or 1.5s pass), so they appear complete in one paint.
+    let revealed = false;
+    const reveal = () => {
+      if (revealed) return;
+      revealed = true;
+      measure();
+      box.classList.remove('ps-pending');
+      top.classList.remove('ps-pending');
+    };
+    setTimeout(reveal, 1500);
     async function load() {
+      try { await fetchQuestion(); } finally { reveal(); }
+    }
+    async function fetchQuestion() {
       if (!qid || !site) return;
       try {
         const board = await (await fetch(site.url('api/board'), { cache: 'no-store' })).json();
@@ -270,6 +286,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 
     go(take);
+    measure();
     load();
     return { takes: keys, get take() { return take; }, get state() { return shownState; }, go, show };
   }

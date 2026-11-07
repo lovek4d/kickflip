@@ -91,7 +91,7 @@ test("the bar shows the take's name between ‹ and ›, and below it, on its ow
 function prototypePage(url, { framed = false, owner, resolved = [], drafts = {}, rounds = null }) {
   const listeners = [];
   const el = () => {
-    const e = { hidden: false, value: '', textContent: '', innerHTML: '', parts: {}, classList: { add() {} },
+    const e = { hidden: false, value: '', textContent: '', innerHTML: '', parts: {}, classList: { add() {}, remove() {} },
       addEventListener: (type, fn) => listeners.push({ target: e, type, fn }), prepend() {}, append() {},
       querySelector: (sel) => (e.parts[sel] ||= el()) };
     return e;
@@ -116,6 +116,7 @@ function prototypePage(url, { framed = false, owner, resolved = [], drafts = {},
   const win = {
     URL, URLSearchParams, Map, Set, JSON,
     ResizeObserver: class { observe() {} },
+    setTimeout: () => 0,
     location: { href: u.href, search: u.search, replace: (to) => moves.push(['load', String(to)]) },
     history: { replaceState: (...args) => replacements.push(args) },
     localStorage: storage(Object.fromEntries(Object.entries(drafts).map(([id, d]) => ['qdraft:' + id, JSON.stringify(d)]))),

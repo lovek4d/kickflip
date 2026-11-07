@@ -21,6 +21,16 @@ test('under 900px the viewer bar is a full-width footer on the bottom edge, and 
   const page = read('prototype.html');
   assert.match(page, /@media \(max-width: 899px\) \{\s*main\.proto-main \{[^}]*var\(--ps-footer-h, 150px\)/);
   assert.match(page, /\.kit-served \{ height: calc\(100dvh - 60px - var\(--ps-footer-h, 150px\)/);
+  // The footer's measured height already includes its bottom inset, so the frame doesn't subtract the inset again.
+  assert.doesNotMatch(page.match(/@media \(max-width: 899px\) \{\s*main\.proto-main.*?\n  \}/s)?.[0] ?? '', /safe-area-inset-bottom/);
+});
+
+test('the viewer footer and Round pill stay hidden until the first load settles, then show once', () => {
+  const js = read('prototype-switcher.js');
+  assert.match(js, /\.ps-pending \{ visibility:hidden; \}/);
+  assert.match(js, /box\.classList\.add\('ps-pending'\)/);
+  assert.match(js, /try \{ await fetchQuestion\(\); \} finally \{ reveal\(\); \}/);
+  assert.match(js, /box\.classList\.remove\('ps-pending'\);\s*top\.classList\.remove\('ps-pending'\)/);
 });
 
 test('the viewer note field is at least 16px, so iOS Safari does not zoom on focus', () => {

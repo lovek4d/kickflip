@@ -28,8 +28,8 @@
   #protoToast { position: fixed; z-index: 40; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100vw - 32px); }
   #protoToast[hidden] { display: none; }
   @media (max-width: 899px) {
-    main.proto-main { padding-bottom: calc(var(--ps-footer-h, 150px) + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
-    .kit-served { height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+    main.proto-main { padding-bottom: calc(var(--ps-footer-h, 150px) + var(--app-bottom, 0px)); }
+    .kit-served { height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top)); }
   }
   @media (max-width: 899px) { #protoToast { top: max(12px, env(safe-area-inset-top)); } }
 
