@@ -5201,7 +5201,7 @@ test("a builder's log opens in a sheet over the board: readable lines of its str
     + called('Bash', { command: 'node --test board/view.test.mjs', description: 'Run the tests' }) + answered([{ type: 'text', text: 'ℹ pass 6' }]));
   await r.settle();
   const link = r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]');
-  assert.equal(link.textContent, 'log');
+  assert.equal(link.textContent, 'Open the log');
   assert.equal(r.tap(link).defaultPrevented, true, 'the link opens the sheet in place of the log page');
   await r.settle();
   assert.equal(r.sheet().open, true);
