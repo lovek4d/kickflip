@@ -1719,20 +1719,23 @@ async function runIntake() {
     dataVersion++;
     ({ items } = await sharedBoard());
   }
+  let closedAny = false;
   for (const d of intakeStranded(items, log, runs)) {
     const timedOut = runs[d.event].timedOut;
     const why = timedOut ? `the intake triage run timed out after ${INTAKE_TIMEOUT_AFTER / 60000} minutes` : 'the intake triage run ended without sorting it';
     logCall({ call: 'intake-handoff', key: d.key, result: 'handed off', reason: timedOut ? 'Its intake triage run timed out.' : 'Its intake triage run ended without sorting it.', inputs: { event: d.event, kind: d.kind, run: runs[d.event] } });
     runs[d.event].closed = true;
+    closedAny = true;
     await intakeHandoff(here, d.event, why);
   }
   // A run that ended with its event sorted closes its fold in the card's thread; one handed off closed it with its hand-off line.
   for (const [event, r] of Object.entries(runs)) {
     if (!r.folds || !r.ended || r.closed) continue;
     r.closed = true;
+    closedAny = true;
     await appendThread(here, r.key, { text: 'Intake triage finished', kind: 'status', intake: { event, agent: INTAKE_AGENT, end: 'finished' } });
   }
-  await save();
+  if (closedAny) await save();
   if (launchHeldNow()) return;
   const due = intakeDue(items, log, runs);
   if (!due) return;
