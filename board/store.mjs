@@ -1796,6 +1796,7 @@ async function resolveAnsweredOn(site, topic, note) {
 const hasOpenQuestion = async (site, key) => Boolean(site) && (await cardQuestions(site, key)).asked.some((q) => q.state === 'open');
 function setNext(item, next, waitsOnQuestions) {
   item.next = text(next, '--next');
+  item.next_at = new Date().toISOString();
   if (waitsOnQuestions) item.next_on_questions = true; else delete item.next_on_questions;
 }
 // Clears that Next once none of the card's questions is left unresolved: the card then reads "Next: none set yet".
@@ -1809,6 +1810,7 @@ async function clearWaitedNext(site, topic) {
   if (!item.next_on_questions) return;
   if ((await cardQuestions(site, key)).asked.some((q) => q.state !== 'resolved')) return;
   delete item.next;
+  delete item.next_at;
   delete item.next_on_questions;
   await writeJSON(source.file, wave);
 }
@@ -1819,6 +1821,7 @@ async function clearNext(site, key) {
   const { source, wave, item } = await loadItem(site, key);
   if (item.next === undefined && item.next_on_questions === undefined) return;
   delete item.next;
+  delete item.next_at;
   delete item.next_on_questions;
   await writeJSON(source.file, wave);
 }
@@ -2198,9 +2201,9 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
     setNext(item, next, await hasOpenQuestion(site, key));
     await checkNextDeps(site, key, item, item.next);
   }
-  if (clearNext) { delete item.next; delete item.next_on_questions; }
+  if (clearNext) { delete item.next; delete item.next_at; delete item.next_on_questions; }
   // A build starting acts on whatever a Next set during the card's questions waited on.
-  if (start && next === undefined && item.next_on_questions) { delete item.next; delete item.next_on_questions; }
+  if (start && next === undefined && item.next_on_questions) { delete item.next; delete item.next_at; delete item.next_on_questions; }
   // The In Review lane sorts by this first arrival, which no later PR, push, merge-ready, tap or land rewrites.
   if (handover && !item.review_since) item.review_since = new Date().toISOString();
   if (pr !== undefined) addPRs(item, pr, boardRepoOf(site, wave));

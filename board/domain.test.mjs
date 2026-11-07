@@ -990,6 +990,10 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
   const answered = { ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
   assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, null, null, 'Tap Done once it is settled']);
   assert.deepEqual((({ awaitsDone, bumpable, resolvedBy }) => [awaitsDone, bumpable, resolvedBy])(card(answered, 'A4')), [true, false, null]);
+  const followUp = (next_at) => ({ ...answered, waves: [{ ...answered.waves[0], wave: { items: items.map((i) => (i.id === 'A4' ? { ...i, next: 'Build the fix', next_at } : i)) } }] });
+  assert.deepEqual(state(followUp('2026-10-23T11:35:00Z'), 'A4'), ['progress', null, null, null, null, 'Build the fix'], 'a Next set after the reopen keeps the answered card In Progress');
+  assert.equal(card(followUp('2026-10-23T11:35:00Z'), 'A4').awaitsDone, false);
+  assert.deepEqual(state(followUp('2026-10-23T11:05:00Z'), 'A4'), ['review', 'owner', null, null, null, 'Tap Done once it is settled'], 'a Next from before the reopen does not');
   assert.deepEqual(needsAnswer(buildBoard(answered)).items.filter((l) => l.url === '#item=w%2FA4'), []);
   assert.deepEqual(state({ ...answered, events: [...answered.events, close('w/A4', '2026-10-23T11:50:00Z')] }, 'A4'), ['done', null, '2026-10-23T11:50:00Z', null, null, null]);
   const mergedAnswered = { ...said, threads: { 'w/A7': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };

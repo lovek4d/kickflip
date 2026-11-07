@@ -74,8 +74,9 @@ test("item set --pr adds each PR, repeatable, in the board's repo or owner/repo#
 
 test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'Run tests', '--pr', '42').code, 0);
-  const { lane_at: _w, review_since: arrived, ...edited } = read(at('waves', 'w', 'wave.json')).items[0];
+  const { lane_at: _w, review_since: arrived, next_at: nextAt, ...edited } = read(at('waves', 'w', 'wave.json')).items[0];
   assert.equal(typeof arrived, 'string');
+  assert.equal(typeof nextAt, 'string');
   assert.deepEqual(edited, { id: 'A1', title: 'One', lane: 'review', next: 'Run tests', prs: [{ number: 42 }] });
   for (const [key, route, file] of [['w/A1', 'orch', at('waves', 'w', 'wave.json')], ['audit/A1', 'audit', site('audit', 'data', 'wave.json')]]) {
     assert.equal(board('item', 'set', key, '--site', route, '--held').code, 0);

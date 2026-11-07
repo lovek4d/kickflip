@@ -197,7 +197,10 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   // holds a card whose code landed (Done, or its PR merged) in In Review until the owner's Done.
   const ownerStep = it.owner_step && !tappedDone ? String(it.owner_step) : null;
   const landed = (it.lane === 'done' || prStatus === PR_STATE.merged) && !neverLanded;
-  if (reopenAt) it = { ...it, next: undefined };
+  // A reopened card keeps only a Next the orchestrator set after the move out of Done; that follow-up work holds it In
+  // Progress instead of In Review for the owner's Done (docs/adr/2026-11-07-1300-a-next-set-after-a-reopen-keeps-the-card-in-progress.md).
+  const followUp = Boolean(reopenAt) && Boolean(it.next) && String(it.next_at || '') > String(it.reopened_at || closed || '');
+  if (reopenAt && !followUp) it = { ...it, next: undefined };
   const checkingAt = handedBackAt(agents);
   const ownerPending = Boolean(reopenAt) && said.some((m) => String(m.ts) > doneAt && (m.state === 'waiting' || m.state === 'working'));
   const key = `${slug}/${it.id}`;
@@ -227,7 +230,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const changing = waitsOn === 'builder' && pr?.state === 'OPEN' && !pr.isDraft;
   const redReady = lane === 'progress' && !waitsOn && pr?.state === 'OPEN' && (!pr.isDraft || skipDraft);
   // A reopened card Claude has answered waits on the owner's Done.
-  const awaitsDone = stepWaits || (Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending);
+  const awaitsDone = stepWaits || (Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending && !followUp);
   if (awaitsDone) waitsOn = 'owner';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
   // Only a Todo card reads held; old data can't show one in Done.
