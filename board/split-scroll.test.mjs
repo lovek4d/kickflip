@@ -24,3 +24,11 @@ test('the desktop hide of the question mark beats the header icon display rule',
   const wide = css.slice(css.indexOf('@media (min-width: 900px) {\n  .split'));
   assert.match(wide, /\.top \.nav a\.pages-switch \{ display: none; \}/);
 });
+
+test('the desktop right pane never scrolls sideways: its content wraps to the pane width', () => {
+  const wide = css.slice(css.indexOf('@media (min-width: 900px) {\n  .split'));
+  const pane = wide.match(/\.needs-pane \{[^}]*\}/)[0];
+  assert.match(pane, /overflow-x: hidden/);
+  assert.match(wide, /\.needs-pane \* \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
+  assert.match(wide, /\.needs-pane pre[^{]*\{[^}]*white-space: pre-wrap;/);
+});
