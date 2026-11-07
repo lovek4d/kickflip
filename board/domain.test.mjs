@@ -1767,6 +1767,10 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   assert.deepEqual(fields(fresh), [true, false, false]);
   assert.deepEqual(pullOf([fresh]).pullable, []);
   assert.equal(card({ item: { from_ask: undefined } }).unsorted, false);
+  // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md: a card filed held reads New but is sorted, so its unhold arrives it.
+  const filedHeld = card({ item: { filed_held: true, held: true } });
+  assert.deepEqual([filedHeld.phase, filedHeld.unsorted], ['new', false]);
+  assert.deepEqual(arrivalsOf([card({ item: { filed_held: true } })]), ['w/A1']);
   // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: an agent's item add reads New too.
   assert.equal(card({ item: { from_ask: undefined, unfiled: true } }).unsorted, true);
   assert.deepEqual(pullOf([card({ item: { from_ask: undefined, unfiled: true } })]).pullable, []);

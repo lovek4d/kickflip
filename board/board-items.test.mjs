@@ -436,14 +436,20 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
   const events = () => (fs.existsSync(site('audit', 'data', 'events.jsonl')) ? fs.readFileSync(site('audit', 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((e) => e.kind === 'card-added');
   const before = events().length;
   const stateless = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'Follow it up', '--parent', 'A1');
-  assert.deepEqual([stateless.code, stateless.err, item('F1')], [1, 'item add files a card on a board: pass --phase grilling or prototyping\n', undefined]);
+  assert.deepEqual([stateless.code, stateless.err, item('F1')], [1, 'item add files a card on a board: pass --phase grilling or prototyping, or --held to file it for later\n', undefined]);
   const filed = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'Follow it up', '--parent', 'A1', '--phase', 'grilling', '--relate', 'A1');
   assert.deepEqual([filed.code, filed.err], [0, '']);
   assert.deepEqual([item('F1').phase, 'unfiled' in item('F1'), item('F1').related], ['grilling', false, ['audit/A1']]);
   const held = board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'Filed', '--phase', 'prototyping', '--relate', 'A1,F1', '--held');
-  assert.deepEqual([held.code, held.err], [0, '']);
-  assert.deepEqual([item('F2').phase, item('F2').held, item('F2').related], ['prototyping', true, ['audit/A1', 'audit/F1']]);
+  assert.deepEqual([held.code, held.err, item('F2')], [1, 'a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase\n', undefined]);
+  assert.equal(board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'Filed', '--relate', 'A1,F1', '--held').code, 0);
+  assert.deepEqual([item('F2').phase, item('F2').held, item('F2').related], [undefined, true, ['audit/A1', 'audit/F1']]);
   assert.equal(events().length, before, 'a card filed with its state wakes nobody');
+  // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md
+  const later = board('item', 'add', 'audit/F4', '--site', 'audit', '--title', 'Later', '--held');
+  assert.deepEqual([later.code, later.err, item('F4').phase, item('F4').held, item('F4').filed_held], [0, '', undefined, true, true]);
+  assert.equal(board('item', 'set', 'audit/F4', '--site', 'audit', '--phase', 'grilling').code, 0);
+  assert.deepEqual([item('F4').phase, item('F4').filed_held], ['grilling', undefined]);
   const bad = board('item', 'add', 'audit/F3', '--site', 'audit', '--title', 'X', '--phase', 'done');
   assert.deepEqual([bad.code, /^--phase takes ready, grilling or prototyping/.test(bad.err), item('F3')], [1, true, undefined]);
 });
@@ -704,8 +710,8 @@ test('--pick-up-at holds a card until a time, read as local time without an offs
   assert.equal(board('item', 'set', 'd/A1', '--pick-up-at', local, '--site', 'orch').code, 0);
   assert.equal(board('item', 'set', 'd/A1', '--unheld', '--site', 'orch').code, 0);
   assert.deepEqual([item().held, item().pick_up_at], [undefined, undefined]);
-  assert.equal(board('item', 'add', 'd/A2', '--phase', 'grilling', '--title', 'Two', '--pick-up-at', local, '--site', 'orch').code, 0);
-  assert.deepEqual([item('A2').lane, item('A2').held, item('A2').pick_up_at], ['todo', true, nine]);
+  assert.equal(board('item', 'add', 'd/A2', '--title', 'Two', '--pick-up-at', local, '--site', 'orch').code, 0);
+  assert.deepEqual([item('A2').lane, item('A2').phase, item('A2').held, item('A2').pick_up_at], ['todo', undefined, true, nine]);
 });
 
 test("a build's start takes a prototype pick's note as guidance, and refuses while the newest answer to the card's prototypes picks no take", () => {
@@ -759,7 +765,7 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   assert.match(board('ask', 'unfold', 'e1', '--site', 'orch').err, /ask "e1" is not folded into a card/);
   board('item', 'relate-ask', 'e1', 'w/A1', '--summary', 'Back in', '--site', 'orch');
   const stateless = board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Building it.');
-  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask\n']);
+  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask, or --held to file it for later\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, undefined);
   assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--phase', 'grilling', '--site', 'orch', '--text', 'Building it.').code, 0);
   assert.deepEqual([read(site('orch', 'data', 'ask-links.json')), read(at('waves', 'w', 'wave.json')).items[0].from_ask], [{ links: {} }, 'e1']);

@@ -286,7 +286,7 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     bumpedOut: it.bumped_out ? { key: it.bumped_out.by, at: it.bumped_out.at } : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
-    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
+    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), filedHeld: Boolean(it.filed_held), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
     rebaseFailed,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
     mergeReady: lane === 'review' ? mergeReady : null,
@@ -1200,7 +1200,7 @@ export function buildBoard(snapshot) {
     // added (docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md), is unsorted until its session
     // sets its phase (shown as its ticket, never New), and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
-    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && it.phase === 'new';
+    it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !it.filedHeld && it.phase === 'new';
     it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.action;
     // docs/adr/2026-11-07-0700-staging-then-ready.md
     it.staging = unstarted && it.phase === 'staging';

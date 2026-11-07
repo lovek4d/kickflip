@@ -1692,6 +1692,7 @@ async function stage(site, key) {
   if (item.phase === 'staging') return;
   Object.assign(item, { phase: 'staging', staged_at: new Date().toISOString() });
   delete item.unfiled;
+  delete item.filed_held;
   await writeJSON(source.file, wave);
   await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'staged', text: COMMANDS.staged });
 }
@@ -2224,7 +2225,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (phase === 'ready' && !quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-  if (ask && phase === undefined && !item.phase) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask');
+  if (ask && hold && phase !== undefined && !item.phase) fail('a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
+  if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
   const wasFinished = closed(item);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
@@ -2325,6 +2327,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
     item.phase = phase;
     delete item.staged_at;
     delete item.unfiled;
+    delete item.filed_held;
   }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the phase the card is in.
   if (item.phase === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the phase it is already in; pass --next with what happens next, or --clear-next`);
@@ -2780,13 +2783,16 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
-  if (ask && phase === undefined) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask');
+  // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md: a card filed held takes no phase; it reads New until the unhold starts its grill.
+  const hold = holdOf({ held, pickUpAt });
+  if (hold && phase !== undefined) fail('a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
+  if (ask && phase === undefined && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
   if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it grilling or prototyping` : 'item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
   if (phase === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --phase ready`);
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a new card has no questions yet, so its notes
   // are complete once they hold more than its title.
   if (phase === 'ready' && !(notes ?? '').trim() && notesFrom === undefined) fail('a new ready card has no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready');
-  if (intake && site && phase === undefined) fail('item add files a card on a board: pass --phase grilling or prototyping');
+  if (intake && site && phase === undefined && !hold) fail('item add files a card on a board: pass --phase grilling or prototyping, or --held to file it for later');
   const { source, wave } = await loadWave(site, slug);
   if (id !== undefined && wave.items.some((it) => it.id === id)) fail(`wave "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
@@ -2800,8 +2806,8 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   const seed = notesFrom !== undefined ? body : `# ${item.title}\n${body && `\n${body}\n`}`;
   setBuildChoice(item, { size, model });
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
-  const hold = holdOf({ held, pickUpAt });
   if (hold) setHold(item, hold);
+  if (hold && phase === undefined) item.filed_held = true;
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (ask) item.from_ask = ask;
   if (phase !== undefined) item.phase = phase;
