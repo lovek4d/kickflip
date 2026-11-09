@@ -34,8 +34,8 @@ What this card does:
 `;
 
 const ONBOARDING = [
-  { id: 'onboard-build', title: 'Prepare .kickflip/build', notes: BUILD_NOTES, needsNoBuild: true },
-  { id: 'onboard-context', title: "Write the repo's CONTEXT.md glossary and first ADR", notes: CONTEXT_NOTES },
+  { title: 'Prepare .kickflip/build', notes: BUILD_NOTES, needsNoBuild: true },
+  { title: "Write the repo's CONTEXT.md glossary and first ADR", notes: CONTEXT_NOTES },
 ];
 
 // Whether ref's tree in repo holds an executable .kickflip/build or .kickflip/build-<target>.
@@ -46,13 +46,16 @@ export function hasBuildScript(repo, ref) {
   } catch { return false; }
 }
 
-// Writes the onboarding cards' notes files beside itemFile. → the items for that item file, each with an Internal ticket,
-// so nothing is opened on GitHub or Linear; the build card is left out when main already has a build script.
-export function onboardingItems(itemFile, { prefix = 'INT', hasBuild, now = new Date() }) {
+// Writes the onboarding cards' notes files beside itemFile. → the items for that new item file, each a task keyed
+// T-<n> with no ticket, so nothing is opened on GitHub or Linear until its grill's ticket question says so
+// (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md); the build card is left out when main already
+// has a build script.
+export function onboardingItems(itemFile, { hasBuild, now = new Date() }) {
   const cards = ONBOARDING.filter((c) => !(c.needsNoBuild && hasBuild));
   return cards.map((c, i) => {
-    const plan = `${c.id}-notes.md`;
+    const id = `T-${i + 1}`;
+    const plan = `${id}-notes.md`;
     fs.writeFileSync(path.join(path.dirname(itemFile), plan), c.notes);
-    return { id: c.id, title: c.title, created: new Date(now.getTime() + i).toISOString(), phase: 'grilling', ticket: `${prefix}-${i + 1}`, plan };
+    return { id, title: c.title, created: new Date(now.getTime() + i).toISOString(), phase: 'grilling', plan };
   });
 }

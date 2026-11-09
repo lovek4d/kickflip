@@ -95,11 +95,11 @@ test('new repo requests clone before starting a session and store the board bran
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
-  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, phase: 'starting', phase_at: rec.phase_at, asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
+  assert.deepEqual(rec, { title: "Bob's audit", purpose: 'Review $HOME changes', repo, github: 'owner/new-project', branch: 'release/next', tickets: null, phase: 'starting', phase_at: rec.phase_at, asked_at: pending.asked_at, session: rec.session, label: "Bob's audit", since: rec.since });
   assert.ok(rec.phase_at >= pending.asked_at && rec.since >= rec.phase_at);
   assert.ok(fs.existsSync(path.join(repo, '.git')));
   const at = Date.parse(rec.asked_at);
-  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, step: 'starting', stepAt: rec.phase_at, branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: false }]);
+  assert.deepEqual(startingBoards(readManifest(), at), [{ route: 'bob-s-audit', title: "Bob's audit", repo, step: 'starting', stepAt: rec.phase_at, branch: 'release/next', tickets: null, askedAt: rec.asked_at, failed: false }]);
   assert.equal(startingBoards(readManifest(), at + STARTING_WAIT)[0].failed, true);
   noEvents();
   await assert.rejects(dismissBoard(request.route), { status: 400 });
@@ -194,7 +194,7 @@ test("a claude that fails marks the Starting row Didn't start at once with its f
     const rec = readManifest().starting[route];
     assert.deepEqual([rec.error, rec.session], [error, undefined]);
     assert.equal(Boolean(rec.phase_at), i === 0, 'only the first start clones; an existing clone starts on starting orchestrator, so its phase never changes');
-    assert.deepEqual(startingBoards(readManifest(), Date.parse(rec.asked_at)), [{ route, title: `Broken ${i}`, repo: path.join(base, 'owner/project'), step: 'starting', stepAt: rec.phase_at || rec.asked_at, branch: 'main', tickets: { source: 'internal', prefix: 'INT' }, askedAt: rec.asked_at, failed: true, error }]);
+    assert.deepEqual(startingBoards(readManifest(), Date.parse(rec.asked_at)), [{ route, title: `Broken ${i}`, repo: path.join(base, 'owner/project'), step: 'starting', stepAt: rec.phase_at || rec.asked_at, branch: 'main', tickets: null, askedAt: rec.asked_at, failed: true, error }]);
     noEvents();
     assert.deepEqual(await dismissBoard(route), { route });
     assert.equal(readManifest().starting, undefined);
@@ -367,7 +367,7 @@ test("a New board on Linear's New project… creates that project in its team on
   assert.deepEqual(readManifest().starting['fresh-board'].tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'proj-101' });
   const before = readManifest();
   for (const asked of [tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'proj-101' }]) {
-    await assert.rejects(requestBoard({ ...input('No key'), tickets: asked }, { run, live, repos }), { status: 400, message: 'Linear needs Hub’s Linear key; add it in Hub settings › Linear first, or pick Internal or GitHub issues.' });
+    await assert.rejects(requestBoard({ ...input('No key'), tickets: asked }, { run, live, repos }), { status: 400, message: 'Linear needs Hub’s Linear key; add it in Hub settings › Linear first, or pick GitHub issues or None.' });
   }
   assert.deepEqual(readManifest(), before);
 });
@@ -501,15 +501,15 @@ test('join transfers the reserved repo and branch before or after the start resu
   for (const recorded of [false, true]) {
     const route = recorded ? 'joined-after' : 'joined-before';
     const clone = path.join(base, 'owner/project');
-    saveJSON(manifestFile, { sites: {}, starting: { [route]: { title: route, github: 'owner/project', branch: 'develop', repo: clone, tickets: { source: 'internal', prefix: 'OPS' }, ...(recorded ? { session: 'joined-id' } : {}) } } });
+    saveJSON(manifestFile, { sites: {}, starting: { [route]: { title: route, github: 'owner/project', branch: 'develop', repo: clone, tickets: { source: 'github' }, ...(recorded ? { session: 'joined-id' } : {}) } } });
     const run = (args) => {
       const result = spawnSync(process.execPath, [bin, 'join', '--name', route, '--session', 'joined-id', '--port', '4613', ...args], { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
       assert.equal(result.status, 0, result.stderr);
     };
     run(['--template', 'board', '--items', 'data/items.json', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);
     const siteDir = readManifest().sites[route].dir;
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'board.json'))).tickets, { source: 'internal', prefix: 'OPS' });
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'data', 'items.json'))).items.map((i) => i.ticket), ['OPS-1', 'OPS-2']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'board.json'))).tickets, { source: 'github' });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'data', 'items.json'))).items.map((i) => [i.id, i.ticket]), [['T-1', undefined], ['T-2', undefined]]);
     assert.deepEqual(boardRepo(route), { github: 'owner/project', branch: 'develop', repo: clone });
     assert.deepEqual(Object.keys(readManifest().starting), [route], 'the joined record stays until the board listens');
     assert.ok(readManifest().starting[route].joined_at);

@@ -423,10 +423,10 @@ test("a failed start's sheet names it, shows its error or the 15-minute wait, wh
   const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&[#\w]+;/g, (e) => entities[e]).replace(/\s+/g, ' ').trim();
   const clone = '/Users/you/dev/.repos/acme/firmware';
   const failed = { route: 'firmware', title: 'Firm <ware>', repo: clone, branch: 'release/next', askedAt: ago(3), failed: true,
-    tickets: { source: 'internal', prefix: 'FW' }, error: 'claude --bg failed (1): <Not signed in>' };
+    tickets: { source: 'github' }, error: 'claude --bg failed (1): <Not signed in>' };
   const sheet = ui.failedStart(failed, { home: '/Users/you', now });
   assert.match(sheet, /<h2 id="failedStartTitle">Firm &lt;ware&gt; failed to start<\/h2>/);
-  assert.equal(text(sheet), 'Firm <ware> failed to start ✕ claude --bg failed (1): <Not signed in> Repo ~/dev/.repos/acme/firmware Branch release/next Tickets Internal · FW Asked 3 min ago Dismiss Retry');
+  assert.equal(text(sheet), 'Firm <ware> failed to start ✕ claude --bg failed (1): <Not signed in> Repo ~/dev/.repos/acme/firmware Branch release/next Tickets GitHub issues Asked 3 min ago Dismiss Retry');
   assert.match(sheet, /<button type="button" class="primary" data-failed-retry>Retry<\/button>/);
   for (const [tickets, label] of [[{ source: 'github' }, 'GitHub issues'], [{ source: 'github', account: 'octo' }, 'GitHub issues · octo'], [{ source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' }, 'Linear · ENG']]) {
     assert.ok(ui.failedStart({ ...failed, tickets }, { now }).includes(`<dt>Tickets</dt><dd>${label}</dd>`), label);
@@ -1126,7 +1126,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     [{ lane: 'done' }, 'done'],
   ]) assert.deepEqual(rows({ ...bare, ...extra }), [['Wave', 'W'], ['Status', want]], JSON.stringify(extra));
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
-  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Five', 'blocked by #80']);
+  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Task Five', 'blocked by #80']);
   assert.doesNotMatch(app.BoardUI.workLines(card), /follow-up/);
 });
 
@@ -1525,13 +1525,13 @@ const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five'
   linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, prs: [{ ...openPR, isDraft: true, status: 'draft' }], reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
-test('ticket badges use the board source, link internally or externally, and leave asks without a ticket', () => {
-  for (const [source, id, url] of [['internal', 'OPS-9', '#selectedCard=w%2FB5'], ['github', '#9', 'https://github.com/o/r/issues/9'], ['linear', 'ENG-9', 'https://linear.app/another/issue/ENG-9']]) {
+test('ticket badges use the board source, link out, and leave asks without a ticket', () => {
+  for (const [source, id, url] of [['github', '#9', 'https://github.com/o/r/issues/9'], ['linear', 'ENG-9', 'https://linear.app/another/issue/ENG-9']]) {
     const card = { ...workCard, ticket: { source, id, url } };
     const html = ui.workLines(card);
     assert.match(html, new RegExp(`>${id.replace('#', '#')}<`));
     assert.ok(html.includes(`href="${url}"`));
-    assert.equal(html.includes('target="_blank"', 0) && html.indexOf('target="_blank"') < html.indexOf('</a>'), source !== 'internal');
+    assert.ok(html.indexOf('target="_blank"') >= 0 && html.indexOf('target="_blank"') < html.indexOf('</a>'));
     assert.doesNotMatch(html, /ENG-1/);
     assert.doesNotMatch(ui.workLines({ ...card, kind: 'ask', isNew: false, ask: { askedAt: ago(1) } }), new RegExp(`>${id}<`));
   }
@@ -2712,4 +2712,15 @@ test('every status line kind takes the shared status-line class, whose rule alon
   }
   assert.match(css, /^a\.hub \{ display: inline-flex/m);
   assert.match(css, /^\.status-line \{ padding: 0 10px; margin: 4px 0; font-size: 12px;/m);
+});
+
+// docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a card with no ticket wears a quiet Task badge
+// in the ticket slot, its T-<n> only in the badge's title; a ticket replaces it.
+test('a task wears a Task badge where a ticket would be, and a ticketed card its ticket', () => {
+  const task = { ...workCard, key: 'w/T-8', id: 'T-8', ref: 'T-8', linear: [], ticket: null, pr: null, prs: [] };
+  assert.match(ui.workLines(task), /<span class="chip tone-quiet" title="T-8 · a task, no ticket">Task<\/span>/);
+  const ticketed = { ...task, ref: '#451', ticket: { id: '#451', url: 'https://github.com/o/r/issues/451', source: 'github' } };
+  assert.doesNotMatch(ui.workLines(ticketed), />Task</);
+  assert.match(ui.workLines(ticketed), />#451</);
+  assert.match(ui.workLines({ ...task, ticket: { id: 'INT-3', url: null, source: null } }), /title="INT-3 · not from this board’s ticket source">INT-3</);
 });

@@ -20,9 +20,9 @@ test('item add records creation on a card placed in Todo, and refuses a taken id
   assert.equal(summed.code, 2);
   assert.match(summed.err, /item add does not take --summary/);
   assert.equal(board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'Two', '--notes', 'Why').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', lane: 'todo', phase: 'grilling', ticket: 'INT-1', plan: 'b2-notes.md' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', lane: 'todo', phase: 'grilling', plan: 'b2-notes.md' });
   assert.equal(board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'Three', '--deps', 'A1,B2').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', lane: 'todo', deps: ['A1', 'B2'], phase: 'grilling', ticket: 'INT-2', plan: 'c3-notes.md' });
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', lane: 'todo', deps: ['A1', 'B2'], phase: 'grilling', plan: 'c3-notes.md' });
   const taken = board('item', 'add', 'w/A1', '--phase', 'grilling', '--site', 'orch', '--title', 'Again');
   assert.equal(taken.code, 1);
   assert.match(taken.err, /already has an item "A1"/);
@@ -31,7 +31,7 @@ test('item add records creation on a card placed in Todo, and refuses a taken id
   assert.match(dep.err, /no item "Z9"/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 4);
   assert.equal(board('item', 'add', 'audit/E5', '--phase', 'grilling', '--site', 'audit', '--title', 'Five').code, 0);
-  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'items.json')).items.at(-1)), { id: 'E5', title: 'Five', lane: 'todo', phase: 'grilling', ticket: 'INT-1', plan: 'e5-notes.md' });
+  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'items.json')).items.at(-1)), { id: 'E5', title: 'Five', lane: 'todo', phase: 'grilling', plan: 'e5-notes.md' });
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].created, undefined);
 });
 
@@ -88,9 +88,8 @@ test('item set edits the item in a waves board and in a file board', () => {
   }
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e9', '--phase', 'ready', '--text', 'On it.').code, 1);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--text', 'On it.').code, 0);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, 'INT-1');
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, undefined);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'e1', '--text', 'On it.').code, 0);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].ticket, 'INT-1');
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, 'e1');
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--next', '').code, 0);
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items[0].lane, 'next' in read(at('waves', 'w', 'wave.json')).items[0]], ['done', false]);

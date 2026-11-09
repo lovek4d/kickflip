@@ -58,17 +58,15 @@ const STALE_AFTER = 7 * DAY;
 
 // board/public/ui-links.js links Linear ids in text from these urls, so a board with no workspace links none.
 const linearRef = (id, tickets) => ({ id, url: tickets?.workspace ? `https://linear.app/${tickets.workspace}/issue/${id}` : null });
-// Internal items keep their stored ids, which key threads, builder records and events; S<n> reads <prefix>-<n>, INT
-// without an internal ticket source. Other ids read as stored, so a changed prefix never relabels them.
-const internalRef = (id, prefix) => String(id).replace(/^S(\d+)$/, `${prefix || 'INT'}-$1`);
-// A card reads as its ticket when the ticket is from the board's source (#n, TEAM-n or PREFIX-n), else by its id;
-// its key keeps the stored id (docs/adr/2026-11-02-2100-a-card-is-named-by-its-boards-ticket-source.md).
+// Internal items keep their stored ids, which key threads, builder records and events; S<n> reads INT-<n>.
+const internalRef = (id) => String(id).replace(/^S(\d+)$/, 'INT-$1');
+// A card reads as its ticket when the ticket is from the board's source (#n or TEAM-n), else by its id, T-<n> for a
+// task; its key keeps the stored id (docs/adr/2026-11-02-2100-a-card-is-named-by-its-boards-ticket-source.md).
 export const refOf = (itemFile, item, tickets) => (ticketIn(tickets, item.ticket) ? item.ticket
-  : itemFile.internal === true ? internalRef(item.id, tickets?.prefix) : item.id);
-// A board without a source reads stored tickets as Internal · INT. A stored ticket from another source keeps its own
-// id, unlinked (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md).
-const ticketOf = (tickets, stored, id, at) => ticketBadge(tickets || (stored ? { source: 'internal', prefix: 'INT' } : null), id, at)
-  || (stored ? { id: String(stored), url: null, source: null } : null);
+  : itemFile.internal === true ? internalRef(item.id) : item.id);
+// A stored ticket from another source, an INT-<n> from the retired Internal source included, keeps its own id, unlinked
+// (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md).
+const ticketOf = (tickets, stored, at) => ticketBadge(tickets, stored, at) || (stored ? { id: String(stored), url: null, source: null } : null);
 
 // The lane before owner waits are placed: In Progress while Claude acts next, In Review while the reviewers do, or
 // while a pushed branch waits on the owner's merge (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
@@ -299,9 +297,9 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     landStopped: lane === 'review' && mergeReady && it.merge_ready.stopped && String(it.merge_ready.stopped) > String(it.merge_ready.tapped || '')
       ? { words: stoppedWords('land'), at: it.merge_ready.stopped } : null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
-      : ticketOf(tickets, it.ticket, it.ticket || (itemFile.internal ? refOf(itemFile, it, tickets) : it.linear?.[0]), { repo, key }),
+      : ticketOf(tickets, it.ticket, { repo }),
     ticketSource: tickets?.source || null,
-    linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { key, repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
+    linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
     pr: views[least] || null, prs: views,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr || prs[least]?.kept, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,

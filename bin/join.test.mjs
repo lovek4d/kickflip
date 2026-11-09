@@ -239,10 +239,10 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'items.json'), 'utf8'));
   assert.equal(wave.title, 'My app');
   assert.deepEqual(wave.items.map((i) => [i.id, i.phase, i.ticket, i.plan]), [
-    ['onboard-build', 'grilling', 'INT-1', 'onboard-build-notes.md'],
-    ['onboard-context', 'grilling', 'INT-2', 'onboard-context-notes.md'],
+    ['T-1', 'grilling', undefined, 'T-1-notes.md'],
+    ['T-2', 'grilling', undefined, 'T-2-notes.md'],
   ]);
-  assert.match(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'onboard-build-notes.md'), 'utf8'), /^# Prepare \.kickflip\/build/);
+  assert.match(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'T-1-notes.md'), 'utf8'), /^# Prepare \.kickflip\/build/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(claudeConfig, '.claude.json'), 'utf8')), { theme: 'dark', projects: { [repo]: { hasTrustDialogAccepted: true } } });
   assert.equal(r.stdout, `Made My app at https://mac.tail.ts.net/my-app/, working in ${repo} (owner/my-app).\nIts session is starting in the background, and joins the board shortly.\n`);
 
@@ -267,8 +267,8 @@ test('a board for a repo whose main already has a build script starts without th
   const r = await cliIn(repo, ['join', '--name', 'Built app']);
   assert.equal(r.status, 0, r.stderr);
   const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'items.json'), 'utf8'));
-  assert.deepEqual(wave.items.map((i) => [i.id, i.ticket]), [['onboard-context', 'INT-1']]);
-  assert.equal(fs.existsSync(path.join(state, 'sites', 'built-app', 'data', 'onboard-build-notes.md')), false);
+  assert.deepEqual(wave.items.map((i) => [i.id, i.ticket]), [['T-1', undefined]]);
+  assert.match(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'T-1-notes.md'), 'utf8'), /^# Write CONTEXT\.md/);
 });
 
 test("kickflip join records origin's default branch over the checked-out one, and running it again picks up a renamed default", async () => {

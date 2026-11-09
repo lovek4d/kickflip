@@ -13,7 +13,7 @@ import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builder
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { ticketSource, ticketIn, resolveTicket, ticketTarget, moveTicket, titleTickets, cardIdOf } from './tickets.mjs';
+import { ticketSource, resolveTicket, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
@@ -1036,11 +1036,12 @@ export async function saveBoardSettings(site, changes) {
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
     if (k === 'tickets') {
-      try { changes.tickets = ticketSource(v); } catch (e) { fail(e.message); }
-      if (changes.tickets.source === 'linear' && !linearWorks()) fail(LINEAR_NEEDS_KEY);
+      // None is stored as no tickets key (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md).
+      try { changes.tickets = ticketSource(v) ?? undefined; } catch (e) { fail(e.message); }
+      if (changes.tickets?.source === 'linear' && !linearWorks()) fail(LINEAR_NEEDS_KEY);
       // Issues need a repo on GitHub, as Board Settings' Tickets row shows (dialogs.js ticketsControl).
-      const board = changes.tickets.source === 'github' && site ? listBoards().find((b) => samePath(b.dir, site)) : null;
-      if (board && !board.github) fail('GitHub issues need the board’s repo on GitHub, and this board’s repo isn’t; pick internal or linear');
+      const board = changes.tickets?.source === 'github' && site ? listBoards().find((b) => samePath(b.dir, site)) : null;
+      if (board && !board.github) fail('GitHub issues need the board’s repo on GitHub, and this board’s repo isn’t; pick none or linear');
     }
     else if (k === 'github_login') {
       if (v === '' || v === null) changes.github_login = undefined;
@@ -1063,7 +1064,7 @@ export async function saveBoardSettings(site, changes) {
     return { set: changes, settings, changed: Object.keys(changes).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(settings[k])) };
   });
 }
-// Once Hub has no Linear key, each board in the manifest on Linear falls back to internal tickets, and its session
+// Once Hub has no Linear key, each board in the manifest on Linear falls back to no ticket source, and its session
 // hears of it as any source change, by a settings event. Its old cards keep their Linear tickets. Run by the hub as it
 // starts and when Hub settings removes the key
 // (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md). → one line per board moved
@@ -1072,9 +1073,9 @@ export async function fallBackFromLinear() {
   const lines = [];
   for (const board of listBoards()) {
     if ((await readBoardSettings(board.dir)).tickets?.source !== 'linear') continue;
-    const { settings } = await saveBoardSettings(board.dir, { tickets: { source: 'internal' } });
-    await appendEvent(board, 'settings', { tickets: settings.tickets });
-    lines.push(`/${board.route} fell back to internal tickets: Hub has no Linear key`);
+    await saveBoardSettings(board.dir, { tickets: { source: 'none' } });
+    await appendEvent(board, 'settings', { tickets: null });
+    lines.push(`/${board.route} fell back to no ticket source: Hub has no Linear key`);
   }
   return lines;
 }
@@ -1105,7 +1106,7 @@ export async function setBoardSetting(site, name, value) {
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v) : k === 'github_login' || CAPS.includes(k) ? v : k === 'build_target' ? v || 'default' : v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || CAPS.includes(k) ? v : k === 'build_target' ? v || 'default' : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {
@@ -1323,7 +1324,7 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
-    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested', 'prototype_gate'], name);
+    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested', 'prototype_gate', 'ticket_gate'], name);
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
@@ -1338,7 +1339,8 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
-    optional(q.prototype_gate, (v) => checkGate(v, q, name));
+    optional(q.prototype_gate, (v) => checkGate(v, q, `${name}.prototype_gate`));
+    if (q.ticket_gate !== undefined && checkGate(q.ticket_gate, q, `${name}.ticket_gate`)) await checkTicketGate(site, q, name);
     optional(q.suggested, (v) => checkSuggested(v, q.options, `${name}.suggested`));
     await checkPrototype(site, q, name);
     if (q.ask !== undefined) await checkAskQuestion(site, q, name);
@@ -1422,6 +1424,7 @@ export async function settleQuestion(site, id, note) {
   if (!screening[key]) fail(`${id} waits for ${key}'s planner to finish`);
   const q = staged[key].find((x) => x.id === id);
   if (q.prototype_gate) fail(`${id} is the card's prototype question, which is the owner's; question publish ${key} passes it on`);
+  if (q.ticket_gate) fail(`${id} is the card's ticket question, which is the owner's; question publish ${key} passes it on`);
   const at = new Date().toISOString();
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...(owner.items || []), { ...q, asked_at: at, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at }] });
@@ -1488,23 +1491,48 @@ async function publishQuestions(site, owner, items, questions, lines) {
 }
 
 // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
-// prototype_gate: true marks a card's "Prototype round first?" question: options yes and no, on the card's own topic.
-function checkGate(flag, q, name) {
-  bool(flag, `${name}.prototype_gate`);
-  if (!flag) return;
-  if (!q.topic.startsWith('item:') || q.topic.startsWith('item:ask:')) fail(`${name}.prototype_gate goes on a card's topic, item:<file>/<id>`);
-  if (q.options?.map((o) => o.id).join() !== 'yes,no') fail(`${name}.prototype_gate takes exactly the options yes and no, in that order`);
+// prototype_gate: true marks a card's "Prototype round first?" question, ticket_gate: true a task's "Create a ticket
+// for this task?" (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md): options yes and no, on the
+// card's own topic. field names the flag. → the flag
+function checkGate(flag, q, field) {
+  bool(flag, field);
+  if (!flag) return false;
+  if (!q.topic.startsWith('item:') || q.topic.startsWith('item:ask:')) fail(`${field} goes on a card's topic, item:<file>/<id>`);
+  if (q.options?.map((o) => o.id).join() !== 'yes,no') fail(`${field} takes exactly the options yes and no, in that order`);
+  return true;
+}
+// A ticket question asks of a task, a card with no ticket, on a board with a source to make one in.
+async function checkTicketGate(site, q, name) {
+  const key = q.topic.slice(5);
+  const { item } = await loadItem(site, key);
+  if (item.ticket) fail(`${name}.ticket_gate: ${key} already has ticket ${item.ticket}`);
+  if (!(await boardSource(site))) fail(`${name}.ticket_gate needs a board with a ticket source; with none every card stays a task`);
 }
 
 // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md,
 // docs/adr/2026-11-07-0700-staging-then-ready.md, docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
 // The owner's Send acted on with no orchestrator step. A prototype_gate question resolves; answered yes while another
-// of its card's questions is open, a thread line says the card waits for them. Every answer on a card goes into the
-// card's notes verbatim, and the card then moves on once nothing is left open (moveOnAnswered).
+// of its card's questions is open, a thread line says the card waits for them. A ticket_gate question resolves, and on
+// yes the board makes the card's ticket at once, from its title and notes, whatever else is open; options go to the
+// source (assignTicket). Every answer on a card goes into the card's notes verbatim, and the card then moves on once
+// nothing is left open (moveOnAnswered).
 // → {prototype: [keys], staged: [keys]}: the cards whose prototype planner the server starts, and the cards staged.
-export async function settleAnswers(site, answers) {
+export async function settleAnswers(site, answers, options) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const asked = new Map((owner.items || []).map((q) => [q.id, q]));
+  for (const a of answers) {
+    const q = asked.get(String(a.id));
+    if (!q?.ticket_gate || !['yes', 'no'].includes(a.choice)) continue;
+    setResolved(owner, [q.id], `Ticket: ${a.choice}.${a.choice === 'yes' ? ' The board makes it from the card\'s title and notes.' : ''}`);
+    await writeJSON(ownerFile(site), owner);
+    const key = q.topic.slice(5);
+    if (a.choice === 'yes') {
+      await followUp(site, key, 'making its ticket', async () => {
+        await setItem(site, key, { newTicket: true }, options);
+        await appendStatus(site, key, 'ticket-made', { ticket: (await loadItem(site, key)).item.ticket });
+      });
+    }
+  }
   for (const a of answers) {
     const q = asked.get(String(a.id));
     if (!q?.prototype_gate || !['yes', 'no'].includes(a.choice)) continue;
@@ -2136,7 +2164,7 @@ async function checkNextDeps(site, key, item, next) {
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // Ready means a builder can start from the card alone: it has a size, a notes file, and that file names the id of every
-// question on the card the owner answered, bar a prototype_gate answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+// question on the card the owner answered, bar a prototype_gate or ticket_gate answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
 const NOTES_COMMAND = (key) => `item notes ${key} --heading "<heading>" --file <draft.md>`;
 function checkSizeAndNotes(key, item) {
   const starts = 'a builder starts from it, so pass';
@@ -2146,7 +2174,7 @@ function checkSizeAndNotes(key, item) {
 async function checkNotesComplete(site, key, dir, item) {
   checkSizeAndNotes(key, item);
   const notes = await fs.readFile(await planPath(dir, item.plan), 'utf8');
-  const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id) && !(q.prototype_gate && !q.answers.at(-1).note)).map((q) => q.id);
+  const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id) && !((q.prototype_gate || q.ticket_gate) && !q.answers.at(-1).note)).map((q) => q.id);
   if (left.length) fail(`${key}'s notes leave out the answered question${left.length === 1 ? '' : 's'} ${left.join(', ')}; record each answer in its notes, naming its id, with ${NOTES_COMMAND(key)} before it is ready`);
 }
 
@@ -2234,7 +2262,7 @@ function markMerged(item, merged, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, done, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check }, options) {
+async function changeItem(site, key, { ticket, newTicket, status, clearStatus, done, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -2250,7 +2278,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
   const hold = holdOf({ held, unheld, pickUpAt });
   const built = installOf({ install, installSha, installLabel, clearInstall });
-  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket or --check');
+  if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: filing a Quick build ask is the orchestrator's
@@ -2384,7 +2412,8 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   else if (handover && item.lane !== 'done') {
     moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
   } else if (start && !closed(item)) moveTo('progress', 'a build started');
-  if (ticket !== undefined || (ask && !item.ticket && !item.linear?.length)) await assignTicket(site, key, itemFile, item, ticket, options, source.dir);
+  if (newTicket && item.ticket) fail(`${key} already has ticket ${item.ticket}`);
+  if (ticket !== undefined || newTicket) await assignTicket(site, itemFile, item, ticket, options, source.dir);
   await writeJSON(source.file, itemFile);
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
@@ -2777,52 +2806,50 @@ export async function builderModel(site, key) {
   return records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0]?.model;
 }
 
-// Sets item.ticket from the board's source, and ticket_created when kickflip made it. self is the card's <file>/<id>:
-// an Internal ticket another card holds is refused. Every path that makes a card comes through here
+// Links ticket, or makes one from the card's title and body (its notes file, else body), in the board's source, setting
+// item.ticket, and ticket_created when kickflip made it. A board with no source has no tickets, so its cards stay tasks
+// (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md). The one way a ticket is made or linked
 // (board/ticket-paths.test.mjs).
-async function assignTicket(site, self, itemFile, item, ticket, options, dir, body) {
+async function assignTicket(site, itemFile, item, ticket, options, dir, body) {
+  const source = (await boardSource(site)) || fail(NO_SOURCE);
   try {
-    const cfg = await boardConfig(site);
-    const source = ticketSource(cfg.tickets || { source: 'internal' });
-    const ownId = (w, it) => (w.internal === true ? String(it.id).replace(/^S(\d+)$/, `${source.prefix}-$1`) : null);
-    if (ticket === undefined && source.source === 'internal' && ticketIn(source, ownId(itemFile, item))) ticket = ownId(itemFile, item);
-    let max = 0;
-    if (source.source === 'internal') {
-      for (const entry of await itemSources(site)) {
-        const w = await readJSON(entry.file, {});
-        for (const it of w.items || []) {
-          const ids = [it.ticket, ownId(w, it)];
-          max = Math.max(max, ...ids.map((id) => ticketIn(source, id) || 0));
-          if (ticket !== undefined && `${entry.slug}/${it.id}` !== self && ids.includes(ticket)) throw Object.assign(new BoardError(`${ticket} is already the ticket of ${entry.slug}/${it.id}`), { held: true });
-        }
-      }
-    }
-    body ??= ticket === undefined && source.source !== 'internal' && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
-    const r = await resolveTicket(source, { ticket, title: item.title, body, repo: boardRepoOf(site, itemFile), next: max + 1 }, options);
+    body ??= ticket === undefined && item.plan ? await fs.readFile(await planPath(dir, item.plan), 'utf8') : item.notes || '';
+    const r = await resolveTicket(source, { ticket, title: item.title, body, repo: boardRepoOf(site, itemFile) }, options);
     item.ticket = r.ticket;
-    if (r.created && source.source !== 'internal') item.ticket_created = true; else delete item.ticket_created;
+    if (r.created) item.ticket_created = true; else delete item.ticket_created;
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
+}
+const NO_SOURCE = 'this board has no ticket source, so its cards stay tasks; pick GitHub issues or Linear in Board settings first';
+// The next task's id, T-<n> past the highest on the board, its Done archive included, so a key is never reused. Run under
+// the tickets lock (ticketWrite).
+async function nextTaskId(site) {
+  const ids = [];
+  for (const entry of await itemSources(site)) ids.push(...((await readJSON(entry.file, {})).items || []).map((it) => it.id));
+  if (site) ids.push(...(await readArchive(site)).map((a) => a.item?.id));
+  return `T-${Math.max(0, ...ids.map((id) => Number(/^T-([1-9]\d*)$/.exec(String(id))?.[1] || 0))) + 1}`;
 }
 
 const ticketWrite = (site, fn) => withFileLock(path.join(site || wavesDir(), 'tickets'), fn, { heartbeat: true });
-export const setItem = (site, key, changes, options) => (changes.ticket !== undefined || changes.fromAsk !== undefined
+export const setItem = (site, key, changes, options) => (changes.ticket !== undefined || changes.newTicket
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 
-// → {file, key}. A new card starts in Todo, placed as it is made. key is <file>/<id>, or <file>
-// alone, which names the card from the ticket made or linked for it. parent is the card it was spun out of
+// → {file, key}. A new card starts in Todo, placed as it is made, as a task with no ticket unless ticket links one or
+// newTicket makes one (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md). key is <file>/<id>, or
+// <file> alone, which names the card from its ticket, or T-<n> for a task. parent is the card it was spun out of
 // (docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md).
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: phase files the card at once, with
 // relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
 // is required, so no card an agent adds reads New; once filed it arrives in Todo and gets its grill
 // (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is held or ready.
-async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pickUpAt, held, parent, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
+async function createItem(site, key, { title, notes, notesFrom, deps, ticket, newTicket, pickUpAt, held, parent, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
   checkPhase(phase, state);
   if (said !== undefined) text(said, '--text');
   if (said !== undefined && fromAsk === undefined) fail('--text goes with --from-ask');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
+  if (ticket !== undefined && newTicket) fail('pass --ticket <id> to link a ticket or --new-ticket to make one, not both');
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
@@ -2854,11 +2881,11 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (ask) item.from_ask = ask;
   if (phase !== undefined) item.phase = phase;
-  await assignTicket(site, key, itemFile, item, ticket, options, source.dir, body);
-  if (id === undefined) {
+  if (ticket !== undefined || newTicket) await assignTicket(site, itemFile, item, ticket, options, source.dir, body);
+  if (id === undefined && item.ticket) {
     item.id = cardIdOf(item.ticket);
     if (itemFile.items.some((it) => it.id === item.id)) fail(`item file "${slug}" already has an item "${item.id}"; link ${item.ticket} with item add ${slug}/<id> --ticket ${item.ticket}`);
-  }
+  } else if (id === undefined) item.id = await nextTaskId(site);
   item.plan = freeNotesName(source.dir, item.id);
   await writeNotesFile(path.join(source.dir, item.plan), seed);
   const added = `${slug}/${item.id}`;
@@ -2872,57 +2899,6 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   }
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added));
   return { file: source.file, key: added, lines: [] };
-}
-
-// `tickets backfill`: each open card with no ticket links the first id in its title, or in its legacy
-// `linear` list, that belongs to the board's source, else gets a new ticket. An internal item file's card whose ticket is
-// its own id has none outside the board, so under GitHub or Linear it gets one too. An Internal id another card holds is only
-// a mention, so that card gets a new one. Done cards are left alone. dryRun writes nothing and calls no source.
-// → {file, lines}: one line per card, then a count.
-export const backfillTickets = (site, { dryRun = false } = {}, options) => ticketWrite(needSite(site), () => backfill(site, dryRun, options));
-async function backfill(site, dryRun, options) {
-  const source = (await boardSource(site)) || fail('this board has no ticket source yet; pick one in Board settings first');
-  const held = new Set();
-  const files = [];
-  for (const entry of await itemSources(site)) {
-    const itemFile = await readJSON(entry.file, null);
-    if (!Array.isArray(itemFile?.items)) continue;
-    files.push({ entry, itemFile });
-    for (const it of itemFile.items) {
-      if (it.ticket) held.add(it.ticket);
-      if (itemFile.internal === true && source.source === 'internal') held.add(String(it.id).replace(/^S(\d+)$/, `${source.prefix}-$1`));
-    }
-  }
-  const lines = [];
-  const counts = { linked: 0, created: 0, failed: 0 };
-  const ticketed = (itemFile, it) => it.ticket && !(source.source !== 'internal' && itemFile.internal === true && it.ticket === it.id);
-  for (const { entry, itemFile } of files) {
-    for (const it of itemFile.items) {
-      if (ticketed(itemFile, it) || closed(it)) continue;
-      const key = `${entry.slug}/${it.id}`;
-      const found = [...titleTickets(source, it.title), ...(it.linear || []).filter((id) => ticketIn(source, id))]
-        .find((id) => source.source !== 'internal' || !held.has(id));
-      if (dryRun) {
-        counts[found ? 'linked' : 'created']++;
-        lines.push(`${key} would ${found ? `link ${found}` : 'get a new ticket'}`);
-        continue;
-      }
-      try {
-        await assignTicket(site, key, itemFile, it, found, options, entry.dir);
-        await writeJSON(entry.file, itemFile);
-        held.add(it.ticket);
-        counts[found ? 'linked' : 'created']++;
-        lines.push(`${key} ${found ? 'linked' : 'created'} ${it.ticket}`);
-      } catch (e) {
-        if (!(e instanceof BoardError)) throw e;
-        counts.failed++;
-        lines.push(`${key} failed: ${e.message}`);
-      }
-    }
-  }
-  const total = dryRun ? `would link ${counts.linked}, create ${counts.created}`
-    : `linked ${counts.linked}, created ${counts.created}, failed ${counts.failed}`;
-  return { lines: [...lines, `backfill${dryRun ? ' (dry run)' : ''}: ${total}`] };
 }
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
@@ -4218,7 +4194,7 @@ export async function briefFacts(site, key) {
   const said = (q, a) => [(q.options || []).find((o) => o.id === a.choice)?.label, a.note].filter(Boolean).join(': ') || 'answered';
   const answers = (await cardQuestions(site, key)).asked.filter((q) => q.ask && q.answers.length).map((q) => ({ ask: q.ask, question: q.question, answer: said(q, q.answers.at(-1)) }));
   return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, thread: threadFile(site, key), worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key),
-    rebasePR: item.rebase_run?.pr ?? null };
+    rebasePR: item.rebase_run?.pr ?? null, ticketQuestion: !item.ticket && Boolean(await boardSource(site)) };
 }
 
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md

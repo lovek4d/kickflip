@@ -2055,19 +2055,16 @@ test('New board chooses a searchable repo before board details, defaults its bra
     page.fire(form, 'input', { target: field('name') });
     page.fire(form, 'input', { target: field('purpose') });
     const control = sheet.querySelector('[data-board-tickets]');
-    assert.equal(control.querySelector('[data-tk="prefix"]').value, 'INT');
-    const prefix = control.querySelector('[data-tk="prefix"]');
-    prefix.value = 'A1'; page.fire(control, 'input', { target: prefix });
-    assert.equal(start.disabled, true);
-    prefix.value = ''; page.fire(control, 'input', { target: prefix });
-    assert.equal(start.disabled, false);
     const pressed = () => control.querySelector('[aria-pressed="true"]').dataset.tkSource;
+    assert.equal(pressed(), 'none');
+    assert.match(control.textContent, /Every card is a task, numbered T-1, T-2… on this board, with no ticket/);
+    assert.equal(start.disabled, false);
     page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
     await tick(); await tick();
     const keyModal = doc.getElementById('linearKeyModal');
     assert.equal(keyModal.open, true);
     assert.equal(sheet.open, true);
-    assert.equal(pressed(), 'internal');
+    assert.equal(pressed(), 'none');
     page.fire(keyModal.querySelector('.setting-content'), 'paste', { target: keyModal.querySelector('#linearKey'), clipboardData: { getData: () => 'lin_api_new' } });
     await tick(); await tick(); await tick();
     assert.deepEqual(keyPosts, ['key=lin_api_new']);
@@ -2076,7 +2073,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.deepEqual([control.querySelector('[data-tk="team"]').value, control.querySelector('[data-tk="project"]').value, control.querySelector('[data-tk="newName"]').value], ['ENG', '__new', 'Backend audit']);
     assert.equal(control.querySelector('[data-tk="workspaceText"]'), null);
     assert.equal(start.disabled, false);
-    page.fire(control, 'click', { target: control.querySelector(`[data-tk-source="${wide ? 'internal' : 'github'}"]`) });
+    page.fire(control, 'click', { target: control.querySelector(`[data-tk-source="${wide ? 'none' : 'github'}"]`) });
     if (!wide) assert.match(control.textContent, /Issues in owner\/project/);
     field('branch').value = 'release/next';
     page.fire(form, 'change', { target: field('branch') });
@@ -2091,12 +2088,12 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.equal(posted.length, 2);
     finish();
     await tick();
-    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes', tickets: wide ? { source: 'internal', prefix: 'INT' } : { source: 'github' } }, 'application/json']);
+    assert.deepEqual(posted.at(-1), ['/_hub/new-board', 'POST', { name: 'Backend audit', github: 'owner/project', branch: 'release/next', purpose: 'Review changes', tickets: wide ? { source: 'none' } : { source: 'github' } }, 'application/json']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
     assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Backend audit.*cloning \(0%\) · 0s/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
     assert.equal(aside.classList.contains('open'), !wide);
-    const failed = { route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, branch: 'release/next', tickets: { source: 'internal', prefix: 'INT' }, askedAt: new Date().toISOString(), failed: true, error: 'claude --bg failed (1): Not logged in' };
+    const failed = { route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, branch: 'release/next', tickets: { source: 'linear', team: 'ENG' }, askedAt: new Date().toISOString(), failed: true, error: 'claude --bg failed (1): Not logged in' };
     data = { ...data, starting: [failed] };
     win.Sidebar.mount({ data });
     const failedRow = () => aside.querySelector('[data-failed-start="backend-audit"]');
@@ -2105,7 +2102,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     let failedSheet = openFailed();
     assert.equal(failedSheet.open, true);
     assert.equal(failedSheet.querySelector('h2').textContent, 'Backend audit failed to start');
-    assert.match(failedSheet.textContent, /Not logged in.*Branch\s*release\/next.*Tickets\s*Internal · INT/s);
+    assert.match(failedSheet.textContent, /Not logged in.*Branch\s*release\/next.*Tickets\s*Linear · ENG/s);
     const tapSheet = (sel) => page.fire(failedSheet, 'click', { target: failedSheet.querySelector(sel) });
     tapSheet('[data-failed-retry]');
     const sheetButton = (sel) => failedSheet.querySelector(sel);
@@ -2207,7 +2204,7 @@ test('pasted unlisted repos use the normal branch and save steps in New board an
     assert.equal(sheet.querySelector('[type="submit"]').disabled, false);
     page.fire(form, 'submit');
     await tick();
-    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: '', tickets: { source: 'internal', prefix: 'INT' } }]);
+    assert.deepEqual(saved, [current ? { github: 'outside/project', branch: 'canary' } : { github: 'outside/project', branch: 'canary', name: 'project', purpose: '', tickets: { source: 'none' } }]);
     assert.deepEqual(urls, ['/_hub/repos', '/_hub/repo?github=outside%2Fproject', '/_hub/branches?github=outside%2Fproject']);
     assert.equal(doc.getElementById('newBoardSheet'), null);
   }
@@ -2295,7 +2292,7 @@ test('a pasted git link on another host picks its host-labelled row, lists branc
   assert.match(sheet.querySelector('[data-board-tickets] [role="status"]').textContent, /GitHub issues need a repo on GitHub, and the repo chosen above isn’t on GitHub/);
   page.fire(form, 'submit');
   await tick();
-  assert.deepEqual(saved, [{ name: 'firmware', purpose: '', remote: link, branch: 'main', tickets: { source: 'internal', prefix: 'INT' } }]);
+  assert.deepEqual(saved, [{ name: 'firmware', purpose: '', remote: link, branch: 'main', tickets: { source: 'none' } }]);
   assert.deepEqual(urls, ['/_hub/repos', `/_hub/repo?remote=${encodeURIComponent(link)}`, `/_hub/branches?remote=${encodeURIComponent(link)}`]);
 });
 
@@ -2392,38 +2389,31 @@ test('Board Settings saves each Tickets change at once, shows the source and Hub
   assert.match(control.textContent, /opens an issue there as gh account lovek4d/);
   await tick();
   assert.equal(control.querySelector('[data-tk-status]').textContent, 'github · Linear refused the key');
-  page.fire(control, 'click', { target: control.querySelector('[data-tk-source="internal"]') }); await tick();
-  assert.deepEqual(posts.at(-1), { tickets: { source: 'internal', prefix: 'INT' } });
-  assert.equal(status.textContent, 'Saved');
-  const prefix = control.querySelector('[data-tk="prefix"]');
-  prefix.value = 'I'; page.fire(control, 'input', { target: prefix }); page.fire(control, 'change', { target: prefix }); await tick();
-  assert.equal(posts.length, 1);
-  assert.equal(form.hasAttribute('data-dirty'), true);
-  prefix.value = 'ops'; page.fire(control, 'input', { target: prefix }); await tick();
-  assert.equal(prefix.value, 'OPS');
-  assert.equal(posts.length, 1);
-  refuse = true; page.fire(control, 'change', { target: prefix }); await tick();
+  refuse = true; page.fire(control, 'click', { target: control.querySelector('[data-tk-source="none"]') }); await tick();
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'none' } });
   assert.equal(status.textContent, 'Try again.');
   assert.equal(form.hasAttribute('data-dirty'), true);
   refuse = false; page.fire(form, 'submit'); await tick();
-  assert.deepEqual(posts.at(-1), { tickets: { source: 'internal', prefix: 'OPS' } });
+  assert.deepEqual(posts.at(-1), { tickets: { source: 'none' } });
+  assert.equal(status.textContent, 'Saved');
   assert.equal(form.hasAttribute('data-dirty'), false);
+  assert.match(control.textContent, /Every card is a task/);
 
   const word = () => control.querySelector('[data-tk-status]').textContent;
-  assert.equal(word(), 'internal · Linear refused the key');
+  assert.equal(word(), 'none · Linear refused the key');
   assert.equal(root.querySelector('#ticketsKey'), null);
   await tapLinear();
   let keyModal = doc.getElementById('linearKeyModal');
   assert.equal(keyModal.open, true);
   assert.equal(modal.open, true);
-  assert.equal(pressed(), 'internal');
+  assert.equal(pressed(), 'none');
   assert.match(keyModal.textContent, /doesn’t work · Linear refused the key|Linear refused the key/);
   assert.equal(keyModal.querySelector(`a[href="${KEYS.url}"]`).textContent, KEYS.label);
   page.fire(keyModal, 'click', { target: keyModal.querySelector('.settings-footer [data-lk-done]') }); await tick();
   assert.equal(doc.getElementById('linearKeyModal'), null);
   assert.equal(modal.open, true);
-  assert.equal(pressed(), 'internal');
-  assert.equal(posts.length, 3);
+  assert.equal(pressed(), 'none');
+  assert.equal(posts.length, 2);
 
   await tapLinear();
   keyModal = doc.getElementById('linearKeyModal');
@@ -2431,7 +2421,7 @@ test('Board Settings saves each Tickets change at once, shows the source and Hub
   page.fire(keyModal.querySelector('.setting-content'), 'paste', { target: keyModal.querySelector('#linearKey'), clipboardData: { getData: () => ' lin_api_new ' } });
   assert.deepEqual(keyPosts, ['key=lin_api_new']);
   assert.match(keyModal.textContent, /Checking the key with Linear…/);
-  assert.deepEqual([keyModal.querySelector('.settings-footer [data-lk-done]').getAttribute('aria-busy'), pressed()], ['true', 'internal']);
+  assert.deepEqual([keyModal.querySelector('.settings-footer [data-lk-done]').getAttribute('aria-busy'), pressed()], ['true', 'none']);
   hold.resolve(); hold = null;
   await tick(); await tick(); await tick();
   assert.equal(doc.getElementById('linearKeyModal'), null);
@@ -2491,10 +2481,10 @@ test("Board Settings' Tickets source row reads its live state as a status word, 
   const page = repoPage(true);
   const words = [];
   for (const [value, key, word] of [
-    [{ source: 'internal', prefix: 'INT' }, { set: false }, 'internal · no Linear key'],
-    [{ source: 'internal', prefix: 'OPS' }, { set: true }, 'internal · linear key saved'],
+    [{ source: 'none' }, { set: false }, 'none · no Linear key'],
+    [{ source: 'none' }, { set: true }, 'none · linear key saved'],
     [{ source: 'github' }, { set: false }, 'github · no Linear key'],
-    [{ source: 'internal', prefix: 'INT' }, { set: true, refused: true }, 'internal · Linear refused the key'],
+    [{ source: 'none' }, { set: true, refused: true }, 'none · Linear refused the key'],
   ]) {
     const root = page.doc.body.appendChild(new page.Element('div'));
     const control = page.win.BoardDialogs.ticketsControl(root, { value, repo: () => 'o/r', keyState: async () => key, loadLinear: async () => ({ set: false }) });
@@ -2507,7 +2497,7 @@ test("Board Settings' Tickets source row reads its live state as a status word, 
   }
   assert.deepEqual(words.map(([, role, on]) => [role, on]), Array(4).fill(['status', false]));
   const plain = page.doc.body.appendChild(new page.Element('div'));
-  page.win.BoardDialogs.ticketsControl(plain, { value: { source: 'internal', prefix: 'INT' } }).destroy();
+  page.win.BoardDialogs.ticketsControl(plain, { value: { source: 'none' } }).destroy();
   assert.equal(plain.querySelector('[data-tk-status]'), null);
 });
 
@@ -2516,7 +2506,7 @@ test("Board Settings' Tickets control loads Linear once it is the source and cre
   const root = page.doc.body.appendChild(new page.Element('div'));
   const loads = [], made = [], changes = [];
   let refuse = true;
-  const control = page.win.BoardDialogs.ticketsControl(root, { value: { source: 'internal', prefix: 'INT' }, title: () => 'Audit',
+  const control = page.win.BoardDialogs.ticketsControl(root, { value: { source: 'none' }, title: () => 'Audit',
     loadLinear: async () => { loads.push(1); return { set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'ENG', name: 'Engineering' }, { key: 'OPS', name: 'Ops' }], projects: [{ team: 'ENG', id: 'p1', name: 'Existing' }] }; },
     createProject: async (team, projectName) => { if (refuse) throw new Error('Linear: name taken'); made.push([team, projectName]); return { id: 'p2', name: projectName, team }; },
     change: (value, valid) => changes.push([value, valid]) });
@@ -2525,7 +2515,7 @@ test("Board Settings' Tickets control loads Linear once it is the source and cre
   assert.match(root.textContent, /Loading Linear/);
   await tick();
   assert.equal(loads.length, 1);
-  assert.match(root.textContent, /A new card gets a ENG issue in Existing, in the Acme workspace/);
+  assert.match(root.textContent, /A task gets a ENG issue in Existing, in the Acme workspace from Hub’s key, when you answer yes to its ticket question/);
   assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' });
   const team = root.querySelector('[data-tk="team"]');
   team.value = 'OPS'; page.fire(root, 'change', { target: team });
@@ -2542,7 +2532,7 @@ test("Board Settings' Tickets control loads Linear once it is the source and cre
   assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'acme', team: 'OPS', project: 'p2' });
   assert.equal(control.valid(), true);
   assert.deepEqual(JSON.parse(JSON.stringify(changes.at(-1))), [{ source: 'linear', workspace: 'acme', team: 'OPS', project: 'p2' }, true]);
-  page.fire(root, 'click', { target: root.querySelector('[data-tk-source="internal"]') });
+  page.fire(root, 'click', { target: root.querySelector('[data-tk-source="none"]') });
   page.fire(root, 'click', { target: root.querySelector('[data-tk-source="linear"]') });
   await tick();
   assert.equal(loads.length, 1);

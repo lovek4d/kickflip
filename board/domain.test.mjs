@@ -1219,17 +1219,11 @@ test('a card badges only a ticket from its board source, keeps another source\'s
   const build = (tickets) => buildBoard({ tickets, github: 'owner/repo', files, events: [askAt('a1', '2026-10-23T09:00:00Z')] });
   const badges = (board) => Object.fromEntries(board.items.filter((i) => i.kind !== 'ask').map((i) => [i.id, i.ticket && [i.ticket.id, i.ticket.url]]));
   const own = (id) => [id, null];
-  const card = (id) => [`#selectedCard=${encodeURIComponent(id)}`];
-  assert.deepEqual(badges(build(undefined)), { S3: null, 'INT-14': null, C4: ['INT-4', ...card('w/C4')], C5: own('#5'), C6: own('ENG-6'), F7: ['INT-7', ...card('w/F7')], P1: null });
-  assert.deepEqual(badges(build({ source: 'internal', prefix: 'INT' })),
-    { S3: ['INT-3', ...card('w/S3')], 'INT-14': ['INT-14', ...card('w/INT-14')], C4: ['INT-4', ...card('w/C4')], C5: own('#5'), C6: own('ENG-6'), F7: ['INT-7', ...card('w/F7')], P1: null });
-  const ops = build({ source: 'internal', prefix: 'OPS' });
-  assert.deepEqual(badges(ops), { S3: ['OPS-3', ...card('w/S3')], 'INT-14': null, C4: own('INT-4'), C5: own('#5'), C6: own('ENG-6'), F7: own('INT-7'), P1: null });
-  assert.deepEqual(['S3', 'INT-14'].map((id) => ops.items.find((i) => i.id === id).ref), ['OPS-3', 'INT-14']);
+  // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: with no source, an INT-<n> reads as stored, unlinked.
+  assert.deepEqual(badges(build(undefined)), { S3: null, 'INT-14': null, C4: own('INT-4'), C5: own('#5'), C6: own('ENG-6'), F7: own('INT-7'), P1: null });
   const refs = (board) => Object.fromEntries(board.items.filter((i) => i.kind !== 'ask').map((i) => [i.id, i.ref]));
   const stored = { S3: 'INT-3', 'INT-14': 'INT-14', C4: 'C4', C5: 'C5', C6: 'C6', F7: 'F7', P1: 'P1' };
   assert.deepEqual(refs(build(undefined)), stored);
-  assert.deepEqual(refs(build({ source: 'internal', prefix: 'INT' })), { ...stored, C4: 'INT-4', F7: 'INT-7' });
   assert.deepEqual(refs(build({ source: 'github' })), { ...stored, C5: '#5' });
   assert.deepEqual(refs(build({ source: 'linear', workspace: 'acme', team: 'ENG', project: 'Audit' })), { ...stored, C6: 'ENG-6' });
   assert.deepEqual(badges(build({ source: 'github' })), { S3: null, 'INT-14': null, C4: own('INT-4'), C5: ['#5', 'https://github.com/owner/repo/issues/5'], C6: own('ENG-6'), F7: own('INT-7'), P1: null });

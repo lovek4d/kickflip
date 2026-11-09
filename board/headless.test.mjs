@@ -103,6 +103,13 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.match(grill, /End every grill with one more question, "Prototype round first\?", whose options are yes and no, with "prototype_gate": true/);
   assert.ok(grill.includes('Recommend yes when the card changes the hub\'s or a board\'s UI, no otherwise') && grill.includes('Ask it even when it is your only question'));
   assert.ok(!proto.includes('prototype_gate'));
+  // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a task on a board with a ticket source is asked
+  // whether it gets one, just before the prototype question.
+  const task = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', ticketQuestion: true });
+  assert.match(task, /ask "Create a ticket for this task\?", whose options are yes and no, with "ticket_gate": true/);
+  assert.ok(task.includes('Recommend yes when the task lands code, no when it lands nothing (a publish, a setting, a one-off run)'));
+  assert.ok(task.indexOf('"ticket_gate": true') < task.indexOf('"Prototype round first?"'));
+  assert.ok(!grill.includes('ticket_gate') && !proto.includes('ticket_gate'));
   // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a grill proposes a split as one question.
   assert.ok(grill.includes('separable parts') && grill.includes('"Split as proposed"') && grill.includes('"Keep as one card"'));
   assert.ok(grill.includes('ahead of the prototype question'));
@@ -963,4 +970,20 @@ test('a writing helper waits while the board has no implementer slot free, launc
     child.kill();
     fs.rmSync(b.home, { recursive: true, force: true });
   }
+});
+
+// docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: the grill asks the ticket question only of a
+// task on a board with a ticket source.
+test('briefFacts asks for the ticket question on a task on a board with a ticket source, and only there', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'brief-ticket-'));
+  try {
+    const site = path.join(home, 'site');
+    fs.mkdirSync(path.join(site, 'data'), { recursive: true });
+    const cfg = (tickets) => fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't', ...(tickets ? { tickets } : {}) }));
+    fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ title: 'T', items: [{ id: 'T-1', title: 'Task' }, { id: 'GH-4', title: 'Ticketed', ticket: '#4' }] }));
+    cfg({ source: 'github' });
+    assert.deepEqual([(await briefFacts(site, 't/T-1')).ticketQuestion, (await briefFacts(site, 't/GH-4')).ticketQuestion], [true, false]);
+    cfg(null);
+    assert.equal((await briefFacts(site, 't/T-1')).ticketQuestion, false);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });

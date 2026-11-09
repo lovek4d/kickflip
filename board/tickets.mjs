@@ -2,16 +2,14 @@ import { runRepo, validateGithub } from '../hub/repos.mjs';
 import { savedClient } from '../hub/linear.mjs';
 
 const refuse = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
+// A board's ticket source: GitHub issues, Linear, or none, which returns null; with none every card is a task
+// (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md). The retired Internal source is refused.
 export function ticketSource(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) refuse('Tickets must name a source.');
-  const allowed = { internal: ['source', 'prefix'], github: ['source', 'account'], linear: ['source', 'workspace', 'team', 'project'] };
-  if (!Object.hasOwn(allowed, value.source)) refuse('Ticket source must be internal, github or linear.');
+  const allowed = { none: ['source'], github: ['source', 'account'], linear: ['source', 'workspace', 'team', 'project'] };
+  if (!Object.hasOwn(allowed, value.source)) refuse('Ticket source must be none, github or linear.');
   if (Object.keys(value).some((k) => !allowed[value.source].includes(k))) refuse('Unknown ticket source field.');
-  if (value.source === 'internal') {
-    const prefix = value.prefix === undefined || value.prefix === '' ? 'INT' : value.prefix;
-    if (typeof prefix !== 'string' || !/^[A-Z]{2,6}$/.test(prefix)) refuse('Prefix must be 2–6 uppercase letters.');
-    return { source: 'internal', prefix };
-  }
+  if (value.source === 'none') return null;
   if (value.source === 'github') {
     if (value.account === undefined || value.account === '') return { source: 'github' };
     if (typeof value.account !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value.account)) refuse('The gh account must be a GitHub login.');
@@ -28,9 +26,9 @@ const numberOf = (match) => {
   return Number.isSafeInteger(n) ? n : null;
 };
 const issueNumber = (id) => numberOf(/^#?([1-9]\d*)$/.exec(String(id ?? '')));
-const keyOf = (source) => (source.source === 'internal' ? source.prefix || 'INT' : source.source === 'linear' ? source.team : null);
+const keyOf = (source) => (source.source === 'linear' ? source.team : null);
 
-// The number of a stored ticket id that belongs to the source (PREFIX-n, #n or TEAM-n), else null: an id from
+// The number of a stored ticket id that belongs to the source (#n or TEAM-n), else null: an id from
 // another source is never relabelled as this one's.
 export function ticketIn(source, id) {
   if (!source) return null;
@@ -40,10 +38,9 @@ export function ticketIn(source, id) {
   return s.startsWith(`${key}-`) ? numberOf(/^([1-9]\d*)$/.exec(s.slice(key.length + 1))) : null;
 }
 
-export function ticketBadge(source, id, { repo, key } = {}) {
+export function ticketBadge(source, id, { repo } = {}) {
   const n = ticketIn(source, id);
   if (!n) return null;
-  if (source.source === 'internal') return { id: `${keyOf(source)}-${n}`, url: `#selectedCard=${encodeURIComponent(key)}`, source: 'internal' };
   if (source.source === 'github') return repo ? { id: `#${n}`, url: `https://github.com/${repo}/issues/${n}`, source: 'github' } : null;
   const ref = `${source.team}-${n}`;
   return { id: ref, url: `https://linear.app/${source.workspace}/issue/${ref}`, source: 'linear' };
@@ -64,12 +61,8 @@ const linearCall = async (fn) => { try { return await fn(); } catch (e) { refuse
 
 // → {ticket, created}: created when kickflip made the ticket rather than linking one (store.mjs keeps it as
 // ticket_created, which lets moveTicket move it). A Linear board without Hub's key is refused, so a card never goes
-// without a ticket (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
-export async function resolveTicket(source, { ticket, title, body = '', repo, next }, { run = runRepo, linearFetch } = {}) {
-  if (source.source === 'internal') {
-    if (ticket !== undefined && !ticketIn(source, ticket)) refuse(`Ticket must match ${source.prefix}-<number>.`);
-    return { ticket: ticket ?? `${source.prefix}-${next}`, created: ticket === undefined };
-  }
+// with a ticket it couldn't make (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
+export async function resolveTicket(source, { ticket, title, body = '', repo }, { run = runRepo, linearFetch } = {}) {
   if (source.source === 'linear') {
     if (ticket !== undefined && !ticketIn(source, ticket)) refuse(`Ticket must match ${source.team}-<number>.`);
     const linear = savedClient({ fetch: linearFetch });
@@ -105,7 +98,7 @@ export async function resolveTicket(source, { ticket, title, body = '', repo, ne
 // The id of a card named from its ticket: the ticket, or GH-<n> for issue #n, since a card id names files and branches.
 export const cardIdOf = (ticket) => (ticket.startsWith('#') ? `GH-${ticket.slice(1)}` : ticket);
 
-// The ids in a card's title that belong to the source, in order: PREFIX-n, #n or TEAM-n.
+// The ids in a card's title that belong to the source, in order: #n or TEAM-n.
 export function titleTickets(source, title) {
   const found = source.source === 'github' ? String(title ?? '').match(/(?<![\w#])#[1-9]\d*\b/g) : String(title ?? '').match(/\b[A-Z][A-Z0-9]*-[1-9]\d*\b/g);
   return [...new Set((found || []).filter((id) => ticketIn(source, id)))];
@@ -123,11 +116,10 @@ export function ticketTarget({ start, done, handover }) {
 const TARGET_WORDS = { started: 'In Progress', review: 'In Review', done: 'Done' };
 
 // Moves a card's ticket toward target, one way, and only a ticket the owner is assigned or kickflip created
-// (docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md). Internal tickets are the card itself; GitHub issues
-// only close, on done. → a line to print, or null when nothing was asked of the source. Never throws.
+// (docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md). GitHub issues only close, on done. → a line to print, or null when nothing was asked of the source. Never throws.
 export async function moveTicket(source, item, target, { repo, run = runRepo, linearFetch } = {}) {
   const id = item.ticket;
-  if (!source || !target || !id || !ticketIn(source, id) || source.source === 'internal') return null;
+  if (!source || !target || !id || !ticketIn(source, id)) return null;
   if (source.source === 'github' && target !== 'done') return null;
   if (source.source === 'github' && !repo) return `ticket ${id}: not closed, the board has no GitHub repo`;
   const why = (e) => `ticket ${id}: could not move to ${TARGET_WORDS[target]} (${String(e.message || e).split('\n')[0]})`;

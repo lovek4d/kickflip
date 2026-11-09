@@ -7,18 +7,18 @@ import { hasBuildScript, onboardingItems } from './onboarding.mjs';
 
 const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'onboarding-'));
 
-test('onboarding cards are filed grilling with Internal tickets under the board prefix, each with a notes file', () => {
+test('onboarding cards are filed grilling as tasks keyed T-<n> with no ticket, each with a notes file', () => {
   const d = dir();
-  const items = onboardingItems(path.join(d, 'wave.json'), { prefix: 'ACME', hasBuild: false });
-  assert.deepEqual(items.map((i) => [i.id, i.phase, i.ticket]), [['onboard-build', 'grilling', 'ACME-1'], ['onboard-context', 'grilling', 'ACME-2']]);
+  const items = onboardingItems(path.join(d, 'wave.json'), { hasBuild: false });
+  assert.deepEqual(items.map((i) => [i.id, i.phase, i.ticket, i.plan]), [['T-1', 'grilling', undefined, 'T-1-notes.md'], ['T-2', 'grilling', undefined, 'T-2-notes.md']]);
   for (const i of items) assert.match(fs.readFileSync(path.join(d, i.plan), 'utf8'), /^# /);
 });
 
 test('the build card is left out when main has a build script', () => {
   const d = dir();
   const items = onboardingItems(path.join(d, 'wave.json'), { hasBuild: true });
-  assert.deepEqual(items.map((i) => [i.id, i.ticket]), [['onboard-context', 'INT-1']]);
-  assert.equal(fs.existsSync(path.join(d, 'onboard-build-notes.md')), false);
+  assert.deepEqual(items.map((i) => [i.id, i.title]), [['T-1', "Write the repo's CONTEXT.md glossary and first ADR"]]);
+  assert.match(fs.readFileSync(path.join(d, 'T-1-notes.md'), 'utf8'), /^# Write CONTEXT\.md/);
 });
 
 test('a repo with no commits, or a ref that does not exist, has no build script', () => {

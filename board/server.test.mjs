@@ -1174,14 +1174,13 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     assert.deepEqual(await (await save({ skip_draft: true })).json().then((b) => [b.settings.skip_draft, Boolean(b.id)]), [true, true]);
     assert.deepEqual((await settingsEvents())[0], { skip_draft: true });
     assert.equal((await save({ skip_draft: 'yes' })).status, 400);
-    await putWave(JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two', ticket: 'OPS-4' }] }));
-    const internal = await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json();
-    assert.deepEqual(internal.settings.tickets, { source: 'internal', prefix: 'OPS' });
+    // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: Internal is retired; a stored INT ticket reads unlinked.
+    await putWave(JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two' }] }));
+    assert.equal((await save({ tickets: { source: 'internal', prefix: 'OPS' } })).status, 400);
+    const none = await (await save({ tickets: { source: 'none' } })).json();
+    assert.equal(none.settings.tickets, undefined);
     const cards = (await (await fetch(`${base}/api/board`)).json()).items;
-    assert.deepEqual(['A1', 'B2'].map((id) => cards.find((i) => i.id === id).ticket), [{ id: 'INT-3', url: null, source: null }, { id: 'OPS-4', url: '#selectedCard=t%2FB2', source: 'internal' }]);
-    assert.equal((await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json()).id, null);
-    assert.equal((await save({ tickets: { source: 'internal', prefix: 'bad1' } })).status, 400);
-    assert.deepEqual((await settingsEvents()).find((e) => e.tickets), { tickets: { source: 'internal', prefix: 'OPS' } });
+    assert.deepEqual(['A1', 'B2'].map((id) => cards.find((i) => i.id === id).ticket ?? null), [{ id: 'INT-3', url: null, source: null }, null]);
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
   }

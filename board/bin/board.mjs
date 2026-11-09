@@ -22,16 +22,15 @@ Writes a kickflip board's data files. --site <route> picks ~/.claude/kickflip/si
 board.json says where the board's item files live. Without --site, they come from ~/.claude/waves.
 Paths resolve under $HOME, so HOME=<dir> points every command at a copy.
 A --file argument of - reads stdin.
-item add creates a ticket in the board’s source unless --ticket <id> links one.
-Internal defaults to INT; GitHub and Linear create an issue from the title and notes, Linear in the board's team and
-project through Hub's Linear key. A linked ticket must exist in the source; an Internal one no other card holds.
-Asks have no ticket; item set --from-ask creates one when the card has none.
+Every new card is a task, keyed T-<n>, with no ticket, until its grill's ticket question (answered yes, the board makes
+it), item add or item set --new-ticket (the orchestrator, for a Quick task), or --ticket <id> gives it one. A ticket comes
+from the board's source, GitHub or Linear, made from the card's title and notes, Linear in the board's team and project
+through Hub's Linear key; a linked one must exist there. A board whose source is none has no tickets.
 A card moves its ticket one way: a build's start → In Progress, --pr, --pushed or a verified merge-ready build → In
 Review, --done → Done (a GitHub issue closes), only for a ticket assigned to the owner or created by kickflip. A ticket that
 can't move prints one "ticket <id>: …" line; the card's change still stands.
 Linear needs Hub's Linear key: settings set tickets refuses it without one, and once the key is removed the hub
-moves every Linear board to internal tickets. A card is never left without a ticket: if Linear can't make one, the
-command fails and changes nothing.
+moves every Linear board to no ticket source. If the source can't make a ticket, the command fails and changes nothing.
 
   reply <eventId> (--text <md> | --file <path>)          data/replies/<eventId>.md, markdown the board draws. A
                                                          reply to an ask resolves its answered questions
@@ -180,7 +179,8 @@ command fails and changes nothing.
                                                          resumes the card, adds a thread line, and appends
                                                          card-unblocked {key, until} unless a dep is unfinished.
                                                          --held holds it with no time; --pick-up-at "" resumes it
-         [--ticket <id>]                                links a ticket in the board’s source
+         [--ticket <id> | --new-ticket]                links a ticket in the board’s source, or makes one there
+                                                         from the title and notes; the key stays
          [--title <t>]                                   renames the card
          [--check "<name> <args>"]                       adds or changes the code check on the card's owner step,
                                                          as builder done --check takes it, clearing a broken mark;
@@ -230,7 +230,9 @@ command fails and changes nothing.
          including held cards: start each unheld card next. It refuses a card the owner reopened: it
          closes again only on the owner's Done
   item add <file>[/<id>] --title <t>                    a new card, unstarted; never
-         [--ticket <id>] [--deps <id>,<file>/<id>]       hand-edit the item file to add one. Refuses an id the file has.
+         [--ticket <id> | --new-ticket]                  hand-edit the item file to add one. Refuses an id the file has.
+         [--deps <id>,<file>/<id>]                       A task with no ticket unless --ticket links one or
+                                                         --new-ticket makes one from the title and notes
          [--notes <t> | --notes-from <draft.md>]         the board makes the card's own notes, <id>-notes.md beside
                                                          its item file, read-only: the draft verbatim, or "# <title>"
                                                          then the --notes text. Refuses a draft that is any card's
@@ -250,8 +252,8 @@ command fails and changes nothing.
                                                          the card, which takes the ask's place in Todo. Needs --phase
                                                          On a board --phase is required, so no card an agent
                                                          adds reads New
-         Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
-         card. Prints "<label> added as <key>": use the key in later commands
+         Without /<id>, a task is keyed T-<n>, the next on the board, and a ticketed card takes its ticket's
+         id (GH-<n> for issue #n); pass an id only to import a card. Prints "<label> added as <key>": use the key in later commands
   item notes <file>/<id> --heading <h>                 appends "## <h>" and the draft to the card's notes, making
          (--file <draft.md> | --from <file>/<id>)        its <id>-notes.md when it has none; the only way to write
                                                          notes (--notes-file and --plan are gone). Write the draft
@@ -307,11 +309,6 @@ command fails and changes nothing.
          A band's Triage sends wave-triage {wave}, or {file} for an item file's band; it reads
          Triaging… until you reply to that event, then "Triage: N open questions" while questions on topic
          wave:<slug> or file:<slug> are open or answered
-  tickets backfill [--dry-run]                           gives every open card without a ticket one: the first
-                                                         id in its title (or legacy linear list) from the board's
-                                                         source is linked, else a new ticket is made. Done cards are
-                                                         left alone. Prints each card's result; --dry-run changes and
-                                                         calls nothing
   reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
                                                          [{name, slack_user, dm, github}], as in an item file.
                                                          The settings page lists them; new item files copy them
@@ -684,7 +681,7 @@ command fails and changes nothing.
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dry-run', 'dispatch', 'writes']);
+const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -811,16 +808,16 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['file/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
+  'item set': [['file/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
     return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check }, options);
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
   }],
   'item notes': [['file/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
@@ -832,7 +829,6 @@ const COMMANDS = {
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
-  'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
   'wave create': [['slug'], ['title', 'goal', '...card', 'note', 'file'], (site, [slug], f) => store.createWave(site, slug, { title: f.title, goal: f.goal, cards: f.card, note: noteOf(f) })],
   'wave add': [['slug', 'file/id'], ['after'], (site, [slug, key], f) => store.changeWave(site, slug, { add: key, after: f.after })],
   'wave remove': [['slug', 'file/id'], [], (site, [slug, key]) => store.changeWave(site, slug, { remove: key })],
@@ -999,7 +995,7 @@ function itemChanges(f) {
     f.parent !== undefined && (f.parent ? `parent ${f.parent}` : 'parent cleared'), f.related !== undefined && (f.related ? `related to ${f.related.split(',').join(', ')}` : 'related cleared'),
     f.relate !== undefined && `related to ${f.relate.split(',').join(', ')} added`, f.unrelate !== undefined && `unrelated from ${f.unrelate.split(',').join(', ')}`,
     f.install !== undefined && 'install published', f['clear-install'] && 'install cleared',
-    f.title !== undefined && 'renamed', f.ticket !== undefined && `ticket ${f.ticket}`,
+    f.title !== undefined && 'renamed', f.ticket !== undefined && `ticket ${f.ticket}`, f['new-ticket'] && 'ticket made',
     f.check !== undefined && (f.check.trim() ? `check ${f.check.trim().split(/\s+/).join(' ')}` : 'check removed'),
   ].filter(Boolean).join(', ');
 }

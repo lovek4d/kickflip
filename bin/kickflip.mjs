@@ -332,8 +332,7 @@ function boardFiles(dir, { title, items, tickets, repo, ref }) {
   const itemsFile = cfg.items === 'waves' ? null : path.resolve(dir, cfg.items);
   if (itemsFile && !fs.existsSync(itemsFile)) {
     fs.mkdirSync(path.dirname(itemsFile), { recursive: true });
-    const prefix = cfg.tickets?.source === 'internal' ? cfg.tickets.prefix : undefined;
-    const cards = onboardingItems(itemsFile, { prefix, hasBuild: hasBuildScript(repo, ref) });
+    const cards = onboardingItems(itemsFile, { hasBuild: hasBuildScript(repo, ref) });
     fs.writeFileSync(itemsFile, JSON.stringify({ title: cfg.title, items: cards }, null, 2) + '\n');
   }
   return [nodeBin(), path.join(SKILL, 'board', 'server.mjs'), dir];

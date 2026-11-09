@@ -129,7 +129,7 @@
       + '<p class="sc-foot">Press h twice anywhere to open this. Esc to close.</p></div>';
   }
 
-  const ticketsLabel = (t) => (t.source === 'internal' ? `Internal · ${t.prefix}` : t.source === 'github' ? `GitHub issues${t.account ? ` · ${t.account}` : ''}` : `Linear · ${t.team}`);
+  const ticketsLabel = (t) => (t.source === 'github' ? `GitHub issues${t.account ? ` · ${t.account}` : ''}` : t.source === 'linear' ? `Linear · ${t.team}` : 'None');
   // A board's context window: its owner session's latest percent at the row's top right, red from 90%, dimmed once the
   // reading is older than ten minutes, with that age in its tooltip.
   const CTX_STALE_MIN = 10;

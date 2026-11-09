@@ -290,7 +290,7 @@
         const r = await fetch(site.url('api/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tickets: value }) });
         const out = await r.json();
         if (!r.ok) throw new Error(out.error || 'Could not save tickets.');
-        savedTickets = out.settings.tickets;
+        savedTickets = out.settings.tickets || { source: 'none' };
         return true;
       } catch (e) {
         if (B.alive()) ticketsStatus.textContent = e.message || 'Could not save. Is the host awake?';
@@ -486,8 +486,8 @@
       pauseChoices = d.pause_choices || [];
       paintPause(d.paused_until);
       if (!B.alive()) return;
-      savedTickets = d.settings?.tickets || null;
-      tickets = BoardDialogs.ticketsControl($('#boardTickets'), { value: savedTickets || { source: 'internal', prefix: 'INT' }, repo: () => repo.github || '', title: () => ctx.siteTitle || '',
+      savedTickets = d.settings?.tickets || { source: 'none' };
+      tickets = BoardDialogs.ticketsControl($('#boardTickets'), { value: savedTickets, repo: () => repo.github || '', title: () => ctx.siteTitle || '',
         loadLinear: async () => (await get('/_hub/api/linear')).body,
         keyState: async () => (await get('/_hub/api/settings')).body.linear,
         change(_value, _valid, { loaded, typing } = {}) {

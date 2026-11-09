@@ -17,8 +17,8 @@ function details(input) {
   if (!ROUTE_RE.test(route)) refuse('Name must contain a letter or digit for its route.');
   const { github, remote } = repoInput(input);
   const branch = validateBranch(input.branch);
-  let tickets = input.tickets === undefined ? { source: 'internal' } : input.tickets;
-  if (remote && tickets?.source === 'github') refuse('GitHub issues need a repo on GitHub; pick Internal or Linear.');
+  let tickets = input.tickets === undefined ? { source: 'none' } : input.tickets;
+  if (remote && tickets?.source === 'github') refuse('GitHub issues need a repo on GitHub; pick None or Linear.');
   let newProject;
   if (tickets?.source === 'linear' && typeof tickets === 'object' && Object.hasOwn(tickets, 'new_project')) {
     const { new_project: name, ...rest } = tickets;
@@ -107,7 +107,7 @@ export async function requestBoard(input, { run, live, repos = repoService(), ch
   const board = details(input);
   const { route, github, remote, newProject } = board;
   let { tickets } = board;
-  if (tickets.source === 'linear' && !linear && !linearWorks()) refuse(LINEAR_NEEDS_KEY);
+  if (tickets?.source === 'linear' && !linear && !linearWorks()) refuse(LINEAR_NEEDS_KEY);
   const repo = repos.path(github || remote);
   const client = newProject === undefined ? null : linear || savedClient();
   if (client) {

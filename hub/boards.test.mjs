@@ -752,7 +752,7 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
       pending = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
       return pending?.failed;
     }, 'backend-audit clone failure appears in the sidebar');
-    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, step: 'cloning', stepAt: pending.askedAt, branch: 'main', tickets: { source: 'internal', prefix: 'INT' }, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'git clone failed' });
+    assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, step: 'cloning', stepAt: pending.askedAt, branch: 'main', tickets: null, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'git clone failed' });
     assert.equal(events('orch', 'ask').length, before);
     assert.equal((await sidebar()).sites.some((s) => s.route === pending.route), false);
     assert.equal((await post(request)).status, 400);

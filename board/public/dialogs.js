@@ -10,9 +10,9 @@
   // remote, it can't be picked and says why (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   // With keyState(), Hub's /_hub/api/settings `linear`, as Board Settings passes it, the source row reads its live state
   // as a status word (docs/adr/2026-11-04-0227-every-new-card-gets-a-ticket-in-the-boards-current-source.md).
-  function ticketsControl(root, { value = { source: 'internal', prefix: 'INT' }, repo = () => '', title = () => '', linear = null, loadLinear, isNew = false, change = () => {}, createProject, keyState } = {}) {
+  function ticketsControl(root, { value = { source: 'none' }, repo = () => '', title = () => '', linear = null, loadLinear, isNew = false, change = () => {}, createProject, keyState } = {}) {
     const { esc } = BoardUI;
-    const draft = { prefix: 'INT', ...value };
+    const draft = { ...value };
     let creating = false, createError = '', destroyed = false, asking = false, noGithub = false, key = null;
     const works = () => Boolean(linear?.set && !linear.refused);
     const keyWorks = () => Boolean(key?.set && !key.refused);
@@ -31,12 +31,12 @@
     const workspace = () => linear?.url_key ?? linear?.workspace ?? draft.workspace;
     const newName = () => (draft.newName ?? title()).trim();
     const ready = () => works() && !linear.error;
-    const read = () => draft.source === 'internal' ? { source: 'internal', prefix: draft.prefix || 'INT' }
+    const read = () => draft.source === 'none' ? { source: 'none' }
       : draft.source === 'github' ? { source: 'github', ...(draft.account ? { account: draft.account } : {}) }
       : !ready() ? { source: 'linear', workspace: draft.workspace, team: draft.team, project: draft.project }
       : draft.project === '__new' && isNew ? { source: 'linear', workspace: workspace(), team: draft.team, new_project: newName() }
       : { source: 'linear', workspace: workspace(), team: draft.team, project: draft.project };
-    const valid = () => draft.source === 'internal' ? /^[A-Z]{2,6}$/.test(draft.prefix || 'INT')
+    const valid = () => draft.source === 'none' ? true
       : draft.source === 'github' ? Boolean(repo())
       : Boolean(ready() && draft.team && draft.project && (draft.project !== '__new' || (isNew && newName())));
     const pickDefaults = () => {
@@ -58,17 +58,17 @@
       const team = esc(draft.team || '');
       const note = draft.project === '__new'
         ? (isNew ? `<p class="muted small">Start creates the project in the ${team} team on Linear.</p>` : `<p class="muted small">Creates the project in the ${team} team on Linear.</p>`)
-        : `<p class="muted small">A new card gets a ${team} issue in ${esc(project?.name || draft.project || '')}, in the ${esc(linear.workspace || workspace())} workspace from Hub’s key. Its badge opens it in Linear.</p>`;
+        : `<p class="muted small">A task gets a ${team} issue in ${esc(project?.name || draft.project || '')}, in the ${esc(linear.workspace || workspace())} workspace from Hub’s key, when you answer yes to its ticket question. Its badge opens it in Linear.</p>`;
       return `<div class="tk-grid"><label class="tk-field"><span>Team</span><select data-tk="team">${(linear.teams || []).map((t) => `<option value="${esc(t.key)}"${t.key === draft.team ? ' selected' : ''}>${esc(t.key)} · ${esc(t.name)}</option>`).join('')}</select></label><label class="tk-field"><span>Project</span><select data-tk="project">${(linear.projects || []).filter((p) => p.team === draft.team).map((p) => `<option value="${esc(p.id)}"${p.id === draft.project ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}<option value="__new"${draft.project === '__new' ? ' selected' : ''}>New project…</option></select></label></div>${draft.project === '__new' ? `<div class="tk-new"><input data-tk="newName" value="${esc(draft.newName ?? title())}" aria-label="New Linear project name" placeholder="Project name" maxlength="80" autocomplete="off">${isNew ? '' : `<button type="button" data-tk-create${creating ? BoardUI.BUSY : ''}>Create</button>`}</div>` : ''}${createError ? `<p class="muted small" role="alert">${esc(createError)}</p>` : ''}${note}`;
     }
     function render() {
       const off = !repo();
-      const segment = `<div class="tk-seg" role="group" aria-label="Ticket source">${[['linear', 'Linear'], ['github', 'GitHub issues'], ['internal', 'Internal']].map(([source, name]) => `<button type="button" data-tk-source="${source}" aria-pressed="${draft.source === source}"${source === 'github' && off ? ' aria-disabled="true"' : ''}>${name}</button>`).join('')}</div>`;
+      const segment = `<div class="tk-seg" role="group" aria-label="Ticket source">${[['linear', 'Linear'], ['github', 'GitHub issues'], ['none', 'None']].map(([source, name]) => `<button type="button" data-tk-source="${source}" aria-pressed="${draft.source === source}"${source === 'github' && off ? ' aria-disabled="true"' : ''}>${name}</button>`).join('')}</div>`;
       const why = `<p class="muted small" role="status">GitHub issues need a repo on GitHub, and ${isNew ? 'the repo chosen above' : 'this board’s repo'} isn’t on GitHub.</p>`;
       let detail;
       if (draft.source === 'github' && off) detail = why;
-      else if (draft.source === 'internal') detail = `<label class="tk-field"><span>Prefix</span><input data-tk="prefix" value="${esc(draft.prefix)}" placeholder="INT" maxlength="6" pattern="[A-Z]{2,6}" title="2–6 uppercase letters" autocapitalize="characters" autocomplete="off" spellcheck="false"></label><p class="muted small" data-tk-example>Cards number ${esc(draft.prefix || 'INT')}-1, ${esc(draft.prefix || 'INT')}-2… on this board. The badge opens the card.</p>`;
-      else if (draft.source === 'github') detail = `<div class="who tk-static"><span>Issues in ${esc(repo())}<span class="muted small sub">${isNew ? 'The repo chosen above' : 'The board’s repo, set above'}. A new card opens an issue there${draft.account ? ` as gh account ${esc(draft.account)}` : ''}; its badge reads #41.</span></span></div>`;
+      else if (draft.source === 'none') detail = '<p class="muted small">Every card is a task, numbered T-1, T-2… on this board, with no ticket. Its badge reads Task.</p>';
+      else if (draft.source === 'github') detail = `<div class="who tk-static"><span>Issues in ${esc(repo())}<span class="muted small sub">${isNew ? 'The repo chosen above' : 'The board’s repo, set above'}. A task opens an issue there${draft.account ? ` as gh account ${esc(draft.account)}` : ''} when you answer yes to its ticket question; its badge then reads #41.</span></span></div>`;
       else detail = linearDetail();
       root.innerHTML = `${status()}${segment}<div class="tk-detail">${noGithub && off && draft.source !== 'github' ? why : ''}${detail}</div>`;
       if (draft.source === 'linear' && ready()) {
@@ -126,11 +126,9 @@
     const input = (e) => {
       const field = e.target.dataset.tk;
       if (!field || (e.type === 'input' && e.target.tagName === 'SELECT')) return;
-      draft[field] = field === 'prefix' ? e.target.value.toUpperCase() : e.target.value;
-      if (field === 'prefix') e.target.value = draft.prefix;
+      draft[field] = e.target.value;
       if (field === 'team') draft.project = isNew ? '__new' : linear.projects?.find((p) => p.team === draft.team)?.id;
       if (field === 'team' || field === 'project') { createError = ''; render(); }
-      if (field === 'prefix') root.querySelector('[data-tk-example]').textContent = `Cards number ${draft.prefix || 'INT'}-1, ${draft.prefix || 'INT'}-2… on this board. The badge opens the card.`;
       change(read(), valid(), { typing: e.type === 'input' });
     };
     root.addEventListener('click', click);
@@ -190,7 +188,7 @@
     el.setAttribute('class', 'sheet');
     el.setAttribute('aria-labelledby', 'newBoardTitle');
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const draft = { name: '', purpose: '', github: '', remote: '', branch: '', tickets: { source: 'internal', prefix: 'INT' } };
+    const draft = { name: '', purpose: '', github: '', remote: '', branch: '', tickets: { source: 'none' } };
     let tickets;
     let repos = [], signedIn = false, pasted, selected, edited = false, sending = false, closed = false, generation = 0, lookupTimer, linear;
     const controller = new AbortController();

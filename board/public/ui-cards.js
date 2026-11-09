@@ -31,7 +31,10 @@
     return `${badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label })}${ci}${codex}`;
   }
   const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
-  const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'internal' ? ' · this board’s own ticket' : it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: it.ticket.source === 'internal' ? {} : EXTERNAL });
+  const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: EXTERNAL });
+  // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a card with no ticket is a task, its T-<n>
+  // only in the badge's title.
+  const taskChip = (it) => badge('quiet', 'Task', { title: `${it.ref} · a task, no ticket` });
   const REVIEW = {
     approved: { tone: 'ready', mark: '✓', label: 'approved' },
     changes: { tone: 'danger', mark: '✗', label: 'asked for changes' },
@@ -325,8 +328,8 @@
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting</span>';
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? thinkingLine() : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
   function workLines(it, { unread = 0, top = false } = {}) {
-    const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
-    // A work card always shows its ticket; an ask, which has none, shows New or Ask there (askChip).
+    const ticket = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
+    // A work card shows its ticket, or Task when it has none; an ask shows New or Ask there (askChip).
     const ids = it.kind === 'ask' ? askChip(it) : ticket;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     // A handled ask's asked time sits under its title, since its Ask badge holds the ticket's spot

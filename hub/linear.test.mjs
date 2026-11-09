@@ -179,7 +179,7 @@ test("the hub saves the Linear key from its settings form, serves only the works
   assert.equal((await create({ team: 'OPS', name: 'Again' })).status, 400);
 });
 
-test('a board on Linear falls back to internal tickets when the hub starts with no Linear key, and when Hub settings removes the key', async (t) => {
+test('a board on Linear falls back to no ticket source when the hub starts with no Linear key, and when Hub settings removes the key', async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-linear-fallback-'));
   const web = path.join(home, '.claude', 'kickflip');
   const site = path.join(web, 'sites', 'app');
@@ -203,12 +203,12 @@ test('a board on Linear falls back to internal tickets when the hub starts with 
     hub.once('exit', reject);
   });
   const tickets = () => JSON.parse(fs.readFileSync(config, 'utf8')).tickets;
-  assert.deepEqual(tickets(), { source: 'internal', prefix: 'INT' });
-  assert.match(out, /linear: \/app fell back to internal tickets: Hub has no Linear key/);
+  assert.equal(tickets(), undefined);
+  assert.match(out, /linear: \/app fell back to no ticket source: Hub has no Linear key/);
   const form = (body) => fetch(`http://127.0.0.1:${port}/_hub/settings/linear`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
   assert.equal((await form(`key=${world.key}`)).status, 200);
   fs.writeFileSync(config, JSON.stringify({ ...JSON.parse(fs.readFileSync(config, 'utf8')), tickets: linearTickets }));
   assert.equal((await form('remove=1')).status, 200);
-  assert.deepEqual(tickets(), { source: 'internal', prefix: 'INT' });
+  assert.equal(tickets(), undefined);
   assert.equal(fs.readFileSync(wave, 'utf8'), cards);
 });
