@@ -798,7 +798,7 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   assert.match(failed.err, /^rebasing A1 onto main conflicts in shared\/notes\.md/);
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.deepEqual(threadOf().slice(-1).map((m) => m.text), [
-    'Not merged yet: rebasing A1 onto main conflicts in shared/notes.md… A lander fixes it and lands it.',
+    'Not merged yet: rebasing A1 onto main conflicts in shar… Its builder resumes to fix it and land it.',
   ]);
   await until(() => fs.existsSync(seen), 'the lander runs');
   assert.match(fs.readFileSync(seen, 'utf8'), /You are the headless lander for card A1/);
@@ -811,6 +811,36 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   assert.equal(landed.code, 0, landed.err);
   assert.ok(landed.out.includes('\nA1: landed and done\n'), landed.out);
   assert.equal(itemOf().lane, 'done');
+});
+
+// docs/adr/2026-11-09-1500-a-builder-resumes-to-land-its-own-conflict.md
+test("a tapped Merge whose rebase conflicts resumes the card's builder session, in its worktree, with the lander's brief, and says so in the thread", async () => {
+  const repo = scratchRepo();
+  heldBoard();
+  const seen = path.join(home, 'claude-runs.jsonl');
+  const fake = path.join(home, 'claude');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`);
+  fs.chmodSync(fake, 0o755);
+  const env = { ...finishEnv, KICKFLIP_CLAUDE: fake };
+  const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch.owner = { repo };
+  write(at('kickflip', 'manifest.json'), manifest);
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  commit(worktree(), 'shared/notes.md', 'branch\n', 'A1: work');
+  assert.equal(b('builder', 'done', 'w/A1', '--text', 'Checked it.').code, 0);
+  const file = at('waves', 'w', 'agents', 'A1.json');
+  write(file, { ...read(file), session: { id: 'sess-1', pid: 1, log: 'builder.log', at: new Date().toISOString() } });
+  commit(repo, 'shared/notes.md', 'main\n');
+  tapMerge();
+  assert.equal(b('merge', 'w/A1').code, 1);
+  await until(() => fs.existsSync(seen), 'the builder resumes');
+  const [args] = fs.readFileSync(seen, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(args.slice(0, 2), ['--resume', 'sess-1']);
+  assert.match(args[3], /^The board resumes you, the builder of card A1/);
+  assert.match(args[3], /rebasing A1 onto main conflicts in shared\/notes\.md/);
+  assert.equal(threadOf().at(-1).line, 'builder-resumed-to-land');
+  assert.match(threadOf().at(-1).text, /^Builder resumed to land, session /);
 });
 
 test("a tapped Merge refused for a reason no lander fixes says why in the thread and leaves the card waiting for its Merge", () => {

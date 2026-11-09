@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import * as store from './store.mjs';
 import { builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
-import { launchBuilder } from './headless.mjs';
+import { landByBuilder } from './headless.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 
@@ -79,7 +79,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
 // tapMerge records it first): the land, onto the base as it is now. A conflict or failing tests after the rebase go
 // to a headless lander, which fixes them and finishes with the tap as its go; any other refusal is one thread line,
 // and the card's Merge shows again. While another card is landing the tap waits its turn, saying so on the thread.
-export async function landHeld(site, key, { launch = launchBuilder } = {}) {
+export async function landHeld(site, key, { launch = landByBuilder } = {}) {
   const held = await store.heldMerge(site, key);
   if (!held?.tapped) fail(`${key} isn't waiting on a Merge tap`);
   try {
@@ -91,7 +91,7 @@ export async function landHeld(site, key, { launch = launchBuilder } = {}) {
     const why = e.message.split('\n')[0];
     if (/^rebasing .+ conflicts in |^tests failed in /.test(why)) {
       await store.appendStatus(site, key, 'lander-handoff', { why });
-      try { await launch(site, { key, model: await store.builderModel(site, key) }, { lander: true }); } catch (err) {
+      try { await launch(site, { key, model: await store.builderModel(site, key) }, { why }); } catch (err) {
         await store.appendStatus(site, key, 'lander-failed', { error: err.message });
       }
     } else await store.appendStatus(site, key, 'land-failed', { why });

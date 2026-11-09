@@ -47,6 +47,15 @@ test("a rebase run's brief takes up the card, rebases its PR's branch onto origi
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'a failure is a call, before the finishing step');
 });
 
+test("a resumed builder's land brief speaks to the builder, says why the land needs it, and keeps the lander's steps and label", () => {
+  const brief = landerBrief({ ...card, resumed: true, why: 'rebasing A1 onto main conflicts in a.txt' });
+  const b = `node ${BOARD_CLI} --site shop`;
+  assert.match(brief, /^The board resumes you, the builder of card ENG-1 .* to land your build: rebasing A1 onto main conflicts in a\.txt/);
+  assert.ok(!brief.includes('You are the headless lander'));
+  for (const want of [`${b} builder start w/A1 --kind build --label Lander --phase landing`, `${b} builder done w/A1 --text`, 'Never push']) assert.ok(brief.includes(want), `it has ${want}`);
+  assert.match(rebaseBrief({ ...card, pr: 31, resumed: true }), /^The board resumes you, the builder of card ENG-1/);
+});
+
 test("a lander's brief takes up the card's verified build, acts on the owner's answers, and finishes it with builder done", () => {
   const brief = landerBrief({ ...card, answers: [{ ask: 'ask1', question: 'Keep the badge?', answer: 'Drop it: too loud' }] });
   const b = `node ${BOARD_CLI} --site shop`;

@@ -847,7 +847,7 @@ test("a verified branch held for the owner's Merge waits In Review on it with Me
   const refused = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:01:00Z', who: 'claude', kind: 'hub', line: 'land-failed', text: 'Not merged: main moved. Tap Merge again.' }] } });
   assert.deepEqual([refused.merging, refused.action?.kind], [false, 'merge']);
   const handedOff = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [
-    { ts: '2026-11-04T11:01:00Z', who: 'claude', kind: 'hub', line: 'lander-handoff', text: 'Not merged yet: rebasing A1 onto main conflicts in a.txt. A lander fixes it and lands it.' },
+    { ts: '2026-11-04T11:01:00Z', who: 'claude', kind: 'hub', line: 'lander-handoff', text: 'Not merged yet: rebasing A1 onto main conflicts in a.txt. Its builder resumes to fix it and land it.' },
   ] } });
   assert.deepEqual([handedOff.merging, handedOff.action], [true, null]);
   // docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md: the lander stays In Review; a

@@ -71,7 +71,8 @@ export const HUB_LINES = {
   'prs-closed': { mark: DONE, text: ({ prs }) => fit('Closed: ', prs, ' closed unmerged.'), longest: { prs: `${PR}, ${PR}` } },
   'landed-on-merge': { mark: DONE, text: ({ base }) => fit('Landed on ', base, ' on your Merge.') },
   // A land a lander takes over: the card still reads merging (domain.mjs workItem).
-  'lander-handoff': { mark: BUILD, text: ({ why }) => fit('Not merged yet: ', why, '. A lander fixes it and lands it.') },
+  'lander-handoff': { mark: BUILD, text: ({ why }) => fit('Not merged yet: ', why, '. Its builder resumes to fix it and land it.') },
+  'builder-resumed-to-land': { mark: BUILD, text: ({ session }) => fit('Builder resumed to land, session ', session) },
   // Faults.
   'build-refused': { mark: FAULT, fault: true, text: ({ why }) => fit("Couldn't start implementing: ", why) },
   'planner-failed': { mark: FAULT, fault: true, text: ({ kind, error }) => fit(`Couldn't start the ${kind}: `, error), longest: { kind: 'visual agent' } },

@@ -3979,6 +3979,15 @@ export async function recordedWorktree(site, key, { dir } = {}) {
   return records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0]?.worktree ?? null;
 }
 
+// The card's newest session worth resuming, {id, worktree: the path its record keeps}: the newest builder record with
+// both, a past lander's or resumed session's included, so a second land continues the newest one. Null when none has.
+export async function recordedSession(site, key) {
+  const { source } = await loadItem(site, key);
+  const records = (await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)))).filter((r) => r?.session?.id && r.worktree?.path);
+  const newest = records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
+  return newest ? { id: newest.session.id, worktree: newest.worktree.path } : null;
+}
+
 export async function builderProgress(site, key, progress, { phase, dir, agent = 'main', eta, clearEta }) {
   if (eta !== undefined && clearEta) fail('pass --eta or --clear-eta, not both');
   const given = progressLine(site, phase, progress, 'builder progress');

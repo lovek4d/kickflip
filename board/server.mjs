@@ -330,7 +330,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
-import { BOARD_CLI, launchBuilder, launchedAgents, pidAlive, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
+import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
 import { dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
@@ -1785,7 +1785,7 @@ async function resumeBuild(key) {
   }
   const kind = providerOf(record.kind) ?? 'claude';
   try {
-    const { pid, log } = await resumeBuilder(here, { key, kind, model: record.model, session: record.session.id, cleared });
+    const { pid, log } = await resumeBuilder(here, { key, kind, model: record.model, session: { id: record.session.id }, brief: (facts) => resumeBrief({ ...facts, cleared }) });
     await trackLaunch(key, { kind, model: record.model, pid, log, relaunched: false });
     logCall({ ...entry, result: 'resumed' });
   } catch (e) {
@@ -1917,15 +1917,23 @@ async function launchLanders(items, stopped, room) {
   const sent = Object.fromEntries(Object.entries(await readJSON(file, {})).map(([k, v]) => [k, typeof v === 'string' ? { verified: v, pid: null } : v]));
   const pidGone = new Set();
   const dropped = new Set();
+  const retry = {};
   for (const [key, entry] of Object.entries(sent)) {
     if (!entry.pid || pidAlive(entry.pid) || stopped.has(key)) continue;
-    if (status[key] === 'checking') continue;
+    if (status[key] === 'checking') {
+      // A resumed builder that exited without taking the land up goes fresh on the next pass, not resumed again.
+      if (entry.resumed) {
+        retry[key] = { verified: null, pid: null, fresh: true };
+        logCall({ call: 'lander', key, result: 'fresh next', reason: 'Its resumed builder exited without taking the land up.', inputs: entry });
+      }
+      continue;
+    }
     if (status[key] !== 'building') { dropped.add(key); continue; }
     await relaunchLander(here, key);
     pidGone.add(key);
     logCall({ call: 'lander', key, result: 'handed back again', reason: 'Its lander exited with its builder still open.', inputs: entry });
   }
-  const kept = Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k) && !dropped.has(k)));
+  const kept = { ...Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k) && !dropped.has(k))), ...retry };
   const save = async () => {
     await fs.writeFile(file + '.tmp', JSON.stringify(kept) + '\n');
     await fs.rename(file + '.tmp', file);
@@ -1939,8 +1947,9 @@ async function launchLanders(items, stopped, room) {
     if (!takeSlot(items, room, c.key)) continue;
     const entry = { call: 'lander', key: c.key, reason: 'Its build was verified and waits to land.', inputs: { verified: c.verified, before: kept[c.key] ?? null } };
     try {
-      kept[c.key] = { verified: c.verified, pid: (await launchBuilder(here, c, { lander: true })).pid };
-      logCall({ ...entry, result: 'launched' });
+      const { pid, resumed } = await landByBuilder(here, c, { fresh: kept[c.key]?.fresh });
+      kept[c.key] = { verified: c.verified, pid, ...(resumed ? { resumed } : {}) };
+      logCall({ ...entry, result: resumed ? 'resumed its builder' : 'launched' });
       await trackLaunch(c.key, null);
     } catch (e) {
       logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
@@ -1991,7 +2000,7 @@ async function launchRebases(items, room) {
         continue;
       } finally { dataVersion++; }
       try {
-        sent[d.key].pid = (await launchBuilder(here, started)).pid;
+        sent[d.key].pid = (await landByBuilder(here, started)).pid;
         logCall({ ...entry, result: 'launched' });
       } catch (e) {
         logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });

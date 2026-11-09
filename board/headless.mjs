@@ -14,7 +14,7 @@ import { processStarts, ps } from '../hub/live.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
-import { BoardError, briefFacts, readBoardRules, recordSession } from './store.mjs';
+import { appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
 import { HELPER, plans, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
@@ -84,12 +84,14 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
   ].join('\n');
 }
 
-// The brief for a lander, launched once the session verified a handed-back build's calls. card as builderBrief's, with
+// The brief for a lander, launched (or, with resumed, sent to the card's builder session, with why the land needs it) once the session verified a handed-back build's calls. card as builderBrief's, with
 // answers [{ask, question, answer}], the owner's answers to the asks the session deferred.
-export function landerBrief({ route, key, ref, title, thread, worktree, base, answers = [] }) {
+export function landerBrief({ route, key, ref, title, thread, worktree, base, answers = [], resumed = false, why }) {
   const b = cli(route);
   return [
-    `You are the headless lander for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its build is done and the orchestrator verified its judgment calls; it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
+    resumed
+      ? `The board resumes you, the builder of card ${ref} (${key}, "${title}") on the kickflip board /${route}, to land your build: ${why ?? 'the orchestrator verified your judgment calls'}, and it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`
+      : `You are the headless lander for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its build is done and the orchestrator verified its judgment calls; it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind build --label Lander --phase landing --progress "taking up the verified build"\`. If it refuses, stop.`,
     `2. Report progress with \`${b} builder progress ${key} --phase landing "<plain, 80 characters or fewer>"\`. The board adds the phase word; don't start the text with it.`,
@@ -111,9 +113,10 @@ export function landerBrief({ route, key, ref, title, thread, worktree, base, an
 // The brief for a rebase run, launched when the card's open PR, pr, conflicts with its base. card as builderBrief's. Its
 // progress lines are the card's status line, so the brief gives their words; a conflict it can't resolve is a judgment
 // call, which hands the card to the orchestrator.
-export function rebaseBrief({ route, key, ref, title, thread, worktree, base, pr }) {
+export function rebaseBrief({ route, key, ref, title, thread, worktree, base, pr, resumed = false }) {
   const b = cli(route);
   return [
+    ...(resumed ? [`The board resumes you, the builder of card ${ref}, for this run: the lines below are your brief for it.`] : []),
     `You are the headless rebase run for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its PR #${pr} conflicts with ${base}; rebase its branch onto ${base} so the PR is clean again. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind build --label Rebase --phase building --progress "Rebase run started · fetching ${base}"\`. If it refuses, stop.`,
@@ -329,17 +332,44 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
 }
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+// docs/adr/2026-11-09-1500-a-builder-resumes-to-land-its-own-conflict.md
 // The words a paused builder's own session is resumed with, once its pause cleared ("nothing blocks it").
 export const resumeBrief = ({ ref, worktree, cleared }) => `The board paused your build of card ${ref}, and the pause has cleared: ${cleared}. Carry on where you stopped, in ${worktree}, following your brief as before. Your builder record is still open, so don't run builder start again.`;
 
-// Resumes the paused main build of the card at key ({key, kind, model, session: the session id its record keeps,
-// cleared: what cleared its pause}): a Claude build in its own session, told the pause cleared, in the card's worktree;
-// a Codex build, or one whose record names no session, with a fresh builder brief (launchBuilder), whose builder start
-// takes up the open record. → {pid, sessionId, log}, as launchBuilder's
-export async function resumeBuilder(site, { key, kind = 'claude', model, session, cleared }) {
-  if (kind !== 'claude' || !session) return launchBuilder(site, { key, kind, model });
+// The one seam where the board puts a card's builder session back to work: every resume (a cleared pause, a verified
+// land, a Merge tap's conflict, a PR rebase run) goes through here, and none of them knows how. card is {key, kind,
+// model}; brief(facts) the words the session is resumed with, facts as store.mjs briefFacts'. A Claude build whose
+// record keeps a session id resumes it in the card's worktree; a Codex build, one with no session (a session's own
+// build, which the board never launched), or one the caller says to take fresh (fresh) is launched anew, with
+// freshLaunch its launchBuilder options. → {pid, sessionId, log, resumed}, resumed whether the session continued.
+export async function resumeBuilder(site, { key, kind = 'claude', model, session, brief, fresh = false, freshLaunch = {} }) {
+  if (kind !== 'claude' || !session || fresh) return { ...await launchBuilder(site, { key, kind, model }, freshLaunch), resumed: false };
   const facts = await briefFacts(site, key);
-  const launched = await launchAgent({ kind, model, cwd: facts.worktree, site, prompt: resumeBrief({ ...facts, cleared }), resume: session, log: logFile(key.split('/')[1], 'builder') });
-  await recordSession(site, key, launched.sessionId ?? session, launched.pid, 'main', path.basename(launched.log));
+  const launched = await launchAgent({ kind, model, cwd: session.worktree ?? facts.worktree, site, prompt: brief(facts), resume: session.id, log: logFile(key.split('/')[1], 'builder') });
+  await recordSession(site, key, launched.sessionId ?? session.id, launched.pid, 'main', path.basename(launched.log));
+  return { ...launched, resumed: true };
+}
+
+// Lands a card through its own builder: its newest session, resumed with the lander's brief (landerBrief, why saying what
+// the land hit), or with the rebase run's when the card has one open. A session recorded in another worktree than the
+// one the run works in isn't resumed. A resume whose launch fails, like a card with nothing to resume, gets today's
+// fresh lander (or rebase run). → resumeBuilder's.
+export async function landByBuilder(site, { key, kind = 'claude', model }, { why, fresh = false } = {}) {
+  const found = await recordedSession(site, key);
+  const facts = await briefFacts(site, key);
+  const rebase = facts.rebasePR !== null;
+  const session = found && (!rebase || found.worktree === facts.worktree) ? found : null;
+  const route = boardAt(site)?.route ?? path.basename(site);
+  const { base } = builderRepo(site);
+  const brief = (f) => (rebase ? rebaseBrief : landerBrief)({ ...f, route, base, pr: f.rebasePR, why, resumed: true });
+  const freshLaunch = { lander: !rebase };
+  let launched;
+  try {
+    launched = await resumeBuilder(site, { key, kind, model, session, brief, fresh, freshLaunch });
+  } catch (e) {
+    if (!session) throw e;
+    launched = await resumeBuilder(site, { key, kind, model, session: null, brief, freshLaunch });
+  }
+  if (launched.resumed) await appendStatus(site, key, 'builder-resumed-to-land', { session: launched.sessionId ?? session.id });
   return launched;
 }
