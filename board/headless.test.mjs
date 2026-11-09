@@ -86,8 +86,14 @@ test("a headless planner's brief names its card and its notes so far, spells its
   for (const brief of [grill, proto]) assert.ok(brief.includes('Anything you leave open becomes a question with question add, never only a line in the notes'));
   for (const brief of [grill, proto]) assert.ok(brief.includes("A question's text is one line of at most 100 characters") && brief.includes('which take markdown'));
   assert.ok(grill.includes(`${b} builder done w/A1 --text "<what you asked>"`));
-  // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md: a web round is a page in the
-  // base prototype worktree, recorded --served, that takes ?variant= and ?state= and the viewer's message.
+  // docs/adr/2026-11-09-1300-a-prototype-round-is-take-files-unless-a-board-rule-asks-for-in-situ.md: take files by default.
+  for (const want of ['Invoke the prototype skill with the Skill tool and build the round as take files', `${b} prototype add <topic> --card w/A1 --take <K>:<label>`, "repo's existing components", "Build in situ only where one of the board's rules asks for it"]) {
+    assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
+  }
+  assert.ok(proto.indexOf('--take <K>:<label> …`, write the take files') < proto.indexOf('prototype base'));
+  assert.ok(!proto.includes('Only a repo whose app can'));
+  // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md: where a rule asks for in situ, a
+  // round is a page in the base prototype worktree, recorded --served, that takes ?variant= and ?state= and the viewer's message.
   for (const want of [`${b} prototype base`, '--served <path>', '--state <key>:<label>', '?variant=', '?state=', 'KickflipPrototype.on', 'real components', 'mock data', 'prints "port <n>"']) {
     assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
   }
