@@ -440,6 +440,10 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   await until(() => pulls().length === 1, 'the day\'s pull');
   await tick();
   assert.deepEqual(triages(), [], 'never in the day');
+  // The fake builder exits at once, so the server relaunches it once and then hands it back (reviveHeadless); the
+  // swap below waits for that, or a relaunch under load would rewrite the record the swap removes.
+  const tracked = path.join(dataDir, 'headless-builders.json');
+  await until(() => fs.existsSync(tracked) && JSON.parse(fs.readFileSync(tracked, 'utf8'))['t/A1']?.handedBack, 'the exited builder is handed back');
   // A0's builder starts before the pulled build goes back to Todo unstarted, held so it isn't pulled again: the server
   // reads these files as they change, and between the two it would see an idle board.
   agent(false);
@@ -455,7 +459,11 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   assert.deepEqual(triages(), [], 'a running builder holds it');
 
   agent(true);
-  await until(() => triages().length === 1, 'the idle board triages overnight');
+  // A wait that times out prints what the server holds, since the temp dir goes with the test.
+  const held = () => ['wave.json', 'headless-builders.json', 'pulled.json', 'triaged.json', 'events.jsonl']
+    .concat(fs.readdirSync(path.join(dataDir, 'agents')).map((f) => path.join('agents', f)))
+    .map((f) => `${f}: ${fs.existsSync(path.join(dataDir, f)) ? fs.readFileSync(path.join(dataDir, f), 'utf8').trim() : '(missing)'}`).join('\n');
+  await until(() => triages().length === 1, 'the idle board triages overnight').catch((e) => { throw new Error(`${e.message}\n${held()}`); });
   const [first] = triages();
   assert.deepEqual({ ...first.data, cards: first.data.cards.sort() }, { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['t/A2', 't/A3'] });
   assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).topics, [{ id: 'overnight-triage-2026-11-03', title: 'Overnight triage 2026-11-03' }]);
