@@ -144,7 +144,7 @@
       el.innerHTML = `${head}<form id="qform">
         ${done.length ? `<details class="done resolved-group"><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span></summary>${done.map((q) => questionCard(q, { n: numberOf(q), links: links(q) })).join('')}</details>` : ''}
         ${live.map((q) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) })).join('')}
-        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${statusHtml(sentLine)}</span><span class="send-hint" aria-hidden="true">${/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘↵' : 'Ctrl+↵'}</span><button class="primary" type="submit" id="send">Send</button></div>
+        <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${statusHtml(sentLine)}</span>${BoardUI.sendButton('Send', 0, ' id="send"')}</div>
       </form>`;
       BoardAttach.paintAll();
       updateBar();
@@ -212,7 +212,7 @@
       const qs = visible();
       const n = pending(qs).length;
       const b = $('#send');
-      if (b) { b.disabled = !n || uploading(qs); b.textContent = uploading(qs) ? 'Uploading…' : 'Send'; }
+      if (b) { b.disabled = !n || uploading(qs); b.childNodes[0].textContent =uploading(qs) ? 'Uploading…' : 'Send'; }
       const live = inForm(qs);
       const answered = live.filter((q) => q.state !== 'open').length;
       // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
@@ -402,9 +402,9 @@
       const d = getDraft(sec.dataset.q); d.note = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
     });
     B.on(root, 'keydown', (ev) => {
-      if (ev.key !== 'Enter' || !(ev.metaKey || ev.ctrlKey) || ev.isComposing || ev.target.tagName !== 'TEXTAREA') return;
+      if (ev.target.tagName !== 'TEXTAREA') return;
       const form = ev.target.closest('#qform');
-      if (!form) return;
+      if (!form || !BoardUI.keyedSend(ev, form)) return;
       ev.preventDefault();
       form.requestSubmit();
     });

@@ -52,6 +52,7 @@ function fakePage(localStorage) {
     querySelector(sel) { if (!this.els.has(sel)) this.els.set(sel, new El()); return this.els.get(sel); }
     querySelectorAll() { return []; }
     get tagName() { return 'DIV'; }
+    get childNodes() { return [this]; }
     get attributes() { return Object.entries(this.attrs).map(([name, value]) => ({ name, value })); }
     before() {}
     setAttribute(k, v) { this.attrs[k] = String(v); }
@@ -4458,6 +4459,8 @@ test("Waiting on you's eye on each question, beside its box with the attach butt
   assert.equal($('.topichead .chip').textContent, 'Prototype round 1');
   assert.ok($('.topichead .chip.tone-normal .try-spin'));
   assert.equal($('#send').disabled, true);
+  assert.equal($('#send .key-hint').textContent, '⌘↵', 'Send is the shared send button, its key inside it');
+  assert.equal($('.send-hint'), null);
 
   v.page.fire(v.root, 'click', { target: eye('q1') });
   await v.settle();

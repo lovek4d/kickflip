@@ -220,9 +220,6 @@ code { overflow-wrap: anywhere; }
 /* A file input draws its "Choose File" text at the 16px coarse-pointer size, wider than the button; iOS Safari widens the page to fit it. */
 .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; padding: 0; border: 0; font-size: 0; }
 .row > .attach + .muted { flex: 1; min-width: 0; }
-/* The ⌘↵ / Ctrl+↵ hint left of Send: only where there is a keyboard to press it on. */
-.send-hint { display: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
-@media (hover: hover) and (pointer: fine) { .send-hint { display: inline; } }
 /* A composer's text box (BoardUI.dropZone), its attach button inside at the bottom right with the text kept clear of it:
    while files are dragged over the composer, attach.js marks it .dragging and the box gets a dashed accent outline
    with Drop to attach over it. */
@@ -352,7 +349,7 @@ form[data-reply] .icons { display: inline-flex; flex: none; margin-left: auto; }
 /* A composer's send buttons (ui.js sendButton), each with its key as a small gray hint where there is a keyboard and
    room. A pair takes a row of two halves; a Todo card's reply box wraps its pair under the row. */
 .send-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
-.send-actions button, [data-sends] button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.send-actions button, [data-sends] button, .view-questions .bar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .send-actions button { min-height: 44px; }
 form[data-reply] .row { flex-wrap: wrap; gap: 6px; }
 form[data-reply] .row > .send-actions { flex: 0 0 100%; margin-top: 4px; }
@@ -690,7 +687,6 @@ main > * { transition: opacity .25s ease; }
 .view-questions .q.resolved .reask-line { margin-top: 10px; }
 .view-questions .bar { position: sticky; bottom: var(--app-bottom, 0px); padding: 10px 0 max(10px, env(safe-area-inset-bottom)); background: var(--bg); z-index: 2;
   display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
-.view-questions .bar .send-hint { margin-left: auto; }
 /* The + rides above the sticky Send bar rather than over its Send. */
 .view-questions .bar #qstatus { min-width: 0; }
 .view-questions .bar #qstatus.sent { color: var(--color-success); font-weight: 600; }
