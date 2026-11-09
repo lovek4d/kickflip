@@ -100,6 +100,11 @@ test("a headless planner's brief names its card and its notes so far, spells its
   // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a grill proposes a split as one question.
   assert.ok(grill.includes('separable parts') && grill.includes('"Split as proposed"') && grill.includes('"Keep as one card"'));
   assert.ok(grill.includes('ahead of the prototype question'));
+  // docs/adr/2026-11-09-2200-splits-and-waves-follow-vertical-slices-with-stated-conflicts.md: the slicing comes from /to-tickets, the conflicts are named per card.
+  assert.ok(grill.includes('~/.claude/skills/to-tickets/SKILL.md') && grill.includes('step 3, "Draft vertical slices"'));
+  assert.ok(grill.includes('the earlier proposed cards it waits on, or none'));
+  assert.ok(grill.includes('only when it builds on that card or shares its seam'));
+  assert.ok(!grill.includes('which cards build side by side'));
   assert.ok(!proto.includes('Split as proposed'));
   // A grill sets no ready itself: the gate's answer moves the card; the owner asking for prototypes ends it prototyping.
   assert.ok(grill.includes(`end the card \`${b} item set w/A1 --phase prototyping\` instead and skip the prototype question`));
