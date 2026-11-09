@@ -251,7 +251,7 @@ window.BoardView = (function () {
       if (!band && !state.board?.items.some((i) => i.key === key)) return false;
       if (key) { location.hash = AppRouter.hashWith(location.hash, { selectedCard: key }); readHash(); } else B.openBand({ slug });
       render();
-      if (key) scrollToFocus(); else $(`section.wb[data-band="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'start' });
+      if (key) scrollToFocus(); else $(`section.wb[data-lane="todo"][data-band="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'start' });
       return true;
     }
     // A card missing from the last visit's board waits for the fresh one, which is final.

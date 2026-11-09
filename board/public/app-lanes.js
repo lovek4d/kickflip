@@ -125,9 +125,21 @@ BoardView.part((B) => {
     const grouped = bands.filter((b) => inBand(b).length);
     if (!grouped.length) return cards.map((it) => B.card(it)).join('');
     const loose = cards.filter((i) => !bands.some((b) => b.keys.includes(i.key)));
-    const group = (cls, data, name, n, counts, list) => `<section class="${cls}"${data}><div class="wb-head wb-loosehead">${counts ? BoardUI.WAVE_ICON : ''}<span class="wb-label"><span class="lane-name">${name}</span> <span class="count">${n}</span></span>${counts}</div>${list.map((it) => B.card(it)).join('')}</section>`;
-    return grouped.map((b) => group('wb-lane', ` data-wave="${esc(b.slug)}"`, escText(b.title), inBand(b).length, waveCounts(b, laneId), inBand(b))).join('')
-      + (loose.length ? group('wb-loose', '', 'No wave', loose.length, '', loose) : '');
+    const body = (list) => list.map((it) => B.card(it)).join('');
+    return grouped.map((b) => groupHtml(laneId, b.slug, true, BoardUI.WAVE_ICON + groupLabel(escText(b.title), inBand(b).length) + waveCounts(b, laneId), body(inBand(b)))).join('')
+      + (loose.length ? groupHtml(laneId, NO_WAVE, true, groupLabel('No wave', loose.length), body(loose)) : '');
+  }
+
+  // The one header every lane gives every group, a wave or No wave: a tap on it folds the group, and its open state
+  // lives in storage under the lane and the group's slug. head is the header's content, body the cards under it.
+  const NO_WAVE = 'no-wave';
+  const groupStore = (id) => FOLDS[`band:${id}`].store;
+  const groupLabel = (name, n) => `<span class="wb-label"><span class="lane-name">${name}</span> <span class="count">${n}</span></span>`;
+  function groupHtml(laneId, slug, open, head, body) {
+    const id = `${laneId}/${slug}`;
+    const isOpen = store.get(groupStore(id), open);
+    const header = `<div class="wb-head" data-band-toggle="${esc(id)}" role="button" tabindex="0" aria-expanded="${isOpen}">${head}</div>`;
+    return `<section class="wb" data-band="${esc(slug)}" data-lane="${laneId}"${isOpen ? ' data-open' : ''}>${header}${isOpen ? `<div class="wb-body">${body}</div>` : ''}</section>`;
   }
 
   // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
@@ -137,8 +149,6 @@ BoardView.part((B) => {
   // card whose ⋯ menu is open, goalShown the band whose goal popover is open.
   let menu = null;
   let goalShown = null;
-  const bandStore = (slug) => FOLDS[`band:${slug}`].store;
-  const bandOpen = (band, first) => store.get(bandStore(band.slug), band.slug === first);
   const LANE_WORDS = { progress: 'in progress', review: 'in review' };
   const DOTS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
@@ -150,8 +160,8 @@ BoardView.part((B) => {
     const loose = todo.filter((i) => !banded.has(i.key));
     const first = bands.find((b) => (b.next ? b.next.ready : b.keys.some((k) => byKey.get(k)?.ready)))?.slug;
     if (!bands.length) return loose.map((it) => B.card(it)).join('');
-    return bands.map((b) => bandHtml(b, b.keys.map((k) => byKey.get(k)).filter(Boolean), bandOpen(b, first))).join('')
-      + (loose.length ? `<div class="wb-loose"><div class="wb-head wb-loosehead"><span class="lane-name">No wave</span><span class="count">${loose.length}</span></div>${loose.map((it) => B.card(it)).join('')}</div>` : '');
+    return bands.map((b) => bandHtml(b, b.keys.map((k) => byKey.get(k)).filter(Boolean), b.slug === first)).join('')
+      + (loose.length ? groupHtml('todo', NO_WAVE, true, groupLabel('No wave', loose.length),loose.map((it) => B.card(it)).join('')) : '');
   }
 
   function bandHtml(band, cards, open) {
@@ -166,14 +176,12 @@ BoardView.part((B) => {
       ? `<button type="button" class="wv-link" data-confirm="card-build" data-key="${esc(next.key)}">Implement</button>`
       : `<span class="wb-next">next: ${esc(next.ref)} ${esc(next.word)}</span>`;
     const pop = goalShown === band.slug && band.goal ? `<div class="wb-pop" role="tooltip">${esc(band.goal)}</div>` : '';
-    const head = `<div class="wb-head" data-band-toggle="${esc(band.slug)}" role="button" tabindex="0" aria-expanded="${open}">${BoardUI.WAVE_ICON}`
-      + `<span class="wb-label">${name} <span class="count">${todo.length}</span>${progress}</span>`
-      + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}</span>${go}</span>${pop}</div>`;
-    if (!open) return `<section class="wb" data-band="${esc(band.slug)}">${head}</section>`;
+    const head = `${BoardUI.WAVE_ICON}<span class="wb-label">${name} <span class="count">${todo.length}</span>${progress}</span>`
+      + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}</span>${go}</span>${pop}`;
     const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#selectedCard=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
     const step = (it) => (band.kind === 'wave' ? band.phases.findIndex((p) => p.includes(it.key)) + 1 : 0);
     const actions = (it, at) => (band.kind !== 'wave' ? null : cardMenu(band.slug, it.key, at, todo.length));
-    return `<section class="wb" data-band="${esc(band.slug)}" data-open>${head}<div class="wb-body">${doneRow}${todo.map((it, at) => B.card(it, { step: step(it), actions: actions(it, at) })).join('')}</div></section>`;
+    return groupHtml('todo', band.slug, open, head, doneRow + todo.map((it, at) => B.card(it, { step: step(it), actions: actions(it, at) })).join(''));
   }
 
   // A wave card's ⋯ and, while open, its menu: Move up and Move down among the band's Todo cards. A move waits for
@@ -190,8 +198,9 @@ BoardView.part((B) => {
 
   // Opens the band holding card key or named slug, for a #selectedCard= link or a Needs you line.
   function openBand({ key, slug }) {
+    const lane = (key && state.board?.items.find((i) => i.key === key)?.lane) || 'todo';
     const band = (state.board?.waveBands || []).find((b) => b.slug === slug || b.keys.includes(key));
-    if (band) store.set(bandStore(band.slug), true);
+    if (band) store.set(groupStore(`${lane}/${band.slug}`), true);
     return band;
   }
 
@@ -245,7 +254,7 @@ BoardView.part((B) => {
       if (!openBand({ slug: show.dataset.bandShow })) return;
       const s = store.get('lanes', {}); s.todo = true; store.set('lanes', s);
       B.render();
-      $(`.wb[data-band="${CSS.escape(show.dataset.bandShow)}"]`)?.scrollIntoView({ block: 'start' });
+      $(`.wb[data-lane="todo"][data-band="${CSS.escape(show.dataset.bandShow)}"]`)?.scrollIntoView({ block: 'start' });
     }
   });
 
@@ -288,8 +297,7 @@ BoardView.part((B) => {
     if (menu && !ev.target.closest('.wb-menu')) { menu = null; B.render(); if (ev.target.closest('summary')) { ev.preventDefault(); return; } }
     const head = ev.target.closest('[data-band-toggle]');
     if (head && !ev.target.closest('a, button')) {
-      const slug = head.dataset.bandToggle;
-      store.set(bandStore(slug), head.getAttribute('aria-expanded') !== 'true');
+      store.set(groupStore(head.dataset.bandToggle), head.getAttribute('aria-expanded') !== 'true');
       B.render();
     }
   });

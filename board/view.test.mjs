@@ -4961,8 +4961,8 @@ test("a phased wave's band numbers each card by its phase, so one phase's cards 
   const cards = (p2 = {}) => [workCard('P1', { lane: 'done' }), workCard('P2', { ready: true, buildable: true, ...p2 }), workCard('P3', { ready: true, buildable: true }), workCard('P4', { blockedBy: [{ key: 'w/P2', ref: 'P2' }, { key: 'w/P3', ref: 'P3' }] })];
   const b = boardOnDom({ board: { ...boardOf(cards()), waveBands: [band({ key: 'w/P2', ref: 'P2', ready: true, word: 'ready' })] }, threads: {}, confirm: true });
   await b.settle();
-  const head = () => b.root.querySelector('.wb[data-band="ph"] > .wb-head');
-  const steps = () => b.root.querySelectorAll('.wb[data-band="ph"] details.item').map((el) => [el.dataset.key, el.querySelector('.wn').textContent]);
+  const head = () => b.root.querySelector('.wb[data-lane="todo"][data-band="ph"] > .wb-head');
+  const steps = () => b.root.querySelectorAll('.wb[data-lane="todo"][data-band="ph"] details.item').map((el) => [el.dataset.key, el.querySelector('.wn').textContent]);
   assert.deepEqual(steps(), [['w/P2', '2'], ['w/P3', '2'], ['w/P4', '3']]);
   assert.equal(head().querySelector('button[data-confirm="card-build"]').dataset.key, 'w/P2');
   await b.change({ board: { ...boardOf(cards({ lane: 'progress' })), waveBands: [band({ key: 'w/P3', ref: 'P3', ready: true, word: 'ready' })] } });
@@ -4988,11 +4988,11 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   await b.settle();
   assert.equal(b.root.querySelector('#waves'), null);
   const todo = () => b.root.querySelector('details.lane[data-lane="todo"] > .list');
-  const head = (slug) => b.root.querySelector(`.wb[data-band="${slug}"] > .wb-head`);
-  const shown = (slug) => b.root.querySelectorAll(`.wb[data-band="${slug}"] details.item`).map((el) => el.dataset.key);
-  assert.deepEqual(todo().children.map((el) => el.dataset.band || el.getAttribute('class')), ['mon', 'go', 'pilot', 'wb-loose', 'thread-more']);
-  assert.deepEqual(b.root.querySelectorAll('.wb-loose details.item').map((el) => el.dataset.key), ['w/A3']);
-  assert.equal(b.root.querySelector('.wb-loose .lane-name').textContent, 'No wave');
+  const head = (slug) => b.root.querySelector(`.wb[data-lane="todo"][data-band="${slug}"] > .wb-head`);
+  const shown = (slug) => b.root.querySelectorAll(`.wb[data-lane="todo"][data-band="${slug}"] details.item`).map((el) => el.dataset.key);
+  assert.deepEqual(todo().children.map((el) => el.dataset.band || el.getAttribute('class')), ['mon', 'go', 'pilot', 'no-wave', 'thread-more']);
+  assert.deepEqual(b.root.querySelectorAll('.wb[data-band="no-wave"] details.item').map((el) => el.dataset.key), ['w/A3']);
+  assert.equal(b.root.querySelector('.wb[data-band="no-wave"] .lane-name').textContent, 'No wave');
   assert.deepEqual(['mon', 'go', 'pilot'].map((slug) => head(slug).getAttribute('aria-expanded')), ['false', 'true', 'false']);
   assert.deepEqual(shown('mon'), []);
 
@@ -5009,14 +5009,14 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.equal(head('mon').querySelector('.wb-next').textContent, 'next: A2 waits on A9');
   assert.equal(head('mon').querySelector('.wb-label').textContent, 'Monitor 2 · A8 in progress');
   assert.deepEqual(shown('go'), ['w/A6', 'w/A7']);
-  assert.deepEqual(b.root.querySelectorAll('.wb[data-band="go"] .wn').map((n) => n.textContent), ['1', '2']);
+  assert.deepEqual(b.root.querySelectorAll('.wb[data-lane="todo"][data-band="go"] .wn').map((n) => n.textContent), ['1', '2']);
 
   b.page.fire(b.root, 'click', { target: head('mon').querySelector('.wb-label') });
   await b.settle();
   assert.equal(head('mon').getAttribute('aria-expanded'), 'true');
   assert.deepEqual(shown('mon'), ['w/A2', 'w/A5']);
-  assert.deepEqual(b.root.querySelectorAll('.wb[data-band="mon"] .wn').map((n) => n.textContent), ['2', '4']);
-  const done = b.root.querySelector('.wb[data-band="mon"] .wb-done');
+  assert.deepEqual(b.root.querySelectorAll('.wb[data-lane="todo"][data-band="mon"] .wn').map((n) => n.textContent), ['2', '4']);
+  const done = b.root.querySelector('.wb[data-lane="todo"][data-band="mon"] .wb-done');
   assert.equal(done.textContent, '1 done · A1');
   assert.equal(done.querySelector('a').getAttribute('href'), '#selectedCard=w%2FA1');
   assert.deepEqual(shown('pilot'), []);
@@ -5033,8 +5033,8 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.equal(head('go').getAttribute('aria-expanded'), 'true');
 
   const menuOf = (key) => b.root.querySelector(`.wb details.item[data-key="${key}"] button[data-band-menu]`);
-  assert.equal(b.root.querySelector('.wb-loose button[data-band-menu]'), null);
-  assert.equal(b.root.querySelector('.wb[data-band="pilot"] button[data-band-menu]'), null);
+  assert.equal(b.root.querySelector('.wb[data-band="no-wave"] button[data-band-menu]'), null);
+  assert.equal(b.root.querySelector('.wb[data-lane="todo"][data-band="pilot"] button[data-band-menu]'), null);
   const tap = b.page.fire(b.root, 'click', { target: menuOf('w/A6') });
   await b.settle();
   assert.equal(tap.defaultPrevented, true);
@@ -5628,7 +5628,7 @@ test("every lane groups its cards under wave headers, none for a wave with no ca
   const b = boardOnDom({ board: { ...boardOf(cards), waveBands: [band('a', 'Alpha', ['A1', 'A2', 'A3', 'A4']), band('b', 'Beta', ['B1', 'B2'])] }, threads: {} });
   await b.settle();
   const lane = (id) => b.root.querySelector(`details.lane[data-lane="${id}"]`);
-  const heads = (id) => lane(id).querySelectorAll('.wb > .wb-head, .wb-lane > .wb-head, .wb-loose > .wb-head').map((h) => h.querySelector('.lane-name').textContent);
+  const heads = (id) => lane(id).querySelectorAll('.wb > .wb-head').map((h) => h.querySelector('.lane-name').textContent);
   assert.deepEqual(heads('progress'), ['Alpha', 'No wave']);
   assert.deepEqual(heads('review'), ['Beta']);
   assert.deepEqual(heads('done'), ['Alpha', 'Beta', 'No wave']);
@@ -5651,6 +5651,14 @@ test("every lane groups its cards under wave headers, none for a wave with no ca
   assert.equal(counts('progress', 'Alpha').querySelector('.wv-cur').textContent, '1');
   assert.equal(counts('review', 'Beta').querySelector('.wv-cur').textContent, '1');
   assert.equal(counts('todo', 'Alpha').querySelector('.wv-cur').textContent, '2');
+  const toggle = (id, name) => lane(id).querySelectorAll('.wb-head').find((h) => h.querySelector('.lane-name').textContent === name);
+  const cardsIn = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);
+  for (const [id, name, left] of [['progress', 'Alpha', ['w/L1']], ['progress', 'No wave', []], ['done', 'No wave', ['w/A1', 'w/B2']]]) {
+    assert.equal(toggle(id, name).getAttribute('aria-expanded'), 'true');
+    b.page.fire(b.root, 'click', { target: toggle(id, name).querySelector('.lane-name') }); await b.settle();
+    assert.equal(toggle(id, name).getAttribute('aria-expanded'), 'false', `${id} ${name} collapses`);
+    assert.deepEqual(cardsIn(id), left);
+  }
 });
 
 // docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md
