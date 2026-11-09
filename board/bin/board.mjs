@@ -308,8 +308,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   wave add <slug> <file>/<id> [--after <file>/<id>,…]  puts a card in the wave, last, blocked by the earlier
                                                          cards --after names; refused for a card whose --deps
                                                          names the wave
-  wave remove <slug> <file>/<id>                       takes a card out: it and the wave's cards waiting on it
-                                                         lose their links to each other
+  wave remove <slug> <file>/<id>                       takes a card out, keeping its own links; refused
+                                                         while an open wave card waits on it, naming each and
+                                                         the wave set … --after to run
   wave set <slug> [<file>/<id> --after <file>/<id>,…]  rewrites only that card's links to the wave's cards to
          [--title <t>] [--goal <t>]                      --after's earlier cards ("" clears them), renames the
          [--note <t> | --file <f>]                       wave, sets its goal or rewrites its note

@@ -3392,9 +3392,10 @@ export async function createWave(site, slug, { title, goal, cards, note }) {
   return writeWave(site, source, itemFile, wave, note);
 }
 
-// Adds a card last, linked to the earlier cards --after names; removes one, which drops its links to the wave's cards
-// and theirs to it; or, for card, rewrites only that card's links to the wave's cards to --after's ("" clears them).
-// Also renames, sets the goal or rewrites the note.
+// Adds a card last, linked to the earlier cards --after names; removes one, which keeps its own links as ordinary
+// blocked-by and is refused while an open card of the wave waits on it; or, for card, rewrites only that card's links to
+// the wave's cards to --after's ("" clears them). Also renames, sets the goal or rewrites the note.
+// docs/adr/2026-11-09-2345-a-card-leaves-a-wave-only-once-no-open-card-waits-on-it.md
 export async function changeWave(site, slug, { add, remove, card, after, title, goal, note }) {
   if ([add, remove, card, after, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass a card with --after, --title, --goal, --note or --file');
   if (after !== undefined && add === undefined && card === undefined) fail(`--after goes with a card: wave set ${slug} <file>/<id> --after <file>/<id>,…`);
@@ -3403,6 +3404,7 @@ export async function changeWave(site, slug, { add, remove, card, after, title, 
   if (wave.finished_at) fail(`the wave "${slug}" is finished`);
   wave.items = waveItems(wave);
   delete wave.phases;
+  const blockedBefore = remove === undefined ? [] : await waveBlocked(site, slug);
   if (add !== undefined) {
     const [id] = waveCards(source, itemFile, [add], slug);
     if (wave.items.includes(id)) fail(`${add} is already in the wave "${slug}"`);
@@ -3418,16 +3420,52 @@ export async function changeWave(site, slug, { add, remove, card, after, title, 
     const [id] = waveCards(source, itemFile, [remove], slug);
     if (!wave.items.includes(id)) fail(`${remove} is not in the wave "${slug}"`);
     if (wave.items.length === 1) fail(`${remove} is the wave's last card; wave finish ${slug} ends the wave`);
-    relink(source, itemFile, wave, id, []);
-    for (const it of itemFile.items.filter((x) => wave.items.includes(x.id) && x.deps)) {
-      it.deps = it.deps.filter((d) => depKey(source.slug, d) !== `${source.slug}/${id}`);
-      if (!it.deps.length) delete it.deps;
+    const waiting = (it) => !closed(it) && (it.deps || []).some((d) => depKey(source.slug, d) === `${source.slug}/${id}`);
+    const waiters = itemFile.items.filter((it) => wave.items.includes(it.id) && it.id !== id && waiting(it));
+    const gone = itemFile.items.find((it) => it.id === id);
+    if (waiters.length && !(gone && closed(gone))) {
+      const lines = await Promise.all(waiters.map(async (it) => `${await cardName(site, `${source.slug}/${it.id}`)} waits on ${remove}: wave set ${slug} ${source.slug}/${it.id} --after <its other conflicts, or "">`));
+      fail(`${remove} can't leave the wave "${slug}" while open cards wait on it; relink each, then remove:\n${lines.join('\n')}`);
+    }
+    // A Done card blocks nobody, so the wave's cards drop their links to it.
+    if (gone && closed(gone)) {
+      for (const it of itemFile.items.filter((x) => wave.items.includes(x.id) && x.deps)) {
+        it.deps = it.deps.filter((d) => depKey(source.slug, d) !== `${source.slug}/${id}`);
+        if (!it.deps.length) delete it.deps;
+      }
     }
     wave.items = wave.items.filter((x) => x !== id);
   }
   if (title !== undefined) wave.title = text(title, '--title');
   if (goal !== undefined) wave.goal = text(goal, '--goal');
-  return writeWave(site, source, itemFile, wave, note);
+  const written = await writeWave(site, source, itemFile, wave, note);
+  if (remove !== undefined) await noticeWaveUnblocked(site, slug, blockedBefore, remove);
+  return written;
+}
+
+// The keys of the open cards waiting on wave:<slug> that its open cards block now, which a removal can lift.
+async function waveBlocked(site, slug) {
+  const out = [];
+  for (const s of await itemSources(site)) {
+    const itemFile = await readJSON(s.file, null);
+    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
+      if (closed(it) || !(it.deps || []).includes(`wave:${slug}`)) continue;
+      if ((await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
+    }
+  }
+  return out;
+}
+
+// A removal that lifts a wave:<slug> block ends the wait as a Done close does: an Unblocked line, and card-unblocked.
+async function noticeWaveUnblocked(site, slug, blockedBefore, removed) {
+  const lifted = `${await cardName(site, removed)} left the wave "${slug}"`;
+  for (const k of blockedBefore) {
+    const { item } = await loadItem(site, k);
+    if (item.blocked_until || (await unfinishedDeps(site, parseKey(k).file, item)).length) continue;
+    const { line } = await appendStatus(site, k, 'unblocked', { lifted });
+    await markUnblocked(site, k, line.ts);
+    await appendEvent({ dir: site }, 'card-unblocked', { key: k });
+  }
 }
 
 // A finished wave's band leaves Todo; its cards keep their links. It finishes only once every card in it is Done, which
