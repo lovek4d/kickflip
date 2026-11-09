@@ -1,10 +1,8 @@
 // The hub's own views' data (docs/adr/2026-10-29-2005-one-app-for-the-whole-hub.md): what GET /_hub/api/hub and
 // /_hub/api/settings answer, with every word the hub page and its settings modals show. hub.mjs reads the state
 // these take; integration readiness rows and their words come from readiness.mjs; board/public/view-hub.js and view-hub-settings.js only lay the words out.
-// st is a push.mjs queueStatus(now) result throughout, and poll the hub's poll state {running, nextAt, last, present,
-// every, low}: last the last github.mjs checkGitHub result, present whether the owner reads present, every the minutes
-// between checks now and low whether GitHub's points left slow them (schedule.mjs checkEvery).
-import { clock, holdLine, sendWords, snoozeEnd } from './schedule.mjs';
+// st is a push.mjs queueStatus(now) result throughout.
+import { clock, holdLine, snoozeEnd } from './schedule.mjs';
 import { CHOICES as DURATIONS, FOREVER, durationEnd, endOf } from './duration.mjs';
 import { siteIcon } from './icons.mjs';
 import { codexStatus } from '../shared/codex.mjs';
@@ -13,28 +11,11 @@ export const capital = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const timeOfDay = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return clock(d, d); };
 
-// The cadence (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md) as words.
-export const cadenceLine = (poll) => `checks every ${poll.every === 1 ? 'minute' : `${poll.every} min`} while you’re ${poll.present ? 'here' : 'away'}${poll.low ? ', slower while GitHub’s points are low' : ''}`;
-export const nowLine = (st, poll, now) => `${cadenceLine(poll)}${st.hold ? `; ${holdLine(st.hold, now)}` : ''}`;
 // When pushes go now, for the device row.
 const deviceLine = (st, now) => (st.hold ? holdLine(st.hold, now) : 'pushes go out after each check');
 export const quietSummary = (s) => `${timeOfDay(s.quiet.start)} – ${timeOfDay(s.quiet.end)}${s.quiet.hold ? ' · pushes held' : ''}`;
 // The muted hint under Quiet hours, in the owner's words.
 export const QUIET_HINT = "checks every minute while you're here, every 5 when away";
-const queuedLine = (st, now) => (st.count ? `${st.count} push${st.count === 1 ? '' : 'es'} queued; next send ${sendWords(st.nextFlushAt, now)}.` : 'No pushes queued.');
-
-export function pollLine({ running = false, nextAt, last = null }, now) {
-  if (running) return 'Checking GitHub now';
-  const next = `Next check ${clock(nextAt, now)}`;
-  if (!last) return next;
-  const what = last.failed.length ? 'could not reach GitHub for every PR' : last.watched ? `${plural(last.watched, 'PR')}, ${last.changes.length ? `${last.changes.length} changed` : 'no change'}` : 'no PRs watched';
-  return `${next} · last ${clock(new Date(last.at), now)}, ${what}`;
-}
-
-// The hub page's Polling status row: how often checks run now, the last and next check, the queue and Send now.
-function pollingNow(st, poll, now) {
-  return { title: capital(nowLine(st, poll, now)), lines: [pollLine(poll, now), queuedLine(st, now)], count: st.count };
-}
 
 // One site's row on the hub page: a word for the site, then each of its board links that isn't passing. links is the
 // board's boards.mjs linksOf, or undefined for a site that isn't a board. A broken link reads amber degraded, since the
@@ -93,7 +74,7 @@ const claudeView = (model) => ({
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code = {}, host = '', version, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = null }) {
+export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = null }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';
@@ -111,7 +92,6 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     codex: codexView(codexShare, codex, claudeModel),
     claude: claudeView(claudeModel),
     empty: rows.length === 0,
-    polling: pollingNow(st, poll, now),
     notifications: { on: st.settings.notifications.on, text: sidebar.notifications.text, device: deviceLine(st, now) },
     hold: st.hold && st.hold.why !== 'off' ? { text: `Notifications ${holdLine(st.hold, now)}`, end: st.hold.why === 'snoozed' } : null,
     rules: rules.length ? plural(rules.length, 'rule') : 'None yet',

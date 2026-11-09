@@ -919,7 +919,6 @@ test('object property names work as page routes and as new boards through HTTP a
     assert.deepEqual(downSince(), routes);
     const rows = (await get('/_hub/api/hub')).groups.flatMap((g) => g.sites);
     for (const route of routes) assert.deepEqual(rows.find((s) => s.route === route).remembered, []);
-    assert.equal((await get('/_hub/api/hub')).polling.lines.length, 2);
   } finally { await writeManifestFile(original); fs.rmSync(path.join(reposDir(), 'int180-http-test'), { recursive: true, force: true }); }
 });
 
@@ -946,7 +945,6 @@ test("a page's presence beat makes the owner present, which the sidebar and the 
   const r = await fetch(`${base}/_hub/presence`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   assert.equal(r.status, 204);
   assert.equal((await getJSON('/_hub/sidebar.json')).away, false);
-  assert.match((await getJSON('/_hub/api/hub')).polling.title, /^Checks every minute while you’re here/);
 });
 
 test("a board page's wake asks the hub for one session check now, from the app's own pages only, and answers with the board's listen state", async () => {

@@ -176,7 +176,7 @@ import { routeRecord } from './routes.mjs';
 import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, deliver } from './push.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
-import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
+import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
 import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs';
 import { endOf } from './duration.mjs';
@@ -819,7 +819,6 @@ const head = (title, extra = '') => `<!doctype html><html lang="en" class="hub-v
 // take their words from views.mjs through /_hub/api/*. A form POST that asks for JSON gets the view's data back; any
 // other gets a 303 back to the page.
 const wantsJSON = (req) => /\bapplication\/json\b/.test(req.headers.accept || '');
-const pollState = () => ({ running: Boolean(polls.running), nextAt: nextPollAt(), last: polls.last, present: owner.state().present, every: checkEvery({ present: owner.state().present, remaining: polls.remaining }), low: polls.remaining !== null && polls.remaining < LOW_POINTS });
 
 async function hubData(req) {
   await prunePrompts();
@@ -827,7 +826,7 @@ async function hubData(req) {
   const { data, links, rows, code } = await sidebarState();
   return {
     ...hubView({
-      now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
+      now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
       code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: awakeOn(),
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),

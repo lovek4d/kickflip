@@ -87,7 +87,6 @@
       usage: fake.usage(),
       hub: { tone: 'ok', word: 'healthy', detail: '3 of 3 sites up' },
       sites: fake.sites(),
-      polling: { title: 'Checks every minute while you’re here', lines: ['Next check 12:00pm · last 11:45am, 8 PRs, no change', 'No pushes queued.'], count: 0 },
       settings: [['notifications', 'Notifications', 'Pushes on · Off on weekends · This device on'], ['quiet', 'Quiet hours', '10:00pm – 8:00am · pushes held'],
         ['codex', 'Codex share', 'Auto'], ['rules', 'Rules for every board', '1 rule'], ['closed', 'Closed boards', 'No closed boards']],
     }),
@@ -105,7 +104,7 @@
 
   function hub(data = {}) {
     const d = { ...fake.hub(), header: true, ...data };
-    const { row, tile, nowRow, CHEVRON } = HubUI;
+    const { row, tile, CHEVRON } = HubUI;
     const site = (s) => row({ icon: s.icon, title: esc(s.title), sub: s.status ?? '<span class="st ok">up · listening · every link passes</span>', wrap: true, trail: CHEVRON, href: `/${s.route}/` });
     const settings = d.settings.map(([id, title, sub]) => `<button type="button" class="hub-setting" data-setting="${esc(id)}" data-kit-inert aria-haspopup="dialog"><span class="text"><span class="title">${esc(title)}</span><span class="sub">${esc(sub)}</span></span>${CHEVRON}</button>`).join('');
     const usage = d.usageCard ?? HubUI.usageCard(d.usage);
@@ -114,9 +113,7 @@
 <div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span> · ${esc(d.hub.detail)}`, wrap: true })}</div>
 <h2 class="label">Boards</h2>
 <div class="group">${d.sites.map(site).join('')}</div>
-<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p>
-<h2 class="label">Polling status</h2>
-<div class="group">${nowRow(d.polling, tile('clock', '#3b82f6'))}</div></div>
+<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p></div>
 <section class="hub-settings"><h2 class="label">Hub settings</h2>${settings}</section>
 <div class="hub-foot"><footer>${d.sites.length} sites. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">mac.example.ts.net</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / v0.4.2</span></footer></div></main></div>`;
   }

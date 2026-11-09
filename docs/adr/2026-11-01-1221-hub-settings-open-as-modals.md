@@ -1,8 +1,10 @@
 ---
-status: superseded in part by 2026-11-01-1256-snooze-is-five-chips-in-notifications, 2026-11-01-1428-codex-share-sits-in-the-usage-card and 2026-11-01-1842-the-page-scrolls-behind-a-modal-from-900px
+status: superseded in part by 2026-11-09-2152-keep-awake-linear-and-slack-sit-inline-on-the-hub-page, 2026-11-01-1256-snooze-is-five-chips-in-notifications, 2026-11-01-1428-codex-share-sits-in-the-usage-card and 2026-11-01-1842-the-page-scrolls-behind-a-modal-from-900px
 ---
 
 # Hub settings open as modals
+
+Superseded in part by [Keep awake, Linear and Slack sit inline on the Hub page](2026-11-09-2152-keep-awake-linear-and-slack-sit-inline-on-the-hub-page.md): those three leave the modal list and sit at the page's root.
 
 Superseded in part by [snooze is five chips in Notifications](2026-11-01-1256-snooze-is-five-chips-in-notifications.md): Snooze stays inline in Notifications instead of opening a sheet over its modal. The settings modals below still hold.
 

@@ -68,10 +68,6 @@
       + `<p class="u-share-desc">${off ? 'Off: work keeps going until usage runs out.' : `Claude’s new work waits when either window passes this, and resumes at that window’s reset; Codex hands its work to ${builder} implementers.`}</p></div>`;
   }
 
-  // What polling does now, the last and next check and the queue, with Send now: hub/views.mjs pollingNow's words.
-  const nowRow = (now, icon = '') => row({ icon, title: esc(now.title), sub: now.lines.map((l) => `<span class="sub wrap">${esc(l)}</span>`).join(''),
-    trail: `<form method="post" action="/_hub/push/flush"><button class="btn quiet" ${now.count ? '' : 'disabled'}>Send now</button></form>` });
-
   // This device's notifications (hub-kit.js device): state is {title, sub, action: {label, act, quiet, busy}} or null
   // while unknown, which keeps the row hidden. A busy action waits (ui.js BUSY) while it turns on or tests.
   function deviceRow(state, { compact = false } = {}) {
@@ -122,5 +118,5 @@
     return `<section class="usage"><h2 class="label" style="margin-top:4px">Usage</h2><div class="group">${blocks}${buffer}</div></section>`;
   }
 
-  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, nowRow, deviceRow, usageCard };
+  globalThis.HubUI = { esc, TILE_PATHS, tile, CHEVRON, row, flash, holdBanner, pauseBanner, machineRow, deviceRow, usageCard };
 })();

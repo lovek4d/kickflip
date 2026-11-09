@@ -1,6 +1,6 @@
 // The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Claude model and Codex share, Needs you for the pending
 // prompts of sessions that own no board, Health, Integrations (readiness.mjs words), each site's health and board links,
-// polling status, then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). A board's row can carry Restart (hub/restart-board.mjs), and
+// then Keep awake, Linear and Slack inline, then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). A board's row can carry Restart (hub/restart-board.mjs), and
 // the Hub row Restart hub while the hub runs older code than its files. Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {
@@ -62,7 +62,7 @@
   const restartHubButton = (busy) => `<button type="button" class="btn quiet restart-btn" id="restart-hub" data-restart-hub${busy ? BoardUI.BUSY : ''}>Restart hub</button>`;
 
   function html(d, { flash, prompts, restarting, restartingHub }) {
-    const { row, tile, nowRow } = HubUI;
+    const { row, tile } = HubUI;
     const usage = HubUI.usageCard(d.usage, d.codex, d.pause, d.claude);
     // The status word is plain text, except while the hub runs older code: then it opens the Restart hub confirm and waits like that button.
     const word = d.hub.restart
@@ -73,9 +73,7 @@
     trail: d.hub.restart ? restartHubButton(restartingHub) : '' })}
 ${HubUI.machineRow(d.pause.machine)}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
-${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>
-<h2 class="label">Polling status</h2>
-<div class="group">${nowRow(d.polling, tile('clock', d.polling.count ? 'var(--color-notice)' : 'var(--color-quiet)'))}</div>`;
+${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
   }
 
   const footer = (d) => `<footer>${esc(d.sites)}. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">${esc(d.host)}</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / v${esc(d.version)}</span></footer>`;
@@ -90,7 +88,7 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
     className: 'hub-view view-hub',
     title: () => 'Hub',
     markup: () => `${BoardUI.header({ lead: 'logo', title: 'Hub', time: 'now', logoSrc: '/_hub/kickflip.png' })}
-<main class="has-top"><div class="hub-status"></div><section class="hub-settings" aria-labelledby="hubSettingsLabel"><h2 class="label" id="hubSettingsLabel">Hub settings</h2>${HubSettings.markup()}</section><div class="hub-foot"></div></main>`,
+<main class="has-top"><div class="hub-status"></div><section class="hub-settings">${HubSettings.markup()}</section><div class="hub-foot"></div></main>`,
 
     create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
       const main = B.$('.hub-status');
@@ -180,14 +178,14 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         after: () => load(),
       });
       const forms = HubKit.forms(B, {
-        accepts: (action, form) => action === '/_hub/push/flush' || ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
+        accepts: (action, form) => ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
         answer(out, action) {
           if (['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
             last = out; flash = null; paint();
             if (action.endsWith('/keep-going')) B.toast(out.pause.state === 'going' ? `Keep going: work runs past the buffer until ${BoardUI.usageClock(out.pause.resets_at)}.`
               : out.pause.near?.going ? `Keep going: agents start in parallel until ${BoardUI.usageClock(out.pause.near.resets_at)}.`
               : out.pause.near ? 'Stopped: agents start one at a time again.' : 'Stopped: new work waits again.');
-          } else if (action === '/_hub/push/flush') { flash = { text: out.message, error: !out.ok }; load(); } else { flash = null; load(); settings.B.refreshSettings?.(); }
+          } else { flash = null; load(); settings.B.refreshSettings?.(); }
           ctx.sidebarChanged?.();
         },
         fail(message) { flash = { text: message, error: true }; paint(); },

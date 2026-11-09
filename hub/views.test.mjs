@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { miniDom } from '../board/mini-dom.mjs';
 import { DEFAULTS, hold, flushAt, snoozeEnd } from './schedule.mjs';
 import { durationEnd } from './duration.mjs';
-import { hubView, settingsView, pollLine, siteHealth, flushView } from './views.mjs';
+import { hubView, settingsView, siteHealth, flushView } from './views.mjs';
 import { codexStatus } from '../shared/codex.mjs';
 
 // The gate as readUsageGate reads it with no pause and a calm Mac, which every hub page carries.
@@ -15,7 +15,6 @@ const t = (h, m = 0, day = 14, s = 0) => new Date(2026, 9, day, h, m, s);
 const ON = { on: true, weekends_off: false, snoozed_until: null };
 const notify = (s, n) => ({ ...s, notifications: { ...ON, ...n } });
 const status = (now, s, count = 0) => ({ settings: s, hold: hold(now, s), count, nextFlushAt: count ? flushAt(now, s) : null });
-const poll = (now, last = null, over = {}) => ({ running: false, nextAt: new Date(now.getTime() + 30 * 60_000), last, present: true, every: 1, low: false, ...over });
 const plain = (v) => JSON.parse(JSON.stringify(v));
 // The hub views wait on ui.js waitOn and draw its BUSY; board/view.test.mjs tests how a waiting control looks.
 const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn: (control, promise) => promise, onBackdrop: (ev, backdrop) => ev.target === backdrop };
@@ -35,17 +34,6 @@ test("Pause hub offers the snooze picker's chips, Forever included, then says un
   assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), pausedUntil: 'forever' }).pause), { on: { title: 'Paused until you resume' }, summary: 'Paused · forever', choices: null });
 });
 
-test('pollLine says when the next check runs and what the last one found', () => {
-  const now = t(19);
-  assert.equal(pollLine(poll(now), now), 'Next check 7:30pm');
-  assert.equal(pollLine({ ...poll(now), running: true }, now), 'Checking GitHub now');
-  const last = (r) => pollLine(poll(now, { at: t(18, 45).toISOString(), failed: [], watched: 0, changes: [], ...r }), now);
-  assert.equal(last({ watched: 2, changes: [{}] }), 'Next check 7:30pm · last 6:45pm, 2 PRs, 1 changed');
-  assert.equal(last({ watched: 1 }), 'Next check 7:30pm · last 6:45pm, 1 PR, no change');
-  assert.equal(last({}), 'Next check 7:30pm · last 6:45pm, no PRs watched');
-  assert.equal(last({ watched: 3, failed: ['x'] }), 'Next check 7:30pm · last 6:45pm, could not reach GitHub for every PR');
-});
-
 test('Quiet hours shows its start and end, the hold, the cadence hint and what each snooze, the weekend and the wake read', () => {
   const now = t(19);
   const v = settingsView({ now, st: status(now, DEFAULTS) }).quiet;
@@ -61,14 +49,6 @@ test('Quiet hours shows its start and end, the hold, the cadence hint and what e
   const open = settingsView({ now, st: status(now, notify({ ...DEFAULTS, quiet: { start: '23:00', end: '07:30', hold: false } }, { weekends_off: true })) }).quiet;
   assert.deepEqual([open.summary, open.hold.sub, open.reads[0].sub, open.reads[3].sub],
     ['11:00pm – 7:30am', 'Off. Pushes go out all night.', 'Until 11:00pm.', 'Pushes wait from Friday 11:00pm until Monday 7:30am.']);
-});
-
-test('the polling status says the cadence: every minute while here, every 5 while away, slower while GitHub’s points are low', () => {
-  const now = t(19);
-  const title = (over) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now, null, over), sidebar: { sites: [], hub: {}, notifications: {} }, rows: [] }).polling.title;
-  assert.equal(title({}), 'Checks every minute while you’re here');
-  assert.equal(title({ present: false, every: 5 }), 'Checks every 5 min while you’re away');
-  assert.equal(title({ present: false, every: 15, low: true }), 'Checks every 15 min while you’re away, slower while GitHub’s points are low');
 });
 
 test('Hub Settings says whether pushes go, when a snooze ends and what each snooze choice would end at', () => {
@@ -108,7 +88,7 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
 test("the hub page's Codex share says what each choice means while Codex is usable, why not and what to run while it isn't, and Hub Settings no longer carries it", () => {
   const now = t(10);
   const sidebar = { sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: null, codex: null } };
-  const view = (extra = {}) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows: [], ...extra }).codex;
+  const view = (extra = {}) => hubView({ now, st: status(now, DEFAULTS), sidebar, rows: [], ...extra }).codex;
   const unusable = (v) => [v.usable, v.tag, v.share, v.choices.find((c) => c.on).value, v.description, v.fix];
   assert.deepEqual(unusable(view()), [false, 'not installed', 'off', 'off', "Codex isn't installed on the host.", process.platform === 'darwin' ? 'brew install --cask codex' : 'npm i -g @openai/codex']);
   assert.deepEqual(unusable(view({ codex: NOT_INSTALLED })), unusable(view()));
@@ -221,7 +201,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   const modal = root.querySelector('#hubSettingsModal');
   assert.equal(modal.open, true);
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Rules for every board');
-  assert.equal(root.querySelectorAll('[data-summary]').length, 8);
+  assert.equal(root.querySelectorAll('[data-summary]').length, 5);
   const rulesBox = root.querySelector('#hubRules');
   rulesBox.setAttribute('data-dirty', '');
   live.paint(data());
@@ -229,7 +209,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.equal(await B.openSettings({ hash: '#notifications' }), false);
   rulesBox.removeAttribute('data-dirty');
   await B.openSettings({ hash: '#notifications' });
-  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Pause hub', 'Notifications', 'Quiet hours', 'Keep awake', 'Linear', 'Slack', 'Rules for every board', 'Closed boards']);
+  assert.deepEqual(root.querySelectorAll('.hub-setting .title').map((h) => h.textContent), ['Pause hub', 'Notifications', 'Quiet hours', 'Rules for every board', 'Closed boards']);
   assert.deepEqual(root.querySelectorAll('form input[name="set"]').map((input) => input.value), ['on', 'weekends']);
   assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => b.textContent), ['1h', '3h', '6h', '1d', 'Forever']);
   assert.equal(root.querySelector('.dur-custom .btn').textContent, 'Custom');
@@ -328,7 +308,6 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.equal(root.querySelector('.quiet-hint').textContent, "checks every minute while you're here, every 5 when away");
   assert.deepEqual(root.querySelectorAll('.setting-content .label').map((h) => h.textContent), ['Snoozes and wakes read']);
   assert.match(root.querySelector('.setting-content').textContent, /Every board wakes once at 8:00am, when quiet hours end\./);
-  assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'Off');
   // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
   assert.equal(root.querySelector('[data-summary="pause"]').textContent, 'Off');
   await B.openSettings({ hash: '#pause' });
@@ -345,9 +324,10 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   await submitForm(resume, resume.querySelector('button'));
   assert.equal(posts.at(-1).opts.body.toString(), 'pause=off');
   assert.equal(root.querySelector('[data-summary="pause"]').textContent, 'Off');
-  await B.openSettings({ hash: '#keep-awake' });
-  assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Keep awake');
-  assert.match(root.querySelector('.setting-content').textContent, /caffeinate -s.*only while it is on AC power/);
+  // Keep awake, Linear and Slack sit inline on the page, not in modals (docs/adr/2026-11-09-2152-keep-awake-linear-and-slack-sit-inline-on-the-hub-page.md).
+  assert.deepEqual(root.querySelectorAll('.hub-inline .title').map((h) => h.textContent), ['Keep awake', 'No key', 'No token']);
+  assert.match(root.querySelector('#keep-awake').textContent, /caffeinate -s.*only while it is on AC power/);
+  await B.openSettings({ kind: 'hub' });
   assert.equal(root.querySelector('.dur-choices'), null);
   const awakeForm = () => root.querySelector('input[name="keep_awake"]').closest('form');
   const awakeToggle = () => awakeForm().querySelector('input.toggle');
@@ -357,26 +337,22 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   await submitForm(awakeForm());
   assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/keep-awake', 'keep_awake=on']);
   assert.equal(awakeToggle().hasAttribute('checked'), true);
-  assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'On');
   awakeToggle().removeAttribute('checked');
   await submitForm(awakeForm());
   assert.equal(posts.at(-1).opts.body.toString(), '');
   assert.equal(awakeToggle().hasAttribute('checked'), false);
-  assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'Off');
   awake = { on: false, unsupported: 'macOS only · this host runs Linux' };
   live.paint(data());
-  assert.equal(root.querySelector('#keep-awake').disabled, true);
-  assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'macOS only · this host runs Linux');
+  assert.equal(root.querySelector('input[name="keep_awake"]'), null);
+  assert.match(root.querySelector('#keep-awake').textContent, /macOS only · this host runs Linux/);
   assert.equal(root.querySelector('.dur-chips'), null);
   await B.openSettings({ hash: '#codex' });
   assert.equal(modal.open, false);
   assert.equal(root.querySelector('.segments'), null);
-  await B.openSettings({ hash: '#linear' });
-  assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Linear');
-  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'No key');
+  assert.equal(modal.open, false);
+  const content = root.querySelector('#linear');
   assert.equal(root.querySelector('[data-linear-remove]'), null);
   assert.equal(root.querySelector('.lk-form button'), null);
-  const content = root.querySelector('.setting-content');
   const fire = (target, type, extra = {}) => Promise.all(listeners.filter((l) => l.target === target && l.type === type).map((l) => l.fn({ target, preventDefault() {}, ...extra })));
   const settle = () => new Promise((r) => setImmediate(r));
   const keyLink = () => content.querySelector('a[href="https://linear.app/settings/account/security"]');
@@ -387,64 +363,48 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   assert.equal(posts.at(-1).opts.body.toString(), 'key=bad');
   assert.match(content.textContent, /Checking the key with Linear…/);
   assert.equal(root.querySelector('#linearKey').disabled, true);
-  const done = root.querySelector('.settings-footer [data-settings-dismiss]');
-  assert.equal(done.getAttribute('aria-busy'), 'true');
-  fire(root, 'click', { target: done });
-  await settle();
-  assert.equal(modal.open, true);
   checked.resolve();
   checked = null;
   await settle(); await settle();
-  assert.equal(modal.open, false);
-  assert.equal(done.getAttribute('aria-busy'), null);
-  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'Key doesn’t work');
-  await B.openSettings({ hash: '#linear' });
-  const slot = root.querySelector('.setting-content');
-  assert.match(slot.textContent, /doesn’t work · Linear refused the key/);
-  assert.ok(slot.querySelector('a[href="https://linear.app/settings/account/security"]'));
-  assert.ok(slot.querySelector('[data-linear-remove]'));
+  assert.match(content.textContent, /doesn’t work · Linear refused the key/);
+  assert.ok(content.querySelector('a[href="https://linear.app/settings/account/security"]'));
+  assert.ok(content.querySelector('[data-linear-remove]'));
   const keyInput = root.querySelector('#linearKey');
   keyInput.value = '';
-  await fire(slot, 'submit', { target: root.querySelector('.lk-form') });
+  await fire(content, 'submit', { target: root.querySelector('.lk-form') });
   assert.equal(posts.at(-1).opts.body.toString(), 'key=bad');
   keyInput.value = 'lin_api_secret123';
-  await fire(slot, 'change', { target: keyInput });
+  await fire(content, 'change', { target: keyInput });
   await settle();
   assert.equal(posts.at(-1).opts.body.toString(), 'key=lin_api_secret123');
-  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'Key set · Acme workspace');
-  assert.match(slot.textContent, /Acme workspace/);
-  assert.equal(slot.querySelector('a[href="https://linear.app/settings/account/security"]'), null);
+  assert.match(content.textContent, /Acme workspace/);
+  assert.equal(content.querySelector('a[href="https://linear.app/settings/account/security"]'), null);
   assert.doesNotMatch(root.innerHTML, /secret123/);
   confirmed = false;
-  await fire(slot, 'click', { target: slot.querySelector('[data-linear-remove]') });
+  await fire(content, 'click', { target: content.querySelector('[data-linear-remove]') });
   assert.equal(posts.at(-1).opts.body.toString(), 'key=lin_api_secret123');
   confirmed = true;
-  await fire(slot, 'click', { target: slot.querySelector('[data-linear-remove]') });
+  await fire(content, 'click', { target: content.querySelector('[data-linear-remove]') });
   await settle();
   assert.equal(posts.at(-1).opts.body.toString(), 'remove=1');
-  assert.equal(root.querySelector('[data-summary=linear]').textContent, 'No key');
+  assert.equal(content.querySelector('[data-linear-remove]'), null);
 
-  assert.equal(root.querySelector('[data-summary=slack]').textContent, 'No token');
-  await B.openSettings({ hash: '#slack' });
-  assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Slack');
-  const slackSlot = root.querySelector('.setting-content');
+  const slackSlot = root.querySelector('#slack');
   const appLink = slackSlot.querySelector('a[href^="https://api.slack.com/apps?new_app=1&manifest_json="]');
   assert.equal(appLink.textContent, 'a new Slack app');
   assert.deepEqual(JSON.parse(new URL(appLink.getAttribute('href')).searchParams.get('manifest_json')).oauth_config.scopes.user, ['chat:write', 'im:write', 'reactions:write', 'users:read']);
   assert.match(slackSlot.textContent, /User OAuth Token \(xoxp-…\)/);
   assert.match(slackSlot.textContent, /The hub sends your reviewers their PR links, git_merged reactions and weekday digests as you, in your DMs with them\./);
-  assert.equal(root.querySelector('#linearKey'), null);
   await fire(slackSlot, 'paste', { target: root.querySelector('#slackToken'), clipboardData: { getData: () => ' xoxp-secret-token ' } });
   await settle();
   assert.equal(posts.at(-1).url, '/_hub/settings/slack');
   assert.equal(posts.at(-1).opts.body.toString(), 'token=xoxp-secret-token');
-  assert.equal(root.querySelector('[data-summary=slack]').textContent, 'Token set · Acme workspace');
   assert.match(slackSlot.textContent, /sends as love/);
   assert.doesNotMatch(root.innerHTML, /xoxp-secret/);
   await fire(slackSlot, 'click', { target: slackSlot.querySelector('[data-slack-remove]') });
   await settle();
   assert.equal(posts.at(-1).opts.body.toString(), 'remove=1');
-  assert.equal(root.querySelector('[data-summary=slack]').textContent, 'No token');
+  assert.equal(slackSlot.querySelector('[data-slack-remove]'), null);
 });
 
 test("the hub page lists Boards and Pages apart with each site's health and links, and says what the hub runs, polls and holds", () => {
@@ -462,7 +422,7 @@ test("the hub page lists Boards and Pages apart with each site's health and link
     total: 3, sites: rows.map((r) => ({ route: r.route, board: ['alpha', 'beta', 'gone', 'new'].includes(r.route) })),
     hub: { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing' }, notifications: { state: 'on', text: 'On' },
   };
-  const v = hubView({ now, st: status(now, DEFAULTS, 1), poll: poll(now), sidebar, rows, links: new Map(Object.entries(links)), code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', version: '0.4.2', rules: [{ text: 'a' }, { text: 'b' }] });
+  const v = hubView({ now, st: status(now, DEFAULTS, 1), sidebar, rows, links: new Map(Object.entries(links)), code: { running: 'abc', onDisk: 'abc' }, host: 'mac.ts.net', version: '0.4.2', rules: [{ text: 'a' }, { text: 'b' }] });
   assert.equal(v.version, '0.4.2');
   assert.deepEqual(v.groups.map((g) => [g.label, g.sites.map((s) => [s.route, s.tone, s.word, s.href])]), [
     ['Boards', [['alpha', 'ok', 'up · listening · every link passes', '/alpha/'], ['beta', 'wait', 'degraded · not listening', '/beta/'],
@@ -473,22 +433,20 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   assert.match(v.groups[0].sites[0].icon, /^<span class="icon/);
   assert.deepEqual(plain(v.hub), { tone: 'down', word: '1 site down', detail: '3 of 5 sites up · 1 link failing · runs the code in its files (abc)', restart: false });
   const staleHub = { tone: 'wait', word: 'degraded', detail: '3 of 5 sites up · runs older code than its files; restart it' };
-  assert.deepEqual(plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, hub: staleHub }, rows, code: { running: 'old', onDisk: 'abc' } }).hub), { ...staleHub, restart: true });
-  assert.deepEqual(plain(v.polling), { title: 'Checks every minute while you’re here', lines: ['Next check 7:30pm', '1 push queued; next send 7:05pm.'], count: 1 });
+  assert.deepEqual(plain(hubView({ now, st: status(now, DEFAULTS), sidebar: { ...sidebar, hub: staleHub }, rows, code: { running: 'old', onDisk: 'abc' } }).hub), { ...staleHub, restart: true });
+  assert.equal(v.polling, undefined);
   assert.deepEqual(plain(v.notifications), { on: true, text: 'On', device: 'pushes go out after each check' });
   assert.equal(v.hold, null);
-  const held = (at, s) => plain(hubView({ now: at, st: status(at, s), poll: poll(at), sidebar, rows }).hold);
+  const held = (at, s) => plain(hubView({ now: at, st: status(at, s), sidebar, rows }).hold);
   assert.deepEqual(held(t(10), notify(DEFAULTS, { snoozed_until: t(15).toISOString() })), { text: 'Notifications snoozed until 3:00pm', end: true });
   assert.deepEqual(held(t(10), notify(DEFAULTS, { snoozed_until: 'forever' })), { text: 'Notifications snoozed until you end it', end: true });
-  const foreverQueue = hubView({ now: t(10), st: status(t(10), notify(DEFAULTS, { snoozed_until: 'forever' }), 1), poll: poll(t(10)), sidebar, rows });
-  assert.equal(foreverQueue.polling.lines[1], '1 push queued; next send once the snooze ends.');
   assert.equal(v.awake, false);
-  assert.equal(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows, awake: true }).awake, true);
+  assert.equal(hubView({ now, st: status(now, DEFAULTS), sidebar, rows, awake: true }).awake, true);
   assert.deepEqual(held(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), { text: 'Notifications held for the weekend until 8:00am Mon Oct 19', end: false });
   assert.deepEqual(held(t(23), DEFAULTS), { text: 'Notifications held overnight until 8:00am tomorrow', end: false });
   assert.equal(held(t(10), notify(DEFAULTS, { on: false, snoozed_until: t(15).toISOString() })), null);
   assert.deepEqual([v.rules, v.sites, v.host, v.total, v.empty], ['2 rules', '5 sites', 'mac.ts.net', 3, false]);
-  const none = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar: { ...sidebar, sites: [] }, rows: [] });
+  const none = hubView({ now, st: status(now, DEFAULTS), sidebar: { ...sidebar, sites: [] }, rows: [] });
   assert.deepEqual([none.groups, none.empty, none.rules, none.sites], [[], true, 'None yet', '0 sites']);
   assert.deepEqual(plain(siteHealth({ state: 'stopped' })), { tone: 'wait', word: 'stopped', lines: [] });
   assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), { ...ok('events'), listen: 'asleep' }])), { tone: 'ok', word: 'up · asleep · every link passes', lines: [] });
@@ -567,7 +525,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
       { id: 'mine', kind: 'Mac', browser: 'Chrome', added: new Date(Date.now() - 2 * 3600_000).toISOString() },
       { id: 'other', kind: 'iPhone', browser: '', added: new Date(Date.now() - 5 * 60_000).toISOString() }] },
   ];
-  const data = hubView({ now, st: status(now, DEFAULTS), poll: poll(now), integrations,
+  const data = hubView({ now, st: status(now, DEFAULTS), integrations,
     sidebar: { pause: CALM_GATE, sites: [{ route: 'alpha', board: true }, { route: 'beta', board: true }], hub: { tone: 'wait', word: 'degraded', detail: '2 of 2 sites up · 1 link failing' }, notifications: {}, total: 0,
       usage: { claude: { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null }, codex: null } },
     rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'beta', title: 'Beta', state: 'up' }], remembered: new Map([['alpha', sessions]]), code: { running: 'abc', onDisk: 'abc' },
@@ -655,7 +613,7 @@ test("the hub's runs-older-code notice jumps to Restart hub, which confirms, wai
   document.body = root;
   context.AppViews.hub.create(root, '/_hub', {});
   const now = t(19);
-  const view = (code) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], code,
+  const view = (code) => hubView({ now, st: status(now, DEFAULTS), rows: [], code,
     sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'wait', word: 'degraded', detail: '0 of 0 sites up · runs older code than its files; restart it' }, notifications: {}, total: 0 } });
   const click = (target) => listeners.find((l) => l.target === root.querySelector('.hub-status') && l.type === 'click').fn({ target });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -721,7 +679,7 @@ test("the hub page's Usage card opens Codex's block with Codex share, bars under
   let sidebarChanges = 0;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const hub = (codexShare, codex = USABLE) => plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], codexShare, codex,
+  const hub = (codexShare, codex = USABLE) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare, codex,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude: reading, codex: codex.usable && codexShare !== 'off' ? reading : null } } }));
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
@@ -798,7 +756,7 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
   let refused = false;
   const now = t(19);
   const reading = { at: now.toISOString(), five_hour: { used_percentage: 42, resets_at: t(20).toISOString(), state: 'live' }, seven_day: null };
-  const hub = (claudeModel, claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), rows: [], codexShare: 'off', codex: USABLE, claudeModel,
+  const hub = (claudeModel, claude = reading) => plain(hubView({ now, st: status(now, DEFAULTS), rows: [], codexShare: 'off', codex: USABLE, claudeModel,
     sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0, usage: { claude, codex: null } } }));
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
@@ -867,7 +825,7 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
   let sidebarChanges = 0;
   let settingsCtx;
   const now = t(10);
-  const page = (n) => plain(hubView({ now, st: status(now, notify(DEFAULTS, n)), poll: poll(now), rows: [], sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0 } }));
+  const page = (n) => plain(hubView({ now, st: status(now, notify(DEFAULTS, n)), rows: [], sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0 } }));
   const context = vm.createContext({
     URLSearchParams, document, navigator: {},
     FormData: class { *[Symbol.iterator]() {} },
@@ -886,7 +844,7 @@ test("the hub page leads with a banner while pushes are held or snoozed, and its
   live.paint(page({}));
   assert.equal(banner(), null);
 
-  const weekend = plain(hubView({ now: t(12, 0, 17), st: status(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), poll: poll(now), rows: [], sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0 } }));
+  const weekend = plain(hubView({ now: t(12, 0, 17), st: status(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), rows: [], sidebar: { pause: CALM_GATE, sites: [], hub: {}, notifications: {}, total: 0 } }));
   live.paint(weekend);
   assert.equal(banner().textContent, 'Notifications held for the weekend until 8:00am Mon Oct 19');
   assert.equal(banner().querySelectorAll('button, form').length, 0);
@@ -915,7 +873,7 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   let live;
   let changed = 0;
   let gate = { pause_at: 90, state: 'paused', used: 91, window: 'five_hour', resets_at: new Date(Date.now() + 3600_000).toISOString(), machine: CALM_GATE.machine };
-  const data = () => ({ integrations: [], pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [], polling: { title: '', lines: [] } });
+  const data = () => ({ integrations: [], pause: { ...gate }, usage: { claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at: gate.resets_at, state: 'live' } } }, hub: {}, groups: [] });
   const context = vm.createContext({
     URLSearchParams, document, navigator: {}, FormData: class { *[Symbol.iterator]() {} },
     BoardView: { page: (root, site, run) => run({ root, $: (s) => root.querySelector(s), toast: (text) => toasts.push(text), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },

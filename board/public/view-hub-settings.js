@@ -1,7 +1,7 @@
-// HubSettings: summary rows below Hub’s health and status open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
+// HubSettings: Keep awake, Linear and Slack sit inline at the root of the Hub page ([keep awake, Linear and Slack sit inline](docs/adr/2026-11-09-2152-keep-awake-linear-and-slack-sit-inline-on-the-hub-page.md)), then
+// summary rows open centred settings modals ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)), using
 // settingsView's words from GET /_hub/api/settings. Pause hub, first, posts to /_hub/settings/hub-pause. Each toggle and snooze posts to /_hub/settings/notifications, Quiet
-// hours' times and hold to /_hub/settings/quiet, and Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key and Slack's token do through linear-key.js; Done waits for
-// a key's save to land. The rules editor saves through POST /_hub/settings/rules
+// hours' times and hold to /_hub/settings/quiet, and Keep awake to /_hub/settings/keep-awake, and saves at once, as Linear's key and Slack's token do through linear-key.js. The rules editor saves through POST /_hub/settings/rules
 // and marks [data-dirty] while an edit is unsaved, so the shell asks before leaving then. The data refreshes every 30 seconds while nothing is being edited.
 (function () {
   // The last data, which a return to the view paints at once.
@@ -40,12 +40,14 @@
       + `<h2 class="label">Snoozes and wakes read</h2><div class="group">${reads}</div>`;
   }
 
-  const sections = [['pause', 'Pause hub'], ['notifications', 'Notifications'], ['quiet', 'Quiet hours'], ['keep-awake', 'Keep awake'], ['linear', 'Linear'], ['slack', 'Slack'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  const sections = [['pause', 'Pause hub'], ['notifications', 'Notifications'], ['quiet', 'Quiet hours'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
   const sectionOf = (hash) => {
     const id = { push: 'notifications', 'closed-boards': 'closed', polling: 'quiet' }[hash?.slice(1)] || hash?.slice(1);
     return sections.some(([section]) => section === id) ? id : null;
   };
-  const markup = () => `${sections.map(([id, title]) => `<button type="button" class="hub-setting" id="${id}" data-settings-open="${id}" aria-haspopup="dialog"><span class="text"><span class="title">${title}</span><span class="sub" data-summary="${id}">Loading…</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}
+  const markup = () => `<div class="hub-inline"><div id="keep-awake"></div><div id="linear" class="lk-inline"></div><div id="slack" class="lk-inline"></div></div>
+<h2 class="label" id="hubSettingsLabel">Hub settings</h2>
+${sections.map(([id, title]) => `<button type="button" class="hub-setting" id="${id}" data-settings-open="${id}" aria-haspopup="dialog"><span class="text"><span class="title">${title}</span><span class="sub" data-summary="${id}">Loading…</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}
 <dialog class="settings-modal hub-modal" id="hubSettingsModal" aria-labelledby="hubSettingsTitle"><div class="settings-head"><div><h2 id="hubSettingsTitle" tabindex="-1"></h2><p class="muted small">Hub settings</p></div><button type="button" class="ghost" data-settings-dismiss aria-label="Close hub settings">✕</button></div><div class="set settings-body"><div class="hs-flash"></div><div class="setting-content"></div></div><div class="settings-footer"><button type="button" data-settings-dismiss>Done</button></div></dialog>`;
 
   globalThis.HubSettings = {
@@ -61,7 +63,7 @@
       let flash = null;
       let rules = null;
       let rulesJSON = '';
-      let tokenSlot = null;
+      const tokenSlots = {};
       const pickers = HubKit.durationPickers(B);
 
       function paint() {
@@ -69,35 +71,22 @@
         const { row, tile, deviceRow } = HubUI;
         top.innerHTML = HubUI.flash(flash);
         const scrollTop = B.$('.settings-body').scrollTop;
+        paintInline();
         if (active === 'pause') {
           content.innerHTML = `<div class="group">${pauseRow(last.pause)}</div><p class="note">Running steps finish. No new builders, planners or pulls start on any board until then, as when usage reaches the pause line.</p>`;
         } else if (active === 'notifications') {
           content.innerHTML = `<div class="group">${deviceRow(device.state(last.device), { compact: true })}${notificationRows(last)}</div>`;
         } else if (active === 'quiet') {
           content.innerHTML = quietRows(last.quiet);
-        } else if (active === 'keep-awake') {
-          content.innerHTML = last.awake.unsupported ? `<p class="note">${esc(last.awake.unsupported)}.</p>`
-            : `<div class="group">${awakeRow(last.awake)}</div><p class="note">Runs <code>caffeinate -s</code> on the host so it doesn’t sleep while boards work, only while it is on AC power. On battery it holds nothing. The screen can still turn off.</p>`;
-        } else if (active === 'linear' || active === 'slack') {
-          if (tokenSlot) tokenSlot.set(last[active]);
-          else {
-            tokenSlot = LinearKey.mount(content, { kind: active, state: last[active],
-              saved(out) { last = out; flash = null; paint(); ctx.sidebarChanged?.(); },
-              busy: (on) => LinearKey.doneBusy(modal.querySelectorAll('[data-settings-dismiss]'), on) });
-          }
         } else if (active === 'closed') {
           content.innerHTML = `<div class="group">${(last.closed || []).length ? last.closed.map((b) => `<div class="row"><span class="body"><span class="text"><span class="title">${esc(b.title)}</span><span class="sub wrap">/${esc(b.route)}</span></span><button class="btn" type="button" data-reopen="${esc(b.route)}"${reopening === b.route ? BoardUI.BUSY : reopening ? ' disabled' : ''}>Reopen</button></span></div>`).join('') : '<p class="note">No closed boards.</p>'}</div>`;
         }
         pickers.painted();
         B.$('.settings-body').scrollTop = scrollTop;
-        B.$('#keep-awake').disabled = Boolean(last.awake.unsupported);
         const summaries = {
           pause: last.pause.summary,
           notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.summary, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
           quiet: last.quiet.summary,
-          'keep-awake': last.awake.summary,
-          linear: last.linear?.summary || 'No key',
-          slack: last.slack?.summary || 'No token',
           rules: last.rules.length ? `${last.rules.length} rule${last.rules.length === 1 ? '' : 's'}` : 'None yet',
           closed: last.closed?.length ? `${last.closed.length} closed` : 'No closed boards',
         };
@@ -127,6 +116,19 @@
         }
       }
 
+      // Keep awake's row and note, and Linear's and Slack's token slots, drawn into the page itself.
+      function paintInline() {
+        B.$('#keep-awake').innerHTML = last.awake.unsupported ? `<p class="note">${esc(last.awake.unsupported)}.</p>`
+          : `<div class="group">${awakeRow(last.awake)}</div><p class="note">Runs <code>caffeinate -s</code> on the host so it doesn’t sleep while boards work, only while it is on AC power. On battery it holds nothing. The screen can still turn off.</p>`;
+        for (const kind of ['linear', 'slack']) {
+          if (tokenSlots[kind]) tokenSlots[kind].set(last[kind]);
+          else {
+            tokenSlots[kind] = LinearKey.mount(B.$(`#${kind}`), { kind, state: last[kind],
+              saved(out) { last = out; flash = null; paint(); ctx.sidebarChanged?.(); } });
+          }
+        }
+      }
+
       // hub-kit.js device() titles its row 'This device' only where this device can take pushes.
       function deviceSummary() {
         const d = device.state('');
@@ -138,7 +140,6 @@
       function closeModal(restore = true) {
         unfitModal?.(); unfitModal = null;
         modal.close();
-        tokenSlot?.destroy(); tokenSlot = null;
         content.innerHTML = '';
         rules = null;
         active = null;
@@ -171,10 +172,7 @@
         history.replaceState(history.state, '', settingsURL);
         return true;
       };
-      const dismiss = () => {
-        if (!tokenSlot?.busy()) { B.openSettings({ kind: 'hub' }); return; }
-        tokenSlot.settled().then(() => { if (B.alive()) B.openSettings({ kind: 'hub' }); });
-      };
+      const dismiss = () => { B.openSettings({ kind: 'hub' }); };
       B.on(modal, 'cancel', (e) => { e.preventDefault(); dismiss(); });
       B.on(root, 'click', (e) => {
         const opener = e.target.closest?.('[data-settings-open]');
@@ -189,7 +187,7 @@
         if (!(await B.openSettings(AppRouter.viewOf(location.href))) && B.alive()) history.replaceState(history.state, '', settingsURL);
       });
       let reopening = null;
-      B.atUnmount(() => closeModal(false));
+      B.atUnmount(() => { closeModal(false); for (const slot of Object.values(tokenSlots)) slot.destroy(); });
       const device = HubKit.device(B, { paint, changed: () => ctx.sidebarChanged?.() });
       device.ready.then(() => { if (B.alive()) paint(); });
       B.on(root, 'click', async (e) => {
@@ -216,7 +214,6 @@
         else on.checked = true;
       });
       const forms = HubKit.forms(B, {
-        accepts: (action) => action !== '/_hub/push/flush',
         answer(out) {
           last = out;
           flash = null;
