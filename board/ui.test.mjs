@@ -2516,16 +2516,15 @@ test("a Full person's line in a thread is named as them, the owner's stays You",
   assert.match(html, /<div class="who">You · /);
 });
 
-test('while typing, only the floating + is disabled: no header strip or docked bar', () => {
+test('while typing, no header strip or docked bar', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /:root\.typing \.fab \{[^}]*pointer-events: none;/);
   assert.doesNotMatch(css, /kb-up|\.docked|--keyboard/);
 });
 
 // docs/adr/2026-11-07-0600-typing-only-disables-the-plus-button.md
-test('while typing on a phone the floating + is hidden, and on a wider screen it only dims', () => {
+test('while typing on a phone the floating + is hidden, and on a wider screen it stays as it is', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\n:root\.typing \.fab \{ opacity: \.35; pointer-events: none; \}/);
+  assert.doesNotMatch(css, /\n:root\.typing \.fab \{/);
   assert.match(css, /@media \(max-width: 699px\) \{\s*:root\.typing \.fab \{ display: none; \}/);
 });
 

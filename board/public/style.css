@@ -780,9 +780,7 @@ main > * { transition: opacity .25s ease; }
   .sheet.keyboard-sheet { --sheet-limit: max(80px, calc(var(--vh, 100dvh) + var(--kb, 0px) - max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px))) - max(12px, env(safe-area-inset-top)))); }
 }
 
-/* Typing, a text field focused (shell.js sets :root.typing): the floating + dims and stops taking taps, and the page stays as it is. */
-:root.typing .fab { opacity: .35; pointer-events: none; }
-/* On a phone the + hides while typing, so it never sits over the keyboard's field. */
+/* Typing, a text field focused (shell.js sets :root.typing). Only a phone changes: the + hides, so it never sits over the keyboard's field; wider screens keep it as it is. */
 @media (max-width: 699px) {
   :root.typing .fab { display: none; }
   /* The board page bottom bar hides too; --app-bottom stays, so the page does not move. */
