@@ -783,7 +783,7 @@
       });
     }).catch(() => { $('#rules').innerHTML = '<p class="muted">Offline. Is the host awake?</p>'; });
     B.watch((events) => {
-      $('#rulesReplies').innerHTML = (events || []).slice(0, 3).map((e) => `<div class="reply">${e.reply ? (e.reply.html ?? '') : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
+      $('#rulesReplies').innerHTML = (events || []).slice(0, 3).map((e) => `<div class="reply${e.reply?.md ? ' md' : ''}">${e.reply ? BoardUI.replyBody(e.reply) : '<span class="muted small">Waiting for Claude…</span>'}</div>`).join('');
     }, { kind: 'rules' });
   }),
 };

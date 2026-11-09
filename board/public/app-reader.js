@@ -21,9 +21,12 @@ BoardView.part((B) => {
   let log = null;
   let stopReading = null;
 
-  // A row of the transcript (transcript.mjs); a call with its output opens it on a tap of its line.
-  function rowHtml(r, i) {
+  // A row of the transcript (transcript.mjs); a call with its output opens it on a tap of its line. What Claude says,
+  // its text rows and its result, is markdown in compact styles, linking the board's refs
+  // (docs/adr/2026-11-09-1453-orchestrator-messages-replies-and-transcript-text-are-markdown.md).
+  function rowHtml(r, i, links) {
     const tag = r.label ? `<span class="reader-tag">${esc(r.label)}</span>` : '';
+    if (r.kind.split(' ')[0] === 'text') return `<div class="reader-row ${r.kind} md">${tag}${markdown(r.body, links)}</div>`;
     if (r.out === undefined) return `<div class="reader-row ${r.kind}">${tag}${esc(r.body)}</div>`;
     const on = log.opened.has(i);
     return `<div class="reader-row tool call" data-call="${i}"><span class="reader-caret">${on ? '▾' : '▸'}</span>${tag}${esc(r.body)}</div>${on ? `<div class="reader-out">${esc(r.out)}</div>` : ''}`;
@@ -42,10 +45,11 @@ BoardView.part((B) => {
   }
   function drawLog() {
     const { rows, stream, raw, text } = log;
+    const links = linkContext(state.board?.items || [], null);
     body.innerHTML = !rows.length ? '<p class="muted reader-empty">The log is empty so far.</p>'
       : !stream ? `<pre class="reader-text">${esc(rows.map((r) => `${r.body}\n`).join(''))}</pre>`
       : raw ? (text === null ? '<p class="muted">Loading…</p>' : `<pre class="reader-raw">${esc(text)}</pre>`)
-      : rows.map(rowHtml).join('');
+      : rows.map((r, i) => rowHtml(r, i, links)).join('');
     drawTools();
     drawMore();
   }

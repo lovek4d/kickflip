@@ -1,6 +1,6 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
-  const { esc, escText, time, ago, replyBody, attachments, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
+  const { esc, escText, time, ago, replyBody, attachments, dropZone, protoButton, linkText, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
   // ui-markdown.js loads after this file, so markdown is looked up when a question draws.
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it.
@@ -47,7 +47,7 @@
   function answerHistory(q, links = {}) {
     if (!q.answers.length) return '';
     const body = q.answers.map((a) => `<div class="ans"><div class="muted small">You · ${esc(time(a.ts))}</div>${escText(choiceLabel(q, a.choice))}${a.note ? `<div>${linkText(a.note, links)}</div>` : ''}${attachments(a.files)}</div>
-      ${a.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(a.reply), links)}</div>` : ''}`).join('');
+      ${a.reply ? `<div class="rep${a.reply.md ? ' md' : ''}"><div class="muted small">Claude</div>${replyBody(a.reply, links)}</div>` : ''}`).join('');
     const last = q.answers[q.answers.length - 1];
     return q.state === 'open' || !last.reply ? body : `<details><summary>Your answer and Claude's reply</summary>${body}</details>`;
   }
@@ -99,7 +99,7 @@
     const outcome = q.resolved ? `${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'}` : '';
     const acted = q.resolved_at ? ` <span class="acted" title="${esc(time(q.resolved_at))}">acted on ${esc(ago(q.resolved_at))}</span>.` : '';
     const said = last && (last.note || last.reply || last.files?.length) ? `<div class="ans"><div class="muted small">You · ${esc(time(last.ts))}</div>${last.note ? `<div>${linkText(last.note, links)}</div>` : ''}${attachments(last.files)}</div>
-      ${last.reply ? `<div class="rep"><div class="muted small">Claude</div>${linkHtml(replyBody(last.reply), links)}</div>` : ''}` : '';
+      ${last.reply ? `<div class="rep${last.reply.md ? ' md' : ''}"><div class="muted small">Claude</div>${replyBody(last.reply, links)}</div>` : ''}` : '';
     return `<section class="q resolved" id="${esc(q.id)}" data-q="${esc(q.id)}">
       <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge('ready', '✓ Resolved', { button: true, title: 'Reopen this question', attrs: { type: 'button', 'data-reopen': q.id } })}</div>
       <h3>${linkText(q.question, links)}</h3>

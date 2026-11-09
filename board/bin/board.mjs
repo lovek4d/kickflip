@@ -33,9 +33,10 @@ Linear needs Hub's Linear key: settings set tickets refuses it without one, and 
 moves every Linear board to internal tickets. A card is never left without a ticket: if Linear can't make one, the
 command fails and changes nothing.
 
-  reply <eventId> (--html <text> | --file <path>)        data/replies/<eventId>.html. A reply to an ask resolves its
-                                                         answered questions (topic item:ask:<eventId>), and one to
-                                                         wave-triage its wave's, noting "Acted on: replied". A
+  reply <eventId> (--text <md> | --file <path>)          data/replies/<eventId>.md, markdown the board draws. A
+                                                         reply to an ask resolves its answered questions
+                                                         (topic item:ask:<eventId>), and one to wave-triage its
+                                                         wave's, noting "Acted on: replied". A
                                                          reply to overnight-triage ends that triage
          [--title <t>]                                   retitles the ask it answers, or whose thread the message
                                                          is in, which then wears an Ask badge in place of its first
@@ -719,7 +720,7 @@ function flagsOf(name, allowed, flags) {
  * the path itself (a reply once read "/private/tmp/…/exp-reply.html"), so it is refused: one
  * token that names an existing file, or that looks like a path to a document.
  */
-const TEXT_FLAGS = ['html', 'text', 'note', 'notes', 'heading', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked', 'task', 'reason'];
+const TEXT_FLAGS = ['text', 'note', 'notes', 'heading', 'summary', 'title', 'body', 'next', 'progress', 'install-label', 'confirmed', 'asked', 'task', 'reason'];
 const DOC_PATH = /^(?:\/|~\/|\.{1,2}\/)\S*\.(?:html?|md|json|txt)$/;
 
 function looksLikePath(value) {
@@ -791,9 +792,9 @@ const COMMANDS = {
     if (f.body === undefined) throw new UsageError('pr reply needs --body "<what Claude says>"');
     return store.postPR(site, pr, { replyTo, body: f.body });
   }],
-  reply: [['eventId'], ['html', 'file', 'title'], (site, [id], f) => {
-    if ((f.html === undefined) === (f.file === undefined)) throw new UsageError('reply takes --html or --file');
-    return store.writeReply(site, id, f.html ?? readInput(f.file), f.title);
+  reply: [['eventId'], ['text', 'file', 'title'], (site, [id], f) => {
+    if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('reply takes --text or --file');
+    return store.writeReply(site, id, f.text ?? readInput(f.file), f.title);
   }],
   thread: [['file/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendMessage(site, key, f)],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],

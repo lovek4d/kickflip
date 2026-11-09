@@ -35,27 +35,30 @@ test('install posts only the route and key to the hub once it quotes the owner, 
   } finally { await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); }); }
 });
 
-test('reply answers a known event, naming its card, and refuses an unknown one', () => {
-  assert.deepEqual(board('reply', 'e1', '--site', 'orch', '--html', '<p>Done.</p>'), { code: 0, err: '', out: 'reply written to task e1\n' });
-  assert.equal(fs.readFileSync(site('orch', 'data', 'replies', 'e1.html'), 'utf8'), '<p>Done.</p>');
-  assert.equal(run('board.mjs', ['reply', 'e1', '--site', 'orch', '--file', '-'], '<p>Again.</p>').code, 0);
-  assert.equal(fs.readFileSync(site('orch', 'data', 'replies', 'e1.html'), 'utf8'), '<p>Again.</p>');
+test('reply answers a known event in markdown, naming its card, and refuses an unknown one', () => {
+  write(site('orch', 'data', 'replies', 'e1.html'), '<p>Before markdown.</p>');
+  assert.deepEqual(board('reply', 'e1', '--site', 'orch', '--text', '**Done.**'), { code: 0, err: '', out: 'reply written to task e1\n' });
+  assert.equal(fs.readFileSync(site('orch', 'data', 'replies', 'e1.md'), 'utf8'), '**Done.**');
+  assert.equal(fs.existsSync(site('orch', 'data', 'replies', 'e1.html')), false, 'the markdown reply takes the place of an older HTML one');
+  assert.equal(run('board.mjs', ['reply', 'e1', '--site', 'orch', '--file', '-'], '- Again.').code, 0);
+  assert.equal(fs.readFileSync(site('orch', 'data', 'replies', 'e1.md'), 'utf8'), '- Again.');
   write(at('waves', 'internal', 'wave.json'), { internal: true, items: [{ id: 'S80', title: 'Legacy' }] });
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'internal/S80', text: 'Still on?' } }) + '\n');
-  assert.deepEqual(board('reply', 'e2', '--site', 'orch', '--html', '<p>Yes.</p>'), { code: 0, err: '', out: 'reply written to INT-80\n' });
-  const r = board('reply', 'e9', '--site', 'orch', '--html', 'x');
+  assert.deepEqual(board('reply', 'e2', '--site', 'orch', '--text', 'Yes.'), { code: 0, err: '', out: 'reply written to INT-80\n' });
+  const r = board('reply', 'e9', '--site', 'orch', '--text', 'x');
   assert.equal(r.code, 1);
   assert.match(r.err, /no event "e9"/);
-  assert.equal(fs.existsSync(site('orch', 'data', 'replies', 'e9.html')), false);
+  assert.equal(fs.existsSync(site('orch', 'data', 'replies', 'e9.md')), false);
   assert.deepEqual(read(at('waves', 'w', 'wave.json')), wave());
   assert.equal(lines(site('orch', 'data', 'events.jsonl')).some((e) => e.ticket), false);
+  assert.match(board('reply', 'e1', '--site', 'orch', '--html', '<p>x</p>').err, /reply does not take --html/);
 });
 
-test('reply refuses a file path passed as --html, which would post the path itself', () => {
-  const r = board('reply', 'e1', '--site', 'orch', '--html', '/tmp/scratch/answer.html');
+test('reply refuses a file path passed as --text, which would post the path itself', () => {
+  const r = board('reply', 'e1', '--site', 'orch', '--text', '/tmp/scratch/answer.md');
   assert.equal(r.code, 2);
-  assert.match(r.err, /--file \/tmp\/scratch\/answer\.html/);
-  assert.equal(fs.existsSync(site('orch', 'data', 'replies', 'e1.html')), false);
+  assert.match(r.err, /--file \/tmp\/scratch\/answer\.md/);
+  assert.equal(fs.existsSync(site('orch', 'data', 'replies', 'e1.md')), false);
 });
 
 test('every text flag refuses a bare file path, and --file refuses a missing file', () => {
@@ -122,10 +125,10 @@ test('push adds the replies written since the last push to the body, and records
   write(stub, "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n'); process.exit(Number(process.env.STUB_EXIT || 0));");
   const push = (exit, ...args) => run('board.mjs', ['push', '--site', 'orch', ...args], undefined, { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, stub, 'push']), STUB_CALLS: calls, STUB_EXIT: String(exit) });
   const state = site('orch', 'data', 'push-state.json');
-  const reply = (id, msAgo) => {
-    write(site('orch', 'data', 'replies', `${id}.html`), '<p>Done.</p>');
+  const reply = (id, msAgo, ext = 'md') => {
+    write(site('orch', 'data', 'replies', `${id}.${ext}`), ext === 'md' ? 'Done.' : '<p>Done.</p>');
     const t = new Date(Date.now() - msAgo);
-    fs.utimesSync(site('orch', 'data', 'replies', `${id}.html`), t, t);
+    fs.utimesSync(site('orch', 'data', 'replies', `${id}.${ext}`), t, t);
   };
 
   reply('e1', 60_000);
@@ -134,7 +137,7 @@ test('push adds the replies written since the last push to the body, and records
 
   write(state, { last_push: new Date(Date.now() - 30_000).toISOString() });
   reply('e2', 10_000);
-  reply('e3', 5_000);
+  reply('e3', 5_000, 'html');
   const failed = push(3, '--kind', 'fault', '--title', 'Ready', '--body', 'A1 is green', '--tag', 'ready-A1', '--urgent');
   assert.equal(failed.code, 3);
   const kept = read(state).last_push;
@@ -179,9 +182,9 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   assert.equal(board('thread', 'w/A1', '--site', 'orch', '--who', 'Jamie', '--via', 'github', '--text', 'Looks good').code, 0);
   assert.deepEqual(queue(), { 'ask-e1': 'Second answer · and 1 reply', 'item-w/A1': 'Pick a layout' });
 
-  assert.equal(board('reply', 'e1', '--site', 'orch', '--html', '<p>Third &amp; <b>final</b></p><details><summary>Why</summary>Long</details>').code, 0);
+  assert.equal(board('reply', 'e1', '--site', 'orch', '--text', 'Third & final\n\n- Why: long').code, 0);
   const long = 'Layout B, because '.repeat(20);
-  assert.equal(board('reply', 'm1', '--site', 'orch', '--html', `<p>${long}</p>`).code, 0);
+  assert.equal(board('reply', 'm1', '--site', 'orch', '--text', long).code, 0);
   const bodies = queue();
   assert.equal(bodies['ask-e1'], 'Third & final · and 1 reply');
   assert.equal(urls()['item-w/A1'], '/orch/#selectedCard=w%2FA1&reply');
@@ -224,8 +227,8 @@ test("after a thread's push has gone, Claude's lines and replies there push noth
 
   assert.equal((await b('push', '--site', 'orch', '--kind', 'fault', '--now', '--title', 'A1 asks: Which layout?', '--body', 'Grid · List', '--url', url, '--tag', 'item-w/A1')).code, 0);
   assert.equal((await b('thread', 'w/A1', '--site', 'orch', '--text', 'Grid fits the phone')).code, 0);
-  assert.equal((await b('reply', 'm1', '--site', 'orch', '--html', '<p>Filed as follow-up INT-56</p>')).code, 0);
-  assert.equal((await b('reply', 'e1', '--site', 'orch', '--html', '<p>Yes, keep it</p>')).code, 0);
+  assert.equal((await b('reply', 'm1', '--site', 'orch', '--text', 'Filed as follow-up INT-56')).code, 0);
+  assert.equal((await b('reply', 'e1', '--site', 'orch', '--text', 'Yes, keep it')).code, 0);
   assert.equal((await b('thread', 'w/A1', '--site', 'orch', '--text', 'Done', '--answer')).code, 2);
   assert.equal(received.length, 1);
 

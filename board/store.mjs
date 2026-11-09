@@ -139,7 +139,10 @@ async function loadItem(site, key) {
   return { ...loaded, item };
 }
 
-export async function writeReply(site, eventId, html, title) {
+// A reply's file, data/replies/<eventId>.<ext>: .md, which `reply` writes; .html, which replies before markdown are; .json.
+export const REPLY_EXTS = ['md', 'html', 'json'];
+
+export async function writeReply(site, eventId, md, title) {
   needSite(site);
   domId(eventId, 'the event id');
   const event = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
@@ -147,10 +150,11 @@ export async function writeReply(site, eventId, html, title) {
   const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
   const titled = title === undefined ? undefined : /^ask:(.+)$/.exec(key || '')?.[1] || fail(`reply --title names an ask: "${eventId}" is not an ask or a message in an ask's thread`);
   if (titled) text(title, '--title');
-  const file = path.join(site, 'data', 'replies', `${eventId}.html`);
-  await replace(file, text(html, 'the reply'));
+  const file = path.join(site, 'data', 'replies', `${eventId}.md`);
+  await replace(file, text(md, 'the reply'));
+  await fs.rm(path.join(site, 'data', 'replies', `${eventId}.html`), { force: true });
   if (titled) await titleAsk(site, titled, title);
-  const lines = key ? await freshenPush(site, key, htmlText(html)) : [];
+  const lines = key ? await freshenPush(site, key, md) : [];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   const triaged = event.kind === 'wave-triage' ? ['wave', 'file'].filter((k) => typeof event.data?.[k] === 'string').map((k) => `${k}:${event.data[k]}`) : [];
   const topic = event.kind === 'ask' ? `item:ask:${eventId}` : triaged[0];
@@ -183,7 +187,7 @@ export async function repliesSincePush(site, until) {
   const last = Date.parse((await readJSON(pushStateFile(site), {})).last_push);
   if (Number.isNaN(last)) return 0;
   const dir = path.join(site, 'data', 'replies');
-  const names = (await fs.readdir(dir).catch(() => [])).filter((n) => /\.(html|json)$/.test(n));
+  const names = (await fs.readdir(dir).catch(() => [])).filter((n) => REPLY_EXTS.includes(path.extname(n).slice(1)));
   const times = await Promise.all(names.map((n) => fs.stat(path.join(dir, n)).then((st) => st.mtimeMs, () => 0)));
   return times.filter((t) => t > last && t <= until.getTime()).length;
 }
@@ -233,15 +237,6 @@ export const PUSH_LINE_MAX = 160;
 export function pushLine(message) {
   const line = String(message).split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).find(Boolean) || '';
   return line.length > PUSH_LINE_MAX ? `${line.slice(0, PUSH_LINE_MAX - 1).trimEnd()}…` : line;
-}
-
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
-function htmlText(html) {
-  return html.replace(/<details[\s\S]*?<\/details>/gi, '\n').replace(/<(?:br|\/?(?:p|div|li|ul|ol|h\d|blockquote|pre|tr|summary))\b[^>]*>/gi, '\n').replace(/<[^>]*>/g, '')
-    .replace(/&(?:#(x[\da-f]{1,6}|\d{1,7})|(\w+));/gi, (m, num, name) => {
-      const code = num && parseInt(num.replace(/^x/i, ''), /^x/i.test(num) ? 16 : 10);
-      return num ? (code <= 0x10ffff ? String.fromCodePoint(code) : m) : routeRecord(ENTITIES, name.toLowerCase()) ?? m;
-    });
 }
 
 // Where a push lands (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). A card or ask link (#selectedCard=) gains
@@ -522,7 +517,7 @@ async function askNotNew(site, eventId, events) {
   const started = items.find(({ it }) => hasPR(it) || leftTodo(it));
   if (started) return { why: `${named} became ${started.key}, which has started` };
   if (items.length) return { items: items.map((i) => i.key) };
-  const replied = await Promise.all(['html', 'json'].map((ext) => fs.stat(path.join(site, 'data', 'replies', `${eventId}.${ext}`)).then(() => true, () => false)));
+  const replied = await Promise.all(REPLY_EXTS.map((ext) => fs.stat(path.join(site, 'data', 'replies', `${eventId}.${ext}`)).then(() => true, () => false)));
   const answered = replied.some(Boolean) || Boolean(mark) || events.some((e) => e.kind === 'ask-done' && e.data?.id === eventId)
     || (await readLines(threadFile(site, `ask:${eventId}`))).some((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status');
   return answered ? { why: `${named} is not New: Claude already answered it` } : null;
@@ -1859,7 +1854,7 @@ function roundSettled(owner, q, answers) {
 async function ownerEvents(site) {
   const events = await readLines(path.join(site, 'data', 'events.jsonl'));
   const answers = await Promise.all(events.filter((e) => e.kind === 'owner-answer').map(async (e) => {
-    const replied = await Promise.all(['html', 'json'].map((ext) => fs.stat(path.join(site, 'data', 'replies', `${e.id}.${ext}`)).then((s) => s.isFile(), () => false)));
+    const replied = await Promise.all(REPLY_EXTS.map((ext) => fs.stat(path.join(site, 'data', 'replies', `${e.id}.${ext}`)).then((s) => s.isFile(), () => false)));
     return { ...e, reply: e.reply || replied.some(Boolean) };
   }));
   return { answers, requests: events.filter((e) => e.kind === 'prototype-request'), reopens: events.filter((e) => e.kind === QUESTION_REOPEN) };

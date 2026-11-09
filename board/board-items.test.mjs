@@ -323,7 +323,7 @@ test('item notes resolves only answered questions', () => {
   write(file, { topics: [{ id: 'site', title: 'Site' }], items: original });
   addEvents(...['answered', 'replied', 'resolved', 'declared', 'other-card'].map((id) =>
     ({ id: `answer-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } })));
-  assert.equal(board('reply', 'answer-replied', '--site', 'orch', '--html', '<p>Acted on it.</p>').code, 0);
+  assert.equal(board('reply', 'answer-replied', '--site', 'orch', '--text', 'Acted on it.').code, 0);
   const r = board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Grill', '--file', path.join(home, 'settled.md'));
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(r.out.trim().split('\n').slice(1), ['resolved: answered']);
@@ -339,8 +339,8 @@ test("a reply, a build's start and a later builder start each resolve the answer
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [on('ask-q', 'item:ask:e1'), on('card-q', 'item:w/A1'), on('wave-q', 'file:w'), on('open-q', 'item:w/A1')] });
   addEvents({ id: 'e2', ts: '2026-10-23T10:30:00Z', kind: 'wave-triage', data: { file: 'w' } }, answer('ask-q'), answer('card-q'), answer('wave-q'));
   const notes = () => Object.fromEntries(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q.resolved ?? null]));
-  assert.match(board('reply', 'e1', '--site', 'orch', '--html', '<p>Done.</p>').out, /^resolved: ask-q$/m);
-  assert.match(board('reply', 'e2', '--site', 'orch', '--html', '<p>Lined up.</p>').out, /^resolved: wave-q$/m);
+  assert.match(board('reply', 'e1', '--site', 'orch', '--text', 'Done.').out, /^resolved: ask-q$/m);
+  assert.match(board('reply', 'e2', '--site', 'orch', '--text', 'Lined up.').out, /^resolved: wave-q$/m);
   const building = board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'claude');
   assert.equal(building.code, 0, building.err);
   assert.match(building.out, /^resolved: card-q$/m);
@@ -776,18 +776,18 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
 // docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md
 test('reply and item relate-ask take --title, which retitles the ask in data/ask-titles.json; a message in its thread titles the ask', () => {
   const titles = () => read(site('orch', 'data', 'ask-titles.json')).titles;
-  assert.equal(board('reply', 'e1', '--site', 'orch', '--html', '<p>Done.</p>', '--title', 'Header keeps its spacing').code, 0);
+  assert.equal(board('reply', 'e1', '--site', 'orch', '--text', 'Done.', '--title', 'Header keeps its spacing').code, 0);
   assert.deepEqual(titles(), { e1: 'Header keeps its spacing' });
   addEvents({ id: 'e2', ts: '2026-10-23T10:05:00Z', kind: 'ask', data: { text: 'and the footer' } },
     { id: 'm1', ts: '2026-10-23T10:06:00Z', kind: 'item-message', data: { key: 'ask:e1', text: 'one more' } },
     { id: 'm2', ts: '2026-10-23T10:07:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'on a card' } });
   const folded = board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--title', 'Footer spacing', '--site', 'orch');
   assert.equal(folded.code, 0, folded.err);
-  assert.equal(board('reply', 'm1', '--site', 'orch', '--html', '<p>Yes.</p>', '--title', 'Header and its spacing').code, 0);
+  assert.equal(board('reply', 'm1', '--site', 'orch', '--text', 'Yes.', '--title', 'Header and its spacing').code, 0);
   assert.deepEqual(titles(), { e1: 'Header and its spacing', e2: 'Footer spacing' });
-  assert.deepEqual(board('reply', 'm2', '--site', 'orch', '--html', '<p>x</p>', '--title', 'X'),
+  assert.deepEqual(board('reply', 'm2', '--site', 'orch', '--text', 'x', '--title', 'X'),
     { code: 1, out: '', err: 'reply --title names an ask: "m2" is not an ask or a message in an ask\'s thread\n' });
-  assert.match(board('reply', 'e1', '--site', 'orch', '--html', '<p>x</p>', '--title', ' ').err, /--title/);
+  assert.match(board('reply', 'e1', '--site', 'orch', '--text', 'x', '--title', ' ').err, /--title/);
   assert.deepEqual(titles(), { e1: 'Header and its spacing', e2: 'Footer spacing' });
 });
 
@@ -828,7 +828,7 @@ test('ask move refuses a route that is not another board, and an ask that is not
   addEvents({ id: 'e4', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Folded' } }, { id: 'e5', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Deleted' } },
     { id: 'e6', ts: '2026-10-23T11:01:00Z', kind: 'ask-withdrawn', data: { id: 'e5' } }, { id: 'e7', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Talked' } },
     { id: 'm1', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Not an ask' } });
-  board('reply', 'e1', '--site', 'orch', '--html', '<p>Answered.</p>');
+  board('reply', 'e1', '--site', 'orch', '--text', 'Answered.');
   board('item', 'relate-ask', 'e4', 'w/A1', '--summary', 'Folded in', '--site', 'orch');
   board('thread', 'ask:e7', '--site', 'orch', '--text', 'Answered in the thread.');
   const refusals = [

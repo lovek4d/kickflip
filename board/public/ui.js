@@ -35,7 +35,10 @@
     const day = d.toLocaleDateString([], { month: 'numeric', day: 'numeric', ...(now - d > 365 * 86400000 ? { year: 'numeric' } : {}) });
     return `${day}, ${at}`;
   }
-  const replyBody = (reply) => reply.html ?? esc(JSON.stringify(reply.json));
+  // A reply as HTML with its refs linked: a markdown reply drawn by ui-markdown.js, which, like ui-links.js, loads after
+  // this file; an older HTML one as written. Its box takes class md for a markdown reply's compact styles.
+  const replyBody = (reply, links) => (reply.md ? globalThis.BoardUI.markdown(reply.md, links)
+    : globalThis.BoardUI.linkHtml(reply.html ?? esc(JSON.stringify(reply.json)), links));
 
   // Attachments are uploads from POST /api/upload: {name, url, path, type, size}. Only uploads/ URLs become links.
   const uploadUrl = (f) => (/^uploads\/[\w.-]+$/.test(f.url || '') ? f.url : null);

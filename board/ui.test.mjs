@@ -704,6 +704,33 @@ test('a thread message shows its text as written, never as markup', () => {
   assert.match(text(html), /<img src=x onerror=alert\(1\)> done/);
 });
 
+// docs/adr/2026-11-09-1453-orchestrator-messages-replies-and-transcript-text-are-markdown.md
+test("the orchestrator's thread message draws as compact markdown, linking refs, while the owner's and others' stay as written", () => {
+  const items = [{ key: 'site/S54', file: 'site', kind: 'work', ref: 'INT-54', internal: true, linear: [], repo: null }];
+  const html = ui.threadMessages([
+    { ts: ago(3), who: 'claude', text: 'Landed:\n\n- **INT-54** done\n- `node --test` green' },
+    { ts: ago(2), who: 'love', text: '- **mine** stays\nas typed' },
+    { ts: ago(1), who: 'Jamie', via: 'github', text: '**theirs**' },
+  ], ui.linkContext(items, 'site/S54'));
+  const [orch, love, other] = html.split(/(?=<div class="msg )/).filter((h) => h.startsWith('<div class="msg '));
+  assert.match(orch, /<div class="body md"><p>Landed:<\/p>\s*<ul><li><strong><a href="#selectedCard=site%2FS54"[^>]*>INT-54<\/a><\/strong> done<\/li><li><code>node --test<\/code> green<\/li><\/ul><\/div>/);
+  assert.match(love, /<div class="body">- \*\*mine\*\* stays\nas typed<\/div>/);
+  assert.match(other, /<div class="body">\*\*theirs\*\*<\/div>/);
+});
+
+test("a markdown reply draws as compact markdown in the thread and under an answered question, and an older HTML reply as written", () => {
+  const items = [{ key: 'site/S54', file: 'site', kind: 'work', ref: 'INT-54', internal: true, linear: [], repo: null }];
+  const links = ui.linkContext(items, 'site/S54');
+  const html = ui.threadMessages([
+    { ts: ago(3), who: 'love', text: 'Why?', eventId: 'e1', state: 'replied', reply: { md: '**Because** of INT-54\n\n- one', at: ago(2) } },
+    { ts: ago(1), who: 'love', text: 'And?', eventId: 'e2', state: 'replied', reply: { html: '<p>Old <b>HTML</b></p>', at: ago(0) } },
+  ], links);
+  assert.match(html, /<div class="body md"><p><strong>Because<\/strong> of <a href="#selectedCard=site%2FS54"[^>]*>INT-54<\/a><\/p>\s*<ul><li>one<\/li><\/ul><\/div>/);
+  assert.match(html, /<div class="body"><p>Old <b>HTML<\/b><\/p><\/div>/);
+  const q = { ...question, state: 'replied', answers: [{ ts: ago(1), choice: 'A', note: '', files: [], reply: { md: '**Kept**' } }] };
+  assert.match(ui.questionCard(q, { links }), /<div class="rep md"><div class="muted small">Claude<\/div><p><strong>Kept<\/strong><\/p><\/div>/);
+});
+
 test("a thread names the board's session Orchestrator and a builder by its model", () => {
   const html = ui.threadMessages([
     { ts: ago(3), who: 'Claude Opus builder', kind: 'builder-ask', text: 'Stay orange?' },

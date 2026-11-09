@@ -279,7 +279,7 @@ test('question add on a card follows answered questions with the first new quest
   ] });
   addEvents(...['answered', 'answered-prototype', 'replied', 'resolved', 'other-card', 'declared', 'ask', 'reopened'].map((id) =>
     ({ id: `answer-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } })));
-  assert.equal(board('reply', 'answer-replied', '--site', 'orch', '--html', '<p>Acted on it.</p>').code, 0);
+  assert.equal(board('reply', 'answer-replied', '--site', 'orch', '--text', 'Acted on it.').code, 0);
   const before = fs.readFileSync(file, 'utf8');
   const add = (qs) => run('board.mjs', ['question', 'add', '--site', 'orch', '--file', '-'], JSON.stringify(qs));
   const refused = add([prototype('first'), question('invalid', { options: [] })]);

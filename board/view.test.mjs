@@ -5330,7 +5330,7 @@ test("a run's View transcript opens its transcript in a sheet over the board: Cl
   assert.equal(r.inSheet('#readerTitle').textContent, 'builder transcript');
   assert.equal(r.inSheet('.reader-ref').textContent, 'builder-A1-1.log');
   const rows = () => r.sheet().querySelectorAll('.reader-row').map((row) => [row.getAttribute('class').replace('reader-row ', ''), row.textContent]);
-  assert.deepEqual(rows(), [['sys', 'startclaude-sonnet-5-5 in /wt/A1'], ['text', 'Reading the notes first.'], ['tool call', '▸bashnode --test board/view.test.mjs']]);
+  assert.deepEqual(rows(), [['sys', 'startclaude-sonnet-5-5 in /wt/A1'], ['text md', 'Reading the notes first.'], ['tool call', '▸bashnode --test board/view.test.mjs']]);
   assert.equal(r.inSheet('.reader-out'), null, "a call's output is shut");
   r.page.fire(r.sheet(), 'click', { target: r.inSheet('.reader-row.call .reader-tag') });
   assert.deepEqual([rows()[2][1], r.inSheet('.reader-out').textContent], ['▾bashnode --test board/view.test.mjs', 'ℹ pass 6'], 'a tap on the call opens its output');
@@ -5376,7 +5376,7 @@ test("a run's View transcript opens its transcript in a sheet over the board: Cl
   r.page.runTimers(3000);
   await r.settle();
   r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="raw"]') });
-  assert.deepEqual(rows().at(-1), ['text end', 'doneBuilt #254 and committed it.']);
+  assert.deepEqual(rows().at(-1), ['text end md', 'doneBuilt #254 and committed it.']);
   assert.equal(r.inSheet('.reader-status').textContent, 'finished');
   const gets = r.gets.length;
   r.page.runTimers(3000);
@@ -5398,6 +5398,22 @@ test("a run's View transcript opens its transcript in a sheet over the board: Cl
   r.page.fire(vm.runInContext('window', r.page.win), 'popstate', { state: { idx: 3 } });
   assert.equal(r.sheet().open, false, 'Back closes it');
   assert.equal(r.moves.filter(([m]) => m === 'back').length, backs, 'and Back already took the entry');
+  r.view.unmount();
+});
+
+// docs/adr/2026-11-09-1453-orchestrator-messages-replies-and-transcript-text-are-markdown.md
+test("View transcript draws Claude's text rows and its final result as compact markdown, and calls and outputs as written", async () => {
+  const r = readerOnDom(said('Plan:\n\n- **read** the notes\n- run `tests`') + called('Bash', { command: 'echo **x**' }) + answered([{ type: 'text', text: '**out**' }])
+    + streamLine({ type: 'result', subtype: 'success', is_error: false, result: '## Done\n\nAll *green*.' }));
+  await r.settle();
+  r.tap(r.root.querySelector('a[href^="log.html"]'));
+  await r.settle();
+  const said1 = r.inSheet('.reader-row.text');
+  assert.match(said1.innerHTML, /^<p>Plan:<\/p>\s*<ul><li><strong>read<\/strong> the notes<\/li><li>run <code>tests<\/code><\/li><\/ul>$/);
+  assert.match(r.inSheet('.reader-row.end').innerHTML, /<span class="reader-tag">done<\/span><h2>Done<\/h2>\s*<p>All <em>green<\/em>\.<\/p>/);
+  assert.equal(r.inSheet('.reader-row.call').textContent, '▸bashecho **x**');
+  r.page.fire(r.sheet(), 'click', { target: r.inSheet('.reader-row.call') });
+  assert.equal(r.inSheet('.reader-out').textContent, '**out**');
   r.view.unmount();
 });
 
