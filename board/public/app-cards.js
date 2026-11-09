@@ -307,7 +307,7 @@ BoardView.part((B) => {
   // Every prototype round is a question on its card, so this button reaches the prototypes too, Done cards included
   // (docs/adr/2026-11-09-1100-needs-you-button-reaches-the-prototypes.md).
   const ACTION_BUTTONS = {
-    [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Needs you</a>`,
+    [BUTTON.openQuestions]: (it) => `<a${classes(it, BUTTON.openQuestions, 'button')} href="questions.html#${esc(it.questions.first)}">Questions</a>`,
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 

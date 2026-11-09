@@ -4,6 +4,8 @@ status: accepted
 
 # The Needs you button reaches the prototypes, and the Prototypes button is dropped
 
+The button's label went back to Questions on T-1 ([the card's button reads Questions again](2026-11-09-2330-card-button-reads-questions-again.md)).
+
 Supersedes the Questions and Prototypes buttons of [prototypes have their own button and a full-bleed viewer](2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md); its viewer, rounds and bar stand.
 
 The owner on #416: "lets drop the prototypes button, can access them through questions button, which should be 'Needs you' instead of 'Questions'".

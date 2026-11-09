@@ -2903,12 +2903,12 @@ test("an open card shows its workflow buttons below a final details line of Note
   const labels = (els) => els.map((el) => el.textContent.trim());
   const shown = (key) => ['.action-row.workflow a, .action-row.workflow button', '.external-links a', '.actions .resolves, .external-links .resolves, form[data-reply] .resolves'].map((selector) => labels(row(key)?.querySelectorAll(selector) || []));
   assert.deepEqual(Object.fromEntries(cards.map((c) => [c.key, shown(c.key)])), {
-    'w/A1': [['Needs you'], [], ['Needs you']],
+    'w/A1': [['Questions'], [], ['Questions']],
     'w/A2': [[], [], []],
     'w/A3': [[], [], []],
     'w/A4': [[], [], []],
-    'w/A5': [['Unhold', 'Needs you'], [], []],
-    'w/P1': [['Needs you'], [], ['Needs you']],
+    'w/A5': [['Unhold', 'Questions'], [], []],
+    'w/P1': [['Questions'], [], ['Questions']],
     'w/D1': [['Notes'], ['Install', 'Review draft on GitHub'], ['Review draft on GitHub']],
     'w/R1': [[], ['Install', 'Review on GitHub'], []],
     'w/S1': [[], ['Review on GitHub'], ['Review on GitHub']],
@@ -6047,7 +6047,7 @@ test("the + is on the board's left pane on desktop and gone from the Open questi
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(50% /);
 });
 
-test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Needs you, then Merge", async () => {
+test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Questions, then Merge", async () => {
   const ready = { state: 'OPEN', isDraft: false, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const full = {
     lane: 'review', holdable: true, hasNotes: true, pr: ready, try: { kind: 'web', script: true, changes: true },
@@ -6061,13 +6061,13 @@ test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Needs 
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
   const order = (key) => b.root.querySelector(`details.item[data-key="${key}"] .action-row.workflow`).querySelectorAll('a, button').map((el) => el.textContent.trim());
-  assert.deepEqual(order('w/F1'), ['Hold', 'Notes', 'Serve', 'Needs you', 'Merge']);
+  assert.deepEqual(order('w/F1'), ['Hold', 'Notes', 'Serve', 'Questions', 'Merge']);
   assert.deepEqual(order('w/F2'), ['Hold', 'Notes', 'Serve', 'Merge']);
-  assert.deepEqual(order('w/F3'), ['Hold', 'Notes', 'Serve', 'Needs you', 'Merge']);
+  assert.deepEqual(order('w/F3'), ['Hold', 'Notes', 'Serve', 'Questions', 'Merge']);
 });
 
 // docs/adr/2026-11-09-1100-needs-you-button-reaches-the-prototypes.md
-test("a card with prototypes has no Prototypes button: its Needs you button opens its questions page, solid orange while a round waits on the owner's pick", async () => {
+test("a card with prototypes has no Prototypes button: its Questions button opens its questions page, solid orange while a round waits on the owner's pick", async () => {
   const round = (n, q, state) => ({ n, q, url: `prototype-x${n}.html?q=${q}`, confirm: false, state });
   const cards = [
     workCard('P1', { actionButton: 'openQuestions', questions: { first: 'q2', open: 1, state: 'open' }, action: { kind: 'pick', url: 'questions.html#q2', label: 'Prototypes ready: pick a take' }, resolvedBy: 'openQuestions',
@@ -6077,10 +6077,10 @@ test("a card with prototypes has no Prototypes button: its Needs you button open
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {} });
   await b.settle();
   const buttons = (key) => [...b.root.querySelectorAll(`details.item[data-key="${key}"] .action-row.workflow a`)];
-  assert.deepEqual(buttons('w/P1').map((a) => a.textContent.trim()), ['Needs you']);
+  assert.deepEqual(buttons('w/P1').map((a) => a.textContent.trim()), ['Questions']);
   assert.equal(buttons('w/P1')[0].getAttribute('href'), 'questions.html#q2');
   assert.equal(buttons('w/P1')[0].getAttribute('class'), 'button resolves');
-  assert.deepEqual(buttons('w/P3').map((a) => [a.textContent.trim(), a.getAttribute('href')]), [['Needs you', 'questions.html#q1']]);
+  assert.deepEqual(buttons('w/P3').map((a) => [a.textContent.trim(), a.getAttribute('href')]), [['Questions', 'questions.html#q1']]);
   b.view.unmount();
 });
 
