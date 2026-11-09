@@ -26,6 +26,7 @@ test('question add appends valid questions and rejects the whole file otherwise'
     [question('q3', { suggested: { option: 'A', answer: 'Keep.' } })],
     [question('q3', { suggested: { option: 'A', card: '#186' } })],
     [question('q3', { suggested: { option: 'A', card: '#186', answer: 'Keep.', why: 'x' } })],
+    [question('q3', { suggested: { option: 'A', card: '#186', answer: 'Keep.', reason: '' } })],
     [question('q3', { url: '/orch/prototype-site.html' })],
     [question('q3', { url: 'notes.html' })],
     [question('q3', { options: [drawn({ practice: undefined })] })],

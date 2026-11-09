@@ -1205,10 +1205,11 @@ function checkOptions(options, name) {
 // The option the overnight triage is confident the owner already chose, from their answer on an earlier card: the
 // card's ref and the answer as they gave it.
 function checkSuggested(s, options, at) {
-  onlyKeys(s, ['option', 'card', 'answer'], at);
+  onlyKeys(s, ['option', 'card', 'answer', 'reason'], at);
   if (!options.some((o) => o.id === text(s.option, `${at}.option`))) fail(`${at}.option names no option "${s.option}"`);
   text(s.card, `${at}.card`);
   text(s.answer, `${at}.answer`);
+  optional(s.reason, (v) => text(v, `${at}.reason`));
 }
 
 // A prototype is a topic recorded here, served as prototype-<topic>.html from one template (board/public/prototype.html,

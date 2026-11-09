@@ -502,7 +502,7 @@ A multiple-choice question Claude needs the owner to decide, attached to a topic
 _Avoid_: poll, decision card
 
 **Suggested answer**:
-The option of an owner question the overnight triage is confident the owner already chose, from their answer on another card or their long-running context, never from an ADR or CONTEXT.md. The question shows it pre-checked with a green "suggested" chip and the line You answered this on #N: "<answer>", and only the owner's Send answers it ([overnight triage suggests your earlier answers](docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md)).
+The option of an owner question the overnight triage is confident the owner already chose, from their answer on another card or their long-running context, never from an ADR or CONTEXT.md. The question shows it pre-checked with a blue line under its label, "Orchestrator choice: <reason>" (the orchestrator's reason, else you answered this on #N: "<answer>"), and only the owner's Send answers it ([overnight triage suggests your earlier answers](docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md)).
 _Avoid_: auto-answer, default, recommendation (the grill's own pick)
 
 **Topic**:

@@ -4,9 +4,9 @@
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
-  // suggested: the line under a suggested option saying where the owner chose it before, as HTML.
+  // suggested: the orchestrator's blue line under a suggested option's label, as HTML.
   const option = (o, { type = 'radio', name, checked = false, numbered = true, locked = false, suggested = '' }) => `<label class="opt"><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
-        <span><span class="lbl">${numbered ? escText(lead(o)) : ''}${escText(o.label)}</span>${suggested ? badge('ready', 'suggested').replace('class="chip', 'class="chip suggested') : ''}${o.recommended ? '<span class="rec">recommended</span>' : ''}<div class="det">${escText(o.detail || '')}</div>${suggested ? `<div class="suggested-why">${suggested}</div>` : ''}</span></label>`;
+        <span><span class="lbl">${numbered ? escText(lead(o)) : ''}${escText(o.label)}</span>${o.recommended ? '<span class="rec">recommended</span>' : ''}${suggested ? `<div class="suggested-why">Orchestrator choice: ${suggested}</div>` : ''}<div class="det">${escText(o.detail || '')}</div></span></label>`;
   // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.
@@ -22,7 +22,7 @@
   // phone's deck (app-needs.js) and the prototype viewer's Choose this (prototype-switcher.js) write it.
   const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
   const setDraft = (id, v) => { try { localStorage.setItem('qdraft:' + id, JSON.stringify(v)); } catch {} };
-  const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(`You answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
+  const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(q.suggested.reason ?? `you answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
   // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone, which then reads

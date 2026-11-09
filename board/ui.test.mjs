@@ -739,14 +739,17 @@ test('a question card marks the recommended option', () => {
 });
 
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
-test('a question card pre-checks its suggested option with a green suggested chip and, under it, the earlier answer it came from', () => {
+test('a question card pre-checks its suggested option, with a blue Orchestrator choice line under its label giving the reason, else the earlier answer it came from', () => {
   const suggested = { ...question, suggested: { option: 'A', card: '#186', answer: 'Keep, nothing floats over a question.' } };
   const opts = options(ui.questionCard(suggested));
   const checked = (html) => options(html).map((o) => /\bchecked>/.test(o));
-  assert.deepEqual(opts.map((o) => text(o)), ['A. Keep suggested You answered this on #186: "Keep, nothing floats over a question."', 'B. Drop recommended Saves a step']);
-  assert.match(opts[0], /<span class="lbl">A\. Keep<\/span><span class="chip suggested tone-ready">suggested<\/span>/);
+  assert.deepEqual(opts.map((o) => text(o)), ['A. Keep Orchestrator choice: you answered this on #186: "Keep, nothing floats over a question."', 'B. Drop recommended Saves a step']);
+  assert.doesNotMatch(opts[0], /chip/);
+  assert.match(opts[0], /<span class="lbl">A\. Keep<\/span><div class="suggested-why">Orchestrator choice: /);
   const links = ui.linkContext([{ key: 'w/A1', wave: 'w', id: 'A1', ref: '#186' }], null);
-  assert.match(options(ui.questionCard(suggested, { links }))[0], /<div class="suggested-why">You answered this on <a [^>]*>#186<\/a>: /);
+  assert.match(options(ui.questionCard(suggested, { links }))[0], /<div class="suggested-why">Orchestrator choice: you answered this on <a [^>]*>#186<\/a>: /);
+  const reasoned = { ...suggested, suggested: { ...suggested.suggested, reason: 'It is the same trade-off as <b>#186</b>.' } };
+  assert.match(options(ui.questionCard(reasoned))[0], /<div class="suggested-why">Orchestrator choice: It is the same trade-off as &lt;b&gt;#186&lt;\/b&gt;\.<\/div>/);
   assert.deepEqual(checked(ui.questionCard(suggested)), [true, false]);
   assert.deepEqual(checked(ui.questionCard(suggested, { draft: { choice: 'B' } })), [false, true]);
   const answered = { ...suggested, state: 'open', reopened: true, answers: [{ ts: ago(1), choice: 'B', note: '', reply: null }] };

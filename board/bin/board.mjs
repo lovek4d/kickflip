@@ -59,8 +59,9 @@ command fails and changes nothing.
          on the card publishes in the order added, with one owner push. The command says "staged" and why.
          url is http(s), or a site page such as prototype-<topic>.html?q=<id>, stored as given.
          Prototype options keep take order, ids matching take keys; recommended: true tags the recommendation.
-         suggested: {option, card, answer} pre-checks the option the owner already chose on an earlier card, with a
-         "suggested" chip and the line You answered this on <card>: "<answer>"; card is that card's ref, answer their words.
+         suggested: {option, card, answer, reason?} pre-checks the option the owner already chose on an earlier card, with a blue
+         line above its description, Orchestrator choice: <reason>; give a reason, your own words for why. Without one the line
+         reads Orchestrator choice: you answered this on <card>: "<answer>"; card is that card's ref, answer their words.
          Waiting on you shows fitting takes in a grid, or a chooser above one full-width take for a single take or if any
          scrolls or fills the screen.
          diagram, with practice: rows of 1-4 boxes [[{text, tone?, to?}]], tone quiet|info|notice|
