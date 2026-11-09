@@ -70,7 +70,7 @@ const thread = () => { try { return fs.readFileSync(path.join(site, 'data', 'thr
 const start = (input = {}) => manager.start({ route: 'orch', key: 'w/A1', ...input }, { manifest });
 const tick = () => manager.tick({ manifest });
 const until = (fn) => waitUntil(fn, 'timed out waiting for try state');
-const config = (extra = {}) => write(path.join(site, 'board.json'), { items: 'data/wave.json', slug: 'w', ...extra });
+const config = (extra = {}) => write(path.join(site, 'board.json'), { items: 'data/items.json', slug: 'w', ...extra });
 function commit(dir, name = 'change') { git(dir, 'add', '.'); git(dir, 'commit', '--quiet', '-m', name); return git(dir, 'rev-parse', 'HEAD'); }
 
 function fakeRelays(t) {
@@ -104,7 +104,7 @@ beforeEach(() => {
   worktree = path.join(home, '.claude', 'kickflip', 'worktrees', path.basename(site));
   git(repo, 'worktree', 'add', '--quiet', '-b', 'card', worktree);
   config();
-  write(path.join(site, 'data', 'wave.json'), { items: [{ id: 'A1' }, { id: 'A2' }] });
+  write(path.join(site, 'data', 'items.json'), { items: [{ id: 'A1' }, { id: 'A2' }] });
   write(path.join(site, 'data', 'agents', 'A1.json'), { worktree: { path: worktree, repo } });
   manifest = { sites: { orch: { dir: site, cmd: [process.execPath, path.join(root, 'board/server.mjs'), site], port: 1, owner: { repo }, github: 'example/project' } } };
   manager = createTryManager({ now: () => clock, log() {} });
@@ -185,13 +185,13 @@ test('worktree resolution keeps traversal, boundary, symlink and repo checks, an
   fs.unlinkSync(path.join(site, 'data/agents/A1@build.json'));
   const nested = path.join(repo, '.claude/worktrees/item');
   fs.mkdirSync(nested, { recursive: true });
-  write(path.join(site, 'data/wave.json'), { repo: 'example/project', items: [{ id: 'A1', worktree: '.claude/worktrees/item' }] });
+  write(path.join(site, 'data/items.json'), { repo: 'example/project', items: [{ id: 'A1', worktree: '.claude/worktrees/item' }] });
   assert.equal(await installWorktree(listBoards(manifest)[0], 'w/A1', manifest), nested);
   assert.equal(await installWorktree({ ...listBoards(manifest)[0], github: 'other/repo' }, 'w/A1', manifest), '');
 });
 
 test('a failed run writes one failure status line with its exit and one reason, the keychain hint before the log, a retry once it shows failed starts, and successful runs write no message', async (t) => {
-  write(path.join(site, 'data/wave.json'), { items: [{ id: 'A1', install: { url: 'https://example.com/app.apk' } }] });
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1', install: { url: 'https://example.com/app.apk' } }] });
   setScript("console.error('errSecInternalComponent'); console.log('one\\ntwo\\nthree\\nfour\\nfive'); process.exit(7);");
   let release;
   const held = new Promise((resolve) => { release = resolve; });
@@ -403,7 +403,7 @@ test('a restart clears dead web cards and stops main so the next tick serves it 
 });
 
 test('builds waiting on each other when the hub restarts run after it, and one that can no longer start fails in its thread', async () => {
-  write(path.join(site, 'data/wave.json'), { items: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }] });
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }] });
   for (const id of ['A2', 'A3']) write(path.join(site, `data/agents/${id}.json`), { worktree: { path: worktree, repo } });
   const lock = path.join(home, 'xcode.lock');
   const built = path.join(home, 'built');
@@ -736,17 +736,17 @@ test('on a plain git remote board the poll moves a pushed card to Done once its 
   git(repo, 'merge', '--quiet', '--no-ff', '-m', 'merge', 'merged-one');
   git(repo, 'push', '--quiet', 'origin', 'main', ':merged-one', ':dropped-one');
   const pushed = (b) => ({ branch: b, at: '2026-11-02T10:00:00Z' });
-  write(path.join(site, 'data', 'wave.json'), { items: [{ id: 'A1', lane: 'review', pushed: pushed('merged-one') }, { id: 'A2', lane: 'review', pushed: pushed('open-one') }, { id: 'A3', lane: 'review', pushed: pushed('dropped-one') }] });
+  write(path.join(site, 'data', 'items.json'), { items: [{ id: 'A1', lane: 'review', pushed: pushed('merged-one') }, { id: 'A2', lane: 'review', pushed: pushed('open-one') }, { id: 'A3', lane: 'review', pushed: pushed('dropped-one') }] });
   delete manifest.sites.orch.github;
   manifest.sites.orch.remote = 'git@gitlab.example.com:acme/project.git';
   await fetchTryBranches({ manifest, log() {} });
-  assert.deepEqual(read(path.join(site, 'data', 'wave.json')).items.map((it) => it.lane), ['done', 'review', 'done']);
+  assert.deepEqual(read(path.join(site, 'data', 'items.json')).items.map((it) => it.lane), ['done', 'review', 'done']);
   assert.equal(thread().at(-1).text, 'merged-one is merged into main on gitlab.example.com, so this card is Done.');
   assert.equal(fs.readFileSync(path.join(site, 'data', 'threads', 'w__A3.jsonl'), 'utf8').includes('dropped-one is gone from gitlab.example.com, so this card is Done.'), true);
   git(repo, 'merge', '--quiet', '--no-ff', '-m', 'merge', 'open-one');
   git(repo, 'push', '--quiet', 'origin', 'main');
   await fetchTryBranches({ manifest, log() {} });
-  assert.equal(read(path.join(site, 'data', 'wave.json')).items[1].lane, 'done');
+  assert.equal(read(path.join(site, 'data', 'items.json')).items[1].lane, 'done');
 });
 
 // A local board whose folder's origin is a bare repo here, with a second clone that pushes to it. → push(file) commits

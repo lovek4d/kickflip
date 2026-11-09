@@ -206,7 +206,7 @@ window.BoardView = (function () {
     }
 
     // #review=<PR number> opens that review in the Auto Review lane (app-lanes.js openReview), as a held review's push does.
-    // #selectedCard=<wave>/<id> (or the older #item=) opens that card, and &openItemsCard=<topic id> opens that pill in the pane; push notifications link here, with &reply to land in the thread's reply box
+    // #selectedCard=<file>/<id> (or the older #item=) opens that card, and &openItemsCard=<topic id> opens that pill in the pane; push notifications link here, with &reply to land in the thread's reply box
     // (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). An ask now in a work item's thread opens that item.
     let focusKey = null;
     let replyKey = null;

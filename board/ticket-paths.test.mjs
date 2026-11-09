@@ -48,17 +48,17 @@ const NEEDS_KEY = 'Linear needs Hub’s Linear key; add it in Hub settings › L
 const NO_KEY = 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub settings › Linear, or pick another ticket source.';
 const OLD = { id: 'OLD', title: 'Filed long ago', ticket: 'INT-1', lane: 'todo', lane_at: '2026-10-01T10:00:00.000Z' };
 
-// A board at sites/<route> over data/wave.json, on GitHub as o/<route>, holding one old card.
+// A board at sites/<route> over data/items.json, on GitHub as o/<route>, holding one old card.
 function board(route) {
   const site = path.join(kickflip, 'sites', route);
-  write(path.join(site, 'board.json'), { title: route, items: 'data/wave.json', slug: route });
-  write(path.join(site, 'data', 'wave.json'), { title: route, repo: `o/${route}`, items: [OLD] });
+  write(path.join(site, 'board.json'), { title: route, items: 'data/items.json', slug: route });
+  write(path.join(site, 'data', 'items.json'), { title: route, repo: `o/${route}`, items: [OLD] });
   write(path.join(site, 'data', 'owner.json'), { topics: [], items: [] });
   write(path.join(site, 'data', 'events.jsonl'), '');
   const manifest = fs.existsSync(path.join(kickflip, 'manifest.json')) ? read(path.join(kickflip, 'manifest.json')) : { sites: {} };
   manifest.sites[route] = { dir: site, cmd: ['node', path.join(here, 'server.mjs')], github: `o/${route}`, branch: 'main' };
   write(path.join(kickflip, 'manifest.json'), manifest);
-  const items = () => read(path.join(site, 'data', 'wave.json')).items;
+  const items = () => read(path.join(site, 'data', 'items.json')).items;
   return { site, items, item: (id) => items().find((it) => it.id === id), ask: (id) => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id, ts: new Date().toISOString(), kind: 'ask', data: { text: `Ask ${id}` } }) + '\n') };
 }
 const quiet = (t) => { t.mock.method(console, 'log', () => {}); t.mock.method(console, 'error', () => {}); };
@@ -96,8 +96,8 @@ test("item set --from-ask gives a card with no ticket one in the board's current
   const b = board('asked');
   for (const [name, source, pattern] of SOURCES) {
     await saveBoardSettings(b.site, { tickets: source });
-    const wave = read(path.join(b.site, 'data', 'wave.json'));
-    write(path.join(b.site, 'data', 'wave.json'), { ...wave, items: [...wave.items, { id: name, title: `Asked on ${name}` }] });
+    const wave = read(path.join(b.site, 'data', 'items.json'));
+    write(path.join(b.site, 'data', 'items.json'), { ...wave, items: [...wave.items, { id: name, title: `Asked on ${name}` }] });
     b.ask(`e-${name}`);
     assert.equal(await cli('asked', 'item', 'set', `asked/${name}`, '--from-ask', `e-${name}`, '--phase', 'grilling', '--text', 'On it.'), 0);
     assert.match(b.item(name).ticket, pattern);
@@ -143,7 +143,7 @@ test("the board server's Run review route and arch file give their cards tickets
   assert.equal(first.status, 200, JSON.stringify(first.body));
   assert.equal(first.body.key, 'app/GH-1');
   assert.equal(b.item('GH-1').ticket, '#1');
-  const waveFile = path.join(b.site, 'data', 'wave.json');
+  const waveFile = path.join(b.site, 'data', 'items.json');
   write(waveFile, { ...read(waveFile), items: read(waveFile).items.map((it) => (it.id === 'GH-1' ? { ...it, lane: 'done', lane_at: new Date().toISOString(), closed_at: new Date().toISOString() } : it)) });
 
   const keyFile = path.join(kickflip, 'secrets.json');
@@ -200,7 +200,7 @@ test('a card on a board still on Linear after its key went is refused, never lef
   const key = withoutKey(t);
   await saveBoardSettings(b.site, { tickets: LINEAR });
   key.remove();
-  const waveFile = path.join(b.site, 'data', 'wave.json');
+  const waveFile = path.join(b.site, 'data', 'items.json');
   const before = fs.readFileSync(waveFile, 'utf8');
   const errors = [];
   t.mock.method(console, 'error', (...args) => errors.push(args.join(' ')));
@@ -295,5 +295,5 @@ test('every write that adds to an items list is a known one, and the ones that m
   assert.deepEqual([...callers.resolveTicket], ['board/store.mjs assignTicket']);
   assert.deepEqual([...callers.assignTicket].sort(), ['board/store.mjs backfill', 'board/store.mjs changeItem', 'board/store.mjs createItem']);
   const create = bodyOf(fs.readFileSync(path.join(root, 'board/store.mjs'), 'utf8'), 'createItem');
-  assert.ok(create.indexOf('assignTicket(') >= 0 && create.indexOf('assignTicket(') < create.indexOf('wave.items.push('), 'createItem assigns the ticket before it adds the card');
+  assert.ok(create.indexOf('assignTicket(') >= 0 && create.indexOf('assignTicket(') < create.indexOf('itemFile.items.push('), 'createItem assigns the ticket before it adds the card');
 });

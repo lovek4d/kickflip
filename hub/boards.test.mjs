@@ -49,8 +49,8 @@ write(claude('waves', 'w1', 'wave.json'), { repo: 'o/r', reviewers: [{ name: 'Be
 ] });
 fs.mkdirSync(claude('waves', 'notes'), { recursive: true });
 write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] });
-write(site('shop', 'board.json'), { title: 'Shop', items: 'data/wave.json', slug: 'shop' });
-write(site('shop', 'data', 'wave.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 }, { id: 'S2', pr: 11 }] });
+write(site('shop', 'board.json'), { title: 'Shop', items: 'data/items.json', slug: 'shop' });
+write(site('shop', 'data', 'items.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 }, { id: 'S2', pr: 11 }] });
 write(site('bare', 'board.json'), { items: 'data/items.json' });
 write(site('bare', 'data', 'items.json'), { items: [{ id: 'B1', pr: 5 }] });
 await writeManifestFile({ version: 1, sites: {
@@ -63,13 +63,13 @@ test('the registry lists every board site, over the waves or its own file, with 
   const boards = listBoards();
   assert.deepEqual(boards.map((b) => [b.route, b.kind, b.title]), [['orch', 'waves', 'Orch'], ['shop', 'file', 'Shop']]);
   const [orch, shop] = boards;
-  assert.deepEqual(orch.waves.map((w) => w.slug), ['w1']);
-  assert.deepEqual(orch.prs, [{ wave: 'w1', id: 'A1', pr: 11, repo: 'o/r', since: '2026-10-20T00:00:00Z' }]);
+  assert.deepEqual(orch.files.map((w) => w.slug), ['w1']);
+  assert.deepEqual(orch.prs, [{ file: 'w1', id: 'A1', pr: 11, repo: 'o/r', since: '2026-10-20T00:00:00Z' }]);
   assert.deepEqual(orch.reviewers, ['Ann']);
-  assert.deepEqual(shop.prs.map((p) => [p.wave, p.id, p.pr, p.repo]), [['shop', 'S1', 722, 'o/r'], ['shop', 'S2', 11, 'o/r']]);
+  assert.deepEqual(shop.prs.map((p) => [p.file, p.id, p.pr, p.repo]), [['shop', 'S1', 722, 'o/r'], ['shop', 'S2', 11, 'o/r']]);
   assert.deepEqual(shop.reviewers, []);
   const bare = listBoards({ sites: { bare: { dir: site('bare'), port: 1, cmd: boardCmd('bare') } } });
-  assert.deepEqual(bare.map((b) => [b.title, b.waves.map((w) => w.slug), b.prs]), [['bare', ['items'], []]]);
+  assert.deepEqual(bare.map((b) => [b.title, b.files.map((w) => w.slug), b.prs]), [['bare', ['items'], []]]);
   assert.deepEqual(listBoards({}), []);
 });
 
@@ -135,7 +135,7 @@ test('linksOf names each hub link that reaches a board and each that does not', 
   assert.deepEqual(hubLink({ running: 'h0', onDisk: 'h1' }), { link: 'hub', ok: false,
     detail: 'The hub runs older code than its files; restart it with ' + (process.platform === 'darwin' ? 'launchctl kickstart -k gui/$(id -u)/local.claude.kickflip-hub' : 'systemctl --user restart kickflip-hub.service') });
   const recorded = structuredClone(orch);
-  recorded.waves[0].wave.items[0].review_link_ts = { Ann: { ts: '1.1', channel: 'D1' }, Bea: '1.2' };
+  recorded.files[0].itemFile.items[0].review_link_ts = { Ann: { ts: '1.1', channel: 'D1' }, Bea: '1.2' };
   assert.equal(linksOf(recorded, { ...ok, topics: {} })[3].ok, true);
   const slack = linksOf(orch, { ...ok, topics: { 'w1/A1': { review_link_ts: { Ann: '1.1' } } } })[3];
   assert.deepEqual([slack.ok, slack.detail], [false, '#11 has no link for Bea.']);
@@ -398,14 +398,14 @@ test("a GitHub change goes to every board showing that PR, and pushes alone neve
   writePR(home, 722, prView({ failing: ['build'] }));
   const r = await poll();
   assert.deepEqual(r.changes.map((c) => [c.pr, c.changes]).sort(), [[11, ['review']], [722, ['ci']]]);
-  assert.deepEqual(events('orch', 'github-change').map((e) => e.data.prs), [[{ wave: 'w1', id: 'A1', pr: 11, changes: ['review'] }]]);
+  assert.deepEqual(events('orch', 'github-change').map((e) => e.data.prs), [[{ file: 'w1', id: 'A1', pr: 11, changes: ['review'] }]]);
   assert.deepEqual(events('shop', 'github-change').map((e) => e.data.prs), [[
-    { wave: 'shop', id: 'S1', pr: 722, changes: ['ci'] }, { wave: 'shop', id: 'S2', pr: 11, changes: ['review'] },
+    { file: 'shop', id: 'S1', pr: 722, changes: ['ci'] }, { file: 'shop', id: 'S2', pr: 11, changes: ['review'] },
   ]]);
   assert.deepEqual(r.deaf.pushed, [], 'one push per outage');
   assert.equal(device.received.length, 1);
 
-  write(site('shop', 'data', 'wave.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 }, { id: 'S2', pr: 11, install: { url: 'itms-services://x', sha: 'ABC' } }] });
+  write(site('shop', 'data', 'items.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 }, { id: 'S2', pr: 11, install: { url: 'itms-services://x', sha: 'ABC' } }] });
   writePR(home, 11, prView({ reviewDecision: 'APPROVED', head: 'def', pending: 2 }));
   writePR(home, 722, prView({ failing: ['build'], head: 'fed', pending: 2 }));
   const pushed = await poll();
@@ -415,7 +415,7 @@ test("a GitHub change goes to every board showing that PR, and pushes alone neve
   assert.equal(read(claude('kickflip', 'github-state.json')).prs['o/r#722'].head, 'fed');
   assert.deepEqual((await poll()).changes, [], 'a quiet poll does not repeat the head event');
 
-  write(site('shop', 'data', 'wave.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 },
+  write(site('shop', 'data', 'items.json'), { repo: 'o/r', items: [{ id: 'S1', pr: 722 },
     { id: 'S2', pr: 11, install: { url: 'itms-services://x', sha: 'new' } }, { id: 'S3', pr: 11 },
     { id: 'S4', pr: 11, install: { url: 'https://m/app.apk' } },
   ] });
@@ -985,7 +985,7 @@ test('a starting hub makes the hub board a local board of its own folder once, r
     await writeManifestFile({ sites: { 'hub-orchestrator': board('hub', hubBoardPort), dev: { ...board('dev', devPort), hub: true, owner: { session: 's-dev', repo: folder } } } });
     await startHub();
     const dev = read(file).sites.dev;
-    assert.deepEqual([flagged(), dev.local, dev.github, dev.branch, dev.owner, read(file).migrated], [['dev'], true, 'owner/kickflip', 'main', { session: 's-dev', repo: folder }, ['board-github', 'hub-local']]);
+    assert.deepEqual([flagged(), dev.local, dev.github, dev.branch, dev.owner, read(file).migrated], [['dev'], true, 'owner/kickflip', 'main', { session: 's-dev', repo: folder }, ['board-github', 'hub-local', 'wave-names']]);
     const cleared = read(file);
     delete cleared.sites.dev.local;
     delete cleared.sites.dev.hub;

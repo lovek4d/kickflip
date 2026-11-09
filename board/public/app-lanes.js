@@ -1,5 +1,5 @@
 // The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Done's and Asks' Show more,
-// Done's finished-wave folds, and Todo's wave bands with their Implement and card order.
+// Done's finished-item-file folds, and Todo's wave bands with their Implement and card order.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
   const { $, store, state } = B;
@@ -52,7 +52,7 @@ BoardView.part((B) => {
   }
 
   // A fold's open state lives in storage, not in setHTML's summary-text match, because its row's count changes.
-  // Fold ids are wave:<slug> (board/domain.mjs waveFold), so any id maps to its own storage key.
+  // Fold ids are file:<slug> (board/domain.mjs fileFold), so any id maps to its own storage key.
   const FOLDS = new Proxy({}, { get: (_, id) => ({ store: `foldOpen:${String(id)}` }) });
   // A fold's header reads like a lane's: its name, then its count.
   function fold(id, list, name) {
@@ -63,12 +63,12 @@ BoardView.part((B) => {
       </details>`;
   }
 
-  // One row per finished wave, newest card first, as Done's items arrive sorted.
-  function waveFolds(d, items) {
-    const slugs = [...new Set(items.filter((i) => i.fold === `wave:${i.wave}`).map((i) => i.wave))];
+  // One row per finished item file, newest card first, as Done's items arrive sorted.
+  function fileFolds(d, items) {
+    const slugs = [...new Set(items.filter((i) => i.fold === `file:${i.file}`).map((i) => i.file))];
     return slugs.map((slug) => {
-      const w = d.waves.find((x) => x.slug === slug);
-      return fold(`wave:${slug}`, items.filter((i) => i.fold === `wave:${slug}`), escText(w.title));
+      const w = d.itemFiles.find((x) => x.slug === slug);
+      return fold(`file:${slug}`, items.filter((i) => i.fold === `file:${slug}`), escText(w.title));
     }).join('');
   }
 
@@ -94,7 +94,7 @@ BoardView.part((B) => {
       const items = shown.filter((i) => i.lane === lane.id);
       const expanded = laneState[lane.id] ?? lane.open;
       const open = items.filter((i) => !i.fold);
-      const rows = lane.id === 'todo' ? todoRows(d, shown, open) : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : waveGroups(lane.id, open)) + waveFolds(d, items);
+      const rows = lane.id === 'todo' ? todoRows(d, shown, open) : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : waveGroups(lane.id, open)) + fileFolds(d, items);
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
         <summary><span class="lane-name">${lane.name}</span><span class="count">${lane.id === 'done' ? doneCount(d, items) : items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
         <div class="list">${rows || '<div class="empty">Nothing here.</div>'}
@@ -132,7 +132,7 @@ BoardView.part((B) => {
 
   // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
   // Todo's wave bands (domain.mjs waveBandsOf), then its cards in no wave under No wave. A band's open state lives
-  // in storage once the owner taps its head; until then only the first band whose next card is ready (a wave file's:
+  // in storage once the owner taps its head; until then only the first band whose next card is ready (an item file's:
   // any Todo card) starts open. A band's name shows its goal as a tooltip, or a popover on a long-press. menu is the
   // card whose ⋯ menu is open, goalShown the band whose goal popover is open.
   let menu = null;
@@ -160,7 +160,7 @@ BoardView.part((B) => {
     const now = cards.filter((i) => LANE_WORDS[i.lane]).map((i) => `${esc(i.ref)} ${LANE_WORDS[i.lane]}`);
     const progress = now.length ? ` <span class="count">· ${now.join(' · ')}</span>` : '';
     const name = `<span class="lane-name wb-name"${band.goal ? ` title="${esc(band.goal)}" data-goal="${esc(band.slug)}"` : ''}>${escText(band.title)}</span>`;
-    const notes = band.kind === 'lineup' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
+    const notes = band.kind === 'wave' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
     const next = band.next;
     const go = !next ? '' : next.ready
       ? `<button type="button" class="wv-link" data-confirm="card-build" data-key="${esc(next.key)}">Implement</button>`
@@ -171,13 +171,13 @@ BoardView.part((B) => {
       + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}</span>${go}</span>${pop}</div>`;
     if (!open) return `<section class="wb" data-band="${esc(band.slug)}">${head}</section>`;
     const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#selectedCard=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
-    const step = (it) => (band.kind === 'lineup' ? band.phases.findIndex((p) => p.includes(it.key)) + 1 : 0);
-    const actions = (it, at) => (band.kind !== 'lineup' ? null : cardMenu(band.slug, it.key, at, todo.length));
+    const step = (it) => (band.kind === 'wave' ? band.phases.findIndex((p) => p.includes(it.key)) + 1 : 0);
+    const actions = (it, at) => (band.kind !== 'wave' ? null : cardMenu(band.slug, it.key, at, todo.length));
     return `<section class="wb" data-band="${esc(band.slug)}" data-open>${head}<div class="wb-body">${doneRow}${todo.map((it, at) => B.card(it, { step: step(it), actions: actions(it, at) })).join('')}</div></section>`;
   }
 
-  // A lineup card's ⋯ and, while open, its menu: Move up and Move down among the band's Todo cards. A move waits for
-  // the server (board/server.mjs lineup-move): the tapped move waits and the other is disabled meanwhile.
+  // A wave card's ⋯ and, while open, its menu: Move up and Move down among the band's Todo cards. A move waits for
+  // the server (board/server.mjs wave-move): the tapped move waits and the other is disabled meanwhile.
   function cardMenu(slug, key, at, count) {
     const shown = menu === key;
     const item = (by, label) => {
@@ -279,7 +279,7 @@ BoardView.part((B) => {
       ev.preventDefault();
       if (mv.disabled) return;
       const { band, key } = mv.dataset;
-      try { await waitOn(mv, B.send('lineup-move', { lineup: band, key, by: Number(mv.dataset.bandMove) }), { group: mv.parentNode.querySelectorAll('button') }); }
+      try { await waitOn(mv, B.send('wave-move', { wave: band, key, by: Number(mv.dataset.bandMove) }), { group: mv.parentNode.querySelectorAll('button') }); }
       catch { B.toast('Could not move it. Is the host awake?'); }
       menu = null;
       B.render();

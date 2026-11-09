@@ -227,7 +227,7 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
   assert.equal(r.status, 0, r.stderr);
   const entry = manifest()['my-app'];
   const [call] = claudeCalls();
-  assert.deepEqual([call.cwd, call.argv[0], call.argv.at(-1)], [repo, '--bg', "/kickflip --name 'My app' --template board --items data/wave.json"]);
+  assert.deepEqual([call.cwd, call.argv[0], call.argv.at(-1)], [repo, '--bg', "/kickflip --name 'My app' --template board --items data/items.json"]);
   const [record] = fs.readdirSync(path.join(home, '.claude', 'sessions'));
   const { sessionId: session } = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'sessions', record), 'utf8'));
   assert.deepEqual(
@@ -235,8 +235,8 @@ test('kickflip join in a repo makes a local board named as asked, with its GitHu
     ['My app', 'owner/my-app', 'trunk', true, ['data/events.jsonl'], repo, session, 'My app'],
   );
   assert.deepEqual(entry.cmd.slice(1), [path.join(ROOT, 'board', 'server.mjs'), path.join(state, 'sites', 'my-app')]);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'board.json'), 'utf8')), { title: 'My app', items: 'data/wave.json' });
-  const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'wave.json'), 'utf8'));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'board.json'), 'utf8')), { title: 'My app', items: 'data/items.json' });
+  const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'my-app', 'data', 'items.json'), 'utf8'));
   assert.equal(wave.title, 'My app');
   assert.deepEqual(wave.items.map((i) => [i.id, i.phase, i.ticket, i.plan]), [
     ['onboard-build', 'grilling', 'INT-1', 'onboard-build-notes.md'],
@@ -266,7 +266,7 @@ test('a board for a repo whose main already has a build script starts without th
   git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'build');
   const r = await cliIn(repo, ['join', '--name', 'Built app']);
   assert.equal(r.status, 0, r.stderr);
-  const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'wave.json'), 'utf8'));
+  const wave = JSON.parse(fs.readFileSync(path.join(state, 'sites', 'built-app', 'data', 'items.json'), 'utf8'));
   assert.deepEqual(wave.items.map((i) => [i.id, i.ticket]), [['onboard-context', 'INT-1']]);
   assert.equal(fs.existsSync(path.join(state, 'sites', 'built-app', 'data', 'onboard-build-notes.md')), false);
 });

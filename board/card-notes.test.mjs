@@ -10,11 +10,11 @@ function world() {
   const site = fs.mkdtempSync(path.join(os.tmpdir(), 'card-notes-'));
   const data = path.join(site, 'data');
   fs.mkdirSync(data);
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(path.join(data, 'shared.md'), '# Shared\n');
   fs.writeFileSync(path.join(data, 'old.md'), '# Old\n');
   fs.writeFileSync(path.join(data, 'own.md'), '# Own\n');
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [
     { id: 'A1', title: 'First', created: '2026-11-01T00:00:00Z', plan: 'shared.md' },
     { id: 'A2', title: 'Second', created: '2026-11-02T00:00:00Z', plan: './shared.md' },
     { id: 'A3', title: 'Later', created: '2026-11-03T00:00:00Z', plan: 'old.md' },
@@ -23,7 +23,7 @@ function world() {
   fs.writeFileSync(path.join(data, 'done-archive.json'), JSON.stringify({ cards: [
     { key: 't/Z9', wave: 't', closed_at: '2026-10-20T00:00:00Z', item: { id: 'Z9', title: 'Archived', created: '2026-10-01T00:00:00Z', lane: 'done', plan: 'old.md' } },
   ] }));
-  const items = () => JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items;
+  const items = () => JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items;
   const thread = (id) => fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map((l) => JSON.parse(l).text);
   return { site, data, items, thread };
 }

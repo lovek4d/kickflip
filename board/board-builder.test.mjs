@@ -45,8 +45,8 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
   // A builder's own start and done, a build's start aside, leave the card's wave entry as it is, in any lane.
   for (const [key, flags, file] of [
     ['w/A1', [], at('waves', 'w', 'wave.json')],
-    ['audit/A1', ['--site', 'audit'], site('audit', 'data', 'wave.json')],
-    ['audit/A1', ['--dir', site('audit', 'data')], site('audit', 'data', 'wave.json')],
+    ['audit/A1', ['--site', 'audit'], site('audit', 'data', 'items.json')],
+    ['audit/A1', ['--dir', site('audit', 'data')], site('audit', 'data', 'items.json')],
   ]) {
     for (const fields of [{ lane: 'progress' }, { lane: 'todo', held: true }, { lane: 'review', prs: [{ number: 7 }] }, { lane: 'done', closed_at: '2026-10-23T10:00:00Z' }]) {
       const w = read(file);

@@ -14,21 +14,21 @@
   // from its ref, to its card's key, the issue url prefix of each Linear team the board's cards link to (none on a
   // board without a workspace), that item's repo for a bare #n that is no card's ref, and `base`, which a page other
   // than the board sets to './' so a card link opens the board. A ref shaped like a Linear id, such as INT-<n>, or a
-  // ticket #n links from anywhere; a wave's own short id, such as B1, links only from that wave's cards, since a plan
-  // for another wave reuses those names.
+  // ticket #n links from anywhere; an item file's own short id, such as B1, links only from that file's cards, since
+  // another item file's plan reuses those names.
   function linkContext(items = [], key = null, { base = '' } = {}) {
-    const wave = key && !key.startsWith('ask:') ? key.slice(0, key.indexOf('/')) : null;
+    const file = key && !key.startsWith('ask:') ? key.slice(0, key.indexOf('/')) : null;
     const byRef = new Map();
     for (const i of items) {
       if (i.kind === 'ask') continue;
       for (const ref of new Set([i.ref, i.id])) {
-        if (!ref || (!LINEAR_ID.test(ref) && !ISSUE.test(ref) && i.wave !== wave)) continue;
+        if (!ref || (!LINEAR_ID.test(ref) && !ISSUE.test(ref) && i.file !== file)) continue;
         byRef.set(ref, [...(byRef.get(ref) || []), i]);
       }
     }
     const refs = Object.create(null);
     for (const [ref, list] of byRef) {
-      const pick = list.length === 1 ? list[0] : list.find((i) => i.wave === wave);
+      const pick = list.length === 1 ? list[0] : list.find((i) => i.file === file);
       if (pick) refs[ref] = pick.key;
     }
     const teams = Object.create(null);

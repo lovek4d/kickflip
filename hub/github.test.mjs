@@ -95,8 +95,8 @@ test('the poll remembers head changes without waking either kind of board until 
   write(claude('waves', 'w', 'wave.json'), { repo: 'o/r', items: [
     { id: 'A1', pr: 7, install: { url: 'https://m/app.apk' } }, { id: 'A2', pr: 7 }, { id: 'A3', pr: 8 },
   ] });
-  write(path.join(fileDir, 'board.json'), { items: 'data/wave.json', slug: 'own' });
-  write(path.join(fileDir, 'data/wave.json'), { repo: 'o/r', items: [
+  write(path.join(fileDir, 'board.json'), { items: 'data/items.json', slug: 'own' });
+  write(path.join(fileDir, 'data/items.json'), { repo: 'o/r', items: [
     { id: 'S1', pr: 7, install: { url: 'https://m/app.apk', sha: 'new' } }, { id: 'S2', pr: 7 },
   ] });
   const result = (pr, head, more = {}) => writePR(home, pr, prView({ head, pending: 2, ...more }));
@@ -117,10 +117,10 @@ test('the poll remembers head changes without waking either kind of board until 
   result(7, 'newer', { pending: 0 });
   await poll();
   assert.deepEqual(events(waveDir).at(-1).data.prs, [
-    { wave: 'w', id: 'A1', pr: 7, changes: ['ci'] }, { wave: 'w', id: 'A2', pr: 7, changes: ['ci'] },
+    { file: 'w', id: 'A1', pr: 7, changes: ['ci'] }, { file: 'w', id: 'A2', pr: 7, changes: ['ci'] },
   ]);
   assert.deepEqual(events(fileDir).at(-1).data.prs, [
-    { wave: 'own', id: 'S1', pr: 7, changes: ['ci'] }, { wave: 'own', id: 'S2', pr: 7, changes: ['ci'] },
+    { file: 'own', id: 'S1', pr: 7, changes: ['ci'] }, { file: 'own', id: 'S2', pr: 7, changes: ['ci'] },
   ]);
 });
 
@@ -132,8 +132,8 @@ test('the poll retries a failed CI delivery without repeating it on another boar
   const cmd = [process.execPath, new URL('../board/server.mjs', import.meta.url).pathname];
   const manifest = { sites: { install: { dir: installDir, port: 1, cmd }, other: { dir: otherDir, port: 1, cmd } } };
   for (const [dir, install] of [[installDir, { url: 'https://m/app.apk' }], [otherDir, undefined]]) {
-    write(path.join(dir, 'board.json'), { items: 'data/wave.json', slug: 'w' });
-    write(path.join(dir, 'data/wave.json'), { repo: 'o/r', items: [{ id: 'A1', pr: 7, install }] });
+    write(path.join(dir, 'board.json'), { items: 'data/items.json', slug: 'w' });
+    write(path.join(dir, 'data/items.json'), { repo: 'o/r', items: [{ id: 'A1', pr: 7, install }] });
   }
   const stateFile = claude('kickflip', 'github-state.json');
   write(stateFile, { prs: { 'o/r#7': sum() } });
@@ -146,13 +146,13 @@ test('the poll retries a failed CI delivery without repeating it on another boar
   assert.deepEqual(first.events.map((e) => e.route), ['other']);
   const otherEvents = path.join(otherDir, 'data/events.jsonl');
   const delivered = fs.readFileSync(otherEvents, 'utf8');
-  assert.deepEqual(JSON.parse(delivered).data.prs, [{ wave: 'w', id: 'A1', pr: 7, changes: ['ci'] }]);
+  assert.deepEqual(JSON.parse(delivered).data.prs, [{ file: 'w', id: 'A1', pr: 7, changes: ['ci'] }]);
   assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).prs['o/r#7'].head, 'abc1234567');
   fs.rmdirSync(blocked);
   const retried = await poll();
   assert.deepEqual(retried.failed, []);
   assert.deepEqual(retried.events.map((e) => e.route), ['install']);
-  assert.deepEqual(JSON.parse(fs.readFileSync(blocked, 'utf8')).data.prs, [{ wave: 'w', id: 'A1', pr: 7, changes: ['ci'] }]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(blocked, 'utf8')).data.prs, [{ file: 'w', id: 'A1', pr: 7, changes: ['ci'] }]);
   assert.equal(fs.readFileSync(otherEvents, 'utf8'), delivered);
   assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).prs['o/r#7'].head, 'new');
   assert.deepEqual((await poll()).events, []);
@@ -161,15 +161,15 @@ test('the poll retries a failed CI delivery without repeating it on another boar
 function fileBoard(route, cfg, items) {
   const dir = path.join(home, route);
   const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
-  write(path.join(dir, 'board.json'), { items: 'data/wave.json', ...cfg });
-  write(path.join(dir, 'data/wave.json'), { repo: 'o/r', items });
+  write(path.join(dir, 'board.json'), { items: 'data/items.json', ...cfg });
+  write(path.join(dir, 'data/items.json'), { repo: 'o/r', items });
   const lines = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map(JSON.parse) : []);
   const manifest = { sites: { [route]: { dir, port: 1, cmd: [process.execPath, new URL('../board/server.mjs', import.meta.url).pathname] } } };
   return {
     poll: () => checkGitHub({ every: 15, manifest }),
     thread: (key) => lines(path.join(dir, 'data/threads', `${key.replace('/', '__')}.jsonl`)),
     events: () => lines(path.join(dir, 'data/events.jsonl')),
-    wave: () => JSON.parse(fs.readFileSync(path.join(dir, 'data/wave.json'), 'utf8')),
+    wave: () => JSON.parse(fs.readFileSync(path.join(dir, 'data/items.json'), 'utf8')),
     audit: () => lines(path.join(dir, 'data/audit.jsonl')),
   };
 }
@@ -202,7 +202,7 @@ test("the poll writes each new owner and reviewer comment or review into its car
     { who: 'bea', text: 'Changes requested. Split the file.', link: 'https://github.com/o/r/pull/50', via: 'github' },
   ];
   assert.deepEqual(shown(), first);
-  assert.deepEqual(board.events().map((e) => e.data.prs), [[{ wave: 'w', id: 'A1', pr: 50, changes: ['comments'] }]]);
+  assert.deepEqual(board.events().map((e) => e.data.prs), [[{ file: 'w', id: 'A1', pr: 50, changes: ['comments'] }]]);
   await board.poll();
   assert.deepEqual(shown(), first);
   writeIssueComments(home, 50, [comment(2, 'owner', '2026-10-23T11:00:00Z', 'Please rename it.'), comment(11, 'owner', '2026-10-23T12:00:00Z', 'Thanks.')]);
@@ -221,7 +221,7 @@ test('a merged PR closes its card as merged, frees the card waiting on it and st
   assert.deepEqual(board.thread('m/A1').map((l) => l.text), ['Merged PR #51.']);
   assert.deepEqual(board.thread('m/A2').map((l) => l.text), ['Unblocked: A1 is done.']);
   assert.deepEqual(board.events().map((e) => [e.kind, e.data]), [
-    ['card-unblocked', { key: 'm/A2' }], ['github-change', { prs: [{ wave: 'm', id: 'A1', pr: 51, changes: ['merged'] }] }],
+    ['card-unblocked', { key: 'm/A2' }], ['github-change', { prs: [{ file: 'm', id: 'A1', pr: 51, changes: ['merged'] }] }],
   ]);
   const fetches = queried(home).length;
   const second = await board.poll();
@@ -331,7 +331,7 @@ test("the poll reads every PR on a card in its own repo, and closes the card onl
   assert.deepEqual(first.merged, []);
   assert.deepEqual(queried(home).at(-1), ['o/r#61', 'o/site#61', 'o/api#62']);
   assert.notEqual(board.wave().items[0].lane, 'done');
-  assert.deepEqual(board.events().map((e) => e.data), [{ prs: [{ wave: 's', id: 'A1', pr: 61, changes: ['merged'] }] }]);
+  assert.deepEqual(board.events().map((e) => e.data), [{ prs: [{ file: 's', id: 'A1', pr: 61, changes: ['merged'] }] }]);
   writePR(home, 'o/site#61', prView({ state: 'MERGED' }));
   writePR(home, 'o/api#62', prView({ state: 'CLOSED' }));
   const second = await board.poll();
@@ -361,7 +361,7 @@ async function linearPoll(t, { key = true } = {}) {
   const manifest = { sites: {} };
   const board = (route, items, cfg = {}) => {
     const dir = path.join(root, route);
-    const settings = { items: 'data/wave.json', slug: 'linear', tickets: { source: 'linear' }, ...cfg };
+    const settings = { items: 'data/items.json', slug: 'linear', tickets: { source: 'linear' }, ...cfg };
     write(path.join(dir, 'board.json'), settings);
     const file = settings.items === 'waves' ? path.join(home, '.claude', 'waves', 'linear', 'wave.json') : path.join(dir, settings.items);
     const set = (items) => write(file, { repo: 'o/r', items });
@@ -600,7 +600,7 @@ test("the poll links an open same-repo PR whose head is a card's branch, once, a
   assert.deepEqual(board.thread('h/H1').map((l) => l.text), ['Moved to In Review: PR #12 opened', 'Found PR #12 on branch H1.']);
   assert.deepEqual(board.thread('h/H5'), []);
   assert.deepEqual(board.events().map((e) => e.data.prs), [[
-    { wave: 'h', id: 'H1', pr: 12, changes: ['linked'] }, { wave: 'h', id: 'H2', pr: 13, changes: ['linked'] },
+    { file: 'h', id: 'H1', pr: 12, changes: ['linked'] }, { file: 'h', id: 'H2', pr: 13, changes: ['linked'] },
   ]]);
   assert.deepEqual(queried(home).at(-1), ['o/r#70']);
   await board.poll();

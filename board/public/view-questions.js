@@ -369,7 +369,7 @@
     }
 
     let lastTap = { id: null, at: 0 };
-    // item:<key> is a card, wave:<slug> a band. Embedded, the board is beside the pane; alone, it is the page before this one.
+    // item:<key> is a card, wave:<slug> or file:<slug> a band. Embedded, the board is beside the pane; alone, it is the page before this one.
     function openOnBoard(id) {
       if (ctx.embedded) return ctx.openOnBoard(id);
       if (!id.startsWith('item:')) return;

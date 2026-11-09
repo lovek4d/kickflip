@@ -15,12 +15,12 @@ import { freePorts, until, boardListening } from '../shared/test-helpers.mjs';
 async function withBoard(run) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'board-builds-'));
   const site = path.join(dir, 'site');
-  const wave = path.join(site, 'data', 'wave.json');
+  const wave = path.join(site, 'data', 'items.json');
   const reads = path.join(dir, 'reads');
   const setup = path.join(dir, 'setup.mjs');
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.mkdirSync(path.join(site, 'data', 'replies'));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two' }] }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
   fs.writeFileSync(setup, `

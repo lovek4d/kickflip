@@ -17,7 +17,7 @@ before(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'board-server-'));
   site = path.join(home, 'site');
   fs.mkdirSync(path.join(site, 'data'), { recursive: true });
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
   const [port] = await freePorts();
   base = `http://127.0.0.1:${port}`;
@@ -42,7 +42,7 @@ before(async () => {
 
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
 test("a held card's Merge records the tap on the card and runs board.mjs merge detached, with no event to wake the session, and reads merging", async () => {
-  const waveFile = path.join(site, 'data', 'wave.json');
+  const waveFile = path.join(site, 'data', 'items.json');
   const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
   const wave = before ? JSON.parse(before) : { items: [] };
   wave.items.push({ id: 'M1', title: 'Held', branch: 'M1', merge_ready: { branch: 'M1', at: '2026-11-04T10:00:00Z' } });
@@ -76,7 +76,7 @@ test("the board pushes each new Action needed once under its card's tag, again o
   const ask = (id, topic, question) => ({ id, topic, question, options: [{ id: 'A', label: 'Keep' }] });
   const answer = (id) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice: 'A' }) });
   const tagged = (tag) => pushes().filter((c) => flag(c, 'tag') === tag);
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'P1', title: 'Pushed', lane: 'progress' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'P1', title: 'Pushed', lane: 'progress' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ topics: [{ id: 'plan', title: 'Plan' }], items: [ask('p1', 'item:t/P1', 'Keep the badge?')] }));
   try {
     await until(() => tagged('item-t/P1').length === 1, 'the new question pushes');
@@ -106,8 +106,8 @@ test("the owner's last answer on an unstarted card stages it, held or blocked to
   const ask = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'A', label: 'This' }] });
   const answer = (id) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice: 'A' }) });
   const unblocked = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind === 'card-unblocked').map((e) => e.data.key);
-  const states = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items.map((i) => i.phase ?? null);
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Two questions', phase: 'grilling' }, { id: 'S2', title: 'Blocked', deps: ['S3'], phase: 'grilling' }, { id: 'S3', title: 'Dep' }, { id: 'S4', title: 'Held', held: true, phase: 'grilling' }] }));
+  const states = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.map((i) => i.phase ?? null);
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Two questions', phase: 'grilling' }, { id: 'S2', title: 'Blocked', deps: ['S3'], phase: 'grilling' }, { id: 'S3', title: 'Dep' }, { id: 'S4', title: 'Held', held: true, phase: 'grilling' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('s1a', 't/S1'), ask('s1b', 't/S1'), ask('s2', 't/S2'), ask('s4', 't/S4')] }));
   const before = unblocked().length;
   try {
@@ -153,7 +153,7 @@ test("an owner answer opens no confirm: a pick settles its round, with a note or
 test("an owner answer that picks no take on a card's prototype says so in its event, and the card prototypes again", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'P1', title: 'Moon' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'P1', title: 'Moon' }] }));
   const takes = { id: 'moon', topic: 'item:t/P1', question: 'Which?', url: 'prototype-moon.html?q=moon', options: [{ id: 'A', label: 'Light' }, { id: 'B', label: 'Dark' }] };
   const plain = { id: 'keep', topic: 'item:t/P1', question: 'Keep?', options: [{ id: 'A', label: 'Keep' }] };
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [takes, plain] }));
@@ -178,7 +178,7 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
 test("a prototype request on a question keeps its note and pick on the event and leaves owner.json alone: the question reads requested, the topic's round reads making and the card prototypes", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Search' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Search' }] }));
   const plain = { id: 'where', topic: 'item:t/R1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }] };
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [plain] }));
   const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -203,7 +203,7 @@ test("a prototype request on a question keeps its note and pick on the event and
 test("a re-ask request on a resolved question is recorded, marks it pending in the topic's resolved questions and reads 're-ask requested' in the card's thread; one on a question that isn't resolved records nothing", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'K1', title: 'Again' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'K1', title: 'Again' }] }));
   const ask = (id, extra = {}) => ({ id, topic: 'item:t/K1', question: `${id}?`, options: [{ id: 'A', label: 'This' }], ...extra });
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('done', { resolved: 'Picked A', resolved_at: '2026-10-23T10:00:00Z' }), ask('live')] }));
   const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -230,7 +230,7 @@ test("a re-ask request on a resolved question is recorded, marks it pending in t
 test("a reopen of a sent question is recorded and opens it on the board, with 'Question N was reopened' in the card's thread; one on a question with no answer sent records nothing", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
   const eventsFile = path.join(site, 'data', 'events.jsonl');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'K7', title: 'Reopen' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'K7', title: 'Reopen' }] }));
   const ask = (id, extra = {}) => ({ id, topic: 'item:t/K7', question: `${id}?`, options: [{ id: 'A', label: 'This' }], ...extra });
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('live'), ask('sent')] }));
   const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -262,7 +262,7 @@ test("one owner-answers request records every answer as one-by-one answers would
   const batch = (answers) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answers', answers }) });
   // The server's own orchestrator-waits pass appends meanwhile; the request's writes are what this compares.
   const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind !== 'orchestrator-waits');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'B1', title: 'Two questions' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'B1', title: 'Two questions' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('b1a', 't/B1'), ask('b1b', 't/B1')] }));
   try {
     const untouched = [fs.readFileSync(ownerFile, 'utf8'), lines().length];
@@ -294,7 +294,7 @@ test('a Send of answers already recorded adds nothing and answers as sent, until
   const eventsFile = path.join(site, 'data', 'events.jsonl');
   const lines = () => (fs.existsSync(eventsFile) ? fs.readFileSync(eventsFile, 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind === 'owner-answer' && e.data.id === 'once');
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'ONCE1', title: 'Once' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'ONCE1', title: 'Once' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'once', topic: 'item:t/ONCE1', question: 'once?', options: [{ id: 'A', label: 'This' }] }] }));
   try {
     const send = () => post({ kind: 'owner-answers', answers: [{ id: 'once', question: 'once?', choice: 'A', label: 'A. This', note: '' }] });
@@ -404,7 +404,7 @@ test('only stored uploads are served, never other files under data', async () =>
 });
 
 test('a card with a message marked working or a prototype recorded for it stays in Todo with its Build', async () => {
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'W1', title: 'Messaged' }, { id: 'W2', title: 'Prototyped' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'W1', title: 'Messaged' }, { id: 'W2', title: 'Prototyped' }] }));
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'item-message', key: 't/W1', text: 'Fix it' });
   const lanes = async () => (await (await fetch(`${base}/api/board`)).json()).items.filter((i) => i.id === 'W1' || i.id === 'W2').map((i) => [i.id, i.lane, i.buildable]).sort();
@@ -434,13 +434,13 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [
     { id: 'B1', title: 'Tapped', lane: 'todo', next: 'Implement' }, { id: 'B2', title: 'Held', lane: 'todo', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', lane: 'todo', deps: ['B4'] }, { id: 'B4', title: 'Dep', lane: 'todo' },
     { id: 'B5', title: 'Held and blocked', lane: 'todo', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree', lane: 'todo' }, { id: 'B7', title: 'Leftover work', lane: 'todo' },
     { id: 'B8', title: 'Held and unstarted', lane: 'todo', held: true }, { id: 'B9', title: 'Held and waiting', lane: 'todo', held: true }, { id: 'B10', title: 'Held and grilled', lane: 'todo', held: true },
     { id: 'B11', title: 'Ready', lane: 'todo', phase: 'ready' }, { id: 'B12', title: 'Grilling', lane: 'todo', phase: 'grilling', unfiled: true }, { id: 'B13', title: 'Leftover work, prototyping', lane: 'todo', phase: 'prototyping' },
   ] }));
-  const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
+  const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const log = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
   const card = async (id) => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === id);
@@ -462,7 +462,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     assert.equal((await post({ kind: 'card-build', key: 't/B2' })).status, 200);
     const unheld = await card('B2');
     assert.deepEqual([unheld.held, unheld.lane, unheld.storedLane, unheld.builder.progress, unheld.refusal], [false, 'progress', 'progress', null, null]);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[1].pick_up_at, undefined);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items[1].pick_up_at, undefined);
     assert.deepEqual(thread('B2').map((m) => [m.who, m.text.replace(/ in .*/, '')]), [['love', 'Resumed'], ['claude', 'Moved to In Progress: a build started']]);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
     // docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md: a held card that has an unstarted status is unheld by Implement too.
@@ -543,10 +543,10 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test("an Implement message stages a Todo card where it is, its words in the notes and its open questions skipped; a Reply stages a ready card and leaves any other", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Implement', held: true }, { id: 'IR1', title: 'Reply', phase: 'grilling' }, { id: 'IR2', title: 'Ready reply', phase: 'ready' }, { id: 'IG1', title: 'Ready grill', phase: 'ready' }, { id: 'IP1', title: 'Staged prototype', phase: 'staging' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Implement', held: true }, { id: 'IR1', title: 'Reply', phase: 'grilling' }, { id: 'IR2', title: 'Ready reply', phase: 'ready' }, { id: 'IG1', title: 'Ready grill', phase: 'ready' }, { id: 'IP1', title: 'Staged prototype', phase: 'staging' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'i1q', topic: 'item:t/I1', question: 'Which?', options: [{ id: 'A', label: 'This' }] }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
-  const item = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items.find((i) => i.id === id);
+  const item = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === id);
   const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const notes = (id) => fs.readFileSync(path.join(site, 'data', item(id).plan), 'utf8');
   const footer = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).filter((m) => m.eventId).map((m) => [m.text, m.status]);
@@ -579,7 +579,7 @@ test("an Implement message stages a Todo card where it is, its words in the note
 });
 
 test("a hidden thread message leaves the item's thread", async () => {
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'item-message', key: 't/A1', text: 'Fix it' });
   const thread = async () => (await (await fetch(`${base}/api/thread?key=t%2FA1`)).json()).map((m) => [m.eventId, m.state, m.canDelete]);
@@ -595,7 +595,7 @@ test("a new task is a New card until it becomes work, whose thread then holds th
   const board = async () => (await fetch(`${base}/api/board`)).json();
   const card = async () => (await board()).items.find((i) => i.kind === 'ask' && i.id === id);
   assert.deepEqual([(await card()).lane, (await card()).isNew, (await card()).ask.state], ['todo', true, 'waiting']);
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A2', title: 'Header', from_ask: id }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'A2', title: 'Header', from_ask: id }] }));
   const reply = await post('/_claude/events', { kind: 'item-message', key: `ask:${id}`, text: 'Also the footer' });
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', `ask__${id}.jsonl`), JSON.stringify({ ts: new Date(Date.now() + 60000).toISOString(), who: 'claude', text: 'Footer too.' }) + '\n');
@@ -611,13 +611,13 @@ test("a Quick build ask carries quick: true to the session, and its thread reads
   assert.deepEqual(logged.data, { text: 'Add a badge', quick: true });
   const thread = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).map((m) => [m.text, Boolean(m.request)]);
   assert.deepEqual(await thread(`ask:${id}`), [['Add a badge', false], ['Implementation requested', true]]);
-  const wave = JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8'));
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ ...wave, items: [...wave.items, { id: 'Q1', title: 'Badge', from_ask: id }] }));
+  const wave = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8'));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ ...wave, items: [...wave.items, { id: 'Q1', title: 'Badge', from_ask: id }] }));
   const taps = [await post('/_claude/events', { kind: 'grill-more', key: 't/Q1' }), await post('/_claude/events', { kind: 'prototype-request', key: 't/Q1' })];
   assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['Implementation requested', true], ['Grill requested', true], ['Prototype requested', true]]);
   const card = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/Q1');
   assert.deepEqual([card.grilling, card.prototyping], [true, true]);
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify(wave));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify(wave));
   fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
   for (const e of [{ id }, ...taps]) await post('/api/hide', { id: e.id, hidden: true });
 });
@@ -634,7 +634,7 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['asks', null, false]);
   const work = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A2');
   assert.deepEqual(await work().then((c) => [c.lane, c.held, c.finishable]), ['todo', false, true]);
-  const filed = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items.find((i) => i.id === 'A2');
+  const filed = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'A2');
   const said = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__A2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.text);
   const keys = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__A2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.command);
   await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true });
@@ -675,7 +675,7 @@ test("the events POST answers with the board as the tap left it, so a bump, unbu
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const todo = (board) => board.items.filter((i) => i.lane === 'todo').map((i) => [i.id, Boolean(i.bumpedAt)]);
   // Waits for the cards themselves, not any new version: another change can move the version before the wave file is read.
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'C1', title: 'One' }, { id: 'C2', title: 'Two' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'C1', title: 'One' }, { id: 'C2', title: 'Two' }] }));
   let first;
   await until(async () => { first = await (await fetch(`${base}/api/board`)).json(); return ['C1', 'C2'].every((id) => todo(first).some(([i]) => i === id)); }, 'the board sees the wave file');
   const bottom = todo(first).at(-1)[0];
@@ -694,20 +694,20 @@ test("the events POST answers with the board as the tap left it, so a bump, unbu
 });
 
 // docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md
-test("a Hold or Done whose wave file couldn't be written is refused with why and records no event, as is one on a card already in Done", async () => {
-  const wave = path.join(site, 'data', 'wave.json');
+test("a Hold or Done whose item file couldn't be written is refused with why and records no event, as is one on a card already in Done", async () => {
+  const wave = path.join(site, 'data', 'items.json');
   fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'W1', title: 'One' }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
   const logged = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').length;
   const before = logged();
-  // The wave file's write goes through a temp file named for the server's pid; a folder in its place fails it.
-  const blocker = path.join(site, 'data', `wave.json.${child.pid}.tmp`);
+  // The item file's write goes through a temp file named for the server's pid; a folder in its place fails it.
+  const blocker = path.join(site, 'data', `items.json.${child.pid}.tmp`);
   fs.mkdirSync(blocker);
   try {
     for (const tap of [{ kind: 'card-hold', key: 't/W1', hold: true }, { kind: 'card-done', key: 't/W1' }]) {
       const [status, out] = await post(tap);
       assert.equal(status, 500, tap.kind);
-      assert.match(out.error, /^Couldn’t write t\/W1 to its wave file: EISDIR/, tap.kind);
+      assert.match(out.error, /^Couldn’t write t\/W1 to its item file: EISDIR/, tap.kind);
     }
   } finally { fs.rmdirSync(blocker); }
   assert.equal(logged(), before);
@@ -721,7 +721,7 @@ test("a Hold or Done whose wave file couldn't be written is refused with why and
   assert.deepEqual((({ lane, owner_step, prs }) => [lane, owner_step, prs[0].merged_at])(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0]), ['done', undefined, landed.prs[0].merged_at]);
   const stepped = logged();
   fs.writeFileSync(wave, JSON.stringify({ items: [landed] }));
-  assert.deepEqual(await post({ kind: 'card-done', key: 't/W1' }), [400, { error: 't/W1 is already in Done, so its wave file stays as it is.' }]);
+  assert.deepEqual(await post({ kind: 'card-done', key: 't/W1' }), [400, { error: 't/W1 is already in Done, so its item file stays as it is.' }]);
   assert.equal(logged(), stepped);
   const [held] = await post({ kind: 'card-hold', key: 't/W1', hold: true });
   assert.equal(held, 400);
@@ -767,7 +767,7 @@ test('a watcher that just exited on an event still counts as listening, until it
 
 test("the board lists each agent's record on an item, and the item's thread shows when each started and finished among its lines", async () => {
   await boardSees(base, () => {
-    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A3', title: 'Three', lane: 'progress' }] }));
+    fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'A3', title: 'Three', lane: 'progress' }] }));
     fs.mkdirSync(path.join(site, 'data', 'agents'), { recursive: true });
     fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
     fs.writeFileSync(path.join(site, 'data', 'agents', 'A3.json'), JSON.stringify({ label: 'Opus builder', kind: 'opus', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:30:00Z' }));
@@ -805,10 +805,10 @@ test('hiding and unhiding many events at once keeps every change', async () => {
 });
 
 test("the board lists its own title and reviewers from board.json, whatever its waves hold", async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   const board = async () => (await (await fetch(`${base}/api/board`)).json());
   const reviewers = async () => (await board()).reviewers;
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ reviewers: [{ name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'bob' }], items: [{ id: 'R1', title: 'R' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ reviewers: [{ name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'bob' }], items: [{ id: 'R1', title: 'R' }] }));
   assert.deepEqual(await reviewers(), []);
   assert.equal((await board()).title, 'T');
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, title: 'Renamed', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] }));
@@ -825,7 +825,7 @@ test("an item's notes are served only from a markdown file inside its wave's fol
   fs.writeFileSync(outside, '# Secret');
   fs.writeFileSync(path.join(site, 'data', 'P1-plan.md'), '# The plan\n\nBody.');
   fs.symlinkSync(outside, path.join(site, 'data', 'link.md'));
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [
     { id: 'P1', title: 'Planned', plan: 'P1-plan.md', summary: 'Plan so far: X is settled.' }, { id: 'P2', title: 'Up', plan: '../secret.md' }, { id: 'P3', title: 'Abs', plan: outside },
     { id: 'P4', title: 'Link', plan: 'link.md' }, { id: 'P5', title: 'Json', plan: 'owner.json' }, { id: 'P6', title: 'None', notes: '  ' },
     { id: 'P7', title: 'Short', notes: 'Asked for X; Y is settled.' }, { id: 'P8', title: 'Both', plan: 'P1-plan.md', notes: 'Old line' },
@@ -914,7 +914,7 @@ const raw = (p, headers = {}) => new Promise((resolve, reject) => {
 });
 
 test('the board, a thread and the static files come gzipped when the browser accepts it, and the API stays uncached', async () => {
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: Array.from({ length: 30 }, (_, n) => ({ id: `G${n}`, title: `Gzip card `, lane: 'todo' })) }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: Array.from({ length: 30 }, (_, n) => ({ id: `G${n}`, title: `Gzip card `, lane: 'todo' })) }));
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', 't__G1.jsonl'), Array.from({ length: 20 }, (_, n) => JSON.stringify({ ts: '2026-10-23T10:00:00Z', who: 'claude', text: `Line ${n} of a long thread` })).join('\n') + '\n');
   await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.some((i) => i.key === 't/G29'), 'the board sees the new wave');
@@ -953,9 +953,9 @@ test('the stream sends a change, uncompressed, after a write to a thread or a wa
     fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
     for (const write of [
       () => fs.appendFileSync(path.join(site, 'data', 'threads', 't__S1.jsonl'), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: 'Live' }) + '\n'),
-      () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Streamed' }] })),
-      () => { fs.writeFileSync(path.join(site, 'data', 'wave.json.tmp'), JSON.stringify({ items: [{ id: 'S1', title: 'Renamed' }] })); fs.renameSync(path.join(site, 'data', 'wave.json.tmp'), path.join(site, 'data', 'wave.json')); },
-      () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'S1', title: 'In place' }] })),
+      () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Streamed' }] })),
+      () => { fs.writeFileSync(path.join(site, 'data', 'wave.json.tmp'), JSON.stringify({ items: [{ id: 'S1', title: 'Renamed' }] })); fs.renameSync(path.join(site, 'data', 'wave.json.tmp'), path.join(site, 'data', 'items.json')); },
+      () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'S1', title: 'In place' }] })),
       () => fs.mkdirSync(path.join(site, 'data', 'streamed', 'deeper'), { recursive: true }),
       () => fs.writeFileSync(path.join(site, 'data', 'streamed', 'deeper', 'note.json'), '{}'),
     ]) {
@@ -974,7 +974,7 @@ test('with thousands of folders and lock folders coming and going, the board ans
     for (let i = 0; i < 50; i++) fs.mkdirSync(path.join(data, `w${w}`, 'attachments', `a${i}`), { recursive: true });
     for (let i = 0; i < 20; i++) fs.mkdirSync(path.join(data, `w${w}`, '.installs', `i${i}`), { recursive: true });
   }
-  fs.writeFileSync(path.join(own, 'site', 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(own, 'site', 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
   const [port] = await freePorts();
   const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), path.join(own, 'site')], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: own, PORT: String(port), PREFIX: '' } });
   const exited = new Promise((resolve) => server.once('exit', resolve));
@@ -1065,7 +1065,7 @@ test('a page asks for each script and stylesheet by a version that changes with 
 });
 
 test("the settings page's rules save writes board.json, keeps its other keys and rules added since the page loaded, and wakes Claude with what changed", async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   const web = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(web, { recursive: true });
   fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ rules: [{ id: 'h1', text: 'Hub rule', by: 'owner', at: '2026-10-24T00:00:00Z' }] }));
@@ -1104,7 +1104,7 @@ test("the settings page's rules save writes board.json, keeps its other keys and
 });
 
 test("the settings page's auto-merge toggle writes board.json, keeping its other keys, wakes Claude only when the value moves, and asks for one GitHub check when it turns on", async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] }));
   const save = (body) => fetch(`${base}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const settingsEvents = async () => (await (await fetch(`${base}/_claude/events?kind=settings`)).json()).map((e) => e.data);
@@ -1137,7 +1137,7 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     assert.deepEqual(await (await save({ skip_draft: true })).json().then((b) => [b.settings.skip_draft, Boolean(b.id)]), [true, true]);
     assert.deepEqual((await settingsEvents())[0], { skip_draft: true });
     assert.equal((await save({ skip_draft: 'yes' })).status, 400);
-    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two', ticket: 'OPS-4' }] }));
+    fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two', ticket: 'OPS-4' }] }));
     const internal = await (await save({ tickets: { source: 'internal', prefix: 'OPS' } })).json();
     assert.deepEqual(internal.settings.tickets, { source: 'internal', prefix: 'OPS' });
     const cards = (await (await fetch(`${base}/api/board`)).json()).items;
@@ -1248,8 +1248,8 @@ test('the board snapshot reads try.json, main.json and the auto_build setting', 
   const previous = fs.readFileSync(config, 'utf8');
   try {
     await boardSees(base, () => {
-      fs.writeFileSync(config, JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't', auto_build: true }));
-      fs.writeFileSync(path.join(site, 'data/wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
+      fs.writeFileSync(config, JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't', auto_build: true }));
+      fs.writeFileSync(path.join(site, 'data/items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
       fs.writeFileSync(path.join(site, 'data/try.json'), JSON.stringify({ kind: 'app', main: { sha: 'abcdef123', branch: 'main', slug: 'o/r', at: '2026-11-01', script: true, state: 'ready' }, cards: { 't/A1': { head: 'abc123456', sha: 'abc1234', state: 'running', ahead: 1, script: true } } }));
       fs.writeFileSync(path.join(site, 'data/main.json'), JSON.stringify({ install: { url: 'https://example.com/main.apk' } }));
     });
@@ -1264,7 +1264,7 @@ test('the board snapshot reads try.json, main.json and the auto_build setting', 
 });
 
 test('the watcher prints the hub rules, then the board rules, the board settings and the quiet line, after each event line and its plain line, and answers a hub ping', async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   const web = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(web, { recursive: true });
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ sites: { t: { dir: site } } }));
@@ -1321,24 +1321,24 @@ test('the watcher prints the hub rules, then the board rules, the board settings
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 test("a message in a stalled card's thread clears the orchestrator's stall, and reaches the orchestrator like any message", async () => {
   const at = new Date().toISOString();
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ internal: true, items: [{ id: 'X1', title: 'Stuck', lane: 'progress', stalled: { reason: 'Crashed twice', at } }] })));
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ internal: true, items: [{ id: 'X1', title: 'Stuck', lane: 'progress', stalled: { reason: 'Crashed twice', at } }] })));
   const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.id === 'X1');
   assert.deepEqual([(await card()).stalled, (await card()).action?.kind], ['Crashed twice', 'stalled']);
   const r = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/X1', text: 'Try the other test runner' }) });
   assert.equal(r.status, 200);
   const { id } = await r.json();
   assert.ok(id, 'the message is an event the orchestrator wakes on');
-  assert.equal('stalled' in JSON.parse(fs.readFileSync(path.join(site, 'data', 'wave.json'), 'utf8')).items[0], false);
+  assert.equal('stalled' in JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items[0], false);
   assert.deepEqual([(await card()).stalled, (await card()).action], [null, null]);
 });
 
 test("a wave's triage runs from its wave-triage event until Claude replies, and its notes show its goal, order and note", async () => {
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ internal: true, items: [{ id: 'S1', title: 'One' }, { id: 'S2', title: 'Two', deps: ['S1'] }],
-    lineups: [{ slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', items: ['S1', 'S2'] }] })));
-  fs.writeFileSync(path.join(site, 'data', 'lineup-mon.md'), 'Why: one PR each.\n');
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ internal: true, items: [{ id: 'S1', title: 'One' }, { id: 'S2', title: 'Two', deps: ['S1'] }],
+    waves: [{ slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', items: ['S1', 'S2'] }] })));
+  fs.writeFileSync(path.join(site, 'data', 'wave-mon.md'), 'Why: one PR each.\n');
   const row = async () => (await (await fetch(`${base}/api/board`)).json()).waveBands[0];
   assert.deepEqual((await row()).triage, { running: false, questions: 0 });
-  const { id } = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'wave-triage', lineup: 'mon' }) })).json();
+  const { id } = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'wave-triage', wave: 'mon' }) })).json();
   assert.equal((await row()).triage.running, true);
   // Waits for the triage itself, not any new version: the server marking the new cards read moves the version too.
   fs.writeFileSync(path.join(site, 'data', 'replies', `${id}.html`), 'No changes.');
@@ -1349,12 +1349,12 @@ test("a wave's triage runs from its wave-triage event until Claude replies, and 
 });
 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-test("a lineup-move tap reorders the wave's unstarted cards, chains them again and answers with the board, appending no event; a move past the end is refused", async () => {
-  const waveFile = path.join(site, 'data', 'wave.json');
+test("a wave-move tap reorders the wave's unstarted cards, chains them again and answers with the board, appending no event; a move past the end is refused", async () => {
+  const waveFile = path.join(site, 'data', 'items.json');
   const saved = fs.readFileSync(waveFile, 'utf8');
   fs.writeFileSync(waveFile, JSON.stringify({ internal: true, items: [{ id: 'M1', title: 'One' }, { id: 'M2', title: 'Two', deps: ['M1'] }, { id: 'M3', title: 'Three', deps: ['M2'] }],
-    lineups: [{ slug: 'mv', title: 'Move', goal: 'G', items: ['M1', 'M2', 'M3'] }] }));
-  const move = (key, by) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'lineup-move', lineup: 'mv', key, by }) });
+    waves: [{ slug: 'mv', title: 'Move', goal: 'G', items: ['M1', 'M2', 'M3'] }] }));
+  const move = (key, by) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'wave-move', wave: 'mv', key, by }) });
   const before = (await (await fetch(`${base}/_claude/events`)).json()).length;
   try {
     const r = await move('t/M3', -1);
@@ -1363,7 +1363,7 @@ test("a lineup-move tap reorders the wave's unstarted cards, chains them again a
     assert.equal(id, null);
     assert.deepEqual(board.waveBands[0].keys, ['t/M1', 't/M3', 't/M2']);
     const wave = JSON.parse(fs.readFileSync(waveFile, 'utf8'));
-    assert.deepEqual([wave.lineups[0].phases, wave.items.map((it) => it.deps || [])], [[['M1'], ['M3'], ['M2']], [[], ['M3'], ['M1']]]);
+    assert.deepEqual([wave.waves[0].phases, wave.items.map((it) => it.deps || [])], [[['M1'], ['M3'], ['M2']], [[], ['M3'], ['M1']]]);
     const refused = await move('t/M1', -1);
     assert.equal(refused.status, 400);
     assert.match((await refused.json()).error, /can't move/);
@@ -1374,7 +1374,7 @@ test("a lineup-move tap reorders the wave's unstarted cards, chains them again a
 });
 
 test("/api/board names a card's worktree while its folder exists, and says whether the request's browser runs on the host", async () => {
-  const waveFile = path.join(site, 'data', 'wave.json');
+  const waveFile = path.join(site, 'data', 'items.json');
   const agents = path.join(site, 'data', 'agents');
   const kept = path.join(home, 'worktrees', 'V1');
   const saved = fs.readFileSync(waveFile, 'utf8');
@@ -1467,15 +1467,15 @@ test('/api/build-targets lists the executable .kickflip/build-* scripts at the b
 
 // docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md
 test("Save on the settings page's reviewers adds and removes in the server, opening the DM and checking the login, and records reviewers-added and reviewers-removed for the session", async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   const ann = { name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }, bob = { name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'bob' };
   const read = (file) => JSON.parse(fs.readFileSync(path.join(site, file), 'utf8'));
   const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'reviewers', ...body }) });
   const events = async (kind) => (await (await fetch(`${base}/_claude/events?kind=${kind}`)).json()).map((e) => e.data);
-  const waveFile = path.join(site, 'data', 'wave.json');
+  const waveFile = path.join(site, 'data', 'items.json');
   const wavePrev = fs.existsSync(waveFile) ? fs.readFileSync(waveFile) : null;
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, reviewers: [ann, bob] }));
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ reviewers: [ann, bob], items: [{ id: 'R1', title: 'R', lane: 'todo' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ reviewers: [ann, bob], items: [{ id: 'R1', title: 'R', lane: 'todo' }] }));
   slackWorldOf.dms.U3 = 'D3';
   writeGithubUser(ghDir, 'cy-gh', { login: 'Cy-GH' });
   const cy = { name: 'Cy Doe', slack_user: 'U3', dm: 'D3', github: 'Cy-GH' };
@@ -1485,7 +1485,7 @@ test("Save on the settings page's reviewers adds and removes in the server, open
     assert.equal(r.status, 200);
     const out = await r.json();
     assert.deepEqual([out.board.reviewers, out.board.reviewerGithub], [['Bob', 'Cy Doe'], { Bob: 'bob', 'Cy Doe': 'Cy-GH' }]);
-    assert.deepEqual([read('board.json').reviewers, read('board.json').title, read('data/wave.json').reviewers], [[bob, cy], 'T', [bob, cy]]);
+    assert.deepEqual([read('board.json').reviewers, read('board.json').title, read('data/items.json').reviewers], [[bob, cy], 'T', [bob, cy]]);
     const [added, gone] = [await events('reviewers-added'), await events('reviewers-removed')];
     assert.deepEqual([added.length, added[0], gone.length, gone[0]], [before[0] + 1, { add: ['Cy Doe'] }, before[1] + 1, { remove: ['ann'] }]);
     assert.equal((await events('reviewers')).length, 0, 'nothing is left for the session to add');
@@ -1556,7 +1556,7 @@ const cardsMarkedRead = (prefix) => until(async () => {
 }, `the ${prefix} cards are marked read`);
 
 test("/api/board carries its change number as its version and ETag: a reload naming it answers 304 with no body until the board changes, and an events POST's board carries the number the next reload has", async () => {
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'E1', title: 'Tagged', lane: 'todo' }, { id: 'E2', title: 'Other', lane: 'todo' }] })));
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'E1', title: 'Tagged', lane: 'todo' }, { id: 'E2', title: 'Other', lane: 'todo' }] })));
   await cardsMarkedRead('t/E');
   const first = await raw('/api/board', { 'accept-encoding': 'gzip' });
   const tag = first.headers.etag;
@@ -1590,10 +1590,10 @@ test("a reload naming the number it holds as since gets a patch of the cards cha
   const { applyPatch } = vmContext.BoardUI;
   const content = (b) => { const { generatedAt: _, ...rest } = JSON.parse(JSON.stringify(b)); return rest; };
   const get = async (q = '') => (await fetch(`${base}/api/board${q}`)).json();
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }, { id: 'F3', title: 'Gone soon', lane: 'todo' }] })));
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }, { id: 'F3', title: 'Gone soon', lane: 'todo' }] })));
   await cardsMarkedRead('t/F');
   const first = await get();
-  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched again', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }] })));
+  await boardSees(base, () => fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'F1', title: 'Patched again', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }] })));
   const patch = await get(`?since=${first.version}`);
   assert.equal(patch.since, first.version);
   assert.deepEqual(patch.lists.items.set.map((c) => [c.key, c.title]), [['t/F1', 'Patched again']]);
@@ -1626,7 +1626,7 @@ test('an event posted with board=0, as the hub posts, is answered with its id al
 
 test("a card's question topic in the page's board carries no title of its own: the page names it from its card", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'G1', title: 'Asked' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'G1', title: 'Asked' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ topics: [{ id: 'plan', title: 'Plan', summary: 'Kept' }], items: [{ id: 'g1', topic: 'item:t/G1', question: 'Which?', options: [{ id: 'A', label: 'This' }] }, { id: 'g2', topic: 'plan', question: 'Ship?', options: [{ id: 'A', label: 'Yes' }] }] }));
   try {
     // The server sees both writes once its file watcher does.
@@ -1640,8 +1640,8 @@ test("the board's version depends on its data alone: a minute later with nothing
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-version-')));
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
-  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'V', items: 'data/wave.json', slug: 'v' }));
-  fs.writeFileSync(path.join(at, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'V1', title: 'Todo' }, { id: 'V2', title: 'Held', held: true }] }));
+  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'V', items: 'data/items.json', slug: 'v' }));
+  fs.writeFileSync(path.join(at, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'V1', title: 'Todo' }, { id: 'V2', title: 'Held', held: true }] }));
   const server = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
   try {
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
@@ -1678,8 +1678,8 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-idle-')));
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
-  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'Idle board', items: 'data/wave.json', slug: 'i', idle_notification: true }));
-  fs.writeFileSync(path.join(at, 'data', 'wave.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Open' }] }));
+  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'Idle board', items: 'data/items.json', slug: 'i', idle_notification: true }));
+  fs.writeFileSync(path.join(at, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Open' }] }));
   fs.writeFileSync(path.join(dir, 'push-stub.mjs'), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(3)) + '\\n'); console.log('sent');");
   const calls = path.join(dir, 'push-calls.jsonl');
   const server = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
@@ -1691,7 +1691,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
       mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:00Z') });
       mock.method(http.Server.prototype, 'listen', function () { return this; });
       process.argv[2] = ${JSON.stringify(at)};
-      const wave = ${JSON.stringify(path.join(at, 'data', 'wave.json'))};
+      const wave = ${JSON.stringify(path.join(at, 'data', 'items.json'))};
       const idle = ${JSON.stringify(path.join(at, 'data', 'idle.json'))};
       const pushes = () => (fs.existsSync(${JSON.stringify(calls)}) ? fs.readFileSync(${JSON.stringify(calls)}, 'utf8').trim().split('\\n').map((l) => JSON.parse(l)) : []);
       const state = () => (fs.existsSync(idle) ? fs.readFileSync(idle, 'utf8') : '');
@@ -1716,7 +1716,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
       mock.timers.tick(16 * 60000);
       await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);
       await until(() => pushes().length === 1, 'the idle push');
-      fs.writeFileSync(${JSON.stringify(path.join(at, 'board.json'))}, JSON.stringify({ title: 'Idle board', items: 'data/wave.json', slug: 'i' }));
+      fs.writeFileSync(${JSON.stringify(path.join(at, 'board.json'))}, JSON.stringify({ title: 'Idle board', items: 'data/items.json', slug: 'i' }));
       await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
       await until(() => !state(), 'turning it off forgets the stretch');
       console.log(JSON.stringify({ pushes: pushes() }));
@@ -1735,9 +1735,9 @@ test("data/sync.json keeps the change numbers across a restart: the counter carr
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'board-sync-'));
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
-  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 's' }));
+  fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 's' }));
   fs.writeFileSync(path.join(at, 'data', 'owner.json'), '{"items":[]}');
-  const wave = (titles) => fs.writeFileSync(path.join(at, 'data', 'wave.json'), JSON.stringify({ items: titles.map((title, i) => ({ id: `S${i + 1}`, title })) }));
+  const wave = (titles) => fs.writeFileSync(path.join(at, 'data', 'items.json'), JSON.stringify({ items: titles.map((title, i) => ({ id: `S${i + 1}`, title })) }));
   wave(['One', 'Two']);
   const file = path.join(at, 'data', 'sync.json');
   const start = async () => {
@@ -1767,7 +1767,7 @@ test("data/sync.json keeps the change numbers across a restart: the counter carr
 
 // docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
 test("read marks live on the board: a card new to it is read up to then, POST /api/read moves a mark only forward, every page's board carries it as the card's readAt, and a card leaving the board drops its mark", async () => {
-  const waveFile = path.join(site, 'data', 'wave.json');
+  const waveFile = path.join(site, 'data', 'items.json');
   const readFile = path.join(site, 'data', 'read.json');
   const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
   const wave = before ? JSON.parse(before) : { items: [] };
@@ -1797,7 +1797,7 @@ test("read marks live on the board: a card new to it is read up to then, POST /a
 
 // docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
 test("Board settings' Sharing adds and removes a login in board.json share, keeping its other keys and waking no session", async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] }));
   const share = (body) => fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const events = async () => (await (await fetch(`${base}/_claude/events`)).json()).length;
@@ -1823,7 +1823,7 @@ test("Board settings' Sharing adds and removes a login in board.json share, keep
 
 // docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md
 test("Board settings' Sharing sets a person View or Full: Full is stored as {login, level}, View as the bare login", async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
+  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, share: ['maya@github', 'sam@example.com'] }));
   const share = (body) => fetch(`${base}/api/share`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   try {
@@ -1842,8 +1842,8 @@ test("Board settings' Sharing sets a person View or Full: Full is stored as {log
 });
 
 test("a Full person's answers, messages, uploads and card taps are recorded named as them; Merge, reviewers and a View person's writes are refused", async () => {
-  const cfg = { title: 'T', items: 'data/wave.json', slug: 't' };
-  const waveFile = path.join(site, 'data', 'wave.json');
+  const cfg = { title: 'T', items: 'data/items.json', slug: 't' };
+  const waveFile = path.join(site, 'data', 'items.json');
   const before = fs.existsSync(waveFile) ? fs.readFileSync(waveFile, 'utf8') : null;
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, share: [{ login: 'dana@github', level: 'full' }, 'sam@example.com'] }));
   const dana = { 'x-kickflip-shared': 'dana@github', 'tailscale-user-login': 'dana@github', 'tailscale-user-name': 'Dana Reyes' };

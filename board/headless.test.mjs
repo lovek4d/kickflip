@@ -152,8 +152,8 @@ test("briefFacts gives a card's links: Related to set on either card, its Parent
   try {
     const site = path.join(home, 'site');
     fs.mkdirSync(path.join(site, 'data'), { recursive: true });
-    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
-    fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ title: 'T', items: [
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
+    fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ title: 'T', items: [
       { id: 'A1', title: 'One', parent: 'P1', deps: ['D1'], related: ['R1'] },
       { id: 'R1', title: 'Rel', plan: 'r1.md' },
       { id: 'R2', title: 'Rel back', lane: 'review', related: ['t/A1'] },
@@ -192,7 +192,7 @@ test("the server launches the builder for a tap and a pull instead of waking the
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
-  const boardJSON = (extra = {}) => fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', ...extra }));
+  const boardJSON = (extra = {}) => fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', ...extra }));
   boardJSON();
   fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [{ id: 'h4q', topic: 'item:t/H4', question: 'Which?', options: [{ id: 'A', label: 'This' }] }] }));
   fs.writeFileSync(path.join(data, 'h1.md'), '# H1\n');
@@ -202,7 +202,7 @@ test("the server launches the builder for a tap and a pull instead of waking the
   fs.mkdirSync(path.join(data, 'agents'));
   fs.writeFileSync(path.join(data, 'agents', 'H3.json'), JSON.stringify(verified));
   fs.writeFileSync(path.join(data, 'agents', 'H4.json'), JSON.stringify({ ...verified, worktree: { ...verified.worktree, path: lander, branch: 'H4' } }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [
     { id: 'H1', title: 'Tapped', phase: 'ready', size: 'large', plan: 'h1.md' },
     { id: 'H2', title: 'Pulled', phase: 'ready', size: 'large' },
     { id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" },
@@ -304,11 +304,11 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
-  const boardJSON = (extra = {}) => fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', ...extra }));
+  const boardJSON = (extra = {}) => fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', ...extra }));
   boardJSON();
   fs.mkdirSync(path.join(data, 'agents'));
   fs.writeFileSync(path.join(data, 'agents', 'R1.json'), JSON.stringify({ label: 'Builder', kind: 'claude', model: 'opus', started: '2026-11-05T01:00:00.000Z', done: '2026-11-05T02:00:00.000Z', worktree: { path: built, branch: 'R1', repo: clone } }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [
     { id: 'R1', title: 'Built here', pr: 5 },
     { id: 'R2', title: 'Linked by hand', pr: 6 },
     { id: 'R3', title: 'Clean', pr: 7 },
@@ -344,7 +344,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
     assert.equal(byCard.R2.cwd, fs.realpathSync(made));
     assert.equal(git(made, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'by-hand'), "the hand-linked PR's worktree is made from its branch");
     assert.deepEqual([read('agents/R1.json').label, read('agents/R1.json').dispatched, read('agents/R1.json').done], ['Rebase', 'hub', undefined]);
-    const items = read('wave.json').items;
+    const items = read('items.json').items;
     assert.deepEqual(items.map((i) => i.rebase_run?.conflict ?? null), [`${'a'.repeat(40)}@main`, `${'b'.repeat(40)}@main`, null]);
     assert.deepEqual(Object.fromEntries(Object.entries(read('rebases.json')).map(([k, v]) => [k, v.conflict])), { 't/R1': `${'a'.repeat(40)}@main`, 't/R2': `${'b'.repeat(40)}@main` });
     const { items: cards } = await fetch(`http://127.0.0.1:${port}/api/board`).then((r) => r.json());
@@ -372,13 +372,13 @@ test('a lander whose process is gone while its builder record is open (the usage
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
   const worktree = path.join(home, 'wt');
   fs.mkdirSync(worktree);
   const recordFile = path.join(data, 'agents', 'H3.json');
   const handedBack = { started: '2026-11-04T01:00:00.000Z', done: '2026-11-04T02:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-04T01:30:00.000Z', text: 'Kept it small' }], handed_back: '2026-11-04T02:00:00.000Z', verified: { at: '2026-11-04T03:00:00.000Z' }, worktree: { path: worktree, branch: 'H3', repo: clone } };
   fs.writeFileSync(recordFile, JSON.stringify(handedBack));
-  const waveFile = path.join(data, 'wave.json');
+  const waveFile = path.join(data, 'items.json');
   fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" }] }));
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = path.join(home, 'claude');
@@ -507,8 +507,8 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Revive me', lane: 'progress' }] }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Revive me', lane: 'progress' }] }));
   fs.writeFileSync(path.join(data, 'agents', 'R1.json'), JSON.stringify({ started: '2026-11-04T01:00:00.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'R1', repo: wt } }));
   const dead = spawn(process.execPath, ['-e', '']);
   await new Promise((resolve) => dead.once('exit', resolve));
@@ -556,8 +556,8 @@ test("a restarted server launches the builder of an In Progress card whose recor
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: ['C1', 'C2', 'C3', 'C4'].map((id) => ({ id, title: id, lane: 'progress' })) }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: ['C1', 'C2', 'C3', 'C4'].map((id) => ({ id, title: id, lane: 'progress' })) }));
   const record = (extra) => JSON.stringify({ started: '2026-11-05T04:42:41.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'x', repo: wt }, ...extra });
   fs.writeFileSync(path.join(data, 'agents', 'C1.json'), record({ dispatched: 'hub' }));
   fs.writeFileSync(path.join(data, 'agents', 'C2.json'), record({ dispatched: 'hub', kind: 'grill' }));
@@ -605,8 +605,8 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], branch: 'main', local: true, owner: { repo: clone } } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items }));
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = bin ?? path.join(home, 'claude');
   if (!bin) {
@@ -617,7 +617,7 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
   const events = () => (fs.existsSync(path.join(data, 'events.jsonl')) ? fs.readFileSync(path.join(data, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).kind) : []);
   const thread = (id) => (fs.existsSync(path.join(data, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse) : []);
   const record = (id) => JSON.parse(fs.readFileSync(path.join(data, 'agents', `${id}.json`), 'utf8'));
-  const item = (id) => JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items.find((i) => i.id === id);
+  const item = (id) => JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items.find((i) => i.id === id);
   async function start({ fastMinute = false } = {}) {
     const [port] = await freePorts();
     const setup = path.join(home, 'setup.mjs');
@@ -657,7 +657,7 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
 
     // With Auto implement on, the card that arrived in Todo with no planner yet gets its grill; the planned ones don't.
     for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
-    fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', auto_pull: true }));
+    fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', auto_pull: true }));
     await until(() => b.runs().length === 3, 'the arrival launches a grill');
     assert.match(b.runs()[2].argv[1], /builder start t\/Q1 --kind grill/);
     await until(() => b.record('Q1').session?.log, 'the launch records the run');
@@ -709,7 +709,7 @@ test('a grill or prototype asked for during a pause waits on the card and launch
 
 test('within twice the buffer of the line the board starts one agent, and the next once that one has reported its usage', async () => {
   const b = oneLaunchBoard([{ id: 'A1', title: 'First', phase: 'grilling' }, { id: 'A2', title: 'Second', phase: 'grilling' }], undefined, { init: true });
-  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', auto_pull: true, max_planners: 2 }));
+  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', auto_pull: true, max_planners: 2 }));
   usageAt(b.home, 85);
   const { child } = await b.start({ fastMinute: true });
   try {
@@ -824,8 +824,8 @@ test('a stale lander entry for an archived Done card is dropped, and the card st
   fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
   fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main' } } }));
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ items: [{ id: 'D1', title: 'Landed', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z' }, { id: 'T1', title: 'Other', lane: 'todo' }] }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'D1', title: 'Landed', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z' }, { id: 'T1', title: 'Other', lane: 'todo' }] }));
   await archiveCards(site, [{ key: 't/D1', closed_at: '2026-11-01T00:00:00.000Z' }]);
   fs.writeFileSync(path.join(data, 'landers.json'), JSON.stringify({ 't/D1': { verified: 'v1', pid: 2 ** 22 + 12345 } }));
   const [port] = await freePorts();
@@ -834,7 +834,7 @@ test('a stale lander entry for an archived Done card is dropped, and the card st
     await boardListening(child);
     await until(() => !('t/D1' in JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))), 'the stale entry is dropped');
     assert.deepEqual((await readArchive(site)).map((a) => a.key), ['t/D1']);
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items.map((i) => i.id), ['T1']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items.map((i) => i.id), ['T1']);
   } finally {
     child.kill();
     fs.rmSync(home, { recursive: true, force: true });
@@ -921,7 +921,7 @@ test("a helper's brief gives it the task as its own agent, in its worktree when 
 
 test('a writing helper waits while the board has no implementer slot free, launches once its spawner waits on it, in its own worktree off the card branch', async () => {
   const b = oneLaunchBoard([{ id: 'V1', title: 'Split me', lane: 'progress' }]);
-  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/wave.json', slug: 't', max_implementers: 1 }));
+  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', max_implementers: 1 }));
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const cardTree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1');
   git(b.clone, 'worktree', 'add', '--quiet', '-b', 'V1', cardTree, 'main');

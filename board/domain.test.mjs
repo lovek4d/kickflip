@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, lineupMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, visualsDue } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, waveMoved, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, visualsDue } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -16,10 +16,10 @@ function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicIte
     topicItems,
     threads,
     fromWaves,
-    waves: [{
+    files: [{
       slug: 'w',
       agents,
-      wave: {
+      itemFile: {
         repo: 'o/r',
         reviewers: [{ name: 'Ann', github: 'ann' }],
         items: [{ id: 'A1', title: 'One', pr: 7, held, ...item }, { id: 'ENG-1', title: 'Later', created: '2026-10-22T00:00:00Z', parent: 'A1' }],
@@ -56,11 +56,11 @@ test("a builder's ask and the orchestrator's answer leave the card quiet, and th
 });
 
 test('manifest github selects PR state and card links ahead of wave repo with a wave fallback', () => {
-  const waves = [{ slug: 'w', wave: { repo: 'old/project', items: [{ id: 'A1', pr: 7 }, { id: 'F1', parent: 'A1' }] } }];
+  const files = [{ slug: 'w', itemFile: { repo: 'old/project', items: [{ id: 'A1', pr: 7 }, { id: 'F1', parent: 'A1' }] } }];
   const prs = { 'new/project#7': { ...greenDraft, title: 'selected' }, 'old/project#7': { state: 'CLOSED', title: 'legacy' } };
   for (const github of ['new/project', undefined]) {
     const repo = github || 'old/project';
-    const built = buildBoard({ github, waves, prs });
+    const built = buildBoard({ github, files, prs });
     assert.deepEqual(built.items.map((item) => item.repo), [repo, repo]);
     const card = built.items.find((item) => item.id === 'A1');
     assert.equal(card.pr.url, `https://github.com/${repo}/pull/7`);
@@ -281,7 +281,7 @@ test('lanes follow the PR, with a red ready PR in In Progress, and an open follo
   const red = board({ pr: { ...greenDraft, isDraft: false, checks: { state: 'fail' } } }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual([red.lane, red.waitsOn, red.next, red.action], ['progress', null, 'Fix the failing CI', null]);
   assert.equal(lanes({ ...greenDraft, state: 'MERGED' })['w/A1'], 'done');
-  const done = buildBoard({ fromWaves: false, waves: [{ slug: 's', wave: { items: [{ id: 'S1', title: 'One', lane: 'done', next: 'Builds after S0' }] } }] }).items[0];
+  const done = buildBoard({ fromWaves: false, files: [{ slug: 's', itemFile: { items: [{ id: 'S1', title: 'One', lane: 'done', next: 'Builds after S0' }] } }] }).items[0];
   assert.deepEqual([done.lane, done.next, done.actionButton], ['done', null, null]);
   assert.equal(board().items.find((i) => i.key === 'w/ENG-1').actionButton, null);
 });
@@ -320,18 +320,18 @@ test('a review waits with its age, and reads stale in In Review after a week', (
   assert.equal(approved.waitsOn, 'merge');
   const fileBoard = buildBoard({
     now: at(8), fromWaves: false, prs: { 'o/r#7': ready },
-    waves: [{ slug: 'f', wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items: [{ id: 'B1', title: 'Two', pr: 7, review_sent: { Ann: '1792800000.000100' } }] } }],
+    files: [{ slug: 'f', itemFile: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items: [{ id: 'B1', title: 'Two', pr: 7, review_sent: { Ann: '1792800000.000100' } }] } }],
   }).items[0];
   assert.deepEqual([fileBoard.lane, fileBoard.stale, fileBoard.review.Ann.since], ['review', true, sentAt]);
   assert.match(approved.next, /^Approved/);
   const steps = buildBoard({
     now: at(2), fromWaves: false, prs: { 'o/r#7': { ...ready, reviewDecision: 'APPROVED' } },
-    waves: [{ slug: 'f', wave: { repo: 'o/r', items: [{ id: 'B1', title: 'Two', pr: 7, manual_steps: ['Run the backfill'] }] } }],
+    files: [{ slug: 'f', itemFile: { repo: 'o/r', items: [{ id: 'B1', title: 'Two', pr: 7, manual_steps: ['Run the backfill'] }] } }],
   }).items[0];
   assert.deepEqual([steps.lane, steps.waitsOn, steps.action, steps.resolvedBy], ['review', 'merge', { kind: 'steps', url: '#selectedCard=f%2FB1', label: 'Run the manual steps, then merge' }, 'github']);
   const fixing = buildBoard({
     now: at(2), fromWaves: false, prs: { 'o/r#7': ready },
-    waves: [{ slug: 'f', wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items: [{ id: 'B1', title: 'Two', pr: 7, lane: 'progress', next: 'Reply to Codex', review_sent: { Ann: '1792800000.000100' } }] } }],
+    files: [{ slug: 'f', itemFile: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items: [{ id: 'B1', title: 'Two', pr: 7, lane: 'progress', next: 'Reply to Codex', review_sent: { Ann: '1792800000.000100' } }] } }],
   }).items[0];
   assert.deepEqual([fixing.lane, fixing.waitsOn, fixing.builder, fixing.next], ['review', 'reviewers', null, 'Waiting for PR reviewers']);
   const changing = board({ pr: ready, item: { lane: 'progress' }, agents: runningBuilders('A1') }).items.find((i) => i.key === 'w/A1');
@@ -431,9 +431,9 @@ test("an answer to an item's question joins that item's thread", () => {
 test('an internal wave marks its items, and one without a PR reaches Done by its stored lane', () => {
   const b = buildBoard({
     fromWaves: true,
-    waves: [
-      { slug: 'site', agents: runningBuilders('S2'), wave: { internal: true, items: [{ id: 'S1', title: 'Shared script', lane: 'done' }, { id: 'S2', title: 'Uploads', lane: 'progress' }] } },
-      { slug: 'w', wave: { items: [{ id: 'A1', title: 'One' }] } },
+    files: [
+      { slug: 'site', agents: runningBuilders('S2'), itemFile: { internal: true, items: [{ id: 'S1', title: 'Shared script', lane: 'done' }, { id: 'S2', title: 'Uploads', lane: 'progress' }] } },
+      { slug: 'w', itemFile: { items: [{ id: 'A1', title: 'One' }] } },
     ],
   });
   const byKey = Object.fromEntries(b.items.map((i) => [i.key, [i.internal, i.lane]]));
@@ -443,7 +443,7 @@ test('an internal wave marks its items, and one without a PR reaches Done by its
 test("a card pushed to a plain git remote waits In Review on the owner's merge with no action, goes back to In Progress while a builder fixes it, and is Done once merged", () => {
   const pushed = { branch: 'INT-12', at: '2026-11-02T10:00:00Z' };
   const built = (item, agents = {}) => buildBoard({ remote: 'git@gitlab.com:acme/firmware.git', branch: 'trunk', fromWaves: true,
-    waves: [{ slug: 'fw', agents, wave: { internal: true, items: [{ id: 'S12', title: 'OTA retry', branch: 'INT-12', pushed, ...item }] } }] });
+    files: [{ slug: 'fw', agents, itemFile: { internal: true, items: [{ id: 'S12', title: 'OTA retry', branch: 'INT-12', pushed, ...item }] } }] });
   const open = built({});
   assert.deepEqual(open.remote, { host: 'gitlab.com', name: 'gitlab.com/acme/firmware' });
   const card = open.items[0];
@@ -454,7 +454,7 @@ test("a card pushed to a plain git remote waits In Review on the owner's merge w
   assert.deepEqual([fixing.lane, fixing.waitsOn], ['progress', 'builder']);
   const merged = built({ lane: 'done' }).items[0];
   assert.deepEqual([merged.lane, merged.next, merged.pushed], ['done', null, null]);
-  assert.equal(buildBoard({ github: 'o/r', remote: 'git@gitlab.com:acme/firmware.git', waves: [] }).remote, null);
+  assert.equal(buildBoard({ github: 'o/r', remote: 'git@gitlab.com:acme/firmware.git', files: [] }).remote, null);
 });
 
 test('needs lists each Needs you line: open topics apart from items, then items asking a question or waiting on Ready', () => {
@@ -481,7 +481,7 @@ test('needs lists each Needs you line: open topics apart from items, then items 
   assert.deepEqual(lines(board()), [{ kind: 'Tap Ready', text: 'A1: One · Ready on GitHub', url: '#selectedCard=w%2FA1' }]);
   assert.deepEqual(lines(board({ pr: { ...greenDraft, isDraft: false } })), []);
   assert.equal(board({ pr: { ...greenDraft, isDraft: false } }).needsSummary, '');
-  const settling = buildBoard({ fromWaves: false, waves: [], events: [askAt('a1', '2026-10-23T09:00:00Z', { reply: { html: 'Built.' } })], askProgress: { a1: { state: 'progress', at: '2026-10-23T09:10:00Z', next: 'Pick a take' } } });
+  const settling = buildBoard({ fromWaves: false, files: [], events: [askAt('a1', '2026-10-23T09:00:00Z', { reply: { html: 'Built.' } })], askProgress: { a1: { state: 'progress', at: '2026-10-23T09:10:00Z', next: 'Pick a take' } } });
   assert.deepEqual(lines(settling).map((n) => ({ ...n, text: refKind(n.text.split(': ')[0]) + n.text.slice(n.text.indexOf(': ')) })), [{ kind: 'Action needed', text: 'asked: a1 first line · Pick a take', url: '#selectedCard=ask%3Aa1' }]);
 });
 
@@ -507,7 +507,7 @@ test("questions on In Progress cards come first, oldest card first, then the oth
   const card = (id, created, lane) => ({ id, title: id, created, lane, branch: id });
   const q = (id, topic) => ({ id: `q-${id}`, topic: `item:w/${id}`, question: 'Keep it?', asked_at: '2026-10-23T20:00:00Z' });
   const ids = ['P-old', 'P-new', 'T-old', 'T-new'];
-  const b = buildBoard({ fromWaves: true, github: 'o/r', waves: [{ slug: 'w', agents: {}, wave: { repo: 'o/r', items: [
+  const b = buildBoard({ fromWaves: true, github: 'o/r', files: [{ slug: 'w', agents: {}, itemFile: { repo: 'o/r', items: [
     card('T-old', '2026-10-01T00:00:00Z'), card('P-new', '2026-10-05T00:00:00Z', 'progress'), card('T-new', '2026-10-06T00:00:00Z'), card('P-old', '2026-10-03T00:00:00Z', 'progress')] } }],
   owner: { items: ids.map((id) => q(id)) } });
   const lanes = Object.fromEntries(b.items.map((i) => [i.id, i.lane]));
@@ -522,7 +522,7 @@ test("questions on In Progress cards come first, oldest card first, then the oth
 test("the board session's pending prompts lead Needs you, each a Prompt line carrying its details, and the summary and the hub's needs count them", () => {
   const perm = { id: 'p1', tool: 'Bash', action: 'run npm test', detail: 'npm test', rule: 'Bash(npm test)', questions: null, cwd: '~/r', at: '2026-10-30T10:00:00Z' };
   const ask = { id: 'p2', tool: 'AskUserQuestion', action: null, detail: '', rule: null, cwd: '~/r', at: '2026-10-30T10:01:00Z', questions: [{ question: 'Colour?', options: [{ label: 'Red' }] }, { question: 'Size?', options: [{ label: 'S' }] }] };
-  const b = buildBoard({ fromWaves: false, waves: [], events: [], prompts: [perm, ask] });
+  const b = buildBoard({ fromWaves: false, files: [], events: [], prompts: [perm, ask] });
   assert.deepEqual(b.needs.map(({ kind, text, url, prompt }) => [kind, text, url, prompt.id]), [['Prompt', 'Bash: npm test', '', 'p1'], ['Prompt', 'Question: Colour? · Size?', '', 'p2']]);
   assert.equal(b.needsSummary, '2 prompts');
   assert.deepEqual(needsAnswer(b).items, [{ kind: 'Prompt', text: 'Bash: npm test', url: '' }, { kind: 'Prompt', text: 'Question: Colour? · Size?', url: '' }]);
@@ -548,7 +548,7 @@ test('a message marked working shows on its thread and card until Claude replies
   const ask = { id: 'a1', ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Hi' }, reply: null };
   const working = { m1: '2026-10-23T10:01:00Z', a1: '2026-10-23T08:01:00Z' };
   const at = (events, lines = {}) => {
-    const b = buildBoard({ fromWaves: false, waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'One' }] } }], events, threads: lines, working });
+    const b = buildBoard({ fromWaves: false, files: [{ slug: 'w', itemFile: { items: [{ id: 'A1', title: 'One' }] } }], events, threads: lines, working });
     return { card: b.items.find((i) => i.key === 'w/A1').working, count: b.working, msgs: threadOf('w/A1', { lines: lines['w/A1'] || [], events, working }) };
   };
   const marked = at([ask, msg('m1', '2026-10-23T10:00:00Z'), msg('m2', '2026-10-23T10:05:00Z')]);
@@ -561,7 +561,7 @@ test('a message marked working shows on its thread and card until Claude replies
   assert.deepEqual([later.msgs[0].state, later.msgs[0].canDelete, later.card, later.count], ['answered', false, false, 1]);
   const replied = at([{ ...ask, reply: { html: 'Hello' } }, msg('m1', '2026-10-23T10:00:00Z', { reply: { html: 'On it' } })]);
   assert.deepEqual([replied.msgs[0].state, replied.card, replied.count], ['replied', false, 0]);
-  const count = (events, extra = {}) => buildBoard({ fromWaves: false, waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'One' }] } }], events, working: { ...working, g1: '2026-10-23T10:01:00Z', q1: '2026-10-23T10:01:00Z' }, ...extra }).working;
+  const count = (events, extra = {}) => buildBoard({ fromWaves: false, files: [{ slug: 'w', itemFile: { items: [{ id: 'A1', title: 'One' }] } }], events, working: { ...working, g1: '2026-10-23T10:01:00Z', q1: '2026-10-23T10:01:00Z' }, ...extra }).working;
   assert.equal(count([msg('g1', '2026-10-23T10:00:00Z', { data: { key: 'gone/G1', text: 'g1' } })]), 0);
   assert.equal(count([{ id: 'q1', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'gone-q' }, reply: null }]), 0);
   assert.equal(count([ask], { askProgress: { a1: { state: 'done', at: '2026-10-23T09:00:00Z' } } }), 0);
@@ -592,7 +592,7 @@ test("a builder's judgment calls follow its lines in the thread, as one entry wi
 const refKind = (ref) => (/^(\d+\/\d+ )?\d\d:\d\d$/.test(ref) ? 'asked' : ref);
 const askAt = (id, ts, extra = {}) => ({ id, ts, kind: 'ask', data: { text: `${id} first line\nmore` }, reply: null, ...extra });
 function askBoard(events, { working = {}, items = [{ id: 'A1', title: 'One', lane: 'progress' }], agents = {}, now = Date.parse('2026-10-23T12:00:00Z') } = {}) {
-  return buildBoard({ fromWaves: false, now, waves: [{ slug: 'w', agents, wave: { items } }], events, working });
+  return buildBoard({ fromWaves: false, now, files: [{ slug: 'w', agents, itemFile: { items } }], events, working });
 }
 
 test("a task Claude replied to with an open question is a Todo task carrying Open questions, never Done, until its questions are settled or it is closed", () => {
@@ -600,11 +600,11 @@ test("a task Claude replied to with an open question is a Todo task carrying Ope
   const owner = { items: [{ id: 'q1', topic: 'item:ask:a1', question: 'Which screen?', options: [{ id: 'A', label: 'Home' }] }] };
   const answer = { id: 'ans', ts: '2026-10-23T09:30:00Z', kind: 'owner-answer', data: { id: 'q1', choice: 'A' }, reply: null };
   const card = (events = [], extra = {}) => {
-    const i = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, ...events], owner, ...extra }).items.find((x) => x.key === 'ask:a1');
+    const i = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [], events: [ask, ...events], owner, ...extra }).items.find((x) => x.key === 'ask:a1');
     return [i.lane, refKind(i.ref), i.isNew, i.bumpable, i.ask.canEdit, i.finishable, i.action?.kind ?? null, i.actionButton];
   };
   assert.deepEqual(card(), ['todo', 'asked', false, false, false, true, 'questions', 'openQuestions']);
-  assert.deepEqual(buildBoard({ fromWaves: false, waves: [], events: [ask], owner }).needs.map((n) => [n.kind, refKind(n.text.split(': ')[0]) + n.text.slice(n.text.indexOf(': '))]), [['Question', 'asked: a1 first line · 1 question']]);
+  assert.deepEqual(buildBoard({ fromWaves: false, files: [], events: [ask], owner }).needs.map((n) => [n.kind, refKind(n.text.split(': ')[0]) + n.text.slice(n.text.indexOf(': '))]), [['Question', 'asked: a1 first line · 1 question']]);
   assert.deepEqual(card([answer]), ['todo', 'asked', false, false, false, true, null, 'openQuestions']);
   assert.deepEqual(card([{ ...answer, reply: { html: 'Home it is.' } }]), ['asks', 'asked', false, false, false, false, null, 'openQuestions']);
   assert.deepEqual(card([{ id: 'd1', ts: '2026-10-23T09:20:00Z', kind: 'ask-done', data: { id: 'a1' }, reply: null }]), ['asks', 'asked', false, false, false, false, null, 'openQuestions']);
@@ -614,14 +614,14 @@ test("a task Claude replied to with an open question is a Todo task carrying Ope
 
 test('an ask topic carries when it was asked, for the question pill', () => {
   const owner = { items: [{ id: 'q1', topic: 'item:ask:a1', question: 'Which screen?', options: [{ id: 'A', label: 'Home' }] }] };
-  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [askAt('a1', '2026-10-23T09:00:00Z')], owner });
+  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [], events: [askAt('a1', '2026-10-23T09:00:00Z')], owner });
   assert.equal(b.ownerTopics.find((t) => t.id === 'item:ask:a1').askedAt, '2026-10-23T09:00:00Z');
 });
 
 test('a new task is a New card in Todo with no action while it waits or works, and a Done item named by its time once Claude replies or writes in its thread', () => {
   const asks = [askAt('a1', '2026-10-23T09:00:00Z'), askAt('a2', '2026-10-23T10:00:00Z'), askAt('a3', '2026-10-23T08:00:00Z', { reply: { html: 'Yes.' } }), askAt('a4', '2026-10-23T07:00:00Z')];
   const threads = { 'ask:a4': [{ ts: '2026-10-23T07:30:00Z', who: 'claude', text: 'Answered here.' }, { ts: '2026-10-23T07:40:00Z', who: 'Sam', via: 'slack', text: 'Agreed' }] };
-  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }], events: asks, threads, working: { a2: '2026-10-23T10:01:00Z' } });
+  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [{ slug: 'w', itemFile: { items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }], events: asks, threads, working: { a2: '2026-10-23T10:01:00Z' } });
   const cards = b.items.filter((i) => i.kind === 'ask').map((i) => [i.key, i.lane, refKind(i.ref), i.isNew, i.title, i.ask.state, i.working, i.fold, i.action]);
   assert.deepEqual(cards, [
     ['ask:a1', 'todo', 'New', true, 'a1 first line', 'waiting', false, null, null],
@@ -650,7 +650,7 @@ test('Todo lists bumped cards first, the earliest bump on top, then the rest old
 test("an ask that stays an ask takes its triage title, and a card filed from an ask takes the ask's place in Todo, by when it was sent", () => {
   const asks = [askAt('a1', '2026-10-23T08:00:00Z', { reply: { html: 'Yes.' } }), askAt('a2', '2026-10-23T09:00:00Z'), askAt('a3', '2026-10-23T10:00:00Z')];
   const items = [{ id: 'T1', title: 'Sent between', created: '2026-10-23T09:30:00Z' }, { id: 'F1', title: 'Filed from a2', created: '2026-10-23T11:00:00Z', from_ask: 'a2' }];
-  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [{ slug: 'w', wave: { items } }], events: asks, askTitles: { a1: 'Triage title', a2: 'Never shown' } });
+  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [{ slug: 'w', itemFile: { items } }], events: asks, askTitles: { a1: 'Triage title', a2: 'Never shown' } });
   const of = (key) => b.items.find((i) => i.key === key);
   assert.deepEqual([of('ask:a1').title, of('ask:a3').title, of('ask:a2')], ['Triage title', 'a3 first line', undefined]);
   assert.deepEqual([of('w/F1').created, of('w/F1').sortAt], ['2026-10-23T09:00:00Z', '2026-10-23T09:00:00Z']);
@@ -672,7 +672,7 @@ test("an ask that became work or was folded into a card has no card of its own: 
   const folded = askAt('a3', '2026-10-23T09:00:00Z');
   const later = { id: 'm3', ts: '2026-10-23T09:10:00Z', kind: 'item-message', data: { key: 'ask:a3', text: 'And the footer' }, reply: null };
   const related = buildBoard({ fromWaves: false, askLinks: { a3: 'site/S4' }, events: [folded, later], working: { a3: '2026-10-23T09:01:00Z' },
-    waves: [{ slug: 'site', agents: runningBuilders('S4'), wave: { internal: true, items: [{ id: 'S4', title: 'Four', lane: 'progress' }] } }] });
+    files: [{ slug: 'site', agents: runningBuilders('S4'), itemFile: { internal: true, items: [{ id: 'S4', title: 'Four', lane: 'progress' }] } }] });
   assert.deepEqual([related.items.map((i) => [i.key, i.lane, i.threadCount]), related.moved, related.working], [[['site/S4', 'progress', 2], ['ask:a3', 'asks', 3]], {}, 0]);
   assert.deepEqual(threadOf('ask:a3', { events: [folded, later], links: [{ key: 'site/S4', ref: 'S4', title: 'Four', became: false, folded: true }] })
     .filter((m) => m.kind === 'ask-link').map((m) => [m.text, m.link]), [['Moved to S4: Four', '#selectedCard=site%2FS4']]);
@@ -686,21 +686,21 @@ test("an ask that became work or was folded into a card has no card of its own: 
 test("a New card asked whether to move waits on the owner in Todo, then a move leaves it Done, never an answer, with a line linking to its card on the other board, where it reads as moved from here", () => {
   const ask = askAt('a1', '2026-10-23T09:00:00Z');
   const owner = { items: [{ id: 'mv', topic: 'item:ask:a1', question: 'Move it?', options: [{ id: 'move', label: 'Move to Audit', recommended: true }, { id: 'keep', label: 'Keep here' }] }] };
-  const asked = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask], owner });
+  const asked = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [], events: [ask], owner });
   const card = asked.items[0];
   assert.deepEqual([card.key, card.lane, card.isNew, card.action, card.next, card.actionButton], ['ask:a1', 'todo', true, { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' }, 'Answer 1 question', 'openQuestions']);
   assert.deepEqual(asked.needs.map((n) => [n.kind, n.url]), [['Question', '#selectedCard=ask%3Aa1']]);
   const answer = { id: 'ans', ts: '2026-10-23T09:30:00Z', kind: 'owner-answer', data: { id: 'mv', choice: 'move' }, reply: null };
-  const back = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, answer], owner }).items[0];
+  const back = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [], events: [ask, answer], owner }).items[0];
   assert.deepEqual([back.lane, back.isNew, back.action, back.actionButton], ['todo', true, null, 'openQuestions']);
   const link = '/audit/#selectedCard=ask%3Ab1';
   const line = { ts: '2026-10-23T09:40:00Z', who: 'claude', text: 'Moved to Audit.', link };
-  const moved = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, answer], owner, threads: { 'ask:a1': [line] },
+  const moved = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [], events: [ask, answer], owner, threads: { 'ask:a1': [line] },
     askProgress: { a1: { state: 'done', at: '2026-10-23T09:40:00Z', moved: { route: 'audit', title: 'Audit', id: 'b1' } } } });
   assert.deepEqual([moved.items[0].lane, moved.items[0].isNew, moved.answers], ['asks', false, []]);
   assert.deepEqual(threadOf('ask:a1', { events: [ask], lines: [line] }).map(({ who, text, link: l }) => [who, text, l]), [['love', 'a1 first line\nmore', undefined], ['claude', 'Moved to Audit.', link]]);
   const arrived = askAt('b1', '2026-10-23T09:40:00Z', { data: { text: 'Fix the header', from: { route: 'orch', title: 'Orch', id: 'a1' } } });
-  const there = buildBoard({ fromWaves: false, waves: [], events: [arrived] }).items[0];
+  const there = buildBoard({ fromWaves: false, files: [], events: [arrived] }).items[0];
   assert.deepEqual([there.lane, there.isNew, there.title, there.ask.from], ['todo', true, 'Fix the header', 'Orch']);
   assert.equal(threadOf('ask:b1', { events: [arrived] })[0].from, 'Orch');
 });
@@ -731,7 +731,7 @@ test("the board lists asks answered without becoming work, newest Claude line fi
   };
   const b = buildBoard({
     fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), events, threads, askLinks: { a4: 'w/A1' },
-    waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two', lane: 'progress', from_ask: 'a3' }] } }],
+    files: [{ slug: 'w', itemFile: { items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two', lane: 'progress', from_ask: 'a3' }] } }],
   });
   assert.deepEqual(b.answers, [
     { key: 'ask:a1', id: 'a1', text: 'a1 first line', at: '2026-10-23T11:20:00Z' },
@@ -743,7 +743,7 @@ test("an ask Claude marks in progress waits on the owner in In Review with its n
   const ask = askAt('a1', '2026-10-23T09:00:00Z', { reply: { html: 'Two takes.', at: '2026-10-23T09:10:00Z' } });
   const done = (ts) => ({ id: 'd' + ts, ts, kind: 'ask-done', data: { id: 'a1' }, reply: null });
   const at = (events, askProgress) => {
-    const i = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [], events: [ask, ...events], askProgress }).items.find((x) => x.key === 'ask:a1');
+    const i = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [], events: [ask, ...events], askProgress }).items.find((x) => x.key === 'ask:a1');
     return [i.lane, i.fold, i.next, i.finishable, i.action, i.actionButton, i.resolvedBy];
   };
   const progress = { a1: { state: 'progress', at: '2026-10-23T09:20:00Z', next: 'Pick a take' } };
@@ -755,7 +755,7 @@ test("an ask Claude marks in progress waits on the owner in In Review with its n
   const reply = { id: 'm1', ts: '2026-10-23T09:30:00Z', kind: 'item-message', data: { key: 'ask:a1', text: 'Take B' }, reply: null };
   assert.deepEqual(at([reply], progress), ['progress', null, 'Pick a take', true, null, null, null]);
   assert.deepEqual(at([], { a1: { state: 'done', at: '2026-10-23T09:40:00Z' } }), ['asks', null, null, false, null, null, null]);
-  const waiting = buildBoard({ fromWaves: false, waves: [], events: [askAt('a2', '2026-10-23T09:00:00Z')], askProgress: { a2: { state: 'done', at: '2026-10-23T09:40:00Z' } } }).items[0];
+  const waiting = buildBoard({ fromWaves: false, files: [], events: [askAt('a2', '2026-10-23T09:00:00Z')], askProgress: { a2: { state: 'done', at: '2026-10-23T09:40:00Z' } } }).items[0];
   assert.deepEqual([waiting.lane, waiting.bumpable], ['asks', false]);
 });
 
@@ -763,7 +763,7 @@ test("with auto-merge off an approved, green, clean PR waits on the owner's Merg
   const clean = { state: 'OPEN', isDraft: false, reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', checks: { state: 'pass' }, reviews: {} };
   const card = ({ pr = clean, autoMerge, events = [], threads = {}, item = {} } = {}) => buildBoard({
     fromWaves: false, autoMerge, events, threads, prs: { 'o/r#7': pr },
-    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, ...item }] } }],
+    files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, ...item }] } }],
   });
   const off = card();
   const it = off.items[0];
@@ -799,7 +799,7 @@ test("a ready PR on a card no reviewer is on waits on the merge with no approval
   const ready = { state: 'OPEN', isDraft: false, reviewDecision: null, mergeStateStatus: 'CLEAN', checks: { state: 'pass' }, reviews: {} };
   const card = ({ pr = ready, autoMerge, reviewers } = {}) => buildBoard({
     fromWaves: false, autoMerge, reviewers, prs: { 'o/r#7': pr },
-    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7 }] } }],
+    files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7 }] } }],
   }).items[0];
   const off = card();
   assert.deepEqual([off.lane, off.waitsOn, off.next, off.action], ['review', 'merge', 'Ready and green: tap Merge', { kind: 'merge', url: '#selectedCard=w%2FA1', label: 'Merge' }]);
@@ -817,7 +817,7 @@ test('a blocked card waiting on its Merge stays In Review with no Action needed,
   const clean = { state: 'OPEN', isDraft: false, reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', checks: { state: 'pass' }, reviews: {} };
   const card = (item, { autoMerge } = {}) => buildBoard({
     fromWaves: true, autoMerge, branch: 'trunk', prs: { 'o/r#7': clean },
-    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }, { id: 'B2', title: 'Two' }] } }],
+    files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }, { id: 'B2', title: 'Two' }] } }],
   }).items.find((i) => i.id === 'A1');
   const byDep = card({ pr: 7, deps: ['B2'] });
   assert.deepEqual([byDep.lane, byDep.waitsOn, byDep.action, byDep.mergeBlocked, byDep.next], ['review', 'merge', null, 'Blocked by B2', 'Merges once unblocked']);
@@ -831,7 +831,7 @@ test("a verified branch held for the owner's Merge waits In Review on it with Me
   const heldAt = '2026-11-04T10:00:00Z';
   const card = ({ item = {}, autoMerge, threads = {}, agents = {} } = {}) => buildBoard({
     fromWaves: true, autoMerge, threads, branch: 'trunk',
-    waves: [{ slug: 'w', agents, wave: { items: [{ id: 'A1', title: 'One', branch: 'A1', merge_ready: { branch: 'A1', at: heldAt }, ...item }] } }],
+    files: [{ slug: 'w', agents, itemFile: { items: [{ id: 'A1', title: 'One', branch: 'A1', merge_ready: { branch: 'A1', at: heldAt }, ...item }] } }],
   }).items[0];
   for (const autoMerge of [false, true]) {
     const it = card({ autoMerge });
@@ -864,7 +864,7 @@ test("a merge-ready card keeps its place in In Review through a Merge tap, a Wai
   const held = (id, arrived) => ({ id, title: id, branch: id, review_since: arrived, merge_ready: { branch: id, at: '2026-11-04T20:00:00Z' } });
   const build = (a = {}, threads = {}, agents = {}) => buildBoard({
     fromWaves: true, branch: 'trunk', threads, now: Date.parse('2026-11-05T00:00:00Z'),
-    waves: [{ slug: 'w', agents, wave: { items: [{ ...held('A', '2026-11-04T08:00:00.000Z'), ...a }, held('B', '2026-11-04T09:00:00.000Z')] } }],
+    files: [{ slug: 'w', agents, itemFile: { items: [{ ...held('A', '2026-11-04T08:00:00.000Z'), ...a }, held('B', '2026-11-04T09:00:00.000Z')] } }],
   });
   const order = (b) => b.items.map((i) => i.id);
   const before = build();
@@ -887,7 +887,7 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
   const card = ({ item = {}, events = [], threads = {}, owner = {}, agents = {}, dep } = {}) => buildBoard({
     fromWaves: false, events, threads, owner, prs: {},
-    waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }, ...(dep ? [{ id: 'A2', title: 'Two', status: dep }] : []), { id: 'ENG-1', title: 'Later', created: '2026-10-22T00:00:00Z', parent: 'A1' }] } }],
+    files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }, ...(dep ? [{ id: 'A2', title: 'Two', status: dep }] : []), { id: 'ENG-1', title: 'Later', created: '2026-10-22T00:00:00Z', parent: 'A1' }] } }],
   });
   const one = (b) => b.items.find((i) => i.id === 'A1');
   const fresh = card();
@@ -927,7 +927,7 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
 test("a Build the board started is In Progress reading starting until its builder's first status line, and a refused one stays in Todo with its reason while that is the card's newest line", () => {
   const card = ({ item = {}, threads = {}, agents = {} } = {}) => buildBoard({
     fromWaves: false, events: [], threads, owner: {}, prs: {}, now: Date.parse('2026-10-29T10:05:00Z'),
-    waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }] } }],
+    files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', ...item }] } }],
   }).items[0];
   const tapped = { A1: { main: { label: 'Opus builder', kind: 'opus', started: '2026-10-29T10:00:00Z', dispatched: 'tap' } } };
   const starting = card({ item: { lane: 'progress' }, agents: tapped });
@@ -964,7 +964,7 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
     { id: 'A8', title: 'Eight', lane: 'done', lane_at: doneAt, closed_at: doneAt },
   ];
   const events = [close('w/A1', '2026-10-23T11:00:00Z'), close('w/A2', '2026-10-23T11:10:00Z'), close('w/A4', '2026-10-23T11:10:00Z')];
-  const snapshot = { fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), waves: [{ slug: 'w', agents: runningBuilders('A1', 'A2'), wave: { items } }] };
+  const snapshot = { fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [{ slug: 'w', agents: runningBuilders('A1', 'A2'), itemFile: { items } }] };
   assert.deepEqual(buildBoard(snapshot).items.find((i) => i.id === 'A5').blockedBy, [{ key: 'w/A1', ref: 'A1' }]);
   const b = buildBoard({ ...snapshot, events });
   const cards = Object.fromEntries(b.items.map((i) => [i.id, [i.lane, i.finishable]]));
@@ -989,7 +989,7 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
   const answered = { ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
   assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, null, null, 'Tap Done once it is settled']);
   assert.deepEqual((({ awaitsDone, bumpable, resolvedBy }) => [awaitsDone, bumpable, resolvedBy])(card(answered, 'A4')), [true, false, null]);
-  const followUp = (next_at) => ({ ...answered, waves: [{ ...answered.waves[0], wave: { items: items.map((i) => (i.id === 'A4' ? { ...i, next: 'Build the fix', next_at } : i)) } }] });
+  const followUp = (next_at) => ({ ...answered, files: [{ ...answered.files[0], itemFile: { items: items.map((i) => (i.id === 'A4' ? { ...i, next: 'Build the fix', next_at } : i)) } }] });
   assert.deepEqual(state(followUp('2026-10-23T11:35:00Z'), 'A4'), ['progress', null, null, null, null, 'Build the fix'], 'a Next set after the reopen keeps the answered card In Progress');
   assert.equal(card(followUp('2026-10-23T11:35:00Z'), 'A4').awaitsDone, false);
   assert.deepEqual(state(followUp('2026-10-23T11:05:00Z'), 'A4'), ['review', 'owner', null, null, null, 'Tap Done once it is settled'], 'a Next from before the reopen does not');
@@ -1025,7 +1025,7 @@ test("a card's PRs across repos each carry their own state and link, and the lea
   const approved = { ...open, reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' };
   const card = (prs, item = {}) => buildBoard({
     fromWaves: false, events: [], owner: {}, prs,
-    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', prs: [{ number: 6 }, { repo: 'o/site', number: 1 }], ...item }] } }],
+    files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', prs: [{ number: 6 }, { repo: 'o/site', number: 1 }], ...item }] } }],
   }).items[0];
   const both = card({ 'o/r#6': approved, 'o/site#1': greenDraft });
   assert.deepEqual(both.prs.map((p) => [p.repo, p.number, p.url, p.status]), [
@@ -1046,7 +1046,7 @@ test("a card's PRs across repos each carry their own state and link, and the lea
   assert.deepEqual([landed.lane, landed.storedLane, landed.pr.status, landed.prs.map((p) => p.status), landed.closedAt], ['done', null, 'merged', ['closed', 'merged'], '2026-11-03T10:00:00Z']);
   const closed = card({ 'o/r#6': { state: 'CLOSED' }, 'o/site#1': { state: 'CLOSED' } });
   assert.deepEqual([closed.lane, closed.pr.status], ['done', 'closed']);
-  const older = buildBoard({ fromWaves: false, events: [], owner: {}, prs: { 'o/r#7': greenDraft }, waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7 }] } }] }).items[0];
+  const older = buildBoard({ fromWaves: false, events: [], owner: {}, prs: { 'o/r#7': greenDraft }, files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7 }] } }] }).items[0];
   assert.deepEqual([older.prs.length, older.pr.number, older.pr.repo, older.waitsOn], [1, 7, 'o/r', 'ready']);
 });
 
@@ -1079,7 +1079,7 @@ test('a bumped card tops its lane, the earliest bump first, a held Todo card bum
     ['w/A3', 'todo', true, null],
   ]);
   assert.deepEqual(cards([bump('w/A1', at1), bump('w/A2', at2), bump('w/A1', '2026-10-23T11:30:00Z')]).slice(2, 4).map(([key]) => key), ['w/A2', 'w/A1'], 'a bump again goes behind the earlier bumps');
-  const draft = buildBoard({ fromWaves: false, prs: { 'o/r#7': greenDraft }, waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'D1', title: 'Draft', pr: 7 }] } }], events: [bump('w/D1', at1)] }).items[0];
+  const draft = buildBoard({ fromWaves: false, prs: { 'o/r#7': greenDraft }, files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [{ id: 'D1', title: 'Draft', pr: 7 }] } }], events: [bump('w/D1', at1)] }).items[0];
   assert.deepEqual([draft.lane, draft.waitsOn, draft.bumpable, draft.bumpedAt], ['review', 'ready', true, at1]);
 });
 
@@ -1157,7 +1157,7 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
     { id: 'm1', ts: at(7), kind: 'item-message', data: { key: 'w/P4', text: 'One more thing' }, reply: null },
     { id: 'c1', ts: tapped, kind: 'card-done', data: { key: 'w/D4' }, reply: null },
   ];
-  const built = (more = []) => buildBoard({ now, fromWaves: false, prs, events: [...events, ...more], waves: [{ slug: 'w', agents, wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items } }] });
+  const built = (more = []) => buildBoard({ now, fromWaves: false, prs, events: [...events, ...more], files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }], items } }] });
   const lanesOf = (b) => {
     const lanes = {};
     for (const i of b.items) (lanes[i.lane] ||= []).push(i.key.replace(/^w\//, ''));
@@ -1196,9 +1196,9 @@ test("an internal card's ref reads INT-<n> with no repo, and each card lists whe
     { id: 'o1', ts: '2026-10-23T09:40:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'A', note: 'Ship' }, reply: null }];
   const b = buildBoard({
     fromWaves: false, owner, threads, events,
-    waves: [
-      { slug: 'site', wave: { internal: true, items: [{ id: 'S3', title: 'Three' }, { id: 'INT-14', title: 'Fourteen' }] } },
-      { slug: 'w', wave: { items: [{ id: 'B5', title: 'Five', pr: 5 }] } },
+    files: [
+      { slug: 'site', itemFile: { internal: true, items: [{ id: 'S3', title: 'Three' }, { id: 'INT-14', title: 'Fourteen' }] } },
+      { slug: 'w', itemFile: { items: [{ id: 'B5', title: 'Five', pr: 5 }] } },
     ],
   });
   const byKey = Object.fromEntries(b.items.map((i) => [i.key, [i.ref, i.othersAt, i.repo, i.pr]]));
@@ -1212,12 +1212,12 @@ test("an internal card's ref reads INT-<n> with no repo, and each card lists whe
 });
 
 test('a card badges only a ticket from its board source, keeps another source\'s id unlinked, and links Linear in its workspace', () => {
-  const waves = [
-    { slug: 'w', wave: { internal: true, items: [{ id: 'S3', title: 'Legacy' }, { id: 'INT-14', title: 'Hub card' }, { id: 'C4', title: 'Internal', ticket: 'INT-4' },
+  const files = [
+    { slug: 'w', itemFile: { internal: true, items: [{ id: 'S3', title: 'Legacy' }, { id: 'INT-14', title: 'Hub card' }, { id: 'C4', title: 'Internal', ticket: 'INT-4' },
       { id: 'C5', title: 'Issue', ticket: '#5' }, { id: 'C6', title: 'Linear', ticket: 'ENG-6' }, { id: 'F7', title: 'Follow', ticket: 'INT-7', parent: 'C4' }] } },
-    { slug: 'web', wave: { items: [{ id: 'P1', title: 'Audit', linear: ['WEB-9'] }] } },
+    { slug: 'web', itemFile: { items: [{ id: 'P1', title: 'Audit', linear: ['WEB-9'] }] } },
   ];
-  const build = (tickets) => buildBoard({ tickets, github: 'owner/repo', waves, events: [askAt('a1', '2026-10-23T09:00:00Z')] });
+  const build = (tickets) => buildBoard({ tickets, github: 'owner/repo', files, events: [askAt('a1', '2026-10-23T09:00:00Z')] });
   const badges = (board) => Object.fromEntries(board.items.filter((i) => i.kind !== 'ask').map((i) => [i.id, i.ticket && [i.ticket.id, i.ticket.url]]));
   const own = (id) => [id, null];
   const card = (id) => [`#selectedCard=${encodeURIComponent(id)}`];
@@ -1239,7 +1239,7 @@ test('a card badges only a ticket from its board source, keeps another source\'s
   assert.equal(linear.items.find((i) => i.kind === 'ask').ticket, undefined);
   assert.deepEqual([build(undefined), build({ source: 'github' }), linear].map((b) => b.items.find((i) => i.id === 'P1').linear),
     [[{ id: 'WEB-9', url: null }], [{ id: 'WEB-9', url: null }], [{ id: 'WEB-9', url: 'https://linear.app/new-workspace/issue/WEB-9' }]]);
-  const legacy = buildBoard({ tickets: { source: 'linear', workspace: 'new-workspace', team: 'ENG', project: 'Audit' }, waves: [{ slug: 'w', wave: { items: [{ id: 'A1', title: 'Old', linear: ['ENG-9', 'ENG-10'] }] } }] });
+  const legacy = buildBoard({ tickets: { source: 'linear', workspace: 'new-workspace', team: 'ENG', project: 'Audit' }, files: [{ slug: 'w', itemFile: { items: [{ id: 'A1', title: 'Old', linear: ['ENG-9', 'ENG-10'] }] } }] });
   assert.deepEqual(legacy.items[0].linear.map((l) => l.url), ['https://linear.app/new-workspace/issue/ENG-9', 'https://linear.app/new-workspace/issue/ENG-10']);
 });
 
@@ -1270,7 +1270,7 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; one on
   const owner = { items: ['INT-18', 'INT-19'].map((id) => ({ id: `q${id}`, topic: `item:site/${id}`, question: '?', options: [], resolved: 'Picked.', resolved_at: '2026-10-23T10:00:00Z' })) };
   const finished = (kind) => ({ main: { label: 'Opus', kind, started: '2026-10-23T09:00:00Z', done: '2026-10-23T09:30:00Z' } });
   const agents = { ...runningBuilders('S11', 'INT-15'), 'INT-20': finished('prototype'), 'INT-27': finished('opus'), 'INT-28': finished('opus') };
-  const b = buildBoard({ fromWaves: false, owner, events, working, prototypes, waves: [{ slug: 'site', agents, wave: { internal: true, items } }] });
+  const b = buildBoard({ fromWaves: false, owner, events, working, prototypes, files: [{ slug: 'site', agents, itemFile: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
   assert.deepEqual(card('INT-15').blockedBy, [{ key: 'site/S11', ref: 'INT-11' }, { key: 'site/INT-14', ref: 'INT-14' }]);
   assert.equal(card('INT-15').lane, 'progress');
@@ -1289,19 +1289,19 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; one on
 
 test("a checking card sits in In Progress waiting on Claude's check, with no builder line or next step, and still blocks its dependents", () => {
   const record = { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Running tests', progress_at: '2026-10-23T10:05:00Z', done: '2026-10-23T10:30:00Z', handed_back: '2026-10-23T10:30:00Z' } };
-  const b = buildBoard({ fromWaves: false, waves: [
-    { slug: 'site', agents: { S1: record }, wave: { internal: true, items: [
+  const b = buildBoard({ fromWaves: false, files: [
+    { slug: 'site', agents: { S1: record }, itemFile: { internal: true, items: [
       { id: 'S1', title: 'One', lane: 'progress', next: 'Verify it' },
       { id: 'S2', title: 'Two', deps: ['S1'] },
     ] } },
-    { slug: 'w', agents: { A1: record, A2: record }, wave: { repo: 'o/r', items: [{ id: 'A1', title: 'Draft', lane: 'progress', pr: 7 }, { id: 'A2', title: 'No PR', lane: 'progress' }] } },
+    { slug: 'w', agents: { A1: record, A2: record }, itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'Draft', lane: 'progress', pr: 7 }, { id: 'A2', title: 'No PR', lane: 'progress' }] } },
   ], prs: { 'o/r#7': greenDraft } });
   const card = (key) => b.items.find((i) => i.key === key);
   const one = card('site/S1');
   assert.deepEqual([one.lane, one.waitsOn, one.builder, one.next, one.bumpable], ['progress', 'checking', null, null, true]);
   assert.deepEqual(card('site/S2').blockedBy, [{ key: 'site/S1', ref: 'INT-1' }]);
   assert.deepEqual([card('w/A1').lane, card('w/A1').waitsOn, card('w/A2').lane], ['progress', 'checking', 'progress']);
-  assert.equal(b.waves[0].finished, false);
+  assert.equal(b.itemFiles[0].finished, false);
 });
 
 test('an edited pending message shows its latest text marked Edited, keeps its files, and a replied one takes no edit', () => {
@@ -1358,7 +1358,7 @@ test('Done holds every closed work card, however old, with no Older fold, and an
     { id: 'a2', ts: at(10), kind: 'ask', data: { text: 'r' }, reply: { html: 'ok', at: at(0.2) } },
     { id: 'a3', ts: at(3), kind: 'ask', data: { text: 's' }, reply: { html: 'ok', at: at(2) } },
   ];
-  const b = buildBoard({ now, fromWaves: false, prs, events, waves: [{ slug: 'w', wave: { repo: 'o/r', items } }] });
+  const b = buildBoard({ now, fromWaves: false, prs, events, files: [{ slug: 'w', itemFile: { repo: 'o/r', items } }] });
   assert.deepEqual(b.items.filter((i) => i.lane === 'done').map((i) => [i.key, i.fold]), [
     ['w/ENG-2', null], ['w/A1', null], ['w/A2', null], ['w/ENG-1', null], ['w/A3', null],
   ]);
@@ -1366,27 +1366,27 @@ test('Done holds every closed work card, however old, with no Older fold, and an
   assert.deepEqual(b.items.map((i) => i.lane).slice(-3), ['asks', 'asks', 'asks']);
 });
 
-test('a wave whose every work item is in Done, landed or not, is finished, and its Done cards fold under one wave row, newest first, until an open card reopens it', () => {
+test('an item file whose every work item is in Done, landed or not, is finished, and its Done cards fold under one row, newest first, until an open card reopens it', () => {
   const now = Date.parse('2026-11-20T12:00:00Z');
   const at = (d) => new Date(now - d * 86400000).toISOString();
   const prs = { 'o/r#1': { state: 'MERGED', mergedAt: at(1) }, 'o/r#2': { state: 'CLOSED', updatedAt: at(3) }, 'o/r#3': { state: 'MERGED', mergedAt: at(20) } };
-  const waves = (open) => [
-    { slug: 'x', wave: { repo: 'o/r', items: [{ id: 'X1', title: 'a', pr: 1 }, { id: 'X2', title: 'b', pr: 2 }, { id: 'X3', title: 'c', lane: 'done' }, { id: 'X4', title: 'd', pr: 3 },
+  const files = (open) => [
+    { slug: 'x', itemFile: { repo: 'o/r', items: [{ id: 'X1', title: 'a', pr: 1 }, { id: 'X2', title: 'b', pr: 2 }, { id: 'X3', title: 'c', lane: 'done' }, { id: 'X4', title: 'd', pr: 3 },
       { id: 'ENG-1', title: 'f', lane: 'done', closed_at: at(2), parent: 'X1' }, { id: 'ENG-2', title: 'g', ...(open ? {} : { lane: 'done', closed_at: at(2) }), parent: 'X1' }] } },
-    { slug: 'site', wave: { internal: true, items: [{ id: 'S1', title: 's', lane: 'done' }] } },
-    { slug: 'open', agents: runningBuilders('O2'), wave: { items: [{ id: 'O1', title: 'o', lane: 'done' }, { id: 'O2', title: 'p', lane: 'progress' }] } },
-    { slug: 'empty', wave: { items: [] } },
+    { slug: 'site', itemFile: { internal: true, items: [{ id: 'S1', title: 's', lane: 'done' }] } },
+    { slug: 'open', agents: runningBuilders('O2'), itemFile: { items: [{ id: 'O1', title: 'o', lane: 'done' }, { id: 'O2', title: 'p', lane: 'progress' }] } },
+    { slug: 'empty', itemFile: { items: [] } },
   ];
-  const b = buildBoard({ now, fromWaves: false, prs, waves: waves(false) });
-  assert.deepEqual(b.waves.map((w) => [w.slug, w.finished]), [['x', true], ['site', true], ['open', false], ['empty', false]]);
+  const b = buildBoard({ now, fromWaves: false, prs, files: files(false) });
+  assert.deepEqual(b.itemFiles.map((w) => [w.slug, w.finished]), [['x', true], ['site', true], ['open', false], ['empty', false]]);
   assert.deepEqual(b.items.map((i) => [i.key, i.lane, i.fold]), [
     ['open/O2', 'progress', null],
-    ['x/X1', 'done', 'wave:x'], ['x/ENG-2', 'done', 'wave:x'], ['x/ENG-1', 'done', 'wave:x'], ['x/X2', 'done', 'wave:x'], ['x/X4', 'done', 'wave:x'],
-    ['x/X3', 'done', 'wave:x'], ['open/O1', 'done', null], ['site/S1', 'done', 'wave:site'],
+    ['x/X1', 'done', 'file:x'], ['x/ENG-2', 'done', 'file:x'], ['x/ENG-1', 'done', 'file:x'], ['x/X2', 'done', 'file:x'], ['x/X4', 'done', 'file:x'],
+    ['x/X3', 'done', 'file:x'], ['open/O1', 'done', null], ['site/S1', 'done', 'file:site'],
   ]);
-  const reopened = buildBoard({ now, fromWaves: false, prs, waves: waves(true) });
-  assert.deepEqual(reopened.waves.map((w) => [w.slug, w.finished]), [['x', false], ['site', true], ['open', false], ['empty', false]]);
-  assert.deepEqual(reopened.items.filter((i) => i.wave === 'x').map((i) => [i.key, i.lane, i.fold]), [
+  const reopened = buildBoard({ now, fromWaves: false, prs, files: files(true) });
+  assert.deepEqual(reopened.itemFiles.map((w) => [w.slug, w.finished]), [['x', false], ['site', true], ['open', false], ['empty', false]]);
+  assert.deepEqual(reopened.items.filter((i) => i.file === 'x').map((i) => [i.key, i.lane, i.fold]), [
     ['x/ENG-2', 'todo', null],
     ['x/X1', 'done', null], ['x/ENG-1', 'done', null], ['x/X2', 'done', null], ['x/X4', 'done', null], ['x/X3', 'done', null],
   ]);
@@ -1394,7 +1394,7 @@ test('a wave whose every work item is in Done, landed or not, is finished, and i
 
 test('the board says when GitHub was last checked, late past twice the interval but never while idle, and whether it is listening', () => {
   const now = Date.parse('2026-10-23T12:00:00Z');
-  const checks = (checked, listening) => buildBoard({ now, fromWaves: false, waves: [], checked, listen: listening === true ? 'listening' : listening === false ? 'deaf' : listening }).checks;
+  const checks = (checked, listening) => buildBoard({ now, fromWaves: false, files: [], checked, listen: listening === true ? 'listening' : listening === false ? 'deaf' : listening }).checks;
   const at = (min) => new Date(now - min * 60000).toISOString();
   assert.deepEqual(checks(null, true), { at: null, every: 30, idle: false, late: false, watcher: 'running', claudeAt: null });
   assert.deepEqual(checks({ at: at(12), every: 30 }, true), { at: at(12), every: 30, idle: false, late: false, watcher: 'running', claudeAt: null });
@@ -1408,18 +1408,18 @@ test('the board says when GitHub was last checked, late past twice the interval 
 test("the board dates Claude's newest write it can see: a reply, a Claude thread line, a working mark, a builder record or a watcher start, not the hub's check", () => {
   const now = Date.parse('2026-10-23T12:00:00Z');
   const at = (min) => new Date(now - min * 60000).toISOString();
-  const claudeAt = (extra) => buildBoard({ now, fromWaves: false, checked: { at: at(1) }, watcher: { running: true, since: at(40) }, waves: [{ slug: 'w', agents: {}, wave: { items: [{ id: 'A1', title: 'One' }] } }], ...extra }).checks.claudeAt;
+  const claudeAt = (extra) => buildBoard({ now, fromWaves: false, checked: { at: at(1) }, watcher: { running: true, since: at(40) }, files: [{ slug: 'w', agents: {}, itemFile: { items: [{ id: 'A1', title: 'One' }] } }], ...extra }).checks.claudeAt;
   assert.equal(claudeAt({}), at(40));
   assert.equal(claudeAt({ replyAt: at(30) }), at(30));
   assert.equal(claudeAt({ threads: { 'w/A1': [{ ts: at(20), who: 'claude', text: 'x' }, { ts: at(1), who: 'love', text: 'y' }] } }), at(20));
   assert.equal(claudeAt({ working: { e1: at(10) } }), at(10));
-  assert.equal(claudeAt({ waves: [{ slug: 'w', agents: { A1: { main: { started: at(5) } } }, wave: { items: [{ id: 'A1', title: 'One' }] } }] }), at(5));
-  assert.equal(claudeAt({ waves: [{ slug: 'w', agents: { A1: { main: { started: at(30), done: at(2) } } }, wave: { items: [{ id: 'A1', title: 'One' }] } }] }), at(2));
+  assert.equal(claudeAt({ files: [{ slug: 'w', agents: { A1: { main: { started: at(5) } } }, itemFile: { items: [{ id: 'A1', title: 'One' }] } }] }), at(5));
+  assert.equal(claudeAt({ files: [{ slug: 'w', agents: { A1: { main: { started: at(30), done: at(2) } } }, itemFile: { items: [{ id: 'A1', title: 'One' }] } }] }), at(2));
 });
 
 test('try state maps web and app badges using current worktree heads, keeps lanes and installs, and omits Done', () => {
-  const waves = [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'INT-41', pr: 7, install: { url: 'https://m/app.apk', sha: 'abcdef1' } }] } }];
-  const snapshot = { route: 'orch', waves, prs: { 'o/r#7': { ...greenDraft, headRefOid: 'abcdef123' } } };
+  const files = [{ slug: 'w', itemFile: { repo: 'o/r', items: [{ id: 'INT-41', pr: 7, install: { url: 'https://m/app.apk', sha: 'abcdef1' } }] } }];
+  const snapshot = { route: 'orch', files, prs: { 'o/r#7': { ...greenDraft, headRefOid: 'abcdef123' } } };
   assert.equal(buildBoard(snapshot).kind, 'app');
   for (const kind of ['web', 'app']) {
     const current = { sha: 'abcdef1', head: 'abcdef123', ahead: 2, script: true, state: 'ready', https: 8501 };
@@ -1437,20 +1437,20 @@ test('try state maps web and app badges using current worktree heads, keeps lane
     const done = buildBoard({ ...snapshot, prs: { 'o/r#7': { state: 'MERGED' } }, try: { kind, cards: { 'w/INT-41': current } } }).items[0];
     assert.equal(done.try, undefined);
   }
-  assert.equal(buildBoard({ waves: [] }).kind, 'web');
+  assert.equal(buildBoard({ files: [] }).kind, 'web');
 });
 
 test('main maps the recorded branch, commit time and short sha to its web or published app URL', () => {
   const run = { slug: 'o/r', branch: 'develop', sha: 'abcdef123456', at: '2026-11-01T00:00:00Z', script: true, state: 'ready', https: 8501 };
   for (const kind of ['web', 'app']) {
-    const snapshot = { waves: [], route: 'orch', try: { kind, main: run }, main: { install: { url: 'https://m/main.apk' } } };
+    const snapshot = { files: [], route: 'orch', try: { kind, main: run }, main: { install: { url: 'https://m/main.apk' } } };
     assert.deepEqual(buildBoard(snapshot).main, { slug: run.slug, branch: 'develop', sha: 'abcdef1', at: run.at, kind, state: 'ready', url: kind === 'web' ? null : 'https://m/main.apk', port: kind === 'web' ? 8501 : null, pull: null, script: '.kickflip/build' });
     assert.equal(buildBoard({ ...snapshot, try: { kind, main: { ...run, target: 'ios' } } }).main.script, '.kickflip/build-ios');
     assert.deepEqual(buildBoard({ ...snapshot, try: { kind, main: run, pull: { at: 'now' } } }).main.pull, { running: false, error: null });
     assert.deepEqual(buildBoard({ ...snapshot, try: { kind, main: run, pull: { at: 'now', running: true, error: 'can’t pull: local changes' } } }).main.pull, { running: true, error: 'can’t pull: local changes' });
     assert.equal(buildBoard({ ...snapshot, try: { kind, main: { ...run, script: false } } }).main, null);
   }
-  assert.equal(buildBoard({ waves: [] }).main, null);
+  assert.equal(buildBoard({ files: [] }).main, null);
 });
 
 test('review records use one precedence order and date the card from the item record', () => {
@@ -1467,17 +1467,17 @@ test('review records use one precedence order and date the card from the item re
   assert.equal(card.inReviewSince, '2026-10-24T00:00:00.000Z');
   assert.deepEqual([card.lane, card.stale], ['review', true]);
   assert.equal(Object.hasOwn(card, 'slack'), false);
-  assert.equal(Object.hasOwn(board().waves[0], 'watched'), false);
+  assert.equal(Object.hasOwn(board().itemFiles[0], 'watched'), false);
 });
 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-test("each open lineup is a wave band with its cards in order, its next unstarted card ready or why not, progress and triage, its cards carry its slug; a wave file is a band only on a board over the waves, with triage from wave-triage {wave} and topic wave:<slug>", () => {
+test("each open wave is a band with its cards in order, its next unstarted card ready or why not, progress and triage, its cards carry its slug; an item file is a band only on a board over the waves, with triage from wave-triage {file} and topic file:<slug>", () => {
   const items = [
     { id: 'INT-1', title: 'One', lane: 'done' }, { id: 'INT-2', title: 'Two', lane: 'progress' }, { id: 'INT-3', title: 'Three', deps: ['INT-2'], phase: 'ready' },
     { id: 'INT-4', title: 'Four', lane: 'done', prs: [{ repo: 'o/r', number: 4 }] }, { id: 'INT-5', title: 'Five' }, { id: 'INT-6', title: 'Six', lane: 'done' }, { id: 'INT-7', title: 'Loose' },
     { id: 'INT-8', title: 'Eight', phase: 'ready' }, { id: 'INT-9', title: 'Nine', phase: 'grilling', deps: ['INT-8'] }, { id: 'INT-10', title: 'Ten', held: true },
   ];
-  const lineups = [
+  const waves = [
     { slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', items: ['INT-1', 'INT-2', 'INT-3', 'INT-4'] },
     { slug: 'old', title: 'Old', goal: 'Gone.', items: ['INT-5'], finished_at: '2026-11-01T00:00:00Z' },
     { slug: 'all-done', title: 'All done', goal: 'Shipped.', items: ['INT-6'] },
@@ -1485,38 +1485,38 @@ test("each open lineup is a wave band with its cards in order, its next unstarte
     { slug: 'hold', title: 'Hold', goal: 'Held.', items: ['INT-10'] },
   ];
   const question = (id, topic) => ({ id, topic, question: 'Split it?', options: [{ id: 'yes', label: 'Yes' }] });
-  const triage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { lineup: 'mon' }, reply });
+  const triage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { wave: 'mon' }, reply });
   const build = (events, owner = {}, fromWaves = false) => buildBoard({ fromWaves, now: Date.parse('2026-11-02T12:00:00Z'), events, owner, prs: { 'o/r#4': { state: 'CLOSED' } },
-    waves: [{ slug: 'hub', wave: { internal: true, items, lineups } }, { slug: 'other', wave: { items: [{ id: 'X1', title: 'Elsewhere' }] } }] });
+    files: [{ slug: 'hub', itemFile: { internal: true, items, waves } }, { slug: 'other', itemFile: { items: [{ id: 'X1', title: 'Elsewhere' }] } }] });
 
   const idle = build([]);
   const keys = (...ids) => ids.map((id) => `hub/${id}`);
-  assert.deepEqual(idle.waveBands[0], { kind: 'lineup', slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
+  assert.deepEqual(idle.waveBands[0], { kind: 'wave', slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
     keys: keys('INT-1', 'INT-2', 'INT-3', 'INT-4'), phases: keys('INT-1', 'INT-2', 'INT-3', 'INT-4').map((k) => [k]), next: { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }, triage: { running: false, questions: 0 } });
   assert.deepEqual(idle.waveBands.map((b) => [b.slug, b.next]), [
     ['mon', { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }],
     ['go', { key: 'hub/INT-8', ref: 'INT-8', ready: true, word: 'ready' }],
     ['hold', { key: 'hub/INT-10', ref: 'INT-10', ready: false, word: 'held' }],
   ]);
-  const chip = (id) => idle.items.find((i) => i.id === id).lineup;
+  const chip = (id) => idle.items.find((i) => i.id === id).wave;
   assert.deepEqual([chip('INT-3'), chip('INT-5'), chip('INT-7')], [{ slug: 'mon', title: 'Monitor' }, { slug: 'old', title: 'Old' }, null]);
 
   assert.deepEqual(build([triage('t1', '2026-11-02T10:00:00Z')]).waveBands[0].triage, { running: true, questions: 0 });
   const asked = build([triage('t1', '2026-11-02T10:00:00Z', { html: '2 questions' }), { id: 'a1', ts: '2026-11-02T10:05:00Z', kind: 'owner-answer', data: { id: 'q2', choice: 'yes' } }],
-    { items: [question('q1', 'lineup:mon'), question('q2', 'lineup:mon'), { ...question('q3', 'lineup:mon'), resolved: 'Done', resolved_at: '2026-11-02T09:00:00Z' }] });
+    { items: [question('q1', 'wave:mon'), question('q2', 'wave:mon'), { ...question('q3', 'wave:mon'), resolved: 'Done', resolved_at: '2026-11-02T09:00:00Z' }] });
   assert.deepEqual(asked.waveBands[0].triage, { running: false, questions: 2 });
   assert.deepEqual(asked.needs.map((n) => [n.text, n.band, n.url]), [['Monitor · 1 question', 'mon', 'questions.html#q1']]);
 
   const idleRow = { running: false, questions: 0 };
-  const files = build([], {}, true).waveBands.filter((b) => b.kind === 'wave');
-  assert.deepEqual(files.map((b) => [b.slug, b.goal, b.next, b.phases, b.triage, `${b.merged}/${b.total}`]), [['hub', null, null, null, idleRow, '2/10'], ['other', null, null, null, idleRow, '0/1']]);
-  assert.deepEqual(files[1].keys, ['other/X1']);
-  const waveTriage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { wave: 'other' }, reply });
+  const fileBands = build([], {}, true).waveBands.filter((b) => b.kind === 'file');
+  assert.deepEqual(fileBands.map((b) => [b.slug, b.goal, b.next, b.phases, b.triage, `${b.merged}/${b.total}`]), [['hub', null, null, null, idleRow, '2/10'], ['other', null, null, null, idleRow, '0/1']]);
+  assert.deepEqual(fileBands[1].keys, ['other/X1']);
+  const waveTriage = (id, ts, reply = null) => ({ id, ts, kind: 'wave-triage', data: { file: 'other' }, reply });
   const triaged = (events, owner) => Object.fromEntries(build(events, owner, true).waveBands.map((r) => [`${r.kind}:${r.slug}`, r.triage]));
-  assert.deepEqual(triaged([waveTriage('t2', '2026-11-02T10:00:00Z')]), { 'lineup:mon': idleRow, 'lineup:go': idleRow, 'lineup:hold': idleRow, 'wave:hub': idleRow, 'wave:other': { running: true, questions: 0 } });
-  const fileAsked = build([waveTriage('t2', '2026-11-02T10:00:00Z', { html: '1 question' })], { items: [question('q4', 'wave:other'), question('q5', 'lineup:mon')] }, true);
+  assert.deepEqual(triaged([waveTriage('t2', '2026-11-02T10:00:00Z')]), { 'wave:mon': idleRow, 'wave:go': idleRow, 'wave:hold': idleRow, 'file:hub': idleRow, 'file:other': { running: true, questions: 0 } });
+  const fileAsked = build([waveTriage('t2', '2026-11-02T10:00:00Z', { html: '1 question' })], { items: [question('q4', 'file:other'), question('q5', 'wave:mon')] }, true);
   assert.deepEqual(fileAsked.waveBands.map((r) => r.triage.questions), [1, 0, 0, 0, 1]);
-  assert.deepEqual(fileAsked.needs.map((n) => [n.text, n.topic, n.band]), [['Monitor · 1 question', 'lineup:mon', 'mon'], ['other · 1 question', 'wave:other', 'other']]);
+  assert.deepEqual(fileAsked.needs.map((n) => [n.text, n.topic, n.band]), [['Monitor · 1 question', 'wave:mon', 'mon'], ['other · 1 question', 'file:other', 'other']]);
 });
 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
@@ -1526,8 +1526,8 @@ test("a wave's card moves up or down among its unstarted cards, past any started
     { id: 'A4', title: 'Four' }, { id: 'A5', title: 'Five' },
   ];
   const built = buildBoard({ now: Date.parse('2026-11-02T12:00:00Z'), events: [], owner: {},
-    waves: [{ slug: 'w', wave: { internal: true, items, lineups: [{ slug: 'mon', title: 'Monitor', goal: 'G', items: ['A1', 'A2', 'A3', 'A4', 'A5'] }] } }] });
-  const order = (key, by) => lineupMoved(built, 'mon', key, by)?.flat().map((k) => k.slice(2)).join(' ');
+    files: [{ slug: 'w', itemFile: { internal: true, items, waves: [{ slug: 'mon', title: 'Monitor', goal: 'G', items: ['A1', 'A2', 'A3', 'A4', 'A5'] }] } }] });
+  const order = (key, by) => waveMoved(built, 'mon', key, by)?.flat().map((k) => k.slice(2)).join(' ');
   assert.equal(order('w/A2', 1), 'A1 A4 A3 A2 A5');
   assert.equal(order('w/A4', -1), 'A1 A4 A3 A2 A5');
   assert.equal(order('w/A4', 1), 'A1 A2 A3 A5 A4');
@@ -1535,7 +1535,7 @@ test("a wave's card moves up or down among its unstarted cards, past any started
   assert.equal(order('w/A5', 1), undefined);
   assert.equal(order('w/A3', -1), undefined);
   assert.equal(order('w/A1', 1), undefined);
-  assert.equal(lineupMoved(built, 'nope', 'w/A2', 1), null);
+  assert.equal(waveMoved(built, 'nope', 'w/A2', 1), null);
 });
 
 // docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
@@ -1544,9 +1544,9 @@ test("a phased wave's band gives its phases, Implement goes to its first ready c
     { id: 'P1', title: 'One', lane: 'done' }, { id: 'P2', title: 'Two', phase: 'ready', deps: ['P1'] }, { id: 'P3', title: 'Three', phase: 'ready', deps: ['P1'] },
     { id: 'P4', title: 'Four', phase: 'ready', deps: ['P2', 'P3'] },
   ];
-  const lineups = [{ slug: 'ph', title: 'Phased', goal: 'G', phases: [['P1'], ['P2', 'P3'], ['P4']] }];
+  const waves = [{ slug: 'ph', title: 'Phased', goal: 'G', phases: [['P1'], ['P2', 'P3'], ['P4']] }];
   const build = (over = {}) => buildBoard({ now: Date.parse('2026-11-04T12:00:00Z'), events: [], owner: {},
-    waves: [{ slug: 'w', wave: { internal: true, items: items.map((it) => ({ ...it, ...over[it.id] })), lineups } }] });
+    files: [{ slug: 'w', itemFile: { internal: true, items: items.map((it) => ({ ...it, ...over[it.id] })), waves } }] });
   const idle = build();
   const [band] = idle.waveBands;
   assert.deepEqual([band.keys, band.phases], [['w/P1', 'w/P2', 'w/P3', 'w/P4'], [['w/P1'], ['w/P2', 'w/P3'], ['w/P4']]]);
@@ -1554,7 +1554,7 @@ test("a phased wave's band gives its phases, Implement goes to its first ready c
   assert.deepEqual(build({ P2: { lane: 'progress' } }).waveBands[0].next, { key: 'w/P3', ref: 'P3', ready: true, word: 'ready' });
   assert.deepEqual(build({ P2: { lane: 'progress' }, P3: { lane: 'progress' } }).waveBands[0].next, { key: 'w/P4', ref: 'P4', ready: false, word: 'waits on P2, P3' });
 
-  const moved = (key, by) => lineupMoved(idle, 'ph', key, by)?.map((p) => p.map((k) => k.slice(2)).join(',')).join(' → ');
+  const moved = (key, by) => waveMoved(idle, 'ph', key, by)?.map((p) => p.map((k) => k.slice(2)).join(',')).join(' → ');
   assert.equal(moved('w/P3', 1), 'P1 → P2,P4 → P3');
   assert.equal(moved('w/P3', -1), 'P1 → P3,P2 → P4');
   assert.equal(moved('w/P2', -1), undefined);
@@ -1562,7 +1562,7 @@ test("a phased wave's band gives its phases, Implement goes to its first ready c
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test('a card links to its Parent, lists its Children and its Related to cards on both sides, and a blocker lists what Waits on it; a card whose Parent left the board still links to its stored id', () => {
-  const wave = { items: [
+  const itemFile = { items: [
     { id: 'GH-53', title: 'Parent', ticket: '#53', related: ['w/GH-75'] },
     { id: 'GH-93', title: 'Second child', ticket: '#93', parent: 'w/GH-53', deps: ['GH-80'] },
     { id: 'GH-87', title: 'First child', ticket: '#87', parent: 'w/GH-53', lane: 'done' },
@@ -1570,7 +1570,7 @@ test('a card links to its Parent, lists its Children and its Related to cards on
     { id: 'GH-75', title: 'Similar', ticket: '#75', related: ['w/GH-93'] },
     { id: 'GH-9', title: 'Orphan', ticket: '#9', parent: 'w/GH-404' },
   ] };
-  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-11-03T12:00:00Z'), tickets: { source: 'github' }, waves: [{ slug: 'w', wave }] });
+  const b = buildBoard({ fromWaves: false, now: Date.parse('2026-11-03T12:00:00Z'), tickets: { source: 'github' }, files: [{ slug: 'w', itemFile }] });
   const card = (id) => b.items.find((i) => i.id === id);
   const refs = (list) => list.map((l) => l.ref);
   assert.deepEqual(card('GH-93').parent, { key: 'w/GH-53', ref: '#53' });
@@ -1611,7 +1611,7 @@ test('Todo has no queue: every Todo card keeps its place, bumped first and the r
     { id: 'H1', title: 'Held ready', phase: 'ready', held: true, created: at(6) },
   ];
   const built = ({ events = [] } = {}) => buildBoard({ fromWaves: false, events, now: Date.parse(at(30)),
-    waves: [{ slug: 'w', agents: runningBuilders('A1'), wave: { internal: true, items } }] });
+    files: [{ slug: 'w', agents: runningBuilders('A1'), itemFile: { internal: true, items } }] });
   const lanes = (b) => b.items.filter((i) => i.kind === 'work').map((i) => `${i.id}:${i.lane}`);
   const order = ['A1:progress', 'R1:todo', 'R2:todo', 'B1:todo', 'T1:todo', 'H1:todo'];
   assert.deepEqual(lanes(built()), order);
@@ -1631,7 +1631,7 @@ test('a staging card stays in Todo waiting on the orchestrator, and is neither p
     { id: 'S1', title: 'Staged', phase: 'staging', staged_at: at(1) },
     { id: 'R1', title: 'Ready', phase: 'ready', created: at(2) },
   ];
-  const b = buildBoard({ fromWaves: false, now: Date.parse(at(30)), waves: [{ slug: 'w', wave: { internal: true, items } }] });
+  const b = buildBoard({ fromWaves: false, now: Date.parse(at(30)), files: [{ slug: 'w', itemFile: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
   assert.deepEqual([card('S1').lane, card('S1').staging, card('S1').ready, card('S1').next, card('S1').stagedAt], ['todo', true, false, null, at(1)]);
   assert.deepEqual(card('S1').orchestrator, { kind: 'staging', since: at(1), picked: null, next: 'Judge the staged card against the whole board: item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead' });
@@ -1712,7 +1712,7 @@ test('a bumped ready card starts past the cap, bumping out the newest unbumped b
   // On a built board, a build the board launched carries its session's pid; a session's own build has none.
   const launched = { started: '2026-11-06T10:00:00Z', kind: 'claude', session: { id: 's1', pid: 42, at: '2026-11-06T10:00:00Z' } };
   const built = (record) => buildBoard({ fromWaves: false, events: [{ id: 'cb', ts: '2026-11-06T11:00:00Z', kind: 'card-bump', data: { key: 'w/T1' } }],
-    waves: [{ slug: 'w', agents: { P1: { main: record } }, wave: { internal: true, items: [{ id: 'P1', title: 'Running', lane: 'progress' }, { id: 'T1', title: 'Bumped', phase: 'ready' }] } }] }).items;
+    files: [{ slug: 'w', agents: { P1: { main: record } }, itemFile: { internal: true, items: [{ id: 'P1', title: 'Running', lane: 'progress' }, { id: 'T1', title: 'Bumped', phase: 'ready' }] } }] }).items;
   assert.deepEqual(pullOf(built(launched), { cap: 1 }).bumpOuts, [{ key: 'w/P1', by: 'w/T1' }]);
   assert.deepEqual(pullOf(built({ ...launched, session: undefined }), { cap: 1 }).bumpOuts, []);
 });
@@ -1744,7 +1744,7 @@ test('a bumped ready card the host holds reads so, and only the bump', () => {
     { id: 'T1', title: 'Bumped', phase: 'ready', created: at(4) },
   ];
   const built = (more = {}) => buildBoard({ fromWaves: false, now: Date.parse(at(30)), events: [{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/T1' } }],
-    waves: [{ slug: 'w', agents: runningBuilders('B1'), wave: { internal: true, items } }], ...more });
+    files: [{ slug: 'w', agents: runningBuilders('B1'), itemFile: { internal: true, items } }], ...more });
   assert.deepEqual(built().items.filter((i) => i.lane === 'todo').map((i) => [i.id, i.hostHeld]), [['T1', false], ['O1', false]]);
   assert.deepEqual(built({ hostBusy: true }).items.filter((i) => i.lane === 'todo').map((i) => i.hostHeld), [true, false], 'only the bump reads held: the rest wait their turn anyway');
 });
@@ -1754,7 +1754,7 @@ test('a paused build reads its pause, neither live nor stale once paused, and a 
   const now = Date.parse('2026-11-09T12:00:00.000Z');
   const record = (pause) => ({ A1: { main: { label: 'Builder', kind: 'claude', started: '2026-11-09T10:00:00.000Z', session: { pid: 4, at: '2026-11-09T10:00:00.000Z' }, pause } } });
   const build = (pause, alive) => buildBoard({ fromWaves: false, now, events: [], alive: { 'w/A1': alive },
-    waves: [{ slug: 'w', agents: record(pause), wave: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] }).items[0];
+    files: [{ slug: 'w', agents: record(pause), itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] }).items[0];
   const paused = build({ cause: 'blocked', words: 'blocked by #61', at: '2026-11-09T11:00:00.000Z', paused: '2026-11-09T11:02:00.000Z' }, false);
   assert.deepEqual([paused.lane, paused.builder.pause, paused.builder.stale, paused.builder.alive, paused.stale], ['progress', { cause: 'blocked', words: 'blocked by #61', paused: true }, false, null, false]);
   const pausing = build({ cause: 'held', words: 'held', at: '2026-11-09T11:59:00.000Z' }, true);
@@ -1766,7 +1766,7 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
   const card = ({ item = {}, owner = {}, agents = {}, dep, events = [] } = {}) => buildBoard({
     fromWaves: false, events, owner, prs: {},
-    waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One', from_ask: 'e1', ...item }, ...(dep ? [{ id: 'A2', title: 'Two', status: dep }] : [])] } }],
+    files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', from_ask: 'e1', ...item }, ...(dep ? [{ id: 'A2', title: 'Two', status: dep }] : [])] } }],
   }).items.find((i) => i.id === 'A1');
   const fields = (c) => [c.unsorted, c.ready, c.grilling];
   const fresh = card();
@@ -1856,7 +1856,7 @@ test("a card's worktree is the path its newest builder record keeps, done or run
 
 // docs/adr/2026-11-03-1551-an-idle-board-triages-its-todo-once-a-day.md
 test("todoOf reads the Todo a triage sees: its cards' keys, titles and deps, and nothing outside Todo", () => {
-  const todo = (items) => todoOf(buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, waves: [{ slug: 'w', wave: { repo: 'o/r', items } }] }).items);
+  const todo = (items) => todoOf(buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, files: [{ slug: 'w', itemFile: { repo: 'o/r', items } }] }).items);
   const base = [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A1'] }, { id: 'A3', title: 'Running', lane: 'progress' }];
   const seen = todo(base);
   assert.equal(todo([...base]), seen);
@@ -2133,7 +2133,7 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 test("a held incoming-PR review is in the Auto Review lane, in Needs you and among the owner's pushes", () => {
   const built = buildBoard({
-    autoReview: true, waves: [{ slug: 'w', wave: { repo: 'o/r', items: [{ id: 'A1', title: 'One' }] } }],
+    autoReview: true, files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One' }] } }],
     incoming: { at: '2026-11-03T11:56:00Z', repo: 'o/r', prs: [{ number: 437, title: 'One endpoint', author: 'quinn', url: 'u', head: 'h', touches: ['w/A1'], asked: false }] },
     reviewRecords: { 437: { number: 437, title: 'One endpoint', author: 'quinn', url: 'u', head: 'h', touches: ['w/A1'], state: 'needs', text: 'Clashes with A1.', at: '2026-11-03T11:58:00Z' } },
     now: Date.parse('2026-11-03T12:00:00Z'),
@@ -2211,7 +2211,7 @@ test('with Skip the draft on, a draft waits on its CI in In Review with no Actio
 test('a board is strictly idle only with nothing building, grilling, prototyping, landing, pulled or worked on', () => {
   const at = '2026-11-04T10:00:00Z';
   const built = (item = {}, agents = {}, events = []) => buildBoard({ now: Date.parse(at), owner: {}, events,
-    waves: [{ slug: 'w', agents, wave: { internal: true, items: [{ id: 'A1', title: 'One', ...item }, { id: 'A2', title: 'Two', lane: 'done', closed_at: at }] } }] });
+    files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', ...item }, { id: 'A2', title: 'Two', lane: 'done', closed_at: at }] } }] });
   assert.equal(strictlyIdle(built()), true, 'a ready card with nothing running is idle');
   assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'claude', started: at } } })), false, 'a builder runs');
   assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'claude', started: at, done: at } } })), true, 'a finished builder');
@@ -2263,8 +2263,8 @@ test("the idle push sums up the cards landed and waves finished since the last i
     { id: 'A4', title: 'Unlanded', lane: 'done', closed_at: '2026-11-04T10:20:00Z', prs: [{ repo: 'o/r', number: 4 }] },
     { id: 'B1', title: 'Open' },
   ];
-  const lineups = [{ slug: 'mon', title: 'Monitor', items: ['A1', 'A2', 'A3'] }, { slug: 'open', title: 'Still open', items: ['A4', 'B1'] }];
-  const built = buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), events: [], owner: {}, prs: { 'o/r#4': { state: 'CLOSED' } }, waves: [{ slug: 'w', wave: { internal: true, items, lineups } }] });
+  const waves = [{ slug: 'mon', title: 'Monitor', items: ['A1', 'A2', 'A3'] }, { slug: 'open', title: 'Still open', items: ['A4', 'B1'] }];
+  const built = buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), events: [], owner: {}, prs: { 'o/r#4': { state: 'CLOSED' } }, files: [{ slug: 'w', itemFile: { internal: true, items, waves } }] });
   const ref = (id) => built.items.find((i) => i.id === id).ref;
   assert.equal(idleSummary(built.items, '2026-11-04T10:00:00Z'), `2 cards landed: ${ref('A3')}, ${ref('A2')} · Monitor finished`);
   assert.equal(idleSummary(built.items, '2026-11-04T10:15:00Z'), `1 card landed: ${ref('A3')} · Monitor finished`);
@@ -2291,7 +2291,7 @@ test("a card's thread keeps the event log's order across its own key, its ask's 
 // the hub's side, the session's pending prompts and whether it listens, to each board it serves.
 test("the hub's side added to a shared build gives the board built with it", () => {
   const perm = { id: 'p1', tool: 'Bash', action: 'run npm test', detail: 'npm test', rule: 'Bash(npm test)', questions: null, cwd: '~/r', at: '2026-10-30T10:00:00Z' };
-  const snapshot = { now: Date.parse('2026-10-30T11:00:00Z'), fromWaves: false, waves: [], events: [], checked: { at: '2026-10-30T10:59:00Z', every: 30 } };
+  const snapshot = { now: Date.parse('2026-10-30T11:00:00Z'), fromWaves: false, files: [], events: [], checked: { at: '2026-10-30T10:59:00Z', every: 30 } };
   assert.deepEqual(withHub(buildBoard(snapshot), { listen: 'asleep', prompts: [perm] }), buildBoard({ ...snapshot, listen: 'asleep', prompts: [perm] }));
   assert.deepEqual(withHub(buildBoard(snapshot), {}), buildBoard(snapshot));
 });
@@ -2341,7 +2341,7 @@ test('every unsorted new task, message in an ask thread or agent-added card is a
   const ask = (id, m, extra = {}) => ({ id, ts: at(m), kind: 'ask', data: { text: `Task ${id}` }, reply: null, ...extra });
   const added = { id: 'c1', ts: at(3), kind: 'card-added', data: { key: 'w/A2', title: 'Follow-up' }, reply: null };
   const items = [{ id: 'A1', title: 'Filed', phase: 'grilling' }, { id: 'A2', title: 'Follow-up', unfiled: true }];
-  const built = (events, { waveItems = items, working = {} } = {}) => buildBoard({ now: Date.parse(at(59)), events, working, waves: [{ slug: 'w', agents: {}, wave: { internal: true, items: waveItems } }] });
+  const built = (events, { waveItems = items, working = {} } = {}) => buildBoard({ now: Date.parse(at(59)), events, working, files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: waveItems } }] });
   const waits = (events, options) => orchestratorWaits(built(events, options)).map(({ key, kind, since, picked, next }) => [key, kind, since, picked, next]);
   const SORT = 'Sort the new task: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply';
 
@@ -2364,7 +2364,7 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const at = '2026-11-04T10:00:00Z';
   const later = '2026-11-04T10:20:00Z';
   const built = ({ items, agents = {}, events = [], threads = {}, owner = {}, working = {} }) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner, events, threads, working,
-    waves: [{ slug: 'w', agents, wave: { internal: true, items } }] });
+    files: [{ slug: 'w', agents, itemFile: { internal: true, items } }] });
   const one = (item, rest = {}) => orchestratorWaits(built({ items: [{ id: 'A1', title: 'One', ...item }], ...rest }));
   const shape = (list) => list.map(({ key, kind, since, picked }) => [key, kind, since, picked]);
 
@@ -2505,7 +2505,7 @@ test("a visual request is a request line, or the owner's message with visual req
 test("a visual agent is a planner beside the card's work: its card shows the build, not the visual, it never stops a card arriving for its grill, and it counts toward the planner cap", () => {
   const visual = { kind: 'visual', model: 'sonnet', started: '2026-10-23T10:00:00Z' };
   const build = { kind: 'claude', model: 'opus', started: '2026-10-23T09:00:00Z' };
-  const board = (agents, items = [{ id: 'A1', title: 'One', phase: 'grilling' }]) => buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, now: Date.parse('2026-10-23T10:01:00Z'), waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items } }] });
+  const board = (agents, items = [{ id: 'A1', title: 'One', phase: 'grilling' }]) => buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, now: Date.parse('2026-10-23T10:01:00Z'), files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items } }] });
   const one = (b) => b.items.find((i) => i.id === 'A1');
   assert.equal(one(board({ A1: { 'visual-v1': visual } })).builder, null, 'a visual alone gives the card no status');
   const both = one(board({ A1: { main: build, 'visual-v1': visual } }, [{ id: 'A1', title: 'One', lane: 'progress' }]));
@@ -2638,7 +2638,7 @@ test("a re-wake's plain line names each card still waiting with its kind, how lo
 
 test('a builder whose launch the board holds for a usage pause is no wait on the orchestrator: the board launches it once the pause lifts', () => {
   const quiet = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z' } } };
-  const built = (alive) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), alive, waves: [{ slug: 'w', agents: quiet, wave: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] });
+  const built = (alive) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), alive, files: [{ slug: 'w', agents: quiet, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] });
   assert.deepEqual(orchestratorWaits(built()).map((w) => w.kind), ['stale']);
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md: a stale run gets one restart, then a stall.
   assert.match(orchestratorWaits(built())[0].next, /restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it/);
@@ -2651,7 +2651,7 @@ test('a builder whose launch the board holds for a usage pause is no wait on the
 
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
 test('a card blocked until a condition, with a reason, is blocked as a dep blocks it: not ready, not pulled, not grilled, until the condition clears', () => {
-  const built = (item) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), waves: [{ slug: 'w', agents: {}, wave: { internal: true, items: [
+  const built = (item) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [
     { id: 'A1', title: 'One', phase: 'ready', ...item }, { id: 'A2', title: 'Two', lane: 'progress' }] } }] });
   const card = (b) => b.items.find((i) => i.key === 'w/A1');
   const blocked = built({ blocked_until: 'the CI run on main is green', block_reason: 'the suite is red on main' });
@@ -2695,7 +2695,7 @@ test("a run gone silent reads stale and waits on the orchestrator; one the orche
   const now = Date.parse('2026-11-06T12:00:00Z');
   const open = { A1: { main: { kind: 'claude', started: '2026-11-06T10:00:00Z' } } };
   const stopped = { A1: { main: { kind: 'claude', started: '2026-11-06T10:00:00Z', stopped: { run: 'build', at: '2026-11-06T11:00:00Z' } } } };
-  const built = (agents, a1 = {}) => buildBoard({ now, waves: [{ slug: 'w', agents, wave: { internal: true, items: [
+  const built = (agents, a1 = {}) => buildBoard({ now, files: [{ slug: 'w', agents, itemFile: { internal: true, items: [
     { id: 'A1', title: 'One', lane: 'progress', ...a1 }, { id: 'T1', title: 'Next', phase: 'ready', created: '2026-11-06T09:00:00Z' }] } }] });
   const card = (b) => b.items.find((i) => i.key === 'w/A1');
 
@@ -2717,7 +2717,7 @@ test("a run gone silent reads stale and waits on the orchestrator; one the orche
 
   // A stalled review stays In Review; stalled wins over its stale age.
   const sent = { 'w/A1': { review_link_ts: { Ann: '1792800000.000100' } } };
-  const review = buildBoard({ now: Date.parse('2026-11-06T00:00:00Z'), topicItems: sent, prs: { 'o/r#7': { ...greenDraft, isDraft: false } }, waves: [{ slug: 'w', wave: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }],
+  const review = buildBoard({ now: Date.parse('2026-11-06T00:00:00Z'), topicItems: sent, prs: { 'o/r#7': { ...greenDraft, isDraft: false } }, files: [{ slug: 'w', itemFile: { repo: 'o/r', reviewers: [{ name: 'Ann', github: 'ann' }],
     items: [{ id: 'A1', title: 'One', pr: 7, lane: 'review', stalled: { reason: 'Ann left', at: '2026-11-05T00:00:00Z' } }] } }] });
   assert.deepEqual([card(review).lane, card(review).stalled, card(review).action.kind, card(review).orchestrator], ['review', 'Ann left', 'stalled', null]);
 });
@@ -2726,7 +2726,7 @@ test("a run gone silent reads stale and waits on the orchestrator; one the orche
 test("a finished grill's screened questions are the card's screen wait, ahead of any other, and a card with none has no screen wait", () => {
   const since = '2026-11-07T10:00:00.000Z';
   const items = [{ id: 'A1', title: 'One', state: 'grilling' }, { id: 'A2', title: 'Two', state: 'grilling' }];
-  const built = (screening) => buildBoard({ fromWaves: false, now: Date.parse('2026-11-07T10:05:00Z'), waves: [{ slug: 'w', agents: {}, wave: { items } }], events: [], screening });
+  const built = (screening) => buildBoard({ fromWaves: false, now: Date.parse('2026-11-07T10:05:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { items } }], events: [], screening });
   assert.deepEqual(orchestratorWaits(built({ 'w/A1': { since, ids: ['q1', 'q-gate'] } })).map(({ key, kind, since: s, picked, next }) => [key, kind, s, picked, next]),
     [['w/A1', 'screen', since, null, "Screen the grill's questions q1, q-gate: question settle <id> --note for each the board already answers, then question publish w/A1; left 15 minutes unscreened, they reach the owner as they are"]]);
   assert.deepEqual(orchestratorWaits(built({})), []);

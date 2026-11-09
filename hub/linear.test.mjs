@@ -186,8 +186,8 @@ test('a board on Linear falls back to internal tickets when the hub starts with 
   const linearTickets = { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' };
   fs.mkdirSync(path.join(site, 'data'), { recursive: true });
   const config = path.join(site, 'board.json');
-  const wave = path.join(site, 'data', 'wave.json');
-  fs.writeFileSync(config, JSON.stringify({ title: 'App', items: 'data/wave.json', slug: 'app', tickets: linearTickets }));
+  const wave = path.join(site, 'data', 'items.json');
+  fs.writeFileSync(config, JSON.stringify({ title: 'App', items: 'data/items.json', slug: 'app', tickets: linearTickets }));
   fs.writeFileSync(wave, JSON.stringify({ title: 'App', items: [{ id: 'ENG-9', title: 'Old', ticket: 'ENG-9' }] }));
   const cards = fs.readFileSync(wave, 'utf8');
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: { app: { dir: site, cmd: ['/usr/bin/false', 'board/server.mjs'] } } }));

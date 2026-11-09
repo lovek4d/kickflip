@@ -30,17 +30,17 @@ test('Edit and Write on board JSON and card notes are denied with the board.mjs 
   assert.match(denied('Write', path.join(board, 'data', 'agents', 'x.json')), /board\.mjs/);
   assert.match(denied('Edit', path.join(board, 'board.json')), /rules\|reviewers/);
   assert.match(denied('Write', path.join(home, '.claude', 'waves', 'w', 'wave.json')), /item add\|set/);
-  assert.match(denied('Edit', path.join(board, 'data', 'sub', '..', 'wave.json')), /board\.mjs/);
+  assert.match(denied('Edit', path.join(board, 'data', 'sub', '..', 'items.json')), /board\.mjs/);
 
   // docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md
-  assert.match(denied('Edit', path.join(board, 'data', 'a-notes.md')), /item notes <wave>\/<id> --heading/);
+  assert.match(denied('Edit', path.join(board, 'data', 'a-notes.md')), /item notes <file>\/<id> --heading/);
   assert.match(denied('Write', path.join(home, '.claude', 'waves', 'w', 'a1-notes.md')), /item notes/);
   for (const ok of [path.join(board, 'drafts', 'a1-grill.md'), path.join(board, 'drafts', 'q-x.json'), path.join(page, 'data', 'x.json'), path.join(home, 'other.json')]) assert.equal(run('Write', ok), null, ok);
   assert.equal(run('Read', path.join(board, 'data', 'owner.json')), null);
   assert.equal(run('Edit', path.join(board, 'data', 'owner.json'), 'PostToolUse'), null);
 
-  write(path.join(board, 'board.json'), { items: 'data/wave.json' });
-  assert.match(denied('Edit', path.join(board, 'data', 'wave.json')), /item add\|set/);
+  write(path.join(board, 'board.json'), { items: 'data/items.json' });
+  assert.match(denied('Edit', path.join(board, 'data', 'items.json')), /item add\|set/);
   assert.equal(run('Write', path.join(home, '.claude', 'waves', 'w', 'wave.json')), null);
   fs.rmSync(home, { recursive: true, force: true });
 });

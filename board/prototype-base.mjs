@@ -16,7 +16,7 @@ import { BoardError } from './store.mjs';
 const execFileAsync = promisify(execFile);
 const git = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 60_000 })).stdout.trim();
 
-// The try key the hub serves the base worktree under; card keys are <wave>/<id>, so it never names a card.
+// The try key the hub serves the base worktree under; card keys are <file>/<id>, so it never names a card.
 export const BASE_KEY = 'prototypes';
 export const baseWorktreeOf = (route) => path.join(os.homedir(), '.claude', 'kickflip', 'worktrees', `${route}-prototypes`);
 // The listener a round's page loads: KickflipPrototype.on((take, state) => …).

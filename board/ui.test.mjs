@@ -746,7 +746,7 @@ test('a question card pre-checks its suggested option, with a blue Orchestrator 
   assert.deepEqual(opts.map((o) => text(o)), ['A. Keep Orchestrator choice: you answered this on #186: "Keep, nothing floats over a question."', 'B. Drop recommended Saves a step']);
   assert.doesNotMatch(opts[0], /chip/);
   assert.match(opts[0], /<span class="lbl">A\. Keep<\/span><div class="suggested-why">Orchestrator choice: /);
-  const links = ui.linkContext([{ key: 'w/A1', wave: 'w', id: 'A1', ref: '#186' }], null);
+  const links = ui.linkContext([{ key: 'w/A1', file: 'w', id: 'A1', ref: '#186' }], null);
   assert.match(options(ui.questionCard(suggested, { links }))[0], /<div class="suggested-why">Orchestrator choice: you answered this on <a [^>]*>#186<\/a>: /);
   const reasoned = { ...suggested, suggested: { ...suggested.suggested, reason: 'It is the same trade-off as <b>#186</b>.' } };
   assert.match(options(ui.questionCard(reasoned))[0], /<div class="suggested-why">Orchestrator choice: It is the same trade-off as &lt;b&gt;#186&lt;\/b&gt;\.<\/div>/);
@@ -1002,7 +1002,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
+  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(Date.now() - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
   assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Status', 'in review'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
@@ -1044,7 +1044,7 @@ test("a card with a worktree opens it in VS Code from its Links line, live on th
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, waveTitle: 'W', deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, worktree: '/Users/me/.claude/kickflip/worktrees/A 1' };
+  const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, worktree: '/Users/me/.claude/kickflip/worktrees/A 1' };
   assert.deepEqual(rows(open).at(-1), ['Links', 'Open in VS Code']);
   assert.match(B.detail(open), /<a href="vscode:\/\/file\/Users\/me\/\.claude\/kickflip\/worktrees\/A%201" title="Open the worktree in VS Code">Open in VS Code /);
   assert.deepEqual(rows({ ...open, hasNotes: false }).at(-1), ['Links', 'Open in VS Code']);
@@ -1065,7 +1065,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
-  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, waveTitle: 'W', storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
+  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, wave: { slug: 'w1', title: 'W' }, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
     parent: link('#53'), children: [link('#94'), link('#95')], related: [link('#75')], blockedBy: [link('#80')], waitsOnIt: [link('#99')] };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
   assert.deepEqual(rows(card), [['Wave', 'W'], ['Status', 'to do'], ['Parent', '#53'], ['Children', '#94 #95'], ['Related to', '#75'], ['Blocked by', '#80'], ['Waits on it', '#99']]);
@@ -1226,7 +1226,7 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
-  const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: null, waveTitle: 'W', deps: [], manualSteps: [], holdable: true, hasNotes: true,
+  const todo = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', lane: 'todo', action: null, actionButton: null, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], holdable: true, hasNotes: true,
     try: { kind: 'web', script: true, changes: false }, buildable: true };
   const row = (it) => [...B.detail(it).match(/<div class="action-row workflow">(.*?)<\/div>/)[1].matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(([, label]) => label);
   assert.deepEqual(row(todo), ['Hold']);
@@ -2018,12 +2018,12 @@ test('a plan renders headings, lists, emphasis, code and links, escapes raw HTML
 const shown = (html) => html.replace(/<[^>]+>/g, '').replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e]);
 const anchors = (html) => [...html.matchAll(/<a href="([^"]*)"([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => [m[1], text(m[3]), /target="_blank" rel="noopener"/.test(m[2])]);
 const boardItems = [
-  { key: 'site/S54', wave: 'site', kind: 'work', ref: 'INT-54', internal: true, linear: [], repo: null },
-  { key: 'site/INT-56', wave: 'site', kind: 'work', ref: 'INT-56', internal: true, linear: [{ id: 'INT-56' }], repo: null },
-  { key: 'att/A1', wave: 'att', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-2310', url: 'https://linear.app/acme/issue/ENG-2310' }], repo: 'acme/app' },
-  { key: 'att/A2', wave: 'att', kind: 'work', ref: 'A2', internal: false, linear: [], repo: 'acme/app' },
-  { key: 'att/ENG-2467', wave: 'att', kind: 'work', ref: 'ENG-2467', internal: false, linear: [{ id: 'ENG-2467', url: 'https://linear.app/acme/issue/ENG-2467' }], repo: 'acme/app' },
-  { key: 'elig/A1', wave: 'elig', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'OPS-7', url: 'https://linear.app/acme/issue/OPS-7' }], repo: 'o/r' },
+  { key: 'site/S54', file: 'site', kind: 'work', ref: 'INT-54', internal: true, linear: [], repo: null },
+  { key: 'site/INT-56', file: 'site', kind: 'work', ref: 'INT-56', internal: true, linear: [{ id: 'INT-56' }], repo: null },
+  { key: 'att/A1', file: 'att', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-2310', url: 'https://linear.app/acme/issue/ENG-2310' }], repo: 'acme/app' },
+  { key: 'att/A2', file: 'att', kind: 'work', ref: 'A2', internal: false, linear: [], repo: 'acme/app' },
+  { key: 'att/ENG-2467', file: 'att', kind: 'work', ref: 'ENG-2467', internal: false, linear: [{ id: 'ENG-2467', url: 'https://linear.app/acme/issue/ENG-2467' }], repo: 'acme/app' },
+  { key: 'elig/A1', file: 'elig', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'OPS-7', url: 'https://linear.app/acme/issue/OPS-7' }], repo: 'o/r' },
   { key: 'ask:e9', wave: null, kind: 'ask', ref: 'Ask', internal: false, linear: [], repo: null },
 ];
 const refLine = 'INT-54 shipped, INT-99 did not. ENG-2310, OPS-7 and ENG-2467 next, then A1. See acme/app#3116, app#3050, foo#4 and #2988, not #ffffff, #000000 or UTF-8. https://github.com/o/r/pull/1#issuecomment-2 and (https://x.test/a_(b)).';
@@ -2047,7 +2047,7 @@ test('a thread line links each ref the board knows to its card, Linear ids and P
 
 test("a Linear id links in its board's own workspace, and a board without a workspace shows it unlinked", () => {
   const line = [{ ts: ago(1), who: 'claude', text: 'ENG-2310 and ENG-12 next' }];
-  const items = (url) => [{ key: 'w/A1', wave: 'w', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-2310', url }], repo: null }];
+  const items = (url) => [{ key: 'w/A1', file: 'w', kind: 'work', ref: 'A1', internal: false, linear: [{ id: 'ENG-2310', url }], repo: null }];
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(items('https://linear.app/other-co/issue/ENG-2310'), 'w/A1'))), [
     ['https://linear.app/other-co/issue/ENG-2310', 'ENG-2310', true], ['https://linear.app/other-co/issue/ENG-12', 'ENG-12', true],
   ]);
@@ -2064,7 +2064,7 @@ test("a bare #n opens the card it is the ticket of from any thread, else links o
   ]);
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'site/S54'))), []);
   assert.deepEqual(anchors(ui.threadMessages(line, ui.linkContext(boardItems, 'ask:e9'))), []);
-  const hub = [...boardItems, { key: 'hub/INT-269', wave: 'hub', kind: 'work', id: 'INT-269', ref: '#27', internal: true, linear: [], repo: null }];
+  const hub = [...boardItems, { key: 'hub/INT-269', file: 'hub', kind: 'work', id: 'INT-269', ref: '#27', internal: true, linear: [], repo: null }];
   const ticketed = [{ ts: ago(1), who: 'claude', text: '#27 was INT-269; #2988 is a PR' }];
   for (const key of ['ask:e9', 'elig/A1']) {
     assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, key))).slice(0, 2), [['#selectedCard=hub%2FINT-269', '#27', false], ['#selectedCard=hub%2FINT-269', 'INT-269', false]]);

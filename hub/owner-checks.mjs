@@ -11,14 +11,14 @@ import { passOwnerCheck, breakOwnerCheck } from '../board/store.mjs';
 export const BROKEN_AFTER = 3;
 
 // boards: boards.mjs listBoards. state: github-state.json, whose ownerChecks keeps each check's can't-run count by
-// [wave file, wave, id, check] until it runs or breaks. failed: the check's failure list, for a write that failed.
+// [item file folder, file, id, check] until it runs or breaks. failed: the check's failure list, for a write that failed.
 export async function runOwnerChecks(boards, state, failed) {
   const counts = state.ownerChecks || {};
   const kept = {};
   const ran = new Set();
   for (const board of boards) {
-    for (const { slug, wave } of board.waves) {
-      for (const item of wave.items) {
+    for (const { slug, itemFile } of board.files) {
+      for (const item of itemFile.items) {
         const check = item.owner_check;
         if (!check || check.broken || !item.owner_step || item.lane !== 'done') continue;
         const id = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, slug, item.id, check.check]);

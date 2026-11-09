@@ -45,8 +45,8 @@ test('a silent builder wakes the session once per silent spell through the orche
   let worker;
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
-  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', lane: 'progress', title: 'One' }] }));
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', lane: 'progress', title: 'One' }] }));
   const started = new Date(now - 9 * 60000).toISOString();
   fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started }));
   fs.writeFileSync(clockFile, String(now));
@@ -118,14 +118,14 @@ test('a held card resumes itself within a minute of its pick-up time, once per t
   const dataDir = path.join(siteDir, 'data');
   const clockFile = path.join(dir, 'clock');
   const setup = path.join(dir, 'setup.mjs');
-  const waveFile = path.join(dataDir, 'wave.json');
+  const waveFile = path.join(dataDir, 'items.json');
   const eventsFile = path.join(dataDir, 'events.jsonl');
   let now = Date.parse('2026-11-04T16:30:00Z');
   const iso = (ms) => new Date(ms).toISOString();
   const at = iso(now + 30 * 60000);
   let worker;
   fs.mkdirSync(path.join(dataDir, 'threads'), { recursive: true });
-  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(waveFile, JSON.stringify({ items: [
     { id: 'A0', title: 'Dep', lane: 'progress' },
     { id: 'A1', title: 'Timed', lane: 'todo', held: true, pick_up_at: at, held_at: iso(now - 60000) },
@@ -200,7 +200,7 @@ test('with auto implement on the board starts and launches the build of the top 
   const dataDir = path.join(siteDir, 'data');
   const clockFile = path.join(dir, 'clock');
   const setup = path.join(dir, 'setup.mjs');
-  const waveFile = path.join(dataDir, 'wave.json');
+  const waveFile = path.join(dataDir, 'items.json');
   const eventsFile = path.join(dataDir, 'events.jsonl');
   const ownerFile = path.join(dataDir, 'owner.json');
   const pulledFile = path.join(dataDir, 'pulled.json');
@@ -212,7 +212,7 @@ test('with auto implement on the board starts and launches the build of the top 
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: true, max_implementers: 2 }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', auto_pull: true, max_implementers: 2 }));
   const wave = { items: [
     { id: 'A0', title: 'Running', lane: 'progress' },
     { id: 'A1', title: 'Held', lane: 'todo', phase: 'ready', held: true },
@@ -330,14 +330,14 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'staging-round-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
-  const waveFile = path.join(dataDir, 'wave.json');
+  const waveFile = path.join(dataDir, 'items.json');
   const setup = path.join(dir, 'setup.mjs');
   const iso = (ms) => new Date(ms).toISOString();
   const now = Date.now();
   let worker;
   fs.mkdirSync(path.join(dataDir, 'agents'), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
   put(waveFile, JSON.stringify({ items: [
     { id: 'Q1', title: 'Asked', phase: 'grilling', implement_at: iso(now - 60000) },
     { id: 'G1', title: 'Again', phase: 'grilling', round_at: iso(now - 30000) },
@@ -366,7 +366,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   const dataDir = path.join(siteDir, 'data');
   const clockFile = path.join(dir, 'clock');
   const setup = path.join(dir, 'setup.mjs');
-  const waveFile = path.join(dataDir, 'wave.json');
+  const waveFile = path.join(dataDir, 'items.json');
   const eventsFile = path.join(dataDir, 'events.jsonl');
   const ownerFile = path.join(dataDir, 'owner.json');
   const agentFile = path.join(dataDir, 'agents', 'A0.json');
@@ -376,7 +376,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   let worker;
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: on, auto_triage: on, max_implementers: 1 }));
+  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', auto_pull: on, auto_triage: on, max_implementers: 1 }));
   boardJSON(false);
   const wave = { items: [
     { id: 'A0', title: 'Running', lane: 'progress' },
@@ -509,7 +509,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   const dataDir = path.join(siteDir, 'data');
   const clockFile = path.join(dir, 'clock');
   const setup = path.join(dir, 'setup.mjs');
-  const waveFile = path.join(dataDir, 'wave.json');
+  const waveFile = path.join(dataDir, 'items.json');
   const eventsFile = path.join(dataDir, 'events.jsonl');
   const ownerFile = path.join(dataDir, 'owner.json');
   const agentFile = (id) => path.join(dataDir, 'agents', `${id}.json`);
@@ -520,7 +520,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   fs.mkdirSync(path.dirname(agentFile('B1')), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_pull: true, max_planners: 2 }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', auto_pull: true, max_planners: 2 }));
   const wave = { items: [
     { id: 'B1', title: 'Asking', lane: 'todo', phase: 'grilling' },
     { id: 'B2', title: 'Filed prototyping', lane: 'todo', phase: 'prototyping' },
@@ -625,9 +625,9 @@ test('an idle board with auto review on sends pr-review for one incoming PR at a
   let worker;
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't', auto_review: on }));
+  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', auto_review: on }));
   boardJSON(false);
-  fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }] }));
+  fs.writeFileSync(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }] }));
   put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000) }));
   const pr = (number, asked) => ({ number, title: `PR ${number}`, author: 'quinn', url: `https://github.com/o/r/pull/${number}`, head: `h${number}`, touches: ['t/A1'], asked });
   fs.writeFileSync(path.join(dataDir, 'incoming.json'), JSON.stringify({ at: iso(now), repo: 'o/r', prs: [pr(440, false), pr(442, true)] }));
@@ -703,8 +703,8 @@ test("a question's prototype request still waiting 30 minutes on with no prototy
   let now = Date.parse('2026-10-30T10:00:00Z');
   let worker;
   fs.mkdirSync(path.join(dataDir, 'threads'), { recursive: true });
-  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
   fs.writeFileSync(path.join(dataDir, 'owner.json'), JSON.stringify({ items: [{ id: 'q0', topic: 'item:t/A1', question: 'Where?', options: [{ id: 'A', label: 'Top' }] }] }));
   const since = new Date(now - 20 * 60000).toISOString();
   fs.writeFileSync(eventsFile, JSON.stringify({ id: 'r1', ts: since, kind: 'prototype-request', data: { key: 't/A1', question: 'q0', note: '' } }) + '\n');
@@ -768,9 +768,9 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   let worker;
   fs.mkdirSync(path.join(dataDir, 'agents'), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'), { recursive: true });
-  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/wave.json', slug: 't' }));
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
   const handedAt = new Date(now - 5 * 60000).toISOString();
-  fs.writeFileSync(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two' }] }));
+  fs.writeFileSync(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two' }] }));
   const build = { kind: 'claude', started: new Date(now - 60 * 60000).toISOString(), calls: [{ at: handedAt, text: 'Kept the old name' }] };
   fs.writeFileSync(path.join(dataDir, 'agents', 'A1.json'), JSON.stringify(build));
   fs.writeFileSync(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: new Date(now - 60000).toISOString(), kind: 'status', text: 'Building' }) + '\n');
@@ -817,7 +817,7 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   assert.deepEqual(waits(), [], 'a live builder owns the card');
   // builder done hands it back with its calls: no event of its own, yet the list wakes the session.
   put(path.join(dataDir, 'agents', 'A1.json'), JSON.stringify({ ...build, done: handedAt, handed_back: handedAt }));
-  put(path.join(dataDir, 'wave.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress', next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two' }] }));
+  put(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress', next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two' }] }));
   await until(() => wakes().length === 1, 'the hand-back wakes the session');
   assert.deepEqual(wakes(), [{ added: ['t/A1'], again: [] }]);
   assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since, w.picked, w.bumped]), [['t/A1', 'calls', handedAt, null, new Date(now).toISOString()]]);

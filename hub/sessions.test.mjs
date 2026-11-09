@@ -849,8 +849,8 @@ test('a paused session wake holds only hub work events, then wakes for an owner 
 test('export bundles a board with its portable entry fields and the three hub settings once no builder is open, and import adds it to another host once with the join line that takes it over', async () => {
   const dir = path.join(home, 'boards', 'moving');
   const agent = path.join(dir, 'data', 'agents', 'M1.json');
-  write(path.join(dir, 'board.json'), { title: 'Moving', items: 'data/wave.json' });
-  write(path.join(dir, 'data', 'wave.json'), { title: 'Moving', items: [{ id: 'M1', title: 'One' }] });
+  write(path.join(dir, 'board.json'), { title: 'Moving', items: 'data/items.json' });
+  write(path.join(dir, 'data', 'items.json'), { title: 'Moving', items: [{ id: 'M1', title: 'One' }] });
   write(agent, { label: 'Builder', started: '2026-11-01T00:00:00Z' });
   write(path.join(dir, 'data', 'threads', 'moving__M1.jsonl'), '{"text":"hi"}\n');
   write(path.join(dir, 'data', '.watch-cursor-s-moving.json'), { 'data/events.jsonl': 3 });
@@ -865,7 +865,7 @@ test('export bundles a board with its portable entry fields and the three hub se
 
   const open = await cli(['export', 'moving', '--out', file]);
   assert.equal(open.status, 1);
-  assert.match(open.stderr, /a builder is open on \/moving: wave\/M1 \(Builder\)/);
+  assert.match(open.stderr, /a builder is open on \/moving: items\/M1 \(Builder\)/);
   assert.equal(fs.existsSync(file), false);
   write(agent, { label: 'Builder', started: '2026-11-01T00:00:00Z', done: '2026-11-01T01:00:00Z' });
   assert.deepEqual(json(await cli(['export', 'moving', '--out', file])), {
@@ -873,7 +873,7 @@ test('export bundles a board with its portable entry fields and the three hub se
     dropped: ['dir', 'port', 'cmd', 'owner', 'updated', 'restart_at'], settings: ['notifications', 'quiet', 'codexShare'],
   });
   const listed = execFileSync('tar', ['-tzf', file], { encoding: 'utf8' }).trim().split('\n').filter((l) => !l.endsWith('/')).sort();
-  assert.deepEqual(listed, ['README.md', 'export.json', 'site/board.json', 'site/data/agents/M1.json', 'site/data/threads/moving__M1.jsonl', 'site/data/wave.json', 'site/public/prototype-x.html'].map((f) => `kickflip-board/${f}`));
+  assert.deepEqual(listed, ['README.md', 'export.json', 'site/board.json', 'site/data/agents/M1.json', 'site/data/items.json', 'site/data/threads/moving__M1.jsonl', 'site/public/prototype-x.html'].map((f) => `kickflip-board/${f}`));
   assert.equal((await cli(['export', 'moving', '--out', file])).status, 2);
 
   const other = path.join(home, 'new-mac');

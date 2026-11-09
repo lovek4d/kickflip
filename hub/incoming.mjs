@@ -45,8 +45,8 @@ export async function checkIncoming({ manifest, gh = { openPRs, prFiles }, login
       const open = await gh.openPRs(board.github);
       const byNumber = new Map(open.map((p) => [p.number, p]));
       const cards = [];
-      for (const { slug, wave } of board.waves) {
-        for (const it of wave.items.filter((i) => i && (i.lane !== 'done' || storedPRs(i).some((p) => p.merged_at)))) {
+      for (const { slug, itemFile } of board.files) {
+        for (const it of itemFile.items.filter((i) => i && (i.lane !== 'done' || storedPRs(i).some((p) => p.merged_at)))) {
           for (const { number } of cardPRs(it, board.github).filter((p) => p.repo === board.github)) {
             const key = `${board.github}#${number}`;
             let files = byNumber.get(number)?.files || cache[key];

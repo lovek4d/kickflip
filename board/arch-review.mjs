@@ -1,8 +1,8 @@
 // A board's architecture review of its repo, which the header's bulb starts
 // (docs/adr/2026-11-02-1813-the-bulb-runs-an-architecture-review-of-the-boards-repo.md). The board server makes the review's wave
 // and its first card, the audit, then appends `arch-review` for the session, which follows the mattpocock skills.
-// data/arch-reviews.json {reviews: [{key, wave, lineup, title, repo, at}]}: wave is the lineup's slug, or on a board
-// over ~/.claude/waves the wave file's, which lineup false marks.
+// data/arch-reviews.json {reviews: [{key, wave | file, title, repo, at}]}: wave is the review's wave's slug, or on a
+// board over ~/.claude/waves file is its item file's.
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,7 +12,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { readUsageGate, pauseReason, holdsWork } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { unlanded } from './domain.mjs';
-import { BoardError, addItem, appendStatus, boardConfig, cardName, changeLineup, createLineup, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
+import { BoardError, addItem, appendStatus, boardConfig, cardName, changeWave, createWave, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
 
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
 export const readReviews = async (site) => (await readJSON(recordsFile(site), { reviews: [] })).reviews || [];
@@ -21,7 +21,7 @@ export const readReviews = async (site) => (await readJSON(recordsFile(site), { 
 // reads the live data only for its shapes.
 export const HUB_SCOPE = {
   paths: ['hub/', 'board/', 'shared/', 'CONTEXT.md', 'docs/adr/'],
-  data: ['~/.claude/kickflip/manifest.json', '~/.claude/kickflip/sites/*/data/wave.json', '~/.claude/kickflip/sites/*/data/owner.json', '~/.claude/kickflip/sites/*/data/events.jsonl'],
+  data: ['~/.claude/kickflip/manifest.json', '~/.claude/kickflip/sites/*/data/items.json', '~/.claude/kickflip/sites/*/data/owner.json', '~/.claude/kickflip/sites/*/data/events.jsonl'],
 };
 
 export const repoName = ({ github, repo }) => (github ? github.split('/').pop() : path.basename(repo || '')) || 'this repo';
@@ -35,7 +35,7 @@ export function archOf(reviews, items, questions, { repo, waits }) {
   const view = (r) => {
     const card = byKey.get(r.key);
     if (!card) return null;
-    const inWave = (i) => i.key !== r.key && (r.lineup ? i.lineup?.slug === r.wave : i.wave === r.wave);
+    const inWave = (i) => i.key !== r.key && (r.wave ? i.wave?.slug === r.wave : i.file === r.file);
     const open = card.lane !== 'done';
     return {
       key: r.key, ref: card.ref, wave: r.title, at: r.at, open, running: open && !card.questions,
@@ -72,23 +72,24 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   const sources = await itemSources(site);
   const fromWaves = (await boardConfig(site)).items === 'waves';
 
-  let waveSlug, lineupSlug = null, key;
+  // made: {wave} for the review's wave, or {file} for its own item file on a board over ~/.claude/waves.
+  let made, key;
   if (fromWaves) {
-    waveSlug = await freeSlug(base, (slug) => exists(path.join(wavesDir(), slug)));
-    const file = path.join(wavesDir(), waveSlug, 'wave.json');
+    const fileSlug = await freeSlug(base, (slug) => exists(path.join(wavesDir(), slug)));
+    const file = path.join(wavesDir(), fileSlug, 'wave.json');
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, JSON.stringify({ title, ...(target.github ? { repo: target.github } : {}), items: [] }, null, 2) + '\n');
-    key = (await addItem(site, `${waveSlug}/audit`, { title: `Architecture review of ${name}` })).key;
+    key = (await addItem(site, `${fileSlug}/audit`, { title: `Architecture review of ${name}` })).key;
+    made = { file: fileSlug };
   } else {
     const [source] = sources;
-    const lineups = (await Promise.all(sources.map(async (s) => (await readJSON(s.file, {}))?.lineups || []))).flat();
-    lineupSlug = await freeSlug(base, (slug) => sources.some((s) => s.slug === slug) || lineups.some((l) => l.slug === slug));
-    waveSlug = source.slug;
-    key = (await addItem(site, waveSlug, { title: `Architecture review of ${name}` })).key;
+    const waves = (await Promise.all(sources.map(async (s) => (await readJSON(s.file, {}))?.waves || []))).flat();
+    made = { wave: await freeSlug(base, (slug) => sources.some((s) => s.slug === slug) || waves.some((w) => w.slug === slug)) };
+    key = (await addItem(site, source.slug, { title: `Architecture review of ${name}` })).key;
   }
 
-  if (lineupSlug) {
-    await createLineup(site, lineupSlug, {
+  if (made.wave) {
+    await createWave(site, made.wave, {
       title, goal: `Act on the architecture review of ${name}`, steps: [key],
       note: `${await cardName(site, key)} is the audit of ${name}: its Notes are the report, and it asks one question per finding. Each finding you don't skip becomes a card after it, built from the option you pick.`,
     });
@@ -97,24 +98,24 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   await appendStatus(site, key, 'arch-review', { card: name });
 
   const reviews = await readReviews(site);
-  reviews.push({ key, wave: lineupSlug || waveSlug, lineup: Boolean(lineupSlug), title, repo: target.repo, at: now.toISOString() });
+  reviews.push({ key, ...made, title, repo: target.repo, at: now.toISOString() });
   await fs.mkdir(path.dirname(recordsFile(site)), { recursive: true });
   await fs.writeFile(recordsFile(site) + '.tmp', JSON.stringify({ reviews }, null, 2) + '\n');
   await fs.rename(recordsFile(site) + '.tmp', recordsFile(site));
 
-  const data = { key, repo: target.repo, github: target.github || null, branch: target.branch || null, wave: lineupSlug || waveSlug, lineup: Boolean(lineupSlug), ...(target.repo && samePath(target.repo, cloneRoot()) ? { scope: HUB_SCOPE } : {}) };
+  const data = { key, repo: target.repo, github: target.github || null, branch: target.branch || null, ...made, ...(target.repo && samePath(target.repo, cloneRoot()) ? { scope: HUB_SCOPE } : {}) };
   return { key, data };
 }
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `board.mjs arch file <key>`: each answered finding of the audit card becomes a card in the review's wave, titled
 // with the picked option's label, its detail, practice and the owner's note as notes, chained after the wave's last
-// card (a lineup's, else the wave file's newest), and its question resolved; a Skip pick resolves its question alone.
+// card (a wave's, else the item file's newest), and its question resolved; a Skip pick resolves its question alone.
 // A question with no answer yet stays. Once none is left, the audit card closes as
 // done. → {lines}
 export async function fileFindings(site, key) {
   const review = (await readReviews(site)).find((r) => r.key === key) || fail(`${key} is not an architecture review's audit card`);
-  const { wave } = parseKey(key);
+  const { file } = parseKey(key);
   const { asked } = await topicQuestions(site, `item:${key}`);
   const lines = [];
   for (const q of asked.filter((x) => x.state === 'answered')) {
@@ -127,9 +128,9 @@ export async function fileFindings(site, key) {
       continue;
     }
     const notes = [option.detail, ...(option.practice || []).map((l) => `- ${l}`), answer.note.trim() && `Owner's note: ${answer.note.trim()}`, `From the finding: ${q.question}`].filter(Boolean).join('\n\n');
-    const newest = (await readJSON((await itemSources(site)).find((s) => s.slug === wave).file, { items: [] })).items.at(-1)?.id;
-    const added = await addItem(site, wave, { title: option.label, notes, ...(review.lineup ? {} : { deps: newest }) });
-    if (review.lineup) await changeLineup(site, review.wave, { add: added.key });
+    const newest = (await readJSON((await itemSources(site)).find((s) => s.slug === file).file, { items: [] })).items.at(-1)?.id;
+    const added = await addItem(site, file, { title: option.label, notes, ...(review.wave ? {} : { deps: newest }) });
+    if (review.wave) await changeWave(site, review.wave, { add: added.key });
     const ref = await cardName(site, added.key);
     await resolveQuestion(site, q.id, `Filed as ${ref}.`);
     lines.push(`filed: ${ref} from ${q.id}`, ...(added.lines || []));

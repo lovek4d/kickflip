@@ -35,7 +35,7 @@
 //               --hub makes this board the hub board, as `set --hub` does; a join without either keeps the flag.
 //               The hub board's session runs in the foreground in tmux (`hub`); every other board's in the background
 //               --template board runs the shared board (../board/server.mjs) from the site dir,
-//               writing its board.json; --items is "waves" (default) or a wave.json-format file, made with no
+//               writing its board.json; --items is "waves" (default) or an item file, made with no
 //               items when missing.
 //               It then runs handshake, unless this session already answered the board's ping, and
 //               asks the hub for one poll (as poll-now --keep-queue), so the board's GitHub link passes
@@ -318,7 +318,7 @@ function named(existing = (route) => undefined) {
   return { route, title: (name === route && existing(route)?.title) || name };
 }
 
-// The board template's files in dir: board.json with its title, items ("waves" or a wave.json-format file, made when
+// The board template's files in dir: board.json with its title, items ("waves" or an item file, made when
 // missing with the onboarding cards, board/onboarding.mjs) and, when given, tickets. repo and ref are where main's
 // build script is looked for. → the board server's cmd for dir
 function boardFiles(dir, { title, items, tickets, repo, ref }) {
@@ -376,8 +376,8 @@ function nameProblem(name) {
   if (!/^[A-Za-z0-9 ]+$/.test(name) || !validRoute(routeFromName(name))) return 'A board name takes letters, digits and spaces, up to 41 characters of route.';
   return taken(readManifest(), routeFromName(name)) ? `/${routeFromName(name)} is taken; pick another name.` : null;
 }
-// The board starts on its own cards, data/wave.json, as a New board start does.
-const BOARD_FLAGS = '--template board --items data/wave.json';
+// The board starts on its own cards, data/items.json, as a New board start does.
+const BOARD_FLAGS = '--template board --items data/items.json';
 
 // Bare `kickflip join` (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md): adds the git repo the
 // cwd is in as a local board, its session starting in the background, or with --hub in tmux, attached to this terminal.
@@ -413,7 +413,7 @@ async function joinFolder() {
     const dir = path.join(HOME, 'sites', route);
     const now = new Date().toISOString();
     const site = {
-      dir, port: await freePort(m), cmd: boardFiles(dir, { title, items: 'data/wave.json', repo: folder, ref: branch || 'HEAD' }), watch: ['data/events.jsonl'], title,
+      dir, port: await freePort(m), cmd: boardFiles(dir, { title, items: 'data/items.json', repo: folder, ref: branch || 'HEAD' }), watch: ['data/events.jsonl'], title,
       local: true, ...(github ? { github } : {}), ...(branch ? { branch } : {}), owner: { repo: folder }, created: now, updated: now,
     };
     m.sites = { ...m.sites, [route]: site };

@@ -156,10 +156,10 @@ BoardView.part((B) => {
   // From 900px, Waiting on you in the pane under the Needs you lines, mounted while the width lasts.
   let questions = null;
   // Two taps on a pane pill focus its topic on the board: item:<key> is a card (an ask is one, ask:<id>),
-  // wave:<slug> a band; any other topic, or one the board doesn't show, does nothing.
+  // wave:<slug> or file:<slug> a band; any other topic, or one the board doesn't show, does nothing.
   function openOnBoard(id) {
     if (id.startsWith('item:')) B.focusOnBoard({ key: id.slice(5) });
-    else if (id.startsWith('wave:')) B.focusOnBoard({ slug: id.slice(5) });
+    else if (id.startsWith('wave:') || id.startsWith('file:')) B.focusOnBoard({ slug: id.slice(5) });
   }
   function fitPane() {
     if (wide.matches === Boolean(questions)) return;

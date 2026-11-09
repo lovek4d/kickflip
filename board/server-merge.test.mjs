@@ -17,8 +17,8 @@ test("the Merge tap merges the card in the board server, and a refusal answers t
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(data, { recursive: true });
-  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/wave.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'wave.json'), JSON.stringify({ repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, lane: 'review' }, { id: 'A2', title: 'Two', pr: 8, lane: 'progress' }] }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, lane: 'review' }, { id: 'A2', title: 'Two', pr: 8, lane: 'progress' }] }));
   fs.writeFileSync(path.join(data, 'owner.json'), '{"items":[]}');
   const approval = (head) => [{ id: 1, user: { login: 'ann' }, state: 'APPROVED', submitted_at: '2026-11-04T10:00:00Z', commit_id: head }];
   writePR(home, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', head: 'aaa' })); writeReviews(home, 7, approval('aaa'));
@@ -28,7 +28,7 @@ test("the Merge tap merges the card in the board server, and a refusal answers t
   child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '', PATH: `${fakeGh(home)}:${process.env.PATH}` } });
   await boardListening(child);
   const tap = (key) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-merge', key }) });
-  const items = () => JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items;
+  const items = () => JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items;
   const thread = (key) => fs.readFileSync(path.join(data, 'threads', `${key.replace('/', '__')}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse).map((l) => l.text);
   const events = () => (fs.existsSync(path.join(data, 'events.jsonl')) ? fs.readFileSync(path.join(data, 'events.jsonl'), 'utf8') : '');
 

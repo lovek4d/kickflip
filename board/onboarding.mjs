@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 
 const BUILD_NOTES = `# Prepare .kickflip/build
 
-The hub builds and serves a card's version of this repo by running one script, \`.kickflip/build <wave>/<id> <worktree>\`, in the card's worktree. This board has none on main yet.
+The hub builds and serves a card's version of this repo by running one script, \`.kickflip/build <file>/<id> <worktree>\`, in the card's worktree. This board has none on main yet.
 
 Contract (docs/adr/2026-11-01-1846-a-boards-build-script-serves-or-builds-each-card-and-main.md):
 - Print exactly \`port <n>\` on stdout to serve a website on that port.
@@ -46,13 +46,13 @@ export function hasBuildScript(repo, ref) {
   } catch { return false; }
 }
 
-// Writes the onboarding cards' notes files beside waveFile. → the items for its wave.json, each with an Internal ticket,
+// Writes the onboarding cards' notes files beside itemFile. → the items for that item file, each with an Internal ticket,
 // so nothing is opened on GitHub or Linear; the build card is left out when main already has a build script.
-export function onboardingItems(waveFile, { prefix = 'INT', hasBuild, now = new Date() }) {
+export function onboardingItems(itemFile, { prefix = 'INT', hasBuild, now = new Date() }) {
   const cards = ONBOARDING.filter((c) => !(c.needsNoBuild && hasBuild));
   return cards.map((c, i) => {
     const plan = `${c.id}-notes.md`;
-    fs.writeFileSync(path.join(path.dirname(waveFile), plan), c.notes);
+    fs.writeFileSync(path.join(path.dirname(itemFile), plan), c.notes);
     return { id: c.id, title: c.title, created: new Date(now.getTime() + i).toISOString(), phase: 'grilling', ticket: `${prefix}-${i + 1}`, plan };
   });
 }

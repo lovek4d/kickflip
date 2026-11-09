@@ -54,8 +54,8 @@ beforeEach(() => {
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves' });
   write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [] });
   write(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', ts: '2026-10-23T10:00:00Z', kind: 'ask', data: {} }) + '\n');
-  write(site('audit', 'board.json'), { title: 'Audit', items: 'data/wave.json', slug: 'audit' });
-  write(site('audit', 'data', 'wave.json'), wave());
+  write(site('audit', 'board.json'), { title: 'Audit', items: 'data/items.json', slug: 'audit' });
+  write(site('audit', 'data', 'items.json'), wave());
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
@@ -83,7 +83,7 @@ export async function ticketCli(t) {
     return { status: 0, stdout: `https://github.com/${repo}/issues/42\n` };
   };
   const cli = (...args) => main(['--site', 'audit', ...args], { linearFetch: linear.fetch, run });
-  const item = (id) => read(site('audit', 'data', 'wave.json')).items.find((it) => it.id === id);
+  const item = (id) => read(site('audit', 'data', 'items.json')).items.find((it) => it.id === id);
   return { saveBoardSettings, main, out, err, world, linear, gh, ghAnswers, cli, item };
 }
 
@@ -202,10 +202,10 @@ export const bobReviewer = { name: 'Bob', slack_user: 'U2', dm: 'D2', github: 'b
 
 export function reviewState() {
   return reviewProbe(`
-    const wave = await store.readJSON(${JSON.stringify(at('waves', 'w', 'wave.json'))}, {});
+    const itemFile = await store.readJSON(${JSON.stringify(at('waves', 'w', 'wave.json'))}, {});
     const prs = { 'o/r#7': { state: 'OPEN', isDraft: false } };
-    const card = buildBoard({ waves: [{slug: 'w', wave}], prs, topicItems: topicItems(), prSlack: await store.readPRSlack(site) }).items[0];
-    const board = { dir: site, reviewers: ['Ann', 'Bob'], waves: [{slug: 'w', wave}], prs: [{wave: 'w', id: 'A1', pr: 7, repo: 'o/r'}] };
+    const card = buildBoard({ files: [{slug: 'w', itemFile}], prs, topicItems: topicItems(), prSlack: await store.readPRSlack(site) }).items[0];
+    const board = { dir: site, reviewers: ['Ann', 'Bob'], files: [{slug: 'w', itemFile}], prs: [{file: 'w', id: 'A1', pr: 7, repo: 'o/r'}] };
     console.log(JSON.stringify({ card, slack: linksOf(board, { github: {prs}, listen: 'listening', settings: { quiet: { start: '22:00', end: '08:00', hold: true } }, wakes: {}, faults: {} }).find((l) => l.link === 'slack') }));
   `);
 }

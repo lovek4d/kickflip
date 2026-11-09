@@ -17,13 +17,13 @@ const today = new Date();
 const stamp = today.toLocaleDateString('en-CA').replaceAll('-', '');
 const title = `Architecture ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 
-async function boardServer({ items = 'data/wave.json', site: entry = {}, skills = true } = {}) {
+async function boardServer({ items = 'data/items.json', site: entry = {}, skills = true } = {}) {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'arch-review-')));
   const site = path.join(home, '.claude', 'kickflip', 'sites', 'app');
   fs.mkdirSync(path.join(site, 'data'), { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'App', items, slug: 'app' }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
-  fs.writeFileSync(path.join(site, 'data', 'wave.json'), JSON.stringify({ title: 'App', items: [{ id: 'INT-7', title: 'Older', lane: 'done', closed_at: '2026-11-01T10:00:00Z' }, { id: 'GC', title: 'Lettered' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ title: 'App', items: [{ id: 'INT-7', title: 'Older', lane: 'done', closed_at: '2026-11-01T10:00:00Z' }, { id: 'GC', title: 'Lettered' }] }));
   fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: {
     app: { dir: site, cmd: ['node', serverFile], github: 'owner/app-repo', branch: 'main', owner: { session: 's1', repo: path.join(home, 'repos', 'app-repo') }, ...entry },
@@ -57,13 +57,13 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   const first = await b.run();
   assert.equal(first.status, 200);
   assert.equal(first.body.key, 'app/INT-1');
-  const wave = readJSON(path.join(b.site, 'data', 'wave.json'));
-  assert.deepEqual(wave.items.at(-1).title, 'Architecture review of app-repo');
-  assert.deepEqual(wave.lineups.map((l) => [l.slug, l.title, l.phases]), [[`arch-${stamp}`, title, [['INT-1']]]]);
+  const itemFile = readJSON(path.join(b.site, 'data', 'items.json'));
+  assert.deepEqual(itemFile.items.at(-1).title, 'Architecture review of app-repo');
+  assert.deepEqual(itemFile.waves.map((l) => [l.slug, l.title, l.phases]), [[`arch-${stamp}`, title, [['INT-1']]]]);
   assert.match(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8'), /Started an architecture review of app-repo; its report becomes the notes/);
   const [event] = b.events();
   assert.equal(event.id, first.body.id);
-  assert.deepEqual([event.kind, event.data], ['arch-review', { key: 'app/INT-1', repo: path.join(b.home, 'repos', 'app-repo'), github: 'owner/app-repo', branch: 'main', wave: `arch-${stamp}`, lineup: true }]);
+  assert.deepEqual([event.kind, event.data], ['arch-review', { key: 'app/INT-1', repo: path.join(b.home, 'repos', 'app-repo'), github: 'owner/app-repo', branch: 'main', wave: `arch-${stamp}` }]);
   let { last } = await b.arch();
   assert.deepEqual(last, { key: 'app/INT-1', ref: 'INT-1', wave: title, at: last.at, open: true, running: true, findings: 0, built: 0 });
 
@@ -78,19 +78,19 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   await until(async () => ({ last } = await b.arch()).last.findings === 2, "the board sees the review's findings");
   assert.deepEqual([last.open, last.running, last.findings], [true, false, 2]);
 
-  const done = readJSON(path.join(b.site, 'data', 'wave.json'));
+  const done = readJSON(path.join(b.site, 'data', 'items.json'));
   Object.assign(done.items.find((it) => it.id === 'INT-1'), { lane: 'done', closed_at: new Date().toISOString() });
   // INT-10 never landed: its one PR closed unmerged, so it isn't built.
   fs.writeFileSync(path.join(b.gh, '10.json'), JSON.stringify({ number: 10, state: 'CLOSED', isDraft: false, statusCheckRollup: [], latestReviews: [] }));
   done.items.push({ id: 'INT-9', title: 'Split the store', lane: 'done', closed_at: new Date().toISOString() }, { id: 'INT-10', title: 'Merge the readers', lane: 'done', closed_at: new Date().toISOString(), prs: [{ number: 10 }] });
-  done.lineups[0].phases.push(['INT-9'], ['INT-10']);
-  fs.writeFileSync(path.join(b.site, 'data', 'wave.json'), JSON.stringify(done));
+  done.waves[0].phases.push(['INT-9'], ['INT-10']);
+  fs.writeFileSync(path.join(b.site, 'data', 'items.json'), JSON.stringify(done));
   await until(async () => ({ last } = await b.arch()).last.open === false, 'the board sees the review closed');
   assert.deepEqual([last.open, last.running, last.findings, last.built], [false, false, 2, 1]);
 
   const next = await b.run();
   assert.deepEqual([next.status, next.body.key, next.body.existing], [200, 'app/INT-2', false]);
-  assert.equal(readJSON(path.join(b.site, 'data', 'wave.json')).lineups.at(-1).slug, `arch-${stamp}-2`);
+  assert.equal(readJSON(path.join(b.site, 'data', 'items.json')).waves.at(-1).slug, `arch-${stamp}-2`);
 });
 
 test('arch file files each answered finding as a card in the review, resolves skips, and closes the audit once every finding is settled', async () => {
@@ -109,19 +109,19 @@ test('arch file files each answered finding as a card in the review, resolves sk
     assert.equal(r.status, 0, r.stderr);
     return r.stdout.trim().split('\n');
   };
-  const wave = () => readJSON(path.join(b.site, 'data', 'wave.json'));
+  const itemFile = () => readJSON(path.join(b.site, 'data', 'items.json'));
   const resolved = () => Object.fromEntries(readJSON(path.join(b.site, 'data', 'owner.json')).items.map((q) => [q.id, q.resolved]));
   answer('f1', 'A', 'Keep the API.');
   answer('f2', 'skip');
   assert.deepEqual(file(), ['findings of INT-1 filed', 'filed: INT-2 from f1', 'skipped: f2', 'waiting: f3']);
-  const filed = wave().items.find((it) => it.id === 'INT-2');
+  const filed = itemFile().items.find((it) => it.id === 'INT-2');
   assert.deepEqual([filed.title, fs.readFileSync(path.join(b.site, 'data', filed.plan), 'utf8'), filed.deps], ['Split the store', "# Split the store\n\nMove the readers out.\n\n- Readers own their files.\n\nOwner's note: Keep the API.\n\nFrom the finding: Split the store?\n", ['INT-1']]);
-  assert.deepEqual(wave().lineups[0].phases, [['INT-1'], ['INT-2']]);
+  assert.deepEqual(itemFile().waves[0].phases, [['INT-1'], ['INT-2']]);
   assert.deepEqual(resolved(), { f1: 'Filed as INT-2.', f2: 'Skipped.', f3: undefined });
   answer('f3', 'A');
   assert.deepEqual(file().slice(0, 2), ['findings of INT-1 filed', 'filed: INT-3 from f3']);
-  assert.deepEqual(wave().lineups[0].phases, [['INT-1'], ['INT-2'], ['INT-3']]);
-  const audit = wave().items.find((it) => it.id === 'INT-1');
+  assert.deepEqual(itemFile().waves[0].phases, [['INT-1'], ['INT-2'], ['INT-3']]);
+  const audit = itemFile().items.find((it) => it.id === 'INT-1');
   assert.equal(audit.lane, 'done');
   assert.equal(JSON.parse(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8').trim().split('\n').at(-1)).text, 'Every finding is settled: filed INT-2, INT-3.');
 });
@@ -132,7 +132,7 @@ test('a review waits, saying why, while the mattpocock skills are missing', asyn
   assert.equal(waits, 'Architecture reviews wait on improve-codebase-architecture, codebase-design, grilling and prototype from mattpocock/skills, which aren’t installed. Run kickflip doctor --fix on the host to add them.');
   assert.deepEqual(await b.run(), { status: 409, body: { error: waits } });
   assert.deepEqual(b.events(), []);
-  assert.equal(readJSON(path.join(b.site, 'data', 'wave.json')).items.length, 2);
+  assert.equal(readJSON(path.join(b.site, 'data', 'items.json')).items.length, 2);
 });
 
 test("a board on the kickflip clone, as the hub board is, names its review's scope: the clone's code and model, and the live data's shapes", async () => {
@@ -144,12 +144,12 @@ test("a board on the kickflip clone, as the hub board is, names its review's sco
   assert.equal(data.repo, path.resolve(serverFile, '..', '..'));
 });
 
-test('on a board over ~/.claude/waves the review is a wave file of its own', async () => {
+test('on a board over ~/.claude/waves the review is an item file of its own', async () => {
   const b = await boardServer({ items: 'waves' });
   const r = await b.run();
   assert.deepEqual([r.status, r.body.key], [200, `arch-${stamp}/audit`]);
   const wave = readJSON(path.join(b.home, '.claude', 'waves', `arch-${stamp}`, 'wave.json'));
   assert.deepEqual([wave.title, wave.repo, wave.items.map((it) => it.title)], [title, 'owner/app-repo', ['Architecture review of app-repo']]);
-  assert.deepEqual([b.events()[0].data.wave, b.events()[0].data.lineup], [`arch-${stamp}`, false]);
+  assert.deepEqual([b.events()[0].data.file, b.events()[0].data.wave], [`arch-${stamp}`, undefined]);
   assert.equal((await b.arch()).last.running, true);
 });

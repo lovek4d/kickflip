@@ -4,7 +4,7 @@
 // It writes page events, hidden events, uploads and the owner's card taps; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
-//   lineup create|add|remove|set|finish,
+//   wave create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
 // <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
@@ -12,17 +12,17 @@
 // auto_merge (false when absent) lets the session merge
 // an approved, green, clean PR itself; off, the card shows the owner's Merge (store.mjs settingsOf). rules are the owner's standing instructions to this
 // board's session [{id, text, by, at}] (board.mjs rules, hub/rules.mjs). reviewers are the board's own [{name, slack_user, dm,
-// github}] (board.mjs reviewers), which the settings page lists and new waves copy. items is "waves" (every ~/.claude/waves/*/wave.json,
-// the default) or a wave.json-format file relative to the site dir; slug names a file's items
+// github}] (board.mjs reviewers), which the settings page lists and new item files copy. items is "waves" (every
+// ~/.claude/waves/*/wave.json, which wave-build writes, the default) or an item file (data/items.json format) relative to the site dir; slug names a file's items
 // (its keys are <slug>/<id>), defaulting to the file's basename. Reviewer links live per PR in
 // data/pr-slack.json (store.mjs); review.mjs also reads an item's older review_link_ts. from_ask names the ask event that created the item,
 // and next is Claude's next step for it. install {url, label?, built_at, sha?} is a device build the card's Install
 // button opens (board.mjs item set --install); public/installs/ holds its files, served without a login like all of
 // public/, since iOS's installer fetches the manifest and .ipa with no cookies. A builder working on an item has a record in
-// agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the wave file. An item's parent is the key of the card it was spun out of, which makes it a follow-up, and
-// its related the keys of cards it is Related to; a wave's older followups list moves into its items as the server
-// starts (store.mjs migrateFollowups). A wave's lineups [{slug, title, goal,
-// phases: [[id]] (or a chain's items: [id]), finished_at?}] are the owner's waves over its cards (store.mjs createLineup). domain.mjs
+// agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the item file. An item's parent is the key of the card it was spun out of, which makes it a follow-up, and
+// its related the keys of cards it is Related to; an item file's older followups list moves into its items as the server
+// starts (store.mjs migrateFollowups). An item file's waves [{slug, title, goal,
+// phases: [[id]] (or a chain's items: [id]), finished_at?}] are the owner's waves over its cards (store.mjs createWave). domain.mjs
 // decides lanes and card state from what this server reads.
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
@@ -91,7 +91,7 @@
 //   GET  /api/notes?item=w/id    {key, ref, title, markdown}: the item's notes file, only a .md inside its wave's
 //                                folder, or with no file its short notes text (store.mjs readNotes); otherwise 404
 //                                {error}. /api/plan is the same, for pages loaded before the rename
-//   GET  /api/notes?wave=<slug>  {title, markdown}: a lineup's goal, order and note (store.mjs readLineupNotes)
+//   GET  /api/notes?wave=<slug>  {title, markdown}: a wave's goal, order and note (store.mjs readWaveNotes)
 //   GET  /plan.html?…            redirects to notes.html with the same query, since pushes and threads link it
 //   POST /_claude/events         {kind, ...data} → one line in data/events.jsonl; wakes Claude. → {id, board}: the
 //                                event's id and /api/board's answer as the tap left it, version included, so the page draws the tap from
@@ -173,14 +173,14 @@
 //                                A card whose open PR conflicts gets one headless rebase run per head and base, tracked
 //                                in data/rebases.json (domain.mjs rebasesDue, store.mjs startRebase;
 //                                docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
-//                                lineup-move {lineup, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
-//                                server reorders the lineup's Todo cards (domain.mjs lineupMoved, store.mjs changeLineup)
+//                                wave-move {wave, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
+//                                server reorders the wave's Todo cards (domain.mjs waveMoved, store.mjs changeWave)
 //                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
-//                                card-hold and card-done are written to the wave file first, with the owner's thread
+//                                card-hold and card-done are written to the item file first, with the owner's thread
 //                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); a Resume relaunches
 //                                the run its Hold stopped (resumeRun). Neither wakes a session, nor do card-unbump,
 //                                grill-more, prototype-request or visual-request
-//                                (docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md); one whose wave
+//                                (docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md); one whose item
 //                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
 //                                and no event (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
 //                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.
@@ -231,7 +231,7 @@
 //                                (uploads/<file>) and path is absolute. Over 20 MB → 413
 //   GET  /uploads/<file>         a stored upload with its type; nothing else under data/ is served
 //   POST /api/arch-review        {} starts an architecture review of the board's repo (arch-review.mjs startReview) and appends
-//                                arch-review {key, repo, github, branch, wave, lineup, scope?} → {key, id, existing: false};
+//                                arch-review {key, repo, github, branch, wave | file, scope?} → {key, id, existing: false};
 //                                while a review is open → {key, ref, existing: true}; a review that must wait → 409 {error}
 //   POST /api/hide               {id, hidden} → data/hidden.json; the page clears an event for
 //                                every device, without waking Claude
@@ -300,7 +300,7 @@ async function tryLogTail(here, name) {
 //                                summary, the open cards in each lane, and whether a builder works on a card
 //                                (domain.mjs needsAnswer); the hub badges the site's row and writes its status line with them
 //   GET  /api/stream             server-sent events: `event: change` shortly after a file the board reads changes, under
-//                                the wave files' folder or data/. Never gzipped
+//                                the item files' folder or data/. Never gzipped
 //   GET  /_claude/health
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing (403 plain text). One the hub forwards with
 // X-Kickflip-Shared is a shared person's: only an event or upload of someone the board's share lists as Full is taken,
@@ -324,14 +324,14 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { PAUSE_CLEARS, pauseWork, plans, providerOf, archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { PAUSE_CLEARS, pauseWork, plans, providerOf, archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, waveMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
-import { dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeWave, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -438,7 +438,7 @@ async function readBody(req, limit = 64 * 1024) {
 // the header's GitHub check stay the owner's, as does any kind not listed.
 const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
   'ask', 'ask-edited', 'ask-withdrawn', 'ask-bump', 'ask-done', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
-  'lineup-move', 'plan-waves']);
+  'wave-move', 'plan-waves']);
 const VIEW_ONLY = 'This board is shared with you to look at only.';
 const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
 // → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
@@ -616,55 +616,55 @@ async function outsideData() {
     hostBusy: readUsageGate({ dir: here }).machine.state === 'busy' };
 }
 
-// The wave files the board reads, each with its builder records.
-async function liveWaves() {
+// The item files the board reads, each with its builder records.
+async function liveFiles() {
   return (await Promise.all((await itemSources(here)).map(async (s) => {
-    const wave = await readJSON(s.file, null);
-    if (!wave || !Array.isArray(wave.items)) return null;
-    return { slug: s.slug, wave, agents: await readAgents(path.join(s.dir, 'agents')) };
+    const itemFile = await readJSON(s.file, null);
+    if (!itemFile || !Array.isArray(itemFile.items)) return null;
+    return { slug: s.slug, itemFile, agents: await readAgents(path.join(s.dir, 'agents')) };
   }))).filter(Boolean);
 }
 
-// The wave files with archive entries' items (store.mjs readArchive) back among their cards, so an archived card links
+// The item files with archive entries' items (store.mjs readArchive) back among their cards, so an archived card links
 // to the live cards it names and that name it, as it did on the board.
 async function withArchived(entries) {
-  const waves = await liveWaves();
+  const files = await liveFiles();
   for (const a of entries) {
-    const into = waves.find((w) => w.slug === a.wave);
-    if (into) into.wave.items.push(a.item);
-    else waves.push({ slug: a.wave, wave: { items: [a.item] }, agents: {} });
+    const into = files.find((w) => w.slug === a.file);
+    if (into) into.itemFile.items.push(a.item);
+    else files.push({ slug: a.file, itemFile: { items: [a.item] }, agents: {} });
   }
-  return waves;
+  return files;
 }
 
 // A board that opens no PRs has no reviewers on its cards; its list stays in board.json
 // (docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md).
-async function itemSnapshot({ cfg, github, local, hub, remote, branch }, waves) {
+async function itemSnapshot({ cfg, github, local, hub, remote, branch }, files) {
   const fromWaves = cfg.items === 'waves';
-  waves ??= await liveWaves();
+  files ??= await liveFiles();
 
   const threadLines = Object.create(null);
-  await Promise.all(waves.flatMap(({ slug, wave }) => wave.items.map(async (it) => {
+  await Promise.all(files.flatMap(({ slug, itemFile }) => itemFile.items.map(async (it) => {
     threadLines[`${slug}/${it.id}`] = await readLines(threadFile(`${slug}/${it.id}`));
   })));
-  return { github, remote, branch, reviewers: opensPRs({ github, local, hub }, settingsOf(cfg, { hub })) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, waves, threads: threadLines,
+  return { github, remote, branch, reviewers: opensPRs({ github, local, hub }, settingsOf(cfg, { hub })) ? cfg.reviewers || [] : [], fromWaves, autoMerge: settingsOf(cfg).auto_merge, skipDraft: settingsOf(cfg).skip_draft, autoBuild: settingsOf(cfg).auto_build, tickets: settingsOf(cfg).tickets, files, threads: threadLines,
     working: await readWorking(here), autoReview: settingsOf(cfg).auto_review, incoming: await readJSON(path.join(data, 'incoming.json'), null),
     reviewRecords: await readJSON(path.join(data, 'reviews.json'), {}) };
 }
 
-// Reads every source buildBoard needs: wave files and their builder records,
+// Reads every source buildBoard needs: item files and their builder records,
 // PR state from gh, item threads, page events with Claude's replies, owner
 // questions and legacy review-link fallbacks; outside is outsideData's. With archive entries, it reads their cards and
-// questions beside the wave files' and owner.json's, and their PR states only as the server last read them, asking
+// questions beside the item files' and owner.json's, and their PR states only as the server last read them, asking
 // GitHub nothing for them.
 async function snapshot(outside, archived = []) {
   const items = await itemSnapshot(outside, archived.length ? await withArchived(archived) : undefined);
-  const { waves, threads: threadLines, working } = items;
+  const { files, threads: threadLines, working } = items;
   const prs = Object.create(null);
   const archivedKeys = new Set(archived.map((a) => a.key));
-  await Promise.all(waves.flatMap(({ slug, wave }) => {
-    const repo = items.github || wave.repo;
-    return wave.items.flatMap((it) => cardPRs(it, repo).map(async (p) => {
+  await Promise.all(files.flatMap(({ slug, itemFile }) => {
+    const repo = items.github || itemFile.repo;
+    return itemFile.items.flatMap((it) => cardPRs(it, repo).map(async (p) => {
       prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? prCache.get(prKeyOf(p))?.value ?? null : await prState(p.repo, p.number);
     }));
   }));
@@ -677,7 +677,7 @@ async function snapshot(outside, archived = []) {
 
   const moved = Object.create(null);
   const commandRunning = Object.create(null);
-  for (const { agents } of waves) {
+  for (const { agents } of files) {
     for (const record of Object.values(agents || {}).flatMap((byAgent) => Object.values(byAgent))) {
       const dir = record.worktree?.path;
       const at = dir && !record.done ? transcriptMovedAt(dir) : null;
@@ -910,14 +910,14 @@ function runReview() {
   return run;
 }
 
-// A card's wave file entry and builder records, else its archive entry's (store.mjs readArchive), whose questions its
+// A card's item file entry and builder records, else its archive entry's (store.mjs readArchive), whose questions its
 // thread reads beside owner.json's.
 async function itemOf(key) {
   const [slug, id] = key.split('/');
   const source = (await itemSources(here)).find((s) => s.slug === slug);
-  const wave = source ? await readJSON(source.file, null) : null;
-  const archived = !wave?.items?.some((it) => it.id === id) && (await readArchive(here)).find((a) => a.key === key);
-  const item = (Array.isArray(wave?.items) && wave.items.find((it) => it.id === id)) || archived?.item || null;
+  const itemFile = source ? await readJSON(source.file, null) : null;
+  const archived = !itemFile?.items?.some((it) => it.id === id) && (await readArchive(here)).find((a) => a.key === key);
+  const item = (Array.isArray(itemFile?.items) && itemFile.items.find((it) => it.id === id)) || archived?.item || null;
   return { item, questions: archived?.questions || [], agents: item && source ? routeRecord(await readAgents(path.join(source.dir, 'agents')), id) || {} : {} };
 }
 
@@ -927,11 +927,11 @@ async function askLinksOf(askId) {
   const { tickets } = settingsOf(await config());
   const links = [];
   for (const s of await itemSources(here)) {
-    const wave = await readJSON(s.file, null);
-    for (const it of Array.isArray(wave?.items) ? wave.items : []) {
+    const itemFile = await readJSON(s.file, null);
+    for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
       const key = `${s.slug}/${it.id}`;
-      if (it.from_ask === askId) links.unshift({ key, ref: refOf(wave, it, tickets), became: true });
-      else if (key === related) links.push({ key, ref: refOf(wave, it, tickets), became: false });
+      if (it.from_ask === askId) links.unshift({ key, ref: refOf(itemFile, it, tickets), became: true });
+      else if (key === related) links.push({ key, ref: refOf(itemFile, it, tickets), became: false });
     }
   }
   return links;
@@ -1166,14 +1166,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/thread') return json(res, 200, await thread(String(url.searchParams.get('key') || '')));
     if (p === '/api/notes' && url.searchParams.has('wave')) {
-      try { return json(res, 200, await readLineupNotes(here, String(url.searchParams.get('wave')), settingsOf(await config()).tickets)); }
+      try { return json(res, 200, await readWaveNotes(here, String(url.searchParams.get('wave')), settingsOf(await config()).tickets)); }
       catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
     }
     if (p === '/api/notes' || p === '/api/plan') {
       const key = String(url.searchParams.get('item') || '');
       try {
-        const { wave, item, markdown } = await readNotes(here, key);
-        return json(res, 200, { key, ref: refOf(wave, item, settingsOf(await config()).tickets), title: item.title, markdown });
+        const { itemFile, item, markdown } = await readNotes(here, key);
+        return json(res, 200, { key, ref: refOf(itemFile, item, settingsOf(await config()).tickets), title: item.title, markdown });
       } catch (e) { if (e instanceof BoardError) return json(res, 404, { error: e.message }); throw e; }
     }
     if (p === '/_claude/events' && req.method === 'POST') {
@@ -1222,11 +1222,11 @@ const server = http.createServer(async (req, res) => {
         dataVersion++;
       }
       // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-      if (kind === 'lineup-move') {
-        const slug = String(body.lineup || '');
-        const phases = lineupMoved(await sharedBoard(), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
+      if (kind === 'wave-move') {
+        const slug = String(body.wave || '');
+        const phases = waveMoved(await sharedBoard(), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
         if (!phases) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
-        try { await changeLineup(here, slug, { steps: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+        try { await changeWave(here, slug, { steps: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
         return json(res, 200, { id: null, board: await answerBoard(req, since) });
       }
       if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0] ?? null, board: await answerBoard(req, since) });
@@ -1250,7 +1250,7 @@ const server = http.createServer(async (req, res) => {
         catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
         return json(res, 200, { id: null, board: await answerBoard(req, since) });
       }
-      // A Hold or Done is written to the card's wave file before its event, and one that couldn't be is refused with
+      // A Hold or Done is written to the card's item file before its event, and one that couldn't be is refused with
       // why, recording nothing (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
       if (kind === 'card-hold' || kind === 'card-done') {
         const key = String(body.key || '');
@@ -1261,8 +1261,8 @@ const server = http.createServer(async (req, res) => {
           if (kind === 'card-done' && await isLanding(here, key)) agents = [];
           written = await recordOwnerTap(here, kind, body);
         }
-        catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its wave file: ${e.message}` }); }
-        if (!written) return json(res, 400, { error: `${key} is already in Done, so its wave file stays as it is.` });
+        catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its item file: ${e.message}` }); }
+        if (!written) return json(res, 400, { error: `${key} is already in Done, so its item file stays as it is.` });
         // A held build runs on to its stopping point, its record left open (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
         const open = await openAgents(here, key);
         agents = agents.filter((a) => !open.some((o) => o.pid === a.pid));
@@ -1478,7 +1478,7 @@ async function checkPickUps() {
     const now = Date.now();
     const due = (await sharedBoard()).items
       .filter((it) => it.heldUntil && it.lane !== 'done' && Date.parse(it.heldUntil) <= now);
-    // The resumed wave file stops a second pick-up; the event log covers a restart between the event and that write.
+    // The resumed item file stops a second pick-up; the event log covers a restart between the event and that write.
     const sent = due.length ? await readLines(events) : [];
     for (const { key, heldUntil: until } of due) {
       await pickUp(here, key, until, { announce: !sent.some((e) => e.kind === 'card-unblocked' && e.data?.key === key && e.data?.until === until) });

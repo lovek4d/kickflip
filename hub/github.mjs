@@ -152,7 +152,7 @@ export async function checkGitHub({ every, manifest }) {
   for (const board of boards) {
     const cards = board.prs.map((p) => {
       const key = prKey(p);
-      const recipient = JSON.stringify([board.route, p.wave, p.id]);
+      const recipient = JSON.stringify([board.route, p.file, p.id]);
       const previous = state.acknowledged[key]?.[recipient] || state.prs[key];
       const next = fetched[fetchKey(p, board.me)];
       const changes = next ? changesBetween(previous, next) : [];
@@ -161,7 +161,7 @@ export async function checkGitHub({ every, manifest }) {
     });
     for (const card of cards) {
       const report = reports[fetchKey(card.p, board.me)];
-      const siblings = cards.filter((c) => c.p.wave === card.p.wave && c.p.id === card.p.id);
+      const siblings = cards.filter((c) => c.p.file === card.p.file && c.p.id === card.p.id);
       if (report && await recordOnCard(board, card, report, siblings, { state, merged, failed })) mergedRoutes.add(board.route);
       if (board.skipDraft) await readyGreenDraft(board, card, raw.get(card.key)?.view, readied, failed);
       if (board.autoMerge) await mergeApproved(board, card, raw.get(card.key)?.view, mergeTried, failed);
@@ -171,7 +171,7 @@ export async function checkGitHub({ every, manifest }) {
     let accepted = true;
     if (changed.length || linked.get(board.route).length) {
       try {
-        const prs = [...changed.map(({ p, changes }) => ({ wave: p.wave, id: p.id, pr: p.pr, changes })), ...linked.get(board.route)];
+        const prs = [...changed.map(({ p, changes }) => ({ file: p.file, id: p.id, pr: p.pr, changes })), ...linked.get(board.route)];
         events.push({ route: board.route, id: await appendEvent(board, 'github-change', { prs }) });
       } catch (e) {
         failed.push(`${board.route}: could not add the github-change event (${e.message})`);
@@ -212,24 +212,24 @@ export async function checkGitHub({ every, manifest }) {
   return { at, watched: prs.size, failed, changes, events, checked, merged: [...mergedRoutes], linear, rate: query?.rate ?? null };
 }
 
-const repoList = (board) => (board.github ? [board.github] : [...new Set(board.waves.map((w) => w.wave.repo).filter(Boolean))]);
+const repoList = (board) => (board.github ? [board.github] : [...new Set(board.files.map((w) => w.itemFile.repo).filter(Boolean))]);
 
 // A card's branch is its card id (board/worktree.mjs makeWorktree), so an open PR in the card's repo whose head is that
 // branch in the same repo, and which the card doesn't hold yet, was opened by hand: it is recorded as `item set --pr` does,
-// with no --clear-status. → [{wave, id, pr, changes: ['linked']}] for the github-change event.
+// with no --clear-status. → [{file, id, pr, changes: ['linked']}] for the github-change event.
 async function linkHandPRs(board, open, failed) {
   const out = [];
-  for (const { slug, wave } of board.waves) {
-    const repo = board.github || wave.repo;
+  for (const { slug, itemFile } of board.files) {
+    const repo = board.github || itemFile.repo;
     const heads = new Map((open[repo] || []).filter((p) => !p.isCrossRepository).map((p) => [p.headRefName, p.number]));
-    for (const item of wave.items) {
+    for (const item of itemFile.items) {
       if (!heads.has(item.id) || item.lane === 'done' || cardPRs(item, repo).some((p) => p.repo === repo)) continue;
       const card = `${slug}/${item.id}`;
       const pr = heads.get(item.id);
       try {
         await setItem(board.dir, card, { pr });
         await appendStatus(board.dir, card, 'pr-found', { pr, branch: item.id });
-        out.push({ wave: slug, id: item.id, pr, changes: ['linked'] });
+        out.push({ file: slug, id: item.id, pr, changes: ['linked'] });
       } catch (err) { failed.push(`${board.route}: could not link PR #${pr} to ${card} (${err.message})`); }
     }
   }
@@ -249,10 +249,10 @@ function lineText(event) {
 // merged ones, or the closed ones when none merged. → true when this check recorded the card merged (shared/card-prs.mjs
 // allLanded), on any board showing it.
 async function recordOnCard(board, { p, key, recipient }, report, siblings, { state, merged, failed }) {
-  const card = `${p.wave}/${p.id}`;
+  const card = `${p.file}/${p.id}`;
   const written = new Set(state.threaded[key]?.[recipient] || []);
-  const wave = board.waves.find((w) => w.slug === p.wave)?.wave;
-  const names = { ...board.reviewerLogins, ...reviewerLogins(wave?.reviewers) };
+  const itemFile = board.files.find((w) => w.slug === p.file)?.itemFile;
+  const names = { ...board.reviewerLogins, ...reviewerLogins(itemFile?.reviewers) };
   for (const e of report.events) {
     const id = `${e.kind}:${e.id}`;
     if (!['user', 'reviewer'].includes(e.who) || e.at <= p.since || written.has(id)) continue;
@@ -271,9 +271,9 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
   const states = siblings.map((c) => c.next);
   if (!PR_ENDED.includes(report.state) || !states.every((s) => PR_ENDED.includes(s?.state))) return false;
   const landed = allLanded(states);
-  const file = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, p.wave, p.id]);
+  const file = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, p.file, p.id]);
   if (!merged.has(file)) {
-    const repo = board.github || board.waves.find((w) => w.slug === p.wave)?.wave.repo;
+    const repo = board.github || board.files.find((w) => w.slug === p.file)?.itemFile.repo;
     const prs = siblings.filter((c) => c.next.state === 'MERGED').map((c) => ({ repo: c.p.repo, number: c.p.pr }));
     const closedPRs = siblings.map((c) => ({ repo: c.p.repo, number: c.p.pr }));
     // A merge closes with the board's merged line (store.mjs closingLine).
@@ -290,15 +290,15 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
 async function readyGreenDraft(board, { p, key }, view, readied, failed) {
   if (readied.has(key) || view?.state !== 'OPEN' || !view.isDraft || !checksPassed(view.statusCheckRollup)) return;
   readied.add(key);
-  const entry = { call: 'ready-draft', key: `${p.wave}/${p.id}`, reason: `The board skips the draft and PR #${p.pr}'s CI passed.`, inputs: { repo: p.repo, pr: p.pr, isDraft: view.isDraft, checks: 'passed' } };
+  const entry = { call: 'ready-draft', key: `${p.file}/${p.id}`, reason: `The board skips the draft and PR #${p.pr}'s CI passed.`, inputs: { repo: p.repo, pr: p.pr, isDraft: view.isDraft, checks: 'passed' } };
   try { await markReady({ repo: p.repo, pr: p.pr }); }
   catch (err) {
     audit(boardAudit(board.dir), { ...entry, result: 'failed', reason: `${entry.reason} gh failed: ${err.message}` }, { once: true });
     failed.push(`${board.route}: could not mark ${key} ready for review (${err.message})`); return;
   }
   audit(boardAudit(board.dir), { ...entry, result: 'marked ready' });
-  try { await appendStatus(board.dir, `${p.wave}/${p.id}`, 'ci-passed', { pr: p.pr }); }
-  catch (err) { failed.push(`${board.route}: could not write ${p.wave}/${p.id}'s ready line (${err.message})`); }
+  try { await appendStatus(board.dir, `${p.file}/${p.id}`, 'ci-passed', { pr: p.pr }); }
+  catch (err) { failed.push(`${board.route}: could not write ${p.file}/${p.id}'s ready line (${err.message})`); }
 }
 
 // docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md: on a board with auto-merge on, a card whose PR
@@ -306,7 +306,7 @@ async function readyGreenDraft(board, { p, key }, view, readied, failed) {
 // a check however many of its PRs show it. A refusal such as commits after the approval is left to the session, which
 // the github-change event wakes; a gh failure is reported.
 async function mergeApproved(board, { p }, view, tried, failed) {
-  const card = `${p.wave}/${p.id}`;
+  const card = `${p.file}/${p.id}`;
   const key = JSON.stringify([board.dir, card]);
   if (tried.has(key) || view?.state !== 'OPEN' || view.isDraft || view.reviewDecision !== 'APPROVED' || view.mergeStateStatus !== 'CLEAN' || !checksPassed(view.statusCheckRollup)) return;
   tried.add(key);
@@ -325,10 +325,10 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
   if (!client) return;
   const tickets = new Map();
   for (const board of boards) {
-    const prs = Map.groupBy(board.prs, (p) => JSON.stringify([p.wave, p.id]));
+    const prs = Map.groupBy(board.prs, (p) => JSON.stringify([p.file, p.id]));
     const source = board.kind === 'waves' ? WAVES : board.dir;
-    for (const { slug, wave } of board.waves) {
-      for (const item of wave.items) {
+    for (const { slug, itemFile } of board.files) {
+      for (const item of itemFile.items) {
         const ids = new Set(item.linear || []);
         if (board.tickets?.source === 'linear' && item.ticket) ids.add(item.ticket);
         // The card's least-ready PR stands for it, as on the board (shared/card-prs.mjs leastReady).

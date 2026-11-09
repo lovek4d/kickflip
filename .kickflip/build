@@ -55,8 +55,8 @@ async function main() {
       },
     },
   });
-  writeJSON(path.join(dir, 'board.json'), { title: 'Demo', items: 'data/wave.json', slug: 'demo' });
-  writeJSON(path.join(dir, 'data', 'wave.json'), {
+  writeJSON(path.join(dir, 'board.json'), { title: 'Demo', items: 'data/items.json', slug: 'demo' });
+  writeJSON(path.join(dir, 'data', 'items.json'), {
     title: 'Demo',
     items: [
       { id: 'D-1', title: 'Add a search box to the board' },

@@ -91,7 +91,7 @@ test('new repo requests clone before starting a session and store the board bran
   assert.equal(fs.statSync(claudeConfig).mode & 0o777, 0o640);
   assert.deepEqual(fs.readdirSync(process.env.CLAUDE_CONFIG_DIR), ['.claude.json']);
   assert.deepEqual(calls, [{ cwd: repo, argv: ['--bg', '--name', "Bob's audit", '--permission-mode', 'auto', '--settings', BG_SETTINGS,
-    `/kickflip --name 'Bob'\\''s audit' --template board --items data/wave.json --description 'Review $HOME changes'`] }]);
+    `/kickflip --name 'Bob'\\''s audit' --template board --items data/items.json --description 'Review $HOME changes'`] }]);
   const rec = readManifest().starting['bob-s-audit'];
   assert.equal(started.session, rec.session);
   assert.ok(fs.existsSync(path.join(sessionsDir, `${rec.session}.json`)));
@@ -118,7 +118,7 @@ test('concurrent boards share one clone without switching its branch and need no
   await Promise.all(requests.map((r) => r.started));
   assert.equal(cloneCalls.length - before, 1);
   assert.deepEqual(calls.map((c) => c.cwd), [path.join(base, 'owner/shared'), path.join(base, 'owner/shared')]);
-  assert.equal(calls[0].argv.at(-1), "/kickflip --name 'Shared 0' --template board --items data/wave.json");
+  assert.equal(calls[0].argv.at(-1), "/kickflip --name 'Shared 0' --template board --items data/items.json");
   assert.deepEqual(Object.values(readManifest().starting).map((r) => r.branch), ['main', 'develop']);
   const another = await requestBoard(input('Shared again', 'owner/shared'), { run, live, repos });
   assert.ok((await another.started).session);
@@ -227,7 +227,7 @@ test('Retry starts a failed start again from its record, stopping a timed-out st
   assert.deepEqual(changes, ['retry-me']);
   assert.deepEqual(stops, []);
   assert.deepEqual(working.calls, [{ cwd: repo, argv: broken.calls[0].argv }]);
-  assert.equal(working.calls[0].argv.at(-1), "/kickflip --name 'Retry me' --template board --items data/wave.json --description 'Try it again'");
+  assert.equal(working.calls[0].argv.at(-1), "/kickflip --name 'Retry me' --template board --items data/items.json --description 'Try it again'");
   const started = readManifest().starting['retry-me'];
   assert.deepEqual([started.session, started.error], [session, undefined]);
 
@@ -443,11 +443,11 @@ test('branches come from paginated gh api with the actual default and reject bad
 });
 
 test('PR polling takes github ahead of a wave repo or the legacy default', () => {
-  const waves = [{ slug: 'w', wave: { items: [{ id: 'A1', pr: 1 }] } }, { slug: 'x', wave: { repo: 'old/repo', items: [{ id: 'A2', pr: 2 }] } }];
+  const waves = [{ slug: 'w', itemFile: { items: [{ id: 'A1', pr: 1 }] } }, { slug: 'x', itemFile: { repo: 'old/repo', items: [{ id: 'A2', pr: 2 }] } }];
   assert.deepEqual(prsOf(waves, 'new/project').map((p) => p.repo), ['new/project', 'new/project']);
   fs.mkdirSync(dir, { recursive: true });
   saveJSON(path.join(dir, 'board.json'), { items: 'items.json' });
-  saveJSON(path.join(dir, 'items.json'), waves[1].wave);
+  saveJSON(path.join(dir, 'items.json'), waves[1].itemFile);
   const registry = listBoards({ sites: { one: { ...board, github: 'new/project', branch: 'develop' } } });
   assert.deepEqual([registry[0].github, registry[0].branch, registry[0].prs[0].repo], ['new/project', 'develop', 'new/project']);
 });
@@ -506,10 +506,10 @@ test('join transfers the reserved repo and branch before or after the start resu
       const result = spawnSync(process.execPath, [bin, 'join', '--name', route, '--session', 'joined-id', '--port', '4613', ...args], { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
       assert.equal(result.status, 0, result.stderr);
     };
-    run(['--template', 'board', '--items', 'data/wave.json', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);
+    run(['--template', 'board', '--items', 'data/items.json', '--cmd', JSON.stringify(board.cmd), '--repo', clone]);
     const siteDir = readManifest().sites[route].dir;
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'board.json'))).tickets, { source: 'internal', prefix: 'OPS' });
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'data', 'wave.json'))).items.map((i) => i.ticket), ['OPS-1', 'OPS-2']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(siteDir, 'data', 'items.json'))).items.map((i) => i.ticket), ['OPS-1', 'OPS-2']);
     assert.deepEqual(boardRepo(route), { github: 'owner/project', branch: 'develop', repo: clone });
     assert.deepEqual(Object.keys(readManifest().starting), [route], 'the joined record stays until the board listens');
     assert.ok(readManifest().starting[route].joined_at);
@@ -534,7 +534,7 @@ test('a New board on another git host reserves remote and no github, refuses Git
   assert.ok((await request.started).session);
   assert.deepEqual(ensured, [[link, 'main']]);
   const bin = fileURLToPath(new URL('../bin/kickflip.mjs', import.meta.url));
-  const joined = spawnSync(process.execPath, [bin, 'join', '--name', 'firmware', '--session', readManifest().starting.firmware.session, '--port', '4614', '--template', 'board', '--items', 'data/wave.json', '--cmd', JSON.stringify(board.cmd)],
+  const joined = spawnSync(process.execPath, [bin, 'join', '--name', 'firmware', '--session', readManifest().starting.firmware.session, '--port', '4614', '--template', 'board', '--items', 'data/items.json', '--cmd', JSON.stringify(board.cmd)],
     { encoding: 'utf8', env: { ...process.env, KICKFLIP_HUB_PORT: '1' } });
   assert.equal(joined.status, 0, joined.stderr);
   assert.deepEqual(boardRepo('firmware'), { github: '', remote: link, branch: 'main', repo: clone });

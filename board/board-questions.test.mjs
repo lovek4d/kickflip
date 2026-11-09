@@ -86,7 +86,7 @@ test('prototype add refuses a bad topic, key or label, no takes, a repeated key,
     [['t', '--take', 'A: '], '--take A\'s label must be non-empty text'],
     [['t'], 'prototype add needs a --take KEY:"Label" for each take'],
     [['t', '--take', 'A:Keep', '--take', 'A:Drop'], '--take A is given twice'],
-    [['t', '--take', 'A:Keep', '--card', 'w/Z9'], 'wave "w" has no item "Z9"'],
+    [['t', '--take', 'A:Keep', '--card', 'w/Z9'], 'item file "w" has no item "Z9"'],
     [['taken', '--take', 'A:Keep'], 'prototype taken is already recorded; run prototype rm taken first, or pick another topic'],
     [['old', '--take', 'A:Keep'], 'public/prototype-old.html is a hand-written page that questions may link; pick another topic'],
   ];

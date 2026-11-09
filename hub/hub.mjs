@@ -100,7 +100,7 @@
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`kickflip poll-now`)
-//   /_hub/build       POST {route, key}, key <wave>/<id> or main (retry failed tip), loopback only:
+//   /_hub/build       POST {route, key}, key <file>/<id> or main (retry failed tip), loopback only:
 //                     runs <worktree>/.kickflip/build[-<board's build target>] <key> <worktree>
 //                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs)
 //   /_hub/pull        POST {route}, loopback only: Main's refresh icon on a local board. Fast-forwards the board's
@@ -144,7 +144,8 @@
 // After each poll it records when each board's hub links first failed (boards.mjs recordLinkFaults). As it starts it
 // records the hash of its own code (boards.mjs recordHubCode), so the hub link (boards.mjs hubLink) can tell when the
 // files changed under it (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md), and makes a hub board that
-// built on the kickflip clone a local board of its folder, once (board-repo.mjs migrateHubBoard).
+// built on the kickflip clone a local board of its folder, once (board-repo.mjs migrateHubBoard). Once, before any board
+// starts, it renames every board's lineups to waves and its wave file to its item file (board/store.mjs migrateWaveNames).
 // Every 15 seconds it counts each board's watched lines, and resumes the recorded session of a board that got an event
 // while that session wasn't running, and pushes once when that doesn't bring it back (sessions.mjs checkSessions;
 // docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md). A tap on an asleep board's page wakes it at once
@@ -203,7 +204,7 @@ import { BuildError, startBuild, stopTries, endUnsharedTries, tryTick, initializ
 import { serveFiles } from './files.mjs';
 import { upgrader, CHECK_MS } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
-import { fallBackFromLinear, openBoardBuilders } from '../board/store.mjs';
+import { fallBackFromLinear, migrateWaveNames, openBoardBuilders } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
@@ -232,6 +233,7 @@ for (const d of [HOME, LOGS, RUN]) fs.mkdirSync(d, { recursive: true });
 try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.length} files)`); } catch (e) { log('could not record the hub code hash:', e.message); }
 try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
 try { const route = await migrateHubBoard(); if (route) log(`manifest: /${route}, the hub board, builds from its own folder's local main`); } catch (e) { log('hub board migration failed:', e.message); }
+try { const routes = await migrateWaveNames(); if (routes.length) log(`boards: lineups renamed to waves and wave files to item files on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('wave name migration failed:', e.message); }
 const repos = repoService();
 const readUsage = usageReader();
 const awake = caffeinate({ log });

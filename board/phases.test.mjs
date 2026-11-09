@@ -7,7 +7,7 @@ import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
 import { moveCard, migratePhases } from './store.mjs';
 import { buildBoard, movesOf, PHASES } from './domain.mjs';
 
-const auditItem = (id = 'A1') => read(site('audit', 'data', 'wave.json')).items.find((i) => i.id === id);
+const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
 const auditThread = (id = 'A1') => { try { return lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)); } catch { return []; } };
 const moveLines = (id) => auditThread(id).filter((m) => m.kind === 'move').map((m) => m.text);
 
@@ -57,7 +57,7 @@ test('moveCard writes the lane and its phase together; a phase change inside a l
 });
 
 test("the store's own moves write the phase: a build's start reads reading, a block that leaves it in place, a close merged or closed", () => {
-  write(site('audit', 'data', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'Two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'Four', lane: 'progress', phase: 'testing' }] });
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'Two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'Four', lane: 'progress', phase: 'testing' }] });
   assert.equal(board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude').code, 0);
   assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'reading']);
   write(site('audit', 'data', 'agents', 'A4.json'), { kind: 'claude', started: '2026-11-04T09:00:00Z', done: '2026-11-04T10:00:00Z', handed_back: '2026-11-04T10:00:00Z' });
@@ -69,14 +69,14 @@ test("the store's own moves write the phase: a build's start reads reading, a bl
 });
 
 test('a merge closes the card merged', async () => {
-  write(site('audit', 'data', 'wave.json'), { ...wave(), items: [{ id: 'A3', title: 'Three', lane: 'review', phase: 'reviewers', prs: [{ number: 5 }] }] });
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'A3', title: 'Three', lane: 'review', phase: 'reviewers', prs: [{ number: 5 }] }] });
   const { setItem } = await import('./store.mjs');
   await setItem(site('audit'), 'audit/A3', { merged: [{ number: 5 }], force: true });
   assert.deepEqual([auditItem('A3').lane, auditItem('A3').phase], ['done', 'merged']);
 });
 
 test("the phase migration renames each card's state to phase and gives a Done card merged or closed, in the wave files and the archive", async () => {
-  write(site('audit', 'data', 'wave.json'), { ...wave(), items: [
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [
     { id: 'T1', title: 'Todo', lane: 'todo', state: 'staging' },
     { id: 'T2', title: 'New', lane: 'todo' },
     { id: 'M1', title: 'Merged PR', lane: 'done', state: 'ready', prs: [{ number: 5, merged_at: '2026-11-01T09:00:00Z' }] },
@@ -88,7 +88,7 @@ test("the phase migration renames each card's state to phase and gives a Done ca
   write(site('audit', 'data', 'done-archive.json'), { cards: [{ key: 'audit/Z1', closed_at: '2026-10-01T00:00:00Z', item: { id: 'Z1', title: 'Old', lane: 'done', state: 'ready', prs: [{ number: 2, merged_at: '2026-10-01T00:00:00Z' }] } }] });
   const said = await migratePhases(site('audit'));
   assert.equal(said.length, 2);
-  const items = Object.fromEntries(read(site('audit', 'data', 'wave.json')).items.map((i) => [i.id, i]));
+  const items = Object.fromEntries(read(site('audit', 'data', 'items.json')).items.map((i) => [i.id, i]));
   assert.deepEqual(Object.fromEntries(Object.entries(items).map(([id, i]) => [id, [i.phase, 'state' in i]])), {
     T1: ['staging', false], T2: [undefined, false], M1: ['merged', false], X1: ['closed', false], L1: ['merged', false], D1: ['closed', false],
   });
@@ -96,7 +96,7 @@ test("the phase migration renames each card's state to phase and gives a Done ca
   assert.deepEqual(await migratePhases(site('audit')), []);
 });
 
-const built = (items, agents = {}, prs = {}, extra = {}) => buildBoard({ fromWaves: true, waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items } }], prs, owner: {}, events: [], ...extra });
+const built = (items, agents = {}, prs = {}, extra = {}) => buildBoard({ fromWaves: true, files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items } }], prs, owner: {}, events: [], ...extra });
 const phases = (b) => Object.fromEntries(b.items.filter((i) => i.kind === 'work').map((i) => [i.id, [i.lane, i.phase]]));
 const pr = (extra = {}) => ({ state: 'OPEN', isDraft: false, checks: { state: 'pass' }, reviews: {}, ...extra });
 
@@ -186,11 +186,11 @@ test('each phase tone takes its colour from shared/colors.css', () => {
   }
 });
 
-test('a lineup takes its wave steps with --step, and refuses --phase naming --step', () => {
+test('a wave takes its steps with --step, and refuses --phase naming --step', () => {
   write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }] });
-  const refused = board('lineup', 'create', 'l1', '--site', 'orch', '--title', 'L', '--goal', 'G', '--phase', 'w/A1', '--note', 'n');
+  const refused = board('wave', 'create', 'l1', '--site', 'orch', '--title', 'L', '--goal', 'G', '--phase', 'w/A1', '--note', 'n');
   assert.equal(refused.code, 1);
   assert.match(refused.err, /^--phase is now --step/);
-  const made = board('lineup', 'create', 'l1', '--site', 'orch', '--title', 'L', '--goal', 'G', '--step', 'w/A1', '--step', 'w/A2', '--note', 'n');
+  const made = board('wave', 'create', 'l1', '--site', 'orch', '--title', 'L', '--goal', 'G', '--step', 'w/A1', '--step', 'w/A2', '--note', 'n');
   assert.equal(made.code, 0, made.err);
 });

@@ -879,7 +879,7 @@ test('Board Settings warns about active work, requires the exact board name and 
   const posts = [];
   let answer;
   let sidebarChanges = 0;
-  const closure = { title: 'The Shop', hub: false, prs: [{ pr: 42, repo: 'o/r', wave: 'shop', id: 'S1' }], builders: [{ label: 'Codex builder', key: 'shop/S1' }] };
+  const closure = { title: 'The Shop', hub: false, prs: [{ pr: 42, repo: 'o/r', file: 'shop', id: 'S1' }], builders: [{ label: 'Codex builder', key: 'shop/S1' }] };
   page.win.fetch = async (url, opts = {}) => {
     if (opts.method === 'POST') {
       posts.push([url, JSON.parse(opts.body), opts.headers['content-type']]);
@@ -1241,7 +1241,7 @@ test("a board view keeps the board and its change number in IndexedDB, and the n
   page.win.indexedDB = idb;
   const site = 'https://mac.ts.net/board-a';
   const asked = [];
-  const board = { title: 'A', version: 1762400000005, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 1762400000005 }], waves: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  const board = { title: 'A', version: 1762400000005, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 1762400000005 }], files: [], needs: [], answers: [], owner: [], ownerTopics: [] };
   page.win.fetch = async (url) => { asked.push(url); return { ok: true, status: 200, json: async () => board }; };
   const left = page.win.BoardView.create(new page.El(), site);
   left.mount();
@@ -1278,7 +1278,7 @@ test("a board view keeps the board and its change number in IndexedDB, and the n
 test("with no copy to show, a board out of reach shows the landing for its state, retries every 5 s while it can come back, and the board takes its place once it answers", async () => {
   const page = fakePage(memoryStorage().localStorage);
   page.win.indexedDB = memoryIndexedDB();
-  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], waves: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], files: [], needs: [], answers: [], owner: [], ownerTopics: [] };
   let answer = { ok: false, status: 502, headers: new Headers({ 'x-kickflip-down': 'stopped' }), json: async () => { throw new Error('html'); } };
   const asked = [];
   page.win.fetch = async (url) => { asked.push(url); return answer; };
@@ -1307,7 +1307,7 @@ test("with no copy to show, a board out of reach shows the landing for its state
 
 test("out of reach with nothing on screen, the board paints the copy another build saved and asks for the whole board once it answers; a copy whose paint throws leaves the landing", async () => {
   const site = 'https://mac.ts.net/board-a';
-  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], waves: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], files: [], needs: [], answers: [], owner: [], ownerTopics: [] };
   for (const saved of [board, { ...board, items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7, prs: 'not a list' }] }]) {
     const page = fakePage(memoryStorage().localStorage);
     const idb = memoryIndexedDB();
@@ -1371,7 +1371,7 @@ test("out of reach, Notes show their last answer here under its copy line, or wi
 test("out of reach, Waiting on you paints the board's copy with its sending buttons held, or with none the landing", async () => {
   const site = 'https://mac.ts.net/board-a';
   const q = { id: 'q1', topic: 't1', state: 'open', title: 'Which look?', options: [{ id: 'a', label: 'A' }], answers: [], source: 'w/A1' };
-  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [], waves: [], needs: [], answers: [], owner: [q],
+  const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [], files: [], needs: [], answers: [], owner: [q],
     ownerTopics: [{ id: 't1', title: 'Look', state: 'open', questions: ['q1'], open: 1, answered: 0, resolved: 0 }] };
   for (const saved of [true, false]) {
     const page = fakePage(memoryStorage().localStorage);
@@ -2806,8 +2806,8 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
   return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, patched, server, storage, doc: page.win.document };
 }
 const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [], ask: { askedAt: '2026-10-30T09:00:00.000Z' } });
-const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, waves: [], needs: [], answers: [], doneArchived: 0 });
-const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, waveTitle: 'W', deps: [], manualSteps: [], othersAt: [], ...extra });
+const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, files: [], needs: [], answers: [], doneArchived: 0 });
+const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], othersAt: [], ...extra });
 
 // docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md
 test("the board reloads naming the version it shows, so an unchanged board downloads nothing, and a tap's own change signal finds the POST's board current: one tap, one download", async () => {
@@ -3390,7 +3390,7 @@ const boardGets = (b) => b.gets.filter((p) => p.endsWith('/api/board')).length;
 const waitState = (el) => [el.disabled, el.classList.contains('tap-waiting'), el.getAttribute('aria-busy')];
 const WAITING = [true, true, 'true'];
 const IDLE = [false, false, null];
-const REFUSED = 'Couldn’t write t/T1 to its wave file: EACCES: permission denied';
+const REFUSED = 'Couldn’t write t/T1 to its item file: EACCES: permission denied';
 
 test("waitOn keeps a button waiting through a repaint that replaces it, found again by its data attributes, and settling gives it back the disabled state of its latest markup", async () => {
   const page = fakePage(memoryStorage().localStorage);
@@ -3562,7 +3562,7 @@ test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their bu
     assert.deepEqual(waitState(button(key, act)), [false, false, null], act);
   }
   assert.equal(b.root.querySelectorAll('.toast').length >= 1, true);
-  assert.match(b.root.textContent, /Couldn’t write t\/T1 to its wave file/);
+  assert.match(b.root.textContent, /Couldn’t write t\/T1 to its item file/);
 
   b.page.fire(b.root, 'click', { target: button('w/T1', 'hold') });
   b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
@@ -3834,7 +3834,7 @@ test("every owner action kind the board derives makes exactly one of the open ca
     fromWaves: false, now: Date.parse('2026-10-30T10:00:00Z'),
     prs: { 'o/r#1': draft, 'o/r#2': approved, 'o/r#3': approved },
     owner: { items: [question('P', 'prototype-x.html?q=qP'), question('Q')] },
-    waves: [{ slug: 'w', wave: { repo: 'o/r', items: [
+    files: [{ slug: 'w', itemFile: { repo: 'o/r', items: [
       { id: 'P', title: 'Pick' }, { id: 'Q', title: 'Questions' }, { id: 'R', title: 'Ready', pr: 1 },
       { id: 'S', title: 'Steps', pr: 2, manual_steps: ['Run the backfill'] }, { id: 'M', title: 'Merge', pr: 3 }, { id: 'G', title: 'Grill' },
       { id: 'X', title: 'Stalled', lane: 'progress', stalled: { reason: 'Crashed twice', at: '2026-10-30T09:00:00Z' } },
@@ -4957,7 +4957,7 @@ test("Todo has no Queued section: its cards show in the server's order, a bumped
 // docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
 test("a phased wave's band numbers each card by its phase, so one phase's cards share a step, and its Implement starts the phase's first ready card", async () => {
   const keys = ['w/P1', 'w/P2', 'w/P3', 'w/P4'];
-  const band = (next) => ({ kind: 'lineup', slug: 'ph', title: 'Phased', goal: 'G', keys, phases: [['w/P1'], ['w/P2', 'w/P3'], ['w/P4']], next, merged: 1, total: 4, triage: { running: false, questions: 0 } });
+  const band = (next) => ({ kind: 'wave', slug: 'ph', title: 'Phased', goal: 'G', keys, phases: [['w/P1'], ['w/P2', 'w/P3'], ['w/P4']], next, merged: 1, total: 4, triage: { running: false, questions: 0 } });
   const cards = (p2 = {}) => [workCard('P1', { lane: 'done' }), workCard('P2', { ready: true, buildable: true, ...p2 }), workCard('P3', { ready: true, buildable: true }), workCard('P4', { blockedBy: [{ key: 'w/P2', ref: 'P2' }, { key: 'w/P3', ref: 'P3' }] })];
   const b = boardOnDom({ board: { ...boardOf(cards()), waveBands: [band({ key: 'w/P2', ref: 'P2', ready: true, word: 'ready' })] }, threads: {}, confirm: true });
   await b.settle();
@@ -4974,16 +4974,16 @@ test("a phased wave's band numbers each card by its phase, so one phase's cards 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
 test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, Implement or what the next card waits on, Notes and Triage in its head, its Todo cards in order with step numbers and its done ones one line", async () => {
   const idle = { running: false, questions: 0 };
-  const band = (slug, title, keys, next, extra = {}) => ({ kind: 'lineup', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), phases: keys.map((id) => [`w/${id}`]), next, merged: 1, total: keys.length, triage: idle, ...extra });
+  const band = (slug, title, keys, next, extra = {}) => ({ kind: 'wave', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), phases: keys.map((id) => [`w/${id}`]), next, merged: 1, total: keys.length, triage: idle, ...extra });
   const cards = [workCard('A3'), workCard('A2', { blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A5'), workCard('A6', { ready: true, buildable: true }), workCard('A7'), workCard('A4'),
     workCard('A8', { lane: 'progress' }), workCard('A1', { lane: 'done' })];
   const bands = (mon = idle, pilot = idle) => [
     band('mon', 'Monitor', ['A1', 'A2', 'A8', 'A5'], { key: 'w/A2', ref: 'A2', ready: false, word: 'waits on A9' }, { triage: mon }),
     band('go', 'Go', ['A6', 'A7'], { key: 'w/A6', ref: 'A6', ready: true, word: 'ready' }, { merged: 0 }),
-    { kind: 'wave', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], phases: null, next: null, merged: 0, total: 1, triage: pilot },
+    { kind: 'file', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], phases: null, next: null, merged: 0, total: 1, triage: pilot },
   ];
   let moving = null;
-  const send = (kind, data, server) => (kind === 'lineup-move' ? new Promise((resolve) => { moving = () => resolve({ id: null, board: structuredClone(server.board) }); }) : { id: 'e1', board: structuredClone(server.board) });
+  const send = (kind, data, server) => (kind === 'wave-move' ? new Promise((resolve) => { moving = () => resolve({ id: null, board: structuredClone(server.board) }); }) : { id: 'e1', board: structuredClone(server.board) });
   const b = boardOnDom({ board: { ...boardOf(cards), waveBands: bands() }, threads: {}, confirm: true, send });
   await b.settle();
   assert.equal(b.root.querySelector('#waves'), null);
@@ -5042,7 +5042,7 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.deepEqual(items(), [['↑ Move up', true], ['↓ Move down', false]]);
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.wb-menu button[data-band-move="1"]') });
   await b.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['lineup-move', { lineup: 'go', key: 'w/A6', by: 1 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['wave-move', { wave: 'go', key: 'w/A6', by: 1 }]);
   assert.deepEqual(items(), [['↑ Move up', true], ['↓ Move down', true]]);
   assert.deepEqual(b.root.querySelectorAll('.wb-menu button').map((x) => x.getAttribute('aria-busy')), [null, 'true'], 'the tapped move waits with its label kept behind the spinner');
   b.server.board = { ...b.server.board, waveBands: bands().map((x) => (x.slug === 'go' ? { ...x, keys: ['w/A7', 'w/A6'], phases: [['w/A7'], ['w/A6']] } : x)) };
@@ -5070,7 +5070,7 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
 
   b.page.fire(b.root, 'click', { target: head('mon') });
   await b.settle();
-  const needs = [{ kind: 'Question', title: 'Monitor', text: 'Monitor · 2 questions', url: 'questions.html#q1', topic: 'lineup:mon', band: 'mon', questions: { open: 2, url: 'questions.html#q1' } }];
+  const needs = [{ kind: 'Question', title: 'Monitor', text: 'Monitor · 2 questions', url: 'questions.html#q1', topic: 'wave:mon', band: 'mon', questions: { open: 2, url: 'questions.html#q1' } }];
   await b.change({ board: { ...b.server.board, needs } });
   assert.equal(head('mon').getAttribute('aria-expanded'), 'false');
   b.page.fire(b.root, 'click', { target: b.root.querySelector('#waiting a[data-band-show]') });
@@ -5183,7 +5183,7 @@ test('past the 100 Done cards the board carries, Show more fetches the next 100 
 test('a slim Done card draws as the whole card does, closed and open', async () => {
   const t = (m) => `2026-11-04T0${m}:00:00.000Z`;
   const built = buildBoard({
-    waves: [{ slug: 'w', agents: { A1: { main: { kind: 'claude', started: t(1), done: t(2) } } }, wave: { title: 'W', repo: 'o/r', items: [
+    files: [{ slug: 'w', agents: { A1: { main: { kind: 'claude', started: t(1), done: t(2) } } }, itemFile: { title: 'W', repo: 'o/r', items: [
       { id: 'A1', title: 'Merged', lane: 'done', lane_at: t(3), closed_at: t(3), prs: [{ number: 7, merged_at: t(3) }], branch: 'a1', plan: 'a1.md', manual_steps: ['Restart the hub'], parent: 'A2', related: ['A3'] },
       { id: 'A2', title: 'Parent', lane: 'done', lane_at: t(4), closed_at: t(4), notes: 'Why' },
       { id: 'A3', title: 'Dropped', lane: 'done', lane_at: t(5), closed_at: t(5) },
@@ -5622,7 +5622,7 @@ test("a Permissions switch keeps its spinner past the server's answer until the 
 // docs/adr/2026-11-05-0215-every-lane-groups-its-cards-by-wave.md
 test("every lane groups its cards under wave headers, none for a wave with no cards there, cards in no wave last under No wave, each header counting the wave across all lanes with its own lane bold", async () => {
   const idle = { running: false, questions: 0 };
-  const band = (slug, title, ids) => ({ kind: 'lineup', slug, title, goal: null, keys: ids.map((id) => `w/${id}`), phases: ids.map((id) => [`w/${id}`]), next: null, merged: 0, total: ids.length, triage: idle });
+  const band = (slug, title, ids) => ({ kind: 'wave', slug, title, goal: null, keys: ids.map((id) => `w/${id}`), phases: ids.map((id) => [`w/${id}`]), next: null, merged: 0, total: ids.length, triage: idle });
   const cards = [workCard('A1', { lane: 'done' }), workCard('A2', { lane: 'progress' }), workCard('A3'), workCard('A4'),
     workCard('B1', { lane: 'review' }), workCard('B2', { lane: 'done' }), workCard('L1', { lane: 'progress' }), workCard('L2', { lane: 'done' })];
   const b = boardOnDom({ board: { ...boardOf(cards), waveBands: [band('a', 'Alpha', ['A1', 'A2', 'A3', 'A4']), band('b', 'Beta', ['B1', 'B2'])] }, threads: {} });
@@ -5855,8 +5855,8 @@ test("on a phone the board header's ? carries the open-question count as a badge
 
 test("on a desktop, tapping a pill twice in the pane opens that topic's card on the board and scrolls to it, a wave topic opens its band, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
   const idle = { running: false, questions: 0 };
-  const band = { kind: 'lineup', slug: 'alpha', title: 'Alpha', goal: null, keys: ['w/T1'], phases: [['w/T1']], next: null, merged: 0, total: 1, triage: idle };
-  const board = { ...deckBoard([deckQuestion('q1', 'item:w/T1'), deckQuestion('q2', 'wave:alpha'), deckQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')], waveBands: [band] };
+  const band = { kind: 'wave', slug: 'alpha', title: 'Alpha', goal: null, keys: ['w/T1'], phases: [['w/T1']], next: null, merged: 0, total: 1, triage: idle };
+  const board = { ...deckBoard([deckQuestion('q1', 'item:w/T1'), deckQuestion('q2', 'file:alpha'), deckQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')], waveBands: [band] };
   const wide = boardOnDom({ board, threads: {}, width: 1280 });
   await wide.settle();
   const scrolled = [];
@@ -5865,7 +5865,7 @@ test("on a desktop, tapping a pill twice in the pane opens that topic's card on 
   await dbl('item:w/T1');
   assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1', true, 'w/T1'], 'a card topic opens its card');
   scrolled.length = 0;
-  await dbl('wave:alpha');
+  await dbl('file:alpha');
   assert.deepEqual(scrolled, ['alpha'], 'a wave topic scrolls to its band');
   scrolled.length = 0;
   await dbl('item:w/T9');

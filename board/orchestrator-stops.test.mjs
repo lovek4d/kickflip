@@ -206,7 +206,7 @@ test('one function words every stop, and a stopped build reads it as its status,
   const stop = '2026-11-05T10:20:00.000Z';
   const card = (record, alive = { 'w/A1': true }) => buildBoard({
     fromWaves: true, now: Date.parse('2026-11-05T10:21:00.000Z'), alive,
-    waves: [{ slug: 'w', agents: { A1: { main: record } }, wave: { items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }],
+    files: [{ slug: 'w', agents: { A1: { main: record } }, itemFile: { items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }],
   }).items[0];
   const stopped = card({ kind: 'claude', started, stopped: { run: 'build', at: stop } });
   assert.deepEqual([stopped.lane, stopped.builder.stopped, stopped.builder.alive, stopped.builder.stale, stopped.builder.silentSince], ['progress', 'build stopped by orchestrator', false, true, stop]);
@@ -219,7 +219,7 @@ test('one function words every stop, and a stopped build reads it as its status,
 test("a held card's stopped land reads land stopped by orchestrator in In Review until the next Merge tap", () => {
   const card = (merge_ready) => buildBoard({
     fromWaves: true, branch: 'main',
-    waves: [{ slug: 'w', agents: {}, wave: { items: [{ id: 'A1', title: 'One', branch: 'A1', merge_ready }] } }],
+    files: [{ slug: 'w', agents: {}, itemFile: { items: [{ id: 'A1', title: 'One', branch: 'A1', merge_ready }] } }],
     threads: { 'w/A1': [{ ts: '2026-11-05T11:01:00.000Z', who: 'claude', text: 'land stopped by orchestrator' }] },
   }).items[0];
   const stopped = card({ branch: 'A1', at: '2026-11-05T10:00:00.000Z', tapped: '2026-11-05T11:00:00.000Z', stopped: '2026-11-05T11:01:00.000Z' });

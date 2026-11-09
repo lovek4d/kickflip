@@ -228,7 +228,7 @@
     if (it.builder.stopped) return `<div class="${classes}">${esc(builderLine(it.builder))}</div>`;
     return `<div class="${classes}">${quiet ? '' : DOT}${esc(builderLine(it.builder))}</div>`;
   }
-  // The open card's Status row: what runs on the card, else where its lane leaves it, never the wave file's raw status
+  // The open card's Status row: what runs on the card, else where its lane leaves it, never the item file's raw status
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
   function statusWord(it) {
     const b = it.builder;

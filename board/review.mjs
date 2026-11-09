@@ -32,10 +32,10 @@ export function prLinks(record = {}, prs = []) {
 
 // First source wins per reviewer: the card's PR links, then the older per-card records; a legacy list records sending
 // without a known time.
-export function reviewLinks(wave, item, key, topics = {}, fromPRs = {}) {
+export function reviewLinks(itemFile, item, key, topics = {}, fromPRs = {}) {
   const links = Object.create(null);
   const sources = [fromPRs, item?.review_link_ts, item?.review_sent,
-    routeRecord(wave?.review_link_ts, storedPRs(item)[0]?.number), routeRecord(wave?.review_link_ts, key),
+    routeRecord(itemFile?.review_link_ts, storedPRs(item)[0]?.number), routeRecord(itemFile?.review_link_ts, key),
     routeRecord(topics, key)?.review_link_ts];
   for (const source of sources) {
     for (const [name, value] of Array.isArray(source) ? source.map((name) => [name, null]) : Object.entries(source || {})) {
@@ -53,6 +53,6 @@ export const reviewTime = (ts) => {
   return Number.isFinite(ms) && !Number.isNaN(new Date(ms).getTime()) ? new Date(ms).toISOString() : null;
 };
 
-export function reviewersOf(wave, board = []) {
-  return [...new Map([...board, ...(wave.reviewers || [])].map((r) => [r.name, r])).values()];
+export function reviewersOf(itemFile, board = []) {
+  return [...new Map([...board, ...(itemFile.reviewers || [])].map((r) => [r.name, r])).values()];
 }

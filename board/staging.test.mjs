@@ -135,13 +135,13 @@ test('a question added on a staging or ready card moves it to grilling, where it
 
 test('an Implement message waiting from before staging becomes staging, keeping its time; one already ready stays ready', async () => {
   const { stageImplementAsks } = await import('./store.mjs');
-  write(site('audit', 'data', 'wave.json'), { items: [
+  write(site('audit', 'data', 'items.json'), { items: [
     { id: 'A1', title: 'Asked', phase: 'grilling', implement_at: '2026-11-05T10:00:00.000Z' },
     { id: 'A2', title: 'Released', phase: 'ready', implement_at: '2026-11-05T11:00:00.000Z' },
     { id: 'A3', title: 'Plain', phase: 'ready' },
   ] });
   assert.deepEqual(await stageImplementAsks(site('audit')), ['audit: 2 Implement asks moved to staging or ready']);
-  assert.deepEqual(read(site('audit', 'data', 'wave.json')).items, [
+  assert.deepEqual(read(site('audit', 'data', 'items.json')).items, [
     { id: 'A1', title: 'Asked', phase: 'staging', staged_at: '2026-11-05T10:00:00.000Z' },
     { id: 'A2', title: 'Released', phase: 'ready' },
     { id: 'A3', title: 'Plain', phase: 'ready' },

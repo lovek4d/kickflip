@@ -19,7 +19,7 @@ import { prototypeBase } from '../prototype-base.mjs';
 export const USAGE = `usage: node board.mjs <command> [--site <route>] ...
 
 Writes a kickflip board's data files. --site <route> picks ~/.claude/kickflip/sites/<route>, and its
-board.json says where the board's waves live. Without --site, waves come from ~/.claude/waves.
+board.json says where the board's item files live. Without --site, they come from ~/.claude/waves.
 Paths resolve under $HOME, so HOME=<dir> points every command at a copy.
 A --file argument of - reads stdin.
 item add creates a ticket in the board’s source unless --ticket <id> links one.
@@ -40,19 +40,19 @@ command fails and changes nothing.
          [--title <t>]                                   retitles the ask it answers, or whose thread the message
                                                          is in, which then wears an Ask badge in place of its first
                                                          line as title (data/ask-titles.json)
-  thread <wave>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
-         [--who claude|love|<name>] [--via github|slack] of <wave>/<id> writes in that ask's thread
+  thread <file>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
+         [--who claude|love|<name>] [--via github|slack] of <file>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
-         queued push (tag ask-<eventId> or item-<wave>/<id>) to the message's first line, keeping
+         queued push (tag ask-<eventId> or item-<file>/<id>) to the message's first line, keeping
          "· and N replies", and prints the new body. It never pushes: the thread's unread mark carries it
-  visual add <wave>/<id> --file <page.html> --title <t>  a visual agent's page: copied to public/visuals/<id>/<slug>.html
+  visual add <file>/<id> --file <page.html> --title <t>  a visual agent's page: copied to public/visuals/<id>/<slug>.html
                                                          (a new name each time), linked by a visual line in the
                                                          item's thread; prints the page's link
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, prototype_gate?}; topic is declared, item:<wave>/<id>, item:ask:<eventId>
-          for a New card not sorted yet, lineup:<slug> for a wave's triage, or wave:<slug> for a wave file's triage on
+          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, prototype_gate?}; topic is declared, item:<file>/<id>, item:ask:<eventId>
+          for a New card not sorted yet, wave:<slug> for a wave's triage, or file:<slug> for an item file's triage on
           a board over ~/.claude/waves. A question on a done card reopens it.
          A question on an item: topic whose card has a grill or prototype planner running is staged, not published,
          whoever adds it: it shows nowhere until the planner finishes, fails or is stopped, when every staged question
@@ -83,7 +83,7 @@ command fails and changes nothing.
          (reask-request): it resolves that one again, noting "Asked again as <new id>", printed as "resolved: <old id>".
          ask names a builder ask the session deferred on the item (builder defer): the question puts it to the
          owner, and while a card's only open questions are such, it waits on them with no Action needed.
-         The board server pushes the new open questions itself, under the card's tag (item-<wave>/<id>, or
+         The board server pushes the new open questions itself, under the card's tag (item-<file>/<id>, or
          ask-<eventId>) or topic-<topic> off the cards
   question resolve <id> --note <text>                   sets resolved and resolved_at; refuses a question on a
          prototype page until an answer settles its round: a pick, with a note or none, or an answer to
@@ -93,14 +93,14 @@ command fails and changes nothing.
          (a screen wait), which the board already answers: it is published resolved "Settled by the
          orchestrator: <text>", and the answer goes into the card's notes. Refuses the prototype question,
          which is the owner's
-  question publish <wave>/<id>                          passes the rest of the card's screened questions on to the owner.
+  question publish <file>/<id>                          passes the rest of the card's screened questions on to the owner.
          The board server publishes any left unscreened 15 minutes on, with a thread line
-  question move <id>,<id>,… --to <wave>/<id> [--block <wave>/<id>,…]   merges open questions that ask one thing onto
+  question move <id>,<id>,… --to <file>/<id> [--block <file>/<id>,…]   merges open questions that ask one thing onto
          one card: the first id moves to that card (topic item:<card>), the others resolve "Duplicate of
          <card>'s question <first id>". Each --block card, in order, is blocked by the one before it (the
          first by --to) and related to --to
   prototype add <topic> --title <t> --take <K>:<label>   records a prototype in data/prototypes.json: the board
-         [--take <K>:<label> …] [--card <wave>/<id>]     serves prototype-<topic>.html from its one template, with
+         [--take <K>:<label> …] [--card <file>/<id>]     serves prototype-<topic>.html from its one template, with
                                                          the title, a back arrow to --card (else the board), the
                                                          take pill and a stage. topic: a-z, 0-9 and "-"; K: one
                                                          capital letter, in take order; a label never starts with
@@ -123,7 +123,7 @@ command fails and changes nothing.
   prototype list                                         one line per recorded prototype
   prototype rm <topic>                                   drops the record, keeping its take files; refuses while an
                                                          open question links it
-  pr <wave>/<id>                                         one JSON line per PR on the card, in its order: the PR's
+  pr <file>/<id>                                         one JSON line per PR on the card, in its order: the PR's
                                                          repo, state, checks and new events, using the board's
                                                          github-login and the card's gh_since
   pr comment <pr> --body <text>                          posts Claude's words on PR <pr> through gh, a number in the
@@ -133,7 +133,7 @@ command fails and changes nothing.
                                                          blank line and <!-- claude-bridge --> after, the marker pr
                                                          reads as Claude's own. Refuses words that already carry
                                                          either. Prints the post's url
-  item set <wave>/<id> [--done --text <t> [--force]]    edits the item in its wave file; --done closes the card
+  item set <file>/<id> [--done --text <t> [--force]]    edits the item in its item file; --done closes the card
                                                          (below). A card has no status: it stores its lane, which
                                                          a build's start, a handover, a block and a close move,
                                                          and the board server moves the rest, each with a thread
@@ -187,7 +187,7 @@ command fails and changes nothing.
          [--size small|large] [--model opus|sonnet]      what builder pick reads while the hub's Claude model is
                                                          Auto: a small card gets Claude Sonnet, any other Opus, and
                                                          --model wins over --size; "" clears either
-         [--deps <id>,<wave>/<id>]                       replaces its blocked-by list; --deps "" clears it
+         [--deps <id>,<file>/<id>]                       replaces its blocked-by list; --deps "" clears it
          [--blocked-until "<condition>"]                 blocks it until a condition an agent can check, which
                                                          the orchestrator checks on its passes over the cards;
                                                          --blocked-until "" clears it, which threads and emits
@@ -197,12 +197,12 @@ command fails and changes nothing.
                                                          A block on a card In Progress sends it back to Todo,
                                                          stopping its board-launched builder (refused for a
                                                          session's own builder); one In Review stays, unlanded
-         [--parent <wave>/<id>]                          sets its Parent, refusing itself or a card below it;
+         [--parent <file>/<id>]                          sets its Parent, refusing itself or a card below it;
                                                          --parent "" clears it
-         [--related <id>,<wave>/<id>]                    replaces the cards it is Related to, which both cards
+         [--related <id>,<file>/<id>]                    replaces the cards it is Related to, which both cards
                                                          show; --related "" clears it, on both
-         [--relate <id>,<wave>/<id>]                     adds cards to its Related to, keeping the rest
-         [--unrelate <id>,<wave>/<id>]                   takes cards off its Related to, on both cards; neither
+         [--relate <id>,<file>/<id>]                     adds cards to its Related to, keeping the rest
+         [--unrelate <id>,<file>/<id>]                   takes cards off its Related to, on both cards; neither
                                                          goes with --related
          [--install <url> [--install-sha <sha>]          a device build the owner installs from the card's Install
           [--install-label <text>] | --clear-install]    button, stamped built_at now: itms-services://?action=
@@ -221,27 +221,27 @@ command fails and changes nothing.
          --pr closes ordinary builders and moves the card to In Review; install builders keep running.
          A builder's hand-back of work it couldn't land (builder done with judgment calls) keeps the card
          In Progress, reading "Orchestrator review", until the owning session lands it; it unblocks nothing.
-         The board server records the owner's card-done in the wave file itself.
+         The board server records the owner's card-done in the item file itself.
          --done moves the card to Done and its ticket to Done: it resolves each of its questions (topic
-         item:<wave>/<id>) that has an answer, noting "Closed with the card", and prints "resolved: <id>"
+         item:<file>/<id>) that has an answer, noting "Closed with the card", and prints "resolved: <id>"
          for each. It refuses while one has no answer yet; [--force] closes it and resolves that one too.
-         It prints "unblocked: <wave>/<id>" and appends card-unblocked {key} once per unblocking,
+         It prints "unblocked: <file>/<id>" and appends card-unblocked {key} once per unblocking,
          including held cards: start each unheld card next. It refuses a card the owner reopened: it
          closes again only on the owner's Done
-  item add <wave>[/<id>] --title <t>                    a new card, unstarted; never
-         [--ticket <id>] [--deps <id>,<wave>/<id>]       hand-edit wave.json to add one. Refuses an id the wave has.
+  item add <file>[/<id>] --title <t>                    a new card, unstarted; never
+         [--ticket <id>] [--deps <id>,<file>/<id>]       hand-edit the item file to add one. Refuses an id the file has.
          [--notes <t> | --notes-from <draft.md>]         the board makes the card's own notes, <id>-notes.md beside
-                                                         its wave file, read-only: the draft verbatim, or "# <title>"
+                                                         its item file, read-only: the draft verbatim, or "# <title>"
                                                          then the --notes text. Refuses a draft that is any card's
                                                          notes file, live, done or archived, naming that card
          [--pick-up-at <time> | --held]                  holds it until then, or until resumed, as item set's
          [--size small|large] [--model opus|sonnet]      as item set's
-         [--parent <wave>/<id>]                          the card it was spun out of, such as one filed from
+         [--parent <file>/<id>]                          the card it was spun out of, such as one filed from
                                                          another card's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A card
                                                          from the + or New task has none
          [--phase grilling|prototyping|ready]            files it at once, as item set's --phase; the session's
-         [--relate <id>,<wave>/<id>]                     own form, linking it with --relate in the same call.
+         [--relate <id>,<file>/<id>]                     own form, linking it with --relate in the same call.
                                                          ready is for a Quick build ask (--from-ask), with --size
                                                          and --notes or --notes-from, since a builder starts from it
          [--from-ask <eventId> --text <t>]               files the card from that ask in this one command, as
@@ -251,8 +251,8 @@ command fails and changes nothing.
                                                          adds reads New
          Without /<id>, the card takes its ticket's id (GH-<n> for issue #n); pass an id only to import a
          card. Prints "<label> added as <key>": use the key in later commands
-  item notes <wave>/<id> --heading <h>                 appends "## <h>" and the draft to the card's notes, making
-         (--file <draft.md> | --from <wave>/<id>)        its <id>-notes.md when it has none; the only way to write
+  item notes <file>/<id> --heading <h>                 appends "## <h>" and the draft to the card's notes, making
+         (--file <draft.md> | --from <file>/<id>)        its <id>-notes.md when it has none; the only way to write
                                                          notes (--notes-file and --plan are gone). Write the draft
                                                          outside the board's data; one that is any card's notes
                                                          file, live, done or archived, is refused, naming that
@@ -261,7 +261,7 @@ command fails and changes nothing.
                                                          Resolves answered questions still waiting on Claude,
                                                          noting "Recorded in the card's notes", and prints
                                                          "resolved: <id>" for each
-  item relate-ask <eventId> <wave>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
+  item relate-ask <eventId> <file>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
                                                          card goes, its message and thread show in the item's
                                                          thread marked Moved, then the summary line. Again with
                                                          another item moves it there
@@ -281,47 +281,47 @@ command fails and changes nothing.
                                                          that isn't New
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
-  lineup create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards in
-         --step <wave>/<id>,… [--step …]                 steps, all from one wave file, one --step per step
+  wave create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards in
+         --step <file>/<id>,… [--step …]                 steps, all from one item file, one --step per step
          (--note <t> | --file <f>)                       in build order. Each card is then blocked by every card
                                                          of the step before (its other deps stay), so one
                                                          step's cards build side by side, and the note goes to
-                                                         lineup-<slug>.md beside the wave file.
+                                                         wave-<slug>.md beside the item file.
                                                          Todo shows it as a band of its cards in order, numbered
                                                          by step, its goal on its name, and Notes opens the
                                                          goal, the order and the note. Refuses a card already in
                                                          another open wave. Prints the order by card label, one
                                                          step's cards by commas and the steps by arrows
-  lineup add <slug> <wave>/<id> [--after <wave>/<id>]    puts a card in the wave as a step of its own, last
+  wave add <slug> <file>/<id> [--after <file>/<id>]    puts a card in the wave as a step of its own, last
                                                          unless --after's step, and links the steps again
-  lineup remove <slug> <wave>/<id>                       takes a card out: it loses its links to the wave's cards,
+  wave remove <slug> <file>/<id>                       takes a card out: it loses its links to the wave's cards,
                                                          its step goes if it held only that card, and the steps
                                                          are linked again
-  lineup set <slug> [--title <t>] [--goal <t>]           renames the wave, sets its goal, rewrites its note or
+  wave set <slug> [--title <t>] [--goal <t>]           renames the wave, sets its goal, rewrites its note or
          [--note <t> | --file <f>]                       puts its cards in new steps (--step per step, every
-         [--step <wave>/<id>,… …]                        card once) and links them again. A card's ⋯ in its
+         [--step <file>/<id>,… …]                        card once) and links them again. A card's ⋯ in its
                                                          band swaps it with the Todo card before or after it,
                                                          each taking the other's step
-  lineup finish <slug>                                   the wave's band leaves Todo; its cards keep their
+  wave finish <slug>                                   the wave's band leaves Todo; its cards keep their
                                                          links. A wave whose cards are all Done leaves it too
-         A band's Triage sends wave-triage {lineup}, or {wave} for a wave file's band; it reads
+         A band's Triage sends wave-triage {wave}, or {file} for an item file's band; it reads
          Triaging… until you reply to that event, then "Triage: N open questions" while questions on topic
-         lineup:<slug> or wave:<slug> are open or answered
+         wave:<slug> or file:<slug> are open or answered
   tickets backfill [--dry-run]                           gives every open card without a ticket one: the first
                                                          id in its title (or legacy linear list) from the board's
                                                          source is linked, else a new ticket is made. Done cards are
                                                          left alone. Prints each card's result; --dry-run changes and
                                                          calls nothing
   reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
-                                                         [{name, slack_user, dm, github}], as in wave.json.
-                                                         The settings page lists them; new waves copy them
+                                                         [{name, slack_user, dm, github}], as in an item file.
+                                                         The settings page lists them; new item files copy them
   reviewers add --file <json>                            one reviewer or an array; replaces the same name
   reviewers remove <name>...                             refuses a name the board doesn't have
   slack                                                 Slack identity as JSON; imports slack-bridge config once
   slack set [--self-dm D..] [--user U..]                 sets hub Slack identity in ~/.claude/kickflip/slack.json
             [--domain x] [--timezone Area/City]
   integrations                                          readiness rows as one JSON line
-  review updated <wave>/<id> --text "<what changed>"     queues “Updated: <what changed>” in the thread of every
+  review updated <file>/<id> --text "<what changed>"     queues “Updated: <what changed>” in the thread of every
                                                          posted link on the card's PRs; the hub's next poll sends it
   review due                                            one JSON line of the Slack sends the hub owes, from local state
                                                          and data/pr-slack.json: {links: [{pr, key, reviewer,
@@ -376,7 +376,7 @@ command fails and changes nothing.
                                                          pushed, which needs Push main after a land granted.
                                                          A local board never opens PRs. Without auto-merge, a
                                                          card with no PR waits in In Review for the owner's Merge
-  build <wave>/<id> --site <route>                       asks the hub to run this card's build script; prints
+  build <file>/<id> --site <route>                       asks the hub to run this card's build script; prints
          --asked "<owner's words>"                       started and exits. install is an alias. Only the owner's
                                                          Serve / Build and Auto-build start a card run, so --asked
                                                          must quote the owner's ask, card message or answer note on
@@ -431,7 +431,7 @@ command fails and changes nothing.
                                                          {"source":"linear","workspace","team","project"}. A
                                                          GitHub account runs the board's issue calls as that gh
                                                          login; without one they run as gh's active account
-  builder start <wave>/<id> [--agent <name>] [--kind <claude|codex|prototype|grill|install|…>] [--label <who>]
+  builder start <file>/<id> [--agent <name>] [--kind <claude|codex|prototype|grill|install|…>] [--label <who>]
          [--model <opus|sonnet>]                         the Claude model running the builder, recorded and printed as
                                                          "model: Claude Sonnet" (kind claude takes builder pick's model;
                                                          codex prints "model: Codex"). The thread's agent line reads it: "Claude
@@ -471,7 +471,7 @@ command fails and changes nothing.
                                                          on a board makes it without --worktree when it keeps none
                                                          (a taken-up or resumed record's, or the worktree the
                                                          card's last record left while it is still there)
-  builder progress <wave>/<id> --phase <phase>           one status line: a phase, reading, building, testing,
+  builder progress <file>/<id> --phase <phase>           one status line: a phase, reading, building, testing,
          (<detail> | --text <d>) [--agent <name>]        checking or landing, and a present-tense detail of at most
                                                          80 characters in plain words, which the owner reads at a
                                                          glance; a longer detail is refused with its length. Hashes,
@@ -482,7 +482,7 @@ command fails and changes nothing.
          A progress line, --progress included, needs --site: it is a status line in the item's thread, and
          the card's status shows the newest one from an agent still working. builder progress refuses
          without an open record for that agent, as builder call does
-  builder done <wave>/<id> [--agent <name>]              marks that agent's record done; the item's thread
+  builder done <file>/<id> [--agent <name>]              marks that agent's record done; the item's thread
          [--next <t>] [--text <what you checked>]        shows when it started and finished. On a
                                                          record with unverified judgment calls it hands the card
                                                          back: its records close marked handed back, with Next "Answer the builder's
@@ -523,8 +523,8 @@ command fails and changes nothing.
                                                          changed>” in each link's thread, as review updated does;
                                                          none sends nothing, for a change only to comments, names,
                                                          docs or tests
-         builder takes --dir <dir> for a wave file in <dir>; its records go in <dir>/agents
-  builder stop <wave>/<id>                               the orchestrator's stop of the card's run the board launched,
+         builder takes --dir <dir> for an item file in <dir>; its records go in <dir>/agents
+  builder stop <file>/<id>                               the orchestrator's stop of the card's run the board launched,
                                                          its headless builder, lander or rebase run, with every process
                                                          under it: the record stays open, marked stopped, so the server
                                                          relaunches nothing and the card stays In Progress reading
@@ -532,7 +532,7 @@ command fails and changes nothing.
                                                          waiting on the orchestrator; the same words go in its thread.
                                                          Prints what it stopped, one process a line. Refuses a planner,
                                                          a builder a session started itself, or none running
-  item stall <wave>/<id> --reason "<why>"                the orchestrator's flag on a stale card it can't restart: the
+  item stall <file>/<id> --reason "<why>"                the orchestrator's flag on a stale card it can't restart: the
                                                          card stays in its lane reading red "stalled", an Action needed
                                                          "stalled: <why>" with one push, waiting on nobody else; its
                                                          run stops as builder stop stops it (nothing to stop when it
@@ -540,7 +540,7 @@ command fails and changes nothing.
                                                          stays, and it frees its implementer slot. Its thread reads
                                                          "stalled by orchestrator: <why>". A message on the card
                                                          clears it
-  land stop <wave>/<id>                                  the orchestrator's stop of the card's land and its suite: one a
+  land stop <file>/<id>                                  the orchestrator's stop of the card's land and its suite: one a
                                                          headless builder or lander runs stops that agent as builder
                                                          stop does; the land a held card's Merge tap started stops
                                                          alone, leaving the land queue, and the card's Merge shows
@@ -549,28 +549,28 @@ command fails and changes nothing.
                                                          didn't launch
   land queue                                             the host's land queue in order: the land running, then each
                                                          waiting, "(bumped)" on one a bump moved
-  item bump <wave>/<id>                                  the card's bump, as the owner's bump icon sends it (card-bump;
-  item unbump <wave>/<id>                                card-unbump). A bumped card's land goes ahead in the land queue
+  item bump <file>/<id>                                  the card's bump, as the owner's bump icon sends it (card-bump;
+  item unbump <file>/<id>                                card-unbump). A bumped card's land goes ahead in the land queue
                                                          of every land not bumped since, the latest bump first, without
                                                          stopping the one running; a bump of a queued land says so in
                                                          its thread ("land moved first by orchestrator")
-  lander <wave>/<id>                                     relaunch the headless lander of a card it stopped on (a usage
+  lander <file>/<id>                                     relaunch the headless lander of a card it stopped on (a usage
                                                          pause ends one): its open record closes as handed back and
                                                          the server launches a fresh lander; refused unless a
                                                          builder record on the card is open
-  builder pick <wave>/<id>                               who builds the card, from the hub's Codex share and the pause
+  builder pick <file>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line, and for claude which model, from the hub's Claude model
                                                          and the card's --size and --model: "codex: <reason>" or
                                                          "claude sonnet: <reason>". Pass that kind to builder start
                                                          --kind, and launch that model
-  audit [<wave>/<id>]                                    the board's audit log of the last 30 days, data/audit.jsonl:
+  audit [<file>/<id>]                                    the board's audit log of the last 30 days, data/audit.jsonl:
                                                          each call the code made on its own (builder-pick, pull,
                                                          round-planner, launch-held, arrival-planner, relaunch,
                                                          lander, triage, pr-review, push, pick-up, auto-merge,
                                                          ready-draft, session-resume, compact) as "<at> <call>
                                                          [<key>]: <result>. <reason>" and the inputs it read; with
                                                          a card, only that card's. The hub's own: kickflip audit
-  agent launch <wave>/<id> --name <n> --task <t>         any session's helper on an open card, an agent the board server
+  agent launch <file>/<id> --name <n> --task <t>         any session's helper on an open card, an agent the board server
          [--writes] [--model <opus|sonnet>]              launches headless with the task as its brief, under its own
                                                          name (lowercase, "-", not main or visual-…), its record
                                                          <id>@<name> requested until then. A read-only helper launches
@@ -580,38 +580,38 @@ command fails and changes nothing.
                                                          and works in its own worktree, branch <id>-<name> from the
                                                          card's, so it needs the card's worktree. --model else
                                                          builder pick's Claude model. Its lines carry its name
-  agent wait <wave>/<id> --name <n> [--agent <me>]       blocks until the helper's builder done, then prints its
+  agent wait <file>/<id> --name <n> [--agent <me>]       blocks until the helper's builder done, then prints its
          [--timeout <minutes>]                           --text and, for one that writes, its branch. Meanwhile
                                                          --agent's record (main by default) takes no slot. Refuses
                                                          after --timeout (9) minutes, saying whether it runs or waits
                                                          for a slot, and once its process is gone without done
-  agent merge <wave>/<id> --name <n>                     merges a done helper's branch into the card's worktree and
+  agent merge <file>/<id> --name <n>                     merges a done helper's branch into the card's worktree and
                                                          removes the helper's worktree and branch; on a conflict it
                                                          names the files: resolve, commit and run it again
-  builder call <wave>/<id> <judgment call>             appends one line to the agent's open builder record: a
+  builder call <file>/<id> <judgment call>             appends one line to the agent's open builder record: a
          [--agent <name>]                                judgment call as the builder makes it, or a "Question: …"
                                                          for the session; refused with no open record. A builder start
                                                          on a record with unverified calls resumes that build, keeping
                                                          its calls and worktree. The thread shows them, collapsed
-  builder calls <wave>/<id> [--agent <name>]             prints the record's calls, numbered, then "verified <time>"
+  builder calls <file>/<id> [--agent <name>]             prints the record's calls, numbered, then "verified <time>"
                                                          or "not verified yet"
-  builder ask <wave>/<id> <question> [--agent <name>]    a running builder's one-line question for the board's session,
+  builder ask <file>/<id> <question> [--agent <name>]    a running builder's one-line question for the board's session,
                                                          which it asks only when blocked (every way forward would likely
                                                          be wasted work), then waits with builder asks --wait: a thread
                                                          line named by its model ("Claude Opus builder"), never unread,
                                                          and a builder-ask {key, ask, agent, text} event. Prints its
                                                          id, ask<n>. Needs --site and an open builder record
-  builder answer <wave>/<id> <ask> --text <t>            the session's answer to that ask, a thread line named
+  builder answer <file>/<id> <ask> --text <t>            the session's answer to that ask, a thread line named
                                                          Orchestrator that leaves the card quiet
-  builder defer <wave>/<id> <ask> --text <t>             the session's deferral of an ask it can't answer confidently:
+  builder defer <file>/<id> <ask> --text <t>             the session's deferral of an ask it can't answer confidently:
                                                          the same thread line, and a "Question: <ask> (deferred to the
                                                          owner)" call on the asking agent's record. After its review the
                                                          session puts it to the owner as a card question with
                                                          "ask": "<ask>"; builder verified refuses until then
-  builder asks <wave>/<id> [--wait] [--timeout <min>]    prints each ask, then its answer, its deferral or "waiting on
+  builder asks <file>/<id> [--wait] [--timeout <min>]    prints each ask, then its answer, its deferral or "waiting on
                                                          the orchestrator"; --wait blocks until none is waiting, and
                                                          after --timeout (9) minutes says so and fails: run it again
-  builder verified <wave>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
+  builder verified <file>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
          [--note <t>]                                    refuses while any record on the card has a call after it.
                                                          On a handed-back build (not done, no builder open, every
                                                          call verified) it finishes the card in the same step, as
@@ -619,7 +619,7 @@ command fails and changes nothing.
                                                          calls verified."). While a question on the card is open it
                                                          says so and the card waits; a finish that fails keeps the
                                                          mark, the card handed back, and says why
-  land <wave>/<id> --text <t> [--repo <dir>]             brings the worktree its builder record keeps (else
+  land <file>/<id> --text <t> [--repo <dir>]             brings the worktree its builder record keeps (else
          [--dir <dir>]
                                                          ~/.claude/kickflip/worktrees/<id> of --repo) into the board's
                                                          branch (the one its builders branch from, else main), one
@@ -644,7 +644,7 @@ command fails and changes nothing.
                                                          landed card in In Review on that step until the owner's
                                                          Done, or until its --check passes. KICKFLIP_RESTART_CMD='["<cmd>"]' replaces
                                                          the restarts, called with hub or board <route>
-  merge <wave>/<id> [--after-approval "<why trivial>"]   merges the card's PRs (gh pr merge --squash) in its order and
+  merge <file>/<id> [--after-approval "<why trivial>"]   merges the card's PRs (gh pr merge --squash) in its order and
          [--confirmed "<owner's words>"]                 records it merged, once GitHub reads every open one approved,
                                                          its checks green with none pending and its merge state CLEAN,
                                                          the test the Merge button uses; a merged or closed PR is left
@@ -658,7 +658,7 @@ command fails and changes nothing.
                                                          it is now, reruns the tests, fast-forwards, closes the card
                                                          and pushes when Push main is on; a conflict or failing
                                                          tests launch a headless lander that lands it
-  arch file <wave>/<id>                                  turns the architecture review audit card's answered findings
+  arch file <file>/<id>                                  turns the architecture review audit card's answered findings
                                                          into cards in the review's wave: titled with the picked
                                                          option's label, its detail, practice and the owner's note as
                                                          notes, each after the wave's last card, its question resolved
@@ -783,7 +783,7 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ..
 }
 
 const COMMANDS = {
-  pr: [['wave/id'], [], async (site, [key]) => ({ lines: (await store.prReport(site, key)).map((r) => JSON.stringify(r)) })],
+  pr: [['file/id'], [], async (site, [key]) => ({ lines: (await store.prReport(site, key)).map((r) => JSON.stringify(r)) })],
   'pr comment': [['pr'], ['body'], (site, [pr], f) => {
     if (f.body === undefined) throw new UsageError('pr comment needs --body "<what Claude says>"');
     return store.postPR(site, pr, { body: f.body });
@@ -796,8 +796,8 @@ const COMMANDS = {
     if ((f.html === undefined) === (f.file === undefined)) throw new UsageError('reply takes --html or --file');
     return store.writeReply(site, id, f.html ?? readInput(f.file), f.title);
   }],
-  thread: [['wave/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendMessage(site, key, f)],
-  'visual add': [['wave/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
+  thread: [['file/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendMessage(site, key, f)],
+  'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);
@@ -811,33 +811,33 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['wave/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
+  'item set': [['file/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'text', 'check'], async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
     return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check }, options);
   }],
-  'item add': [['wave[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
     return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
   }],
-  'item notes': [['wave/id'], ['heading', 'file', 'from'], (site, [key], f) => {
+  'item notes': [['file/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
-    if ((f.file === undefined) === (f.from === undefined)) throw new UsageError('item notes takes --file <draft.md> or --from <wave>/<id>');
+    if ((f.file === undefined) === (f.from === undefined)) throw new UsageError('item notes takes --file <draft.md> or --from <file>/<id>');
     return store.addNotes(site, key, f);
   }],
-  'item relate-ask': [['eventId', 'wave/id'], ['summary', 'title'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary, f.title)],
+  'item relate-ask': [['eventId', 'file/id'], ['summary', 'title'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary, f.title)],
   'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
   'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
-  'lineup create': [['slug'], ['title', 'goal', '...step', '...phase', 'note', 'file'], (site, [slug], f) => store.createLineup(site, slug, { title: f.title, goal: f.goal, steps: f.step, phase: f.phase, note: noteOf(f) })],
-  'lineup add': [['slug', 'wave/id'], ['after'], (site, [slug, key], f) => store.changeLineup(site, slug, { add: key, after: f.after })],
-  'lineup remove': [['slug', 'wave/id'], [], (site, [slug, key]) => store.changeLineup(site, slug, { remove: key })],
-  'lineup set': [['slug'], ['title', 'goal', 'note', 'file', '...step', '...phase'], (site, [slug], f) => store.changeLineup(site, slug, { title: f.title, goal: f.goal, note: noteOf(f), steps: f.step, phase: f.phase })],
-  'lineup finish': [['slug'], [], (site, [slug]) => store.finishLineup(site, slug)],
+  'wave create': [['slug'], ['title', 'goal', '...step', '...phase', 'note', 'file'], (site, [slug], f) => store.createWave(site, slug, { title: f.title, goal: f.goal, steps: f.step, phase: f.phase, note: noteOf(f) })],
+  'wave add': [['slug', 'file/id'], ['after'], (site, [slug, key], f) => store.changeWave(site, slug, { add: key, after: f.after })],
+  'wave remove': [['slug', 'file/id'], [], (site, [slug, key]) => store.changeWave(site, slug, { remove: key })],
+  'wave set': [['slug'], ['title', 'goal', 'note', 'file', '...step', '...phase'], (site, [slug], f) => store.changeWave(site, slug, { title: f.title, goal: f.goal, note: noteOf(f), steps: f.step, phase: f.phase })],
+  'wave finish': [['slug'], [], (site, [slug]) => store.finishWave(site, slug)],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {
     const fields = { 'self-dm': 'self_dm', user: 'owner_slack_user', domain: 'slack_domain', timezone: 'timezone' };
@@ -845,7 +845,7 @@ const COMMANDS = {
     catch (e) { throw new store.BoardError(e.message); }
   }],
   integrations: [[], [], async () => ({ lines: [JSON.stringify(await readiness.rows())] })],
-  'review updated': [['wave/id'], ['text'], (site, [key], f) => store.reviewUpdated(site, key, f.text)],
+  'review updated': [['file/id'], ['text'], (site, [key], f) => store.reviewUpdated(site, key, f.text)],
   'review record': [['pr'], ['state', 'text', 'file'], (site, [pr], f) => {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('review record takes --text or --file');
     return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file) });
@@ -865,7 +865,7 @@ const COMMANDS = {
   'rules edit': [['id'], ['text', 'hub'], (site, [id], f) => store.editRuleIn(site, id, f)],
   'rules remove': [['id'], ['hub'], (site, [id], f) => store.removeRuleFrom(site, id, f)],
   settings: [[], [], async (site) => ({ lines: [JSON.stringify(await store.readBoardSettings(site))] })],
-  build: [['wave/id'], ['asked'], async (site, [key], f) => {
+  build: [['file/id'], ['asked'], async (site, [key], f) => {
     if (!site) throw new store.BoardError('build needs --site <route>');
     store.parseKey(key);
     const line = await store.askedGate(site, key, f.asked);
@@ -884,19 +884,19 @@ const COMMANDS = {
   }],
   'main set': [[], ['install', 'install-sha'], (site, _, f) => store.setMainInstall(site, { install: f.install, installSha: f['install-sha'] })],
   'settings set': [['name', 'value'], [], (site, [name, value]) => store.setBoardSetting(site, name, value)],
-  'builder start': [['wave/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, dispatch, ...f }) => {
+  'builder start': [['file/id'], ['label', 'phase', 'progress', 'dir', 'agent', 'kind', 'model', 'eta', 'worktree', 'repo', 'dispatch'], (site, [key], { worktree, repo, dispatch, ...f }) => {
     if (repo !== undefined && !worktree) throw new UsageError('--repo goes with --worktree');
     const make = (opts) => boardWorktree(site, key.split('/')[1], { repo, ...opts });
     // A build on a board works in its own worktree even when the start doesn't ask for one (store.mjs startBuilder).
     const onBoard = site && f.dir === undefined && boardAt(site);
     return store.startBuilder(site, key, { ...f, dispatch: dispatch ? 'session' : undefined, worktree: worktree ? make : undefined, ownWorktree: onBoard ? make : undefined });
   }],
-  'builder progress': [['wave/id', '...text?'], ['phase', 'text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
+  'builder progress': [['file/id', '...text?'], ['phase', 'text', 'dir', 'agent', 'eta', 'clear-eta'], (site, [key, ...words], f) => {
     if (words.length && f.text !== undefined) throw new UsageError('builder progress takes its text once: as words or as --text');
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['wave/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'updated'], async (site, [key], { updated, ...f }) => {
+  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'updated'], async (site, [key], { updated, ...f }) => {
     // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md: the Updated decision is made
     // before anything runs, and its reply queued only once done has gone through.
     const onBoard = site && !f.dir;
@@ -905,27 +905,27 @@ const COMMANDS = {
     if (onBoard && updated !== undefined && updated.trim().toLowerCase() !== 'none') await store.reviewUpdated(site, key, updated);
     return out;
   }],
-  'builder pick': [['wave/id'], [], (site, [key]) => store.pickBuilder(site, key)],
-  'agent launch': [['wave/id'], ['name', 'task', 'writes', 'model'], (site, [key], f) => store.requestHelper(site, key, f)],
-  'agent wait': [['wave/id'], ['name', 'agent', 'timeout'], (site, [key], f) => store.waitHelper(site, key, { ...f, alive: pidAlive })],
-  'agent merge': [['wave/id'], ['name'], async (site, [key], f) => {
+  'builder pick': [['file/id'], [], (site, [key]) => store.pickBuilder(site, key)],
+  'agent launch': [['file/id'], ['name', 'task', 'writes', 'model'], (site, [key], f) => store.requestHelper(site, key, f)],
+  'agent wait': [['file/id'], ['name', 'agent', 'timeout'], (site, [key], f) => store.waitHelper(site, key, { ...f, alive: pidAlive })],
+  'agent merge': [['file/id'], ['name'], async (site, [key], f) => {
     const { record, card: tree } = await store.helperOf(site, key, f.name);
     if (!record.done) throw new store.BoardError(`helper ${f.name} is still open; run agent wait ${key} --name ${f.name} first`);
     if (!record.writes || !record.worktree) throw new store.BoardError(`helper ${f.name} writes no code, so there is nothing to merge`);
     if (!tree) throw new store.BoardError(`${key} has no worktree to merge helper ${f.name} into`);
     return mergeHelper(tree, record.worktree);
   }],
-  audit: [['...wave/id?'], [], (site, [key, ...more]) => {
-    if (more.length) throw new UsageError('audit takes one <wave/id> at most');
+  audit: [['...file/id?'], [], (site, [key, ...more]) => {
+    if (more.length) throw new UsageError('audit takes one <file/id> at most');
     return store.auditLog(site, key);
   }],
-  'builder call': [['wave/id', '...text'], ['dir', 'agent'], (site, [key, ...words], f) => store.recordCall(site, key, words.join(' '), f)],
-  'builder calls': [['wave/id'], ['dir', 'agent'], (site, [key], f) => store.listCalls(site, key, f)],
-  'builder ask': [['wave/id', '...text'], ['agent'], (site, [key, ...words], f) => store.askOrchestrator(site, key, words.join(' '), f)],
-  'builder answer': [['wave/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text)],
-  'builder defer': [['wave/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
-  'builder asks': [['wave/id'], ['wait', 'timeout'], (site, [key], f) => store.listAsks(site, key, f)],
-  'builder verified': [['wave/id'], ['dir', 'agent', 'note'], async (site, [key], f) => {
+  'builder call': [['file/id', '...text'], ['dir', 'agent'], (site, [key, ...words], f) => store.recordCall(site, key, words.join(' '), f)],
+  'builder calls': [['file/id'], ['dir', 'agent'], (site, [key], f) => store.listCalls(site, key, f)],
+  'builder ask': [['file/id', '...text'], ['agent'], (site, [key, ...words], f) => store.askOrchestrator(site, key, words.join(' '), f)],
+  'builder answer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text)],
+  'builder defer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
+  'builder asks': [['file/id'], ['wait', 'timeout'], (site, [key], f) => store.listAsks(site, key, f)],
+  'builder verified': [['file/id'], ['dir', 'agent', 'note'], async (site, [key], f) => {
     await store.verifyCalls(site, key, f);
     const next = site && !f.dir ? await store.verifiedFinish(site, key) : null;
     if (!next) return {};
@@ -935,7 +935,7 @@ const COMMANDS = {
       throw Object.assign(new store.BoardError(`judgment calls verified, but ${await store.cardName(site, key)} didn't finish: ${e.message}`), { exitCode: e.exitCode });
     }
   }],
-  land: [['wave/id'], ['repo', 'dir', 'text', 'owner-step', 'check'], async (site, [key], f) => {
+  land: [['file/id'], ['repo', 'dir', 'text', 'owner-step', 'check'], async (site, [key], f) => {
     const id = key.split('/')[1];
     if (site && f.text === undefined) throw new UsageError(`land needs --text "<what was checked>", which closes ${key} as done once it lands`);
     if (!site && f.text !== undefined) throw new UsageError('--text closes the card, which needs --site');
@@ -953,20 +953,20 @@ const COMMANDS = {
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
   }],
-  'builder stop': [['wave/id'], [], (site, [key]) => stopBuilder(needSite(site, 'builder stop'), key)],
-  'item stall': [['wave/id'], ['reason'], (site, [key], f) => stallCard(needSite(site, 'item stall'), key, f.reason)],
-  'land stop': [['wave/id'], [], (site, [key]) => stopLand(needSite(site, 'land stop'), key)],
+  'builder stop': [['file/id'], [], (site, [key]) => stopBuilder(needSite(site, 'builder stop'), key)],
+  'item stall': [['file/id'], ['reason'], (site, [key], f) => stallCard(needSite(site, 'item stall'), key, f.reason)],
+  'land stop': [['file/id'], [], (site, [key]) => stopLand(needSite(site, 'land stop'), key)],
   'land queue': [[], [], () => queueLines()],
-  'item bump': [['wave/id'], [], (site, [key]) => bump(needSite(site, 'item bump'), key, true)],
-  'item unbump': [['wave/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],
-  lander: [['wave/id'], [], async (site, [key]) => {
+  'item bump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item bump'), key, true)],
+  'item unbump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],
+  lander: [['file/id'], [], async (site, [key]) => {
     if (!site) throw new UsageError('lander needs --site <route>');
     await store.relaunchLander(site, key);
     return { lines: [`${await store.cardName(site, key)} is handed back again; the server launches a lander for it within a minute`] };
   }],
-  merge: [['wave/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
+  merge: [['file/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
     : store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed }))],
-  'arch file': [['wave/id'], [], (site, [key]) => (site ? fileFindings(site, key) : Promise.reject(new store.BoardError('arch file needs --site <route>')))],
+  'arch file': [['file/id'], [], (site, [key]) => (site ? fileFindings(site, key) : Promise.reject(new store.BoardError('arch file needs --site <route>')))],
   push: [[], ['kind', 'title', 'body', 'url', 'tag', 'urgent', 'now'], (site, _, f) => {
     if (f.kind !== 'fault' && f.kind !== 'reminder') throw new UsageError(`a session pushes only --kind fault or reminder${f.kind === undefined || f.kind === true ? '' : `, not "${f.kind}"`}: the board server pushes Action needed, and news goes on the board`);
     if (f.title === undefined) throw new UsageError('push needs --title');
@@ -1030,11 +1030,11 @@ const SAID = {
   'ask done': async (site, [id]) => `${await card(site, `ask:${id}`)}: done`,
   'ask unfold': (site, [id]) => `task ${id} back on a card of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
-  'lineup create': (site, [slug]) => `lineup ${slug} created`,
-  'lineup add': async (site, [slug, key]) => `${await card(site, key)} added to lineup ${slug}`,
-  'lineup remove': async (site, [slug, key]) => `${await card(site, key)} taken out of lineup ${slug}`,
-  'lineup set': (site, [slug]) => `lineup ${slug} updated`,
-  'lineup finish': (site, [slug]) => `lineup ${slug} finished`,
+  'wave create': (site, [slug]) => `wave ${slug} created`,
+  'wave add': async (site, [slug, key]) => `${await card(site, key)} added to wave ${slug}`,
+  'wave remove': async (site, [slug, key]) => `${await card(site, key)} taken out of wave ${slug}`,
+  'wave set': (site, [slug]) => `wave ${slug} updated`,
+  'wave finish': (site, [slug]) => `wave ${slug} finished`,
   'review record': (site, [pr], f) => `review of PR #${pr} recorded: ${f.state === 'needs' ? 'needs you' : 'posted'}`,
   'reviewers set': () => 'reviewers replaced',
   'reviewers add': () => 'reviewers added',

@@ -19,8 +19,8 @@ const comment = (id, login, at, body = `Comment ${id}`) => ({ id, user: { login 
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
 const manifestOf = (specs) => ({ sites: Object.fromEntries(specs.map(({ route, login, prs, repo = 'o/r' }) => {
   const site = path.join(dir, route);
-  write(path.join(site, 'board.json'), { items: 'data/wave.json', slug: route, github_login: login });
-  write(path.join(site, 'data/wave.json'), { repo, items: prs.map((p) => ({ id: `A${p.pr}`, ...p })) });
+  write(path.join(site, 'board.json'), { items: 'data/items.json', slug: route, github_login: login });
+  write(path.join(site, 'data/items.json'), { repo, items: prs.map((p) => ({ id: `A${p.pr}`, ...p })) });
   return [route, { dir: site, port: 1, cmd: [process.execPath, new URL('../board/server.mjs', import.meta.url).pathname] }];
 })) });
 beforeEach(() => {

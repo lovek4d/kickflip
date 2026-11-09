@@ -54,11 +54,11 @@ const signalGroup = (child, signal) => { try { process.kill(-child.pid, signal);
 export async function installWorktree(board, key, manifest) {
   const record = await recordedWorktree(board.dir, key);
   const [slug, id] = key.split('/');
-  const wave = board.waves.find((w) => w.slug === slug)?.wave;
-  const candidate = record?.path || wave?.items.find((it) => it.id === id)?.worktree;
+  const itemFile = board.files.find((w) => w.slug === slug)?.itemFile;
+  const candidate = record?.path || itemFile?.items.find((it) => it.id === id)?.worktree;
   if (typeof candidate !== 'string' || !candidate || candidate.split(path.sep).includes('..')) return '';
   let repo = record?.repo;
-  const github = (board.github || wave?.repo || '').toLowerCase();
+  const github = (board.github || itemFile?.repo || '').toLowerCase();
   if (!repo && github) {
     const dirs = [board.owner?.repo, board.dir, ...Object.values(manifest?.sites || {}).map((s) => s.owner?.repo)];
     for (const dir of new Set(dirs.filter((d) => typeof d === 'string' && path.isAbsolute(d)))) {
@@ -294,7 +294,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         if (line.trim()) last = line;
       }
     } catch (e) { last = `could not read the build log: ${e.message}`; }
-    const kind = run.port || (stateOf(board).state.kind || (board.waves.some(({ wave }) => wave.items.some((it) => it.install?.url)) ? 'app' : 'web')) === 'web' ? 'Serve' : 'Build';
+    const kind = run.port || (stateOf(board).state.kind || (board.files.some(({ itemFile }) => itemFile.items.some((it) => it.install?.url)) ? 'app' : 'web')) === 'web' ? 'Serve' : 'Build';
     const why = keychain ? 'unlock the login keychain on the host' : error?.message || (signal && `stopped by ${signal}`) || last;
     await appendStatus(board.dir, key, 'run-failed', { kind, code: code ?? 1, why });
   }
@@ -448,10 +448,10 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key'].includes(k))
       || typeof input.route !== 'string' || typeof input.key !== 'string') throw new BuildError('Send only the board route and card key.');
     const { route, key } = input;
-    if (isCard(key) && (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..'))) throw new BuildError('Card key must be <wave>/<id>.');
+    if (isCard(key) && (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..'))) throw new BuildError('Card key must be <file>/<id>.');
     const board = listBoards(manifest).find((b) => b.route === route);
     if (!board) throw new BuildError(`/${route} is not a board.`, 404);
-    if (isCard(key) && !board.waves.some(({ slug, wave }) => wave.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this card key.', 404);
+    if (isCard(key) && !board.files.some(({ slug, itemFile }) => itemFile.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this card key.', 404);
     const reason = await waiting();
     if (reason) throw new BuildError(reason, 409);
     const id = runKey(board, key);
@@ -554,9 +554,9 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         const source = boardRepo(board.route, manifest);
         const branch = source.branch || 'main';
         const ref = mainRefOf(source);
-        for (const { slug, wave } of board.waves) for (const item of wave.items) {
+        for (const { slug, itemFile } of board.files) for (const item of itemFile.items) {
           const key = `${slug}/${item.id}`;
-          const states = cardPRs(item, board.github || wave.repo).map((p) => prs[prKeyOf(p)]);
+          const states = cardPRs(item, board.github || itemFile.repo).map((p) => prs[prKeyOf(p)]);
           if (item.lane === 'done' || (states.length && states.every((pr) => ['MERGED', 'CLOSED'].includes(pr?.state)))) continue;
           try {
             const id = runKey(board, key);
@@ -745,7 +745,7 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
 // branch's tip is in the board's branch, or once the branch is gone from the remote, its line saying which, since a
 // squash merge leaves no trace of the branch.
 async function settlePushed(board, repo, branch, log) {
-  const open = board.waves.flatMap(({ slug, wave }) => wave.items
+  const open = board.files.flatMap(({ slug, itemFile }) => itemFile.items
     .filter((it) => it.pushed?.branch && !hasPR(it) && it.lane !== 'done')
     .map((it) => ({ key: `${slug}/${it.id}`, branch: it.pushed.branch })));
   if (!open.length) return;

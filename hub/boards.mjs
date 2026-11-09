@@ -1,9 +1,9 @@
 // The one registry of board sites (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md). Only this module reads a
-// board's board.json and the wave files its items come from. Every hub feature that serves boards asks listBoards: the
+// board's board.json and the item files its items come from. Every hub feature that serves boards asks listBoards: the
 // GitHub check and its github-change routing (github.mjs), the daily wakes, the rules fan-out, the handshake and the
 // not-listening push. So a board over the waves and a board over its own file get every link the same way, and a
 // new feature can't forget one kind. linksOf says whether each link reaches a board, for its Hub links sheet.
-// A board: {route, dir, port, title, kind: 'waves' | 'file', waves: [{slug, wave}], prs: [{wave, id, pr, repo, since}],
+// A board: {route, dir, port, title, kind: 'waves' | 'file', files: [{slug, itemFile}], prs: [{file, id, pr, repo, since}],
 // githubLogin: board.json github_login or null, reviewers: [name], reviewerLogins: {login: name}, owner, watch,
 // filter}. prs are the open PRs on any of its cards: every item with a PR that isn't merged or dropped, with no
 // monitor.json opt-in; a card showing a PR is the opt-in.
@@ -93,7 +93,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const names = (list) => (Array.isArray(list) ? list : []).map((r) => (typeof r === 'string' ? r : r?.name)).filter((n) => typeof n === 'string' && n);
 export const reviewerLogins = (list) => Object.fromEntries((Array.isArray(list) ? list : [])
   .filter((r) => typeof r?.github === 'string' && r.github && typeof r.name === 'string' && r.name).map((r) => [r.github.toLowerCase(), r.name]));
-const isWave = (w) => Array.isArray(w?.items);
+const isItemFile = (w) => Array.isArray(w?.items);
 
 const BOARD_SERVER = /board[/\\]server\.mjs$/;
 export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => BOARD_SERVER.test(a)) && typeof s.dir === 'string';
@@ -102,33 +102,33 @@ export const isBoardSite = (s) => Array.isArray(s?.cmd) && s.cmd.some((a) => BOA
 // (docs/adr/2026-11-03-0248-kickflip-join-adds-the-current-repository-as-a-board.md).
 export const buildsLocally = (s) => s.local === true || !(s.github || s.remote);
 
-// The waves a board shows, keyed as board/store.mjs itemSources keys them: a file board's slug is board.json `slug`,
-// else the file's basename, so a github-change names the same <wave>/<id> the board's cards use.
-function wavesOf(dir, cfg, kind) {
+// The item files a board shows, keyed as board/store.mjs itemSources keys them: a file board's slug is board.json `slug`,
+// else the file's basename, so a github-change names the same <file>/<id> the board's cards use.
+function filesOf(dir, cfg, kind) {
   if (kind === 'file') {
-    const wave = readJSON(path.resolve(dir, cfg.items), null);
-    return isWave(wave) ? [{ slug: cfg.slug || path.basename(cfg.items, '.json'), wave }] : [];
+    const itemFile = readJSON(path.resolve(dir, cfg.items), null);
+    return isItemFile(itemFile) ? [{ slug: cfg.slug || path.basename(cfg.items, '.json'), itemFile }] : [];
   }
   let slugs = [];
   try { slugs = fs.readdirSync(WAVES, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort(); } catch {}
-  return slugs.map((slug) => ({ slug, wave: readJSON(path.join(WAVES, slug, 'wave.json'), null) })).filter((w) => isWave(w.wave));
+  return slugs.map((slug) => ({ slug, itemFile: readJSON(path.join(WAVES, slug, 'wave.json'), null) })).filter((w) => isItemFile(w.itemFile));
 }
 
-// [{slug, wave}] → every PR on each unfinished card, in the card's order: [{wave, id, pr, repo, since}], since being the
+// [{slug, itemFile}] → every PR on each unfinished card, in the card's order: [{file, id, pr, repo, since}], since being the
 // item's gh_since. A PR in another repo is polled like one in the board's; one stored without a repo, on a board with
-// no github and a wave with no repo, has none to poll (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
-export function prsOf(waves, github) {
-  return waves.flatMap(({ slug, wave }) => wave.items.filter((it) => it && it.lane !== 'done')
-    .flatMap((it) => cardPRs(it, github || wave.repo).map((p) => ({ wave: slug, id: it.id, pr: p.number, repo: p.repo, since: it.gh_since || NO_SINCE }))));
+// no github and an item file with no repo, has none to poll (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
+export function prsOf(files, github) {
+  return files.flatMap(({ slug, itemFile }) => itemFile.items.filter((it) => it && it.lane !== 'done')
+    .flatMap((it) => cardPRs(it, github || itemFile.repo).map((p) => ({ file: slug, id: it.id, pr: p.number, repo: p.repo, since: it.gh_since || NO_SINCE }))));
 }
 
 function boardOf(route, s) {
   const cfg = readJSON(path.join(s.dir, 'board.json'), {});
   const kind = typeof cfg.items === 'string' && cfg.items !== 'waves' ? 'file' : 'waves';
-  const waves = wavesOf(s.dir, cfg, kind);
+  const files = filesOf(s.dir, cfg, kind);
   const github = s.github;
   return {
-    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, waves, prs: prsOf(waves, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, ...(buildsLocally(s) ? { local: true } : {}), ...(s.hub === true ? { hub: true } : {}), auto_build: cfg.auto_build === true, ...(validBuildTarget(cfg.build_target) ? { build_target: cfg.build_target } : {}), auto_review: cfg.auto_review === true, skipDraft: cfg.skip_draft === true, autoMerge: cfg.auto_merge === true,
+    route, dir: s.dir, port: s.port, title: cfg.title || s.title || route, kind, files, prs: prsOf(files, github), github, ...(s.remote && !github ? { remote: s.remote } : {}), branch: s.branch, ...(buildsLocally(s) ? { local: true } : {}), ...(s.hub === true ? { hub: true } : {}), auto_build: cfg.auto_build === true, ...(validBuildTarget(cfg.build_target) ? { build_target: cfg.build_target } : {}), auto_review: cfg.auto_review === true, skipDraft: cfg.skip_draft === true, autoMerge: cfg.auto_merge === true,
     githubLogin: typeof cfg.github_login === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(cfg.github_login) ? cfg.github_login : null,
     tickets: cfg.tickets, reviewers: names(cfg.reviewers), reviewerLogins: reviewerLogins(cfg.reviewers), owner: s.owner || null, watch: Array.isArray(s.watch) && s.watch.length ? s.watch : ['data/events.jsonl'], filter: s.filter || null,
   };
@@ -401,10 +401,10 @@ function slackLink(board, state, topics) {
     const s = state?.prs?.[prKey(p)];
     if (s?.state !== 'OPEN' || s.isDraft) continue;
     inReview++;
-    const { wave } = board.waves.find((w) => w.slug === p.wave);
-    const item = wave.items.find((it) => it.id === p.id);
-    const links = reviewLinks(wave, item, `${p.wave}/${p.id}`, topics, prLinks(record, [{ repo: p.repo, number: p.pr }]));
-    const lacking = [...new Set([...board.reviewers, ...names(wave.reviewers)])].filter((n) => !Object.hasOwn(links, n));
+    const { itemFile } = board.files.find((w) => w.slug === p.file);
+    const item = itemFile.items.find((it) => it.id === p.id);
+    const links = reviewLinks(itemFile, item, `${p.file}/${p.id}`, topics, prLinks(record, [{ repo: p.repo, number: p.pr }]));
+    const lacking = [...new Set([...board.reviewers, ...names(itemFile.reviewers)])].filter((n) => !Object.hasOwn(links, n));
     if (lacking.length) missing.push(`#${p.pr} has no link for ${lacking.join(', ')}`);
   }
   if (missing.length) return { link: 'slack', ok: false, detail: `${missing.join('; ')}.` };
@@ -495,7 +495,7 @@ function settle(route, links, { now, faults }) {
 //   repo-fetch  the hub's last git fetch of the board's repo worked; only a board the hub fetches has it
 //   events      the board is listening, waking or asleep (listenState, as the link's listen), so its events reach the session
 //   wakes       the last daily wake, at the end of quiet hours, reached the board
-//   slack       every open, non-draft PR has a Slack link for each of the board's and its wave's reviewers
+//   slack       every open, non-draft PR has a Slack link for each of the board's and its item file's reviewers
 // ctx overrides what is read from disk: github (github-state.json), fetches (repo-fetch.json), settings (quiet hours),
 // wakes (wake-state.json), listen (listenState), topics (slack-bridge topic items),
 // faults (as settle takes them; given, nothing is written) and now (ms).

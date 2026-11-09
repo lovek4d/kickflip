@@ -6,7 +6,7 @@
 //   board {route, hash}         /<route>/, hash such as #selectedCard=<key>&openItemsCard=<topic id>, or the older #item=<key>&reply
 //   settings {route}            /<route>/settings.html, a request to open the modal over that board
 //   questions {route, id}       /<route>/questions.html#<id>
-//   notes {route, item | wave}  /<route>/notes.html?item=<key> or ?wave=<lineup slug>, and plan.html, which the board
+//   notes {route, item | wave}  /<route>/notes.html?item=<key> or ?wave=<wave slug>, and plan.html, which the board
 //                               redirects there
 //   hub {hash}                  /_hub/ with a settings modal named by hash; legacy /_hub/settings opens the same modals
 //                               ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)),

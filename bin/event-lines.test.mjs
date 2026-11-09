@@ -24,7 +24,7 @@ const WRITERS = [
 ];
 // Kinds a page sends that board/server.mjs's POST /_claude/events applies in code and records no event for: the Build
 // and Merge taps, a wave's card move, an answers Send (each answer an owner-answer) and a reviewers Save (reviewers-*).
-const NO_EVENT = ['card-build', 'card-merge', 'lineup-move', 'owner-answers', 'reviewers'];
+const NO_EVENT = ['card-build', 'card-merge', 'wave-move', 'owner-answers', 'reviewers'];
 
 // Every kind the code writes: appendEvent and its callers, the hub's sendToBoards, and each page's send, with the
 // thread's request map (Grill, Prototype, Visual).

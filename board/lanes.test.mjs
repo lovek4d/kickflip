@@ -5,7 +5,7 @@ import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
 import { moveCard, migrateStatuses } from './store.mjs';
 import { buildBoard, movesOf } from './domain.mjs';
 
-const auditItem = (id = 'A1') => read(site('audit', 'data', 'wave.json')).items.find((i) => i.id === id);
+const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
 const auditThread = (id = 'A1') => { try { return lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)); } catch { return []; } };
 const moveLines = (id) => auditThread(id).filter((m) => m.kind === 'move').map((m) => m.text);
 
@@ -60,7 +60,7 @@ test("moveCard places a card silently the first time, writes a move line after, 
 });
 
 test("the status migration turns each card's status into its lane and facts, in the wave files and the archive", async () => {
-  write(site('audit', 'data', 'wave.json'), { ...wave(), items: [
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [
     { id: 'M1', title: 'Merged', status: 'merged', status_at: '2026-11-01T10:00:00Z', merged_at: '2026-11-01T09:00:00Z', pr: 5 },
     { id: 'D1', title: 'Done', status: 'done', status_at: '2026-11-02T10:00:00Z' },
     { id: 'X1', title: 'Dropped', status: 'dropped', status_at: '2026-11-03T10:00:00Z', prs: [{ number: 6 }] },
@@ -73,7 +73,7 @@ test("the status migration turns each card's status into its lane and facts, in 
   write(site('audit', 'data', 'done-archive.json'), { cards: [{ key: 'audit/Z1', closed_at: '2026-10-01T00:00:00Z', item: { id: 'Z1', title: 'Old', status: 'merged', status_at: '2026-10-01T00:00:00Z', prs: [{ number: 2 }] } }] });
   const said = await migrateStatuses(site('audit'));
   assert.equal(said.length, 2);
-  const items = Object.fromEntries(read(site('audit', 'data', 'wave.json')).items.map((i) => [i.id, i]));
+  const items = Object.fromEntries(read(site('audit', 'data', 'items.json')).items.map((i) => [i.id, i]));
   assert.deepEqual(items.M1, { id: 'M1', title: 'Merged', lane: 'done', lane_at: '2026-11-01T09:00:00Z', closed_at: '2026-11-01T09:00:00Z', prs: [{ number: 5, merged_at: '2026-11-01T09:00:00Z' }] });
   assert.deepEqual(items.D1, { id: 'D1', title: 'Done', lane: 'done', lane_at: '2026-11-02T10:00:00Z', closed_at: '2026-11-02T10:00:00Z' });
   assert.deepEqual(items.X1, { id: 'X1', title: 'Dropped', lane: 'done', lane_at: '2026-11-03T10:00:00Z', closed_at: '2026-11-03T10:00:00Z', prs: [{ number: 6 }] });
@@ -87,7 +87,7 @@ test("the status migration turns each card's status into its lane and facts, in 
   assert.deepEqual(await migrateStatuses(site('audit')), []);
 });
 
-const built = (items, agents = {}, prs = {}) => buildBoard({ fromWaves: true, waves: [{ slug: 'w', agents, wave: { repo: 'o/r', items } }], prs, owner: {}, events: [] });
+const built = (items, agents = {}, prs = {}) => buildBoard({ fromWaves: true, files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items } }], prs, owner: {}, events: [] });
 
 test('the settle pass moves a card to where the board places it, never to Done, and leaves a stored Done card alone unless it reopened', () => {
   const open = { started: '2026-11-04T09:00:00Z', kind: 'claude' };
