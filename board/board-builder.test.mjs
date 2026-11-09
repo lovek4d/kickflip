@@ -726,7 +726,7 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   assert.match(asked.out, /helper tests requested: the board launches it once an implementer slot is free/);
   const record = read(helperFile);
   assert.deepEqual([record.label, record.kind, record.task, record.writes, record.model, 'started' in record, typeof record.requested], ['tests', 'helper', 'Write the scroll tests', true, 'sonnet', false, 'string']);
-  assert.equal(threadOf().at(-1).text, 'Asked for helper tests, which writes code: Write the scroll tests');
+  assert.equal(threadOf().at(-1).text, 'Asked for helper tests, which writes code');
   assert.match(onOrch('agent', 'launch', 'w/A1', '--name', 'tests', '--task', 'Again').err, /already has an agent named tests/);
   assert.match(onOrch('agent', 'launch', 'w/ENG-1', '--name', 'tests', '--task', 'x', '--writes').err, /branches from w\/ENG-1's worktree, and the card has none/);
   assert.equal(onOrch('agent', 'launch', 'w/ENG-1', '--name', 'survey', '--task', 'Read the scroll code').code, 0, 'a read-only helper needs no worktree');

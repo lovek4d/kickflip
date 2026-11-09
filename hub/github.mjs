@@ -20,7 +20,7 @@ import { savedClient } from './linear.mjs';
 import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
 import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
-import { appendThread, setItem, mergedLine, mergeCard } from '../board/store.mjs';
+import { appendMessage, appendStatus, setItem, mergeCard } from '../board/store.mjs';
 import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs';
 
 const PR_ENDED = ['MERGED', 'CLOSED'];
@@ -228,7 +228,7 @@ async function linkHandPRs(board, open, failed) {
       const pr = heads.get(item.id);
       try {
         await setItem(board.dir, card, { pr });
-        await appendThread(board.dir, card, { text: `Found PR #${pr} on branch ${item.id}.` });
+        await appendStatus(board.dir, card, 'pr-found', { pr, branch: item.id });
         out.push({ wave: slug, id: item.id, pr, changes: ['linked'] });
       } catch (err) { failed.push(`${board.route}: could not link PR #${pr} to ${card} (${err.message})`); }
     }
@@ -259,7 +259,7 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
     const said = lineText(e);
     try {
       if (said) {
-        await appendThread(board.dir, card, {
+        await appendMessage(board.dir, card, {
           text: said, via: 'github', who: e.who === 'user' ? 'love' : names[String(e.login).toLowerCase()] || e.login,
           link: e.url || `https://github.com/${p.repo}/pull/${p.pr}`,
         });
@@ -276,8 +276,9 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
     const repo = board.github || board.waves.find((w) => w.slug === p.wave)?.wave.repo;
     const prs = siblings.filter((c) => c.next.state === 'MERGED').map((c) => ({ repo: c.p.repo, number: c.p.pr }));
     const closedPRs = siblings.map((c) => ({ repo: c.p.repo, number: c.p.pr }));
-    const text = landed ? mergedLine(prs, repo) : `Closed: ${prNames(closedPRs, repo)} closed unmerged.`;
-    try { await setItem(board.dir, card, { merged: prs, force: true, text }); merged.set(file, landed); }
+    // A merge closes with the board's merged line (store.mjs closingLine).
+    const closing = landed ? undefined : ['prs-closed', { prs: prNames(closedPRs, repo) }];
+    try { await setItem(board.dir, card, { merged: prs, force: true, closing }); merged.set(file, landed); }
     catch (err) { failed.push(`${board.route}: could not record ${card} ${landed ? 'merged' : 'closed'} (${err.message})`); merged.set(file, false); }
   }
   return merged.get(file);
@@ -296,7 +297,7 @@ async function readyGreenDraft(board, { p, key }, view, readied, failed) {
     failed.push(`${board.route}: could not mark ${key} ready for review (${err.message})`); return;
   }
   audit(boardAudit(board.dir), { ...entry, result: 'marked ready' });
-  try { await appendThread(board.dir, `${p.wave}/${p.id}`, { text: `CI passed, so PR #${p.pr} is marked ready for review.` }); }
+  try { await appendStatus(board.dir, `${p.wave}/${p.id}`, 'ci-passed', { pr: p.pr }); }
   catch (err) { failed.push(`${board.route}: could not write ${p.wave}/${p.id}'s ready line (${err.message})`); }
 }
 

@@ -2590,7 +2590,7 @@ test('every kind of thread status or system line leads with an icon, so a new ki
   // Each system line kind renders a mark holding an icon, or the dot of a builder or agent that is running.
   const sample = { ts: ago(1), who: 'claude', text: 'x', link: '#selectedCard=a', calls: ['c'], verified: null };
   for (const kind of ui.SYSTEM_KINDS) {
-    const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'command' ? { command: 'hold', mark: COMMANDS.hold, text: 'Held until Fri', request: true } : {}) }]);
+    const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'command' ? { command: 'hold', mark: COMMANDS.hold, text: 'Held until Fri', request: true } : {}), ...(kind === 'hub' ? { mark: 'Held' } : {}) }]);
     assert.match(html, /<span class="mark" aria-hidden="true">(<svg class="mark-icon|<span class="(working|agent)-dot")/, `${kind} line has a mark`);
   }
   // A request line with no icon for its words renders an empty mark, which this catches.
@@ -2635,4 +2635,21 @@ test("a run's section reads finished or running by its newest line, so a finishe
   assert.match(text(landing), /finished · \S.* Landing: rebasing/);
   const relanded = ui.threadMessages([...lines, l(4, { kind: 'agent', text: 'lander started', finished: false }), l(5, { kind: 'agent', text: 'lander finished', finished: true })]);
   assert.match(relanded, /<summary class="finished">/);
+});
+
+// docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md
+test("the board's line is a status line with its mark, never an Orchestrator message, and only a fault is red and unread", () => {
+  const quiet = { ts: ago(1), who: 'claude', kind: 'hub', line: 'host-busy', mark: 'Held', fault: false, text: 'Host is busy, work will resume when the host recovers' };
+  const fault = { ts: ago(1), who: 'claude', kind: 'hub', line: 'relaunch-failed', mark: 'Fault', fault: true, text: "Couldn't relaunch the builder headless: spawn ENOENT" };
+  const html = ui.threadMessages([quiet]);
+  assert.match(html, /<div class="msg request hub"><span class="mark" aria-hidden="true"><svg class="mark-icon/);
+  assert.doesNotMatch(html, /Orchestrator/);
+  assert.match(ui.threadMessages([fault]), /<div class="msg request hub fault">/);
+  assert.match(ui.MARK_ICONS.Blocked, /circle/);
+  assert.match(ui.MARK_ICONS.Fault, /mark-icon/);
+  // The window opens from the oldest unread line: a fault reaches past the last three messages, a quiet line doesn't.
+  const msg = (h) => ({ ts: ago(h), who: 'love', text: `m${h}` });
+  const older = [{ ...fault, ts: ago(9) }, msg(8), msg(7), msg(6), msg(5)];
+  assert.match(ui.threadMessages(older, {}, new Map(), { seenAt: ago(10) }), /relaunch/);
+  assert.doesNotMatch(ui.threadMessages([{ ...quiet, ts: ago(9) }, ...older.slice(1)], {}, new Map(), { seenAt: ago(10) }), /Host is busy/);
 });

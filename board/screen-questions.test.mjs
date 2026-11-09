@@ -55,7 +55,7 @@ test('screened questions left 15 minutes publish themselves, with a thread line;
   assert.deepEqual(owner(), []);
   assert.deepEqual(await publishUnscreened(site('orch'), new Date(since + SCREEN_AFTER)), ['w/A1']);
   assert.deepEqual(owner().map((q) => q.id), ['q1', 'q2', 'q-gate']);
-  assert.match(thread().at(-1).text, /didn't screen the grill's questions within 15 minutes/);
+  assert.match(thread().at(-1).text, /^Questions passed to you unscreened: the orchestrator didn’t screen them in 15 minutes\.$/);
 });
 
 test('closing the card publishes its screened questions at once', async () => {

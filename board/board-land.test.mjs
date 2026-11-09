@@ -45,7 +45,8 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   assert.deepEqual(merges().at(-1), ['pr', 'merge', '7', '--repo', 'o/r', '--squash']);
   const merged = read(at('waves', 'w', 'wave.json')).items[0];
   assert.deepEqual([merged.lane, merged.prs.map((p) => [p.number, typeof p.merged_at])], ['done', [[7, 'string']]]);
-  assert.equal(thread().at(-1), 'Merged PR #7. After the approval: Only a rebase onto main. The owner\'s word on the manual steps: "the backfill ran on prod"');
+  // The board's merged line, then the orchestrator's words on the merge as its message.
+  assert.deepEqual(thread().slice(-2), ['Merged PR #7.', 'After the approval: Only a rebase onto main. The owner\'s word on the manual steps: "the backfill ran on prod"']);
   writePR(dir, 8, prView({ state: 'MERGED' }));
   assert.equal(merge('w/A2').code, 0);
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A2.jsonl')).at(-1).text, 'PR #8 was already merged.');
@@ -68,7 +69,7 @@ test("merge counts commits after the approval as trivial when the board's rebase
   rebased(['aaa', 'bbb'], ['bbb', 'ccc']);
   const done = merge('w/A1');
   assert.equal(done.code, 0, done.err);
-  assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, "Merged PR #7. After the approval: only the board's rebase onto main.");
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).slice(-2).map((m) => [m.kind ?? null, m.text]), [['hub', 'Merged PR #7.'], [null, "After the approval: only the board's rebase onto main."]]);
 });
 
 test("merge takes every PR on a card across repos in its order, refusing while any open one isn't ready and leaving a merged or closed one be", () => {
@@ -797,7 +798,7 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   assert.match(failed.err, /^rebasing A1 onto main conflicts in shared\/notes\.md/);
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.deepEqual(threadOf().slice(-1).map((m) => m.text), [
-    `Not merged yet: rebasing A1 onto main conflicts in shared/notes.md; resolve it in ${worktree()} and land again. A lander fixes it and lands it.`,
+    'Not merged yet: rebasing A1 onto main conflicts in shared/notes.md… A lander fixes it and lands it.',
   ]);
   await until(() => fs.existsSync(seen), 'the lander runs');
   assert.match(fs.readFileSync(seen, 'utf8'), /You are the headless lander for card A1/);
@@ -822,7 +823,8 @@ test("a tapped Merge refused for a reason no lander fixes says why in the thread
   tapMerge();
   const failed = onOrch('merge', 'w/A1');
   assert.equal(failed.code, 1);
-  assert.equal(threadOf().at(-1).text, `Not merged: ${repo} is on elsewhere, not main; switch it to main (git -C ${repo} switch main) and land again. Tap Merge again.`);
+  assert.equal(threadOf().at(-1).line, 'land-failed');
+  assert.match(threadOf().at(-1).text, /^Not merged: \S+ is.* Tap Merge again\.$/);
   assert.deepEqual([itemOf().lane, itemOf().merge_ready.branch], ['review', 'A1']);
 });
 

@@ -60,7 +60,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   const wave = readJSON(path.join(b.site, 'data', 'wave.json'));
   assert.deepEqual(wave.items.at(-1).title, 'Architecture review of app-repo');
   assert.deepEqual(wave.lineups.map((l) => [l.slug, l.title, l.phases]), [[`arch-${stamp}`, title, [['INT-1']]]]);
-  assert.match(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8'), /Started an architecture review of app-repo\. Its report becomes this card's Notes/);
+  assert.match(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8'), /Started an architecture review of app-repo; its report becomes the notes/);
   const [event] = b.events();
   assert.equal(event.id, first.body.id);
   assert.deepEqual([event.kind, event.data], ['arch-review', { key: 'app/INT-1', repo: path.join(b.home, 'repos', 'app-repo'), github: 'owner/app-repo', branch: 'main', wave: `arch-${stamp}`, lineup: true }]);

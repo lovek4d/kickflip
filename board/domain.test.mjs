@@ -842,13 +842,12 @@ test("a verified branch held for the owner's Merge waits In Review on it with Me
   const tapped = { branch: 'A1', at: heldAt, tapped: '2026-11-04T11:00:00Z' };
   const merging = card({ item: { merge_ready: tapped } });
   assert.deepEqual([merging.merging, merging.action, merging.next], [true, null, 'Merging']);
-  const queued = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:00:30Z', who: 'claude', kind: 'status', text: 'Waiting for #210 to land' }] } });
+  const queued = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:00:30Z', who: 'claude', kind: 'hub', line: 'land-waiting', text: 'Waiting for #210 to land' }] } });
   assert.deepEqual([queued.merging, queued.action, queued.next], [true, null, 'Merging · waiting for #210 to land']);
-  const refused = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:01:00Z', who: 'claude', text: 'Not merged: main moved. Tap Merge again.' }] } });
+  const refused = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [{ ts: '2026-11-04T11:01:00Z', who: 'claude', kind: 'hub', line: 'land-failed', text: 'Not merged: main moved. Tap Merge again.' }] } });
   assert.deepEqual([refused.merging, refused.action?.kind], [false, 'merge']);
   const handedOff = card({ item: { merge_ready: tapped }, threads: { 'w/A1': [
-    { ts: '2026-11-04T11:01:00Z', who: 'claude', text: 'Not merged yet: rebasing A1 onto main conflicts in a.txt. A lander fixes it and lands it.' },
-    { ts: '2026-11-04T11:01:01Z', who: 'claude', text: 'Lander launched headless on Claude Opus in /w/A1.' },
+    { ts: '2026-11-04T11:01:00Z', who: 'claude', kind: 'hub', line: 'lander-handoff', text: 'Not merged yet: rebasing A1 onto main conflicts in a.txt. A lander fixes it and lands it.' },
   ] } });
   assert.deepEqual([handedOff.merging, handedOff.action], [true, null]);
   // docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md: the lander stays In Review; a
@@ -873,7 +872,7 @@ test("a merge-ready card keeps its place in In Review through a Merge tap, a Wai
   const after = build(
     { merge_ready: { branch: 'A', at: '2026-11-04T22:00:00Z', tapped: '2026-11-04T22:30:00Z' } },
     { 'w/A': [
-      { ts: '2026-11-04T22:30:10Z', who: 'claude', kind: 'status', text: 'Waiting for #210 to land' },
+      { ts: '2026-11-04T22:30:10Z', who: 'claude', kind: 'hub', line: 'land-waiting', text: 'Waiting for #210 to land' },
       { ts: '2026-11-04T23:00:00Z', who: 'owner', text: 'one more thing' },
     ] },
     { lander: { kind: 'lander', started: '2026-11-04T23:10:00Z' } },
@@ -941,7 +940,7 @@ test("a Build the board started is In Progress reading starting until its builde
   const other = { A1: { ...tapped.A1, codex: { kind: 'codex', started: '2026-10-29T10:02:00Z' } } };
   assert.equal(card({ item: { lane: 'progress' }, agents: other }).builder.progress, null);
 
-  const refused = { ts: '2026-10-29T10:00:00Z', who: 'claude', kind: 'build-refused', text: "Couldn't start the build: it's held. Resume it, then tap Build." };
+  const refused = { ts: '2026-10-29T10:00:00Z', who: 'claude', kind: 'hub', line: 'build-refused', text: "Couldn't start the build: it's held. Resume it, then tap Build." };
   const held = card({ item: { held: true }, threads: { 'w/A1': [refused] } });
   assert.deepEqual([held.lane, held.refusal], ['todo', refused.text]);
   const after = card({ threads: { 'w/A1': [refused, { ts: '2026-10-29T10:03:00Z', who: 'love', text: 'Resumed.' }] } });
@@ -2412,7 +2411,7 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   assert.deepEqual(one({ lane: 'progress' }, { agents: quiet, threads: { 'w/A1': [{ ts: '2026-11-04T10:55:00Z', who: 'claude', kind: 'status', text: 'Testing: x' }] } }), [], 'recent progress');
 
   // A ready card the pull refused.
-  const refused = { 'w/A1': [{ ts: at, who: 'claude', kind: 'build-refused', text: "Couldn't start implementing: no repo" }] };
+  const refused = { 'w/A1': [{ ts: at, who: 'claude', kind: 'hub', line: 'build-refused', text: "Couldn't start implementing: no repo" }] };
   const refusal = one({ phase: 'ready' }, { threads: refused });
   assert.deepEqual(shape(refusal), [['w/A1', 'refused', at, null]]);
   assert.equal(refusal[0].next, "Couldn't start implementing: no repo");
@@ -2765,4 +2764,17 @@ test("a card with a past run's record shows only its live agents, while the thre
   } };
   const item = board({ agents }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual(item.agents.map((a) => a.name), ['main']);
+});
+
+// docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md
+test("the board's status lines carry their kind's mark; only a fault is unread, and none answers like a message is drawn", () => {
+  const threads = { 'w/A1': [
+    { ts: '2026-10-23T10:02:00Z', who: 'claude', kind: 'hub', line: 'pulled', text: 'Pulled in: an implementer slot was free.' },
+    { ts: '2026-10-23T10:03:00Z', who: 'claude', kind: 'hub', line: 'host-busy', text: 'Host is busy, work will resume when the host recovers' },
+    { ts: '2026-10-23T10:04:00Z', who: 'claude', kind: 'hub', line: 'relaunch-failed', text: "Couldn't relaunch the builder headless: spawn ENOENT" },
+  ] };
+  const card = board({ pr: null, item: { pr: undefined, lane: 'progress' }, threads }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual(card.othersAt, ['2026-10-23T10:04:00Z']);
+  assert.deepEqual(threadOf('w/A1', { lines: threads['w/A1'] }).map((m) => [m.kind, m.line, m.mark, m.fault]), [
+    ['hub', 'pulled', 'Implementation requested', false], ['hub', 'host-busy', 'Held', false], ['hub', 'relaunch-failed', 'Fault', true]]);
 });

@@ -12,7 +12,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { readUsageGate, pauseReason, holdsWork } from '../shared/usage-gate.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { unlanded } from './domain.mjs';
-import { BoardError, addItem, appendThread, boardConfig, cardName, changeLineup, createLineup, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
+import { BoardError, addItem, appendStatus, boardConfig, cardName, changeLineup, createLineup, itemSources, parseKey, readJSON, resolveQuestion, setItem, startBuilder, topicQuestions, wavesDir } from './store.mjs';
 
 const recordsFile = (site) => path.join(site, 'data', 'arch-reviews.json');
 export const readReviews = async (site) => (await readJSON(recordsFile(site), { reviews: [] })).reviews || [];
@@ -94,7 +94,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
     });
   }
   await startBuilder(site, key, { label: 'Architecture review' });
-  await appendThread(site, key, { text: `Started an architecture review of ${name}. Its report becomes this card's Notes, with one question per finding.` });
+  await appendStatus(site, key, 'arch-review', { card: name });
 
   const reviews = await readReviews(site);
   reviews.push({ key, wave: lineupSlug || waveSlug, lineup: Boolean(lineupSlug), title, repo: target.repo, at: now.toISOString() });
@@ -137,6 +137,6 @@ export async function fileFindings(site, key) {
   const left = (await topicQuestions(site, `item:${key}`)).asked.filter((x) => x.state !== 'resolved');
   if (left.length) return { lines: [...lines, `waiting: ${left.map((x) => x.id).join(', ')}`] };
   const filed = (await topicQuestions(site, `item:${key}`)).asked.filter((x) => /^Filed as /.test(x.resolved || '')).map((x) => x.resolved.slice(9, -1));
-  const closed = await setItem(site, key, { done: true, text: filed.length ? `Every finding is settled: filed ${filed.join(', ')}.` : 'Every finding is settled: none filed.' });
+  const closed = await setItem(site, key, { done: true, closing: ['findings-settled', { filed: filed.join(', ') }] });
   return { lines: [...lines, ...closed.lines, `closed: ${await cardName(site, key)}`] };
 }

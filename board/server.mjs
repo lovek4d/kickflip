@@ -331,7 +331,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, launchBuilder, launchedAgents, pidAlive, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
-import { dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -340,7 +340,7 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
-import { readUsageGate, launchHeld, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil, MACHINE_HELD_LINE } from '../shared/usage-gate.mjs';
+import { readUsageGate, launchHeld, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { runLimit } from '../hub/usage.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
@@ -1268,7 +1268,7 @@ const server = http.createServer(async (req, res) => {
         agents = agents.filter((a) => !open.some((o) => o.pid === a.pid));
         if (agents.length) {
           stopAgents(agents);
-          await appendThread(here, key, { text: 'Stopped its builder.' });
+          await appendStatus(here, key, 'builder-stopped');
         }
         if (kind === 'card-hold' && !body.hold) await resumeRun(key);
       }
@@ -1605,14 +1605,14 @@ async function handOff(started) {
     const gate = readUsageGate({ dir: here });
     if (launchHeld(gate, started.kind)) {
       logCall({ call: 'launch-held', key: started.key, result: 'held', reason: pauseReasonFor(gate, started.kind), inputs: { kind: started.kind, model: started.model ?? null, gate } });
-      if (gate.machine.state === 'busy') await appendThread(here, started.key, { text: MACHINE_HELD_LINE });
+      if (gate.machine.state === 'busy') await appendStatus(here, started.key, 'host-busy');
       await trackLaunch(started.key, { ...entry, pid: null });
     } else {
       const { pid, log } = await launchBuilder(here, started);
       await trackLaunch(started.key, { ...entry, pid, log });
     }
   } catch (e) {
-    await abandonLaunch(here, started.key, `the launch failed (${e.message}). Tap Implement to try again.`);
+    await abandonLaunch(here, started.key, `the launch failed: ${e.message}`);
   }
   return null;
 }
@@ -1657,11 +1657,11 @@ async function launchHelpers(helpers) {
       if (!started) continue;
       logCall({ call: 'helper', key, result: 'launching', reason: 'A helper was asked for and pullOf let it launch.', inputs: { name, model: started.model, worktree: started.worktree } });
       try { await launchBuilder(here, started); } catch (e) {
-        await abandonPlanner(here, key, `Couldn't launch helper ${name} (${e.message}).`, name);
+        await abandonPlanner(here, key, ['helper-failed', { name, error: e.message }], name);
       }
     } catch (e) {
       if (!(e instanceof BoardError)) throw e;
-      await abandonPlanner(here, key, `Couldn't start helper ${name}: ${e.message}`, name);
+      await abandonPlanner(here, key, ['helper-failed', { name, error: e.message }], name);
     }
   }
 }
@@ -1687,11 +1687,11 @@ async function drawVisuals(items, log) {
       const { text, files } = request.data;
       const ask = { ...(text ? { text: String(text) } : {}), ...(Array.isArray(files) && files.length ? { files } : {}) };
       try { await launchBuilder(here, { ...started, ...ask }); } catch (e) {
-        await abandonPlanner(here, key, `Couldn't launch the visual agent (${e.message}).`, started.agent);
+        await abandonPlanner(here, key, ['planner-failed', { kind: 'visual agent', error: e.message }], started.agent);
       }
     } catch (e) {
       if (!(e instanceof BoardError)) throw e;
-      await appendThread(here, key, { text: `Couldn't start the visual agent: ${e.message}` });
+      await appendStatus(here, key, 'planner-failed', { kind: 'visual agent', error: e.message });
     }
   }
 }
@@ -1714,18 +1714,18 @@ async function launchPlanner(key, kind, ask = {}) {
     heldByPause = true;
     await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [key]: { kind, ask } });
     logCall({ call: 'planner-queued', key, result: kind, reason: pauseReasonFor(gate, 'claude'), inputs: { kind, gate } });
-    await appendThread(here, key, { text: `The ${kind} waits and starts when the hold lifts. ${pauseReasonFor(gate, 'claude')}` });
+    await appendStatus(here, key, gate.machine.state === 'busy' ? 'host-busy' : 'planner-held', { kind });
     return;
   }
   try {
     const started = await startPlanner(here, key, kind);
     if (!started) return;
     try { await launchBuilder(here, { ...started, ...ask }); } catch (e) {
-      await abandonPlanner(here, key, `Couldn't launch the ${kind} (${e.message}).`);
+      await abandonPlanner(here, key, ['planner-failed', { kind, error: e.message }]);
     }
   } catch (e) {
     if (!(e instanceof BoardError)) throw e;
-    await appendThread(here, key, { text: `Couldn't start the ${kind}: ${e.message}` });
+    await appendStatus(here, key, 'planner-failed', { kind, error: e.message });
   }
 }
 
@@ -1790,7 +1790,7 @@ async function resumeBuild(key) {
     logCall({ ...entry, result: 'resumed' });
   } catch (e) {
     logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-    await appendThread(here, key, { text: `Couldn't resume the builder headless (${e.message}).` });
+    await appendStatus(here, key, 'resume-failed', { error: e.message });
   }
 }
 
@@ -1849,7 +1849,7 @@ async function reviveHeadless() {
     const open = new Set(items.filter((c) => c.lane !== 'done' && c.builder && !c.builder.planner).map((c) => c.key));
     const handBack = async (card) => {
       logCall({ call: 'relaunch', key: card.key, result: 'handed back', reason: 'Its builder exited twice with its record open.', inputs: tracked[card.key] });
-      await appendThread(here, card.key, { text: 'Its builder exited twice with the build unfinished; it reads stopped until the orchestrator takes it up.' });
+      await appendStatus(here, card.key, 'exited-twice');
     };
     const launch = async (card) => {
       const was = tracked[card.key];
@@ -1861,7 +1861,7 @@ async function reviveHeadless() {
         return { pid, log };
       } catch (e) {
         logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-        await appendThread(here, card.key, { text: `Couldn't relaunch the builder headless (${e.message}).` });
+        await appendStatus(here, card.key, 'relaunch-failed', { error: e.message });
         return { pid: null };
       }
     };
@@ -1896,7 +1896,7 @@ function runHeldMerge(key) {
   const cmd = process.env.KICKFLIP_MERGE_CMD ? JSON.parse(process.env.KICKFLIP_MERGE_CMD) : [process.execPath, BOARD_CLI];
   const child = spawn(cmd[0], [...cmd.slice(1), '--site', route, 'merge', key], { detached: true, stdio: ['ignore', out, out] });
   closeSync(out);
-  child.on('error', (e) => appendThread(here, key, { text: `Not merged: the land couldn't start (${e.message}). Tap Merge again.` }).catch(() => {}));
+  child.on('error', (e) => appendStatus(here, key, 'land-failed', { why: `the land couldn't start (${e.message})` }).catch(() => {}));
   child.unref();
 }
 
@@ -1945,7 +1945,7 @@ async function launchLanders(items, stopped, room) {
     } catch (e) {
       logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
       kept[c.key] = { verified: c.verified, pid: null };
-      await appendThread(here, c.key, { text: `Couldn't launch the lander headless (${e.message}); land it with board.mjs land ${c.key}.` });
+      await appendStatus(here, c.key, 'lander-failed', { error: e.message });
     }
   }
   await save();
@@ -1987,7 +1987,7 @@ async function launchRebases(items, room) {
       } catch (e) {
         if (!(e instanceof BoardError)) throw e;
         logCall({ ...entry, result: 'refused', reason: `${entry.reason} The start refused: ${e.message}` });
-        await appendThread(here, d.key, { text: `PR #${d.pr} conflicts with ${base}, but the rebase run couldn't start: ${e.message}` });
+        await appendStatus(here, d.key, 'rebase-failed', { pr: d.pr, error: e.message });
         continue;
       } finally { dataVersion++; }
       try {
@@ -1995,7 +1995,7 @@ async function launchRebases(items, room) {
         logCall({ ...entry, result: 'launched' });
       } catch (e) {
         logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-        await appendThread(here, d.key, { text: `Couldn't launch the rebase run headless (${e.message}); it reads stopped until the orchestrator takes it up.` });
+        await appendStatus(here, d.key, 'rebase-launch-failed', { error: e.message });
       }
     }
   } finally {
@@ -2061,7 +2061,7 @@ async function triageDue() {
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
 // The pull starts the build of each card domain.mjs pullOf says fills a free slot, tracked in data/pulled.json
 // (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md).
-const PULL = { file: 'pulled.json', line: 'Pulled in: an implementer slot was free.' };
+const PULL = { file: 'pulled.json', line: 'pulled' };
 // The marker {keys, at}: keys are the cards started that still wait for their agent, at when the marker last changed.
 // A marker from before the cap holds one key instead. → the keys started.
 const markedOf = (marker) => marker.keys || (marker.key ? [marker.key] : []);
@@ -2072,8 +2072,7 @@ async function sendPulls({ file: name, line }, on, keep, go, start) {
   const file = path.join(data, name);
   const keys = on ? [...keep, ...go] : [];
   for (const key of on ? go : []) {
-    await fs.mkdir(path.dirname(threadFile(key)), { recursive: true });
-    await fs.appendFile(threadFile(key), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', text: line }) + '\n');
+    await appendStatus(here, key, line);
     await start(key);
   }
   if (JSON.stringify(markedOf(await readJSON(file, {}))) !== JSON.stringify(keys)) {

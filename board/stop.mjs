@@ -20,7 +20,7 @@ const stoppedLines = (ref, run, stopped) => [`${ref}: ${stoppedWords(run)}`, ...
 async function stopped(site, key, run, leader) {
   await store.markStopped(site, key, run);
   const processes = await stopRuns([leader]);
-  await store.appendThread(site, key, { text: stoppedWords(run) });
+  await store.appendStatus(site, key, 'run-stopped', { words: stoppedWords(run) });
   return processes;
 }
 
@@ -68,7 +68,7 @@ export async function stallCard(site, key, reason) {
   const agent = launchedAgents((await store.openRuns(site, key)).filter((r) => !plans(r)))[0];
   const processes = agent ? await stopRuns([agent.pid]) : [];
   clearStoppedLand(ref, processes.map((p) => p.pid));
-  await store.appendThread(site, key, { text: `stalled by orchestrator: ${words}` });
+  await store.appendMessage(site, key, { text: `stalled by orchestrator: ${words}` });
   return { lines: [`${ref} stalled: ${words}`, ...pidLines(processes)] };
 }
 
@@ -91,7 +91,7 @@ export async function stopLand(site, key) {
   else if (land.merge && group === land.pid) {
     await store.stopHeldMerge(site, key);
     processes = await stopRuns([land.pid]);
-    await store.appendThread(site, key, { text: stoppedWords('land') });
+    await store.appendStatus(site, key, 'run-stopped', { words: stoppedWords('land') });
   } else fail(`${ref}'s land runs in a session the board didn't launch; stop it in that session`);
   clearStoppedLand(ref, processes.map((p) => p.pid));
   return { lines: stoppedLines(ref, 'land', processes) };
@@ -102,7 +102,7 @@ export async function bump(site, key, on) {
   const ref = await store.cardName(site, key);
   const at = await store.bumpCard(site, key, on);
   const moved = moveQueuedLand(site, key, on ? at : null);
-  if (on && moved) await store.appendThread(site, key, { text: orchestratorDid('land', 'moved first') });
+  if (on && moved) await store.appendStatus(site, key, 'land-moved-first', { words: orchestratorDid('land', 'moved first') });
   return { lines: [on ? `${ref} bumped${moved ? ': its land moved first' : ''}` : `${ref} unbumped`] };
 }
 

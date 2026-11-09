@@ -268,3 +268,39 @@ test("visual add places the agent's page under the site's public/visuals/<card>/
   assert.match(board('--site', 'orch', 'visual', 'add', 'w/A1', '--file', plain, '--title', 'X').err, /\.html/);
   assert.match(board('--site', 'orch', 'visual', 'add', 'w/A1', '--file', page).err, /--title/);
 });
+
+// docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md
+test('a message runs to at most 2000 characters, and a longer one is refused with how to rewrite it; a GitHub comment is kept whole', () => {
+  assert.equal(board('thread', 'w/A1', '--site', 'orch', '--text', 'x'.repeat(2000)).code, 0);
+  const long = board('thread', 'w/A1', '--site', 'orch', '--text', 'y'.repeat(2001));
+  assert.equal(long.code, 1);
+  assert.match(long.err, /runs to 2001 characters, past a message's 2000: rewrite it shorter, or put the detail in an HTML page \(board\.mjs visual add, or --link to a page\) and link it/);
+  assert.equal(board('thread', 'w/A1', '--site', 'orch', '--text', 'z'.repeat(2001), '--via', 'github', '--who', 'Jamie').code, 0);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => m.text[0]), ['x', 'z']);
+  const close = board('item', 'set', 'w/A1', '--site', 'orch', '--done', '--text', 'y'.repeat(2001));
+  assert.equal(close.code, 1);
+  assert.match(close.err, /past a message's 2000/);
+  assert.notEqual(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'A1').lane, 'done', 'refused before it closes');
+});
+
+test('the board writes a thread only through appendStatus and appendMessage: no code appends a plain line to a thread file', () => {
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const sources = ['board', 'board/bin', 'hub', 'shared', 'bin'].flatMap((dir) => fs.readdirSync(path.join(root, dir))
+    .filter((f) => /\.m?js$/.test(f) && !f.includes('.test.')).map((f) => path.join(root, dir, f)));
+  for (const file of sources) {
+    const code = fs.readFileSync(file, 'utf8');
+    const name = path.relative(root, file);
+    assert.doesNotMatch(code, /\bappendThread\b/, `${name} names the old appendThread`);
+    assert.doesNotMatch(code, /appendFile(Sync)?\([^)]*thread/i, `${name} appends to a thread file itself`);
+    if (name !== path.join('board', 'store.mjs')) continue;
+    // In the store, every raw write to a thread is a line of a kind or a command, or one of the line a writer built:
+    // appendStatus's, appendMessage's, appendCommand's and a move's.
+    const writes = [...code.matchAll(/appendLine\((?:threadFile\([^)]*\)|file), ([^\n]*)\);\n/g)];
+    assert.ok(writes.length > 0);
+    for (const w of writes) {
+      const writer = [...code.slice(0, w.index).matchAll(/function (\w+)\(/g)].at(-1)[1];
+      if (w[1] === 'line') assert.ok(['appendStatus', 'appendMessage', 'appendCommand', 'moveCard'].includes(writer), `${writer} writes a line it built`);
+      else assert.match(w[1], /\b(kind|command)\b/, `${writer} writes a plain thread line: ${w[1]}`);
+    }
+  }
+});

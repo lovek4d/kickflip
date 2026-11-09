@@ -190,7 +190,7 @@ test('worktree resolution keeps traversal, boundary, symlink and repo checks, an
   assert.equal(await installWorktree({ ...listBoards(manifest)[0], github: 'other/repo' }, 'w/A1', manifest), '');
 });
 
-test('a failed run writes one failure with its exit, keychain hint and last five log lines, a retry once it shows failed starts, and successful runs write no message', async (t) => {
+test('a failed run writes one failure status line with its exit and one reason, the keychain hint before the log, a retry once it shows failed starts, and successful runs write no message', async (t) => {
   write(path.join(site, 'data/wave.json'), { items: [{ id: 'A1', install: { url: 'https://example.com/app.apk' } }] });
   setScript("console.error('errSecInternalComponent'); console.log('one\\ntwo\\nthree\\nfour\\nfive'); process.exit(7);");
   let release;
@@ -208,7 +208,7 @@ test('a failed run writes one failure with its exit, keychain hint and last five
   release();
   assert.deepEqual(await retry, { status: 'started' });
   assert.equal(thread().length, 1);
-  assert.equal(thread()[0].text, 'Build failed (exit 7)\nThe login keychain must be unlocked on the host.\none\ntwo\nthree\nfour\nfive');
+  assert.deepEqual([thread()[0].line, thread()[0].text], ['run-failed', 'Build failed (exit 7): unlock the login keychain on the host']);
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(thread().length, 1);
 });
@@ -266,7 +266,7 @@ test('a port announcement followed by exit before readiness fails, even with exi
   await start();
   await until(() => thread().length === 1);
   assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.match(thread()[0].text, /^Serve failed \(exit 0\)\nBuild script exited before its port answered/);
+  assert.match(thread()[0].text, /^Serve failed \(exit 0\): Build script exited before its port answered/);
 });
 
 test('the auto-build tick refreshes head, changes and script and runs each new head only when enabled', async () => {
@@ -438,7 +438,7 @@ take();`);
   fs.chmodSync(script(), 0o600);
   await tick();
   assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.match(thread()[0].text, /^Build failed \(exit 1\)\nBuild script must be executable/);
+  assert.match(thread()[0].text, /^Build failed \(exit 1\): Build script must be executable/);
 });
 
 test("a web script serves root paths and upgrades through the relay to the owner and the board's shared logins alone, and keeps its port across a new commit and Retry", async () => {
@@ -974,7 +974,7 @@ test('an automatic validation refusal records one failed head and useful thread 
   await tick();
   assert.equal(state().cards['w/A1'].sha, sha);
   assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.match(thread()[0].text, /Serve failed \(exit 1\)\nBuild script must be executable/);
+  assert.match(thread()[0].text, /Serve failed \(exit 1\): Build script must be executable/);
   await tick();
   assert.equal(thread().length, 1);
   setScript('process.exit(0);', repo);

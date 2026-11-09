@@ -23,9 +23,11 @@ import { boardRepo } from '../hub/board-repo.mjs';
 const fail = (msg) => { throw new store.BoardError(msg); };
 const said = (text) => (typeof text === 'string' && text.trim() ? text.trim() : fail('--text must be non-empty text'));
 
-// text is the card's closing line ("<what was checked>"), ownerStep land's and builder done's --owner-step, check its
-// --check, repo --repo, merge whether the land is the one a held card's Merge tap started. → {said: what became of the card, lines}
-export async function finishCard(site, key, { text, ownerStep, check, repo: given, onWait, merge = false }) {
+// text is the card's closing line ("<what was checked>"), the builder's message, unless closing ([kind, inputs]) names
+// the board's status line instead; ownerStep land's and builder done's --owner-step, check its --check, repo --repo,
+// merge whether the land is the one a held card's Merge tap started. → {said: what became of the card, lines}
+export async function finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge = false }) {
+  store.messageText(text);
   const id = key.split('/')[1];
   const recorded = await store.recordedWorktree(site, key);
   const { repo, base, remote } = builderRepo(site, { repo: given ?? recorded?.repo });
@@ -36,13 +38,13 @@ export async function finishCard(site, key, { text, ownerStep, check, repo: give
   if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, ref, text: said(text) });
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a finish asked for a card already landing joins
   // that land, then finishes what it left, if anything.
-  const ran = await joiningLand(ref, () => landCard(site, key, { tree, ref, base, remote, repo, settings, text, ownerStep, check, onWait }), { merge });
+  const ran = await joiningLand(ref, () => landCard(site, key, { tree, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }), { merge });
   if (!ran.joined) return ran;
   if (await store.isFinished(site, key)) return { said: 'landed and done', lines: [] };
-  return finishCard(site, key, { text, ownerStep, check, repo: given, onWait, merge });
+  return finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge });
 }
 
-async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, ownerStep, check, onWait }) {
+async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }) {
   const go = settings.auto_merge || Boolean((await store.heldMerge(site, key))?.tapped);
   // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md
   const blocked = go && await store.blockWords(site, key);
@@ -62,10 +64,10 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   await landInTurn({ ...tree, ref }, { hold: !go, onWait, queue, sync: () => remote && syncBase(tree.repo, base) });
   if (!go) {
     const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
-    await store.appendThread(site, key, { text });
+    await store.appendMessage(site, key, { text });
     return { said: 'verified; waits for your Merge', lines: set.lines };
   }
-  const closed = await store.setItem(site, key, { done: true, landed: true, text, ownerStep, check });
+  const closed = await store.setItem(site, key, { done: true, landed: true, ...(closing ? { closing } : { text }), ownerStep, check });
   return {
     said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
     lines: [...closed.lines, ...await pushBase(site, key, repo, base)],
@@ -82,17 +84,17 @@ export async function landHeld(site, key, { launch = launchBuilder } = {}) {
   if (!held?.tapped) fail(`${key} isn't waiting on a Merge tap`);
   try {
     const { base } = builderRepo(site, { repo: (await store.recordedWorktree(site, key))?.repo });
-    const onWait = (card) => store.appendThread(site, key, { text: `Waiting for ${card} to land`, kind: 'status' });
-    return await finishCard(site, key, { text: `Landed on ${base} on your Merge.`, onWait, merge: true });
+    const onWait = (card) => store.appendStatus(site, key, 'land-waiting', { card });
+    return await finishCard(site, key, { text: `Landed on ${base} on your Merge.`, closing: ['landed-on-merge', { base }], onWait, merge: true });
   } catch (e) {
     if (!(e instanceof store.BoardError)) throw e;
     const why = e.message.split('\n')[0];
     if (/^rebasing .+ conflicts in |^tests failed in /.test(why)) {
-      await store.appendThread(site, key, { text: `Not merged yet: ${why}. A lander fixes it and lands it.` });
+      await store.appendStatus(site, key, 'lander-handoff', { why });
       try { await launch(site, { key, model: await store.builderModel(site, key) }, { lander: true }); } catch (err) {
-        await store.appendThread(site, key, { text: `Couldn't launch the lander headless (${err.message}); land it with board.mjs land ${key}.` });
+        await store.appendStatus(site, key, 'lander-failed', { error: err.message });
       }
-    } else await store.appendThread(site, key, { text: `Not merged: ${why}. Tap Merge again.` });
+    } else await store.appendStatus(site, key, 'land-failed', { why });
     throw e;
   }
 }
@@ -103,7 +105,7 @@ async function pushBase(site, key, repo, base) {
   const pushed = git(repo, 'push', '--quiet', 'origin', base);
   if (pushed.ok) return [`pushed ${base} to origin`];
   const why = `${base} didn't reach origin: ${pushed.err}; push it with git -C ${repo} push origin ${base}`;
-  await store.appendThread(site, key, { text: `Landed, but ${why}` });
+  await store.appendStatus(site, key, 'push-failed', { base, error: pushed.err });
   return [`landed, but ${why}`];
 }
 
@@ -126,12 +128,12 @@ async function sendForReview(site, key, { path: dir, branch, base, ref, text }) 
     const ahead = (tip) => Number(git(dir, 'rev-list', '--count', `refs/remotes/origin/${base}..${tip}`).out);
     await store.recordRebase(site, key, { from, to: git(dir, 'rev-parse', 'HEAD').out, replayed: ahead('HEAD') <= ahead(from) });
     const set = await store.setItem(site, key, { pr: open });
-    await store.appendThread(site, key, { text });
+    await store.appendMessage(site, key, { text });
     return { said: `pushed ${branch} to PR #${open}`, lines: set.lines };
   }
   if (!github) {
     const set = await store.setItem(site, key, { pushed: branch });
-    await store.appendThread(site, key, { text });
+    await store.appendMessage(site, key, { text });
     return { said: `pushed ${branch} for its merge`, lines: set.lines };
   }
   const { title } = await store.briefFacts(site, key);
@@ -141,6 +143,6 @@ async function sendForReview(site, key, { path: dir, branch, base, ref, text }) 
   const number = (created.status === 0 || /already exists/.test(out)) && /\/pull\/(\d+)/.exec(out)?.[1];
   if (!number) fail(`could not open a draft PR for ${branch}: ${(created.stderr || created.error?.message || `gh exited ${created.status}`).trim().split('\n')[0]}`);
   const set = await store.setItem(site, key, { pr: Number(number) });
-  await store.appendThread(site, key, { text });
+  await store.appendMessage(site, key, { text });
   return { said: `draft PR #${number} opened`, lines: set.lines };
 }

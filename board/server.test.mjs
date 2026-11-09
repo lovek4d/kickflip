@@ -495,7 +495,8 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     fs.mkdirSync(taken, { recursive: true });
     assert.equal((await post({ kind: 'card-build', key: 't/B4' })).status, 200);
     const leftover = await card('B4');
-    assert.deepEqual([leftover.lane, leftover.storedLane, leftover.refusal], ['todo', 'todo', `Couldn't start implementing: --worktree: ${taken} already exists; land or remove it first`]);
+    // A status line holds 100 characters, so a long path reads by its last part (board/hub-lines.mjs fit).
+    assert.deepEqual([leftover.lane, leftover.storedLane, leftover.refusal], ['todo', 'todo', "Couldn't start implementing: --worktree: …/B4 already exists; land or remove it first"]);
     assert.deepEqual(log().slice(before).map((e) => e.kind).filter((k) => !['orchestrator-waits', 'grill-more', 'card-bump'].includes(k)), []);
 
     // A leftover worktree holding no work is remade from the board's fetched main; one holding work still refuses.
@@ -512,10 +513,10 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     const remade = await card('B6');
     assert.deepEqual([remade.lane, remade.storedLane, remade.refusal], ['progress', 'progress', null]);
     assert.equal(git(leftover6, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'));
-    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', 'Moved to In Progress: a build started'], ['claude', `Remade the leftover worktree ${leftover6} from main: it held no commits or changes.`]]);
+    assert.deepEqual(thread('B6').map((m) => [m.who, m.text]), [['claude', 'Moved to In Progress: a build started'], ['claude', 'Remade its leftover worktree: it held no commits or changes.']]);
     assert.equal((await post({ kind: 'card-build', key: 't/B7' })).status, 200);
     const kept = await card('B7');
-    assert.deepEqual([kept.lane, kept.storedLane, kept.refusal], ['todo', 'todo', `Couldn't start implementing: --worktree: ${leftover7} holds 1 changed file; land or remove it first`]);
+    assert.deepEqual([kept.lane, kept.storedLane, kept.refusal], ['todo', 'todo', "Couldn't start implementing: --worktree: …/B7 holds 1 changed file; land or remove it first"]);
 
     // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: an empty Implement, on a ready
     // card or one still grilling, writes its keyed status line and stages the card, with no

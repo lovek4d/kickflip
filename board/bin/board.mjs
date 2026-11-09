@@ -795,7 +795,7 @@ const COMMANDS = {
     if ((f.html === undefined) === (f.file === undefined)) throw new UsageError('reply takes --html or --file');
     return store.writeReply(site, id, f.html ?? readInput(f.file), f.title);
   }],
-  thread: [['wave/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendThread(site, key, f)],
+  thread: [['wave/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendMessage(site, key, f)],
   'visual add': [['wave/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
@@ -875,7 +875,7 @@ const COMMANDS = {
       });
       const out = await r.json();
       if (!r.ok) throw new store.BoardError(out.error || 'The hub refused the build.');
-      return { lines: ['started', ...(await store.appendThread(site, key, { text: line })).lines] };
+      return { lines: ['started', ...(await store.appendMessage(site, key, { text: line })).lines] };
     } catch (e) {
       if (e instanceof store.BoardError) throw e;
       throw new store.BoardError(`Could not start the build: ${e.message}`);

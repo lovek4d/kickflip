@@ -20,6 +20,7 @@ import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.m
 import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
 import { buildScriptOf } from './build-script.mjs';
+import { HUB, hubLineOf } from './hub-lines.mjs';
 
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
 const enums = vm.createContext({});
@@ -43,7 +44,7 @@ export const BUILDER_STALE_AFTER = 10 * 60000;
 // How long a headless builder whose process lives may go without a status line or transcript movement before it reads
 // quiet (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
 export const BUILDER_QUIET_AFTER = 5 * 60000;
-// The thread line's kind for a Build tap the board server refused (store.mjs startTappedBuild).
+// The status line kind (hub-lines.mjs) for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
 // The thread line kinds of a builder's ask and the orchestrator's answer or deferral of it (store.mjs askOrchestrator).
 export const BUILDER_ASK = Object.freeze({ ask: 'builder-ask', answer: 'builder-answer' });
@@ -162,16 +163,19 @@ const heldNext = (base) => `Verified: tap Merge to land it on ${base}`;
 const FIX_CI = 'Fix the failing CI';
 const TAP_DONE = 'Tap Done once it is settled';
 
-// Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's; never the owner's lines,
-// their answers included, nor status, agent or ask-link lines, nor the orchestrator's answer to a builder's ask, which
-// leaves the card quiet (ui-threads.js unread; docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md).
+// Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's, and the board's fault lines; never
+// the owner's lines, their answers included, nor status, agent or ask-link lines, nor the board's other status lines,
+// nor the orchestrator's answer to a builder's ask, which leaves the card quiet (ui-threads.js unread;
+// docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
+// docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md).
 const QUIET_KINDS = ['status', 'agent', 'ask-link', 'command', MOVE, BUILDER_ASK.answer];
-const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET_KINDS.includes(m.kind);
+const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET_KINDS.includes(m.kind) && (m.kind !== HUB || hubLineOf(m).fault);
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
 // decides the lane, what it waits on and its Next (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
-const LANDER_HANDOFF = /^(?:Not merged yet: |Lander launched headless )/;
+// The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
+const STILL_MERGING = ['lander-handoff', 'land-waiting'];
 function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets }) {
   // An archived PR the board no longer asks GitHub about draws what it kept (store.mjs keptPRs).
   const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || p.kept || {}), status: prStateOf(p.gh, p.merged_at) }));
@@ -244,17 +248,17 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
   const bumpStands = Boolean(bumpedAt) && !(doneAt && String(bumpedAt) <= doneAt);
   // The owner's Merge waits on the session until it merges or writes in the thread, such as why it can't merge yet.
   // A held Merge handed to a lander (finish.mjs landHeld) is still merging; the card stays In Review while it runs.
-  const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'command', MOVE].includes(m.kind) && !LANDER_HANDOFF.test(m.text || '')).map((m) => String(m.ts)).sort().pop() || '';
+  const lastClaudeAt = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'command', MOVE].includes(m.kind) && !STILL_MERGING.includes(m.line)).map((m) => String(m.ts)).sort().pop() || '';
   // A held card's tap is recorded on it (store.mjs tapMerge), and the board server's land writes its outcome there.
   const tappedAt = [mergeAt, mergeReady && it.merge_ready.tapped].filter(Boolean).map(String).sort().pop();
   const merging = waitsOn === 'merge' && Boolean(tappedAt) && tappedAt > lastClaudeAt;
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a tap queued behind another land says so in a status line.
-  const lastStatus = thread.filter((m) => m.kind === 'status' && String(m.ts) > String(tappedAt)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
-  const mergingNext = lastStatus?.text.startsWith('Waiting for ') ? `${OWNER_MERGE_NEXT.merging} · ${lastStatus.text[0].toLowerCase()}${lastStatus.text.slice(1)}` : OWNER_MERGE_NEXT.merging;
+  const lastStatus = thread.filter((m) => (m.kind === 'status' || m.kind === HUB) && String(m.ts) > String(tappedAt)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  const mergingNext = lastStatus?.line === 'land-waiting' ? `${OWNER_MERGE_NEXT.merging} · ${lastStatus.text[0].toLowerCase()}${lastStatus.text.slice(1)}` : OWNER_MERGE_NEXT.merging;
   // A Build tap the board refused: its reason stays on a Todo card while it is the card's newest line
   // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
   const newest = thread.filter((m) => !['status', MOVE].includes(m.kind)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
-  const refusal = lane === 'todo' && newest?.kind === BUILD_REFUSED ? newest.text : null;
+  const refusal = lane === 'todo' && newest?.line === BUILD_REFUSED ? newest.text : null;
   // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
   // When the card last came into In Progress: its reopening, else its latest build agent's start.
   const progressSince = reopenAt || agents.filter(builds).map((a) => a.started).filter(Boolean).map(String).sort().pop() || null;
@@ -318,7 +322,7 @@ function waitFactsOf(it, { agents, thread, events, refusedAt }) {
   const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
   const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
   const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
-  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', 'command', MOVE, BUILD_REFUSED].includes(m.kind)).map((m) => m.ts);
+  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', 'command', MOVE].includes(m.kind) && m.line !== BUILD_REFUSED).map((m) => m.ts);
   return {
     handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, unblockedAt: it.unblocked_at || null,
@@ -948,7 +952,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
+    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,

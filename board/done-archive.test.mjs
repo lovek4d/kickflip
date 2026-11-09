@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until } from '../shared/test-helpers.mjs';
 import { buildBoard, archivedOf, slimDone, DONE_KEPT } from './domain.mjs';
-import { archiveCards, readArchive, appendThread, setItem, stripDeadFields } from './store.mjs';
+import { archiveCards, readArchive, appendMessage, setItem, stripDeadFields } from './store.mjs';
 
 const at = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
 // count Done cards D0 (newest) … D<count-1>, then O1, an open card depending on D<count-2>, and O2, in an open
@@ -80,7 +80,7 @@ test('an archived card leaves the wave file with its resolved questions, its thr
     assert.equal((await readArchive(site)).length, 2, 'archiving twice moves nothing twice');
     assert.deepEqual(read('ask-links.json').links, { a1: 't/D102' }, 'the ask it was made from goes with it');
 
-    await appendThread(site, 't/D102', { text: 'Reopened by a reply.' });
+    await appendMessage(site, 't/D102', { text: 'Reopened by a reply.' });
     assert.deepEqual((await readArchive(site)).map((a) => a.key), ['t/D101']);
     assert.ok(read('wave.json').items.some((it) => it.id === 'D102' && it.title === 'Done 102'));
     assert.ok(read('owner.json').items.some((q) => q.id === 'q-done'));

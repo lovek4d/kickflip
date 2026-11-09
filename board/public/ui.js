@@ -107,6 +107,9 @@
     'Marked as ready': mini('<path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/>'),
     Held: mini('<path d="M9 5v14"/><path d="M15 5v14"/>'),
     Resumed: mini('<path d="M7 4v16l13-8z"/>'),
+    // The board's status lines (board/hub-lines.mjs): a block's circle with a bar, a fault's warning triangle.
+    Blocked: mini('<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>'),
+    Fault: mini('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
     'Related to': LINK, 'Unrelated from': LINK, 'Follow-up': LINK, 'Follow-up of': LINK,
     'Marked done': mini('<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>'),
     Reply: mini('<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>'),

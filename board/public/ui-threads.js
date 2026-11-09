@@ -1,5 +1,5 @@
-// A card's thread: the orchestrator's lines (who claude, named Orchestrator), its builders' asks, the owner's messages and
-// their replies. Needs ui.js, ui-links.js and ui-enums.js.
+// A card's thread: the orchestrator's lines (who claude, named Orchestrator), the board's status lines, its builders'
+// asks, the owner's messages and their replies. Needs ui.js, ui-links.js and ui-enums.js.
 (function () {
   const { esc, escText, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
@@ -42,6 +42,9 @@
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
     : m.request && m.card ? `<div class="msg request">${statusMark(m.mark)}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.request ? `<div class="msg request${m.command === 'readied' ? ' readied' : ''}">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
+    // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
+    // own line, its kind's mark and words, red for a fault.
+    : m.kind === 'hub' ? `<div class="msg request hub${m.fault ? ' fault' : ''}">${statusMark(m.mark)}${m.link ? `<a href="${esc(m.link)}">${escText(m.text)}</a>` : escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? `<div class="msg request move">${statusMark('move')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
@@ -80,12 +83,12 @@
   const STEP = 3;
   const UNREAD_CAP = 10;
   // Every kind of system line; each leads with a mark, and a test renders each, so a new kind needs an entry in ui.js MARK_ICONS.
-  const SYSTEM_KINDS = ['status', 'agent', 'calls', 'ask-link', 'questions', 'visual', 'command', 'move'];
-  const NOT_MESSAGE = new Set(['status', 'agent', 'calls', 'ask-link', 'questions', 'move']);
+  const SYSTEM_KINDS = ['status', 'agent', 'calls', 'ask-link', 'questions', 'visual', 'command', 'move', 'hub'];
+  const NOT_MESSAGE = new Set(['status', 'agent', 'calls', 'ask-link', 'questions', 'move', 'hub']);
   const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
-  // Only Claude's and GitHub's messages are unread, as on the badge (domain.mjs othersAt, ui-cards.js unreadCount); the
-  // orchestrator's answer to a builder's ask never is.
-  const unread = (m, seenAt) => Boolean(seenAt) && isMessage(m) && m.kind !== 'command' && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github') && String(m.ts) > seenAt;
+  // Only Claude's and GitHub's messages and the board's fault lines are unread, as on the badge (domain.mjs othersAt,
+  // ui-cards.js unreadCount); the orchestrator's answer to a builder's ask never is.
+  const unread = (m, seenAt) => Boolean(seenAt) && (m.fault || (isMessage(m) && m.kind !== 'command' && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github'))) && String(m.ts) > seenAt;
   // The window opens from the oldest unread message, at most UNREAD_CAP messages back; a message being edited always shows.
   function threadWindow(lines, { seenAt = null, more = 0, upto = null }, edits) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));

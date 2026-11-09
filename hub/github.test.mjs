@@ -570,7 +570,7 @@ test("an owner-step check that can't run three times in a row is marked broken, 
   assert.equal(item.owner_step, 'Deploy it');
   assert.match(item.owner_check.broken, /fetch failed/);
   assert.deepEqual(board.events().map((e) => [e.kind, e.data.key, e.data.check]), [['owner-check-broken', 'b/B1', 'url http://127.0.0.1:1/never']]);
-  assert.match(board.thread('b/B1').at(-1).text, /^The check for "Deploy it" can't run \(fetch failed\), so it stopped; Claude is asked to fix it\. Done still closes the card\.$/);
+  assert.equal(board.thread('b/B1').at(-1).text, "The owner step's check can't run, so it stopped: fetch failed");
   await board.poll();
   assert.equal(board.events().length, 1);
 });

@@ -19,6 +19,7 @@ import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { merge3 } from './merge3.mjs';
+import { HUB, MESSAGE_LIMIT, hubLineOf, hubText } from './hub-lines.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
@@ -358,20 +359,49 @@ export async function readUpload(site, file) {
 }
 
 const VIA = ['github', 'slack'];
+// docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md
+// A thread takes two kinds of line: the board's status lines (appendStatus) and messages (appendMessage), which the
+// orchestrator writes in its own words, as do the reviewers it names and GitHub's and Slack's comments brought in.
+// Nothing else writes a plain line to a thread; board-threads.test.mjs holds the code to it.
+const checkThreadKey = async (site, key) => (String(key).startsWith('ask:') ? checkAsk(site, key.slice(4), 'the ask') : loadItem(site, key));
+// A status line of a kind in hub-lines.mjs HUB_LINES, its words from inputs; a fault line freshens the queued push.
+// → {line, lines for the CLI to print}
+export async function appendStatus(site, key, kind, inputs = {}, { link } = {}) {
+  needSite(site);
+  await checkThreadKey(site, key);
+  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(link ? { link } : {}) };
+  await appendLine(threadFile(site, key), line);
+  return { line, lines: hubLineOf(line).fault ? await freshenPush(site, key, line.text) : [] };
+}
 // key is <wave>/<id>, or ask:<event id> for an ask's thread. by: the shared person whose tap an owner line is, by name
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
-// command is a button's key (domain.mjs COMMANDS), which makes the line its status line; card, on a link's line, the other
-// card's key, whose ref and title the thread draws when it renders (domain.mjs threadOf).
-export async function appendThread(site, key, { text: body, link, log, who = 'claude', via, kind, by, command, card }) {
+// A message holds at most MESSAGE_LIMIT characters; a longer one is refused for the orchestrator to rewrite shorter or
+// move into a page it links. A comment brought in from GitHub or Slack is kept whole.
+export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by }) {
   needSite(site);
-  if (String(key).startsWith('ask:')) await checkAsk(site, key.slice(4), 'the ask');
-  else await loadItem(site, key);
+  await checkThreadKey(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: text(body, '--text'), link: optional(link, (v) => pageUrl(v, '--link')), log, via, kind, by, command, card };
+  const words = via === undefined ? messageText(body) : text(body, '--text');
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: optional(link, (v) => pageUrl(v, '--link')), log, via, by };
   const file = threadFile(site, key);
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
+}
+// A message's words, refused past MESSAGE_LIMIT, which a command checks before it changes anything.
+export function messageText(body) {
+  const words = text(body, '--text');
+  if (words.length > MESSAGE_LIMIT) {
+    fail(`--text runs to ${words.length} characters, past a message's ${MESSAGE_LIMIT}: rewrite it shorter, or put the detail in an HTML page (board.mjs visual add, or --link to a page) and link it`);
+  }
+  return words;
+}
+// command is a button's key (domain.mjs COMMANDS), which makes the line its status line; card, on a link's line, the other
+// card's key, whose ref and title the thread draws when it renders (domain.mjs threadOf).
+async function appendCommand(site, key, { command, text: words = COMMANDS[command], who = 'claude', by, card }) {
+  const line = { ts: new Date().toISOString(), who, command, text: words, ...(by ? { by } : {}), ...(card ? { card } : {}) };
+  await appendLine(threadFile(site, key), line);
+  return { lines: [] };
 }
 
 // An ask folded into an existing work item: data/ask-links.json ({links: {<ask event id>: <wave>/<id>}}) names the item,
@@ -423,11 +453,11 @@ export async function relateAsk(site, eventId, key, summary, title) {
   if (!known) fail(`no ask "${eventId}" in this site's data/events.jsonl`);
   await refuseMoved(site, eventId);
   await loadItem(site, key);
-  const line = { ts: new Date().toISOString(), who: 'claude', text: text(summary, '--summary') };
+  text(summary, '--summary');
   if (title !== undefined) text(title, '--title');
   const links = await readAskLinks(site);
   await writeJSON(askLinksFile(site), { links: { ...links, [eventId]: key } });
-  await appendLine(threadFile(site, key), line);
+  await appendMessage(site, key, { text: summary });
   if (title !== undefined) await titleAsk(site, eventId, title);
   return askLinksFile(site);
 }
@@ -546,9 +576,9 @@ export async function moveAsk(site, eventId, route) {
   const asks = await readAskProgress(site);
   await writeJSON(askProgressFile(site), { asks: { ...asks, [eventId]: { state: 'done', at, moved } } });
   const link = `/${route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`;
-  await appendLine(threadFile(site, `ask:${eventId}`), { ts: at, who: 'claude', text: `Moved to ${target.title}.`, link });
+  await appendStatus(site, `ask:${eventId}`, 'ask-moved', { board: target.title }, { link });
   // The ask has already gone to the other board, so a closing card's open question can't stop it.
-  for (const key of state?.items || []) await setItem(site, key, { done: true, force: true, text: `Closed: its ask moved to ${target.title}.` });
+  for (const key of state?.items || []) await setItem(site, key, { done: true, force: true, closing: ['ask-moved-closed', { board: target.title }] });
   return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `closed: ${k}`)] };
 }
 
@@ -1418,7 +1448,7 @@ export async function publishUnscreened(site, now = new Date()) {
   const due = Object.entries(await readScreening(site)).filter(([, s]) => now - Date.parse(s.since) >= SCREEN_AFTER).map(([key]) => key);
   for (const key of due) {
     await publishStaged(site, key);
-    await appendThread(site, key, { text: "The orchestrator didn't screen the grill's questions within 15 minutes, so the board passed them to you as they are." });
+    await appendStatus(site, key, 'screen-timeout');
   }
   return due;
 }
@@ -1485,7 +1515,7 @@ export async function settleAnswers(site, answers) {
     await writeJSON(ownerFile(site), owner);
     const key = q.topic.slice(5);
     if (a.choice === 'yes' && (await loadItem(site, key).catch(() => null))?.item.phase === 'grilling' && await hasOpenQuestion(site, key)) {
-      await appendThread(site, key, { text: 'You asked for a prototype round, so the board moves the card to prototyping once every question is answered.' });
+      await appendStatus(site, key, 'prototype-after');
     }
   }
   const byCard = new Map();
@@ -1524,7 +1554,7 @@ async function moveOnAnswered(site, key, { roundAt = false } = {}) {
       moved.round_at = new Date().toISOString();
       await writeJSON(source.file, wave);
     }
-    await appendThread(site, key, { text: 'You asked for a prototype round, so the board moved the card to prototyping.' });
+    await appendStatus(site, key, 'prototype-round');
     return 'prototyping';
   }
   if (!(await stageable(site, key))) return null;
@@ -1537,7 +1567,7 @@ async function moveOnAnswered(site, key, { roundAt = false } = {}) {
 async function followUp(site, key, what, run) {
   try { await run(); } catch (e) {
     if (!(e instanceof BoardError)) throw e;
-    await appendThread(site, key, { text: `Your answers were recorded, but ${what} failed: ${e.message}` });
+    await appendStatus(site, key, 'answers-failed', { what, error: e.message });
   }
 }
 
@@ -1584,7 +1614,7 @@ async function appendNotes(site, key, heading, body) {
     let file;
     if (item.plan) {
       file = await planPath(source.dir, item.plan, { missingOk: true });
-      if (!existsSync(file)) await appendThread(site, key, { text: `The card's notes file ${item.plan} was missing, so the board started a new one.` });
+      if (!existsSync(file)) await appendStatus(site, key, 'notes-missing');
     } else {
       item.plan = freeNotesName(source.dir, item.id);
       file = path.join(source.dir, item.plan);
@@ -1668,7 +1698,7 @@ export const splitSharedNotes = (site) => ticketWrite(site, async () => {
       item.plan = freeNotesName(source.dir, item.id);
       await writeNotesFile(path.join(source.dir, item.plan), await fs.readFile(real, 'utf8'));
       await writeJSON(source.file, wave);
-      await appendThread(site, card.key, { text: `This card shared its notes file ${path.normalize(was)} with ${keeper.ref}, so the board gave it its own copy, ${item.plan}.` });
+      await appendStatus(site, card.key, 'notes-shared', { card: keeper.ref });
       lines.push(`${card.key}: its own notes, ${item.plan}, copied from ${path.normalize(was)}, which ${keeper.key} keeps`);
     }
     await fs.chmod(real, NOTES_MODE);
@@ -1694,7 +1724,7 @@ async function stage(site, key) {
   delete item.unfiled;
   delete item.filed_held;
   await writeJSON(source.file, wave);
-  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'staged', text: COMMANDS.staged });
+  await appendCommand(site, key, { command: 'staged' });
 }
 // The owner's words from a thread message, text then any attached files, as one notes body, or '' when it carried none.
 const messageWords = ({ text: said, files }) => [String(said || '').trim(), ...(Array.isArray(files) ? files : []).map((f) => `Attached: ${f?.path || f?.name || f}`)].filter(Boolean).join('\n');
@@ -1734,7 +1764,7 @@ async function grillAgain(site, key) {
   loaded.item.phase = 'grilling';
   delete loaded.item.staged_at;
   await writeJSON(loaded.source.file, loaded.wave);
-  await appendThread(site, key, { text: 'A new question on it, so it is grilling until you answer.' });
+  await appendStatus(site, key, 'new-question');
 }
 
 // The ids of a topic's answered questions that Claude acting on the card resolves.
@@ -1918,7 +1948,7 @@ async function closeQuestions(site, key, by, force) {
 // would refuse for its questions or its text, writing nothing, so board.mjs land can check before it lands.
 export async function checkClose(site, key, said, ownerStep, check) {
   await loadItem(site, key);
-  text(said, '--text');
+  messageText(said);
   optional(ownerStep, (v) => text(v, '--owner-step'));
   optional(check, (v) => checkSpec(v));
   await closeQuestions(needSite(site), key, 'land', false);
@@ -2166,12 +2196,13 @@ export async function setMainInstall(site, { install, installSha }) {
 export const mergedLine = (prs, repo) => (prs.length ? `Merged PR${prs.length > 1 ? 's' : ''} ${prNames(prs, repo)}.` : 'Merged.');
 
 // docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md
-// The thread line closing a card writes as its last: --text, which a close on a site needs, or for a merge
-// mergedLine's. → the line, or null.
-function closingLine(site, key, merged, text, repo) {
-  if (merged) return text ?? mergedLine(merged, repo);
+// The thread line closing a card writes as its last: --text, the orchestrator's message, which a close on a site
+// needs; or the board's status line, closing ([kind, inputs]) or for a merge mergedLine's. → {text} or {status}, or null.
+function closingLine(site, key, merged, text, repo, closing) {
+  if (closing) return { status: closing };
+  if (merged && text === undefined) return { status: ['merged', { words: mergedLine(merged, repo) }] };
   if (text === undefined && site) fail(`--done needs --text "<what was done, or why it closes without landing>", which becomes ${key}'s last thread line`);
-  return text ?? null;
+  return text === undefined ? null : { text };
 }
 // Marks each of merged [{repo?, number, at?}] that the card holds with its merge time, merged_at.
 function markMerged(item, merged, repo) {
@@ -2191,19 +2222,20 @@ function markMerged(item, merged, repo) {
 // (startBuilder), moves the card to In Progress after the checks a build's start makes; handBack, builder done's with
 // judgment calls, closes its open records marked handed_back for the orchestrator's check. A handover (--pr, --pushed,
 // --merge-ready) moves it to In Review, and a block on a card In Progress back to Todo.
-// text is the closing line (closingLine), or with fromAsk the item's first thread line.
+// text is the closing line (closingLine), the orchestrator's words, or closing the board's ([kind, inputs], a status
+// line of hub-lines.mjs); with fromAsk text is the item's first thread line.
 // ownerStep is the owner step builder done or land records, and ownerDone the owner's Done, which alone clears it
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, done, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, done, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   checkPhase(phase, state);
   if (force && !done) fail('--force goes with --done');
   if (fromAsk !== undefined && done) fail('--from-ask opens a card; close it in another call');
-  if (said !== undefined) text(said, '--text');
+  if (said !== undefined) messageText(said);
   if (ownerStep !== undefined) text(ownerStep, '--owner-step');
   const spec = check === undefined || check === '' ? check : checkSpec(check);
   if (said !== undefined && fromAsk === undefined && !done && phase !== 'ready') fail('--text goes with --from-ask, --done, or --phase ready on a staging card');
@@ -2276,7 +2308,7 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   const unpicked = start && site ? await unpickedPrototype(site, key) : null;
   if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
   const resolve = done ? await closeQuestions(site, key, '--done', force) : async () => [];
-  const lastLine = done ? closingLine(site, key, merged, said, boardRepoOf(site, wave)) : null;
+  const lastLine = done ? closingLine(site, key, merged, said, boardRepoOf(site, wave), closing) : null;
   if (merged) markMerged(item, merged, boardRepoOf(site, wave));
   if (next !== undefined) {
     setNext(item, next, await hasOpenQuestion(site, key));
@@ -2350,10 +2382,10 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   await writeJSON(source.file, wave);
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
-  if (readied) await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'readied', text: COMMANDS.readied });
+  if (readied) await appendCommand(site, key, { command: 'readied' });
   if (blocked) {
     const pausing = site && !(await isLanding(site, key)) && await requestPause(site, key, { cause: 'blocked', words: `blocked ${blocked}` });
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: ${pausing ? 'its builder pauses at its next stopping point and it' : 'it'} stays In Progress.` });
+    await appendStatus(site, key, pausing ? 'blocked-pausing' : 'blocked-stays', { blocked });
   }
   if (unlink) await unlink();
   if (linked) await postLinkLines(site, key, linked, await linksOf(site, key));
@@ -2362,8 +2394,12 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   // Ready checked that the notes name every answered question, so it resolves them as item notes does.
   if (phase === 'ready' && site) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
   if (start) resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
-  if (ask) resolved.push(...(await appendThread(site, key, { text: said })).lines);
-  if (lastLine && site) resolved.push(...(await appendThread(site, key, { text: lastLine, who, by, command })).lines);
+  if (ask) resolved.push(...(await appendMessage(site, key, { text: said })).lines);
+  if (lastLine && site) {
+    const written = command ? await appendCommand(site, key, { command, text: lastLine.text, who, by })
+      : lastLine.status ? await appendStatus(site, key, ...lastLine.status) : await appendMessage(site, key, { text: lastLine.text });
+    resolved.push(...written.lines);
+  }
   // The ticket stays open while the card waits on its owner step.
   const target = item.owner_step && done ? null : ticketTarget({ start, done, handover });
   const moved = target && await moveTicket(await boardSource(site), item, target, { ...options, repo });
@@ -2378,19 +2414,18 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   const links = ask ? await readAskLinks(site) : {};
   if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   if (lifted && !closed(item) && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) {
-    const ts = new Date().toISOString();
-    await appendLine(threadFile(site, key), { ts, who: 'claude', text: `Unblocked: ${lifted}.` });
-    await markUnblocked(site, key, ts);
+    const { line } = await appendStatus(site, key, 'unblocked', { lifted });
+    await markUnblocked(site, key, line.ts);
     await appendEvent({ dir: site }, 'card-unblocked', { key });
     resolved.unshift(`unblocked: ${key}`);
   }
   if (!done || wasFinished) return { file: source.file, lines: resolved };
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
-  const ts = new Date().toISOString();
+  const card = await cardName(site, key);
   for (const k of unblocked) {
-    await appendLine(threadFile(site, k), { ts, who: 'claude', text: `Unblocked: ${await cardName(site, key)} is done.` });
-    await markUnblocked(site, k, ts);
+    const { line } = await appendStatus(site, k, 'unblocked-done', { card });
+    await markUnblocked(site, k, line.ts);
     await appendEvent({ dir: site }, 'card-unblocked', { key: k });
   }
   return { file: source.file, lines: [...unblocked.map((k) => `unblocked: ${k}`), ...resolved] };
@@ -2441,7 +2476,7 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   const { source, wave, item } = await loadItem(site, key);
   if (announce) {
     const at = new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Resumed: its hold until ${at} ended.` });
+    await appendStatus(site, key, 'hold-ended', { at });
     if (!item.blocked_until && !(await unfinishedDeps(site, parseKey(key).wave, item)).length) await appendEvent({ dir: site }, 'card-unblocked', { key, until });
   }
   setHold(item, null);
@@ -2477,8 +2512,8 @@ export async function recordOwnerTap(site, kind, data) {
     await publishStaged(site, key);
   }
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  return appendThread(site, key, data.hold ? { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', by, command: 'hold' }
-    : { text: COMMANDS.resume, who: 'love', by, command: 'resume' });
+  return appendCommand(site, key, data.hold ? { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', by, command: 'hold' }
+    : { who: 'love', by, command: 'resume' });
 }
 
 // --check's text → its stored form, or refuses it (shared/owner-check.mjs parseCheck).
@@ -2492,7 +2527,7 @@ function checkSpec(value) {
 export async function passOwnerCheck(site, key, check, found) {
   const { item } = await loadItem(site, key);
   if (!item.owner_step || item.owner_check?.check !== check) return null;
-  return setItem(site, key, { done: true, force: true, ownerDone: true, text: `Check passed: ${found}. Closed.` });
+  return setItem(site, key, { done: true, force: true, ownerDone: true, closing: ['check-passed', { found }] });
 }
 
 // The hub's poll couldn't run the owner step's check several times in a row: the card reads it broken, the poll stops
@@ -2503,7 +2538,7 @@ export async function breakOwnerCheck(site, key, check, error) {
   if (!item.owner_step || item.owner_check?.check !== check) return false;
   item.owner_check.broken = error;
   await writeJSON(source.file, wave);
-  await appendThread(site, key, { text: `The check for "${item.owner_step}" can't run (${error}), so it stopped; Claude is asked to fix it. Done still closes the card.` });
+  await appendStatus(site, key, 'check-broken', { error });
   await appendEvent({ dir: site }, 'owner-check-broken', { key, check, error });
   return true;
 }
@@ -2581,8 +2616,8 @@ async function linksOf(site, key) {
 // (linksOf): Related to or Unrelated from, and Follow-up in the Parent's thread with Follow-up of in the child's.
 async function postLinkLines(site, key, before, after) {
   const both = async (command, other, mine = command, theirs = command) => {
-    await appendThread(site, key, { text: COMMANDS[mine], command: mine, card: other });
-    await appendThread(site, other, { text: COMMANDS[theirs], command: theirs, card: key });
+    await appendCommand(site, key, { command: mine, card: other });
+    await appendCommand(site, other, { command: theirs, card: key });
   };
   for (const other of after.related) if (!before.related.has(other)) await both('related', other);
   for (const other of before.related) if (!after.related.has(other)) await both('unrelated', other);
@@ -2654,7 +2689,7 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: auto-merge's refusal too.
   const blocked = await blockWords(site, key, item);
   if (blocked) {
-    if (tapped) await appendThread(site, key, { text: `Not merged: blocked ${blocked}.` });
+    if (tapped) await appendStatus(site, key, 'merge-blocked', { blocked });
     fail(`Not merged: blocked ${blocked}.`);
   }
   const repo = boardRepoOf(site, wave);
@@ -2666,7 +2701,7 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   const states = fetched.map(({ view }) => view);
   if (allLanded(states)) {
     const merged = prs.map((p, i) => ({ ...p, at: states[i].mergedAt })).filter((_, i) => states[i].state === 'MERGED');
-    return setItem(site, key, { merged, text: `PR${merged.length > 1 ? 's' : ''} ${prNames(merged, repo)} ${merged.length > 1 ? 'were' : 'was'} already merged.` });
+    return setItem(site, key, { merged, closing: ['already-merged', { prs: prNames(merged, repo), many: merged.length > 1 }] });
   }
   const open = prs.map((p, i) => ({ ...p, ...fetched[i] })).filter(({ view }) => view.state === 'OPEN');
   // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md: a card no reviewer is on merges with no approval.
@@ -2694,7 +2729,7 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   if (steps === null) reasons.push('manual steps: merge only on the owner\'s word, with --confirmed "<their words>"');
   if (reasons.length) {
     const why = `Not merged: ${reasons.join('; ')}.`;
-    if (tapped) await appendThread(site, key, { text: why });
+    if (tapped) await appendStatus(site, key, 'merge-refused', { why: reasons.join('; ') });
     fail(why);
   }
   const done = [];
@@ -2705,9 +2740,12 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
     if (error) fail(`gh pr merge ${prNames([p], repo)} failed: ${error}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
     done.push(p);
   }
-  const said = [mergedLine(done, repo), afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`,
-    rebasedOnly && `After the approval: only the board's rebase onto ${item.rebased.at(-1).base}.`, steps && `The owner's word on the manual steps: "${steps}"`];
-  return setItem(site, key, { merged: done, text: said.filter(Boolean).join(' ') });
+  // The merge is the board's status line, and the orchestrator's words on it, when it gave any, its message after.
+  const said = [afterApproval !== undefined && `After the approval: ${text(afterApproval, '--after-approval')}`,
+    rebasedOnly && `After the approval: only the board's rebase onto ${item.rebased.at(-1).base}.`, steps && `The owner's word on the manual steps: "${steps}"`].filter(Boolean);
+  const set = await setItem(site, key, { merged: done });
+  if (said.length) await appendMessage(site, key, { text: said.join(' ') });
+  return set;
 }
 
 // docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md
@@ -2821,7 +2859,7 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, pi
   wave.items.push(item);
   await writeJSON(source.file, wave);
   if (ask) {
-    await appendThread(site, added, { text: said });
+    await appendMessage(site, added, { text: said });
     // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.
     const links = await readAskLinks(site);
     if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
@@ -3423,7 +3461,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     audit(boardAudit(site), { call: 'builder-pick', key, result: [k, k === 'claude' ? claude : null].filter(Boolean).join(' '), reason: pick.reason,
       inputs: { ...pick.inputs, ...(askedModel ? { askedModel } : {}), ...(dispatch ? { dispatch } : {}) } });
   }
-  if (remade && site) await appendThread(site, key, { text: remade });
+  if (remade && site) await appendStatus(site, key, 'worktree-remade');
   if (line) await statusToThread(site, key, agent, record, line, now);
   const resolved = given === VISUAL || given === HELPER ? [] : await resolveAnswered(site, key, 'Acted on: builder started');
   if (site && build) await clearNext(site, key);
@@ -3446,7 +3484,7 @@ async function keepPastRun(file, before) {
 
 // The owner's Build tap, in the board server: it refuses what a build's builder start refuses, in the owner's words,
 // else starts the build as `builder start --kind build --worktree` does, with the record marked dispatched: 'tap', so the
-// card is In Progress reading "starting" until its builder's first status line. A refusal is a thread line
+// card is In Progress reading "starting" until its builder's first status line. A refusal is a status line
 // of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
 // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
@@ -3467,7 +3505,7 @@ export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
     }
   } catch (e) {
     if (!(e instanceof BoardError)) throw e;
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${e.message}` });
+    await appendStatus(site, key, BUILD_REFUSED, { why: e.message });
     return null;
   }
 }
@@ -3539,7 +3577,7 @@ async function tapRefusals(site, key) {
 // staged as an Implement with text stages it (stageImplement), for the orchestrator's review before it goes ready. by
 // names a Full person.
 export async function implementAsIs(site, key, by) {
-  await appendThread(site, key, { text: COMMANDS.implement, who: 'love', by, command: 'implement' });
+  await appendCommand(site, key, { who: 'love', by, command: 'implement' });
   await stageImplement(site, key, {});
 }
 
@@ -3549,7 +3587,7 @@ export async function implementAsIs(site, key, by) {
 async function bumpBlocked(site, key, blockers) {
   const names = blockers.join(', ');
   await appendEvent({ dir: site }, 'card-bump', { key });
-  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Can’t start yet: waits on ${names}. Bumped to the top of Todo.` });
+  await appendStatus(site, key, 'cant-start-yet', { names });
   return { key, ref: await cardName(site, key), bumped: blockers, line: `bumped: ${key} waits on ${names}, so it stays in Todo, bumped to the top` };
 }
 
@@ -3583,7 +3621,7 @@ export async function markPaused(site, key) {
   const phase = (await readLines(threadFile(site, key))).filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= String(open.record.started)).pop()?.phase;
   const paused = { ...pause, paused: at, ...(phase ? { phase } : {}) };
   await writeJSON(open.file, { ...open.record, pause: paused });
-  await appendLine(threadFile(site, key), { ts: at, who: 'claude', text: `Paused${phase ? ` at ${phase}` : ''}: ${pause.words}. It resumes once ${PAUSE_CLEARS[pause.cause][0]}.` });
+  await appendStatus(site, key, 'paused', { phase, words: pause.words, clear: PAUSE_CLEARS[pause.cause][0] });
   return paused;
 }
 
@@ -3603,7 +3641,7 @@ export async function resumePaused(site, key) {
   if (!pause?.paused) return null;
   const { pause: _, ...rest } = open.record;
   await writeJSON(open.file, rest);
-  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Resumed: ${PAUSE_CLEARS[pause.cause][1]}.` });
+  await appendStatus(site, key, 'resumed', { clear: PAUSE_CLEARS[pause.cause][1] });
   return { pause, record: rest };
 }
 
@@ -3626,16 +3664,17 @@ export async function abandonLaunch(site, key, why) {
   const { source, wave, item } = await loadItem(site, key);
   if (item.lane === 'progress') placeIn(item, 'todo', now);
   await writeJSON(source.file, wave);
-  await appendLine(threadFile(site, key), { ts: now, who: 'claude', kind: BUILD_REFUSED, text: `Couldn't start implementing: ${why}` });
+  await appendStatus(site, key, BUILD_REFUSED, { why });
 }
 
 // A planner the board server opened whose agent couldn't launch: its record, the agent's, closes and the thread says why.
-export async function abandonPlanner(site, key, text, agent = 'main') {
+// kind and inputs are its status line's (hub-lines.mjs).
+export async function abandonPlanner(site, key, [kind, inputs], agent = 'main') {
   const file = await builderFile(site, key, undefined, agent);
   const record = await readJSON(file, null);
   if (record && !record.done) await writeJSON(file, { ...record, done: new Date().toISOString() });
   await publishStaged(site, key);
-  await appendThread(site, key, { text });
+  await appendStatus(site, key, kind, inputs);
 }
 
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
@@ -3779,7 +3818,7 @@ export async function requestHelper(site, key, { name, task, writes, model }) {
   if (existsSync(file)) fail(`${key} already has an agent named ${agent}; pick another --name`);
   if (writes && !(await cardWorktree(site, key))) fail(`a helper that writes branches from ${key}'s worktree, and the card has none; start its build first, or drop --writes`);
   await writeJSON(file, { label: agent, kind: HELPER, task: job, writes: Boolean(writes), ...(model ? { model } : {}), requested: new Date().toISOString() });
-  await appendThread(site, key, { text: `Asked for helper ${agent}${writes ? ', which writes code' : ''}: ${job}` });
+  await appendStatus(site, key, 'helper-asked', { agent, writes });
   return { lines: [`helper ${agent} requested: the board launches it ${writes ? 'once an implementer slot is free' : 'now'}`, `wait for it with agent wait ${key} --name ${agent}`] };
 }
 
@@ -3881,7 +3920,7 @@ export async function addVisual(site, key, { file, title }) {
   for (let n = 2; existsSync(path.join(dir, page)); n++) page = `${slug}-${n}.html`;
   await fs.writeFile(path.join(dir, page), html, { flag: 'wx' });
   const link = `visuals/${id}/${page}`;
-  await appendThread(site, key, { text: name, link, kind: VISUAL });
+  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', kind: VISUAL, text: text(name, '--name'), link: pageUrl(link, '--link') });
   return { lines: [link] };
 }
 

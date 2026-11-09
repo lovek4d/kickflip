@@ -159,9 +159,8 @@ export const pauseReason = (gate) => (gate.manual
   ? `Work is paused: the owner paused ${MANUAL_WORDS[gate.manual][0]} ${pauseUntilWords(gate.resets_at)}. ${MANUAL_WORDS[gate.manual][1]} resumes it.`
   : gate.state === 'paused' ? usagePauseReason(gate) : gate.machine.state === 'busy' || !gate.near?.waiting ? busyReason(gate) : nearReason(gate));
 const nearReason = (gate) => `Work is held: Claude's ${windowWord(gate.near.window)} usage is at ${Math.round(gate.near.used)}%, near the ${gate.pause_at}% line, so agents start one at a time, each once the last one has reported its usage. The owner can tap Keep going on the Hub page.`;
-// docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md: the refusal, and the thread line on a card whose launch it holds.
+// docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md: the refusal of a launch it holds.
 const busyReason = (gate) => `Work is held: the host is busy (${gate.machine.reason}). It starts again when the host eases.`;
-export const MACHINE_HELD_LINE = 'Held: the host is busy. It starts again when the host eases.';
 // Whether gate holds all new work: a pause (usage or manual) or a busy Mac.
 export const holdsWork = (gate) => gate.state === 'paused' || gate.machine.state === 'busy';
 // The watcher's line while paused: `usage paused <iso> <window> <used>%`, or `usage paused <iso|forever> manual hub|board`.

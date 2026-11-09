@@ -683,7 +683,7 @@ test('a grill or prototype asked for during a pause waits on the card and launch
   const { child, send } = await b.start({ fastMinute: true });
   try {
     await send('grill-more', { key: 't/G1', text: 'One more thing' });
-    await until(() => b.thread('G1').some((t) => /^The grill waits and starts when the hold lifts\. Work is paused: Claude's 5-hour usage is at 95%/.test(t.text)), 'the card says the grill waits');
+    await until(() => b.thread('G1').some((t) => t.line === 'planner-held' && t.text === 'The grill waits and starts when the hold lifts.'), 'the card says the grill waits');
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 0, 'nothing launches while paused');
     fs.rmSync(path.join(b.home, '.claude', 'kickflip', 'usage.json'));
@@ -722,8 +722,8 @@ test('a build whose builder fails to launch goes back to Todo with the reason, a
     const tapped = await send('card-build', { key: 't/F1' });
     assert.equal(tapped.id, null);
     const last = b.thread('F1').at(-1);
-    assert.equal(last.kind, 'build-refused');
-    assert.match(last.text, /^Couldn't start implementing: the launch failed \(.*ENOENT.*\)\. Tap Implement to try again\.$/);
+    assert.equal(last.line, 'build-refused');
+    assert.match(last.text, /^Couldn't start implementing: the launch failed: .*ENOENT/);
     assert.equal(b.item('F1').lane, 'todo', 'back in Todo');
     assert.ok(b.record('F1').done, 'its builder record is closed');
     assert.ok(!b.events().includes('card-build'));

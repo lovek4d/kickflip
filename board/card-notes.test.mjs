@@ -35,7 +35,7 @@ test("at start-up a card sharing a notes file with an earlier card, live or arch
   assert.deepEqual(w.items().map((it) => it.plan), ['shared.md', 'a2-notes.md', 'a3-notes.md', 'own.md']);
   assert.equal(fs.readFileSync(path.join(w.data, 'a2-notes.md'), 'utf8'), '# Shared\n');
   assert.equal(fs.readFileSync(path.join(w.data, 'a3-notes.md'), 'utf8'), '# Old\n');
-  assert.deepEqual(w.thread('A2'), ['This card shared its notes file shared.md with A1, so the board gave it its own copy, a2-notes.md.']);
+  assert.deepEqual(w.thread('A2'), ['It shared its notes file with A1, so the board gave it its own copy.']);
   for (const f of ['shared.md', 'a2-notes.md', 'a3-notes.md', 'own.md', 'old.md']) assert.equal(fs.statSync(path.join(w.data, f)).mode & 0o222, 0, f);
   assert.deepEqual(await splitSharedNotes(w.site), []);
   fs.rmSync(w.site, { recursive: true, force: true });

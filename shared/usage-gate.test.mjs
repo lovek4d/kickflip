@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, launchHeld, pauseReasonFor, pauseReason, pausedLine, MACHINE_HELD_LINE } from './usage-gate.mjs';
+import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, launchHeld, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel } from '../hub/push.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
@@ -139,7 +139,6 @@ test('a busy host holds every kind of new work, with no override, and words it a
   assert.equal(pauseReasonFor(held, 'codex'), words);
   assert.match(pauseReason(gate({ machine: busy })), /^Work is paused: Claude's 5-hour usage/, 'a pause is worded first');
   assert.match(pauseReasonFor(gate({ claude: reading(20), codex: reading(20, 92), machine: busy }), 'codex'), /^Codex is paused/);
-  assert.equal(MACHINE_HELD_LINE, 'Held: the host is busy. It starts again when the host eases.');
   const f = fixture(t);
   assert.deepEqual(readUsageGate({ home: f.home, now }).machine, { state: 'normal', reason: null });
   f.write('machine-state.json', { state: 'busy', reason: 'load high', at: new Date(now).toISOString() });

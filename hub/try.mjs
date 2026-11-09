@@ -11,7 +11,7 @@ import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
 import { buildScriptError, buildScriptOf } from '../board/build-script.mjs';
-import { appendThread, recordedWorktree, servedRoundsOpen, setItem } from '../board/store.mjs';
+import { appendStatus, recordedWorktree, servedRoundsOpen, setItem } from '../board/store.mjs';
 import { BASE_KEY, baseWorktreeOf } from '../board/prototype-base.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 import { hubGate } from '../board/on-host.mjs';
@@ -285,18 +285,18 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const { board, key } = run;
     update(board, key, { state: 'failed', port: undefined, https: undefined });
     if (!isCard(key)) return;
-    const tail = [];
+    // The thread's status line names one reason: the keychain, the error, the signal, else the log's last line.
+    let last = '';
     let keychain = false;
     try {
       for await (const line of createInterface({ input: fs.createReadStream(run.logFile), crlfDelay: Infinity })) {
         keychain ||= KEYCHAIN.test(line);
-        tail.push(line);
-        if (tail.length > 5) tail.shift();
+        if (line.trim()) last = line;
       }
-    } catch (e) { tail.push(`Could not read the build log: ${e.message}`); }
+    } catch (e) { last = `could not read the build log: ${e.message}`; }
     const kind = run.port || (stateOf(board).state.kind || (board.waves.some(({ wave }) => wave.items.some((it) => it.install?.url)) ? 'app' : 'web')) === 'web' ? 'Serve' : 'Build';
-    await appendThread(board.dir, key, { text: [`${kind} failed (exit ${code ?? 1})`, error?.message,
-      signal && `Stopped by ${signal}.`, keychain && 'The login keychain must be unlocked on the host.', ...tail].filter(Boolean).join('\n') });
+    const why = keychain ? 'unlock the login keychain on the host' : error?.message || (signal && `stopped by ${signal}`) || last;
+    await appendStatus(board.dir, key, 'run-failed', { kind, code: code ?? 1, why });
   }
   function terminate(run) {
     if (run.ending) return run.ending;
@@ -759,8 +759,8 @@ async function settlePushed(board, repo, branch, log) {
     if (tip) { try { await git(repo, 'merge-base', '--is-ancestor', tip, `refs/remotes/origin/${branch}`); merged = true; } catch {} }
     if (!merged && heads.has(card.branch)) continue;
     try {
-      await setItem(board.dir, card.key, { done: true, force: true, landed: merged, text: merged ? `${card.branch} is merged into ${branch} on ${host}, so this card is Done.`
-        : `${card.branch} is gone from ${host}, so this card is Done.` });
+      await setItem(board.dir, card.key, { done: true, force: true, landed: merged,
+        closing: merged ? ['branch-merged', { branch: card.branch, into: branch, host }] : ['branch-gone', { branch: card.branch, host }] });
     } catch (e) { log(`pushed ${card.key}: ${e.message}`); }
   }
 }

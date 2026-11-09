@@ -62,7 +62,7 @@ test('yes waits for every question: the card stays grilling while another is ope
   assert.deepEqual(await settleAnswers(first.site, [first.answer('q-gate', 'yes')]), { prototype: [], staged: [] });
   assert.equal(first.card(), 'grilling', 'q-other is still open');
   assert.match(first.resolved('q-gate'), /^Prototype round: yes/);
-  assert.equal(first.thread().at(-1).text, 'You asked for a prototype round, so the board moves the card to prototyping once every question is answered.');
+  assert.equal(first.thread().at(-1).text, 'Prototype round asked: it moves to prototyping once every question is answered.');
   assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: ['t/A1'], staged: [] });
   assert.equal(first.card(), 'prototyping');
   assert.equal(first.thread().at(-1).text, 'You asked for a prototype round, so the board moved the card to prototyping.');
@@ -178,7 +178,7 @@ test('a card whose notes file is gone gets a fresh one at the same path with its
   await settleAnswers(gone.site, [(await addQuestions(gone.site, other), gone.answer('q-other', 'a', 'Bigger'))]);
   assert.equal(gone.read().plan, 'notes.md');
   assert.match(gone.notes('notes.md'), /^# Card\n[\s\S]*## Answers \(owner, [^)]*\)\n- q-other \(Which\?\): A\. Note, verbatim: "Bigger"/);
-  assert.ok(gone.thread().some((m) => /notes file notes.md was missing/.test(m.text)));
+  assert.ok(gone.thread().some((m) => /^Its notes file was missing, so the board started a new one\.$/.test(m.text)));
 });
 
 test('a follow-up that fails on one card posts its reason to that card and leaves the other cards settled', async () => {
@@ -188,7 +188,7 @@ test('a follow-up that fails on one card posts its reason to that card and leave
   await addQuestions(w.site, other);
   await addQuestions(w.site, { ...other, id: 'q-second', topic: 'item:t/A2' });
   const result = await settleAnswers(w.site, [w.answer('q-other', 'a'), w.answer('q-second', 'a')]);
-  assert.match(w.thread().at(-1).text, /Your answers were recorded.*leaves the folder/);
+  assert.match(w.thread().at(-1).text, /^Answers recorded, but writing them into its notes failed: a notes file is/);
   assert.match(w.notes('notes.md'), /q-second/);
   assert.deepEqual(result.staged, ['t/A2']);
 });

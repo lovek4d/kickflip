@@ -600,7 +600,7 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
   const done = board('item', 'set', 'd/A1', '--done', '--site', 'orch', '--text', 'Done.');
   assert.equal(done.code, 0);
   assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('unblocked')), ['unblocked: d/A2']);
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', text: 'Unblocked: A1 is done.' }]);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'd__A2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', kind: 'hub', line: 'unblocked-done', text: 'Unblocked: A1 is done.' }]);
   assert.equal(fs.existsSync(site('orch', 'data', 'threads', 'd__A3.jsonl')), false);
   assert.deepEqual(events().map((e) => e.data), [{ key: 'd/A2' }]);
   assert.ok(events()[0].id);
@@ -815,7 +815,7 @@ test("ask move sends a New ask to another board with the owner's latest text, it
   assert.match(r.out, new RegExp(`moved to ${link.replace(/[/#%]/g, '\\$&')}`));
   const mark = read(site('orch', 'data', 'ask-progress.json')).asks.e2;
   assert.deepEqual([mark.state, mark.moved], ['done', { route: 'audit', title: 'Audit', id: moved.id }]);
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', text: 'Moved to Audit.', link }]);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', kind: 'hub', line: 'ask-moved', text: 'Moved to Audit.', link }]);
 
   assert.match(board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch').err, /ask "e2" was already moved to \/audit/);
   assert.match(board('ask', 'progress', 'e2', '--site', 'orch').err, /ask "e2" was moved to \/audit/);
