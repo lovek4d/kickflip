@@ -303,7 +303,7 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 }
 /* The hub lives at the tailnet root, outside this site, so its link is root-absolute. */
 .brand { align-items: center; }
-.hub { display: inline-flex; flex: none; }
+a.hub { display: inline-flex; flex: none; }
 .hub img { width: 32px; height: auto; display: block; image-rendering: pixelated; }
 @keyframes pulse { 50% { opacity: .35; } }
 /* A lane's folds are inset boxes in its list, so they read as part of that lane, not as more lanes. */
@@ -378,13 +378,18 @@ button.attach:disabled { opacity: .35; }
 /* A New card's "waiting", until the orchestrator picks it up: grey, its dot still. */
 .pickup-wait { color: var(--muted); font-size: 12px; font-weight: 600; }
 .pickup-wait .working-dot { background: currentColor; animation: none; }
-.msg.link { padding: 0 10px; margin: 4px 0; font-size: 13px; }
-.msg.builder-status { padding: 0 10px; margin: 4px 0; font-size: 12px; color: var(--color-notice); overflow-wrap: anywhere; }
+/* Every status line shares this spacing and gutter: the mark sits in the first 23px, and wrapped text hangs under the
+   first line's text, never under the mark. A fold's summary hangs the same way inside its box. Each kind keeps only its colour. */
+.status-line { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
+div.status-line { padding-left: 33px; text-indent: -23px; }
+.status-line > summary { padding-left: 23px; text-indent: -23px; }
+.status-line > ol { text-indent: 0; }
+.msg.builder-status { color: var(--color-notice); }
 .msg.builder-status .working-dot { animation: none; }
-.msg.request { padding: 0 10px; margin: 4px 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.msg.request { color: var(--muted); }
 .msg.request.readied { color: var(--color-success); }
 .msg.request.hub.fault { color: var(--color-danger); }
-.msg.agent { padding: 0 10px; margin: 4px 0; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.msg.agent { font-weight: 600; }
 .msg.agent.started { color: var(--color-notice); } .msg.agent.finished { color: var(--color-success); }
 .msg.agent .muted { font-weight: 400; }
 /* A planner's line in the thread, dot included, is the owner's blue; its finish stays green
@@ -407,7 +412,6 @@ button.attach:disabled { opacity: .35; }
 .sub.agent.stale .working-dot { animation: none; }
 /* The one class every paused status takes, gray: the card and thread line, the header, the hub banner. */
 .paused { color: var(--muted); font-weight: 600; }
-.msg.calls { padding: 0 10px; margin: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
 .msg.calls summary { cursor: pointer; color: var(--muted); list-style: none; }
 .msg.calls summary::-webkit-details-marker { display: none; }
 .msg.calls[open] summary .mark-icon { transform: rotate(90deg); }

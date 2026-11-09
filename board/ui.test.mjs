@@ -1785,7 +1785,7 @@ test('a pending message offers bump, edit and delete in that order, a thread mes
 
 test('a builder status line, and an agent starting or finishing, reads as one line with its time and no author or actions, a running agent with its ETA', () => {
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'status', text: 'Codex: <b>Running</b> tests' }]);
-  assert.match(html, /class="msg builder-status">/);
+  assert.match(html, /class="msg status-line builder-status">/);
   assert.match(text(html), /^Codex: <b>Running<\/b> tests · \S/);
   assert.doesNotMatch(html, /class="who"|data-withdraw|data-edit/);
   const agents = ui.threadMessages([
@@ -1794,17 +1794,17 @@ test('a builder status line, and an agent starting or finishing, reads as one li
     { ts: ago(0.5), who: 'claude', kind: 'agent', text: 'Opus builder <b>finished</b>', finished: true, eta: null },
   ]);
   const dot = '<span class="mark" aria-hidden="true"><span class="agent-dot"><\\/span><\\/span>';
-  assert.match(agents, new RegExp(`^<div class="msg agent started">${dot}Codex started`));
-  assert.match(agents, new RegExp(`<div class="msg agent started">${dot}Opus builder started`));
-  assert.match(agents, new RegExp(`<div class="msg agent finished">${dot}Opus builder &lt;b&gt;finished`));
+  assert.match(agents, new RegExp(`^<div class="msg status-line agent started">${dot}Codex started`));
+  assert.match(agents, new RegExp(`<div class="msg status-line agent started">${dot}Opus builder started`));
+  assert.match(agents, new RegExp(`<div class="msg status-line agent finished">${dot}Opus builder &lt;b&gt;finished`));
   assert.match(text(agents), /^Codex started · \S.* · ETA about .+ Opus builder started · [^·]+ Opus builder <b>finished<\/b> · [^·]+$/);
   assert.doesNotMatch(agents, /class="who"|data-withdraw|data-edit/);
   const planner = ui.threadMessages([
     { ts: ago(1), who: 'claude', kind: 'agent', text: 'Claude Sonnet prototype started', finished: false, eta: null, planner: true },
     { ts: ago(0.8), who: 'claude', kind: 'status', text: 'Reading: the notes', planner: true },
   ]);
-  assert.match(planner, /<div class="msg agent started planner"><span class="mark" aria-hidden="true"><span class="agent-dot"><\/span><\/span>Claude Sonnet prototype started/);
-  assert.match(planner, /<div class="msg builder-status planner"><span class="mark" aria-hidden="true"><span class="working-dot"><\/span><\/span>Reading: the notes/);
+  assert.match(planner, /<div class="msg status-line agent started planner"><span class="mark" aria-hidden="true"><span class="agent-dot"><\/span><\/span>Claude Sonnet prototype started/);
+  assert.match(planner, /<div class="msg status-line builder-status planner"><span class="mark" aria-hidden="true"><span class="working-dot"><\/span><\/span>Reading: the notes/);
   // A bare Grill or Prototype tap, and a New task sent with Implement, are a muted request entry, not a message from the
   // owner, led by its icon in the same box as the dots; a Full person's names them
   // (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md).
@@ -1813,13 +1813,13 @@ test('a builder status line, and an agent starting or finishing, reads as one li
     { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'Prototype requested', eventId: 'p1', state: 'waiting', files: [] },
     { ts: ago(0.5), who: 'love', kind: 'command', command: 'implement', request: true, mark: 'Implementation requested', text: 'Implementation requested', by: 'Dana Reyes' },
   ]);
-  assert.match(requests, new RegExp(`^<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+</span></div><div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
-  assert.ok(requests.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Implementation requested']}</span>Implementation requested <span class="muted">· Dana Reyes · `));
+  assert.match(requests, new RegExp(`^<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+</span></div><div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
+  assert.ok(requests.includes(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Implementation requested']}</span>Implementation requested <span class="muted">· Dana Reyes · `));
   // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md: a reopened question's line
   // varies with its number, so it names its mark.
   const reopened = ui.threadMessages([{ ts: ago(0.2), who: 'love', kind: 'question-reopen', request: true, mark: 'question reopened', text: 'Question 2 was reopened' }]);
   assert.ok(ui.MARK_ICONS['question reopened']);
-  assert.ok(reopened.startsWith(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['question reopened']}</span>Question 2 was reopened <span class="muted">`));
+  assert.ok(reopened.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['question reopened']}</span>Question 2 was reopened <span class="muted">`));
   assert.doesNotMatch(requests, /class="who"|Waiting for Claude|data-event/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.msg\.request \{[^}]*color: var\(--muted\)/);
@@ -1864,7 +1864,7 @@ test("a card's open questions asked since it was last seen are one blue line in 
   assert.equal(ui.newQuestionsLine(questions, '2026-11-04T11:30:00Z')[0].text, '1 new question');
   assert.deepEqual(plain([ui.newQuestionsLine(questions, '2026-11-04T12:00:00Z'), ui.newQuestionsLine(questions, null), ui.newQuestionsLine(null, '2026-11-04T10:30:00Z')]), [[], [], []]);
   const html = ui.threadMessages(ui.newQuestionsLine(questions, '2026-11-04T10:30:00Z'));
-  assert.match(html, new RegExp(`^<div class="msg builder-status planner new-questions"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q%201">2 new questions</a>`));
+  assert.match(html, new RegExp(`^<div class="msg status-line builder-status planner new-questions"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q%201">2 new questions</a>`));
   assert.match(ui.MARK_ICONS.questions, /class="mark-icon big"/);
   assert.doesNotMatch(ui.MARK_ICONS.questions, /<circle/);
 });
@@ -1877,15 +1877,15 @@ test("one agent run folds into one closed line with a caret holding its started 
   const live = run('main', true);
   const html = ui.threadMessages([ln(0), agentLine(1, false, live), ln(2, live), { ts: ago(7.5), who: 'claude', text: 'Between' }, ln(3, live), { ts: ago(6), who: 'love', text: 'Owner says' }]);
   assert.equal(html.match(/<details/g).length, 1);
-  assert.match(html, /<details class="msg calls status-fold"><summary><span class="mark" aria-hidden="true"><svg/);
+  assert.match(html, /<details class="msg status-line calls status-fold"><summary><span class="mark" aria-hidden="true"><svg/);
   assert.match(text(html), /^Step 0 · \S.* Claude main · running(?! ·)/);
   assert.match(text(html), /Claude main started · \S.* Step 2 · \S.* Step 3 · \S.* Between .*Owner says/);
   assert.doesNotMatch(html, /<details[^>]* open/);
   const p = run('grill', false, true);
   const done = ui.threadMessages([agentLine(1, false, p), ln(2, p), ln(3, p), agentLine(4, true, p)]);
-  assert.match(done, /<details class="msg calls status-fold planner"><summary class="finished">/);
+  assert.match(done, /<details class="msg status-line calls status-fold planner"><summary class="finished">/);
   assert.doesNotMatch(html, /finished/);
-  assert.match(html, /<details class="msg calls status-fold"><summary>/);
+  assert.match(html, /<details class="msg status-line calls status-fold"><summary>/);
   assert.match(text(done), /^Claude grill · finished(?! · \d)/);
   assert.match(text(ui.threadMessages([agentLine(1, false, live)])), /^Claude main · running(?! · \d)/);
   assert.match(text(ui.threadMessages([agentLine(1, false, p), agentLine(2, true, p)])), /^Claude grill · finished(?! · \d)/);
@@ -1894,7 +1894,7 @@ test("one agent run folds into one closed line with a caret holding its started 
 test("a builder's judgment calls show collapsed under its lines, saying whether the session verified them, and count as no message", () => {
   const open = { ts: ago(1), who: 'claude', kind: 'calls', text: 'Claude Opus builder', calls: ['Kept <the> old name', 'Question: every agent?'], verified: null };
   const html = ui.threadMessages([open]);
-  assert.match(html, /^<details class="msg calls"><summary><span class="mark" aria-hidden="true">/);
+  assert.match(html, /^<details class="msg status-line calls"><summary><span class="mark" aria-hidden="true">/);
   assert.ok(html.includes(ui.MARK_ICONS['judgment calls']));
   assert.doesNotMatch(html, /<details[^>]* open/);
   assert.match(text(html), /^Claude Opus builder's judgment calls · 2 · not verified yet Kept <the> old name Question: every agent\?$/);
@@ -2561,7 +2561,7 @@ test("a Todo thread message's footer leads with an icon for Reply and Implement,
     assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`), words);
   }
   assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS.Implement);
-  assert.ok(html.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implementation requested`));
+  assert.ok(html.includes(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implementation requested`));
 });
 
 test('a ↗ in a card title, a card details line, a thread line and a question draws as the arrow icon, never the character', () => {
@@ -2581,8 +2581,8 @@ test("a bare visual request is a request line led by the image mark, and the age
     { ts: ago(1), who: 'claude', kind: 'visual', text: 'How a land <moves>', link: 'visuals/A1/how-a-land-moves.html' },
   ]);
   assert.match(ui.MARK_ICONS['Visual requested'], /<rect x="3" y="3" width="18" height="18" rx="2"\/>/);
-  assert.ok(html.startsWith(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Visual requested']}</span>Visual requested <span class="muted">`));
-  assert.match(html, /<div class="msg link visual"><span class="mark" aria-hidden="true"><svg.*?<\/svg><\/span><a href="visuals\/A1\/how-a-land-moves\.html">How a land &lt;moves&gt; →<\/a> <span class="muted">· [^<]+<\/span><\/div>$/);
+  assert.ok(html.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Visual requested']}</span>Visual requested <span class="muted">`));
+  assert.match(html, /<div class="msg status-line link visual"><span class="mark" aria-hidden="true"><svg.*?<\/svg><\/span><a href="visuals\/A1\/how-a-land-moves\.html">How a land &lt;moves&gt; →<\/a> <span class="muted">· [^<]+<\/span><\/div>$/);
   assert.doesNotMatch(html, /target="_blank"|class="who"/);
 });
 
@@ -2590,8 +2590,8 @@ test("a bare visual request is a request line led by the image mark, and the age
 test('a "Marked as staging" line is a bare gray status line and a "Marked as ready" line is the same in green', () => {
   const line = (command, text) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: text, text });
   const html = ui.threadMessages([line('staged', 'Marked as staging'), line('readied', 'Marked as ready')]);
-  assert.ok(html.includes(`<div class="msg request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">`));
-  assert.ok(html.includes(`<div class="msg request readied"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as ready']}</span>Marked as ready <span class="muted">`));
+  assert.ok(html.includes(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">`));
+  assert.ok(html.includes(`<div class="msg status-line request readied"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as ready']}</span>Marked as ready <span class="muted">`));
   assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.msg\.request\.readied \{ color: var\(--color-success\); \}/);
 });
 
@@ -2624,7 +2624,7 @@ test('a held card reads gray while blocked and action stay orange', () => {
 
 test("a link's thread line is one link icon and a plain link to the other card, and is never unread", () => {
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'followup', request: true, mark: 'Follow-up', text: 'Follow-up #12: Tidy', link: '#selectedCard=w%2FA2', card: 'w/A2' }], { seenAt: ago(5) });
-  assert.match(html, /^<div class="msg request"><span class="mark" aria-hidden="true"><svg class="mark-icon"/);
+  assert.match(html, /^<div class="msg status-line request"><span class="mark" aria-hidden="true"><svg class="mark-icon"/);
   assert.ok(html.includes('<a href="#selectedCard=w%2FA2">Follow-up #12: Tidy</a>'));
   assert.doesNotMatch(html, /unread/);
 });
@@ -2656,9 +2656,9 @@ test("the board's line is a status line with its mark, never an Orchestrator mes
   const quiet = { ts: ago(1), who: 'claude', kind: 'hub', line: 'host-busy', mark: 'Held', fault: false, text: 'Host is busy, work will resume when the host recovers' };
   const fault = { ts: ago(1), who: 'claude', kind: 'hub', line: 'relaunch-failed', mark: 'Fault', fault: true, text: "Couldn't relaunch the builder headless: spawn ENOENT" };
   const html = ui.threadMessages([quiet]);
-  assert.match(html, /<div class="msg request hub"><span class="mark" aria-hidden="true"><svg class="mark-icon/);
+  assert.match(html, /<div class="msg status-line request hub"><span class="mark" aria-hidden="true"><svg class="mark-icon/);
   assert.doesNotMatch(html, /Orchestrator/);
-  assert.match(ui.threadMessages([fault]), /<div class="msg request hub fault">/);
+  assert.match(ui.threadMessages([fault]), /<div class="msg status-line request hub fault">/);
   assert.match(ui.MARK_ICONS.Blocked, /circle/);
   assert.match(ui.MARK_ICONS.Fault, /mark-icon/);
   // The window opens from the oldest unread line: a fault reaches past the last three messages, a quiet line doesn't.
@@ -2666,4 +2666,23 @@ test("the board's line is a status line with its mark, never an Orchestrator mes
   const older = [{ ...fault, ts: ago(9) }, msg(8), msg(7), msg(6), msg(5)];
   assert.match(ui.threadMessages(older, {}, new Map(), { seenAt: ago(10) }), /relaunch/);
   assert.doesNotMatch(ui.threadMessages([{ ...quiet, ts: ago(9) }, ...older.slice(1)], {}, new Map(), { seenAt: ago(10) }), /Host is busy/);
+});
+
+test('every status line kind takes the shared status-line class, whose rule alone holds spacing, and only the logo is .hub-flexed', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const lines = [
+    { ts: ago(1), who: 'claude', kind: 'hub', line: 'pulled', mark: 'Held', text: 'Pulled in' },
+    { ts: ago(1), who: 'claude', kind: 'move', text: 'Moved' },
+    { ts: ago(1), who: 'claude', kind: 'status', text: 'Reading' },
+    { ts: ago(1), who: 'claude', kind: 'agent', text: 'Opus started' },
+    { ts: ago(1), who: 'claude', kind: 'visual', link: 'visuals/A1/x.html', text: 'Page' },
+    { ts: ago(1), who: 'claude', kind: 'calls', text: 'Opus', calls: ['a'] },
+  ];
+  for (const m of lines) assert.match(ui.threadMessages([m]), /^<(div|details) class="msg status-line /, m.kind);
+  for (const kind of ['link', 'builder-status', 'request', 'agent', 'calls']) {
+    const rule = css.match(new RegExp(`^\\.msg\\.${kind}[^{]*\\{([^}]*)\\}`, 'm'))?.[1] || '';
+    assert.doesNotMatch(rule, /padding|margin|font-size|overflow-wrap/, kind);
+  }
+  assert.match(css, /^a\.hub \{ display: inline-flex/m);
+  assert.match(css, /^\.status-line \{ padding: 0 10px; margin: 4px 0; font-size: 12px;/m);
 });
