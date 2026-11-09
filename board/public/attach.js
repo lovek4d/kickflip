@@ -12,6 +12,7 @@
 //                                painted also gets a bubbling attach-change event with detail {id}
 window.BoardAttach = (function () {
   const LIMIT = 20 * 1024 * 1024;
+  const OVER = 'Over 20 MB';
   const state = new Map();
   const listeners = [];
   let seq = 0;
@@ -32,10 +33,17 @@ window.BoardAttach = (function () {
   const paintAll = () => { for (const c of document.querySelectorAll('[data-composer]')) paint(c.dataset.composer, siteOf(c)); };
 
   function upload(site, id, file) {
-    const p = { id: 'f' + ++seq, name: file.name || 'file', type: file.type || 'application/octet-stream', status: 'uploading', progress: 0 };
+    const p = { id: 'f' + ++seq, name: file.name || 'file', type: file.type || 'application/octet-stream', status: 'uploading', progress: 0, source: file };
     if (/^image\//.test(p.type)) p.preview = URL.createObjectURL(file);
     state.set(keyOf(site, id), [...list(site, id), p]);
     if (file.size > LIMIT) { p.status = 'error'; p.error = 'Over 20 MB'; paint(id, site); return; }
+    send(site, id, p);
+  }
+
+  // Sends p's File and paints it uploading; a retry from an error chip runs it again.
+  function send(site, id, p) {
+    const file = p.source;
+    p.status = 'uploading'; p.progress = 0; delete p.error;
     paint(id, site);
     const xhr = new XMLHttpRequest();
     p.xhr = xhr;
@@ -52,6 +60,11 @@ window.BoardAttach = (function () {
     };
     xhr.onerror = () => { p.status = 'error'; p.error = 'Upload failed'; paint(id, site); };
     xhr.send(file);
+  }
+
+  function retry(site, id, fileId) {
+    const p = list(site, id).find((x) => x.id === fileId);
+    if (p && p.status === 'error' && p.error !== OVER) send(site, id, p);
   }
 
   function remove(site, id, fileId) {
@@ -107,7 +120,10 @@ window.BoardAttach = (function () {
   document.addEventListener('click', (ev) => {
     const b = ev.target.closest && ev.target.closest('[data-unattach]');
     const c = b && b.closest('[data-composer]');
-    if (c) { ev.preventDefault(); remove(siteOf(c), c.dataset.composer, b.dataset.unattach); }
+    if (c) { ev.preventDefault(); remove(siteOf(c), c.dataset.composer, b.dataset.unattach); return; }
+    const r = ev.target.closest && ev.target.closest('[data-retry]');
+    const rc = r && r.closest('[data-composer]');
+    if (rc) { ev.preventDefault(); retry(siteOf(rc), rc.dataset.composer, r.dataset.retry); }
   });
 
   return {

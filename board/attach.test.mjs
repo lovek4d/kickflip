@@ -113,3 +113,22 @@ test('a drag of text, or a paste outside any composer, is left alone, and files 
   assert.equal(p.fire(p.outside, 'paste', { clipboardData: { types: ['Files'], files: [p.file('y.png', 'image/png')] } }).defaultPrevented, false);
   assert.equal(p.uploads.length, 0);
 });
+
+test('a failed upload chip retries from the same file on click, and an over-20 MB chip stays remove-only', () => {
+  const p = attachPage();
+  p.fire(p.box, 'paste', { clipboardData: { types: ['Files'], files: [p.file('a.pdf', 'application/pdf'), { ...p.file('big.zip', 'application/zip'), size: 21 * 1024 * 1024 }] } });
+  const up = p.uploads[0].xhr;
+  Object.assign(up, { status: 500, responseText: '{}' });
+  up.onload();
+  const chips = () => p.composer.querySelectorAll('[data-files] .pfile');
+  assert.match(chips()[0].querySelector('.perr').textContent, /Upload failed · tap to retry/);
+  assert.match(chips()[0].getAttribute('title'), /tap to retry/);
+  assert.match(chips()[1].getAttribute('title'), /retry can't succeed/);
+  assert.equal(chips()[1].querySelector('.perr').textContent, 'Over 20 MB');
+  p.fire(chips()[1], 'click');
+  assert.equal(p.uploads.length, 1, 'over 20 MB does not retry');
+  p.fire(chips()[0], 'click');
+  assert.equal(p.uploads.length, 2);
+  assert.equal(p.uploads[1].file.name, 'a.pdf');
+  assert.equal(p.win.BoardAttach.busy('ask', '/board-a'), true);
+});

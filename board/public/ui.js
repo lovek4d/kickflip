@@ -151,11 +151,16 @@
     return `<${tag} class="chip tone-${tone}"${extra}>${html}</${tag}>`;
   }
   // A composer's files before sending: {id, name, type, preview, status: uploading|done|error, progress (0–1), error}.
-  const pendingFiles = (list) => list.map((p) => `<span class="pfile ${esc(p.status)}" title="${esc(p.name)}">
+  // An errored chip retries on click, except "Over 20 MB", which a retry can't change.
+  const pendingFiles = (list) => list.map((p) => {
+    const retry = p.status === 'error' && p.error !== 'Over 20 MB';
+    const title = retry ? `${p.name}: tap to retry` : p.status === 'error' ? `${p.name}: a retry can't succeed, remove it` : p.name;
+    return `<span class="pfile ${esc(p.status)}${retry ? ' retry' : ''}" title="${esc(title)}"${retry ? ` data-retry="${esc(p.id)}"` : ''}>
       ${isImage(p) && p.preview ? `<img src="${esc(p.preview)}" alt="${esc(p.name)}">` : `<span class="pname">${esc(p.name)}</span>`}
       ${p.status === 'uploading' ? `<span class="pbar" role="progressbar" aria-label="Uploading ${esc(p.name)}" aria-valuenow="${Math.round((p.progress || 0) * 100)}"><span style="width:${Math.max(4, Math.round((p.progress || 0) * 100))}%"></span></span>` : ''}
-      ${p.status === 'error' ? `<span class="perr">${esc(p.error || 'Upload failed')}</span>` : ''}
-      <button type="button" class="unattach" data-unattach="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">✕</button></span>`).join('');
+      ${p.status === 'error' ? `<span class="perr">${esc(p.error || 'Upload failed')}${retry ? ' · tap to retry' : ''}</span>` : ''}
+      <button type="button" class="unattach" data-unattach="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">✕</button></span>`;
+  }).join('');
 
   // Replacing innerHTML would close every <details> inside, collapsing what the reader had open, and replace the field
   // being typed in, dropping its text, cursor and focus, and on iOS the keyboard. So setHTML patches el in place: a
