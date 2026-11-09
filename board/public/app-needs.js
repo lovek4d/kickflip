@@ -231,9 +231,13 @@ BoardView.part((B) => {
     else viewer.sheet = !viewer.sheet;
     paintViewer();
   });
-  // A push to a card's thread (#item=<key>&reply, board/store.mjs pushUrl), the switcher's for a question already picked
-  // among them, closes the viewer, so the thread it sent the owner to shows.
-  B.on(window, 'hashchange', () => { if (/^#item=[^&]+&reply$/.test(location.hash)) closeViewer(); });
+  // A push to a card's thread (#selectedCard=<key>&reply, board/store.mjs threadUrl), the switcher's for a question
+  // already picked among them, closes the viewer, so the thread it sent the owner to shows. The older #item=<key>&reply
+  // reads the same.
+  B.on(window, 'hashchange', () => {
+    const at = AppRouter.fragmentOf(location.hash);
+    if (at.selectedCard && at.reply) closeViewer();
+  });
 
   fitPane();
   B.on(wide, 'change', fitPane);

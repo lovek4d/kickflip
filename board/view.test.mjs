@@ -5772,6 +5772,11 @@ test("on a desktop a prototype opens in the right pane under a top bar of ‹ Op
   assert.ok(viewer(), 'a card opened on the board leaves the viewer open');
   await hashTo('#item=w%2FP1&reply');
   assert.deepEqual([viewer(), pane.classList.contains('viewing')], [null, false], "a push to a card's thread closes the viewer, so the thread shows");
+  wide.view.B.openViewer('prototype-x2.html?q=q2');
+  await hashTo('#selectedCard=w%2FT1');
+  assert.ok(viewer(), 'a #selectedCard= card without reply leaves the viewer open');
+  await hashTo('#selectedCard=w%2FP1&reply');
+  assert.deepEqual([viewer(), pane.classList.contains('viewing')], [null, false], 'a push writing #selectedCard=<key>&reply closes the viewer too');
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
   assert.equal(narrow.view.B.openViewer('prototype-x2.html?q=q2'), false, 'a phone has no pane');
