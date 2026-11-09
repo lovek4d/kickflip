@@ -128,7 +128,7 @@ window.BoardView = (function () {
       board: null,
       fresh: null,
       openItems: new Set(store.get('openItems', [])),
-      // The cards open when the page loaded: Done and Asks hide those past their cap until the owner opens one this visit.
+      // The cards open when the page loaded: Done hides those past their cap until the owner opens one this visit.
       restored: new Set(store.get('openItems', [])),
       threadCache: new Map(),
       edits: new Map(),

@@ -1,4 +1,4 @@
-// The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Done's and Asks' Show more,
+// The board view's lanes and the Auto Review lane leading them: each lane's header and cards, Done's Show more,
 // Done's finished-item-file folds, and Todo's wave bands with their Implement and card order.
 // Needs app-core.js and app-cards.js.
 BoardView.part((B) => {
@@ -9,9 +9,8 @@ BoardView.part((B) => {
     { id: 'progress', name: 'In Progress', open: true },
     { id: 'todo', name: 'Todo', open: true },
     { id: 'done', name: 'Done', open: false, capped: true },
-    { id: 'asks', name: 'Asks', open: false, capped: true },
   ];
-  // docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
+  // docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md
   // A capped lane shows STEP cards, and each Show more tap adds STEP more, kept in memory per lane. A card the owner opened
   // this visit stays shown past the cap; one open from before a reload does not (state.restored). Show more says how many are left (docs/adr/2026-10-29-1639-lists-never-cut-silently.md).
   // older is how many cards wait past `cards` in the archive; the tap that would show past `cards` fetches them first.

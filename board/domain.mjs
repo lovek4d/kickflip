@@ -49,8 +49,8 @@ export const BUILD_REFUSED = 'build-refused';
 // The thread line kinds of a builder's ask and the orchestrator's answer or deferral of it (store.mjs askOrchestrator).
 export const BUILDER_ASK = Object.freeze({ ask: 'builder-ask', answer: 'builder-answer' });
 const DAY = 86400000;
-// Done holds closed work cards, Asks the answered asks (docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md).
-const closedLane = (i) => i.lane === 'done' || i.lane === 'asks';
+// Done holds closed work cards and answered asks (docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md).
+const closedLane = (i) => i.lane === 'done';
 // A finished item file's Done cards fold under a row of their own, which board/public/app-lanes.js reads back by this id.
 export const fileFold = (slug) => `file:${slug}`;
 // A PR in review longer than this reads stale, still In Review (docs/adr/2026-10-29-1639-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
@@ -479,16 +479,16 @@ export function owesNext(item, records) {
 }
 
 // An ask is a New card in Todo, at the bottom among the cards by when it was sent (a bump moves it to the top), until Claude replies to it or writes in its thread; then it is an answered ask
-// in the Asks section, below Done, with its thread (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md,
-// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md). An ask that became work has no card
-// of its own: buildBoard leaves it out. A folded ask stays, in Asks, with a thread line saying where it went. msgs is its thread; bumpedAt is its latest ask-bump.
+// in Done with its thread (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md,
+// docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md). An ask that became work has no card
+// of its own: buildBoard leaves it out. A folded ask stays, in Done, with a thread line saying where it went. msgs is its thread; bumpedAt is its latest ask-bump.
 // mark is Claude's latest data/ask-progress.json entry {state, at, next} and doneAt the owner's latest ask-done: the newer
 // one decides whether the ask sits in In Progress with a Done button (docs/adr/2026-10-29-1639-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
 // A mark with moved is an ask sent to another board on the owner's answer, so it never shows as an answer.
 // pending counts its questions (topic item:ask:<event id>) that are open or answered and waiting on Claude: an answered
 // ask with either stays in Todo until a mark or the owner's Done closes it, since only Claude's progress mark puts an
 // ask in In Progress (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md,
-// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md).
+// docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md).
 // titled is the title triage gave it (data/ask-titles.json), else its first line titles it.
 // An ask with no ticket is named by when it was asked: the time today, else the short date and time.
 function askedLabel(iso, now = new Date()) {
@@ -520,7 +520,7 @@ function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending, titled) {
   const lastTs = [...msgs.map((m) => m.ts), ...othersAt, ...(inProgress ? [mark.at] : [])].filter(Boolean).sort().pop();
   return {
     key: `ask:${e.id}`, kind: 'ask', order: 0, file: null, fileTitle: null, id: e.id, ref: handled ? askedLabel(e.ts) : 'New', isNew: !handled, title, storedLane: null,
-    internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'asks' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => stateEntries(m).some(([, state]) => state === 'working')),
+    internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'done' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => stateEntries(m).some(([, state]) => state === 'working')),
     deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
     finishable: handled && !done,
     linear: [], pr: null, prs: [], reviewers: [], review: {}, inReviewSince: null, reviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
@@ -1340,10 +1340,10 @@ function linkCards(items, byKey, stored) {
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
 // The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review when it
-// came into the lane, Done when it closed, and Asks when Claude answered. A card with none falls back to its latest activity.
+// came into the lane, Done when it closed, an answered ask in Done when Claude answered. A card with none falls back to its latest activity.
 const SORT_AT = {
   todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.reviewSince,
-  done: (i) => i.closedAt, asks: (i) => i.ask.answerAt,
+  done: (i) => (i.kind === 'ask' ? i.ask.answerAt : i.closedAt),
 };
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;

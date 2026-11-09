@@ -258,9 +258,9 @@ test('a stored copy that is damaged, saved under another build, undated or holdi
 });
 
 test('threads load in the background for every In Review, In Progress and Todo card that is not already open', () => {
-  const items = ['review', 'review', 'progress', 'todo', 'followups', 'done', 'asks', 'todo'].map((lane, n) => ({ key: `w/${n}`, lane }));
-  assert.deepEqual([...ui.preloadKeys(items, new Set(['w/2']))], ['w/0', 'w/1', 'w/3', 'w/7']);
-  assert.deepEqual([...ui.preloadKeys(items, [])], ['w/0', 'w/1', 'w/2', 'w/3', 'w/7']);
+  const items = ['review', 'review', 'progress', 'todo', 'followups', 'done', 'todo'].map((lane, n) => ({ key: `w/${n}`, lane }));
+  assert.deepEqual([...ui.preloadKeys(items, new Set(['w/2']))], ['w/0', 'w/1', 'w/3', 'w/6']);
+  assert.deepEqual([...ui.preloadKeys(items, [])], ['w/0', 'w/1', 'w/2', 'w/3', 'w/6']);
 });
 
 test('when the catch-up lands on the saved copy, only lines whose text changed or that are new flash', () => {

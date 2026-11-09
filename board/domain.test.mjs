@@ -606,9 +606,9 @@ test("a task Claude replied to with an open question is a Todo task carrying Ope
   assert.deepEqual(card(), ['todo', 'asked', false, false, false, true, 'questions', 'openQuestions']);
   assert.deepEqual(buildBoard({ fromWaves: false, files: [], events: [ask], owner }).needs.map((n) => [n.kind, refKind(n.text.split(': ')[0]) + n.text.slice(n.text.indexOf(': '))]), [['Question', 'asked: a1 first line · 1 question']]);
   assert.deepEqual(card([answer]), ['todo', 'asked', false, false, false, true, null, 'openQuestions']);
-  assert.deepEqual(card([{ ...answer, reply: { html: 'Home it is.' } }]), ['asks', 'asked', false, false, false, false, null, 'openQuestions']);
-  assert.deepEqual(card([{ id: 'd1', ts: '2026-10-23T09:20:00Z', kind: 'ask-done', data: { id: 'a1' }, reply: null }]), ['asks', 'asked', false, false, false, false, null, 'openQuestions']);
-  assert.deepEqual(card([], { askProgress: { a1: { state: 'done', at: '2026-10-23T09:20:00Z' } } }), ['asks', 'asked', false, false, false, false, null, 'openQuestions']);
+  assert.deepEqual(card([{ ...answer, reply: { html: 'Home it is.' } }]), ['done', 'asked', false, false, false, false, null, 'openQuestions']);
+  assert.deepEqual(card([{ id: 'd1', ts: '2026-10-23T09:20:00Z', kind: 'ask-done', data: { id: 'a1' }, reply: null }]), ['done', 'asked', false, false, false, false, null, 'openQuestions']);
+  assert.deepEqual(card([], { askProgress: { a1: { state: 'done', at: '2026-10-23T09:20:00Z' } } }), ['done', 'asked', false, false, false, false, null, 'openQuestions']);
   assert.deepEqual(card([], { askProgress: { a1: { state: 'progress', at: '2026-10-23T09:20:00Z', next: 'Pick one' } } }), ['review', 'asked', false, false, false, true, 'questions', 'openQuestions']);
 });
 
@@ -626,8 +626,8 @@ test('a new task is a New card in Todo with no action while it waits or works, a
   assert.deepEqual(cards, [
     ['ask:a1', 'todo', 'New', true, 'a1 first line', 'waiting', false, null, null],
     ['ask:a2', 'todo', 'New', true, 'a2 first line', 'working', true, null, null],
-    ['ask:a3', 'asks', 'asked', false, 'a3 first line', 'answered', false, null, null],
-    ['ask:a4', 'asks', 'asked', false, 'a4 first line', 'answered', false, null, null],
+    ['ask:a3', 'done', 'asked', false, 'a3 first line', 'answered', false, null, null],
+    ['ask:a4', 'done', 'asked', false, 'a4 first line', 'answered', false, null, null],
   ]);
   assert.deepEqual(b.items.find((i) => i.key === 'ask:a4').othersAt, ['2026-10-23T07:30:00Z']);
   assert.equal(b.working, 1);
@@ -673,7 +673,7 @@ test("an ask that became work or was folded into a card has no card of its own: 
   const later = { id: 'm3', ts: '2026-10-23T09:10:00Z', kind: 'item-message', data: { key: 'ask:a3', text: 'And the footer' }, reply: null };
   const related = buildBoard({ fromWaves: false, askLinks: { a3: 'site/S4' }, events: [folded, later], working: { a3: '2026-10-23T09:01:00Z' },
     files: [{ slug: 'site', agents: runningBuilders('S4'), itemFile: { internal: true, items: [{ id: 'S4', title: 'Four', lane: 'progress' }] } }] });
-  assert.deepEqual([related.items.map((i) => [i.key, i.lane, i.threadCount]), related.moved, related.working], [[['site/S4', 'progress', 2], ['ask:a3', 'asks', 3]], {}, 0]);
+  assert.deepEqual([related.items.map((i) => [i.key, i.lane, i.threadCount]), related.moved, related.working], [[['site/S4', 'progress', 2], ['ask:a3', 'done', 3]], {}, 0]);
   assert.deepEqual(threadOf('ask:a3', { events: [folded, later], links: [{ key: 'site/S4', ref: 'S4', title: 'Four', became: false, folded: true }] })
     .filter((m) => m.kind === 'ask-link').map((m) => [m.text, m.link]), [['Moved to S4: Four', '#selectedCard=site%2FS4']]);
   const movedIn = threadOf('site/S4', { events: [folded, later], moved: ['a3'], lines: [{ ts: '2026-10-23T09:20:00Z', who: 'claude', text: 'Folded in.' }] });
@@ -697,7 +697,7 @@ test("a New card asked whether to move waits on the owner in Todo, then a move l
   const line = { ts: '2026-10-23T09:40:00Z', who: 'claude', text: 'Moved to Audit.', link };
   const moved = buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [], events: [ask, answer], owner, threads: { 'ask:a1': [line] },
     askProgress: { a1: { state: 'done', at: '2026-10-23T09:40:00Z', moved: { route: 'audit', title: 'Audit', id: 'b1' } } } });
-  assert.deepEqual([moved.items[0].lane, moved.items[0].isNew, moved.answers], ['asks', false, []]);
+  assert.deepEqual([moved.items[0].lane, moved.items[0].isNew, moved.answers], ['done', false, []]);
   assert.deepEqual(threadOf('ask:a1', { events: [ask], lines: [line] }).map(({ who, text, link: l }) => [who, text, l]), [['love', 'a1 first line\nmore', undefined], ['claude', 'Moved to Audit.', link]]);
   const arrived = askAt('b1', '2026-10-23T09:40:00Z', { data: { text: 'Fix the header', from: { route: 'orch', title: 'Orch', id: 'a1' } } });
   const there = buildBoard({ fromWaves: false, files: [], events: [arrived] }).items[0];
@@ -713,7 +713,7 @@ test("the owner's reply in a Done ask's thread waits, works and takes edit and d
   assert.deepEqual(msgs.map(({ eventId, state, canEdit, canDelete }) => [eventId, state, canEdit, canDelete]), [['a1', 'replied', false, false], ['m1', 'working', true, true]]);
   const b = askBoard([ask, msg], { working });
   const item = b.items.find((i) => i.key === 'ask:a1');
-  assert.deepEqual([item.lane, item.working, item.threadCount, b.working], ['asks', true, 2, 1]);
+  assert.deepEqual([item.lane, item.working, item.threadCount, b.working], ['done', true, 2, 1]);
 });
 
 test("the board lists asks answered without becoming work, newest Claude line first, leaving out waiting and linked asks", () => {
@@ -748,15 +748,15 @@ test("an ask Claude marks in progress waits on the owner in In Review with its n
   };
   const progress = { a1: { state: 'progress', at: '2026-10-23T09:20:00Z', next: 'Pick a take' } };
   const action = { kind: 'done', url: '#selectedCard=ask%3Aa1', label: 'Pick a take' };
-  assert.deepEqual(at([], {}), ['asks', null, null, false, null, null, null]);
+  assert.deepEqual(at([], {}), ['done', null, null, false, null, null, null]);
   assert.deepEqual(at([], progress), ['review', null, 'Pick a take', true, action, null, 'done']);
-  assert.deepEqual(at([done('2026-10-23T09:30:00Z')], progress), ['asks', null, null, false, null, null, null]);
+  assert.deepEqual(at([done('2026-10-23T09:30:00Z')], progress), ['done', null, null, false, null, null, null]);
   assert.deepEqual(at([done('2026-10-23T09:10:00Z')], progress), ['review', null, 'Pick a take', true, action, null, 'done']);
   const reply = { id: 'm1', ts: '2026-10-23T09:30:00Z', kind: 'item-message', data: { key: 'ask:a1', text: 'Take B' }, reply: null };
   assert.deepEqual(at([reply], progress), ['progress', null, 'Pick a take', true, null, null, null]);
-  assert.deepEqual(at([], { a1: { state: 'done', at: '2026-10-23T09:40:00Z' } }), ['asks', null, null, false, null, null, null]);
+  assert.deepEqual(at([], { a1: { state: 'done', at: '2026-10-23T09:40:00Z' } }), ['done', null, null, false, null, null, null]);
   const waiting = buildBoard({ fromWaves: false, files: [], events: [askAt('a2', '2026-10-23T09:00:00Z')], askProgress: { a2: { state: 'done', at: '2026-10-23T09:40:00Z' } } }).items[0];
-  assert.deepEqual([waiting.lane, waiting.bumpable], ['asks', false]);
+  assert.deepEqual([waiting.lane, waiting.bumpable], ['done', false]);
 });
 
 test("with auto-merge off an approved, green, clean PR waits on the owner's Merge, reads merging until Claude writes after it, and with it on waits on monitor", () => {
@@ -1123,7 +1123,7 @@ test('a card-hold applies at once unless held_at is newer, and only cards outsid
 });
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
-test("each lane has one fixed order, each card carrying the time it sorts by: Todo its bumped cards, then oldest made, a New ask by when it was sent; In Progress and In Review newest arrival first; Done most recently closed first; Asks newest answer first", () => {
+test("each lane has one fixed order, each card carrying the time it sorts by: Todo its bumped cards, then oldest made, a New ask by when it was sent; In Progress and In Review newest arrival first; Done most recently closed or, for an ask, answered first", () => {
   const now = Date.parse('2026-11-10T12:00:00Z');
   const at = (d) => `2026-11-${String(d).padStart(2, '0')}T10:00:00Z`;
   const made = (d) => `2026-11-${String(d).padStart(2, '0')}T08:00:00Z`;
@@ -1168,8 +1168,7 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
     review: ['R1', 'R2', 'S1', 'S2'],
     progress: ['P2', 'P4', 'P3', 'P1'],
     todo: ['ENG-1', 'T2', 'ENG-2', 'ask:a1', 'T1', 'ask:a2'],
-    done: ['D4', 'D3', 'D2', 'D1'],
-    asks: ['ask:a4', 'ask:a3'],
+    done: ['ask:a4', 'D4', 'ask:a3', 'D3', 'D2', 'D1'],
   });
   const sortAt = Object.fromEntries(b.items.map((i) => [i.key.replace(/^w\//, ''), i.sortAt]));
   assert.deepEqual(sortAt, {
@@ -1347,7 +1346,8 @@ test("files sent with an edit join the message's files, after the ones it was se
 });
 
 // docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
-test('Done holds every closed work card, however old, with no Older fold, and answered asks sit in Asks, the newest answer first', () => {
+// docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md
+test('Done holds every closed work card, however old, with no Older fold, and answered asks sit among them by their latest answer', () => {
   const now = Date.parse('2026-11-20T12:00:00Z');
   const at = (d) => new Date(now - d * 86400000).toISOString();
   const prs = { 'o/r#1': { state: 'MERGED', mergedAt: at(2) }, 'o/r#2': { state: 'MERGED', mergedAt: at(9) }, 'o/r#3': { state: 'MERGED', mergedAt: at(30) } };
@@ -1356,14 +1356,14 @@ test('Done holds every closed work card, however old, with no Older fold, and an
   const events = [
     { id: 'a1', ts: at(1), kind: 'ask', data: { text: 'q' }, reply: { html: 'ok', at: at(0.5) } },
     { id: 'a2', ts: at(10), kind: 'ask', data: { text: 'r' }, reply: { html: 'ok', at: at(0.2) } },
-    { id: 'a3', ts: at(3), kind: 'ask', data: { text: 's' }, reply: { html: 'ok', at: at(2) } },
+    { id: 'a3', ts: at(3), kind: 'ask', data: { text: 's' }, reply: { html: 'ok', at: at(2.5) } },
   ];
   const b = buildBoard({ now, fromWaves: false, prs, events, files: [{ slug: 'w', itemFile: { repo: 'o/r', items } }] });
   assert.deepEqual(b.items.filter((i) => i.lane === 'done').map((i) => [i.key, i.fold]), [
-    ['w/ENG-2', null], ['w/A1', null], ['w/A2', null], ['w/ENG-1', null], ['w/A3', null],
+    ['ask:a2', null], ['ask:a1', null], ['w/ENG-2', null], ['w/A1', null], ['ask:a3', null], ['w/A2', null], ['w/ENG-1', null], ['w/A3', null],
   ]);
-  assert.deepEqual(b.items.filter((i) => i.lane === 'asks').map((i) => [i.key, i.fold, i.sortAt]), [['ask:a2', null, at(0.2)], ['ask:a1', null, at(0.5)], ['ask:a3', null, at(2)]]);
-  assert.deepEqual(b.items.map((i) => i.lane).slice(-3), ['asks', 'asks', 'asks']);
+  assert.deepEqual(b.items.filter((i) => i.kind === 'ask').map((i) => [i.lane, i.sortAt]), [['done', at(0.2)], ['done', at(0.5)], ['done', at(2.5)]]);
+  assert.deepEqual(b.items.map((i) => i.lane).slice(-8), Array(8).fill('done'));
 });
 
 test('an item file whose every work item is in Done, landed or not, is finished, and its Done cards fold under one row, newest first, until an open card reopens it', () => {

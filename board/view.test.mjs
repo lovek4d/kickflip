@@ -5094,31 +5094,30 @@ test('Plan waves ends Todo as a Show more row and, once confirmed, sends plan-wa
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['plan-waves', { keys: ['w/T1', 'w/T2'] }]]);
 });
 
-// docs/adr/2026-11-03-0259-answered-asks-have-their-own-section-below-done.md
-test('answered asks have their own Asks section below Done, and Done and Asks each show 10 cards, then a Show more that adds 10 and says how many are left', async () => {
+// docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md
+test('answered asks sit in the one Done list among the work cards by time, 10 shown, then a Show more that adds 10 and says how many are left', async () => {
   const day = (n) => `2026-10-${String(30 - n).padStart(2, '0')}T08:00:00.000Z`;
-  const done = Array.from({ length: 23 }, (_, n) => workCard(`D${n}`, { lane: 'done', sortAt: day(n) }));
-  const asks = Array.from({ length: 11 }, (_, n) => ({ ...askCard(`a${n}`, 'asks'), sortAt: day(n) }));
-  const b = boardOnDom({ open: ['ask:a10'], board: boardOf([...done, ...asks]), threads: {} });
+  const work = Array.from({ length: 12 }, (_, n) => workCard(`D${n}`, { lane: 'done', sortAt: day(2 * n) }));
+  const asks = Array.from({ length: 11 }, (_, n) => ({ ...askCard(`a${n}`, 'done'), sortAt: day(2 * n + 1) }));
+  const all = [...work, ...asks].sort((x, y) => y.sortAt.localeCompare(x.sortAt));
+  const b = boardOnDom({ open: ['ask:a10'], board: boardOf([...work, ...asks]), threads: {} });
   await b.settle();
   const lane = (id) => b.root.querySelector(`#lanes details.lane[data-lane="${id}"]`);
   const keys = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);
   const more = (id) => lane(id).querySelector('[data-lane-more]');
-  assert.deepEqual(b.root.querySelectorAll('#lanes details.lane').map((el) => el.dataset.lane).slice(-2), ['done', 'asks']);
-  assert.deepEqual([lane('done').querySelector('summary .lane-name').textContent, lane('asks').querySelector('summary .lane-name').textContent], ['Done', 'Asks']);
+  assert.deepEqual(b.root.querySelectorAll('#lanes details.lane').map((el) => el.dataset.lane), ['review', 'progress', 'todo', 'done']);
+  assert.equal(lane('done').querySelector('summary .lane-name').textContent, 'Done');
+  assert.equal(lane('done').querySelector('summary .count').textContent, '23');
   assert.equal(lane('done').querySelector('details.fold'), null);
-  assert.deepEqual(keys('done'), done.slice(0, 10).map((c) => c.key));
+  assert.deepEqual(keys('done'), all.slice(0, 10).map((c) => c.key));
   assert.equal(more('done').textContent, 'Show more · 13 older cards');
   assert.ok(more('done').classList.contains('thread-more'));
-  // A card open from before the reload does not stay shown past the cap: the reload hides it with the rest.
-  assert.deepEqual(keys('asks'), asks.slice(0, 10).map((c) => c.key));
-  assert.equal(more('asks').textContent, 'Show more · 1 older card');
   b.page.fire(b.root, 'click', { target: more('done') });
   await b.settle();
   assert.deepEqual([keys('done').length, more('done').textContent], [20, 'Show more · 3 older cards']);
   b.page.fire(b.root, 'click', { target: more('done') });
   await b.settle();
-  assert.deepEqual([keys('done'), more('done')], [done.map((c) => c.key), null]);
+  assert.deepEqual([keys('done'), more('done')], [all.map((c) => c.key), null]);
 });
 
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md

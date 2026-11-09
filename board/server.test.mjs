@@ -652,7 +652,7 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   await until(async () => (await card()).next === 'Pick a take', "the board sees the ask's progress");
   assert.deepEqual(await card().then((c) => [c.lane, c.next, c.finishable]), ['review', 'Pick a take', true]);
   await post('/_claude/events', { kind: 'ask-done', id });
-  assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['asks', null, false]);
+  assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['done', null, false]);
   const work = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/AK2');
   assert.deepEqual(await work().then((c) => [c.lane, c.held, c.finishable]), ['todo', false, true]);
   const filed = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'AK2');
