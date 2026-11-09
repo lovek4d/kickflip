@@ -647,6 +647,15 @@ test('builder start refuses every kind while the host is busy, and starts once i
   assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1').code, 0);
 });
 
+// docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
+test('builder start on a record its dispatch already opened is not held, while a fresh start still is', () => {
+  assert.equal(board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'grill').code, 0);
+  write(at('kickflip', 'machine-state.json'), { state: 'busy', reason: 'load high' });
+  const taken = board('--site', 'orch', 'builder', 'start', 'w/A1', '--kind', 'grill');
+  assert.equal(taken.code, 0, taken.err);
+  assert.match(board('--site', 'orch', 'builder', 'start', 'w/A1', '--agent', 'two', '--dispatch', '--kind', 'grill').err, /the host is busy/);
+});
+
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
 test('builder start saves a planner\'s model, Sonnet for a prototype and Opus for a grill by default, and its status lines are marked planner, read its kind\'s word and keep no builder phase', () => {
   const record = (agent) => read(at('waves', 'w', 'agents', agent === 'main' ? 'A1.json' : `A1@${agent}.json`));

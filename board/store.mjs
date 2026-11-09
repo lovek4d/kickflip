@@ -3374,7 +3374,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const k = pick ? pick.kind : asked;
   // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md: each kind is held by its own usage.
   const gate = readUsageGate({ dir: site });
-  if (heldFor(gate, k)) throw new BoardError(pauseReasonFor(gate, k));
+  // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md: a start that takes up a dispatched record isn't held, the dispatch was the gate.
+  if (!(takeUp && !dispatch) && heldFor(gate, k)) throw new BoardError(pauseReasonFor(gate, k));
   const line = asLine && forAgent(asLine, plans({ kind: k }), '--progress');
   if (model !== undefined && !['opus', 'sonnet'].includes(model)) fail('--model takes opus or sonnet');
   if (askedModel !== undefined && k === 'codex') fail('--model is for kind claude; codex needs none');
