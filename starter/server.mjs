@@ -16,7 +16,9 @@
 // Every non-GET/HEAD request passes ./cross-site.mjs before routing (403 plain text).
 // POST /_claude/events requires application/json; CLI callers may omit Origin and Sec-Fetch-Site.
 // Claude replies to event <id> by writing data/replies/<id>.html (an HTML
-// fragment) or data/replies/<id>.json.
+// fragment) or data/replies/<id>.json. A reply is appended: each later one is its own
+// file, <id>~2.html, <id>~3.json, …, and an event's reply is the newest, with replies
+// listing every one oldest first.
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -52,15 +54,18 @@ async function listEvents(kind, limit) {
   try { lines = (await fs.readFile(events, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch {}
   if (kind) lines = lines.filter((e) => e.kind === kind);
   lines = lines.reverse().slice(0, limit);
+  const names = await fs.readdir(replies).catch(() => []);
   return Promise.all(lines.map(async (e) => {
-    for (const ext of ['html', 'json']) {
-      const f = path.join(replies, `${e.id}.${ext}`);
+    const own = names.flatMap((name) => { const m = /^(.+?)(?:~(\d+))?\.(html|json)$/.exec(name); return m?.[1] === e.id ? [{ name, ext: m[3], n: Number(m[2] || 1) }] : []; })
+      .sort((a, b) => a.n - b.n).filter((f, i, all) => f.n !== all[i - 1]?.n);
+    const all = (await Promise.all(own.map(async ({ name, ext }) => {
+      const f = path.join(replies, name);
       try {
         const [text, st] = await Promise.all([fs.readFile(f, 'utf8'), fs.stat(f)]);
-        return { ...e, reply: { [ext]: ext === 'json' ? JSON.parse(text) : text, at: st.mtime.toISOString() } };
-      } catch {}
-    }
-    return { ...e, reply: null };
+        return [{ [ext]: ext === 'json' ? JSON.parse(text) : text, at: st.mtime.toISOString() }];
+      } catch { return []; }
+    }))).flat();
+    return { ...e, reply: all.at(-1) || null, replies: all };
   }));
 }
 

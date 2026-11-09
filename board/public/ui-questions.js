@@ -44,10 +44,12 @@
     : r.state === 'closed' ? badge('quiet', `Round ${r.n} closed · take ${esc(r.take)}`)
     : badge('normal', `Prototype round ${r.n}`);
   const RULE_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
+  // Each of an answer's replies, oldest first.
+  const repliesOf = (a, links) => (a.replies?.length ? a.replies : a.reply ? [a.reply] : []).map((r) => `<div class="rep${r.md ? ' md' : ''}"><div class="muted small">Claude</div>${replyBody(r, links)}</div>`).join('');
   function answerHistory(q, links = {}) {
     if (!q.answers.length) return '';
     const body = q.answers.map((a) => `<div class="ans"><div class="muted small">You · ${esc(time(a.ts))}</div>${escText(choiceLabel(q, a.choice))}${a.note ? `<div>${linkText(a.note, links)}</div>` : ''}${attachments(a.files)}</div>
-      ${a.reply ? `<div class="rep${a.reply.md ? ' md' : ''}"><div class="muted small">Claude</div>${replyBody(a.reply, links)}</div>` : ''}`).join('');
+      ${repliesOf(a, links)}`).join('');
     const last = q.answers[q.answers.length - 1];
     return q.state === 'open' || !last.reply ? body : `<details><summary>Your answer and Claude's reply</summary>${body}</details>`;
   }
@@ -99,7 +101,7 @@
     const outcome = q.resolved ? `${esc(q.resolved)}${/[.!?]$/.test(q.resolved) ? '' : '.'}` : '';
     const acted = q.resolved_at ? ` <span class="acted" title="${esc(time(q.resolved_at))}">acted on ${esc(ago(q.resolved_at))}</span>.` : '';
     const said = last && (last.note || last.reply || last.files?.length) ? `<div class="ans"><div class="muted small">You · ${esc(time(last.ts))}</div>${last.note ? `<div>${linkText(last.note, links)}</div>` : ''}${attachments(last.files)}</div>
-      ${last.reply ? `<div class="rep${last.reply.md ? ' md' : ''}"><div class="muted small">Claude</div>${replyBody(last.reply, links)}</div>` : ''}` : '';
+      ${repliesOf(last, links)}` : '';
     return `<section class="q resolved" id="${esc(q.id)}" data-q="${esc(q.id)}">
       <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge('ready', '✓ Resolved', { button: true, title: 'Reopen this question', attrs: { type: 'button', 'data-reopen': q.id } })}</div>
       <h3>${linkText(q.question, links)}</h3>

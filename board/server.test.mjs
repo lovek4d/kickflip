@@ -1384,6 +1384,17 @@ test("a wave's triage runs from its wave-triage event until Claude replies, and 
   assert.equal((await fetch(`${base}/api/notes?wave=nope`)).status, 404);
 });
 
+test("a later reply to an event is its own entry: the event lists every reply oldest first, and reply is the newest", async () => {
+  const { id } = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'note', text: 'hi' }) })).json();
+  const put = (name, text, ms) => { const f = path.join(site, 'data', 'replies', name); fs.writeFileSync(f, text); fs.utimesSync(f, new Date(ms), new Date(ms)); };
+  put(`${id}.html`, '<p>one</p>', Date.now() - 3000);
+  put(`${id}~2.md`, 'two', Date.now() - 2000);
+  put(`${id}~10.md`, 'three', Date.now() - 1000);
+  const event = (await (await fetch(`${base}/_claude/events?kind=note`)).json()).find((e) => e.id === id);
+  assert.deepEqual(event.replies.map((r) => r.html || r.md), ['<p>one</p>', 'two', 'three']);
+  assert.equal(event.reply.md, 'three');
+});
+
 test("/api/board names a card's worktree while its folder exists, and says whether the request's browser runs on the host", async () => {
   const waveFile = path.join(site, 'data', 'items.json');
   const agents = path.join(site, 'data', 'agents');

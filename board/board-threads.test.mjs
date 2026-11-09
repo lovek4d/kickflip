@@ -38,10 +38,12 @@ test('install posts only the route and key to the hub once it quotes the owner, 
 test('reply answers a known event in markdown, naming its card, and refuses an unknown one', () => {
   write(site('orch', 'data', 'replies', 'e1.html'), '<p>Before markdown.</p>');
   assert.deepEqual(board('reply', 'e1', '--site', 'orch', '--text', '**Done.**'), { code: 0, err: '', out: 'reply written to task e1\n' });
-  assert.equal(fs.readFileSync(site('orch', 'data', 'replies', 'e1.md'), 'utf8'), '**Done.**');
-  assert.equal(fs.existsSync(site('orch', 'data', 'replies', 'e1.html')), false, 'the markdown reply takes the place of an older HTML one');
+  const rep = (n) => site('orch', 'data', 'replies', n);
+  assert.equal(fs.readFileSync(rep('e1~2.md'), 'utf8'), '**Done.**');
+  assert.equal(fs.readFileSync(rep('e1.html'), 'utf8'), '<p>Before markdown.</p>', 'a later reply is appended; the first reply stays');
   assert.equal(run('board.mjs', ['reply', 'e1', '--site', 'orch', '--file', '-'], '- Again.').code, 0);
-  assert.equal(fs.readFileSync(site('orch', 'data', 'replies', 'e1.md'), 'utf8'), '- Again.');
+  assert.equal(fs.readFileSync(rep('e1~3.md'), 'utf8'), '- Again.');
+  assert.equal(fs.readFileSync(rep('e1~2.md'), 'utf8'), '**Done.**', 'a third reply leaves the second');
   write(at('waves', 'internal', 'wave.json'), { internal: true, items: [{ id: 'S80', title: 'Legacy' }] });
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'internal/S80', text: 'Still on?' } }) + '\n');
   assert.deepEqual(board('reply', 'e2', '--site', 'orch', '--text', 'Yes.'), { code: 0, err: '', out: 'reply written to INT-80\n' });
@@ -138,6 +140,7 @@ test('push adds the replies written since the last push to the body, and records
   write(state, { last_push: new Date(Date.now() - 30_000).toISOString() });
   reply('e2', 10_000);
   reply('e3', 5_000, 'html');
+  reply('e3~2', 4_000);
   const failed = push(3, '--kind', 'fault', '--title', 'Ready', '--body', 'A1 is green', '--tag', 'ready-A1', '--urgent');
   assert.equal(failed.code, 3);
   const kept = read(state).last_push;
@@ -149,8 +152,8 @@ test('push adds the replies written since the last push to the body, and records
 
   assert.deepEqual(lines(calls), [
     ['push', '--kind', 'fault', '--title', 'Question', '--body', 'Pick one', '--url', '/orch/questions.html?from=push'],
-    ['push', '--kind', 'fault', '--title', 'Ready', '--body', 'A1 is green · and 2 replies', '--tag', 'ready-A1', '--urgent'],
-    ['push', '--kind', 'fault', '--title', 'Ready', '--body', 'and 2 replies', '--tag', 'ready-A1'],
+    ['push', '--kind', 'fault', '--title', 'Ready', '--body', 'A1 is green · and 3 replies', '--tag', 'ready-A1', '--urgent'],
+    ['push', '--kind', 'fault', '--title', 'Ready', '--body', 'and 3 replies', '--tag', 'ready-A1'],
     ['push', '--kind', 'fault', '--title', 'Orch is down'],
     ['push', '--kind', 'fault', '--title', 'e1 waits on your Done', '--tag', 'ask-e1', '--now'],
     ['push', '--kind', 'reminder', '--title', 'Everything is done', '--now'],

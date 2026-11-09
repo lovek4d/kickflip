@@ -304,7 +304,7 @@ async function tryLogTail(here, name) {
 // and an event only of a kind Full allows, recorded with data.shared_by {login, name}, which the thread names them by; anything
 // else → 403 {error} (sharedWriter; docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
-// Claude's reply to event <id> is data/replies/<id>.md, .html (written before markdown replies) or .json (store.mjs REPLY_EXTS).
+// Claude's replies to event <id> are data/replies/<id>.md, .html (written before markdown replies) or .json, then <id>~2.md, <id>~3.md … (store.mjs replyFilesOf).
 import { topicItems } from './review.mjs';
 import { boardWorktree, builderRepo, helperWorktree, moveQueuedLand, prWorktree } from './worktree.mjs';
 import { transcriptMovedAt, transcriptCommandRunning, readRunTranscript } from './transcript.mjs';
@@ -328,7 +328,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
-import { REPLY_EXTS, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { replyFilesOf, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -502,15 +502,17 @@ async function reaskRefused(id) {
   return !q ? `${id} is no longer asked here. Reload to see what is.` : q.state !== 'resolved' ? `${id} isn’t resolved, so there is nothing to ask again.` : null;
 }
 
+// e with its replies oldest first, and reply, the newest ({md|html|json, at}), or null.
 async function withReply(e) {
-  for (const ext of REPLY_EXTS) {
-    const f = path.join(replies, `${e.id}.${ext}`);
+  const replied = await Promise.all((await replyFilesOf(replies, e.id)).map(async ({ name, ext }) => {
+    const f = path.join(replies, name);
     try {
       const [text, st] = await Promise.all([fs.readFile(f, 'utf8'), fs.stat(f)]);
-      return { ...e, reply: { [ext]: ext === 'json' ? JSON.parse(text) : text, at: st.mtime.toISOString() } };
-    } catch {}
-  }
-  return { ...e, reply: null };
+      return [{ [ext]: ext === 'json' ? JSON.parse(text) : text, at: st.mtime.toISOString() }];
+    } catch { return []; }
+  }));
+  const all = replied.flat();
+  return { ...e, reply: all.at(-1) || null, replies: all };
 }
 
 async function listEvents(kind, limit) {

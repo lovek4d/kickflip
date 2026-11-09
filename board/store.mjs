@@ -140,7 +140,15 @@ async function loadItem(site, key) {
 }
 
 // A reply's file, data/replies/<eventId>.<ext>: .md, which `reply` writes; .html, which replies before markdown are; .json.
+// An event's thread of replies is append-only: its first reply is <eventId>.<ext>, and each later one is its own file,
+// <eventId>~2.<ext>, <eventId>~3.<ext>, … ("~" can't appear in an event id).
 export const REPLY_EXTS = ['md', 'html', 'json'];
+
+// → [{name, ext, n}] of event eventId's reply files in dir, oldest first (n 1 for the first reply).
+export async function replyFilesOf(dir, eventId) {
+  const own = new RegExp(`^${eventId.replace(/[.]/g, '\\.')}(?:~(\\d+))?\\.(${REPLY_EXTS.join('|')})$`);
+  return (await fs.readdir(dir).catch(() => [])).flatMap((name) => { const m = own.exec(name); return m ? [{ name, ext: m[2], n: Number(m[1] || 1) }] : []; }).sort((a, b) => a.n - b.n || REPLY_EXTS.indexOf(a.ext) - REPLY_EXTS.indexOf(b.ext)).filter((f, i, all) => f.n !== all[i - 1]?.n);
+}
 
 export async function writeReply(site, eventId, md, title) {
   needSite(site);
@@ -150,9 +158,10 @@ export async function writeReply(site, eventId, md, title) {
   const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
   const titled = title === undefined ? undefined : /^ask:(.+)$/.exec(key || '')?.[1] || fail(`reply --title names an ask: "${eventId}" is not an ask or a message in an ask's thread`);
   if (titled) text(title, '--title');
-  const file = path.join(site, 'data', 'replies', `${eventId}.md`);
+  const dir = path.join(site, 'data', 'replies');
+  const earlier = await replyFilesOf(dir, eventId);
+  const file = path.join(dir, earlier.length ? `${eventId}~${earlier.at(-1).n + 1}.md` : `${eventId}.md`);
   await replace(file, text(md, 'the reply'));
-  await fs.rm(path.join(site, 'data', 'replies', `${eventId}.html`), { force: true });
   if (titled) await titleAsk(site, titled, title);
   const lines = key ? await freshenPush(site, key, md) : [];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
@@ -517,8 +526,7 @@ async function askNotNew(site, eventId, events) {
   const started = items.find(({ it }) => hasPR(it) || leftTodo(it));
   if (started) return { why: `${named} became ${started.key}, which has started` };
   if (items.length) return { items: items.map((i) => i.key) };
-  const replied = await Promise.all(REPLY_EXTS.map((ext) => fs.stat(path.join(site, 'data', 'replies', `${eventId}.${ext}`)).then(() => true, () => false)));
-  const answered = replied.some(Boolean) || Boolean(mark) || events.some((e) => e.kind === 'ask-done' && e.data?.id === eventId)
+  const answered = (await replyFilesOf(path.join(site, 'data', 'replies'), eventId)).length > 0 || Boolean(mark) || events.some((e) => e.kind === 'ask-done' && e.data?.id === eventId)
     || (await readLines(threadFile(site, `ask:${eventId}`))).some((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status');
   return answered ? { why: `${named} is not New: Claude already answered it` } : null;
 }
@@ -1882,8 +1890,7 @@ function roundSettled(owner, q, answers) {
 async function ownerEvents(site) {
   const events = await readLines(path.join(site, 'data', 'events.jsonl'));
   const answers = await Promise.all(events.filter((e) => e.kind === 'owner-answer').map(async (e) => {
-    const replied = await Promise.all(REPLY_EXTS.map((ext) => fs.stat(path.join(site, 'data', 'replies', `${e.id}.${ext}`)).then((s) => s.isFile(), () => false)));
-    return { ...e, reply: e.reply || replied.some(Boolean) };
+    return { ...e, reply: e.reply || (await replyFilesOf(path.join(site, 'data', 'replies'), e.id)).length > 0 };
   }));
   return { answers, requests: events.filter((e) => e.kind === 'prototype-request'), reopens: events.filter((e) => e.kind === QUESTION_REOPEN) };
 }

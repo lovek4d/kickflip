@@ -30,9 +30,9 @@
   const withReplies = (msgs) => {
     // A folded submit's answers each reply, quoting their own block.
     const out = msgs.flatMap((m, i) => [{ m, at: String(m.ts), i, part: 0 },
-      ...(m.answers || [m]).filter((a) => a.eventId && a.reply).map((a) => ({ m: { ts: a.reply.at || m.ts, who: 'claude', kind: 'reply', reply: a.reply }, of: m, quoted: m.answers ? a.text : m.text, at: String(a.reply.at || m.ts), i, part: 1 }))]);
+      ...(m.answers || [m]).filter((a) => a.eventId && a.reply).flatMap((a) => (a.replies?.length ? a.replies : [a.reply]).map((reply, k) => ({ m: { ts: reply.at || m.ts, who: 'claude', kind: 'reply', reply }, of: m, quoted: m.answers ? a.text : m.text, later: k > 0, at: String(reply.at || m.ts), i, part: 1 })))]);
     out.sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i || a.part - b.part);
-    return out.map(({ m, of, quoted }, n) => (of ? { ...m, quote: out[n - 1]?.m === of && !(of.answers?.length > 1) ? '' : quoted || '' } : m));
+    return out.map(({ m, of, quoted, later }, n) => (of ? { ...m, quote: later || out[n - 1]?.m === of && !(of.answers?.length > 1) ? '' : quoted || '' } : m));
   };
   // A message being edited shows its edit box in place of its text; app-asks.js handles the form, and attach.js the
   // files it adds to the message, under composer id edit:<event id>.

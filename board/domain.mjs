@@ -742,7 +742,7 @@ export function ownerQuestion(q, answerEvents, requestEvents = [], reaskEvents =
   const reask = resolved ? reaskEvents.filter((e) => e.data?.question === q.id && String(e.ts) > String(q.resolved_at || '')).at(-1) : null;
   const state = reopened ? 'open' : resolved ? 'resolved' : req ? 'requested' : !last ? 'open' : last.reply ? 'replied' : 'answered';
   return { ...q, state, reopened, request: req ? { id: req.id, ts: req.ts, note: req.data.note || '', choice: req.data.choice || null } : null, reask: reask ? { id: reask.id, ts: reask.ts } : null,
-    answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, acted: resolvedSince(q, e.ts) })) };
+    answers: answers.map((e) => ({ ts: e.ts, choice: e.data.choice || null, note: e.data.note || '', files: e.data.files || [], reply: e.reply, replies: e.replies, acted: resolvedSince(q, e.ts) })) };
 }
 
 // docs/adr/2026-11-02-1332-a-prototype-round-ends-with-a-one-take-confirm.md
@@ -953,15 +953,15 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
-      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply,
+      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies,
         ...requestOf(e, asked), ...byOf(e) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
-      return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${numbered(asked, asked.get(e.data.id))}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, status: ANSWERS_SUBMITTED, ...byOf(e) };
+      return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${numbered(asked, asked.get(e.data.id))}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies, status: ANSWERS_SUBMITTED, ...byOf(e) };
     }),
     ...(index.reopens.get(`item:${key}`) || []).map((e) => ({ ts: e.ts, who: 'love', kind: e.kind, request: true, mark: REOPENED, text: `Question ${numberOf(asked, e.data.question)} was reopened`, ...byOf(e) })),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
-      .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
+      .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', ...commandLine('implement'), text: COMMANDS.implement }] : []),
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#selectedCard=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
@@ -995,7 +995,7 @@ function foldSubmits(msgs) {
     if (group[0] !== m) return [];
     return [{ ...m, text: group.map((a) => a.text).join('\n\n'), files: group.flatMap((a) => a.files),
       state: group.map((a) => a.state).sort((a, b) => STATE_ORDER.indexOf(a) - STATE_ORDER.indexOf(b))[0],
-      reply: undefined, answers: group.map((a) => ({ eventId: a.eventId, state: a.state, reply: a.reply, text: a.text })) }];
+      reply: undefined, answers: group.map((a) => ({ eventId: a.eventId, state: a.state, reply: a.reply, replies: a.replies, text: a.text })) }];
   });
 }
 // The states of the events a message stands for: each answer of a folded submit, else the message itself.
