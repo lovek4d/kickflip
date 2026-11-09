@@ -10,7 +10,7 @@ import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, workt
 import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
-import { bump, queueLines, stallCard, stopBuilder, stopForBlock, stopLand } from '../stop.mjs';
+import { bump, queueLines, stallCard, stopBuilder, stopLand } from '../stop.mjs';
 import { boardAt } from '../../hub/boards.mjs';
 import { boardRepo } from '../../hub/board-repo.mjs';
 import { checkTakesRender } from '../render-check.mjs';
@@ -814,7 +814,7 @@ const COMMANDS = {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
     return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
-      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check, stopRun: () => stopForBlock(site, key) }, options);
+      install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, text: f.text, check: f.check }, options);
   }],
   'item add': [['wave[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');

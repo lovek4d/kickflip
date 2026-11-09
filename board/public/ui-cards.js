@@ -233,7 +233,7 @@
   function statusWord(it) {
     const b = it.builder;
     if (b?.planner) return b.kind === 'prototype' ? 'prototyping' : 'grilling';
-    if (b && b.kind !== BUILDER_KIND.install) return b.stopped || (b.alive === false ? 'stopped' : b.phase === 'landing' ? 'landing' : 'implementing');
+    if (b && b.kind !== BUILDER_KIND.install) return b.stopped || (b.pause ? (b.pause.paused ? 'paused' : 'pausing') : b.alive === false ? 'stopped' : b.phase === 'landing' ? 'landing' : 'implementing');
     if (it.waitsOn === 'checking') return 'Orchestrator review';
     if (it.lane === 'done') return 'done';
     if (it.grilling || it.prototyping) return 'preheating';
@@ -274,21 +274,26 @@
     const [word, tone] = PHASE_LOOK[it.phase];
     return `<span class="card-phase ph-${tone}">${word}</span>`;
   }
+  // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+  // A paused build's word and cause, which stand in for the hold or block that caused it: "pausing · blocked by #61" in
+  // orange while its builder runs on to its stopping point, then "paused · blocked by #61" in grey.
+  const pauseOf = (it) => (it.lane === 'progress' ? it.builder?.pause ?? null : null);
+  const pauseWords = (pause) => pause && `<span class="card-${pause.paused ? 'paused' : 'pausing'}">${pause.paused ? 'paused' : 'pausing'} · ${esc(pause.words)}</span>`;
   // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed,
-  // bumped out by the card whose bump took its slot, or held while host recovers on a bumped ready card a busy host holds,
-  // both grey (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), stalled in red or a build's stale
+  // held while host recovers on a bumped ready card a busy host holds, in grey
+  // (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), stalled in red or a build's stale
   // in grey (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md), a stale review reading it
-  // once, as its phase, then the phase word (phaseWord), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
+  // once, as its phase, then the phase word (phaseWord), then a paused build's words (pauseWords), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
   // takes away when the card opens (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
   const SEP = '<span class="sep"> · </span>';
   const newWords = (n, word) => n && `${n} new ${word}${n === 1 ? '' : 's'}`;
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
-    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, holdWords(it), blockedWords(it), actionWords(it),
-      it.bumpedOut && `<a class="card-bumped-out" href="#selectedCard=${encodeURIComponent(it.bumpedOut.key)}">bumped out by ${esc(it.bumpedOut.ref)}</a>`,
+    const pause = pauseOf(it);
+    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, pause?.cause !== 'held' && holdWords(it), pause?.cause !== 'blocked' && blockedWords(it), actionWords(it),
       it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
-      it.stalled ? '<span class="card-stalled">stalled</span>' : it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', phaseWord(it)].filter(Boolean);
+      it.stalled ? '<span class="card-stalled">stalled</span>' : it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', phaseWord(it), pauseWords(pause)].filter(Boolean);
     const news = newWords(unread, 'message');
     const count = news ? `<span class="card-unread">${parts.length || bars ? SEP : ''}${news}</span>` : '';
     const tail = bars ? `${parts.length ? SEP : ''}${bars}` : '';

@@ -7,7 +7,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
-import { briefFacts, archiveCards, readArchive, threadFile } from './store.mjs';
+import { briefFacts, archiveCards, builderProgress, readArchive, threadFile } from './store.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
 // server and outlives it.
@@ -463,9 +463,9 @@ test("a tracked builder whose kind its usage holds waits, launched or not, while
   assert.deepEqual(next, { 'w/A': tracked['w/A'], 'w/B': tracked['w/B'], 'w/C': { kind: 'claude', model: 'opus', pid: 901, relaunched: false } });
 });
 
-// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
-test('a builder that exited on the usage limit keeps its one relaunch: it is held until the reset, then launched', async () => {
-  const now = Date.parse('2026-11-06T10:12:00Z');
+// docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md,
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+test('a builder that exited on the usage limit keeps its one relaunch: it pauses, and a paused build is never relaunched', async () => {
   const reset = '2026-11-06T12:10:00.000Z';
   const launched = [];
   const limits = [];
@@ -477,22 +477,13 @@ test('a builder that exited on the usage limit keeps its one relaunch: it is hel
   };
   const limitedUntil = (entry) => (entry.log === '/logs/C' ? null : reset);
   const opts = { launch, handBack: async () => assert.fail('nothing is handed back'), alive: () => false, limitedUntil, atLimit: async (card, at) => limits.push([card.key, at]) };
-  const held = await reviveBuilders(tracked, new Set(Object.keys(tracked)), { ...opts, held: () => true, now });
+  const held = await reviveBuilders(tracked, new Set(Object.keys(tracked)), { ...opts, held: () => true });
   assert.deepEqual(launched, []);
   assert.deepEqual(limits, [['w/A', reset], ['w/B', reset]]);
-  assert.deepEqual(held, {
-    'w/A': { ...tracked['w/A'], pid: null, until: reset },
-    'w/B': { ...tracked['w/B'], pid: null, until: reset },
-    'w/C': tracked['w/C'],
-  });
-  const early = await reviveBuilders(held, new Set(Object.keys(held)), { ...opts, now });
-  assert.deepEqual([launched, early['w/A']], [['w/C'], held['w/A']], 'Keep going lifts the gate, but not the limit the run hit');
-  const after = await reviveBuilders(early, new Set(Object.keys(early)), { ...opts, now: Date.parse(reset) });
-  assert.deepEqual(launched, ['w/C', 'w/A', 'w/B']);
-  assert.deepEqual([after['w/A'], after['w/B']], [
-    { kind: 'claude', model: 'opus', pid: 902, log: '/logs/w/A-2', relaunched: false },
-    { kind: 'claude', model: 'opus', pid: 903, log: '/logs/w/B-2', relaunched: true },
-  ]);
+  assert.deepEqual(held, { 'w/A': { ...tracked['w/A'], pid: null }, 'w/B': { ...tracked['w/B'], pid: null }, 'w/C': tracked['w/C'] });
+  const later = await reviveBuilders(held, new Set(Object.keys(held)), { ...opts, paused: new Set(['w/A', 'w/B']) });
+  assert.deepEqual(launched, ['w/C'], 'the paused ones wait for the board to resume them');
+  assert.deepEqual([later['w/A'], later['w/B']], [held['w/A'], held['w/B']]);
 });
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
@@ -755,11 +746,14 @@ test('stopAgents signals only the agents whose process started when their sessio
   assert.equal(stopAgents([{ pid: 9, at }], { starts: () => null, kill: () => assert.fail('ps gave no answer') }), 0);
 });
 
-test("the owner's Hold kills the card's running builder, closes its record and says so in the thread", async () => {
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+test("the owner's Hold pauses the card's running builder at its next progress report, and Resume carries on its own session", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-fake-'));
   const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\n${untilTestEnds()};\n`);
+  const seen = path.join(home, 'runs.jsonl');
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\n${untilTestEnds()};\n`);
   fs.chmodSync(fake, 0o755);
+  const runs = () => fs.readFileSync(seen, 'utf8').trim().split('\n').map(JSON.parse);
   const b = oneLaunchBoard([{ id: 'H1', title: 'Hold me', phase: 'ready', size: 'large' }], fake);
   const { child, send } = await b.start();
   let pid, resumed;
@@ -767,17 +761,25 @@ test("the owner's Hold kills the card's running builder, closes its record and s
     await send('card-build', { key: 't/H1' });
     await until(() => b.record('H1').session?.pid, 'the launch records the agent pid');
     ({ pid } = b.record('H1').session);
-    assert.doesNotThrow(() => process.kill(pid, 0), 'the agent runs');
+    const session = b.record('H1').session.id;
     await send('card-hold', { key: 't/H1', hold: true });
-    await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 'the hold stops the agent');
-    assert.ok(b.record('H1').done, 'its record closed, so nothing relaunches it');
-    assert.deepEqual(b.thread('H1').slice(-2).map((t) => [t.text, t.who]), [['Held', 'love'], ['Stopped its builder.', 'claude']], "the stop is the board's status line, not the owner's message");
-    // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: Resume relaunches the run the hold
-    // stopped, with no orchestrator.
+    assert.doesNotThrow(() => process.kill(pid, 0), 'the builder runs on to its stopping point');
+    assert.deepEqual([b.record('H1').done, b.record('H1').pause.cause, b.item('H1').lane], [undefined, 'held', 'progress']);
+    assert.deepEqual(b.thread('H1').at(-1).text, 'Held', 'nothing stopped, so no stop line');
+    const old = process.env.HOME;
+    process.env.HOME = b.home;
+    try { assert.match((await builderProgress(b.site, 't/H1', 'Writing the test', { phase: 'building' })).lines[0], /^Paused: held\. Commit what you have now/); } finally { process.env.HOME = old; }
+    assert.equal(b.thread('H1').at(-1).text, 'Paused at building: held. It resumes once you unhold it.');
+    process.kill(pid, 'SIGKILL');
     await send('card-hold', { key: 't/H1', hold: false });
-    await until(() => !b.record('H1').done && b.record('H1').session?.pid && b.record('H1').session.pid !== pid, 'the resume launches a fresh builder');
+    await until(() => b.record('H1').session?.pid && b.record('H1').session.pid !== pid, 'the resume launches its session again');
     resumed = b.record('H1').session.pid;
-    assert.equal(b.item('H1').held, undefined);
+    const [, again] = runs();
+    assert.deepEqual(again.argv.slice(0, 2), ['--resume', session]);
+    assert.match(again.argv[3], /^The board paused your build of card H1, and the pause has cleared: unheld\. Carry on where you stopped/);
+    assert.equal(again.cwd, fs.realpathSync(b.record('H1').worktree.path));
+    assert.deepEqual([b.record('H1').pause, b.record('H1').done], [undefined, undefined]);
+    assert.ok(b.thread('H1').some((t) => t.text === 'Resumed: unheld.'));
   } finally {
     child.kill();
     if (pid) try { process.kill(pid, 'SIGKILL'); } catch {}

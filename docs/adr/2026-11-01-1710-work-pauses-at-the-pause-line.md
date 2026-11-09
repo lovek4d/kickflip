@@ -11,3 +11,5 @@ The owner settled the usage buffer on hub/INT-211: new Claude work waits at a pa
 - The hub's periodic tick keeps `usage-gate-state.json`. A change from paused to normal sends every board `usage-resumed {window}`; going to normal sends nothing. The hub still polls GitHub and serves the owner while work waits.
 - The Usage card puts Pause work at under Claude's bars, with −/value/+ in steps of 5, the buffer and description for both tools. Every Claude and Codex bar in the card gets a tick at the line, except Off. Forms post and redirect like Codex share.
 - Hub's amber pause banner names the window, usage and reset with Keep going; the red banner while going says usage is being spent until the reset, with Stop. Paused fills Hub's and boards' sidebar status words and the board header's time slot. Nothing goes on the logo.
+
+Superseded in part by [a card pause stops its builder at its next stopping point](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md): a running build pauses at its next stopping point rather than finishing.

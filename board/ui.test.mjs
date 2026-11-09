@@ -1586,18 +1586,36 @@ test("a ready card's time line reads ready in green after its hold and before it
 });
 
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-test('a bumped-out card reads "bumped out by #N · ready", the bump in grey, linking to the bump, and a bumped ready card the host holds reads held while host recovers', () => {
+test('a bumped ready card the host holds reads held while host recovers, in grey', () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, ready: true, phase: 'ready' };
-  const out = ui.workLines({ ...card, bumpedOut: { key: 'w/B1', ref: '#61', at: ago(1) } });
-  assert.equal(lines(out).at(-1), `${ui.cardTime(sortAt)} · bumped out by #61 · ready`);
-  assert.match(out, /<a class="card-bumped-out" href="#selectedCard=w%2FB1">bumped out by #61<\/a><span class="sep"> · <\/span><span class="card-phase ph-success">ready<\/span>/);
   const held = ui.workLines({ ...card, bumpedAt: ago(1), hostHeld: true });
   assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · held while host recovers · ready`);
   assert.match(held, /<span class="card-host-held">held while host recovers<\/span>/);
-  assert.doesNotMatch(ui.workLines(card), /bumped out|host/);
+  assert.doesNotMatch(ui.workLines(card), /host/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /^\.card-bumped-out, \.card-host-held \{ color: var\(--muted\); \}$/m);
+  assert.match(css, /^\.card-host-held, \.card-paused \{ color: var\(--muted\); \}$/m);
+});
+
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+test('a paused build reads "pausing · <cause>" in orange, then "paused · <cause>" in grey, its bars dimmed at the phase it stopped at, in place of the block it names', () => {
+  const sortAt = ago(40);
+  const builder = { kind: 'claude', phase: 'building', progress: 'Building · Writing the limiter test', at: ago(3), alive: true, quiet: true, stale: false };
+  const card = { ...workCard, lane: 'progress', pr: null, prs: [], reviewers: [], next: null, sortAt, deps: ['w/B1'], blockedBy: [{ key: 'w/B1', ref: '#61' }], blocked: true };
+  const pausing = ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: false } } });
+  assert.match(lines(pausing).at(-1), new RegExp(`^${ui.cardTime(sortAt)} · pausing · blocked by #61 ·`));
+  assert.match(pausing, /<span class="card-pausing">pausing · blocked by #61<\/span><span class="sep"> · <\/span><span class="phase-bars dim"/);
+  assert.match(pausing, /Building · Writing the limiter test/, 'its progress line stays');
+  assert.doesNotMatch(pausing, /working-dot/);
+  const paused = ui.workLines({ ...card, builder: { ...builder, held: true, alive: null, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
+  assert.match(paused, /<span class="card-paused">paused · blocked by #61<\/span>/);
+  assert.match(paused, /aria-label="Building, step 2 of 5"/);
+  assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: true } } }), 'paused');
+  assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: false } } }), 'pausing');
+  const held = ui.workLines({ ...card, blockedBy: [], blocked: false, held: true, builder: { ...builder, pause: { cause: 'held', words: 'held', paused: true } } });
+  assert.match(lines(held).at(-1), new RegExp(`^${ui.cardTime(sortAt)} · paused · held ·`), 'the hold reads once');
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /^\.card-pausing \{ color: var\(--color-notice\); \}$/m);
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md

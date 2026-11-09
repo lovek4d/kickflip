@@ -324,14 +324,14 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { PAUSE_CLEARS, pauseWork, plans, providerOf, archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, lineupMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
-import { BOARD_CLI, launchBuilder, pidAlive, reviveBuilders, stopAgents } from './headless.mjs';
-import { BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { BOARD_CLI, launchBuilder, launchedAgents, pidAlive, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
+import { dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendThread, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeLineup, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readLineupNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -340,7 +340,7 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
-import { readUsageGate, launchHeld, pauseReasonFor, boardPausedUntil, MACHINE_HELD_LINE } from '../shared/usage-gate.mjs';
+import { readUsageGate, launchHeld, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil, MACHINE_HELD_LINE } from '../shared/usage-gate.mjs';
 import { runLimit } from '../hub/usage.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
@@ -1256,13 +1256,16 @@ const server = http.createServer(async (req, res) => {
         const key = String(body.key || '');
         let written, agents;
         try {
-          // Read before the tap, which closes the records. A Hold stops the card's agents at once; a Done lets a landing finish.
+          // Read before the tap, which closes the records. A Hold stops the card's planners at once; a Done lets a landing finish.
           agents = kind === 'card-hold' && !body.hold ? [] : await openAgents(here, key);
           if (kind === 'card-done' && await isLanding(here, key)) agents = [];
           written = await recordOwnerTap(here, kind, body);
         }
         catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its wave file: ${e.message}` }); }
         if (!written) return json(res, 400, { error: `${key} is already in Done, so its wave file stays as it is.` });
+        // A held build runs on to its stopping point, its record left open (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
+        const open = await openAgents(here, key);
+        agents = agents.filter((a) => !open.some((o) => o.pid === a.pid));
         if (agents.length) {
           stopAgents(agents);
           await appendThread(here, key, { text: 'Stopped its builder.' });
@@ -1539,6 +1542,8 @@ async function runAuto() {
   if (!heldByPause) await launchRounds(roundsDue(items));
   if (!heldByPause) await launchLanders(items, stoppedKeys(items), room);
   if (!heldByPause) await launchRebases(items, room);
+  const resumes = await checkPauses(items, gate);
+  if (!heldByPause) for (const key of resumes.slice(0, room.free)) { room.free--; await resumeBuild(key); }
   const { idle, pullable, waiting, pulls, helpers, bumpOuts, pastCap } = pullOf(items, { cap, pulled, hold, taken: free - room.free });
   const ready = idle && !heldByPause;
   if (!heldByPause) await launchVisuals(items, log);
@@ -1550,11 +1555,11 @@ async function runAuto() {
   // Near the line the pull starts one card a pass, and none once another launch is waiting on its first reading.
   const pullNow = (gate) => (launchHeld(gate, 'claude') ? [] : gate.near && !gate.near.going ? pulls.slice(0, 1) : pulls);
   const startPull = async (key) => {
-    // A bumped card past the cap bumps out the newest unbumped build first (domain.mjs pullOf bumpOuts).
+    // A bumped card past the cap bumps out the newest unbumped build first (domain.mjs pullOf bumpOuts): it pauses In Progress.
     for (const out of bumpOuts.filter((b) => b.by === key)) {
       const entry = { call: 'bump-out', key: out.key, reason: `${key} is bumped and every implementer slot is full; this was the newest unbumped build.`, inputs: { by: key, cap } };
       try {
-        logCall({ ...entry, result: 'bumped out', inputs: { ...entry.inputs, lines: await bumpOut(here, out.key, key) } });
+        logCall({ ...entry, result: 'pausing', inputs: { ...entry.inputs, lines: await bumpOut(here, out.key, key) } });
       } catch (e) {
         if (!(e instanceof BoardError)) throw e;
         logCall({ ...entry, result: 'refused', reason: `${entry.reason} The bump-out refused: ${e.message}` });
@@ -1737,6 +1742,58 @@ async function resumeRun(key) {
   else if (run.label === 'Builder') await handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
 }
 
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+// One pass of the card pauses (domain.mjs pauseWork) over the built items, with gate the usage gate: each running build
+// a usage pause or Pause board or hub now holds is asked to pause, a pause whose cause cleared before its builder
+// stopped comes off, and a build still running PAUSE_HARD_STOP after it was asked is marked paused and its
+// board-launched process stopped. pausesLive keeps the minute check running the pass while any pause stands.
+// → the keys of the paused builds due to resume, oldest pause first.
+let pausesLive = false;
+async function checkPauses(items, gate) {
+  const work = pauseWork(items, { usageHeld: (kind) => pausesRunning(gate, kind) });
+  for (const key of work.ask) {
+    if (await requestPause(here, key, { cause: 'usage', words: pausedWords(gate) })) logCall({ call: 'pause', key, result: 'asked', reason: pauseReasonFor(gate, 'claude'), inputs: { gate } });
+  }
+  for (const key of work.drop) {
+    await dropPause(here, key);
+    logCall({ call: 'pause', key, result: 'dropped', reason: 'Its cause cleared before its builder reached a stopping point.', inputs: {} });
+  }
+  for (const key of work.stop) {
+    await markPaused(here, key);
+    const agent = launchedAgents((await openRuns(here, key)).filter((r) => !plans(r)))[0];
+    const stopped = agent ? await stopRuns([agent.pid]) : [];
+    logCall({ call: 'pause', key, result: 'hard stop', reason: 'Its builder reached no stopping point within 15 minutes of the pause.', inputs: { stopped: stopped.map((p) => p.pid) } });
+  }
+  if (work.ask.length || work.drop.length || work.stop.length) dataVersion++;
+  pausesLive = work.ask.length > 0 || items.some((i) => i.builder?.pause);
+  return work.resume;
+}
+
+// A paused build nothing pauses any more resumes: its pause comes off with a "Resumed: …" line (store.mjs
+// resumePaused), and a build the board launched resumes in its own session (headless.mjs resumeBuilder), tracked as a
+// fresh launch. A session's own builder is the orchestrator's to resume: builder-resume wakes it.
+async function resumeBuild(key) {
+  const resumed = await resumePaused(here, key);
+  if (!resumed) return;
+  const { pause, record } = resumed;
+  const cleared = PAUSE_CLEARS[pause.cause][1];
+  dataVersion++;
+  const entry = { call: 'resume', key, reason: `Nothing pauses it any more: ${cleared}.`, inputs: { pause } };
+  if (!record.session?.pid) {
+    logCall({ ...entry, result: 'woke the orchestrator' });
+    return appendEvent('builder-resume', { key, cleared });
+  }
+  const kind = providerOf(record.kind) ?? 'claude';
+  try {
+    const { pid, log } = await resumeBuilder(here, { key, kind, model: record.model, session: record.session.id, cleared });
+    await trackLaunch(key, { kind, model: record.model, pid, log, relaunched: false });
+    logCall({ ...entry, result: 'resumed' });
+  } catch (e) {
+    logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
+    await appendThread(here, key, { text: `Couldn't resume the builder headless (${e.message}).` });
+  }
+}
+
 // The planners launchPlanner queued during a hold, oldest asked first, each once, until a launch is held again.
 async function launchQueuedPlanners() {
   for (const [key, { kind, ask }] of Object.entries(await readJSON(queuedPlanners, {}))) {
@@ -1777,8 +1834,9 @@ async function launchCutOffBuilds() {
 const stoppedKeys = (items) => new Set(items.filter((c) => c.builder?.stopped).map((c) => c.key));
 // Once a minute: a headless builder whose usage isn't held and whose process exited with its record open launches again
 // once, and after that leaves a thread line; its record stays open, so its stale wait brings in the orchestrator. One
-// whose run log ends on the usage limit (hub/usage.mjs runLimit) keeps its relaunch: it is held until the reset, with a
-// thread line, and launched then (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md).
+// whose run log ends on the usage limit (hub/usage.mjs runLimit) keeps its relaunch: it reads paused, and the pause pass
+// resumes it once the limit resets (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md,
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md). A paused build is never relaunched.
 let revivingHeadless = false;
 async function reviveHeadless() {
   if (revivingHeadless) return;
@@ -1796,7 +1854,7 @@ async function reviveHeadless() {
     const launch = async (card) => {
       const was = tracked[card.key];
       const entry = { call: 'relaunch', key: card.key, inputs: was,
-        reason: was.until ? 'Its run stopped at the usage limit, which has reset.' : was.pid === null ? 'Its launch was held by a pause, a busy host or a start near the line, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
+        reason: was.pid === null ? 'Its launch was held by a pause, a busy host or a start near the line, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
       try {
         const { pid, log } = await launchBuilder(here, card);
         logCall({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });
@@ -1807,11 +1865,16 @@ async function reviveHeadless() {
         return { pid: null };
       }
     };
+    // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md: the run the limit stopped
+    // is the same pause, resumed in its own session once the limit resets.
     const atLimit = async (card, until) => {
-      logCall({ call: 'relaunch', key: card.key, result: 'held', reason: `Its run stopped at the usage limit, which resets at ${until}.`, inputs: tracked[card.key] });
-      await appendThread(here, card.key, { text: `Its builder stopped at the usage limit; it starts again at the reset, ${until}.` });
+      logCall({ call: 'relaunch', key: card.key, result: 'paused', reason: `Its run stopped at the usage limit, which resets at ${until}.`, inputs: tracked[card.key] });
+      await requestPause(here, card.key, { cause: 'usage', words: 'usage limit', until });
+      await markPaused(here, card.key);
+      dataVersion++;
     };
-    const next = await reviveBuilders(tracked, open, { launch, handBack, held: (kind) => launchHeld(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items),
+    const paused = new Set(items.filter((c) => c.builder?.pause?.paused).map((c) => c.key));
+    const next = await reviveBuilders(tracked, open, { launch, handBack, held: (kind) => launchHeld(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
       limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
     if (JSON.stringify(next) !== JSON.stringify(tracked)) {
       await fs.writeFile(file + '.tmp', JSON.stringify(next) + '\n');
@@ -2227,7 +2290,9 @@ setInterval(() => {
   // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
   publishUnscreened(here).then((keys) => { if (keys.length) dataVersion++; }, (err) => console.error('Screen publish failed:', err.message));
   checkPickUps();
-  if (heldByPause && !launchHeld(readUsageGate({ dir: here }), 'claude')) checkAuto();
+  // A pause standing, or a usage pause or Pause board or hub starting, runs the pause pass (checkPauses).
+  const gate = readUsageGate({ dir: here });
+  if ((heldByPause && !launchHeld(gate, 'claude')) || pausesLive || (!heldByPause && pausesRunning(gate, 'claude'))) checkAuto();
   else triageDue().then((due) => { if (due) checkAuto(); }, (err) => console.error('Triage check failed:', err.message));
   checkActions();
   checkWaits();

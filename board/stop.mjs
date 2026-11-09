@@ -46,28 +46,15 @@ export async function stopBuilder(site, key) {
   return { lines: await stopAgent(site, key, ref, await launchedBuild(site, key, ref)) };
 }
 
-// docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md
-// item set's stop of a card's open build as a block sends the card back to Todo: its board-launched builder, lander or
-// rebase run stops as builder stop stops it, and one whose process is already gone has nothing to stop. A session's own
-// builder is refused, since the board can't stop it. → the stop's lines
-export async function stopForBlock(site, key) {
-  const ref = await store.cardName(site, key);
-  const builds = (await store.openRuns(site, key)).filter((r) => !plans(r));
-  if (builds.every((r) => !r.pid)) fail(`${ref}'s builder runs in a session the board didn't launch, so blocking it can't stop it; finish or stop it in that session with builder done --next, then block it`);
-  const agent = launchedAgents(builds)[0];
-  return agent ? stopAgent(site, key, ref, agent) : [];
-}
-
-// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-// The pull's bump-out of the card at key for bumped card by, past the cap: its board-launched build stops, marked
-// stopped first so nothing relaunches it, and the card goes back to Todo as ready (store.mjs sendBackBumpedOut). pullOf's
-// bumpOuts names only a card whose one run the board launched; one whose process is already gone has nothing to stop.
-// → its lines
+// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md,
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+// The pull's bump-out of the card at key for bumped card by, past the cap: its build pauses at its next stopping point
+// and the card stays In Progress (store.mjs requestPause), resuming ahead of the pull once a slot frees. pullOf's
+// bumpOuts names only a card whose one run the board launched. → its lines
 export async function bumpOut(site, key, by) {
-  await store.markStopped(site, key, 'build');
-  const agent = launchedAgents((await store.openRuns(site, key)).filter((r) => !plans(r)))[0];
-  const processes = agent ? await stopRuns([agent.pid]) : [];
-  return [await store.sendBackBumpedOut(site, key, by), ...pidLines(processes)];
+  const words = `bumped out by ${await store.cardName(site, by)}`;
+  await store.requestPause(site, key, { cause: 'bumped', words, by });
+  return [`${await store.cardName(site, key)} pauses: ${words}`];
 }
 
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md

@@ -16,3 +16,5 @@ Card #327. A bump counted only in Todo and In Progress: one made before the firs
 - Pausing the lowest-priority build in place, the card reading "Paused for #N" with a grey paused footer, and relaunching it first (gh327-pause): dropped by the owner for the bump-out, which reuses Todo, ready and the pull.
 - A bump-out with no words on the card (take A) and one that also marks the winner "Started past the cap, bumped out #N" (take C).
 - Stale and stalled were split to their own card (#378).
+
+Superseded in part by [a card pause stops its builder at its next stopping point](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md): the bump-out pauses the newest unbumped build In Progress instead of sending it back to Todo.

@@ -15,3 +15,5 @@ Card #362. A block (an unfinished dep or a `blocked_until` condition) used to co
 - A blocked card with a PR whose fix builder is running is not stopped: it is In Review for the block, and only its land is held.
 - No UI to add a block; the owner and orchestrator block through `item set`.
 - Phase changes in Todo are as [a blocked card is not grilled until its blockers land](2026-11-05-0200-a-blocked-card-is-not-grilled-until-its-blockers-land.md) left them.
+
+Superseded in part by [a card pause stops its builder at its next stopping point](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md): a card blocked In Progress pauses its build there instead of going back to Todo, and a session's builder is paused rather than refused.

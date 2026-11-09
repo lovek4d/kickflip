@@ -51,6 +51,8 @@ export const ON_CARD = {
   // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
   'visual-request': (c) => `visual asked on ${c}: the board launches its visual agent`,
   'reask-request': (c) => `question asked again on ${c}: ask it again with question add reask_of`,
+  // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+  'builder-resume': (c, e) => `${c}'s pause cleared (${e.data?.cleared}): tell its builder in your session to carry on where it stopped`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text} (builder answer it, or builder defer it)`,
   'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}; fix it with item set --check, or drop it`,
   'card-added': (c) => `${c} added by an agent: link it and file it: item notes, then item set --relate and --phase`,

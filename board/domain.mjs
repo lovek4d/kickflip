@@ -281,9 +281,6 @@ function workItem({ slug, wave, it, order, prs, repo, remote, base, builder, rea
     // docs/adr/2026-11-07-0700-staging-then-ready.md: when the card was staged, and when it was last sent back for a round.
     stagedAt: lane === 'todo' && it.phase === 'staging' ? it.staged_at || null : null, roundAt: it.round_at || null,
     deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
-    // A card the pull bumped out for a bump past the cap, back in Todo until it starts again (store.mjs sendBackBumpedOut);
-    // buildBoard names the card that bumped it out.
-    bumpedOut: it.bumped_out ? { key: it.bumped_out.by, at: it.bumped_out.at } : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
     merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), filedHeld: Boolean(it.filed_held), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
@@ -590,7 +587,7 @@ function agentsOf(records = {}, withPast = false) {
   return Object.entries(records).filter(([name, r]) => r && typeof r === 'object' && (withPast || !name.startsWith('past-'))).map(([name, r]) => ({
     name, kind: providerOf(r.kind) || null, model: r.model || (r.kind === 'opus' || r.kind === 'sonnet' ? r.kind : null), label: r.label || null, started: r.started || null, eta: r.done ? null : r.eta || null, done: r.done || null,
     // pid: the headless process the board launched for it (store.mjs recordSession), none for a session's own agent.
-    log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null,
+    log: r.session?.log || null, pid: r.session?.pid ?? null, calls: Array.isArray(r.calls) ? r.calls : [], verified: r.verified || null, stopped: r.stopped || null, handed_back: r.handed_back || null, ...(r.pause ? { pause: r.pause } : {}),
     ...(r.kind === HELPER ? { writes: Boolean(r.writes), requested: r.requested || null } : {}), ...(r.waits ? { waits: r.waits } : {}),
   })).sort((a, b) => String(a.started || '').localeCompare(String(b.started || '')) || a.name.localeCompare(b.name));
 }
@@ -641,10 +638,56 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
   const silentSince = stop ? stop.at : movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
   const progress = line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
   const silent = now - Date.parse(silentSince);
-  const held = !planner && !stop && alive === 'held';
+  // A build asked to pause reads quiet, its dot gone; once paused it is neither live nor stale, since the board
+  // resumes it when its cause clears (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
+  const pause = planner ? null : running.find((a) => a.pause)?.pause ?? null;
+  const held = !planner && !stop && (alive === 'held' || Boolean(pause?.paused));
   const live = planner || held ? null : stop ? false : alive;
   const stale = held ? false : live === null ? silent >= BUILDER_STALE_AFTER : !live;
-  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, quiet: live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER, stopped: stop ? stoppedWords(stop.run) : null };
+  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, quiet: Boolean(pause) || (live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER), stopped: stop ? stoppedWords(stop.run) : null,
+    ...(pause ? { pause: { cause: pause.cause, words: pause.words, paused: Boolean(pause.paused) } } : {}) };
+}
+
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+// What each cause of a card pause says once the builder has stopped ("It resumes once …") and when it resumes
+// ("Resumed: …").
+export const PAUSE_CLEARS = {
+  blocked: ['nothing blocks it', 'nothing blocks it'],
+  held: ['you unhold it', 'unheld'],
+  usage: ['the usage pause lifts', 'the usage pause lifted'],
+  bumped: ['a slot frees', 'a slot freed'],
+};
+// How long a build asked to pause may run on without reaching a stopping point before the board stops it.
+export const PAUSE_HARD_STOP = 15 * 60_000;
+// The card's open main build, the one a pause rides on, or null.
+const mainBuild = (it) => (it.agents || []).find((a) => a.name === 'main' && a.started && !a.done && builds(a)) ?? null;
+// Whether anything still pauses the card's build: a block, a hold, or a usage pause on its kind (usageHeld(kind)) or a
+// usage limit that hasn't reset. A bump-out never clears by itself; it waits for a free slot.
+const stillPaused = (it, pause, kind, { now, usageHeld }) => it.blocked || it.held || usageHeld(kind ?? 'claude')
+  || Boolean(pause.until && now < Date.parse(pause.until));
+// One pass of the board's card pauses over built items. → {ask, drop, stop, resume}, each a list of keys: ask the
+// running builds a usage pause on their kind (usageHeld(kind)) now holds, neither pausing already nor landing; drop
+// the pauses whose cause cleared before their builder stopped; stop the builds still running PAUSE_HARD_STOP after
+// they were asked; resume the paused builds nothing pauses any more, oldest pause first, for the free slots to take.
+export function pauseWork(items, { now = Date.now(), usageHeld }) {
+  const out = { ask: [], drop: [], stop: [], resume: [] };
+  const resumes = [];
+  for (const it of items) {
+    if (it.kind !== 'work' || it.lane !== 'progress') continue;
+    const run = mainBuild(it);
+    if (!run) continue;
+    const { pause } = run;
+    if (!pause) {
+      if (it.builder?.phase !== 'landing' && usageHeld(run.kind ?? 'claude')) out.ask.push(it.key);
+      continue;
+    }
+    const still = stillPaused(it, pause, run.kind, { now, usageHeld });
+    if (pause.paused) { if (!still) resumes.push({ key: it.key, at: pause.paused }); continue; }
+    if (!still && pause.cause !== 'bumped') out.drop.push(it.key);
+    else if (now - Date.parse(pause.at) >= PAUSE_HARD_STOP) out.stop.push(it.key);
+  }
+  out.resume = resumes.sort((a, b) => String(a.at).localeCompare(String(b.at))).map((r) => r.key);
+  return out;
 }
 
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
@@ -1211,13 +1254,9 @@ export function buildBoard(snapshot) {
     it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.action;
     // docs/adr/2026-11-07-0700-staging-then-ready.md
     it.staging = unstarted && it.phase === 'staging';
-    // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped-out card reads so until it
-    // starts again, and a bumped ready card a busy host holds reads held.
-    if (it.kind === 'work') {
-      const by = it.bumpedOut && byKey.get(it.bumpedOut.key);
-      it.bumpedOut = unstarted && it.bumpedOut ? { ...it.bumpedOut, ref: by?.ref ?? it.bumpedOut.key.split('/').pop() } : null;
-      it.hostHeld = Boolean(snapshot.hostBusy) && it.ready && Boolean(it.bumpedAt) && !it.held;
-    }
+    // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped ready card a busy host holds
+    // reads held.
+    if (it.kind === 'work') it.hostHeld = Boolean(snapshot.hostBusy) && it.ready && Boolean(it.bumpedAt) && !it.held;
   }
   linkCards(items, byKey, storedLinks);
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
@@ -1438,7 +1477,8 @@ export const MAX_IMPLEMENTERS = 10;
 // hold lists the cards an unanswered overnight triage names, which the pull leaves.
 export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [], taken = 0 } = {}) {
   const open = items.filter((i) => !closedLane(i));
-  const counts = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes)
+  // A paused build frees its slot (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
+  const counts = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes) && !a.pause?.paused
     && !(a.waits && agents.some((h) => h.name === a.waits && !h.done));
   // A card the orchestrator stalled frees its slot, its stopped run still open
   // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
@@ -1461,16 +1501,17 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [], 
   return { idle: !implementers && !open.some((i) => i.waitsOn === 'checking'), pullable, waiting, pulls, helpers, bumpOuts, pastCap, free };
 }
 // The open cards a bump past the cap may bump out, newest build first: an In Progress card not bumped or stalled, with
-// no PR, pushed branch or held Merge (store.mjs sendBackBumpedOut sends it back to Todo), whose one running implementer is a build
-// the board launched, neither landing nor a lander, nor checking. A session's own builder can't be stopped by the board,
-// and a card with a helper running would lose that work too. counts is pullOf's test of a slot-taking agent.
+// no PR, pushed branch or held Merge, whose one running implementer is a build the board launched and not already
+// pausing, neither landing nor a lander, nor checking (stop.mjs bumpOut pauses it). A session's own builder is out of the
+// pause's hard stop, so its slot might never free, and a card with a helper running would lose that work too. counts is
+// pullOf's test of a slot-taking agent.
 function bumpOutsOf(open, counts) {
   const newest = (i) => {
     const agents = i.agents || [];
     const running = agents.filter((a) => counts(a, agents));
     const [run] = running;
     const fits = i.lane === 'progress' && !i.bumpedAt && !i.stalled && i.waitsOn !== 'checking' && i.builder?.phase !== 'landing'
-      && !(i.prs || []).length && !i.pushed && !i.mergeReady && running.length === 1 && run.kind !== HELPER && run.pid && run.label !== LANDER
+      && !(i.prs || []).length && !i.pushed && !i.mergeReady && running.length === 1 && run.kind !== HELPER && run.pid && run.label !== LANDER && !run.pause
       && !agents.some((a) => a.kind === HELPER && a.started && !a.done);
     return fits ? String(run.started) : null;
   };

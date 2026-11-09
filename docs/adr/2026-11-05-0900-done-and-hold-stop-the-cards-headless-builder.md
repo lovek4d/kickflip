@@ -15,3 +15,5 @@ The board server, not the session, stops a card's headless agent when the owner 
   stops nothing, so the land closes out (owner, gh229-landing).
 - The thread says "Stopped its builder." after the owner's line (owner, gh229-line). Unhold stays as it is and
   launches a fresh builder (owner, gh229-resume).
+
+Superseded in part by [a card pause stops its builder at its next stopping point](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md): Hold pauses a running build at its next stopping point, and Unhold resumes its own session.

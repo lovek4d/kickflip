@@ -1737,22 +1737,29 @@ test("the orchestrator's waits list bumped cards first across lanes, the earlies
 });
 
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-test('a bumped-out card reads so in Todo, after the bumps and ahead of the other cards, until it starts again; a bumped ready card the host holds reads so', () => {
+test('a bumped ready card the host holds reads so, and only the bump', () => {
   const at = (m) => `2026-11-06T10:${String(m).padStart(2, '0')}:00.000Z`;
   const items = [
     { id: 'B1', title: 'Bump', phase: 'ready', created: at(5), lane: 'progress' },
     { id: 'O1', title: 'Older', phase: 'ready', created: at(1) },
-    { id: 'X1', title: 'Out', phase: 'ready', created: at(3), bumped_out: { by: 'w/B1', at: at(20) } },
     { id: 'T1', title: 'Bumped', phase: 'ready', created: at(4) },
   ];
   const built = (more = {}) => buildBoard({ fromWaves: false, now: Date.parse(at(30)), events: [{ id: 'cb', ts: at(10), kind: 'card-bump', data: { key: 'w/T1' } }],
     waves: [{ slug: 'w', agents: runningBuilders('B1'), wave: { internal: true, items } }], ...more });
-  const todo = built().items.filter((i) => i.lane === 'todo');
-  assert.deepEqual(todo.map((i) => [i.id, i.bumpedOut?.ref ?? null]), [['T1', null], ['X1', 'B1'], ['O1', null]]);
-  assert.deepEqual(todo.map((i) => i.hostHeld), [false, false, false]);
-  assert.deepEqual(built({ hostBusy: true }).items.filter((i) => i.lane === 'todo').map((i) => i.hostHeld), [true, false, false], 'only the bump reads held: the rest wait their turn anyway');
-  const started = buildBoard({ fromWaves: false, events: [], waves: [{ slug: 'w', agents: runningBuilders('X1'), wave: { internal: true, items: [{ ...items[2], lane: 'progress' }] } }] }).items[0];
-  assert.deepEqual([started.lane, started.bumpedOut], ['progress', null]);
+  assert.deepEqual(built().items.filter((i) => i.lane === 'todo').map((i) => [i.id, i.hostHeld]), [['T1', false], ['O1', false]]);
+  assert.deepEqual(built({ hostBusy: true }).items.filter((i) => i.lane === 'todo').map((i) => i.hostHeld), [true, false], 'only the bump reads held: the rest wait their turn anyway');
+});
+
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+test('a paused build reads its pause, neither live nor stale once paused, and a pausing one reads quiet', () => {
+  const now = Date.parse('2026-11-09T12:00:00.000Z');
+  const record = (pause) => ({ A1: { main: { label: 'Builder', kind: 'claude', started: '2026-11-09T10:00:00.000Z', session: { pid: 4, at: '2026-11-09T10:00:00.000Z' }, pause } } });
+  const build = (pause, alive) => buildBoard({ fromWaves: false, now, events: [], alive: { 'w/A1': alive },
+    waves: [{ slug: 'w', agents: record(pause), wave: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] }).items[0];
+  const paused = build({ cause: 'blocked', words: 'blocked by #61', at: '2026-11-09T11:00:00.000Z', paused: '2026-11-09T11:02:00.000Z' }, false);
+  assert.deepEqual([paused.lane, paused.builder.pause, paused.builder.stale, paused.builder.alive, paused.stale], ['progress', { cause: 'blocked', words: 'blocked by #61', paused: true }, false, null, false]);
+  const pausing = build({ cause: 'held', words: 'held', at: '2026-11-09T11:59:00.000Z' }, true);
+  assert.deepEqual([pausing.builder.pause.paused, pausing.builder.quiet, pausing.builder.alive], [false, true, true]);
 });
 
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md

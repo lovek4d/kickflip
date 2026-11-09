@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupSteps, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, lineupSteps, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, samePath } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -1959,8 +1959,7 @@ async function checkAsk(site, eventId, name = '--from-ask') {
 
 // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md
 // A card's stored lane (todo, progress, review, done), written only here, with lane_at; a move to Done writes closed_at
-// and a move out of it reopened_at, which the next move to Done clears. A move out of Todo ends a bump-out
-// (sendBackBumpedOut).
+// and a move out of it reopened_at, which the next move to Done clears.
 // docs/adr/2026-11-11-1200-every-lane-has-phases.md: the card's phase in the lane is written with it (setPhase), phase
 // when given, else what the move says: a card coming back to Todo from another lane is ready, as a build left it, one
 // staying in Todo keeps its phase, a build's start reads reading, a close merged when one of its PRs merged or it landed
@@ -1972,7 +1971,6 @@ function placeIn(item, to, now = new Date().toISOString(), phase = movedPhase(it
   setPhase(item, to, phase);
   item.lane = to;
   item.lane_at = now;
-  if (to !== 'todo') delete item.bumped_out;
   if (to === 'done') { item.closed_at = now; delete item.reopened_at; }
   else if (from === 'done') item.reopened_at = now;
   return from;
@@ -2198,7 +2196,7 @@ function markMerged(item, merged, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, status, clearStatus, done, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check, stopRun }, options) {
+async function changeItem(site, key, { ticket, status, clearStatus, done, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, who, by, command, ownerStep, ownerDone, check }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
@@ -2335,19 +2333,16 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: a build's start goes with its record.
   if (!owedBefore && !start && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
-  // docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md: a block on a card In Progress sends
-  // it back to Todo. stopRun, item set's, stops its board-launched build first and refuses a session's; the worktree and
-  // branch stay on its records, and it reads ready in Todo, so the pull starts it again once nothing blocks it.
+  // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md: a block on a card In
+  // Progress keeps it there, and asks its running build, the board's or a session's, to pause at its next stopping
+  // point (requestPause); one already landing lands, since land refuses a blocked card.
   const blocked = (deps !== undefined || blockedUntil) && !done && inProgress(item, records) ? await blockWords(site, key, item) : '';
-  const running = records.some((r) => r?.started && !r.done && builds(r));
-  const stops = blocked && running ? await stopRun() : [];
   // The moves this write makes (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a close
   // and a block write their own lines, the rest a move line.
   const repo = boardRepoOf(site, wave);
   let moveLine = null;
   const moveTo = (to, why) => { if (item.lane !== to && placeIn(item, to, undefined, movedPhase(item, to, landed)) !== undefined && why) moveLine = `Moved to ${LANES[to]}: ${why}`; };
   if (done) moveTo('done', null);
-  else if (blocked && running) moveTo('todo', null);
   else if (handover && item.lane !== 'done') {
     moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
   } else if (start && !closed(item)) moveTo('progress', 'a build started');
@@ -2356,15 +2351,13 @@ async function changeItem(site, key, { ticket, status, clearStatus, done, merged
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (readied) await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', command: 'readied', text: COMMANDS.readied });
-  if (blocked && running) {
-    await closeBuilders(source.dir, item.id, false, { endHandBack: true });
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: back to Todo. It starts again once nothing blocks it.` });
-  } else if (blocked) {
-    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: it stays In Progress.` });
+  if (blocked) {
+    const pausing = site && !(await isLanding(site, key)) && await requestPause(site, key, { cause: 'blocked', words: `blocked ${blocked}` });
+    await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Blocked ${blocked}: ${pausing ? 'its builder pauses at its next stopping point and it' : 'it'} stays In Progress.` });
   }
   if (unlink) await unlink();
   if (linked) await postLinkLines(site, key, linked, await linksOf(site, key));
-  const resolved = [...stops, ...await resolve()];
+  const resolved = await resolve();
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   // Ready checked that the notes name every answered question, so it resolves them as item notes does.
   if (phase === 'ready' && site) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
@@ -2475,8 +2468,14 @@ export async function recordOwnerTap(site, kind, data) {
   const until = data.hold ? (typeof data.until === 'string' ? new Date(data.until).toISOString() : null) : undefined;
   setHold(item, data.hold ? { until } : null);
   await writeJSON(source.file, wave);
-  // A hold stops the card's builders, so their records close: an open record with an exited process is relaunched.
-  if (data.hold) { await closeBuilders(source.dir, id, false, { held: true }); await publishStaged(site, key); }
+  // A hold pauses the card's running build at its next stopping point, and stops its other agents, a landing build's
+  // included, so their records close: an open record with an exited process is relaunched
+  // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
+  if (data.hold) {
+    if (!(await isLanding(site, key))) await requestPause(site, key, { cause: 'held', words: 'held' });
+    await closeBuilders(source.dir, id, false, { held: true });
+    await publishStaged(site, key);
+  }
   const at = until && new Date(until).toLocaleString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   return appendThread(site, key, data.hold ? { text: at ? `${COMMANDS.hold} until ${at}` : COMMANDS.hold, who: 'love', by, command: 'hold' }
     : { text: COMMANDS.resume, who: 'love', by, command: 'resume' });
@@ -3553,21 +3552,66 @@ async function bumpBlocked(site, key, blockers) {
   return { key, ref: await cardName(site, key), bumped: blockers, line: `bumped: ${key} waits on ${names}, so it stays in Todo, bumped to the top` };
 }
 
-// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-// A card stop.mjs bumpOut bumped out for bumped card by: its open build records close, a hand-back ended, keeping its
-// worktree and branch on them, and it goes back to Todo as ready, bumped_out {by, at} until it starts again (placeIn).
-// → the line saying so
-export async function sendBackBumpedOut(site, key, by) {
-  const { source, wave, item } = await loadItem(site, key);
-  const now = new Date().toISOString();
-  placeIn(item, 'todo', now, 'ready');
-  delete item.staged_at;
-  item.bumped_out = { by, at: now };
-  await writeJSON(source.file, wave);
-  await closeBuilders(source.dir, item.id, false, { endHandBack: true });
-  const name = await cardName(site, by);
-  await appendLine(threadFile(site, key), { ts: now, who: 'claude', text: `Bumped out by ${name}: back to Todo, ready. It starts again once a slot frees.` });
-  return `${await cardName(site, key)} bumped out by ${name}`;
+// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
+// A card pause rides on the card's open main build record as pause {cause, words, at, by?, until?, paused?, phase?}:
+// cause blocked, held, usage or bumped (domain.mjs PAUSE_CLEARS), words what the card reads after "pausing · "
+// ("blocked by #61"), by the card a bump-out made room for, until the reset of the usage limit that stopped the run.
+// The builder's next progress report, call or ask is its stopping point (pauseReply): the record reads paused at its
+// phase, and the reply tells it to commit and stop. The board server resumes it once nothing pauses it (server.mjs).
+async function openBuild(site, key) {
+  const file = await builderFile(site, key);
+  const record = await readJSON(file, null);
+  return record?.started && !record.done && builds(record) ? { file, record } : null;
+}
+
+// Asks the card's running build to pause for cause; one already pausing keeps its first cause. → whether it asked
+export async function requestPause(site, key, { cause, words, by, until }) {
+  const open = await openBuild(site, key);
+  if (!open || open.record.pause) return false;
+  await writeJSON(open.file, { ...open.record, pause: { cause, words, at: new Date().toISOString(), ...(by ? { by } : {}), ...(until ? { until } : {}) } });
+  return true;
+}
+
+// Marks the card's pausing build paused at the newest phase its build reported, with the thread line saying so.
+// → its pause, or null when none was asked
+export async function markPaused(site, key) {
+  const open = await openBuild(site, key);
+  const pause = open?.record.pause;
+  if (!pause || pause.paused) return pause ?? null;
+  const at = new Date().toISOString();
+  const phase = (await readLines(threadFile(site, key))).filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= String(open.record.started)).pop()?.phase;
+  const paused = { ...pause, paused: at, ...(phase ? { phase } : {}) };
+  await writeJSON(open.file, { ...open.record, pause: paused });
+  await appendLine(threadFile(site, key), { ts: at, who: 'claude', text: `Paused${phase ? ` at ${phase}` : ''}: ${pause.words}. It resumes once ${PAUSE_CLEARS[pause.cause][0]}.` });
+  return paused;
+}
+
+// The reply that stops the card's main builder at a stopping point it reached while a pause was asked, its record
+// marked paused (markPaused). → its lines, none while no pause is asked
+async function pauseReply(site, key, { dir, agent = 'main' }) {
+  if (!site || dir || agent !== 'main') return [];
+  const pause = await markPaused(site, key);
+  return pause ? [`Paused: ${pause.words}. Commit what you have now with \`git -c core.commentChar=';' commit -F <file>\`, then stop: end your turn and run nothing else. The board resumes this session, telling it so, once the pause clears.`] : [];
+}
+
+// The card's paused build resumes: its pause comes off its record, and the thread says why. → {pause: the pause it had,
+// record: the record it now is}, or null when it isn't paused
+export async function resumePaused(site, key) {
+  const open = await openBuild(site, key);
+  const pause = open?.record.pause;
+  if (!pause?.paused) return null;
+  const { pause: _, ...rest } = open.record;
+  await writeJSON(open.file, rest);
+  await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: 'claude', text: `Resumed: ${PAUSE_CLEARS[pause.cause][1]}.` });
+  return { pause, record: rest };
+}
+
+// A pause whose cause cleared before its builder stopped comes off its record with no line: the build never stopped.
+export async function dropPause(site, key) {
+  const open = await openBuild(site, key);
+  if (!open?.record.pause || open.record.pause.paused) return;
+  const { pause: _, ...rest } = open.record;
+  await writeJSON(open.file, rest);
 }
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
@@ -3906,7 +3950,7 @@ export async function builderProgress(site, key, progress, { phase, dir, agent =
   if (clearEta) delete record.eta;
   if (eta !== undefined || clearEta) await writeJSON(file, record);
   await statusToThread(site, key, agent, record, line, new Date().toISOString());
-  return file;
+  return { file, lines: await pauseReply(site, key, { dir, agent }) };
 }
 
 // The finish step's own landing line, so the card's fifth bar lights while it rebases and lands, whoever finishes it.
@@ -3933,7 +3977,7 @@ export async function recordCall(site, key, call, { dir, agent = 'main' }) {
   const record = await readJSON(file, null);
   if (!record?.started || record.done) fail(`builder call needs an open builder record on ${key}; run builder start first`);
   await writeJSON(file, { ...record, calls: [...(record.calls || []), { at: new Date().toISOString(), text: words }] });
-  return file;
+  return { file, lines: await pauseReply(site, key, { dir, agent }) };
 }
 
 // docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md
@@ -3964,7 +4008,7 @@ export async function askOrchestrator(site, key, question, { agent = 'main' }) {
   const id = `ask${(await builderAsks(site, key)).length + 1}`;
   await appendLine(threadFile(site, key), { ts: new Date().toISOString(), who: `${modelName(record) || record.kind || 'Claude'} builder`, kind: BUILDER_ASK.ask, ask: id, agent, text: words });
   await appendEvent(boardTarget(site), 'builder-ask', { key, ask: id, agent, text: words });
-  return { id, lines: [] };
+  return { id, lines: await pauseReply(site, key, { agent }) };
 }
 
 // The session's reply to a builder's ask: an answer, or with deferred its deferral to the owner.
@@ -3985,6 +4029,7 @@ export async function answerBuilder(site, key, id, reply, { deferred = false } =
 
 // → {lines}: each ask, then its answer, deferral or "waiting on the orchestrator". With wait it blocks until no ask is
 // waiting on the orchestrator, giving up after timeout minutes (9, under a Bash tool call's 10) so the builder runs it again.
+// A builder waiting is at a stopping point, so a pause asked meanwhile ends the wait with its reply (pauseReply).
 export async function listAsks(site, key, { wait = false, timeout = 9, every = 2000 } = {}) {
   needSite(site);
   const minutes = Number(timeout);
@@ -3994,7 +4039,10 @@ export async function listAsks(site, key, { wait = false, timeout = 9, every = 2
     const asks = await builderAsks(site, key);
     if (!asks.length) return { lines: ['no asks yet'] };
     const waiting = asks.filter((a) => !a.answer);
-    if (!wait || !waiting.length) return { lines: asks.flatMap((a) => [`${a.id}. ${a.text}`, `  ${!a.answer ? 'waiting on the orchestrator' : `${a.deferred ? 'deferred' : 'answered'}: ${a.answer.text}`}`]) };
+    const lines = asks.flatMap((a) => [`${a.id}. ${a.text}`, `  ${!a.answer ? 'waiting on the orchestrator' : `${a.deferred ? 'deferred' : 'answered'}: ${a.answer.text}`}`]);
+    if (!wait || !waiting.length) return { lines };
+    const paused = await pauseReply(site, key, {});
+    if (paused.length) return { lines: [...lines, ...paused] };
     if (Date.now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on the orchestrator after ${minutes} minutes; run builder asks ${key} --wait again`);
     await new Promise((resolve) => setTimeout(resolve, every));
   }
@@ -4185,7 +4233,8 @@ async function builderFiles(waveDir, id) {
 
 // Closes the card's open builder records, an install build only with the card finished. handedBack marks each record it
 // closes as handed back at that time (domain.mjs handedBackAt); endHandBack takes the mark off every record, so the
-// hand-back ends. held marks each started record it closes hold_stopped, for the Resume that relaunches it (takeHoldStopped).
+// hand-back ends. held marks each started record it closes hold_stopped, for the Resume that relaunches it (takeHoldStopped),
+// and leaves open a build a pause rides on (requestPause).
 async function closeBuilders(waveDir, id, cardFinished, { handedBack, endHandBack = false, held = false } = {}) {
   const now = new Date().toISOString();
   for (const file of await builderFiles(waveDir, id)) {
@@ -4195,6 +4244,7 @@ async function closeBuilders(waveDir, id, cardFinished, { handedBack, endHandBac
       if (endHandBack && record.handed_back) { const { handed_back, ...rest } = record; await writeJSON(file, rest); }
       continue;
     }
+    if (held && record.pause) continue;
     const { eta, handed_back, ...rest } = record;
     await writeJSON(file, { ...rest, done: now, ...(handedBack ? { handed_back: handedBack } : {}), ...(held && record.started ? { hold_stopped: true } : {}) });
   }

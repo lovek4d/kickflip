@@ -1,48 +1,20 @@
 // #362: what a block does to a card past Todo
-// (docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md).
+// (docs/adr/2026-11-06-0102-a-block-past-todo-bumps-a-build-and-holds-a-land.md). A block pausing a running build is
+// card-pause.test.mjs's.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { home, at, site, write, read, lines, run, runAsync, wave, commit, git, scratchRepo, worktree, itemOf, threadOf, record } from './board-fixture.mjs';
+import { home, at, site, write, read, lines, run, wave, commit, git, scratchRepo, worktree, itemOf, threadOf, record } from './board-fixture.mjs';
 import { fakeGh, prView, writePR, calls } from '../shared/fake-gh.mjs';
-import { until } from '../shared/test-helpers.mjs';
 import * as store from './store.mjs';
 
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const now = () => new Date().toISOString();
 const waveFile = () => at('waves', 'w', 'wave.json');
 const setA1 = (fields) => { const w = read(waveFile()); Object.assign(w.items.find((i) => i.id === 'A1'), fields); write(waveFile(), w); };
 const recordFile = () => at('waves', 'w', 'agents', 'A1.json');
 const events = () => lines(site('orch', 'data', 'events.jsonl'));
 const onOrch = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
-
-// A headless builder as the board launches one: a detached process leading its own group.
-function fakeBuilder(t) {
-  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
-  t.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
-  return child.pid;
-}
-
-test('blocking a card In Progress stops its board-launched builder, keeps its worktree and ready phase, and sends it back to Todo', async (t) => {
-  const pid = fakeBuilder(t);
-  await new Promise((r) => setTimeout(r, 200));
-  setA1({ lane: 'progress', phase: 'ready' });
-  const tree = { path: path.join(home, 'tree'), branch: 'A1', repo: path.join(home, 'repo') };
-  write(recordFile(), { started: new Date(Date.now() - 60_000).toISOString(), kind: 'claude', model: 'opus', worktree: tree, session: { id: 's1', pid, at: now() } });
-  const r = await runAsync('board.mjs', ['--site', 'orch', 'item', 'set', 'w/A1', '--deps', 'ENG-1']);
-  assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /A1: build stopped by orchestrator/);
-  await until(() => !alive(pid), 'the builder is gone');
-  const item = itemOf();
-  assert.deepEqual([item.lane, item.phase, item.deps], ['todo', 'ready', ['ENG-1']]);
-  const rec = record();
-  assert.equal(typeof rec.done, 'string', 'its record closes, so nothing relaunches it and the card leaves In Progress');
-  assert.equal(rec.stopped.run, 'build');
-  assert.deepEqual(rec.worktree, tree);
-  assert.deepEqual(threadOf().map((l) => l.text), ['build stopped by orchestrator', 'Blocked by ENG-1: back to Todo. It starts again once nothing blocks it.']);
-});
 
 test('blocking a handed-back card, with nothing running, leaves it In Progress with its hand-back', () => {
   setA1({ lane: 'progress', phase: 'ready' });
@@ -52,16 +24,6 @@ test('blocking a handed-back card, with nothing running, leaves it In Progress w
   assert.deepEqual([itemOf().lane, itemOf().blocked_until], ['progress', 'the API ships']);
   assert.deepEqual(threadOf().map((l) => l.text), ['Blocked until the API ships: it stays In Progress.']);
   assert.ok(record().handed_back, 'its hand-back stays');
-});
-
-test("blocking a card whose builder runs in a session the board didn't launch is refused, and changes nothing", () => {
-  setA1({ lane: 'progress', phase: 'ready' });
-  write(recordFile(), { started: now(), kind: 'claude' });
-  const r = onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1');
-  assert.equal(r.code, 1);
-  assert.match(r.err, /^A1's builder runs in a session the board didn't launch, so blocking it can't stop it; finish or stop it in that session with builder done --next, then block it\n/);
-  assert.deepEqual([itemOf().lane, itemOf().deps], ['progress', undefined]);
-  assert.equal(record().done, undefined);
 });
 
 test('a blocked card In Review stays there, and merge refuses it naming what blocks it, before asking GitHub', () => {

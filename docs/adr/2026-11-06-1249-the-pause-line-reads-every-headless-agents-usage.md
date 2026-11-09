@@ -9,3 +9,5 @@ On 11/06 three Opus builds started together at 87% and all hit the 5-hour limit 
 - **Running work finishes.** Nothing stops a running agent at the line (the owner's answer, as in [work pauses at the pause line](2026-11-01-1710-work-pauses-at-the-pause-line.md)).
 - **A run that hits the limit keeps its relaunch.** A tracked headless builder whose run log ends on a rejected `rate_limit_event` (`runLimit`) is held, `pid` null with `until` the reset, with a thread line, and launched once the reset has come, keeping its `relaunched` as it was. Tracked entries keep their run's `log` for this.
 - **Planners asked for during a hold wait.** A grill or prototype the owner asks for, or a gate's yes starts, while launches are held waits in `data/queued-planners.json` with a thread line, and launches first in the next pass once the hold lifts.
+
+Superseded in part by [a card pause stops its builder at its next stopping point](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md): running work no longer finishes past the line; its build pauses at its next stopping point.
