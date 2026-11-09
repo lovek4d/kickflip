@@ -1209,10 +1209,13 @@ export function buildBoard(snapshot) {
   // A card waits on each dep until it reaches Done, which a reopened dep still counts as, and a Done card waits on nothing (docs/adr/2026-10-29-1639-cards-wait-on-explicit-blocked-by-links.md).
   // It also waits on its blocked-until condition until an agent clears it, and a block, by either, carries its reason
   // (docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md). blocked: either holds it.
+  // A dep wave:<slug> waits on every card the wave holds now (docs/adr/2026-11-09-2330-a-card-can-wait-on-a-whole-wave.md).
   const byKey = new Map(items.map((i) => [i.key, i]));
+  const waveCards = new Map(waves.map((l) => [`wave:${l.slug}`, l.keys]));
   for (const it of items) {
     const open = it.kind === 'work' && it.lane !== 'done';
-    it.blockedBy = !open ? [] : it.deps.map((d) => byKey.get(String(d).includes('/') ? d : `${it.file}/${d}`))
+    const depKeys = new Set(it.deps.flatMap((d) => waveCards.get(d) || [String(d).includes('/') ? d : `${it.file}/${d}`]));
+    it.blockedBy = !open ? [] : [...depKeys].map((k) => byKey.get(k))
       .filter((d) => d && d.lane !== 'done' && !d.reopened).map(linkOf);
     it.blockedUntil = open ? it.blockedUntil ?? null : null;
     it.blockReason = open ? it.blockReason ?? null : null;

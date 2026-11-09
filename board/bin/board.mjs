@@ -188,7 +188,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--size small|large] [--model opus|sonnet]      what builder pick reads while the hub's Claude model is
                                                          Auto: a small card gets Claude Sonnet, any other Opus, and
                                                          --model wins over --size; "" clears either
-         [--deps <id>,<file>/<id>]                       replaces its blocked-by list; --deps "" clears it
+         [--deps <id>,<file>/<id>,wave:<slug>]           replaces its blocked-by list; --deps "" clears it.
+                                                         wave:<slug> waits on every card in the wave at the
+                                                         time, as it grows, until each is Done; refused for a
+                                                         card in that wave
          [--blocked-until "<condition>"]                 blocks it until a condition an agent can check, which
                                                          the orchestrator checks on its passes over the cards;
                                                          --blocked-until "" clears it, which threads and emits
@@ -214,6 +217,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--text <t>]                                    with --done, required on a site: the card's closing line,
                                                          written last in its thread, saying why it closed (merged,
                                                          dropped, superseded)
+         [--split-into wave:<slug> | <id>,<file>/<id>]   with --done, in place of --text: closes a split card. Each
+                                                         open card waiting on it waits on the wave or cards it
+                                                         split into instead, with a line in its thread, and the
+                                                         closing line reads "Split into …". Refused when a
+                                                         waiting card is one of them, or the card is already Done
          builder start for a build moves the card to In Progress with "Moved to In Progress: a build
          started", resolving its answered questions, noting "Acted on: build started". It refuses while
          the item is held or a dep isn't done, and while the newest owner answer to its questions that
@@ -231,7 +239,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          closes again only on the owner's Done
   item add <file>[/<id>] --title <t>                    a new card, unstarted; never
          [--ticket <id> | --new-ticket]                  hand-edit the item file to add one. Refuses an id the file has.
-         [--deps <id>,<file>/<id>]                       A task with no ticket unless --ticket links one or
+         [--deps <id>,<file>/<id>,wave:<slug>]           A task with no ticket unless --ticket links one or
                                                          --new-ticket makes one from the title and notes
          [--notes <t> | --notes-from <draft.md>]         the board makes the card's own notes, <id>-notes.md beside
                                                          its item file, read-only: the draft verbatim, or "# <title>"
@@ -298,14 +306,16 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          isn't an earlier card of the wave. Prints the order by
                                                          card label, each card with "(after …)" its conflicts
   wave add <slug> <file>/<id> [--after <file>/<id>,…]  puts a card in the wave, last, blocked by the earlier
-                                                         cards --after names
+                                                         cards --after names; refused for a card whose --deps
+                                                         names the wave
   wave remove <slug> <file>/<id>                       takes a card out: it and the wave's cards waiting on it
                                                          lose their links to each other
   wave set <slug> [<file>/<id> --after <file>/<id>,…]  rewrites only that card's links to the wave's cards to
          [--title <t>] [--goal <t>]                      --after's earlier cards ("" clears them), renames the
          [--note <t> | --file <f>]                       wave, sets its goal or rewrites its note
   wave finish <slug>                                   the wave's band leaves Todo; its cards keep their
-                                                         links. A wave whose cards are all Done leaves it too
+                                                         links. Refused, naming them, while a card in it is
+                                                         open. A wave whose cards are all Done leaves it too
          A band's Triage sends wave-triage {wave}, or {file} for an item file's band; it reads
          Triaging… until you reply to that event, then "Triage: N open questions" while questions on topic
          wave:<slug> or file:<slug> are open or answered
@@ -808,10 +818,10 @@ const COMMANDS = {
   'prototype base': [[], [], (site) => prototypeBase(site)],
   'prototype list': [[], [], (site) => store.listPrototypes(site)],
   'prototype rm': [['topic'], [], (site, [topic]) => store.removePrototype(site, topic)],
-  'item set': [['file/id'], ['done', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
+  'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
-    return store.setItem(site, key, { done: f.done, status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
+    return store.setItem(site, key, { done: f.done, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
   }],
   'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
@@ -987,7 +997,7 @@ const builderOf = (f) => (f.agent === undefined || f.agent === 'main' ? 'builder
 function itemChanges(f) {
   const pickUp = f['pick-up-at'];
   return [
-    f.done && 'done',
+    f.done && (f['split-into'] ? `done, split into ${f['split-into'].split(',').join(', ')}` : 'done'),
     f.next !== undefined && (f.next.trim() ? 'next line set' : 'next line cleared'), f['clear-next'] && 'next line cleared',
     f.pr !== undefined && `PR #${f.pr}`, f.pushed !== undefined && `pushed ${f.pushed}`, f['gh-since'] && `GitHub read to ${f['gh-since']}`, f['from-ask'] && `from task ${f['from-ask']}`, f.phase,
     f.held && 'held', f.unheld && 'resumed', pickUp !== undefined && (pickUp ? `held until ${pickUp}` : 'resumed'),

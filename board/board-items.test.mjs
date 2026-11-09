@@ -978,6 +978,10 @@ test('wave create links each card to the earlier cards its --card names and writ
   write(q, question('t5', { topic: 'file:nope' }));
   assert.match(board('--site', 'orch', 'question', 'add', '--file', q).err, /no item file "nope"/);
 
+  assert.match(b('finish', 'mon').err, /the wave "mon" still has A1, A2, A3, A4 open/);
+  const closing = read(file);
+  for (const it of closing.items) it.lane = 'done';
+  write(file, closing);
   assert.equal(b('finish', 'mon').code, 0);
   assert.ok(read(file).waves[0].finished_at);
   assert.match(b('add', 'mon', 'audit/A5').err, /is finished/);
@@ -1074,4 +1078,77 @@ test('item set blocks a card until a condition with a reason, refuses its start 
   assert.equal(board('item', 'set', 'd/A2', '--site', 'orch', '--deps', '').code, 0);
   assert.equal(item('A2').block_reason, undefined);
   assert.equal(events().length, 1, 'clearing deps by hand is no unblocking event, as before');
+});
+
+test("--deps wave:<slug> blocks a card on every card in the wave as it grows, unblocks when the last is Done, and refuses an unknown wave or the card's own; wave finish refuses while a card in it is open", () => {
+  const file = site('audit', 'data', 'items.json');
+  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }, { id: 'A3', title: 'Three' }, { id: 'B1', title: 'Waiter' }, { id: 'B2', title: 'Other' }] });
+  const b = (...args) => board('--site', 'audit', ...args);
+  assert.equal(b('wave', 'create', 'mon', '--title', 'Monitor', '--goal', 'G', '--card', 'audit/A1', '--card', 'audit/A2', '--note', 'N').code, 0);
+  assert.match(b('item', 'set', 'audit/B1', '--deps', 'wave:nope').err, /no wave "nope"/);
+  assert.match(b('item', 'set', 'audit/A1', '--deps', 'wave:mon').err, /audit\/A1 is in the wave "mon", so it would wait on itself/);
+  const set = b('item', 'set', 'audit/B1', '--deps', 'wave:mon,B2');
+  assert.equal(set.code, 0, set.err);
+  assert.deepEqual(read(file).items[3].deps, ['wave:mon', 'B2']);
+  // A Next may name a card of the wave it waits on.
+  assert.equal(b('item', 'set', 'audit/B1', '--next', 'Build once A2 lands').code, 0);
+  assert.match(b('wave', 'add', 'mon', 'audit/B1').err, /audit\/B1 waits on the wave "mon", so it can't be in it/);
+  assert.equal(b('wave', 'add', 'mon', 'audit/A3').code, 0);
+  const blocked = b('builder', 'start', 'audit/B1', '--kind', 'claude');
+  assert.equal(blocked.code, 1);
+  assert.match(blocked.err, /audit\/B1 is blocked by audit\/A1, audit\/A2, audit\/A3, audit\/B2/);
+  for (const k of ['A1', 'A2', 'B2']) assert.doesNotMatch(b('item', 'set', `audit/${k}`, '--done', '--text', 'Done.').out, /unblocked/, k);
+  const finished = b('wave', 'finish', 'mon');
+  assert.equal(finished.code, 1);
+  assert.match(finished.err, /the wave "mon" still has A3 open; wave finish waits until every card in it is Done/);
+  assert.equal(read(file).waves[0].finished_at, undefined);
+  const last = b('item', 'set', 'audit/A3', '--done', '--text', 'Done.');
+  assert.match(last.out, /^unblocked: audit\/B1$/m);
+  assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__B1.jsonl')).map((m) => m.text).filter((t) => t.startsWith('Unblocked')), ['Unblocked: A3 is done.']);
+  assert.equal(b('wave', 'finish', 'mon').code, 0);
+});
+
+test('item set --done --split-into moves every open card waiting on the card onto the wave or cards it split into, with a line in each thread, and writes the Split into line', () => {
+  const file = site('audit', 'data', 'items.json');
+  write(file, { title: 'W', items: [
+    { id: 'A1', title: 'Big' }, { id: 'N1', title: 'Part one', parent: 'A1' }, { id: 'N2', title: 'Part two', parent: 'A1' },
+    { id: 'B1', title: 'Waiter', deps: ['A1', 'B3'] }, { id: 'B2', title: 'Closed', lane: 'done', deps: ['A1'] }, { id: 'B3', title: 'Other' },
+    { id: 'C1', title: 'Second big' }, { id: 'C2', title: 'C waiter', deps: ['audit/C1'] }, { id: 'M1', title: 'Part' },
+  ] });
+  const b = (...args) => board('--site', 'audit', ...args);
+  assert.equal(b('wave', 'create', 'parts', '--title', 'Parts', '--goal', 'G', '--card', 'audit/N1', '--card', 'audit/N2:audit/N1', '--note', 'N').code, 0);
+  const deps = () => Object.fromEntries(read(file).items.map((it) => [it.id, it.deps || []]));
+
+  assert.match(b('item', 'set', 'audit/A1', '--split-into', 'wave:parts').err, /--split-into goes with --done/);
+  assert.match(b('item', 'set', 'audit/A1', '--done', '--text', 'Split.', '--split-into', 'wave:parts').err, /--split-into writes the closing line; drop --text/);
+  assert.match(b('item', 'set', 'audit/A1', '--done', '--split-into', 'wave:nope').err, /no wave "nope"/);
+  assert.match(b('item', 'set', 'audit/A1', '--done', '--split-into', 'A1,N1').err, /audit\/A1 can't be split into itself/);
+  assert.equal(read(file).items[0].lane, undefined);
+
+  const split = b('item', 'set', 'audit/A1', '--done', '--split-into', 'wave:parts');
+  assert.equal(split.code, 0, split.err);
+  assert.doesNotMatch(split.out, /unblocked/);
+  assert.equal(read(file).items[0].lane, 'done');
+  assert.deepEqual(deps().B1, ['B3', 'wave:parts']);
+  assert.deepEqual(deps().B2, ['A1']);
+  assert.equal(lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).at(-1).text, 'Split into the wave Parts (N1, N2)');
+  assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__B1.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', kind: 'hub', line: 'split-moved', text: 'Split: A1 became the wave Parts (N1, N2), so it waits on those now.' }]);
+
+  assert.match(b('item', 'set', 'audit/A1', '--done', '--split-into', 'wave:parts').err, /audit\/A1 is already Done, so the cards waiting on it were unblocked then/);
+
+  // Into cards by key, stored as bare ids in the waiting card's own item file.
+  const keys = b('item', 'set', 'audit/C1', '--done', '--split-into', 'M1,audit/N2');
+  assert.equal(keys.code, 0, keys.err);
+  assert.deepEqual(deps().C2, ['M1', 'N2']);
+  assert.equal(lines(site('audit', 'data', 'threads', 'audit__C1.jsonl')).at(-1).text, 'Split into M1, N2');
+  assert.equal(lines(site('audit', 'data', 'threads', 'audit__C2.jsonl')).at(-1).text, 'Split: C1 became M1, N2, so it waits on those now.');
+});
+
+test('item set --done --split-into wave:<slug> refuses when a card waiting on it is in that wave', () => {
+  const file = site('audit', 'data', 'items.json');
+  write(file, { title: 'W', items: [{ id: 'A1', title: 'Big' }, { id: 'N1', title: 'Part', deps: ['A1'] }, { id: 'N2', title: 'Part two' }] });
+  assert.equal(board('--site', 'audit', 'wave', 'create', 'parts', '--title', 'Parts', '--goal', 'G', '--card', 'audit/N1', '--card', 'audit/N2', '--note', 'N').code, 0);
+  const r = board('--site', 'audit', 'item', 'set', 'audit/A1', '--done', '--split-into', 'wave:parts');
+  assert.match(r.err, /audit\/N1 waits on audit\/A1 and is in the wave "parts", so it would wait on itself; split into the new cards by key/);
+  assert.equal(read(file).items[0].lane, undefined);
 });

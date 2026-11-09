@@ -2747,3 +2747,20 @@ test("the board's status lines carry their kind's mark; only a fault is unread, 
   assert.deepEqual(threadOf('w/A1', { lines: threads['w/A1'] }).map((m) => [m.kind, m.line, m.mark, m.fault]), [
     ['hub', 'pulled', 'Implementation requested', false], ['hub', 'host-busy', 'Held', false], ['hub', 'relaunch-failed', 'Fault', true]]);
 });
+
+test("a wave:<slug> dep waits on every card the wave holds now until each is Done, and those cards list the card as waiting on them", () => {
+  const items = [
+    { id: 'A1', title: 'One', lane: 'done', closed_at: '2026-10-23T11:00:00Z' },
+    { id: 'A2', title: 'Two' },
+    { id: 'A3', title: 'Three', deps: ['A2'] },
+    { id: 'B1', title: 'Waiter', deps: ['wave:mon'] },
+    { id: 'B2', title: 'Also', deps: ['wave:mon', 'A2'] },
+  ];
+  const snapshot = (waveCards) => ({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { items, waves: [{ slug: 'mon', title: 'Monitor', goal: 'G', items: waveCards }] } }] });
+  const card = (s, id) => buildBoard(s).items.find((i) => i.id === id);
+  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'B1').blockedBy, [{ key: 'w/A2', ref: 'A2' }, { key: 'w/A3', ref: 'A3' }]);
+  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'B2').blockedBy, [{ key: 'w/A2', ref: 'A2' }, { key: 'w/A3', ref: 'A3' }]);
+  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'A3').waitsOnIt.map((c) => c.ref), ['B1', 'B2']);
+  assert.deepEqual(card(snapshot(['A1']), 'B1').blockedBy, []);
+  assert.equal(card(snapshot(['A1']), 'B1').blocked, false);
+});

@@ -2112,8 +2112,20 @@ function addPRs(item, refs, repo) {
   item.prs = list;
 }
 const depKey =(slug, dep) => (String(dep).includes('/') ? String(dep) : `${slug}/${dep}`);
+// docs/adr/2026-11-09-2330-a-card-can-wait-on-a-whole-wave.md: a dep is a card, by key or by bare id in item file slug,
+// or wave:<slug>, every card that wave holds now. → the keys of the cards deps waits on
+const WAVE_DEP = /^wave:(.+)$/;
+async function depCards(site, slug, deps) {
+  const keys = await Promise.all((deps || []).map(async (d) => {
+    const wave = String(d).match(WAVE_DEP)?.[1];
+    if (!wave) return [depKey(slug, d)];
+    const { source, wave: found } = await findWave(site, wave);
+    return waveItems(found).map((id) => `${source.slug}/${id}`);
+  }));
+  return [...new Set(keys.flat())];
+}
 async function unfinishedDeps(site, slug, item) {
-  const keys = (item.deps || []).map((d) => depKey(slug, d));
+  const keys = await depCards(site, slug, item.deps);
   const deps = await Promise.all(keys.map((k) => loadItem(site, k).then(({ item: d }) => d, () => null)));
   return keys.filter((k, i) => deps[i] && !closed(deps[i]));
 }
@@ -2139,11 +2151,60 @@ async function unblockedBy(site, key) {
   for (const s of await itemSources(site)) {
     const itemFile = await readJSON(s.file, null);
     for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
-      if (closed(it) || it.blocked_until || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      if (closed(it) || it.blocked_until || !(await depCards(site, s.slug, it.deps)).includes(key)) continue;
       if (!(await unfinishedDeps(site, s.slug, it)).length) out.push(`${s.slug}/${it.id}`);
     }
   }
   return out;
+}
+
+// docs/adr/2026-11-09-2330-a-card-can-wait-on-a-whole-wave.md: --split-into for card key, closing as a split: wave:<slug>
+// or a comma list of cards (deps entries), none of them key. → {entries: each wave:<slug> or a card's full key, words:
+// what it split into, "the wave <title> (#a, #b)" or "#a, #b", waiters: the keys of the open cards with a dep on key}.
+// It refuses a waiter that is one of the cards it splits into, which would wait on itself.
+async function splitPlan(site, key, splitInto) {
+  const slug = parseKey(key).file;
+  const entries = (await depList(site, slug, splitInto)).map((d) => (WAVE_DEP.test(d) ? d : depKey(slug, d)));
+  if (!entries.length) fail('--split-into takes wave:<slug> or the cards the split filed, <id>,<file>/<id>');
+  if ((await depCards(site, slug, entries)).includes(key)) fail(`${key} can't be split into itself`);
+  const words = await Promise.all(entries.map(async (d) => {
+    const wave = d.match(WAVE_DEP)?.[1];
+    if (!wave) return cardName(site, d);
+    const { source, wave: found } = await findWave(site, wave);
+    const names = await Promise.all(waveItems(found).map((id) => cardName(site, `${source.slug}/${id}`)));
+    return `the wave ${found.title} (${names.join(', ')})`;
+  }));
+  const waiters = [];
+  for (const s of await itemSources(site)) {
+    for (const it of (await readJSON(s.file, null))?.items || []) {
+      const own = `${s.slug}/${it.id}`;
+      if (closed(it) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
+      for (const d of entries) {
+        if (!(await depCards(site, slug, [d])).includes(own)) continue;
+        fail(WAVE_DEP.test(d) ? `${own} waits on ${key} and is in the wave "${d.match(WAVE_DEP)[1]}", so it would wait on itself; split into the new cards by key`
+          : `${own} waits on ${key} and is one of the cards it splits into, so it would wait on itself`);
+      }
+      waiters.push(own);
+    }
+  }
+  return { entries, words: words.join(', '), waiters };
+}
+
+// Each waiter of the split card key (splitPlan) trades its dep on key for the split's entries, each card entry by bare id
+// in the waiter's own item file, and gets a line in its thread.
+async function moveWaiters(site, key, { entries, words, waiters }) {
+  for (const s of await itemSources(site)) {
+    const mine = waiters.filter((w) => parseKey(w).file === s.slug);
+    if (!mine.length) continue;
+    const itemFile = await readJSON(s.file, null);
+    for (const it of itemFile.items.filter((x) => mine.includes(`${s.slug}/${x.id}`))) {
+      const moved = entries.map((d) => (!WAVE_DEP.test(d) && parseKey(d).file === s.slug ? parseKey(d).id : d));
+      it.deps = [...new Set([...it.deps.filter((d) => depKey(s.slug, d) !== key), ...moved])];
+    }
+    await writeJSON(s.file, itemFile);
+  }
+  const card = await cardName(site, key);
+  for (const w of waiters) await appendStatus(site, w, 'split-moved', { card, to: words });
 }
 
 // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo records when its block
@@ -2157,7 +2218,7 @@ async function markUnblocked(site, key, ts) {
 
 async function checkNextDeps(site, key, item, next) {
   const mentions = new Set(next.match(/#?[\w-]+(?:\.[\w-]+)*(?:\/[\w-]+(?:\.[\w-]+)*)*/g) || []);
-  const deps = new Set((item.deps || []).map((d) => depKey(parseKey(key).file, d)));
+  const deps = new Set(await depCards(site, parseKey(key).file, item.deps));
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, null);
     for (const other of itemFile?.items || []) {
@@ -2269,12 +2330,16 @@ function markMerged(item, merged, repo) {
 // (docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md). check is the
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
-async function changeItem(site, key, { ticket, newTicket, status, clearStatus, done, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check }, options) {
+async function changeItem(site, key, { ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check }, options) {
   if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   checkPhase(phase, state);
   if (force && !done) fail('--force goes with --done');
+  if (splitInto !== undefined && !done) fail('--split-into goes with --done');
+  if (splitInto !== undefined && said !== undefined) fail('--split-into writes the closing line; drop --text');
+  const split = splitInto === undefined ? null : await splitPlan(site, key, splitInto);
+  if (split) said = `Split into ${split.words}`;
   if (fromAsk !== undefined && done) fail('--from-ask opens a card; close it in another call');
   if (said !== undefined) messageText(said);
   if (ownerStep !== undefined) text(ownerStep, '--owner-step');
@@ -2299,6 +2364,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (ask && hold && phase !== undefined && !item.phase) fail('a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
   if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
   const wasFinished = closed(item);
+  if (split && wasFinished) fail(`${key} is already Done, so the cards waiting on it were unblocked then; move them with item set <key> --deps`);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
   if (ownerDone) delete item.owner_step;
@@ -2311,7 +2377,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (title !== undefined) item.title = text(title, '--title');
   setBuildChoice(item, { size, model });
   if (deps !== undefined) {
-    const list = await depList(site, parseKey(key).file, deps);
+    const list = await depList(site, parseKey(key).file, deps, key);
     if (list.length) item.deps = list; else delete item.deps;
   }
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md: a block waits on cards (deps) or a condition,
@@ -2462,6 +2528,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
     resolved.unshift(`unblocked: ${key}`);
   }
   if (!done || wasFinished) return { file: source.file, lines: resolved };
+  if (split) await moveWaiters(site, key, split);
   const unblocked = await unblockedBy(site, key);
   // The owner reads a card's wait in its thread, so the line that ends it goes there too.
   const card = await cardName(site, key);
@@ -2585,10 +2652,15 @@ export async function breakOwnerCheck(site, key, check, error) {
   return true;
 }
 
-// A comma list of deps, each an item that exists; "" is none.
-async function depList(site, slug, deps) {
+// A comma list of deps, each an item that exists or wave:<slug> naming a wave that exists and doesn't hold key, the card
+// they are for (none for a new card, which no wave holds yet), since that card would wait on itself; "" is none.
+async function depList(site, slug, deps, key) {
   const list = [...new Set(String(deps).split(',').map((d) => d.trim()).filter(Boolean))];
-  for (const d of list) await loadItem(site, depKey(slug, d));
+  for (const d of list) {
+    const wave = d.match(WAVE_DEP)?.[1];
+    if (!wave) { await loadItem(site, depKey(slug, d)); continue; }
+    if ((await depCards(site, slug, [d])).includes(key)) fail(`${key} is in the wave "${wave}", so it would wait on itself`);
+  }
   return list;
 }
 
@@ -3249,7 +3321,8 @@ function waveCards(source, itemFile, keys, slug) {
   return keys.map((key) => {
     const { file: from, id } = parseKey(key);
     if (from !== source.slug) fail(`${key} is not in item file "${source.slug}"; a wave's cards share one file`);
-    if (!itemFile.items.some((it) => it.id === id)) fail(`item file "${from}" has no item "${id}"`);
+    const card = itemFile.items.find((it) => it.id === id) || fail(`item file "${from}" has no item "${id}"`);
+    if ((card.deps || []).includes(`wave:${slug}`)) fail(`${key} waits on the wave "${slug}", so it can't be in it`);
     const other = (itemFile.waves || []).find((l) => l.slug !== slug && !l.finished_at && waveItems(l).includes(id));
     if (other) fail(`${key} is already in the wave "${other.slug}"; wave remove ${other.slug} ${key} first`);
     return id;
@@ -3357,9 +3430,16 @@ export async function changeWave(site, slug, { add, remove, card, after, title, 
   return writeWave(site, source, itemFile, wave, note);
 }
 
-// A finished wave's band leaves Todo; its cards keep their links.
+// A finished wave's band leaves Todo; its cards keep their links. It finishes only once every card in it is Done, which
+// a card waiting on wave:<slug> waits for too (docs/adr/2026-11-09-2330-a-card-can-wait-on-a-whole-wave.md).
 export async function finishWave(site, slug) {
   const { source, itemFile, wave } = await findWave(site, slug);
+  // A card gone from the item file went to the archive Done, as unfinishedDeps reads it.
+  const open = itemFile.items.filter((it) => waveItems(wave).includes(it.id) && !closed(it));
+  if (open.length) {
+    const names = await Promise.all(open.map((it) => cardName(site, `${source.slug}/${it.id}`)));
+    fail(`the wave "${slug}" still has ${names.join(', ')} open; wave finish waits until every card in it is Done`);
+  }
   wave.finished_at = new Date().toISOString();
   await writeJSON(source.file, itemFile);
   return { file: source.file };

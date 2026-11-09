@@ -48,6 +48,7 @@ export const HUB_LINES = {
   'blocked-pausing': { mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': its builder pauses at its next stopping point and it stays In Progress.') },
   'blocked-stays': { mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': it stays In Progress.') },
   'cant-start-yet': { mark: BLOCKED, text: ({ names }) => fit('Can’t start yet: waits on ', names, '. Bumped to the top of Todo.') },
+  'split-moved': { mark: BLOCKED, text: ({ card, to }) => fit('Split: ', `${card} became ${to}`, ', so it waits on those now.') },
   'merge-blocked': { mark: BLOCKED, text: ({ blocked }) => fit('Not merged: blocked ', blocked, '.') },
   // Launches, requests and moves.
   pulled: { mark: BUILD, text: () => 'Pulled in: an implementer slot was free.' },
