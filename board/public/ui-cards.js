@@ -177,7 +177,7 @@
   const ALL_DONE = `all ${BUILD_PHASES.length} steps done`;
   // A card's progress bar (ui-progress-bar.js), In Progress's phase, or null off In Progress and on a card only a planner
   // works on: how many phases it reached, which of them is running, whether it dims because the card waits on something
-  // other than a builder (its questions, a blocker or queue, a reopening) or its build is stale, and its label. An install
+  // other than a builder (its questions, a blocker or queue, a reopening), its build is stale or paused, and its label. An install
   // is no build: its card keeps the phase its build reached, undimmed
   // (docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md, docs/adr/2026-11-11-1200-every-lane-has-phases.md).
   function phaseStrip(it) {
@@ -191,7 +191,7 @@
     const name = (phase) => `${phase[0].toUpperCase()}${phase.slice(1)}`;
     if (it.builder && it.builder.kind !== BUILDER_KIND.install) {
       const done = BUILD_PHASES.indexOf(it.builder.phase) + 1;
-      return { count: all, done, now: done ? done - 1 : undefined, dim: asking || Boolean(it.builder.stale || it.builder.quiet), label: `${done ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
+      return { count: all, done, now: done ? done - 1 : undefined, dim: asking || Boolean(it.builder.stale || it.builder.quiet || it.builder.pause?.paused), label: `${done ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
     }
     const dim = !it.builder || asking;
     if (it.reopened) return { count: all, done: all, dim, label: `Reopened, ${ALL_DONE}${answers}` };

@@ -1610,6 +1610,10 @@ test('a paused build reads "pausing · <cause>" in orange, then "paused · <caus
   const paused = ui.workLines({ ...card, builder: { ...builder, held: true, alive: null, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
   assert.match(paused, /<span class="card-paused">paused · blocked by #61<\/span>/);
   assert.match(paused, /aria-label="Building, step 2 of 5"/);
+  const awake = { ...builder, quiet: false };
+  assert.match(ui.workLines({ ...card, builder: { ...awake, pause: { cause: 'blocked', words: 'blocked by #61', paused: false } } }), /<span class="phase-bars"/, 'a pausing build runs on, its bars lit');
+  const pausedAwake = ui.workLines({ ...card, builder: { ...awake, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
+  assert.match(pausedAwake, /<span class="phase-bars dim"[^>]*aria-label="Building, step 2 of 5"/, 'a paused build dims its bars at the phase it stopped at');
   assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: true } } }), 'paused');
   assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: false } } }), 'pausing');
   const held = ui.workLines({ ...card, blockedBy: [], blocked: false, held: true, builder: { ...builder, pause: { cause: 'held', words: 'held', paused: true } } });
