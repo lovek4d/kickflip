@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
 import { moveCard, migrateStatuses } from './store.mjs';
 import { buildBoard, movesOf } from './domain.mjs';
+import { withFileLock } from '../hub/locks.mjs';
 
 const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
 const auditThread = (id = 'A1') => { try { return lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)); } catch { return []; } };
@@ -119,4 +120,24 @@ test("a settle move made from a snapshot is skipped once the card's file reads a
   const items = read(site('audit', 'data', 'items.json')).items;
   assert.deepEqual([items[0].phase, items[0].lane], ['grilling', undefined]);
   assert.deepEqual([items[1].phase, items[1].lane], ['ready', 'todo']);
+});
+
+// A tap that holds the item file's lock while the settle move waits for it lands after the move started: the move checks
+// its snapshot against the file it writes, under that lock, so the tap stands.
+test("a settle move checks its snapshot under the item file's lock, so a tap written while it waited for the lock stands", async () => {
+  const dir = site('audit');
+  const file = site('audit', 'data', 'items.json');
+  write(file, { ...wave(), items: [{ id: 'T3', title: 'New', held: true }] });
+  const [move] = movesOf(buildBoard({ fromWaves: true, files: [{ slug: 'audit', agents: {}, itemFile: read(file) }], prs: {}, owner: {}, events: [] }));
+  assert.deepEqual([move.key, move.to, move.phase, move.from], ['audit/T3', 'todo', 'new', { lane: null, phase: null }]);
+  let moved;
+  await withFileLock(file, async () => {
+    moved = moveCard(dir, move.key, move.to, move.why, move.phase, move.from);
+    await new Promise((r) => setTimeout(r, 300));
+    // The owner's Implement, as store.mjs stage writes it.
+    write(file, { ...wave(), items: [{ id: 'T3', title: 'New', phase: 'staging', staged_at: '2026-11-09T22:11:49.491Z' }] });
+  });
+  assert.equal(await moved, null);
+  const [item] = read(file).items;
+  assert.deepEqual([item.lane, item.phase, item.staged_at], [undefined, 'staging', '2026-11-09T22:11:49.491Z']);
 });

@@ -2022,20 +2022,26 @@ function setPhase(item, to, phase) {
 // there already. A card's first placement writes no line, and nor does a phase change within its lane. → the line, or
 // null. snapshot, the lane and phase the move was made from ({lane, phase}), skips the move when the file
 // reads another: a tap made since the board was built stands, and the next settle builds from it
-// (docs/adr/2026-11-09-2100-a-settle-move-never-undoes-a-tap-made-after-its-snapshot.md).
+// (docs/adr/2026-11-09-2100-a-settle-move-never-undoes-a-tap-made-after-its-snapshot.md). The file is read, checked and
+// written under its lock, so a tap written while the move waited for the lock is the one it checks
+// (docs/adr/2026-11-09-2230-a-settle-move-checks-its-snapshot-under-the-item-files-lock.md).
 export async function moveCard(site, key, to, why, phase, snapshot) {
-  const { source, itemFile, item } = await loadItem(site, key);
-  if (snapshot && ((item.lane ?? null) !== snapshot.lane || (item.phase ?? null) !== snapshot.phase)) return null;
-  if (item.lane === to && (phase === undefined || (item.phase ?? null) === phase)) return null;
-  if (item.lane === to) {
-    setPhase(item, to, phase);
-    await writeJSON(source.file, itemFile);
-    return null;
-  }
+  const { source } = await loadItem(site, key);
+  const { id } = parseKey(key);
   const now = new Date().toISOString();
-  const from = placeIn(item, to, now, phase);
-  await writeJSON(source.file, itemFile);
-  if (from === undefined) return null;
+  const moved = await withFileLock(source.file, async () => {
+    const itemFile = JSON.parse(await fs.readFile(source.file, 'utf8'));
+    const item = itemFile.items.find((it) => it.id === id) || fail(`item file "${source.slug}" has no item "${id}"`);
+    if (snapshot && ((item.lane ?? null) !== snapshot.lane || (item.phase ?? null) !== snapshot.phase)) return false;
+    if (item.lane === to && (phase === undefined || (item.phase ?? null) === phase)) return false;
+    let from;
+    if (item.lane === to) setPhase(item, to, phase);
+    else from = placeIn(item, to, now, phase);
+    await replace(source.file, JSON.stringify(itemFile, null, 2) + '\n');
+    // A phase change within the lane and a first placement write no line.
+    return from !== undefined;
+  });
+  if (!moved) return null;
   const line = { ts: now, who: 'claude', kind: MOVE, text: `Moved to ${LANES[to]}: ${text(why, 'why')}` };
   await appendLine(threadFile(site, key), line);
   return line.text;

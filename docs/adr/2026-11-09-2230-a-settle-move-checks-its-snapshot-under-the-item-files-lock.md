@@ -1,0 +1,13 @@
+# A settle move checks its snapshot under the item file's lock
+
+#452 made `moveCard` skip a settle move whose card no longer reads the lane and phase the move was made from. The check ran on a read taken before `writeJSON` waited for the item file's lock. Under load that wait is long enough for a tap to land: the settle pass read IMP1 as new, the Implement staged it while the move waited, and the move's merge kept its own `phase: new` over the tap's `staging` (mine wins where both changed a field). The Implement test then saw a second `staged_at`. Traced with every item-file write logged under six copies of `board/server.test.mjs` at once.
+
+- `moveCard` reads the card's file, checks the snapshot and writes it all under the file's lock (`withFileLock`), and writes what it read there with no three-way merge. `writeJSON` and `editJSON` hold that lock from their read of the current file to their rename, so the check sees the file the move writes.
+- `loadItem` still runs first, outside the lock, so an archived card is restored and a missing one refused as before.
+
+## Board server tests
+
+In `board/server.test.mjs`, the gzipped test's 30-second wait, the prototype request's 400 ("item file "t" has no item "R1"") and the owner-answers and prototype-take tests' missing cards were traced to one cause. A settle pass, started by an earlier test's taps, read that test's item file. Then `putWave`'s rename put the next test's file in place. Then the settle's write, its read made before the rename, put the old cards back. The next tap on a new card answered 400, and the board served what the file held. The Build tap's 400 didn't come up again, but a BoardError 400 on a card the test had just written is this. The watcher missed nothing, so `/api/board` keeps trusting it and compares no modified times (#452's gh452-watcher stays unused). The gzipped trace ran with the `moveCard` change above, whose read comes at the start of the lock. On main the window is shorter, from `writeJSON`'s read of the current file to its rename, and wide enough under three full suites: on main, round 5's gzipped failure served, and found in the item file, the previous test's cards.
+
+- `putWave` makes its rename under the item file's lock, so a locked server write either finishes before it or reads the new file. Every test that sets up `data/items.json` goes through `putWave`; the stream test's in-place writes stay direct, since an in-place write is what it checks.
+- A tap's status check goes through `ok200`, which fails with the status and body the server answered. The gzipped test's wait fails with the board version, the cards it served and the item file's start.
