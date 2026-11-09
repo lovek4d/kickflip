@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
+import { withFileLock } from '../hub/locks.mjs';
 
 export async function freePorts(count = 1) {
   const servers = [];
@@ -227,4 +228,13 @@ export function fakeSlack(world) {
       return { url: `http://127.0.0.1:${server.address().port}/api`, close: () => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve); }) };
     },
   };
+}
+
+// Replaces an item file's text under the file's lock, by a rename, as the server writes it, so a write the server makes
+// from an earlier read of the file can't land half over this one (docs/adr/2026-11-09-2230-a-settle-move-checks-its-snapshot-under-the-item-files-lock.md).
+export async function putWave(file, text) {
+  await withFileLock(file, () => {
+    fs.writeFileSync(`${file}.test.tmp`, text);
+    fs.renameSync(`${file}.test.tmp`, file);
+  });
 }

@@ -1,0 +1,7 @@
+# Three load failures: headless cleanup, stopRuns' ps and arch-review's item write
+
+#474's builder found three tests that each failed once in 15 full-suite runs on main under load. None reproduced here; each was fixed where the code shows its race, as #474 did (2026-11-09-2230).
+
+- **`board/headless.test.mjs` Hold/Resume cleanup (`ENOTEMPTY`).** The `finally` killed the server and the agents and removed the folder without waiting for either to exit, while the server still reacted to the dead agent by writing under `data/`. `oneLaunchBoard` now returns `cleanup(child, ...pids)`: it waits for the server's exit, SIGKILLs the agents its `data/agents` records name (and any pids passed), waits until they are gone, then removes the folder. Every `oneLaunchBoard` test shares the helper, so every one uses it.
+- **`stopRuns` "ps gave no answer".** Not a race: the one `ps -A` has a 3 s timeout, and a loaded Mac can outlast it. `stopRuns` asks again once and refuses only when the second also gives no answer. `builder stop`, the card stop and the land stop all go through it. Tests put a `ps` on PATH that fails its first one or two calls.
+- **`board/arch-review.test.mjs` "the board sees the review closed".** The test wrote `data/items.json` in place while the server wrote it from an earlier read: #474's race. `putWave` moved from `board/server.test.mjs` to `shared/test-helpers.mjs` as `putWave(file, text)`, and both test files write item files through it.

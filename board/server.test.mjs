@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardSees, freePorts, until, ownSession, boardListening, fakeSlack, slackWorld, untilTestEnds } from '../shared/test-helpers.mjs';
+import { boardSees, freePorts, until, ownSession, boardListening, fakeSlack, slackWorld, untilTestEnds, putWave as sharedPutWave } from '../shared/test-helpers.mjs';
 import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 
@@ -84,11 +84,7 @@ const launchesGone = () => until(() => {
 }, "the earlier tests' launches exit");
 const putWave = async (text) => {
   await launchesGone();
-  const file = path.join(site, 'data', 'items.json');
-  await withFileLock(file, () => {
-    fs.writeFileSync(`${file}.test.tmp`, text);
-    fs.renameSync(`${file}.test.tmp`, file);
-  });
+  await sharedPutWave(path.join(site, 'data', 'items.json'), text);
 };
 
 // Asserts a request answered 200, and otherwise fails with what the server answered; on 200 the body is left unread.

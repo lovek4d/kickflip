@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, boardListening, until } from '../shared/test-helpers.mjs';
+import { freePorts, boardListening, until, putWave } from '../shared/test-helpers.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 
 const serverFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
@@ -84,7 +84,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   fs.writeFileSync(path.join(b.gh, '10.json'), JSON.stringify({ number: 10, state: 'CLOSED', isDraft: false, statusCheckRollup: [], latestReviews: [] }));
   done.items.push({ id: 'INT-9', title: 'Split the store', lane: 'done', closed_at: new Date().toISOString() }, { id: 'INT-10', title: 'Merge the readers', lane: 'done', closed_at: new Date().toISOString(), prs: [{ number: 10 }] });
   done.waves[0].items.push('INT-9', 'INT-10');
-  fs.writeFileSync(path.join(b.site, 'data', 'items.json'), JSON.stringify(done));
+  await putWave(path.join(b.site, 'data', 'items.json'), JSON.stringify(done));
   await until(async () => ({ last } = await b.arch()).last.open === false, 'the board sees the review closed');
   assert.deepEqual([last.open, last.running, last.findings, last.built], [false, false, 2, 1]);
 

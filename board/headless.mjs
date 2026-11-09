@@ -254,7 +254,9 @@ export function stopAgents(agents, { starts = processStarts, kill = (pid, sig) =
 // leader's process or one descended from it, so a land's suite, which runs detached in a group of its own, goes too.
 // SIGTERM to each group, then SIGKILL to what still runs after grace ms. → the processes it stopped, each {pid, args}.
 export async function stopRuns(leaders, { grace = 5000 } = {}) {
-  const table = ps(['-A', '-o', 'pid=,ppid=,pgid=,args=']);
+  const psArgs = ['-A', '-o', 'pid=,ppid=,pgid=,args='];
+  // A loaded Mac can outlast ps's timeout once; the retry is the second try before it refuses.
+  const table = ps(psArgs) ?? ps(psArgs);
   if (table === null) throw new BoardError('ps gave no answer, so nothing was stopped; run it again');
   const rows = table.split('\n').map((l) => /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean)
     .map(([, pid, ppid, pgid, args]) => ({ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), args }));

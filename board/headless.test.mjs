@@ -646,7 +646,22 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
     const send = (kind, body) => fetch(`http://127.0.0.1:${port}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...body }) }).then((r) => r.json());
     return { child, send };
   }
-  return { home, site, data, clone, runs, events, thread, record, item, start };
+  // Stops the server and every agent it recorded, waits for each to exit (the server still writes under data/ while it
+  // reacts to a dead agent), then removes the folder.
+  async function cleanup(child, ...pids) {
+    if (child) {
+      const exited = child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise((resolve) => child.once('exit', resolve));
+      child.kill();
+      await exited;
+    }
+    const agents = path.join(data, 'agents');
+    const recorded = fs.existsSync(agents) ? fs.readdirSync(agents).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(agents, f), 'utf8')).session?.pid) : [];
+    const all = [...recorded, ...pids].filter(Boolean);
+    for (const pid of all) try { process.kill(pid, 'SIGKILL'); } catch {}
+    await until(() => all.every((pid) => { try { process.kill(pid, 0); return false; } catch (e) { return e.code !== 'EPERM'; } }), 'the agents exit');
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+  return { home, site, data, clone, runs, events, thread, record, item, start, cleanup };
 }
 
 test("the server launches a planner for the owner's Grill and Prototype taps and for a card arriving in Todo, from the card, in the board's repo", async () => {
@@ -687,8 +702,7 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 3);
   } finally {
-    child.kill();
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child);
   }
 });
 
@@ -721,8 +735,7 @@ test('a grill or prototype asked for during a pause waits on the card and launch
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 1, 'it launches once');
   } finally {
-    child.kill();
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child);
   }
 });
 
@@ -738,8 +751,7 @@ test('within twice the buffer of the line the board starts one agent, and the ne
     reportUsage(b.home, 86);
     await until(() => b.runs().length === 2, 'the second grill launches once the first has reported');
   } finally {
-    child.kill();
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child);
   }
 });
 
@@ -756,8 +768,7 @@ test('a build whose builder fails to launch goes back to Todo with the reason, a
     assert.ok(b.record('F1').done, 'its builder record is closed');
     assert.ok(!b.events().includes('card-build'));
   } finally {
-    child.kill();
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child);
   }
 });
 
@@ -809,10 +820,7 @@ test("the owner's Hold pauses the card's running builder at its next progress re
     assert.deepEqual([b.record('H1').pause, b.record('H1').done], [undefined, undefined]);
     assert.ok(b.thread('H1').some((t) => t.text === 'Resumed: unheld.'));
   } finally {
-    child.kill();
-    if (pid) try { process.kill(pid, 'SIGKILL'); } catch {}
-    if (resumed) try { process.kill(resumed, 'SIGKILL'); } catch {}
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child, pid, resumed);
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -831,8 +839,7 @@ test("Resume relaunches the grill a Hold stopped, and neither tap wakes a sessio
     await until(() => b.runs().length === 2, 'the resume launches the grill again');
     assert.match(b.runs()[1].argv[1], /builder start t\/G2 --kind grill/);
   } finally {
-    child.kill();
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child);
   }
 });
 
@@ -885,8 +892,7 @@ test('a new task launches no agent: it waits on the orchestrator, which sorts it
     assert.equal(b.runs().length, 0);
     assert.equal(fs.existsSync(path.join(b.data, 'intake-runs.json')), false);
   } finally {
-    child.kill();
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child);
   }
 });
 
@@ -917,8 +923,7 @@ test("the owner's visual request launches a visual agent on Sonnet beside the ca
     assert.match(b.runs()[1].argv[1], new RegExp(`--agent visual-${second.id}`));
     assert.match(b.runs()[1].argv[1], /what the thread was last discussing/);
   } finally {
-    child.kill();
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child);
   }
 });
 
@@ -967,8 +972,7 @@ test('a writing helper waits while the board has no implementer slot free, launc
     assert.equal(git(tree, 'rev-parse', 'HEAD'), git(cardTree, 'rev-parse', 'HEAD'), "it branches from the card's branch");
     await until(() => b.record('V1@tests').session?.log, 'the launch records the run');
   } finally {
-    child.kill();
-    fs.rmSync(b.home, { recursive: true, force: true });
+    await b.cleanup(child);
   }
 });
 

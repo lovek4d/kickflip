@@ -50,6 +50,35 @@ test('stopRuns stops each run with every process group under it, a detached suit
   await until(() => !alive(run.land) && !alive(run.suite), 'the land and its suite are gone');
 });
 
+// A ps on PATH that gets no answer (it kills itself) for its first `failures` calls and is the real ps after.
+function stallingPs(t, failures) {
+  const dir = path.join(home, `fake-ps-${Math.random().toString(36).slice(2)}`);
+  const count = path.join(dir, 'count');
+  write(path.join(dir, 'ps'), `#!/bin/sh\nn=$(cat ${count} 2>/dev/null || echo 0)\necho $((n + 1)) > ${count}\n[ "$n" -lt ${failures} ] && kill -9 $$\nexec /bin/ps "$@"\n`);
+  fs.chmodSync(path.join(dir, 'ps'), 0o755);
+  const path0 = process.env.PATH;
+  process.env.PATH = `${dir}:${path0}`;
+  t.after(() => { process.env.PATH = path0; });
+  return () => Number(fs.readFileSync(count, 'utf8'));
+}
+
+test('stopRuns asks ps again once when it gives no answer, and stops the run on the second', async (t) => {
+  const run = await fakeRun(t, { nested: true });
+  const calls = stallingPs(t, 1);
+  const stopped = await stopRuns([run.root]);
+  assert.equal(calls(), 2);
+  assert.ok(stopped.some((p) => p.pid === run.root));
+  await until(() => !alive(run.land) && !alive(run.suite), 'the land and its suite are gone');
+});
+
+test('stopRuns refuses, stopping nothing, when ps gives no answer twice', async (t) => {
+  const run = await fakeRun(t, { nested: true });
+  const calls = stallingPs(t, 2);
+  await assert.rejects(stopRuns([run.root]), /ps gave no answer, so nothing was stopped/);
+  assert.equal(calls(), 2);
+  assert.ok(alive(run.root) && alive(run.land) && alive(run.suite));
+});
+
 test('stopRuns kills what ignores the stop once the grace period ends', async (t) => {
   const stubborn = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { detached: true, stdio: 'ignore' });
   t.after(() => { try { process.kill(stubborn.pid, 'SIGKILL'); } catch {} });
