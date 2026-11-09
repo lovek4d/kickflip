@@ -8,10 +8,36 @@ import { home, at, site, write, read, run, question, takePath, recordPrototype }
 
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const skip = !fs.existsSync(CHROME) && 'no Chrome';
-const add = (options) => {
+const add = (options, env = {}) => {
   write(path.join(home, 'q.json'), question('q1', { url: 'prototype-site.html?q=q1', options: options.map((id) => ({ id, label: `Take ${id}` })) }));
-  return run('board.mjs', ['question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')], undefined, { KICKFLIP_RENDER_CHECK: 'on' });
+  return run('board.mjs', ['question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')], undefined, { KICKFLIP_RENDER_CHECK: 'on', ...env });
 };
+
+// A Chrome stand-in that exits at once on its first `failures` launches, then runs the real one: Chrome failing to start under load.
+const flakyChrome = (failures) => {
+  const script = path.join(home, 'flaky-chrome.sh');
+  const count = path.join(home, 'chrome-launches');
+  write(script, `#!/bin/sh\necho x >> '${count}'\n[ "$(wc -l < '${count}')" -le ${failures} ] && exit 1\nexec '${CHROME}' "$@"\n`);
+  fs.chmodSync(script, 0o755);
+  return script;
+};
+
+test('a Chrome that fails to start once is launched again, and the question publishes', { skip }, () => {
+  recordPrototype('site', ['A:Plain'], false);
+  write(takePath('site', 'A'), 'export function render(stage, kit) { stage.innerHTML = `<p>${kit.esc("hello")}</p>`; }');
+  const r = add(['A'], { CHROME: flakyChrome(1) });
+  assert.equal(r.code, 0, r.err);
+  assert.equal(read(site('orch', 'data', 'owner.json')).items.length, 1);
+});
+
+test('a Chrome that fails to start twice is refused naming it, not a raw TypeError', { skip }, () => {
+  recordPrototype('site', ['A:Plain'], false);
+  write(takePath('site', 'A'), 'export function render(stage, kit) { stage.innerHTML = `<p>${kit.esc("hello")}</p>`; }');
+  const r = add(['A'], { CHROME: flakyChrome(2) });
+  assert.notEqual(r.code, 0);
+  assert.match(r.err, /could not start Chrome/);
+  assert.doesNotMatch(r.err, /TypeError/);
+});
 
 // #353's round-1 takes drew the board's real threads, which the prototype page did not load.
 const THREADS = `export function render(stage, kit) { stage.innerHTML = BoardUI.threadMessages([{ ts: new Date().toISOString(), who: 'claude', kind: 'status', text: 'Reading' }], {}); }`;

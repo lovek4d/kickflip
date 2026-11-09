@@ -47,7 +47,7 @@ function serve(site, proto) {
   });
 }
 
-async function launch(dir) {
+async function launchOnce(dir) {
   if (!fs.existsSync(CHROME)) throw new BoardError(`the render check needs Chrome; none at ${CHROME}, set CHROME to its path`);
   const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', 'about:blank'],
     // The account's own home, not a $HOME a caller pointed elsewhere: Chrome's network stack stalls on a home without its keychain.
@@ -61,8 +61,9 @@ async function launch(dir) {
     target = (await fetch(`http://127.0.0.1:${port}/json`).then((r) => r.json(), () => [])).find((p) => p.type === 'page');
     if (!target) await sleep(100);
   }
+  if (!target) { chrome.kill(); throw new BoardError('the render check could not start Chrome'); }
   const ws = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+  try { await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; }); } catch { chrome.kill(); throw new BoardError('the render check could not start Chrome'); }
   let id = 0;
   const waiting = new Map();
   const listeners = [];
@@ -83,6 +84,16 @@ async function launch(dir) {
     await exited;
   };
   return { cdp, on: (fn) => { listeners.push(fn); return () => listeners.splice(listeners.indexOf(fn), 1); }, close };
+}
+
+// A busy host can leave Chrome without a port, a page or a socket, so a launch that fails is tried once more in a fresh profile.
+async function launch(dir) {
+  try { return await launchOnce(dir); } catch (e) {
+    if (!(e instanceof BoardError) || !/could not start Chrome/.test(e.message)) throw e;
+    await fsp.rm(dir, { recursive: true, force: true });
+    await fsp.mkdir(dir);
+    return launchOnce(dir);
+  }
 }
 
 const described = (ex) => ex.exception?.description?.split('\n')[0] || ex.text;
