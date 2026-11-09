@@ -65,7 +65,7 @@ BoardView.part((B) => {
     sheet.showModal();
   });
   B.on(sheet, 'click', (ev) => {
-    if (ev.target === sheet || ev.target.closest('#archClose')) { sheet.close(); return; }
+    if (BoardUI.onBackdrop(ev, sheet) || ev.target.closest('#archClose')) { sheet.close(); return; }
     const open = ev.target.closest('[data-arch-open]');
     if (open) { ev.preventDefault(); openCard(open.dataset.archOpen); return; }
     if (ev.target.closest('[data-arch-run]')) run();

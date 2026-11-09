@@ -75,7 +75,7 @@ globalThis.BoardNewTask = (function () {
     B.newTaskKey = newTaskKey;
     B.on(document, 'keydown', newTaskKey);
     B.on($('#sheetClose'), 'click', closeSheet);
-    B.on(sheet, 'click', (ev) => { if (ev.target === sheet) closeSheet(); });
+    B.on(sheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, sheet)) closeSheet(); });
     B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); closeSheet(); });
     // Discuss has the session grill or prototype the task at once; Implement sends the ask with quick: true, and the
     // session marks the card ready (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).

@@ -348,7 +348,7 @@
       } catch (e) { sending = false; fail(e); sync(); }
     });
     el.addEventListener('cancel', (e) => { e.preventDefault(); done(); });
-    el.addEventListener('click', (e) => { if (e.target === el) done(); });
+    el.addEventListener('click', (e) => { if (BoardUI.onBackdrop(e, el)) done(); });
     el.addEventListener('close', () => {
       if (closed) return;
       closed = true;

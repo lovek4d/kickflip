@@ -109,6 +109,8 @@ function fakePage(localStorage) {
   const fire = (target, type, ev = {}) => {
     let stopped = false;
     const e = { target, type, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, stopImmediatePropagation() { stopped = true; }, ...ev };
+    // A tap is a press then a click on the same element, so BoardUI.onBackdrop sees where it began.
+    if (type === 'click' && !('pressed' in ev)) for (const l of listeners.filter((x) => x.target === document && x.type === 'pointerdown')) l.fn({ target: e.target });
     for (const l of listeners.filter((x) => x.target === target && x.type === type).sort((a, b) => b.capture - a.capture)) { if (stopped) break; l.fn(e); }
     return e;
   };

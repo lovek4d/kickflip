@@ -76,7 +76,7 @@ BoardView.part((B) => {
     loadMainLog();
   });
   B.on($('#mainLogClose'), 'click', closeMainLog);
-  B.on(mainSheet, 'click', (ev) => { if (ev.target === mainSheet) closeMainLog(); });
+  B.on(mainSheet, 'click', (ev) => { if (BoardUI.onBackdrop(ev, mainSheet)) closeMainLog(); });
   B.on(mainSheet, 'cancel', (ev) => { ev.preventDefault(); closeMainLog(); });
   B.on(mainRetry, 'click', async () => {
     if (mainRetry.disabled) return;
@@ -179,7 +179,7 @@ BoardView.part((B) => {
   }
   B.on($('#holdClose'), 'click', closeHold);
   B.on(holdSheet, 'click', (ev) => {
-    if (ev.target === holdSheet) { closeHold(); return; }
+    if (BoardUI.onBackdrop(ev, holdSheet)) { closeHold(); return; }
     const chip = ev.target.closest('[data-hold-for]');
     if (chip) { hold(chip.dataset.holdFor, chip.value); return; }
     const input = ev.target.closest('[data-hold-at]');

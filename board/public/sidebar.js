@@ -236,7 +236,7 @@
       }
       el.addEventListener('click', (e) => {
         if (sending) return;
-        if (e.target === el || e.target.closest('[data-failed-close]')) { done(); return; }
+        if (BoardUI.onBackdrop(e, el) || e.target.closest('[data-failed-close]')) { done(); return; }
         const dismiss = e.target.closest('[data-failed-dismiss]');
         const retry = e.target.closest('[data-failed-retry]');
         if (dismiss) {
@@ -309,7 +309,7 @@
       el.innerHTML = shortcuts();
       el.addEventListener('cancel', (e) => { e.preventDefault(); closeHelp(); });
       el.addEventListener('close', closeHelp);
-      el.addEventListener('click', (e) => { if (e.target === el) closeHelp(); });
+      el.addEventListener('click', (e) => { if (BoardUI.onBackdrop(e, el)) closeHelp(); });
       help = { el, previous: document.activeElement };
       document.body.appendChild(el);
       el.showModal();

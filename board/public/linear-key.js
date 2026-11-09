@@ -136,7 +136,7 @@
     }
     dialog.addEventListener('click', (e) => {
       if (e.target.closest?.('[data-lk-done]')) { close(); return; }
-      if (e.target !== dialog) return;
+      if (!BoardUI.onBackdrop(e, dialog)) return;
       const r = dialog.getBoundingClientRect();
       if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) close();
     });

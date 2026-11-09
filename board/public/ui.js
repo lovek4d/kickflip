@@ -450,8 +450,14 @@
     }
   }
 
+  // Whether a click dismisses a modal: it landed on the backdrop element and the press that made it began there too, so a
+  // drag that starts inside (selecting text) and ends on the backdrop leaves the modal open.
+  let pressedOn = null;
+  if (typeof document !== 'undefined') document.addEventListener('pointerdown', (e) => { pressedOn = e.target; }, true);
+  const onBackdrop = (ev, backdrop) => ev.target === backdrop && pressedOn === backdrop;
+
   globalThis.BoardUI = {
-    LINK_ARROW, escText,
+    LINK_ARROW, escText, onBackdrop,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, copyNote, SENDS, holdSends,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
   };

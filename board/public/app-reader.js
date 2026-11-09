@@ -148,7 +148,7 @@ BoardView.part((B) => {
     else openNotes(href.slice(href.indexOf('?')));
   });
   B.on(sheet, 'click', (ev) => {
-    if (ev.target === sheet) { close(); return; }
+    if (BoardUI.onBackdrop(ev, sheet)) { close(); return; }
     const act = ev.target.closest('[data-reader]')?.dataset.reader;
     if (act === 'close') close();
     else if (act === 'raw') { log.raw = !log.raw; log.text = null; drawLog(); follow(); if (log.raw) readRaw(opened); }

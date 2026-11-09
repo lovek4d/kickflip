@@ -180,7 +180,7 @@
         const opener = e.target.closest?.('[data-settings-open]');
         if (opener) { B.openSettings({ hash: `#${opener.dataset.settingsOpen}` }, opener); return; }
         if (e.target.closest?.('[data-settings-dismiss]')) { dismiss(); return; }
-        if (e.target === modal) {
+        if (BoardUI.onBackdrop(e, modal)) {
           const r = modal.getBoundingClientRect();
           if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dismiss();
         }

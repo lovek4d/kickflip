@@ -154,7 +154,7 @@
     B.on(modal, 'cancel', (e) => { e.preventDefault(); close(); });
     B.on(modal, 'click', (e) => {
       if (e.target.closest?.('[data-settings-dismiss]')) close();
-      else if (e.target === modal) {
+      else if (BoardUI.onBackdrop(e, modal)) {
         const rect = modal.getBoundingClientRect();
         if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) close();
       }
@@ -201,7 +201,7 @@
     B.on(typed, 'input', () => { closeConfirm.disabled = closing || typed.value !== closure?.title; });
     B.on($('#closeBoardCancel'), 'click', () => closeSheet.close());
     B.on(closeSheet, 'close', () => { unfit?.(); unfit = null; });
-    B.on(closeSheet, 'click', (e) => { if (e.target === closeSheet && !closing) closeSheet.close(); });
+    B.on(closeSheet, 'click', (e) => { if (BoardUI.onBackdrop(e, closeSheet) && !closing) closeSheet.close(); });
     B.on($('#closeBoardForm'), 'submit', async (e) => {
       e.preventDefault();
       if (closing || typed.value !== closure?.title) return;
