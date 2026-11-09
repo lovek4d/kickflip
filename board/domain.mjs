@@ -1688,7 +1688,8 @@ function phaseOf(it) {
 // differs from its stored one moves to it, with why as its thread line. Done is left to what closes
 // a card (item set --done, a land, a merge, the owner's Done), which records why itself, and a stored Done shown
 // elsewhere moves only once a message or question reopened it: an owner step shows a landed card in In Review while it
-// stays Done. → [{key, to, why}]
+// stays Done. → [{key, to, phase, why, from: {lane, phase}}], from the card's stored lane and phase the move was made
+// from, which moveCard checks against the file.
 // docs/adr/2026-11-11-1200-every-lane-has-phases.md: each move carries the card's phase there, and a card staying in
 // In Progress or In Review whose phase changed moves within its lane, which writes no line. Todo's and Done's phases
 // are their writers' (item set --phase, the board's staging, a close).
@@ -1697,7 +1698,7 @@ export function movesOf(built) {
     const to = i.lane;
     if (to === 'done' || (i.storedLane === 'done' && !i.reopened)) return [];
     if (to === i.storedLane && (to === 'todo' || i.phase === i.storedPhase)) return [];
-    return [{ key: i.key, to, phase: i.phase, why: moveWhy(i, to) }];
+    return [{ key: i.key, to, phase: i.phase, why: moveWhy(i, to), from: { lane: i.storedLane, phase: i.storedPhase } }];
   });
 }
 function moveWhy(i, to) {

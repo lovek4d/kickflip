@@ -1,0 +1,11 @@
+# A settle move never undoes a tap made after its snapshot
+
+The server's settle pass (`settleLanes`) builds the board, lists each card whose stored lane or phase differs from where the board places it (`movesOf`), and writes each with `moveCard`. Each move carried the phase the snapshot read, and `moveCard` read the card's file fresh and wrote that phase onto it. A tap that landed between the snapshot and the write (a Grill on a ready card, a Done, a Hold) changed the same field, so `writeJSON`'s three-way merge kept the settle's older value over the tap. The full suite's load widened that window until `board/server.test.mjs` saw it: a card back at `ready` after a Grill, a lane back at `progress` after a Done. Found by tracing every wave write under three full suites at once; the server alone, and one suite alone, never showed it.
+
+- `movesOf` returns `from: {lane, phase}`, the stored lane and phase it made the move from. `moveCard(…, snapshot)` returns null, writing nothing, when the file reads another lane or phase. The tap's own change bumps the data version, so the next settle builds from the tap. The check and the write are two steps apart (a read, then the locked write), a window of one read rather than a whole board build.
+- The settle pass also writes a Todo card's missing phase as `new` once it has seen the wave. A test that reads such a card's file takes a missing phase as `new`.
+- No missed watcher event was seen: the Gzipped test's 30-second wait did not reproduce, so `/api/board` keeps trusting the watcher and compares no modified times. If a run shows the watcher dropping a write, that check is the fix the owner chose (#452, gh452-watcher).
+
+## Board server tests
+
+`board/server.test.mjs` shares one server across its tests, which write `data/items.json` directly and reuse card ids. Builders and planners an earlier test started (`KICKFLIP_CLAUDE=true`, so each exits at once) have exit paths that write the same item file. A test that races with them sets up its own item file through `putWave`: it waits until every launch in `data/agents` has exited, then writes it in one rename, so no reader sees it half-written. Each such test keeps card ids no other test uses (the Implement test's `IMP…`, the ask's `AK2`, the Hold and Done test's `HD1`). `logged()` counts a missing `events.jsonl` as no lines.

@@ -65,6 +65,26 @@ test("a held card's Merge records the tap on the card and runs board.mjs merge d
 });
 after(async () => { child?.kill(); await slackServer?.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
+// The builders and planners this server launched (KICKFLIP_CLAUDE=true, so each exits at once) leave their records in
+// data/agents. Their exit paths write the item file too, so a test that sets up its own item file waits until every
+// launch from an earlier test has exited, then writes it in one rename, which no reader sees half-written.
+// docs/adr/2026-11-09-2100-a-settle-move-never-undoes-a-tap-made-after-its-snapshot.md
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const launchesGone = () => until(() => {
+  const agents = path.join(site, 'data', 'agents');
+  if (!fs.existsSync(agents)) return true;
+  return fs.readdirSync(agents).filter((f) => f.endsWith('.json')).every((f) => {
+    const pid = JSON.parse(fs.readFileSync(path.join(agents, f), 'utf8')).session?.pid;
+    return !pid || !alive(pid);
+  });
+}, "the earlier tests' launches exit");
+const putWave = async (text) => {
+  await launchesGone();
+  const file = path.join(site, 'data', 'items.json');
+  fs.writeFileSync(`${file}.test.tmp`, text);
+  fs.renameSync(`${file}.test.tmp`, file);
+};
+
 const upload = (body, name, type) => fetch(`${base}/api/upload`, { method: 'POST', headers: { 'x-filename': encodeURIComponent(name), 'content-type': type }, body });
 
 const pushes = () => (fs.existsSync(path.join(home, 'push-calls.jsonl')) ? fs.readFileSync(path.join(home, 'push-calls.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
@@ -106,15 +126,16 @@ test("the owner's last answer on an unstarted card stages it, held or blocked to
   const ask = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'A', label: 'This' }] });
   const answer = (id) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answer', id, choice: 'A' }) });
   const unblocked = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8') : '').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.kind === 'card-unblocked').map((e) => e.data.key);
-  const states = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.map((i) => i.phase ?? null);
+  // The board's settle pass writes a card's phase new once it has seen the item file, so a card with none reads new.
+  const states = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.map((i) => i.phase ?? 'new');
   fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'S1', title: 'Two questions', phase: 'grilling' }, { id: 'S2', title: 'Blocked', deps: ['S3'], phase: 'grilling' }, { id: 'S3', title: 'Dep' }, { id: 'S4', title: 'Held', held: true, phase: 'grilling' }] }));
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [ask('s1a', 't/S1'), ask('s1b', 't/S1'), ask('s2', 't/S2'), ask('s4', 't/S4')] }));
   const before = unblocked().length;
   try {
     for (const id of ['s1a', 's2', 's4']) assert.equal((await answer(id)).status, 200);
-    assert.deepEqual(states(), ['grilling', 'staging', null, 'staging']);
+    assert.deepEqual(states(), ['grilling', 'staging', 'new', 'staging']);
     assert.equal((await answer('s1b')).status, 200);
-    assert.deepEqual(states(), ['staging', 'staging', null, 'staging']);
+    assert.deepEqual(states(), ['staging', 'staging', 'new', 'staging']);
     assert.deepEqual(unblocked().slice(before), []);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
@@ -434,7 +455,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
-  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [
+  await putWave(JSON.stringify({ items: [
     { id: 'B1', title: 'Tapped', lane: 'todo', next: 'Implement' }, { id: 'B2', title: 'Held', lane: 'todo', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', lane: 'todo', deps: ['B4'] }, { id: 'B4', title: 'Dep', lane: 'todo' },
     { id: 'B5', title: 'Held and blocked', lane: 'todo', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree', lane: 'todo' }, { id: 'B7', title: 'Leftover work', lane: 'todo' },
     { id: 'B8', title: 'Held and unstarted', lane: 'todo', held: true }, { id: 'B9', title: 'Held and waiting', lane: 'todo', held: true }, { id: 'B10', title: 'Held and grilled', lane: 'todo', held: true },
@@ -543,38 +564,38 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test("an Implement message stages a Todo card where it is, its words in the notes and its open questions skipped; a Reply stages a ready card and leaves any other", async () => {
   const ownerFile = path.join(site, 'data', 'owner.json');
-  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'I1', title: 'Implement', held: true }, { id: 'IR1', title: 'Reply', phase: 'grilling' }, { id: 'IR2', title: 'Ready reply', phase: 'ready' }, { id: 'IG1', title: 'Ready grill', phase: 'ready' }, { id: 'IP1', title: 'Staged prototype', phase: 'staging' }] }));
-  fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'i1q', topic: 'item:t/I1', question: 'Which?', options: [{ id: 'A', label: 'This' }] }] }));
+  await putWave(JSON.stringify({ items: [{ id: 'IMP1', title: 'Implement', held: true }, { id: 'IMPR1', title: 'Reply', phase: 'grilling' }, { id: 'IMPR2', title: 'Ready reply', phase: 'ready' }, { id: 'IMPG1', title: 'Ready grill', phase: 'ready' }, { id: 'IMPP1', title: 'Staged prototype', phase: 'staging' }] }));
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [{ id: 'impq1', topic: 'item:t/IMP1', question: 'Which?', options: [{ id: 'A', label: 'This' }] }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const item = (id) => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === id);
   const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const notes = (id) => fs.readFileSync(path.join(site, 'data', item(id).plan), 'utf8');
   const footer = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).filter((m) => m.eventId).map((m) => [m.text, m.status]);
   try {
-    const sent = await post({ kind: 'item-message', key: 't/I1', text: 'Use the blue', intent: 'build' });
-    const card = sent.board.items.find((i) => i.id === 'I1');
-    const staged = item('I1').staged_at;
+    const sent = await post({ kind: 'item-message', key: 't/IMP1', text: 'Use the blue', intent: 'build' });
+    const card = sent.board.items.find((i) => i.id === 'IMP1');
+    const staged = item('IMP1').staged_at;
     assert.ok(staged);
-    assert.deepEqual([card.lane, card.held, card.staging, card.orchestrator.kind, item('I1').phase, item('I1').plan], ['todo', false, true, 'staging', 'staging', 'i1-notes.md']);
-    assert.match(notes('I1'), /^# Implement\n\n## Implement \(owner, \d\d\/\d\d \d\d:\d\d\), verbatim\nUse the blue\n$/);
+    assert.deepEqual([card.lane, card.held, card.staging, card.orchestrator.kind, item('IMP1').phase, item('IMP1').plan], ['todo', false, true, 'staging', 'staging', 'imp1-notes.md']);
+    assert.match(notes('IMP1'), /^# Implement\n\n## Implement \(owner, \d\d\/\d\d \d\d:\d\d\), verbatim\nUse the blue\n$/);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items[0].resolved, 'Skipped: you tapped Implement');
-    assert.deepEqual(log().filter((e) => e.kind === 'item-message').at(-1).data, { key: 't/I1', text: 'Use the blue', intent: 'build' });
-    assert.deepEqual(await footer('t/I1'), [['Use the blue', 'Implement']]);
+    assert.deepEqual(log().filter((e) => e.kind === 'item-message').at(-1).data, { key: 't/IMP1', text: 'Use the blue', intent: 'build' });
+    assert.deepEqual(await footer('t/IMP1'), [['Use the blue', 'Implement']]);
     // A second Implement while it is staging keeps the first time, and adds its words.
-    await post({ kind: 'item-message', key: 't/I1', text: 'And the red', intent: 'build' });
-    assert.equal(item('I1').staged_at, staged);
-    assert.match(notes('I1'), /\nAnd the red\n$/);
+    await post({ kind: 'item-message', key: 't/IMP1', text: 'And the red', intent: 'build' });
+    assert.equal(item('IMP1').staged_at, staged);
+    assert.match(notes('IMP1'), /\nAnd the red\n$/);
 
-    const replied = await post({ kind: 'item-message', key: 't/IR1', text: 'Why blue?', intent: 'reply' });
-    assert.deepEqual([replied.board.items.find((i) => i.id === 'IR1').lane, item('IR1').phase], ['todo', 'grilling']);
-    assert.deepEqual(await footer('t/IR1'), [['Why blue?', 'Reply']]);
-    const back = await post({ kind: 'item-message', key: 't/IR2', text: 'Also the weekend', intent: 'reply' });
-    assert.deepEqual([back.board.items.find((i) => i.id === 'IR2').staging, item('IR2').phase], [true, 'staging']);
-    assert.match(notes('IR2'), /## Reply \(owner, .*\), verbatim\nAlso the weekend\n$/);
+    const replied = await post({ kind: 'item-message', key: 't/IMPR1', text: 'Why blue?', intent: 'reply' });
+    assert.deepEqual([replied.board.items.find((i) => i.id === 'IMPR1').lane, item('IMPR1').phase], ['todo', 'grilling']);
+    assert.deepEqual(await footer('t/IMPR1'), [['Why blue?', 'Reply']]);
+    const back = await post({ kind: 'item-message', key: 't/IMPR2', text: 'Also the weekend', intent: 'reply' });
+    assert.deepEqual([back.board.items.find((i) => i.id === 'IMPR2').staging, item('IMPR2').phase], [true, 'staging']);
+    assert.match(notes('IMPR2'), /## Reply \(owner, .*\), verbatim\nAlso the weekend\n$/);
     // A Grill or Prototype tap takes a ready or staging card out of it.
-    await post({ kind: 'grill-more', key: 't/IG1' });
-    await post({ kind: 'prototype-request', key: 't/IP1' });
-    assert.deepEqual([item('IG1').phase, item('IP1').phase, item('IP1').staged_at], ['grilling', 'prototyping', undefined]);
+    await post({ kind: 'grill-more', key: 't/IMPG1' });
+    await post({ kind: 'prototype-request', key: 't/IMPP1' });
+    assert.deepEqual([item('IMPG1').phase, item('IMPP1').phase, item('IMPP1').staged_at], ['grilling', 'prototyping', undefined]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
@@ -595,13 +616,13 @@ test("a new task is a New card until it becomes work, whose thread then holds th
   const board = async () => (await fetch(`${base}/api/board`)).json();
   const card = async () => (await board()).items.find((i) => i.kind === 'ask' && i.id === id);
   assert.deepEqual([(await card()).lane, (await card()).isNew, (await card()).ask.state], ['todo', true, 'waiting']);
-  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: [{ id: 'A2', title: 'Header', from_ask: id }] }));
+  await putWave(JSON.stringify({ items: [{ id: 'AK2', title: 'Header', from_ask: id }] }));
   const reply = await post('/_claude/events', { kind: 'item-message', key: `ask:${id}`, text: 'Also the footer' });
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', `ask__${id}.jsonl`), JSON.stringify({ ts: new Date(Date.now() + 60000).toISOString(), who: 'claude', text: 'Footer too.' }) + '\n');
-  assert.deepEqual(await thread(`ask:${id}`), [[id, 'Fix the header', 'answered'], ['#selectedCard=t%2FA2', 'Became A2', undefined], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
-  assert.deepEqual([await card(), (await board()).moved], [undefined, { [`ask:${id}`]: 't/A2' }]);
-  assert.deepEqual(await thread('t/A2'), [[id, 'Fix the header', 'answered'], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
+  assert.deepEqual(await thread(`ask:${id}`), [[id, 'Fix the header', 'answered'], ['#selectedCard=t%2FAK2', 'Became AK2', undefined], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
+  assert.deepEqual([await card(), (await board()).moved], [undefined, { [`ask:${id}`]: 't/AK2' }]);
+  assert.deepEqual(await thread('t/AK2'), [[id, 'Fix the header', 'answered'], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
 });
 
 test("a Quick build ask carries quick: true to the session, and its thread reads Implementation requested under the ask; a card's Grill and Prototype taps read as request entries", async () => {
@@ -632,35 +653,35 @@ test("an ask's Done and a work card's Hold, Resume and Done apply at once from t
   assert.deepEqual(await card().then((c) => [c.lane, c.next, c.finishable]), ['review', 'Pick a take', true]);
   await post('/_claude/events', { kind: 'ask-done', id });
   assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['asks', null, false]);
-  const work = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/A2');
+  const work = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/AK2');
   assert.deepEqual(await work().then((c) => [c.lane, c.held, c.finishable]), ['todo', false, true]);
-  const filed = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'A2');
-  const said = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__A2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.text);
-  const keys = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__A2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.command);
-  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true });
+  const filed = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'AK2');
+  const said = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__AK2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.text);
+  const keys = () => fs.readFileSync(path.join(site, 'data', 'threads', 't__AK2.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((m) => m.who === 'love').map((m) => m.command);
+  await post('/_claude/events', { kind: 'card-hold', key: 't/AK2', hold: true });
   assert.equal((await work()).held, true);
   assert.deepEqual([filed().held, filed().pick_up_at], [true, undefined]);
-  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: false });
+  await post('/_claude/events', { kind: 'card-hold', key: 't/AK2', hold: false });
   assert.equal((await work()).held, false);
   const board = await (await fetch(`${base}/api/board`)).json();
   assert.deepEqual(board.holdChoices.map((c) => c.value), ['1h', '3h', '6h', '1d', 'forever']);
   const before = Date.now();
-  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true, for: '3h' });
+  await post('/_claude/events', { kind: 'card-hold', key: 't/AK2', hold: true, for: '3h' });
   const timed = await work();
   assert.equal(timed.held, true);
   assert.ok(Math.abs(Date.parse(timed.heldUntil) - before - 3 * 3_600_000) < 60_000);
   const at = new Date(Date.now() + 2 * 86_400_000).toISOString();
-  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true, for: at });
+  await post('/_claude/events', { kind: 'card-hold', key: 't/AK2', hold: true, for: at });
   assert.equal((await work()).heldUntil, at);
   assert.deepEqual([filed().held, filed().pick_up_at], [true, at]);
-  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: true, for: 'forever' });
+  await post('/_claude/events', { kind: 'card-hold', key: 't/AK2', hold: true, for: 'forever' });
   assert.deepEqual(await work().then((c) => [c.held, c.heldUntil]), [true, null]);
-  const refuse = (choice) => fetch(base + '/_claude/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-hold', key: 't/A2', hold: true, for: choice }) });
+  const refuse = (choice) => fetch(base + '/_claude/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-hold', key: 't/AK2', hold: true, for: choice }) });
   for (const choice of [new Date(Date.now() - 60_000).toISOString(), new Date(Date.now() + 31 * 86_400_000).toISOString(), 'soon']) assert.equal((await refuse(choice)).status, 400, choice);
   const sent = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter((e) => e.kind === 'card-hold').slice(-3).map((e) => e.data);
-  assert.deepEqual(sent, [{ key: 't/A2', hold: true, until: timed.heldUntil }, { key: 't/A2', hold: true, until: at }, { key: 't/A2', hold: true }]);
-  await post('/_claude/events', { kind: 'card-hold', key: 't/A2', hold: false });
-  await post('/_claude/events', { kind: 'card-done', key: 't/A2' });
+  assert.deepEqual(sent, [{ key: 't/AK2', hold: true, until: timed.heldUntil }, { key: 't/AK2', hold: true, until: at }, { key: 't/AK2', hold: true }]);
+  await post('/_claude/events', { kind: 'card-hold', key: 't/AK2', hold: false });
+  await post('/_claude/events', { kind: 'card-done', key: 't/AK2' });
   assert.deepEqual(await work().then((c) => [c.lane, c.finishable]), ['done', false]);
   assert.deepEqual([filed().lane, typeof filed().closed_at, filed().held], ['done', 'string', undefined]);
   const lines = said();
@@ -696,34 +717,34 @@ test("the events POST answers with the board as the tap left it, so a bump, unbu
 // docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md
 test("a Hold or Done whose item file couldn't be written is refused with why and records no event, as is one on a card already in Done", async () => {
   const wave = path.join(site, 'data', 'items.json');
-  fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'W1', title: 'One' }] }));
+  await putWave(JSON.stringify({ items: [{ id: 'HD1', title: 'One' }] }));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
-  const logged = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').length;
+  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).length : 0);
   const before = logged();
   // The item file's write goes through a temp file named for the server's pid; a folder in its place fails it.
   const blocker = path.join(site, 'data', `items.json.${child.pid}.tmp`);
   fs.mkdirSync(blocker);
   try {
-    for (const tap of [{ kind: 'card-hold', key: 't/W1', hold: true }, { kind: 'card-done', key: 't/W1' }]) {
+    for (const tap of [{ kind: 'card-hold', key: 't/HD1', hold: true }, { kind: 'card-done', key: 't/HD1' }]) {
       const [status, out] = await post(tap);
       assert.equal(status, 500, tap.kind);
-      assert.match(out.error, /^Couldn’t write t\/W1 to its item file: EISDIR/, tap.kind);
+      assert.match(out.error, /^Couldn’t write t\/HD1 to its item file: EISDIR/, tap.kind);
     }
   } finally { fs.rmdirSync(blocker); }
   assert.equal(logged(), before);
-  assert.deepEqual(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0], { id: 'W1', title: 'One' });
-  const landed = { id: 'W1', title: 'One', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z', prs: [{ number: 7, merged_at: '2026-11-01T00:00:00.000Z' }] };
+  assert.deepEqual(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0], { id: 'HD1', title: 'One' });
+  const landed = { id: 'HD1', title: 'One', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z', prs: [{ number: 7, merged_at: '2026-11-01T00:00:00.000Z' }] };
   // A merged card waiting on its owner step closes on the owner's Done, its PR staying merged.
-  fs.writeFileSync(wave, JSON.stringify({ items: [{ ...landed, owner_step: 'Tag the first release' }] }));
-  const [status, out] = await post({ kind: 'card-done', key: 't/W1' });
+  await putWave(JSON.stringify({ items: [{ ...landed, owner_step: 'Tag the first release' }] }));
+  const [status, out] = await post({ kind: 'card-done', key: 't/HD1' });
   assert.equal(status, 200, out.error);
-  assert.equal(out.board.items.find((i) => i.id === 'W1').lane, 'done');
+  assert.equal(out.board.items.find((i) => i.id === 'HD1').lane, 'done');
   assert.deepEqual((({ lane, owner_step, prs }) => [lane, owner_step, prs[0].merged_at])(JSON.parse(fs.readFileSync(wave, 'utf8')).items[0]), ['done', undefined, landed.prs[0].merged_at]);
   const stepped = logged();
-  fs.writeFileSync(wave, JSON.stringify({ items: [landed] }));
-  assert.deepEqual(await post({ kind: 'card-done', key: 't/W1' }), [400, { error: 't/W1 is already in Done, so its item file stays as it is.' }]);
+  await putWave(JSON.stringify({ items: [landed] }));
+  assert.deepEqual(await post({ kind: 'card-done', key: 't/HD1' }), [400, { error: 't/HD1 is already in Done, so its item file stays as it is.' }]);
   assert.equal(logged(), stepped);
-  const [held] = await post({ kind: 'card-hold', key: 't/W1', hold: true });
+  const [held] = await post({ kind: 'card-hold', key: 't/HD1', hold: true });
   assert.equal(held, 400);
 });
 
@@ -914,7 +935,7 @@ const raw = (p, headers = {}) => new Promise((resolve, reject) => {
 });
 
 test('the board, a thread and the static files come gzipped when the browser accepts it, and the API stays uncached', async () => {
-  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ items: Array.from({ length: 30 }, (_, n) => ({ id: `G${n}`, title: `Gzip card `, lane: 'todo' })) }));
+  await putWave(JSON.stringify({ items: Array.from({ length: 30 }, (_, n) => ({ id: `G${n}`, title: `Gzip card `, lane: 'todo' })) }));
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', 't__G1.jsonl'), Array.from({ length: 20 }, (_, n) => JSON.stringify({ ts: '2026-10-23T10:00:00Z', who: 'claude', text: `Line ${n} of a long thread` })).join('\n') + '\n');
   await until(async () => (await (await fetch(`${base}/api/board`)).json()).items.some((i) => i.key === 't/G29'), 'the board sees the new wave');

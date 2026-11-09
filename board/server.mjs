@@ -2242,7 +2242,7 @@ function settleLanes() {
       settleAgain = false;
       try {
         const moves = movesOf(await sharedBoard());
-        for (const m of moves) await moveCard(here, m.key, m.to, m.why, m.phase);
+        for (const m of moves) await moveCard(here, m.key, m.to, m.why, m.phase, m.from);
         if (moves.length) dataVersion++;
       } catch (err) { console.error('Lane settle failed:', err.message); }
     } while (settleAgain);

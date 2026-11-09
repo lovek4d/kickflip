@@ -2019,9 +2019,12 @@ function setPhase(item, to, phase) {
 }
 // Moves the card at key to lane `to`, with why as a move line in its thread, and phase as its phase there, unless it is
 // there already. A card's first placement writes no line, and nor does a phase change within its lane. → the line, or
-// null.
-export async function moveCard(site, key, to, why, phase) {
+// null. snapshot, the lane and phase the move was made from ({lane, phase}), skips the move when the file
+// reads another: a tap made since the board was built stands, and the next settle builds from it
+// (docs/adr/2026-11-09-2100-a-settle-move-never-undoes-a-tap-made-after-its-snapshot.md).
+export async function moveCard(site, key, to, why, phase, snapshot) {
   const { source, itemFile, item } = await loadItem(site, key);
+  if (snapshot && ((item.lane ?? null) !== snapshot.lane || (item.phase ?? null) !== snapshot.phase)) return null;
   if (item.lane === to && (phase === undefined || (item.phase ?? null) === phase)) return null;
   if (item.lane === to) {
     setPhase(item, to, phase);

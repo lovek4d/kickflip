@@ -105,3 +105,18 @@ test('the settle pass moves a card to where the board places it, never to Done, 
     ['w/R1', 'review', 'Ready, Merge shows once CI and the merge state allow'],
   ]);
 });
+
+// docs/adr/2026-11-09-2100-a-settle-move-never-undoes-a-tap-made-after-its-snapshot.md
+test("a settle move made from a snapshot is skipped once the card's file reads another lane or phase than the snapshot did, so a tap in between stands", async () => {
+  const dir = site('audit');
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'T1', title: 'Ready', phase: 'ready' }, { id: 'T2', title: 'Ready too', phase: 'ready' }] });
+  const [first, second] = movesOf(buildBoard({ fromWaves: true, files: [{ slug: 'audit', agents: {}, itemFile: read(site('audit', 'data', 'items.json')) }], prs: {}, owner: {}, events: [] }));
+  assert.deepEqual([first.key, first.to, first.phase, first.from], ['audit/T1', 'todo', 'ready', { lane: null, phase: 'ready' }]);
+  // The owner's Grill tap lands on T1 after the snapshot, so its move is skipped; T2's file still matches, so it moves.
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'T1', title: 'Ready', phase: 'grilling' }, { id: 'T2', title: 'Ready too', phase: 'ready' }] });
+  assert.equal(await moveCard(dir, first.key, first.to, first.why, first.phase, first.from), null);
+  assert.equal(await moveCard(dir, second.key, second.to, second.why, second.phase, second.from), null);
+  const items = read(site('audit', 'data', 'items.json')).items;
+  assert.deepEqual([items[0].phase, items[0].lane], ['grilling', undefined]);
+  assert.deepEqual([items[1].phase, items[1].lane], ['ready', 'todo']);
+});
