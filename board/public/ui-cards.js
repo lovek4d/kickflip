@@ -324,13 +324,10 @@
   // still, until the orchestrator picks it up (the watcher's working mark), then "thinking".
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting</span>';
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? thinkingLine() : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
-  // In a wave band (app-lanes.js), step is the number of the card's phase in its wave, shown inside its id chip, and actions replace
-  // its bump with the band's ⋯ menu.
-  function workLines(it, { unread = 0, top = false, step = 0, actions = null } = {}) {
+  function workLines(it, { unread = 0, top = false } = {}) {
     const ticket = it.ticket ? ticketChip(it) : it.ticketSource === 'linear' ? linearChips(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : linearChips(it);
     // A work card always shows its ticket; an ask, which has none, shows New or Ask there (askChip).
-    const chip = step ? ticket.replace(/^<[^>]*>/, (open) => `${open}<span class="wn">${step}</span>`) : ticket;
-    const ids = it.kind === 'ask' ? askChip(it) : chip;
+    const ids = it.kind === 'ask' ? askChip(it) : ticket;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     // A handled ask's asked time sits under its title, since its Ask badge holds the ticket's spot
     // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
@@ -348,7 +345,7 @@
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
       : `<div class="line3 sub check">${escText(`Checks: ${it.ownerCheck.words}`)}</div>`;
-    return `${actions ?? cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
+    return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
       ${asked}${status}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, progressBar(phaseStrip(it)))}`;

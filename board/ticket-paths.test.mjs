@@ -246,6 +246,7 @@ const KNOWN = {
   'board/store.mjs createItem': 'a new card: assignTicket',
   'board/store.mjs migrateFollowups': "old follow-ups moved into cards, keeping the tickets they had",
   'board/store.mjs askNotNew': 'a list of the cards an ask became, read only',
+  'board/store.mjs changeWave': "a wave's list of card ids, which makes no card",
   'board/store.mjs reviewDigest': "a reviewer's list of PRs",
   'board/store.mjs publishQuestions': "owner.json's questions",
   'board/store.mjs settleQuestion': "owner.json's questions: a screened one, settled",

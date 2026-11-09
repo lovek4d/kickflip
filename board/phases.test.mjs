@@ -185,12 +185,3 @@ test('each phase tone takes its colour from shared/colors.css', () => {
     assert.match(css, new RegExp(`\\.card-phase\\.ph-${tone} \\{ color: var\\(--color-${colour}\\); \\}`));
   }
 });
-
-test('a wave takes its steps with --step, and refuses --phase naming --step', () => {
-  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }] });
-  const refused = board('wave', 'create', 'l1', '--site', 'orch', '--title', 'L', '--goal', 'G', '--phase', 'w/A1', '--note', 'n');
-  assert.equal(refused.code, 1);
-  assert.match(refused.err, /^--phase is now --step/);
-  const made = board('wave', 'create', 'l1', '--site', 'orch', '--title', 'L', '--goal', 'G', '--step', 'w/A1', '--step', 'w/A2', '--note', 'n');
-  assert.equal(made.code, 0, made.err);
-});

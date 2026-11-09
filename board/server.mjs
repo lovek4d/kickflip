@@ -22,7 +22,7 @@
 // agents/<id>.json (or agents/<id>@<agent>.json for each further agent) beside the item file. An item's parent is the key of the card it was spun out of, which makes it a follow-up, and
 // its related the keys of cards it is Related to; an item file's older followups list moves into its items as the server
 // starts (store.mjs migrateFollowups). An item file's waves [{slug, title, goal,
-// phases: [[id]] (or a chain's items: [id]), finished_at?}] are the owner's waves over its cards (store.mjs createWave). domain.mjs
+// items: [id] (or a wave made in steps' phases: [[id]]), finished_at?}] are the owner's waves over its cards (store.mjs createWave). domain.mjs
 // decides lanes and card state from what this server reads.
 //   GET  /, /settings.html, /questions.html, /notes.html
 //                                the app shell, public/app.html, whose views these pages are (../hub/shell.mjs shellHtml;
@@ -173,9 +173,6 @@
 //                                A card whose open PR conflicts gets one headless rebase run per head and base, tracked
 //                                in data/rebases.json (domain.mjs rebasesDue, store.mjs startRebase;
 //                                docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
-//                                wave-move {wave, key, by: -1 | 1} is a wave band card's ⋯ Move up or Move down: the
-//                                server reorders the wave's Todo cards (domain.mjs waveMoved, store.mjs changeWave)
-//                                and answers {id: null, board}, appending no event; a move it can't make → 400 {error}.
 //                                card-hold and card-done are written to the item file first, with the owner's thread
 //                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); a Resume relaunches
 //                                the run its Hold stopped (resumeRun). Neither wakes a session, nor do card-unbump,
@@ -324,14 +321,14 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { PAUSE_CLEARS, pauseWork, plans, providerOf, archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, waveMoved, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { PAUSE_CLEARS, pauseWork, plans, providerOf, archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
-import { dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, changeWave, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
@@ -438,7 +435,7 @@ async function readBody(req, limit = 64 * 1024) {
 // the header's GitHub check stay the owner's, as does any kind not listed.
 const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
   'ask', 'ask-edited', 'ask-withdrawn', 'ask-bump', 'ask-done', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
-  'wave-move', 'plan-waves']);
+  'plan-waves']);
 const VIEW_ONLY = 'This board is shared with you to look at only.';
 const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
 // → null for the owner's request, {refused} for one a shared person can't make, else {by: {login, name}}
@@ -1220,14 +1217,6 @@ const server = http.createServer(async (req, res) => {
         if (card?.lane === 'todo' && body.intent === 'build') await stageImplement(here, key, body);
         else if (card?.lane === 'todo' && card.phase === 'ready') await stageReply(here, key, body);
         dataVersion++;
-      }
-      // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-      if (kind === 'wave-move') {
-        const slug = String(body.wave || '');
-        const phases = waveMoved(await sharedBoard(), slug, String(body.key || ''), body.by === -1 ? -1 : body.by === 1 ? 1 : 0);
-        if (!phases) return json(res, 400, { error: `That card can't move that way in the wave "${slug}".` });
-        try { await changeWave(here, slug, { steps: phases.map((p) => p.join(',')) }); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
-        return json(res, 200, { id: null, board: await answerBoard(req, since) });
       }
       if (kind === 'owner-answer') return json(res, 200, { id: (await recordAnswers([body]))[0] ?? null, board: await answerBoard(req, since) });
       if (kind === 'owner-answers') {

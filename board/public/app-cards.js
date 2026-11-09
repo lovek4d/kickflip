@@ -315,16 +315,15 @@ BoardView.part((B) => {
   // (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md,
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md).
   const bumpedAsk = (it) => Boolean(it.isNew && it.bumpedAt);
-  // band {step, actions} draws the card in a wave band (app-lanes.js).
   // Its open questions asked since this browser last opened it are one more unread message: the thread's "N new
   // questions" line (app-threads.js; docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
-  function card(it, band = {}) {
+  function card(it) {
     const unseen = (times) => (state.openItems.has(it.key) ? 0 : unreadCount(times, seen[it.key]));
     const unread = unseen(it.othersAt) + Math.min(1, unseen(it.questions?.askedAt));
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread, top: bumpedAsk(it), ...band })}</div>
+            <div class="title-wrap">${workLines(it, { unread, top: bumpedAsk(it) })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;

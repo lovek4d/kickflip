@@ -906,56 +906,66 @@ test('ask progress and ask done mark a known ask, keeping --next only while in p
   assert.match(board('ask', 'done', 'e1', '--next', 'x', '--site', 'orch').err, /does not take --next/);
 });
 
-// docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
-test('wave create links each wave step\'s cards to every card of the step before and writes the wave note; add, remove, set and finish keep the steps and set --step rewrites them; a wave topic takes triage questions, as an item file\'s does on a board over ~/.claude/waves', () => {
+// docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md
+test('wave create links each card to the earlier cards its --card names and writes the wave note; add puts a card last with its --after links, set <card> --after rewrites only that card\'s, remove drops the links both ways; a wave topic takes triage questions, as an item file\'s does on a board over ~/.claude/waves', () => {
   const file = site('audit', 'data', 'items.json');
-  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A9'] }, { id: 'A3', title: 'Three' }, { id: 'A4', title: 'Four' }, { id: 'A5', title: 'Five' }, { id: 'A9', title: 'Elsewhere' }] });
+  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two', deps: ['A9', 'A1'] }, { id: 'A3', title: 'Three' }, { id: 'A4', title: 'Four' }, { id: 'A5', title: 'Five' }, { id: 'A9', title: 'Elsewhere' }] });
   const b = (...args) => board('--site', 'audit', 'wave', ...args);
   const deps = () => Object.fromEntries(read(file).items.map((it) => [it.id, it.deps || []]));
-  const made = b('create', 'mon', '--title', 'Monitor', '--goal', 'The monitor runs in kickflip.', '--step', 'audit/A1,audit/A2', '--step', 'audit/A3', '--note', 'Why: one PR each.');
+  const made = b('create', 'mon', '--title', 'Monitor', '--goal', 'The monitor runs in kickflip.', '--card', 'audit/A1', '--card', 'audit/A2', '--card', 'audit/A3:audit/A1,A2', '--note', 'Why: one PR each.');
   assert.equal(made.code, 0, made.err);
-  assert.match(made.out, /order: A1, A2 → A3/);
+  assert.match(made.out, /order: A1, A2, A3 \(after A1, A2\)/);
+  // A2's link to A1 is in the wave and its --card named none, so it goes; its link outside the wave stays.
   assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A1', 'A2'], A4: [], A5: [], A9: [] });
-  assert.deepEqual(read(file).waves.map(({ created, ...l }) => l), [{ slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', phases: [['A1', 'A2'], ['A3']] }]);
+  assert.deepEqual(read(file).waves.map(({ created, ...l }) => l), [{ slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', items: ['A1', 'A2', 'A3'] }]);
   assert.equal(fs.readFileSync(site('audit', 'data', 'wave-mon.md'), 'utf8'), 'Why: one PR each.\n');
 
-  assert.match(b('create', 'mon', '--title', 'Again', '--goal', 'G', '--step', 'audit/A4', '--note', 'N').err, /already has a wave "mon"/);
-  assert.match(b('create', 'audit', '--title', 'File', '--goal', 'G', '--step', 'audit/A4', '--note', 'N').err, /is an item file/);
-  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--step', 'audit/A3,audit/A4', '--note', 'N').err, /already in the wave "mon"/);
-  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--step', 'audit/A4').err, /needs the wave note/);
-  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--note', 'N').err, /--step takes/);
-  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--step', 'audit/A4', '--step', 'audit/A4', '--note', 'N').err, /names a card twice/);
+  assert.match(b('create', 'mon', '--title', 'Again', '--goal', 'G', '--card', 'audit/A4', '--note', 'N').err, /already has a wave "mon"/);
+  assert.match(b('create', 'audit', '--title', 'File', '--goal', 'G', '--card', 'audit/A4', '--note', 'N').err, /is an item file/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4', '--card', 'audit/A3', '--note', 'N').err, /already in the wave "mon"/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4').err, /needs the wave note/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--note', 'N').err, /--card takes/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4', '--card', 'audit/A4', '--note', 'N').err, /names a card twice/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A5', '--card', 'audit/A5', '--note', 'N').err, /audit\/A5 is not an earlier card of the wave "two"/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A4', '--note', 'N').err, /audit\/A4 is not an earlier card/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A9', '--note', 'N').err, /audit\/A9 is not an earlier card/);
+  assert.match(b('create', 'two', '--title', 'Two', '--goal', 'G', '--step', 'audit/A4', '--note', 'N').err, /--step/);
 
-  assert.equal(b('add', 'mon', 'audit/A4', '--after', 'audit/A2').code, 0);
-  assert.deepEqual(read(file).waves[0].phases, [['A1', 'A2'], ['A4'], ['A3']]);
-  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A4'], A4: ['A1', 'A2'], A5: [], A9: [] });
-  assert.equal(b('remove', 'mon', 'audit/A4').code, 0);
-  assert.deepEqual(read(file).waves[0].phases, [['A1', 'A2'], ['A3']]);
-  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A1', 'A2'], A4: [], A5: [], A9: [] });
+  const added = b('add', 'mon', 'audit/A4', '--after', 'audit/A2');
+  assert.equal(added.code, 0, added.err);
+  assert.deepEqual(read(file).waves[0].items, ['A1', 'A2', 'A3', 'A4']);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A1', 'A2'], A4: ['A2'], A5: [], A9: [] });
+  assert.match(b('add', 'mon', 'audit/A5', '--after', 'audit/A9').err, /audit\/A9 is not an earlier card of the wave "mon"/);
+
+  const relinked = b('set', 'mon', 'audit/A3', '--after', 'audit/A1');
+  assert.equal(relinked.code, 0, relinked.err);
+  assert.match(relinked.out, /order: A1, A2, A3 \(after A1\), A4 \(after A2\)/);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A1'], A4: ['A2'], A5: [], A9: [] });
+  assert.equal(b('set', 'mon', 'audit/A2', '--after', '').code, 0);
+  assert.deepEqual(deps().A2, ['A9']);
+  assert.match(b('set', 'mon', 'audit/A1', '--after', 'audit/A3').err, /audit\/A3 is not an earlier card of the wave "mon"/);
+  assert.match(b('set', 'mon', 'audit/A5', '--after', '').err, /audit\/A5 is not in the wave "mon"/);
+  assert.match(b('set', 'mon', 'audit/A3').err, /--after/);
+  assert.match(b('set', 'mon', '--after', 'audit/A1').err, /--after goes with a card/);
+
+  // The removed card and the cards waiting on it lose their links to each other.
+  assert.equal(b('set', 'mon', 'audit/A4', '--after', 'audit/A1,audit/A2').code, 0);
   assert.equal(b('remove', 'mon', 'audit/A1').code, 0);
-  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A2'], A4: [], A5: [], A9: [] });
-  assert.equal(b('add', 'mon', 'audit/A4').code, 0);
+  assert.deepEqual(read(file).waves[0].items, ['A2', 'A3', 'A4']);
+  assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: [], A4: ['A2'], A5: [], A9: [] });
+  assert.equal(b('add', 'mon', 'audit/A1').code, 0);
+  assert.deepEqual([read(file).waves[0].items, deps().A1], [['A2', 'A3', 'A4', 'A1'], []]);
   assert.equal(b('set', 'mon', '--title', 'Monitor in kickflip', '--note', 'Why: smaller.').code, 0);
-  assert.deepEqual(read(file).waves[0].phases, [['A2'], ['A3'], ['A4']]);
   assert.equal(read(file).waves[0].title, 'Monitor in kickflip');
   assert.equal(fs.readFileSync(site('audit', 'data', 'wave-mon.md'), 'utf8'), 'Why: smaller.\n');
-  const phased = b('set', 'mon', '--step', 'audit/A3', '--step', 'audit/A2,audit/A4');
-  assert.equal(phased.code, 0, phased.err);
-  assert.match(phased.out, /order: A3 → A2, A4/);
-  assert.deepEqual(read(file).waves[0].phases, [['A3'], ['A2', 'A4']]);
-  assert.deepEqual(deps(), { A1: [], A2: ['A9', 'A3'], A3: [], A4: ['A3'], A5: [], A9: [] });
-  assert.match(b('set', 'mon', '--step', 'audit/A3,audit/A2').err, /--step lists each of the wave's cards once/);
-  assert.match(b('set', 'mon', '--step', 'audit/A3', '--step', 'audit/A2,audit/A4,audit/A2').err, /--step lists each of the wave's cards once/);
-  assert.match(b('set', 'mon', '--step', 'audit/A3', '--step', ',').err, /--step takes/);
 
-  // A wave made before phases keeps its chain; its first change writes it as one card per phase.
+  // A wave made in steps reads its cards in order and keeps its links; its first change writes it as items.
   const legacy = read(file);
-  legacy.waves.push({ slug: 'old', title: 'Old', goal: 'G', items: ['A5', 'A1'], created: '2026-11-01T00:00:00Z' });
+  legacy.items.find((it) => it.id === 'A5').deps = ['A9'];
+  legacy.waves.push({ slug: 'old', title: 'Old', goal: 'G', phases: [['A9'], ['A5']], created: '2026-11-01T00:00:00Z' });
   write(file, legacy);
-  assert.equal(b('set', 'old', '--goal', 'Still a chain.').code, 0);
-  assert.deepEqual(read(file).waves[1].phases, [['A5'], ['A1']]);
-  assert.equal(read(file).waves[1].items, undefined);
-  assert.deepEqual(deps().A1, ['A5']);
+  assert.equal(b('set', 'old', '--goal', 'Still linked.').code, 0);
+  assert.deepEqual([read(file).waves[1].items, read(file).waves[1].phases, deps().A5], [['A9', 'A5'], undefined, ['A9']]);
 
   const q = path.join(home, 'q.json');
   write(q, question('t1', { topic: 'wave:mon' }));
@@ -971,7 +981,7 @@ test('wave create links each wave step\'s cards to every card of the step before
 
   assert.equal(b('finish', 'mon').code, 0);
   assert.ok(read(file).waves[0].finished_at);
-  assert.match(b('add', 'mon', 'audit/A2').err, /is finished/);
+  assert.match(b('add', 'mon', 'audit/A5').err, /is finished/);
   assert.match(board('--site', 'audit', 'lineup', 'finish', 'mon').err, /^unknown command "lineup finish"/);
 });
 

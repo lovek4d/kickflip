@@ -281,27 +281,26 @@ command fails and changes nothing.
                                                          that isn't New
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
-  wave create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards in
-         --step <file>/<id>,… [--step …]                 steps, all from one item file, one --step per step
-         (--note <t> | --file <f>)                       in build order. Each card is then blocked by every card
-                                                         of the step before (its other deps stay), so one
-                                                         step's cards build side by side, and the note goes to
-                                                         wave-<slug>.md beside the item file.
-                                                         Todo shows it as a band of its cards in order, numbered
-                                                         by step, its goal on its name, and Notes opens the
-                                                         goal, the order and the note. Refuses a card already in
-                                                         another open wave. Prints the order by card label, one
-                                                         step's cards by commas and the steps by arrows
-  wave add <slug> <file>/<id> [--after <file>/<id>]    puts a card in the wave as a step of its own, last
-                                                         unless --after's step, and links the steps again
-  wave remove <slug> <file>/<id>                       takes a card out: it loses its links to the wave's cards,
-                                                         its step goes if it held only that card, and the steps
-                                                         are linked again
-  wave set <slug> [--title <t>] [--goal <t>]           renames the wave, sets its goal, rewrites its note or
-         [--note <t> | --file <f>]                       puts its cards in new steps (--step per step, every
-         [--step <file>/<id>,… …]                        card once) and links them again. A card's ⋯ in its
-                                                         band swaps it with the Todo card before or after it,
-                                                         each taking the other's step
+  wave create <slug> --title <t> --goal <t>            a wave, in the owner's words: a named set of cards from
+         --card <file>/<id>[:<file>/<id>,…] [--card …]   one item file, one --card per card in build order, each
+         (--note <t> | --file <f>)                       naming after a colon the earlier cards it would conflict
+                                                         with (as item set --deps takes them). Each card is then
+                                                         blocked by those cards alone (its links outside the wave
+                                                         stay), so cards that don't conflict build side by side,
+                                                         and the note goes to wave-<slug>.md beside the item file.
+                                                         Todo shows it as a band of its cards in order, each with
+                                                         the board's blocked-by line, its goal on its name, and
+                                                         Notes opens the goal, the order and the note. Refuses a
+                                                         card already in another open wave, and a conflict that
+                                                         isn't an earlier card of the wave. Prints the order by
+                                                         card label, each card with "(after …)" its conflicts
+  wave add <slug> <file>/<id> [--after <file>/<id>,…]  puts a card in the wave, last, blocked by the earlier
+                                                         cards --after names
+  wave remove <slug> <file>/<id>                       takes a card out: it and the wave's cards waiting on it
+                                                         lose their links to each other
+  wave set <slug> [<file>/<id> --after <file>/<id>,…]  rewrites only that card's links to the wave's cards to
+         [--title <t>] [--goal <t>]                      --after's earlier cards ("" clears them), renames the
+         [--note <t> | --file <f>]                       wave, sets its goal or rewrites its note
   wave finish <slug>                                   the wave's band leaves Todo; its cards keep their
                                                          links. A wave whose cards are all Done leaves it too
          A band's Triage sends wave-triage {wave}, or {file} for an item file's band; it reads
@@ -661,7 +660,7 @@ command fails and changes nothing.
   arch file <file>/<id>                                  turns the architecture review audit card's answered findings
                                                          into cards in the review's wave: titled with the picked
                                                          option's label, its detail, practice and the owner's note as
-                                                         notes, each after the wave's last card, its question resolved
+                                                         notes, each after the audit card, its question resolved
                                                          "Filed as <ref>."; a Skip pick resolves its question alone.
                                                          Prints "filed: <ref> from <id>", "skipped: <id>", and
                                                          "waiting: <ids>" while any are unanswered; once none is, it
@@ -833,10 +832,13 @@ const COMMANDS = {
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'tickets backfill': [[], ['dry-run'], (site, _, f, options) => store.backfillTickets(site, { dryRun: f['dry-run'] }, options)],
-  'wave create': [['slug'], ['title', 'goal', '...step', '...phase', 'note', 'file'], (site, [slug], f) => store.createWave(site, slug, { title: f.title, goal: f.goal, steps: f.step, phase: f.phase, note: noteOf(f) })],
+  'wave create': [['slug'], ['title', 'goal', '...card', 'note', 'file'], (site, [slug], f) => store.createWave(site, slug, { title: f.title, goal: f.goal, cards: f.card, note: noteOf(f) })],
   'wave add': [['slug', 'file/id'], ['after'], (site, [slug, key], f) => store.changeWave(site, slug, { add: key, after: f.after })],
   'wave remove': [['slug', 'file/id'], [], (site, [slug, key]) => store.changeWave(site, slug, { remove: key })],
-  'wave set': [['slug'], ['title', 'goal', 'note', 'file', '...step', '...phase'], (site, [slug], f) => store.changeWave(site, slug, { title: f.title, goal: f.goal, note: noteOf(f), steps: f.step, phase: f.phase })],
+  'wave set': [['slug', '...file/id?'], ['after', 'title', 'goal', 'note', 'file'], (site, [slug, ...keys], f) => {
+    if (keys.length > 1) throw new UsageError('wave set takes <slug> [<file/id>]');
+    return store.changeWave(site, slug, { card: keys[0], after: f.after, title: f.title, goal: f.goal, note: noteOf(f) });
+  }],
   'wave finish': [['slug'], [], (site, [slug]) => store.finishWave(site, slug)],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {

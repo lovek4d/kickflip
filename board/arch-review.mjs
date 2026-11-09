@@ -90,7 +90,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
 
   if (made.wave) {
     await createWave(site, made.wave, {
-      title, goal: `Act on the architecture review of ${name}`, steps: [key],
+      title, goal: `Act on the architecture review of ${name}`, cards: [key],
       note: `${await cardName(site, key)} is the audit of ${name}: its Notes are the report, and it asks one question per finding. Each finding you don't skip becomes a card after it, built from the option you pick.`,
     });
   }
@@ -109,8 +109,8 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `board.mjs arch file <key>`: each answered finding of the audit card becomes a card in the review's wave, titled
-// with the picked option's label, its detail, practice and the owner's note as notes, chained after the wave's last
-// card (a wave's, else the item file's newest), and its question resolved; a Skip pick resolves its question alone.
+// with the picked option's label, its detail, practice and the owner's note as notes, blocked by the audit card in the
+// review's wave (with no wave, by the item file's newest card), and its question resolved; a Skip pick resolves its question alone.
 // A question with no answer yet stays. Once none is left, the audit card closes as
 // done. → {lines}
 export async function fileFindings(site, key) {
@@ -130,7 +130,7 @@ export async function fileFindings(site, key) {
     const notes = [option.detail, ...(option.practice || []).map((l) => `- ${l}`), answer.note.trim() && `Owner's note: ${answer.note.trim()}`, `From the finding: ${q.question}`].filter(Boolean).join('\n\n');
     const newest = (await readJSON((await itemSources(site)).find((s) => s.slug === file).file, { items: [] })).items.at(-1)?.id;
     const added = await addItem(site, file, { title: option.label, notes, ...(review.wave ? {} : { deps: newest }) });
-    if (review.wave) await changeWave(site, review.wave, { add: added.key });
+    if (review.wave) await changeWave(site, review.wave, { add: added.key, after: key });
     const ref = await cardName(site, added.key);
     await resolveQuestion(site, q.id, `Filed as ${ref}.`);
     lines.push(`filed: ${ref} from ${q.id}`, ...(added.lines || []));

@@ -182,16 +182,6 @@ button.link { background: none; border: 0; color: var(--accent); padding: 8px 12
 .wb-counts .wv-review { color: var(--color-info); }
 .wb-counts .wv-progress { color: var(--color-notice); }
 .wb-counts .wv-todo, .wb-counts .wv-done { color: var(--color-quiet); }
-/* A wave card's step number, inside its id chip, and its ⋯ menu. */
-.wn { color: var(--muted); font-variant-numeric: tabular-nums; padding-right: 5px; margin-right: 4px; border-right: 1px solid var(--line); }
-.wb .item, .wb .item > summary .title-wrap { position: relative; }
-.wb-dots[aria-expanded="true"] { color: var(--text); background: var(--chip); }
-.wb-dots svg { display: block; }
-.wb-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; display: grid; min-width: 160px; padding: 4px;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-.wb-menu button { border: 0; background: none; text-align: left; padding: 8px 10px; min-height: 0; border-radius: 6px; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
-.wb-menu button:hover:not(:disabled) { background: var(--chip); }
-.wb-menu button:disabled { color: var(--muted); cursor: default; }
 .lane[data-lane="todo"] > .list:has(.wb) { overflow: visible; }
 .nav a.icon { display: inline-flex; align-items: center; padding: 4px; color: var(--muted); }
 .nav a.icon:hover { color: var(--text); }
@@ -470,7 +460,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .view-only-strip b { color: var(--accent); }
 /* A board out of reach (docs/adr/2026-11-06-0135-a-board-out-of-reach-keeps-its-copy-or-shows-a-landing.md): it reads as before,
    undimmed, and only the buttons that send, ui.js SENDS, are held, the labelled ones saying why; app-header.js stops their taps. */
-.offline :is(form button[type="submit"], .actions button, button[data-confirm], button[data-deck-pick], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick], button[data-card-bump], button[data-bump], button[data-withdraw], button[data-band-move], button[data-grill], button[data-proto], button[data-visual], button[data-plan], button[data-main-pull], button[data-arch-run], button[data-try], button[data-reopen]) { opacity: .55; cursor: not-allowed; }
+.offline :is(form button[type="submit"], .actions button, button[data-confirm], button[data-deck-pick], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick], button[data-card-bump], button[data-bump], button[data-withdraw], button[data-grill], button[data-proto], button[data-visual], button[data-plan], button[data-main-pull], button[data-arch-run], button[data-try], button[data-reopen]) { opacity: .55; cursor: not-allowed; }
 /* With no copy to show, the landing takes the board's place: the kickflip mark and two lines, as hub/front-door.mjs's page has them. */
 .down-landing { min-height: 60vh; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 32px 24px; text-align: center; }
 .down-landing-mark { display: block; margin-bottom: 8px; width: 70px; height: 60px; object-fit: contain; }

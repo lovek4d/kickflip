@@ -1007,8 +1007,7 @@ export const stateEntries = (m) => (m.answers || [m]).filter((a) => a.eventId).m
 // The wave bands in Todo: each open wave (docs/adr/2026-11-02-1202-a-wave-the-owner-asks-for-is-a-lineup-of-cards.md),
 // then on a board over ~/.claude/waves each unfinished item file. A wave is open until finished_at or until all its
 // cards are Done. A band's keys are its cards, a wave's in build order and an item file's in lane order; next is a
-// wave's first ready Todo card, else its first Todo card with a word for why not, and a wave's phases are its keys by
-// wave step (waveSteps), for its step numbers; an item file's are null. A band's kind is
+// wave's first ready Todo card, else its first Todo card with a word for why not; an item file's is null. A band's kind is
 // wave or file (an item file). Triage runs from the newest wave-triage {<kind>: <slug>} event until that event's
 // reply, and its questions use topic <kind>:<slug>. Each wave card gets `wave` {slug, title}, an open wave's over a
 // finished one's, which arch-review.mjs archOf counts a review's wave by.
@@ -1025,15 +1024,14 @@ function waveBandsOf(snapshot, itemFiles, waves, items, questions, events) {
     .sort((a, b) => Number(a.open) - Number(b.open));
   for (const { l, cards } of open) for (const i of cards) i.wave = { slug: l.slug, title: l.title };
   const bands = open.filter((x) => x.open)
-    .map(({ l, cards }) => ({ kind: 'wave', slug: l.slug, title: l.title, goal: l.goal, keys: cards.map((i) => i.key),
-      phases: l.phases.map((p) => p.filter((k) => byKey.has(k))).filter((p) => p.length), next: nextOf(cards),
+    .map(({ l, cards }) => ({ kind: 'wave', slug: l.slug, title: l.title, goal: l.goal, keys: cards.map((i) => i.key), next: nextOf(cards),
       merged: merged(cards), total: cards.length, triage: triageOf('wave', l.slug) }));
   if (!snapshot.fromWaves) return bands;
   return [...bands, ...itemFiles.filter((w) => !w.finished).map((w) => ({ w, cards: items.filter((i) => i.file === w.slug && i.kind !== 'ask') }))
-    .filter(({ cards }) => cards.length).map(({ w, cards }) => ({ kind: 'file', slug: w.slug, title: w.title, goal: null, keys: cards.map((i) => i.key), phases: null, next: null,
+    .filter(({ cards }) => cards.length).map(({ w, cards }) => ({ kind: 'file', slug: w.slug, title: w.title, goal: null, keys: cards.map((i) => i.key), next: null,
       merged: merged(cards), total: cards.length, triage: triageOf('file', w.slug) }))];
 }
-// A wave's next card: its first Todo card Implement can start now, so one phase's ready cards are offered in turn, else
+// A wave's next card: its first Todo card Implement can start now, so its ready cards are offered in turn, else
 // its first Todo card, with the word for why Implement can't start it.
 function nextOf(cards) {
   const todo = cards.filter((i) => i.lane === 'todo');
@@ -1045,31 +1043,9 @@ function nextOf(cards) {
   return { key: it.key, ref: it.ref, ready, word };
 }
 
-// docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-// Wave slug's phases once its card key moves by one place (-1 up, 1 down) among the wave's cards still in Todo,
-// which keep the places they hold: the card swaps places with its neighbour, each taking the other's phase, and every
-// phase keeps its size; started and done cards stay where they are. → the keys by phase, or null when the wave isn't
-// open or the card is not in Todo or already at that end.
-export function waveMoved(built, slug, key, by) {
-  const band = built.waveBands.find((b) => b.kind === 'wave' && b.slug === slug);
-  if (!band) return null;
-  const lanes = new Map(built.items.map((i) => [i.key, i.lane]));
-  const movable = band.keys.filter((k) => lanes.get(k) === 'todo');
-  const from = movable.indexOf(key);
-  const to = from + by;
-  if (from < 0 || to < 0 || to >= movable.length) return null;
-  [movable[from], movable[to]] = [movable[to], movable[from]];
-  let at = 0;
-  const order = band.keys.map((k) => (lanes.get(k) === 'todo' ? movable[at++] : k));
-  at = 0;
-  return band.phases.map((p) => order.slice(at, (at += p.length)));
-}
-
-// docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
-// A wave's cards by wave step (its stored `phases`), [[id, …], …] in build order: each card is blocked by every card
-// of the step before, and one step's cards build side by side. A wave made before steps has items [id, …] instead,
-// one card per step.
-export const waveSteps = (wave) => wave.phases || wave.items.map((id) => [id]);
+// docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md
+// A wave's card ids in build order: its `items`, or for a wave made in steps its stored `phases` in order.
+export const waveItems = (wave) => wave.items || wave.phases.flat();
 
 // snapshot: {files: [{slug, itemFile, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
@@ -1212,8 +1188,7 @@ export function buildBoard(snapshot) {
   for (const i of items) i.wave = null;
   const declared = new Set((owner.topics || []).map((t) => t.id));
   const waves = snapshot.files.flatMap(({ slug, itemFile }) => (itemFile.waves || []).map((l) => {
-    const phases = waveSteps(l).map((p) => p.map((id) => `${slug}/${id}`));
-    return { ...l, phases, keys: phases.flat() };
+    return { ...l, keys: waveItems(l).map((id) => `${slug}/${id}`) };
   }));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
     .map((it) => ({ id: `item:${it.key}`, card: it.key, title: `${it.ref}: ${it.title}`, ...(it.kind === 'ask' ? { askedAt: it.ask.askedAt } : {}) })),

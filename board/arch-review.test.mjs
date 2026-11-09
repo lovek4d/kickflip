@@ -59,7 +59,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   assert.equal(first.body.key, 'app/INT-1');
   const itemFile = readJSON(path.join(b.site, 'data', 'items.json'));
   assert.deepEqual(itemFile.items.at(-1).title, 'Architecture review of app-repo');
-  assert.deepEqual(itemFile.waves.map((l) => [l.slug, l.title, l.phases]), [[`arch-${stamp}`, title, [['INT-1']]]]);
+  assert.deepEqual(itemFile.waves.map((l) => [l.slug, l.title, l.items]), [[`arch-${stamp}`, title, ['INT-1']]]);
   assert.match(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8'), /Started an architecture review of app-repo; its report becomes the notes/);
   const [event] = b.events();
   assert.equal(event.id, first.body.id);
@@ -83,7 +83,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   // INT-10 never landed: its one PR closed unmerged, so it isn't built.
   fs.writeFileSync(path.join(b.gh, '10.json'), JSON.stringify({ number: 10, state: 'CLOSED', isDraft: false, statusCheckRollup: [], latestReviews: [] }));
   done.items.push({ id: 'INT-9', title: 'Split the store', lane: 'done', closed_at: new Date().toISOString() }, { id: 'INT-10', title: 'Merge the readers', lane: 'done', closed_at: new Date().toISOString(), prs: [{ number: 10 }] });
-  done.waves[0].phases.push(['INT-9'], ['INT-10']);
+  done.waves[0].items.push('INT-9', 'INT-10');
   fs.writeFileSync(path.join(b.site, 'data', 'items.json'), JSON.stringify(done));
   await until(async () => ({ last } = await b.arch()).last.open === false, 'the board sees the review closed');
   assert.deepEqual([last.open, last.running, last.findings, last.built], [false, false, 2, 1]);
@@ -116,11 +116,11 @@ test('arch file files each answered finding as a card in the review, resolves sk
   assert.deepEqual(file(), ['findings of INT-1 filed', 'filed: INT-2 from f1', 'skipped: f2', 'waiting: f3']);
   const filed = itemFile().items.find((it) => it.id === 'INT-2');
   assert.deepEqual([filed.title, fs.readFileSync(path.join(b.site, 'data', filed.plan), 'utf8'), filed.deps], ['Split the store', "# Split the store\n\nMove the readers out.\n\n- Readers own their files.\n\nOwner's note: Keep the API.\n\nFrom the finding: Split the store?\n", ['INT-1']]);
-  assert.deepEqual(itemFile().waves[0].phases, [['INT-1'], ['INT-2']]);
+  assert.deepEqual(itemFile().waves[0].items, ['INT-1', 'INT-2']);
   assert.deepEqual(resolved(), { f1: 'Filed as INT-2.', f2: 'Skipped.', f3: undefined });
   answer('f3', 'A');
   assert.deepEqual(file().slice(0, 2), ['findings of INT-1 filed', 'filed: INT-3 from f3']);
-  assert.deepEqual(itemFile().waves[0].phases, [['INT-1'], ['INT-2'], ['INT-3']]);
+  assert.deepEqual([itemFile().waves[0].items, itemFile().items.find((it) => it.id === 'INT-3').deps], [['INT-1', 'INT-2', 'INT-3'], ['INT-1']]);
   const audit = itemFile().items.find((it) => it.id === 'INT-1');
   assert.equal(audit.lane, 'done');
   assert.equal(JSON.parse(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__INT-1.jsonl'), 'utf8').trim().split('\n').at(-1)).text, 'Every finding is settled: filed INT-2, INT-3.');

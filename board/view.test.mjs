@@ -4954,37 +4954,37 @@ test("Todo has no Queued section: its cards show in the server's order, a bumped
   assert.equal(todo.querySelector('summary .count').textContent, '2');
 });
 
-// docs/adr/2026-11-04-0238-a-wave-builds-in-phases.md
-test("a phased wave's band numbers each card by its phase, so one phase's cards share a step, and its Implement starts the phase's first ready card", async () => {
+// docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md
+test("a wave's band lists its cards with no step number and no ⋯ menu, a card waiting on another reads the board's blocked-by line, and its Implement starts the first ready card", async () => {
   const keys = ['w/P1', 'w/P2', 'w/P3', 'w/P4'];
-  const band = (next) => ({ kind: 'wave', slug: 'ph', title: 'Phased', goal: 'G', keys, phases: [['w/P1'], ['w/P2', 'w/P3'], ['w/P4']], next, merged: 1, total: 4, triage: { running: false, questions: 0 } });
-  const cards = (p2 = {}) => [workCard('P1', { lane: 'done' }), workCard('P2', { ready: true, buildable: true, ...p2 }), workCard('P3', { ready: true, buildable: true }), workCard('P4', { blockedBy: [{ key: 'w/P2', ref: 'P2' }, { key: 'w/P3', ref: 'P3' }] })];
+  const band = (next) => ({ kind: 'wave', slug: 'cw', title: 'Conflicts', goal: 'G', keys, next, merged: 1, total: 4, triage: { running: false, questions: 0 } });
+  const cards = (p2 = {}) => [workCard('P1', { lane: 'done' }), workCard('P2', { ready: true, buildable: true, ...p2 }), workCard('P3', { ready: true, buildable: true }), workCard('P4', { blockedBy: [{ key: 'w/P2', ref: 'P2' }] })];
   const b = boardOnDom({ board: { ...boardOf(cards()), waveBands: [band({ key: 'w/P2', ref: 'P2', ready: true, word: 'ready' })] }, threads: {}, confirm: true });
   await b.settle();
-  const head = () => b.root.querySelector('.wb[data-lane="todo"][data-band="ph"] > .wb-head');
-  const steps = () => b.root.querySelectorAll('.wb[data-lane="todo"][data-band="ph"] details.item').map((el) => [el.dataset.key, el.querySelector('.wn').textContent]);
-  assert.deepEqual(steps(), [['w/P2', '2'], ['w/P3', '2'], ['w/P4', '3']]);
+  const head = () => b.root.querySelector('.wb[data-lane="todo"][data-band="cw"] > .wb-head');
+  const shown = () => b.root.querySelectorAll('.wb[data-lane="todo"][data-band="cw"] details.item').map((el) => el.dataset.key);
+  assert.deepEqual(shown(), ['w/P2', 'w/P3', 'w/P4']);
+  assert.deepEqual([b.root.querySelector('.wb .wn'), b.root.querySelector('.wb [data-band-menu]')], [null, null]);
+  assert.equal(b.root.querySelector('.wb details.item[data-key="w/P4"] .card-blocked').textContent, 'blocked by P2');
   assert.equal(head().querySelector('button[data-confirm="card-build"]').dataset.key, 'w/P2');
   await b.change({ board: { ...boardOf(cards({ lane: 'progress' })), waveBands: [band({ key: 'w/P3', ref: 'P3', ready: true, word: 'ready' })] } });
-  assert.deepEqual(steps(), [['w/P3', '2'], ['w/P4', '3']]);
+  assert.deepEqual(shown(), ['w/P3', 'w/P4']);
   assert.equal(head().querySelector('button[data-confirm="card-build"]').dataset.key, 'w/P3');
-  assert.equal(head().querySelector('.wb-label').textContent, 'Phased 2 · P2 in progress');
+  assert.equal(head().querySelector('.wb-label').textContent, 'Conflicts 2 · P2 in progress');
 });
 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, Implement or what the next card waits on, Notes and Triage in its head, its Todo cards in order with step numbers and its done ones one line", async () => {
+test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, Implement or what the next card waits on, Notes and Triage in its head, its Todo cards in order and its done ones one line", async () => {
   const idle = { running: false, questions: 0 };
-  const band = (slug, title, keys, next, extra = {}) => ({ kind: 'wave', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), phases: keys.map((id) => [`w/${id}`]), next, merged: 1, total: keys.length, triage: idle, ...extra });
+  const band = (slug, title, keys, next, extra = {}) => ({ kind: 'wave', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), next, merged: 1, total: keys.length, triage: idle, ...extra });
   const cards = [workCard('A3'), workCard('A2', { blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A5'), workCard('A6', { ready: true, buildable: true }), workCard('A7'), workCard('A4'),
     workCard('A8', { lane: 'progress' }), workCard('A1', { lane: 'done' })];
   const bands = (mon = idle, pilot = idle) => [
     band('mon', 'Monitor', ['A1', 'A2', 'A8', 'A5'], { key: 'w/A2', ref: 'A2', ready: false, word: 'waits on A9' }, { triage: mon }),
     band('go', 'Go', ['A6', 'A7'], { key: 'w/A6', ref: 'A6', ready: true, word: 'ready' }, { merged: 0 }),
-    { kind: 'file', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], phases: null, next: null, merged: 0, total: 1, triage: pilot },
+    { kind: 'file', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], next: null, merged: 0, total: 1, triage: pilot },
   ];
-  let moving = null;
-  const send = (kind, data, server) => (kind === 'wave-move' ? new Promise((resolve) => { moving = () => resolve({ id: null, board: structuredClone(server.board) }); }) : { id: 'e1', board: structuredClone(server.board) });
-  const b = boardOnDom({ board: { ...boardOf(cards), waveBands: bands() }, threads: {}, confirm: true, send });
+  const b = boardOnDom({ board: { ...boardOf(cards), waveBands: bands() }, threads: {}, confirm: true });
   await b.settle();
   assert.equal(b.root.querySelector('#waves'), null);
   const todo = () => b.root.querySelector('details.lane[data-lane="todo"] > .list');
@@ -5009,13 +5009,11 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.equal(head('mon').querySelector('.wb-next').textContent, 'next: A2 waits on A9');
   assert.equal(head('mon').querySelector('.wb-label').textContent, 'Monitor 2 · A8 in progress');
   assert.deepEqual(shown('go'), ['w/A6', 'w/A7']);
-  assert.deepEqual(b.root.querySelectorAll('.wb[data-lane="todo"][data-band="go"] .wn').map((n) => n.textContent), ['1', '2']);
 
   b.page.fire(b.root, 'click', { target: head('mon').querySelector('.wb-label') });
   await b.settle();
   assert.equal(head('mon').getAttribute('aria-expanded'), 'true');
   assert.deepEqual(shown('mon'), ['w/A2', 'w/A5']);
-  assert.deepEqual(b.root.querySelectorAll('.wb[data-lane="todo"][data-band="mon"] .wn').map((n) => n.textContent), ['2', '4']);
   const done = b.root.querySelector('.wb[data-lane="todo"][data-band="mon"] .wb-done');
   assert.equal(done.textContent, '1 done · A1');
   assert.equal(done.querySelector('a').getAttribute('href'), '#selectedCard=w%2FA1');
@@ -5031,25 +5029,6 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   assert.match(b.confirms.at(-1), /^Implement A6\? Claude starts its implementer now/);
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/A6' }]]);
   assert.equal(head('go').getAttribute('aria-expanded'), 'true');
-
-  const menuOf = (key) => b.root.querySelector(`.wb details.item[data-key="${key}"] button[data-band-menu]`);
-  assert.equal(b.root.querySelector('.wb[data-band="no-wave"] button[data-band-menu]'), null);
-  assert.equal(b.root.querySelector('.wb[data-lane="todo"][data-band="pilot"] button[data-band-menu]'), null);
-  const tap = b.page.fire(b.root, 'click', { target: menuOf('w/A6') });
-  await b.settle();
-  assert.equal(tap.defaultPrevented, true);
-  const items = () => b.root.querySelectorAll('.wb-menu button').map((x) => [x.textContent, x.disabled]);
-  assert.deepEqual(items(), [['↑ Move up', true], ['↓ Move down', false]]);
-  b.page.fire(b.root, 'click', { target: b.root.querySelector('.wb-menu button[data-band-move="1"]') });
-  await b.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).at(-1), ['wave-move', { wave: 'go', key: 'w/A6', by: 1 }]);
-  assert.deepEqual(items(), [['↑ Move up', true], ['↓ Move down', true]]);
-  assert.deepEqual(b.root.querySelectorAll('.wb-menu button').map((x) => x.getAttribute('aria-busy')), [null, 'true'], 'the tapped move waits with its label kept behind the spinner');
-  b.server.board = { ...b.server.board, waveBands: bands().map((x) => (x.slug === 'go' ? { ...x, keys: ['w/A7', 'w/A6'], phases: [['w/A7'], ['w/A6']] } : x)) };
-  moving();
-  await b.settle();
-  assert.equal(b.root.querySelector('.wb-menu'), null);
-  assert.deepEqual(shown('go'), ['w/A7', 'w/A6']);
 
   await b.change({ board: { ...b.server.board, waveBands: bands({ running: true, questions: 0 }, { running: false, questions: 1 }) } });
   assert.equal(b.root.querySelector('.wv-busy'), null);
@@ -5622,7 +5601,7 @@ test("a Permissions switch keeps its spinner past the server's answer until the 
 // docs/adr/2026-11-05-0215-every-lane-groups-its-cards-by-wave.md
 test("every lane groups its cards under wave headers, none for a wave with no cards there, cards in no wave last under No wave, each header counting the wave across all lanes with its own lane bold", async () => {
   const idle = { running: false, questions: 0 };
-  const band = (slug, title, ids) => ({ kind: 'wave', slug, title, goal: null, keys: ids.map((id) => `w/${id}`), phases: ids.map((id) => [`w/${id}`]), next: null, merged: 0, total: ids.length, triage: idle });
+  const band = (slug, title, ids) => ({ kind: 'wave', slug, title, goal: null, keys: ids.map((id) => `w/${id}`), next: null, merged: 0, total: ids.length, triage: idle });
   const cards = [workCard('A1', { lane: 'done' }), workCard('A2', { lane: 'progress' }), workCard('A3'), workCard('A4'),
     workCard('B1', { lane: 'review' }), workCard('B2', { lane: 'done' }), workCard('L1', { lane: 'progress' }), workCard('L2', { lane: 'done' })];
   const b = boardOnDom({ board: { ...boardOf(cards), waveBands: [band('a', 'Alpha', ['A1', 'A2', 'A3', 'A4']), band('b', 'Beta', ['B1', 'B2'])] }, threads: {} });
@@ -5863,7 +5842,7 @@ test("on a phone the board header's ? carries the open-question count as a badge
 
 test("on a desktop, tapping a pill twice in the pane opens that topic's card on the board and scrolls to it, a wave topic opens its band, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
   const idle = { running: false, questions: 0 };
-  const band = { kind: 'wave', slug: 'alpha', title: 'Alpha', goal: null, keys: ['w/T1'], phases: [['w/T1']], next: null, merged: 0, total: 1, triage: idle };
+  const band = { kind: 'wave', slug: 'alpha', title: 'Alpha', goal: null, keys: ['w/T1'], next: null, merged: 0, total: 1, triage: idle };
   const board = { ...deckBoard([deckQuestion('q1', 'item:w/T1'), deckQuestion('q2', 'file:alpha'), deckQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')], waveBands: [band] };
   const wide = boardOnDom({ board, threads: {}, width: 1280 });
   await wide.settle();

@@ -145,12 +145,10 @@ BoardView.part((B) => {
   // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
   // Todo's wave bands (domain.mjs waveBandsOf), then its cards in no wave under No wave. A band's open state lives
   // in storage once the owner taps its head; until then only the first band whose next card is ready (an item file's:
-  // any Todo card) starts open. A band's name shows its goal as a tooltip, or a popover on a long-press. menu is the
-  // card whose ⋯ menu is open, goalShown the band whose goal popover is open.
-  let menu = null;
+  // any Todo card) starts open. A band's name shows its goal as a tooltip, or a popover on a long-press. goalShown is
+  // the band whose goal popover is open.
   let goalShown = null;
   const LANE_WORDS = { progress: 'in progress', review: 'in review' };
-  const DOTS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
   // Todo's wave bands and loose cards, in the order they arrive (domain.mjs laneOrder).
   function todoRows(d, shown, todo) {
@@ -179,21 +177,7 @@ BoardView.part((B) => {
     const head = `${BoardUI.WAVE_ICON}<span class="wb-label">${name} <span class="count">${todo.length}</span>${progress}</span>`
       + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}</span>${go}</span>${pop}`;
     const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#selectedCard=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
-    const step = (it) => (band.kind === 'wave' ? band.phases.findIndex((p) => p.includes(it.key)) + 1 : 0);
-    const actions = (it, at) => (band.kind !== 'wave' ? null : cardMenu(band.slug, it.key, at, todo.length));
-    return groupHtml('todo', band.slug, open, head, doneRow + todo.map((it, at) => B.card(it, { step: step(it), actions: actions(it, at) })).join(''));
-  }
-
-  // A wave card's ⋯ and, while open, its menu: Move up and Move down among the band's Todo cards. A move waits for
-  // the server (board/server.mjs wave-move): the tapped move waits and the other is disabled meanwhile.
-  function cardMenu(slug, key, at, count) {
-    const shown = menu === key;
-    const item = (by, label) => {
-      const off = by < 0 ? at === 0 : at === count - 1;
-      return `<button type="button" role="menuitem" data-band-move="${by}" data-band="${esc(slug)}" data-key="${esc(key)}"${off ? ' disabled' : ''}>${label}</button>`;
-    };
-    return `<div class="ask-actions"><button type="button" class="ghost icon wb-dots" data-band-menu="${esc(key)}" aria-label="Card menu" aria-haspopup="menu" aria-expanded="${shown}">${DOTS}</button>`
-      + (shown ? `<div class="wb-menu" role="menu">${item(-1, '↑ Move up')}${item(1, '↓ Move down')}</div>` : '') + '</div>';
+    return groupHtml('todo', band.slug, open, head, doneRow + todo.map((it) => B.card(it)).join(''));
   }
 
   // Opens the band holding card key or named slug, for a #selectedCard= link or a Needs you line.
@@ -258,7 +242,7 @@ BoardView.part((B) => {
     }
   });
 
-  // A band's ⋯ menu and its moves, its head's fold and its name's goal popover. A long-press on the name (touch only;
+  // A band's head's fold and its name's goal popover. A long-press on the name (touch only;
   // a mouse has the tooltip) opens the popover, and the click that ends the press neither folds the band nor closes it.
   let press = null;
   let pressed = false;
@@ -281,20 +265,6 @@ BoardView.part((B) => {
     }
     if (pressed) { pressed = false; ev.preventDefault(); return; }
     if (goalShown) { goalShown = null; B.render(); if (ev.target.closest('.wb-head')) return; }
-    const dots = ev.target.closest('button[data-band-menu]');
-    if (dots) { ev.preventDefault(); menu = menu === dots.dataset.bandMenu ? null : dots.dataset.bandMenu; B.render(); return; }
-    const mv = ev.target.closest('button[data-band-move]');
-    if (mv) {
-      ev.preventDefault();
-      if (mv.disabled) return;
-      const { band, key } = mv.dataset;
-      try { await waitOn(mv, B.send('wave-move', { wave: band, key, by: Number(mv.dataset.bandMove) }), { group: mv.parentNode.querySelectorAll('button') }); }
-      catch { B.toast('Could not move it. Is the host awake?'); }
-      menu = null;
-      B.render();
-      return;
-    }
-    if (menu && !ev.target.closest('.wb-menu')) { menu = null; B.render(); if (ev.target.closest('summary')) { ev.preventDefault(); return; } }
     const head = ev.target.closest('[data-band-toggle]');
     if (head && !ev.target.closest('a, button')) {
       store.set(groupStore(head.dataset.bandToggle), head.getAttribute('aria-expanded') !== 'true');

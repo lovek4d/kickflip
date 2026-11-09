@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with
 ---
 
 # A wave builds in phases, and cards in one phase build side by side
