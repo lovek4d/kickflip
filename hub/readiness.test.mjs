@@ -23,11 +23,11 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   for (const row of rows) assert.equal(await r.waiting(row.id), null);
   const reader = readinessReader({ now: () => now, probes: probesOf(off()) });
   const missing = await reader.rows();
-  assert.ok(missing.every((r) => !r.ready && r.missing && r.fix));
+  assert.ok(missing.every((r) => !r.ready && r.missing && (r.fix || r.keyButton)));
   assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex implementing and reviewing wait on this; Codex share stays Off.', null, 'Reviewer DMs and digests wait on this.', 'Try builds wait on this.', 'Pushes wait on this.']);
   assert.equal(missing[0].fix.command, 'gh auth login');
   assert.equal(missing[1].fix.command, 'install codex');
-  assert.deepEqual(missing[2].fix, { settings: 'linear', label: 'Hub settings › Linear', text: 'Add one in' });
+  assert.deepEqual([missing[2].fix, missing[2].keyButton], [undefined, 'Add key']);
   assert.equal(missing[5].fix.settings, 'notifications');
   assert.equal(await reader.waiting('slack'), 'Reviewer DMs and digests wait on Slack: No Slack token set.');
   assert.equal(await reader.waiting('tailscale'), "Try builds wait on Tailscale: Tailscale isn't installed on the host.");
@@ -35,10 +35,11 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   assert.equal(await reader.waiting('linear'), null);
 });
 
-test('Slack is ready while Hub’s token is saved and Slack has not refused it, and its fix opens Hub settings › Slack', () => {
+test('Slack is ready while Hub’s token is saved and Slack has not refused it, and its button opens its key modal: Add key or Change key', () => {
   const row = (slack) => readinessRows({ slack })[0];
-  assert.deepEqual(row({ set: false }), { id: 'slack', name: 'Slack', ready: false, missing: 'No Slack token set', fix: { settings: 'slack', label: 'Hub settings › Slack', text: 'Add one in' }, waits: 'Reviewer DMs and digests wait on this.' });
-  assert.deepEqual([row({ set: true, refused: true, team: 'Acme', user: 'love' }).missing, row({ set: true, refused: true }).fix.text], ['Slack refused the token', 'Paste a new one in']);
+  assert.deepEqual(row({ set: false }), { id: 'slack', name: 'Slack', ready: false, missing: 'No Slack token set', keyButton: 'Add key', waits: 'Reviewer DMs and digests wait on this.' });
+  assert.deepEqual([row({ set: true, refused: true, team: 'Acme', user: 'love' }).missing, row({ set: true, refused: true }).keyButton], ['Slack refused the token', 'Change key']);
+  assert.equal(row({ set: true, team: 'Acme', user: 'love' }).keyButton, 'Change key');
   assert.equal(row({ set: true, team: 'Acme', user: 'love' }).detail, 'Token set · Acme workspace, sending as love');
 });
 
@@ -98,7 +99,7 @@ test('file-backed checks see changes immediately while gh and tailscale stay cac
   assert.ok((await r.rows()).every((r) => r.ready));
   write(path.join(state, 'secrets.json'), { linear: { key: 'secret', workspace: 'Office', refused_at: new Date(now).toISOString() }, slack });
   const refused = (await r.rows())[2];
-  assert.deepEqual([refused.ready, refused.missing, refused.fix.text], [false, 'Linear refused the key', 'Paste a new one in']);
+  assert.deepEqual([refused.ready, refused.missing, refused.keyButton], [false, 'Linear refused the key', 'Change key']);
   fs.rmSync(path.join(home, '.codex', 'auth.json'));
   write(path.join(state, 'secrets.json'), {});
   write(path.join(state, 'push', 'subs.json'), []);

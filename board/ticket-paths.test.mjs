@@ -46,8 +46,8 @@ const SOURCES = [
   ['linear', { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' }, /^ENG-\d+$/],
 ];
 const LINEAR = SOURCES[2][1];
-const NEEDS_KEY = 'Linear needs Hub’s Linear key; add it in Hub settings › Linear first, or pick GitHub issues or None.';
-const NO_KEY = 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub settings › Linear, or pick another ticket source.';
+const NEEDS_KEY = 'Linear needs Hub’s Linear key; add it in Hub › Integrations › Linear first, or pick GitHub issues or None.';
+const NO_KEY = 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub › Integrations › Linear, or pick another ticket source.';
 const NO_SOURCE = 'this board has no ticket source, so its cards stay tasks; pick GitHub issues or Linear in Board settings first';
 const OLD = { id: 'INT-1', title: 'Filed long ago', ticket: 'INT-1', lane: 'todo', lane_at: '2026-10-01T10:00:00.000Z' };
 

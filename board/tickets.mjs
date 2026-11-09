@@ -66,7 +66,7 @@ export async function resolveTicket(source, { ticket, title, body = '', repo }, 
   if (source.source === 'linear') {
     if (ticket !== undefined && !ticketIn(source, ticket)) refuse(`Ticket must match ${source.team}-<number>.`);
     const linear = savedClient({ fetch: linearFetch });
-    if (!linear) refuse('Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub settings › Linear, or pick another ticket source.');
+    if (!linear) refuse('Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub › Integrations › Linear, or pick another ticket source.');
     if (ticket === undefined) {
       const issue = await linearCall(() => linear.createIssue({ team: source.team, project: source.project, title, description: body }));
       return { ticket: issue.identifier, created: true };

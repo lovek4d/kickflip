@@ -1,6 +1,7 @@
 // The hub page, /_hub/, a view of the app shell (shell.js): a banner while pushes are held or snoozed, the Usage card with Claude model and Codex share, Needs you for the pending
 // prompts of sessions that own no board, Health, Integrations (readiness.mjs words), each site's health and board links,
-// then Keep awake, Linear and Slack inline, then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). A board's row can carry Restart (hub/restart-board.mjs), and
+// then hub settings summary rows ([hub settings open as modals](docs/adr/2026-11-01-1221-hub-settings-open-as-modals.md)). Health carries the Keep awake toggle, and Linear's and Slack's Integrations rows
+// a button that opens their key modal ([Linear and Slack keys open in modals from their Integrations rows](docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md)). A board's row can carry Restart (hub/restart-board.mjs), and
 // the Hub row Restart hub while the hub runs older code than its files. Health comes from GET /_hub/api/hub.
 // Its data refreshes every 30 seconds while it shows (hub-kit.js live).
 (function () {
@@ -43,13 +44,24 @@
     const mine = (() => { try { return localStorage.getItem('kickflip.push.id'); } catch { return null; } })();
     const deviceLine = (d) => `<span class="rd-device">${esc([d.kind, d.browser, `seen ${BoardUI.ago(d.added)}`].filter(Boolean).join(' · '))}${d.id === mine ? ' · <b>this device</b>' : ''} <button type="button" class="link" data-forget-device="${esc(d.id)}">Remove</button></span>`;
     const devices = (it) => it.devices?.length ? `<span class="links">${it.devices.map(deviceLine).join('')}</span>` : '';
-    const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : 'var(--color-notice)'), title: esc(it.name), wrap: true,
+    // Linear and Slack carry a key button instead of a fix, in both states.
+    const keyButton = (it) => it.keyButton ? `<button type="button" class="btn quiet" data-settings-open="${esc(it.id)}" aria-haspopup="dialog">${esc(it.keyButton)}</button>` : '';
+    const missingLinks = (it) => it.fix || it.waits
+      ? `<span class="links">${it.fix ? `<span class="rd-fix">${fixHtml(it.fix)}</span>` : ''}${it.waits ? `<span class="rd-waits">${esc(it.waits)}</span>` : ''}</span>` : '';
+    const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : 'var(--color-notice)'), title: esc(it.name), wrap: true, trail: keyButton(it),
       sub: it.ready ? `<span class="st ok">ready</span> · ${esc(it.detail)}${devices(it)}`
-        : `<span class="st wait">not ready</span> · ${esc(it.missing)}<span class="links"><span class="rd-fix">${fixHtml(it.fix)}</span>${it.waits ? `<span class="rd-waits">${esc(it.waits)}</span>` : ''}</span>` })).join('');
+        : `<span class="st wait">not ready</span> · ${esc(it.missing)}${missingLinks(it)}` })).join('');
     return `<h2 class="label" id="integrations">Integrations</h2><div class="group">${rows}</div>
 <p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>
 `;
   }
+
+  // Keep awake (docs/adr/2026-11-09-1200-keep-awake-is-a-toggle-that-holds-the-mac-awake-only-on-ac-power.md): grey while off, orange while on as the machine working
+  // (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md). Unchecked posts nothing, which the hub reads as off. Off macOS it says why instead of a toggle.
+  const AWAKE_NOTE = 'Runs <code>caffeinate -s</code> on the host so it doesn’t sleep while boards work, only while it is on AC power. On battery it holds nothing. The screen can still turn off.';
+  const awakeRow = (a) => a.unsupported
+    ? HubUI.row({ icon: HubUI.tile('coffee', 'var(--color-quiet)'), title: 'Keep awake', sub: esc(a.unsupported), wrap: true, attrs: ' id="keep-awake"' })
+    : `<form class="row field" id="keep-awake" method="post" action="/_hub/settings/keep-awake">${HubUI.tile('coffee', a.on ? 'var(--color-notice)' : 'var(--color-quiet)')}<label class="body"><span class="text"><span class="title">Keep awake</span><span class="sub wrap">${AWAKE_NOTE}</span></span><input type="checkbox" id="awake" name="keep_awake" value="on" class="toggle" data-submit${a.on ? ' checked' : ''}></label></form>`;
 
   // A pending prompt from a session that owns no board waits here (prompts.js).
   function promptsHtml(list, prompts) {
@@ -69,9 +81,10 @@
       ? `<button type="button" class="st ${esc(d.hub.tone)}" data-restart-hub${restartingHub ? BoardUI.BUSY : ''}>${esc(d.hub.word)}</button>`
       : `<span class="st ${esc(d.hub.tone)}">${esc(d.hub.word)}</span>`;
     return `${HubUI.flash(flash)}${HubUI.pauseBanner(d.pause)}${HubUI.holdBanner(d.hold)}${usage}${promptsHtml(d.prompts || [], prompts)}<h2 class="label"${usage ? '' : ' style="margin-top:4px"'}>Health</h2>
-<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `${word} ·${esc(d.hub.detail)}${d.awake ? `<span class="links"><span><span class="awake-on">Keeping awake</span></span></span>` : ''}`, wrap: true,
+<div class="group">${row({ icon: tile('power', { ok: '#22c55e', wait: '#f59e0b' }[d.hub.tone] || '#ef4444'), title: 'Hub', sub: `${word} ·${esc(d.hub.detail)}`, wrap: true,
     trail: d.hub.restart ? restartHubButton(restartingHub) : '' })}
 ${HubUI.machineRow(d.pause.machine)}
+${awakeRow(d.awake)}
 ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/kickflip &lt;route&gt;</code>.' }) : ''}</div>
 ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
   }
@@ -166,10 +179,13 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         if (restarter) restart(restarter.dataset.restart, restarter.dataset.title);
       });
       const foot = B.$('.hub-foot');
+      // A #keep-awake link scrolls to Health's Keep awake row once it is drawn.
+      let scrollToAwake = ctx.view?.hash === '#keep-awake';
       const paint = () => {
         if (!last) return;
         main.innerHTML = html(last, { flash, prompts, restarting, restartingHub });
         foot.innerHTML = footer(last);
+        if (scrollToAwake) { scrollToAwake = false; B.$('#keep-awake')?.scrollIntoView(); }
       };
       const prompts = PromptAnswers.wire(B, {
         list: () => last?.prompts || [],
@@ -178,7 +194,7 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         after: () => load(),
       });
       const forms = HubKit.forms(B, {
-        accepts: (action, form) => ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
+        accepts: (action, form) => ['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going', '/_hub/settings/keep-awake'].includes(action) || Boolean(form?.closest?.('.hold-banner')),
         answer(out, action) {
           if (['/_hub/settings/codex', '/_hub/settings/claude-model', '/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(action)) {
             last = out; flash = null; paint();

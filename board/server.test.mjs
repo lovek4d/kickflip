@@ -1541,12 +1541,12 @@ test("Board settings' Reviewers lists the workspace's Slack people, and says wha
   const people = async () => (await fetch(`${base}/api/reviewer-people`)).json();
   assert.deepEqual(await people(), { slack: [{ id: 'U3', name: 'Cy Doe' }, { id: 'U4', name: 'Di Poe' }], github: [] });
   slackWorldOf.missingScope = true;
-  try { assert.deepEqual(await people(), { slack: null, github: [], slackProblem: 'Slack needs the users:read scope; update the app on Hub settings › Slack.' }); }
+  try { assert.deepEqual(await people(), { slack: null, github: [], slackProblem: 'Slack needs the users:read scope; update the app on Hub › Integrations › Slack.' }); }
   finally { delete slackWorldOf.missingScope; }
   const secrets = path.join(home, '.claude', 'kickflip', 'secrets.json');
   const saved = fs.readFileSync(secrets);
   fs.rmSync(secrets);
-  try { assert.deepEqual(await people(), { slack: null, github: [], slackProblem: 'Slack needs Hub’s Slack token; add it in Hub settings › Slack first.' }); }
+  try { assert.deepEqual(await people(), { slack: null, github: [], slackProblem: 'Slack needs Hub’s Slack token; add it in Hub › Integrations › Slack first.' }); }
   finally { fs.writeFileSync(secrets, saved); }
 });
 

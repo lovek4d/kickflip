@@ -16,6 +16,8 @@ test('Keep awake is refused off macOS and says why', () => {
   assert.throws(() => setKeepAwake(true, { platform: 'linux' }), { status: 409, message: 'Keep awake runs caffeinate, macOS only · this host runs Linux.' });
 });
 
+const plainAwake = ({ awake }) => [awake.on, awake.unsupported];
+
 test('the hub runs caffeinate -s while Keep awake is on, stops it when turned off, starts it again after a restart, and carries only a saved forever over as on', { skip: process.platform !== 'darwin' }, async (t) => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hub-awake-')));
   const web = path.join(home, '.claude', 'kickflip');
@@ -70,20 +72,21 @@ test('the hub runs caffeinate -s while Keep awake is on, stops it when turned of
   const stopped = (pid) => until(() => lines().includes(`stop ${pid}`), `caffeinate ${pid} stopped`);
 
   await startHub();
-  assert.equal((await (await fetch(`${base}/_hub/api/settings`)).json()).awake.summary, 'Off');
+  assert.deepEqual(plainAwake(await (await fetch(`${base}/_hub/api/hub`)).json()), [false, null]);
   assert.deepEqual(lines(), []);
 
   const [status, on] = await post('on');
   assert.equal(status, 200);
-  assert.equal(on.awake.summary, 'On');
+  assert.equal(on.awake, undefined);
+  assert.deepEqual(plainAwake(await (await fetch(`${base}/_hub/api/hub`)).json()), [true, null]);
   const first = await started(1);
   assert.equal(saved(), true);
-  assert.equal((await (await fetch(`${base}/_hub/api/hub`)).json()).awake, true);
   assert.equal((await post('on'))[0], 200);
   assert.equal(lines().filter((l) => l.startsWith('start ')).length, 1);
 
   const [, off] = await post('off');
-  assert.equal(off.awake.summary, 'Off');
+  assert.equal(off.awake, undefined);
+  assert.deepEqual(plainAwake(await (await fetch(`${base}/_hub/api/hub`)).json()), [false, null]);
   await stopped(first);
   assert.equal(saved(), undefined);
 

@@ -59,7 +59,7 @@ const hasReviewers = (board) => {
 // One fault push for each time Slack refuses the token while a board has reviewers, so no send waits unseen.
 async function pushRefusal(boards, now) {
   if (!refusalUnpushed() || !boards.some(hasReviewers)) return [];
-  await deliver({ title: 'Slack refused Hub’s token', body: 'Reviewer links, reactions and digests wait until a working token is saved in Hub settings › Slack.', url: '/_hub/settings#slack', tag: 'slack-token' }, { kind: 'fault', immediate: true, at: now });
+  await deliver({ title: 'Slack refused Hub’s token', body: 'Reviewer links, reactions and digests wait until a working token is saved in Hub › Integrations › Slack.', url: '/_hub/settings#slack', tag: 'slack-token' }, { kind: 'fault', immediate: true, at: now });
   markRefusalPushed();
   return ['pushed that Slack refused the token'];
 }

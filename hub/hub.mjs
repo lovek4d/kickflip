@@ -827,7 +827,7 @@ async function hubData(req) {
   return {
     ...hubView({
       now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-      code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: awakeOn(),
+      code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
     prompts: pendingFor(null).map(shown),
@@ -836,10 +836,9 @@ async function hubData(req) {
 }
 const settingsData = async () => {
   const now = new Date();
-  const awake = { on: awakeOn(), unsupported: awakeUnsupported() };
   const gate = readUsageGate({ now });
   const pausedUntil = gate.manual === 'hub' ? endOf(gate.resets_at, now) : null;
-  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), awake, pausedUntil }), closed: closedBoards() };
+  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil }), closed: closedBoards() };
 };
 
 const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };

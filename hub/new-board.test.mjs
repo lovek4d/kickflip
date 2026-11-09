@@ -367,7 +367,7 @@ test("a New board on Linear's New project… creates that project in its team on
   assert.deepEqual(readManifest().starting['fresh-board'].tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'proj-101' });
   const before = readManifest();
   for (const asked of [tickets, { source: 'linear', workspace: 'acme', team: 'OPS', project: 'proj-101' }]) {
-    await assert.rejects(requestBoard({ ...input('No key'), tickets: asked }, { run, live, repos }), { status: 400, message: 'Linear needs Hub’s Linear key; add it in Hub settings › Linear first, or pick GitHub issues or None.' });
+    await assert.rejects(requestBoard({ ...input('No key'), tickets: asked }, { run, live, repos }), { status: 400, message: 'Linear needs Hub’s Linear key; add it in Hub › Integrations › Linear first, or pick GitHub issues or None.' });
   }
   assert.deepEqual(readManifest(), before);
 });

@@ -111,7 +111,7 @@ export function slackStatus(home) {
   if (!saved) return { set: false };
   return { set: true, ...(saved.refused_at ? { refused: true } : {}), ...(saved.team ? { team: saved.team, user: saved.user } : {}) };
 }
-export const SLACK_NEEDS_TOKEN = 'Slack needs Hub’s Slack token; add it in Hub settings › Slack first.';
+export const SLACK_NEEDS_TOKEN = 'Slack needs Hub’s Slack token; add it in Hub › Integrations › Slack first.';
 
 // Checks the token with auth.test and saves it, as refused when Slack refuses it. Any other failure saves nothing.
 // Only a user token (xoxp-) sends as the owner in the owner's DMs. → slackStatus()

@@ -1,6 +1,8 @@
 ---
-status: accepted
+status: superseded
 ---
+
+Superseded by [Linear and Slack keys open in modals from their Integrations rows](2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md).
 
 # Keep awake, Linear and Slack sit inline on the Hub page
 

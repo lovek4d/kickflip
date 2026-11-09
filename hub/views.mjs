@@ -70,11 +70,11 @@ const claudeView = (model) => ({
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
 // hubHealth), and hub.restart is true while it does, for the Hub row's Restart hub; rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
 // (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
-// codex: a shared/codex.mjs codexStatus; awake: awake.mjs awakeOn, which the Health row's Keeping awake shows.
+// codex: a shared/codex.mjs codexStatus; awake: {on: awake.mjs awakeOn, unsupported: awake.mjs awakeUnsupported}, which Health's Keep awake row shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = null }) {
+export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null } }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';
@@ -84,7 +84,7 @@ export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, 
     .filter(([, list]) => list.length).map(([label, list]) => ({ label, sites: list.map(site) }));
   return {
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}`, restart: !current },
-    awake: Boolean(awake),
+    awake,
     groups,
     integrations,
     usage: sidebar.usage,
@@ -114,12 +114,10 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/2026-10-29-1639-notifications-can-be-off-snoozed-or-off-on-weekends.md),
 // quiet hours, hub rules and the Linear key, of which only whether it is set, whether Linear refused it and
 // its workspace are shown (linear.mjs linearStatus; docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md),
-// and Keep awake, an on/off toggle (docs/adr/2026-11-09-1200-keep-awake-is-a-toggle-that-holds-the-mac-awake-only-on-ac-power.md).
-// Snooze's choices are null while notifications are off. awake is
-// {on: awake.mjs awakeOn, unsupported: awake.mjs awakeUnsupported}.
+// Snooze's choices are null while notifications are off. Keep awake's toggle (docs/adr/2026-11-09-1200-keep-awake-is-a-toggle-that-holds-the-mac-awake-only-on-ac-power.md) is hubView's awake.
 // pausedUntil is Pause hub's end, a Date or FOREVER, or null while it is off
 // (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): its picker is the snooze picker's.
-export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, awake = { on: false, unsupported: null }, pausedUntil = null }) {
+export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, pausedUntil = null }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
@@ -136,11 +134,6 @@ export function settingsView({ now, st, rules = [], linear = { set: false }, sla
       confirm: `Turn off notifications? Every push is dropped until you turn them back on, urgent ones too.${queued} Needs you and the badge still update.`,
     },
     snooze: n.on && !until ? { choices: durationChoices(now, SNOOZE_FOREVER) } : null,
-    awake: {
-      unsupported: awake.unsupported,
-      on: awake.on,
-      summary: awake.unsupported || (awake.on ? 'On' : 'Off'),
-    },
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(s.quiet.start)} until Monday ${timeOfDay(s.quiet.end)}. Urgent ones still go.` },
     quiet: quietView(s, now),
     rules,

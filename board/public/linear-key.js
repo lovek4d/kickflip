@@ -1,4 +1,4 @@
-// Hub's token slots: Linear's key and Slack's user token. Hub settings › Linear and › Slack mount them, and the Tickets
+// Hub's token slots: Linear's key and Slack's user token. The Hub settings modals for Linear and Slack mount them, and the Tickets
 // control (dialogs.js) opens Linear's over Board settings or New board when Linear is tapped without a working key
 // (docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). A token saves on paste, change or Enter
 // through POST /_hub/settings/<kind>, which checks it with the service; state is hub/views.mjs settingsView's `<kind>`.

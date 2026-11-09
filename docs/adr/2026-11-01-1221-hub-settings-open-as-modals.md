@@ -4,7 +4,7 @@ status: superseded in part by 2026-11-09-2152-keep-awake-linear-and-slack-sit-in
 
 # Hub settings open as modals
 
-Superseded in part by [Keep awake, Linear and Slack sit inline on the Hub page](2026-11-09-2152-keep-awake-linear-and-slack-sit-inline-on-the-hub-page.md): those three leave the modal list and sit at the page's root.
+Superseded in part by [Linear and Slack keys open in modals from their Integrations rows](2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md): Keep awake leaves the modal list for a toggle row in Health, and Linear and Slack keep their modals but open from their Integrations rows, with no summary rows.
 
 Superseded in part by [snooze is five chips in Notifications](2026-11-01-1256-snooze-is-five-chips-in-notifications.md): Snooze stays inline in Notifications instead of opening a sheet over its modal. The settings modals below still hold.
 

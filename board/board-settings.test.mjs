@@ -157,7 +157,7 @@ test("a board still on Linear after Hub's key went refuses new tickets and links
   assert.equal(item('B2').ticket, 'ENG-101');
   const calls = linear.calls.length;
   write(at('kickflip', 'secrets.json'), {});
-  const noKey = 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub settings › Linear, or pick another ticket source.';
+  const noKey = 'Hub has no Linear key, so this board can’t create Linear tickets; add it in Hub › Integrations › Linear, or pick another ticket source.';
   const waveFile = site('audit', 'data', 'items.json');
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });

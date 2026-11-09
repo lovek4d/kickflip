@@ -803,7 +803,7 @@ async function reviewerPeople() {
   else if (slackAnswer.status === 'fulfilled') out.slack = slackAnswer.value;
   else {
     const e = slackAnswer.reason;
-    out.slackProblem = e.message === 'Slack: missing_scope' ? 'Slack needs the users:read scope; update the app on Hub settings › Slack.' : e.message;
+    out.slackProblem = e.message === 'Slack: missing_scope' ? 'Slack needs the users:read scope; update the app on Hub › Integrations › Slack.' : e.message;
   }
   if (githubAnswer.status === 'fulfilled') out.github = githubAnswer.value;
   else out.githubProblem = `GitHub: ${githubAnswer.reason.message}`;

@@ -9,7 +9,8 @@ import { readSettings, subscriptions } from './push.mjs';
 import { tailscaleState } from '../bin/install.mjs';
 import { tailscaleBin, tailscaleInstallCommand } from '../shared/tailscale.mjs';
 
-// The third entry is the sentence a missing integration shows, or null for a row that shows none.
+// The third entry is the sentence a missing integration shows, or null for a row that shows none. Linear and Slack rows carry keyButton, the words of the
+// button that opens their key modal on the Hub page, in every state (docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md).
 const INTEGRATIONS = [
   ['github', 'GitHub', 'GitHub polling and PR reports wait on this.'],
   ['codex', 'Codex', 'Codex implementing and reviewing wait on this; Codex share stays Off.'],
@@ -27,12 +28,12 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
         : { ready: false, missing: "gh isn't logged in on the host", fix: { command: 'gh auth login' } };
       case 'codex': return value.usable ? { ready: true, detail: 'Installed and logged in' }
         : { ready: false, missing: value.words, fix: { command: value.fix } };
-      case 'linear': return !value.set ? { ready: false, missing: 'No Linear key set', fix: settingsFix('linear', 'Linear', 'Add one in') }
-        : value.refused ? { ready: false, missing: 'Linear refused the key', fix: settingsFix('linear', 'Linear', 'Paste a new one in') }
-        : { ready: true, detail: `Key set · ${value.workspace} workspace` };
-      case 'slack': return !value.set ? { ready: false, missing: 'No Slack token set', fix: settingsFix('slack', 'Slack', 'Add one in') }
-        : value.refused ? { ready: false, missing: 'Slack refused the token', fix: settingsFix('slack', 'Slack', 'Paste a new one in') }
-        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}` };
+      case 'linear': return !value.set ? { ready: false, missing: 'No Linear key set', keyButton: 'Add key' }
+        : value.refused ? { ready: false, missing: 'Linear refused the key', keyButton: 'Change key' }
+        : { ready: true, detail: `Key set · ${value.workspace} workspace`, keyButton: 'Change key' };
+      case 'slack': return !value.set ? { ready: false, missing: 'No Slack token set', keyButton: 'Add key' }
+        : value.refused ? { ready: false, missing: 'Slack refused the token', keyButton: 'Change key' }
+        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Change key' };
       case 'tailscale': {
         let missing, command;
         if (!value.installed) { missing = "Tailscale isn't installed on the host"; command = tailscaleInstallCommand(platform); }
