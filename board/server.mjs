@@ -1613,7 +1613,7 @@ async function handOff(started) {
 }
 
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-// Each card domain.mjs arrivalsOf lists gets a planner, with a thread line saying why: a prototype for a card filed
+// Each card domain.mjs arrivalsOf lists gets a planner, its own status line showing it: a prototype for a card filed
 // prototyping, the owner having asked for one, a grill for any other. Its open record keeps it off the list from then
 // on, so the cached board is dropped, as handOff does, before the next pass reads it.
 async function launchArrivals(cards) {
@@ -1621,20 +1621,18 @@ async function launchArrivals(cards) {
     if (launchHeldNow()) return;
     const kind = phase === 'prototyping' ? 'prototype' : 'grill';
     logCall({ call: 'arrival-planner', key, result: kind, reason: phase === 'prototyping' ? 'It landed in Todo filed prototyping.' : 'It landed in Todo, not filed prototyping.', inputs: { phase } });
-    await appendThread(here, key, { text: `Landed in Todo, so the board started its ${kind}.` });
     await launchPlanner(key, kind);
     dataVersion++;
   }
 }
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
-// Each card the orchestrator sent back from staging or ready (domain.mjs roundsDue) gets that round's planner, with a
-// thread line saying so; its record keeps it off the list from then on.
+// Each card the orchestrator sent back from staging or ready (domain.mjs roundsDue) gets that round's planner; its
+// record keeps it off the list from then on.
 async function launchRounds(cards) {
   for (const { key, kind } of cards) {
     if (launchHeldNow()) return;
     logCall({ call: 'round-planner', key, result: kind, reason: 'It was sent back from staging or ready for another round.', inputs: { kind } });
-    await appendThread(here, key, { text: `Back to ${kind === 'grill' ? 'grilling' : 'prototyping'}, so the board started its ${kind}.` });
     await launchPlanner(key, kind);
     dataVersion++;
   }

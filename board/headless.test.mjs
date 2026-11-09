@@ -615,7 +615,7 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
   }
   const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
   const events = () => (fs.existsSync(path.join(data, 'events.jsonl')) ? fs.readFileSync(path.join(data, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).kind) : []);
-  const thread = (id) => fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
+  const thread = (id) => (fs.existsSync(path.join(data, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse) : []);
   const record = (id) => JSON.parse(fs.readFileSync(path.join(data, 'agents', `${id}.json`), 'utf8'));
   const item = (id) => JSON.parse(fs.readFileSync(path.join(data, 'wave.json'), 'utf8')).items.find((i) => i.id === id);
   async function start({ fastMinute = false } = {}) {
@@ -661,7 +661,7 @@ test("the server launches a planner for the owner's Grill and Prototype taps and
     await until(() => b.runs().length === 3, 'the arrival launches a grill');
     assert.match(b.runs()[2].argv[1], /builder start t\/Q1 --kind grill/);
     await until(() => b.record('Q1').session?.log, 'the launch records the run');
-    assert.deepEqual(b.thread('Q1').map((t) => t.text), ['Landed in Todo, so the board started its grill.']);
+    assert.deepEqual(b.thread('Q1'), [], 'the arrival posts no thread line of its own');
     assert.ok(!b.events().includes('card-plan'), 'the grill wakes no session');
     // A tap while the card's planner is open launches nothing more.
     await send('grill-more', { key: 't/Q1' });

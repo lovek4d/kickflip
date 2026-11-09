@@ -322,7 +322,7 @@ test('with auto implement on the board starts and launches the build of the top 
   assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6', 't/A7']);
   assert.deepEqual(['A1', 'A2', 'A3'].map(thread), [[], [], []]);
   // The follow-up, filed with no phase, is no pull but arrived in Todo, so it got its grill.
-  assert.deepEqual(thread('F1').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.']);
+  assert.deepEqual(thread('F1'), [], 'the arrival posts no thread line of its own');
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
@@ -353,8 +353,7 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   await boardListening(worker);
   await until(() => launched('grill').length === 1, 'the round sent back from staging launches');
   assert.deepEqual(launched('grill'), ['t/G1']);
-  const thread = fs.readFileSync(path.join(dataDir, 'threads', 't__G1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l).text);
-  assert.equal(thread[0], 'Back to grilling, so the board started its grill.');
+  assert.ok(!fs.existsSync(path.join(dataDir, 'threads', 't__G1.jsonl')), 'the round posts no thread line of its own');
   const q1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1');
   assert.deepEqual([q1.phase, q1.staged_at, q1.implement_at], ['staging', iso(now - 60000), undefined]);
   assert.deepEqual(launched('claude', 'codex', 'prototype'), [], 'a staging card starts nothing');
@@ -573,11 +572,11 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   const grills = () => fs.readFileSync(path.join(dir, 'launches.log'), 'utf8').split('\n').filter((l) => l.endsWith(' grill')).length;
   assert.deepEqual(launched('grill', 'prototype', 'build'), [], 'nothing launches while usage is paused');
   fs.rmSync(usageFile);
-  await until(() => launched('grill').length === 2 && launched('build').length === 1 && thread('B3').length === 1, 'the arrivals get their grills');
+  await until(() => launched('grill').length === 2 && launched('build').length === 1 && fs.existsSync(agentFile('B3')), 'the arrivals get their grills');
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being oldest first');
   assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
   assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
-  assert.deepEqual(thread('B3').map((t) => t.replace(/ in \/.*/, '')), ['Landed in Todo, so the board started its grill.']);
+  assert.deepEqual(thread('B3'), [], 'the arrival posts no thread line of its own');
   const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
   assert.deepEqual([record.kind, record.dispatched], ['grill', 'hub']);
   await stop();
@@ -594,7 +593,7 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
   assert.deepEqual(launched('prototype'), ['t/B2']);
   assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);
-  assert.deepEqual(thread('B2')[0], 'Landed in Todo, so the board started its prototype.');
+  assert.deepEqual(thread('B2'), [], 'the arrival posts no thread line of its own');
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
   const arrivals = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.call === 'arrival-planner');
   assert.deepEqual(arrivals.map((e) => [e.key, e.result, e.reason, e.inputs.phase]).sort(), [
