@@ -738,6 +738,16 @@ test('a question card marks the recommended option', () => {
   assert.match(text(ui.questionCard(question)), /Keep <it>\?/);
 });
 
+// docs/adr/2026-11-09-1500-a-questions-descriptions-are-markdown-and-its-text-is-one-brief-line.md
+test("a question's context and an option's detail draw as markdown, its text stays plain", () => {
+  const md = { ...question, question: 'Use **it**?', context: 'Why:\n\n- one\n- two\n\n## Head', options: [{ id: 'A', label: 'Keep', detail: 'Use `x` and **bold**' }] };
+  const html = ui.questionCard(md);
+  assert.match(html, /<div class="ctx"><p>Why:<\/p>\s*<ul><li>one<\/li>/);
+  assert.match(html, /<div class="det">.*<code>x<\/code>.*<strong>bold<\/strong>/);
+  assert.match(html, /<h3>Use \*\*it\*\*\?<\/h3>/);
+  assert.match(ui.questionCard({ ...md, state: 'resolved', answers: [] }), /<div class="ctx"><p>Why:<\/p>/);
+});
+
 // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
 test('a question card pre-checks its suggested option, with a blue Orchestrator choice line under its label giving the reason, else the earlier answer it came from', () => {
   const suggested = { ...question, suggested: { option: 'A', card: '#186', answer: 'Keep, nothing floats over a question.' } };

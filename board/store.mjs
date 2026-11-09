@@ -19,7 +19,7 @@ import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { merge3 } from './merge3.mjs';
-import { HUB, MESSAGE_LIMIT, hubLineOf, hubText } from './hub-lines.mjs';
+import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText } from './hub-lines.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
@@ -1338,6 +1338,7 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
     else if (q.topic.startsWith('file:')) await triagedFile(site, q.topic.slice(5));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
     text(q.question, `${name}.question`);
+    if (q.question.length > BRIEF_LINE_LIMIT) fail(`${name}.question runs to ${q.question.length} characters, past ${BRIEF_LINE_LIMIT}; keep the question to one line and move the detail into context or the option details, which take markdown`);
     for (const k of ['source', 'context']) optional(q[k], (v) => text(v, `${name}.${k}`));
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));

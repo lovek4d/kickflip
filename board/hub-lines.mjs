@@ -4,13 +4,13 @@
 // appendStatus writes them, and appendMessage the orchestrator's own words. A fault line is red, counts as unread and
 // freshens the queued push; every other one is quiet.
 //
-// A status line holds at most STATUS_LIMIT characters and a message at most MESSAGE_LIMIT; the store refuses longer
+// A status line, like a question's text, holds at most BRIEF_LINE_LIMIT characters and a message at most MESSAGE_LIMIT; the store refuses longer
 // ones. Each kind's longest names the most its bounded inputs can hold (a planner kind, a card's ref); any other input,
 // such as an error or a title, is unbounded, so the words fit it into the line's room (fit). hub-lines.test.mjs runs
 // every kind at those lengths.
 import os from 'node:os';
 
-export const STATUS_LIMIT = 100;
+export const BRIEF_LINE_LIMIT = 100;
 export const MESSAGE_LIMIT = 2000;
 
 // prefix, then as much of free as fits in the room suffix leaves. free's paths read from ~ in place of the home folder,
@@ -18,7 +18,7 @@ export const MESSAGE_LIMIT = 2000;
 // takes the place of a full stop leading suffix.
 const PATH = /(?:~|\/)[^\s:;,()'"]*\/([^\s:;,()'"/]+)/g;
 export function fit(prefix, free, suffix = '') {
-  const room = STATUS_LIMIT - prefix.length - suffix.length;
+  const room = BRIEF_LINE_LIMIT - prefix.length - suffix.length;
   let words = String(free ?? '').split(os.homedir()).join('~').replace(/\s+/g, ' ').trim();
   if (words.length > room) words = words.replace(PATH, '…/$1');
   if (words.length <= room) return prefix + words + suffix;
@@ -92,12 +92,12 @@ export const HUB_LINES = {
   'check-broken': { mark: FAULT, fault: true, text: ({ error }) => fit("The owner step's check can't run, so it stopped: ", error) },
   'run-failed': { mark: FAULT, fault: true, text: ({ kind, code, why }) => fit(`${kind} failed (exit ${code})`, why ? `: ${why}` : ''), longest: { kind: 'Serve', code: 255 } },
 };
-// A kind's words from its inputs, refused when the kind is unknown or the words run past STATUS_LIMIT.
+// A kind's words from its inputs, refused when the kind is unknown or the words run past BRIEF_LINE_LIMIT.
 export function hubText(line, inputs = {}) {
   const kind = HUB_LINES[line];
   if (!kind) throw new Error(`no status line kind "${line}"`);
   const words = kind.text(inputs);
-  if (!words || words.length > STATUS_LIMIT) throw new Error(`the "${line}" status line runs to ${words.length} characters, past ${STATUS_LIMIT}: ${words}`);
+  if (!words || words.length > BRIEF_LINE_LIMIT) throw new Error(`the "${line}" status line runs to ${words.length} characters, past ${BRIEF_LINE_LIMIT}: ${words}`);
   return words;
 }
 // A stored line's mark and fault from its kind; a kind no longer in the table draws no mark.

@@ -640,6 +640,15 @@ main > * { transition: opacity .25s ease; }
 .view-questions .opt .lbl { font-weight: 600; }
 .view-questions .opt .rec { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
 .view-questions .opt .det { color: var(--muted); font-size: 13px; }
+/* A question's context and an option's detail take markdown at body size: headings drawn as bold lines, blocks tight
+   (docs/adr/2026-11-09-1500-a-questions-descriptions-are-markdown-and-its-text-is-one-brief-line.md). */
+:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) { overflow-wrap: anywhere; }
+:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) :is(p, ul, ol, blockquote, pre, table) { margin: 0 0 6px; }
+:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: 600; margin: 6px 0 2px; }
+:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) :is(ul, ol) { padding-left: 18px; }
+:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) :is(pre, code) { white-space: pre-wrap; font-size: 12px; }
+:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) table { display: block; overflow-x: auto; }
+:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) > :last-child { margin-bottom: 0; }
 .view-questions .opt .suggested-why { margin-top: 4px; color: var(--color-info); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
 .view-questions .note { margin-top: 4px; }
 .view-questions .ans { background: var(--accent-soft); border-radius: 9px; padding: 7px 10px; margin-top: 8px; font-size: 13px; }
@@ -933,7 +942,7 @@ button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentCo
 .deck-opts button.rec { border-color: var(--accent); }
 .deck-opts button.armed { background: var(--color-notice); border-color: var(--color-notice); color: #000; font-weight: 600; }
 .deck-opts .rec-word { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
-.deck-opts small { display: block; color: var(--muted); font-size: 12.5px; }
+.deck-opts .det { color: var(--muted); font-size: 12.5px; font-weight: 400; }
 .deck-prompt { margin: 0; padding: 0; list-style: none; }
 .deck-prompt li.prompt { padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .deck-acts { display: flex; flex-wrap: wrap; gap: 8px; }

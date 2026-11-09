@@ -1,12 +1,14 @@
 // Owner questions, for Waiting on you (view-questions.js). Needs ui.js and ui-links.js.
 (function () {
   const { esc, escText, time, ago, replyBody, attachments, dropZone, protoButton, linkText, linkHtml, badge, opensHere, LINK_ARROW } = globalThis.BoardUI;
+  // ui-markdown.js loads after this file, so markdown is looked up when a question draws.
+  const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
   // A short id such as A or C2 leads the label; a word id such as "inline" would repeat it.
   const lead = (o) => (/^[A-Z][0-9]?$/i.test(o.id) ? `${o.id}. ` : '');
   const choiceLabel = (q, id) => { const o = q.options.find((x) => x.id === id); return o ? `${q.multi ? '' : lead(o)}${o.label}` : id || ''; };
   // suggested: the orchestrator's blue line under a suggested option's label, as HTML.
-  const option = (o, { type = 'radio', name, checked = false, numbered = true, locked = false, suggested = '' }) => `<label class="opt"><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
-        <span><span class="lbl">${numbered ? escText(lead(o)) : ''}${escText(o.label)}</span>${o.recommended ? '<span class="rec">recommended</span>' : ''}${suggested ? `<div class="suggested-why">Orchestrator choice: ${suggested}</div>` : ''}<div class="det">${escText(o.detail || '')}</div></span></label>`;
+  const option = (o, { type = 'radio', name, checked = false, numbered = true, locked = false, suggested = '', links = {} }) => `<label class="opt"><input type="${type}" name="${esc(name)}" value="${esc(o.id)}" ${checked ? 'checked' : ''}${locked ? ' disabled' : ''}>
+        <span><span class="lbl">${numbered ? escText(lead(o)) : ''}${escText(o.label)}</span>${o.recommended ? '<span class="rec">recommended</span>' : ''}${suggested ? `<div class="suggested-why">Orchestrator choice: ${suggested}</div>` : ''}<div class="det">${o.detail ? markdown(o.detail, links) : ''}</div></span></label>`;
   // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.
@@ -83,7 +85,7 @@
 
   function takes(q, chosen, links, locked = false) {
     const name = 'c-' + q.id;
-    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })}${o.diagram ? diagram(o.diagram) + practice(o.practice || [], links) : ''}</article>`).join('')}</div>`;
+    return `<div class="takes">${q.options.map((o) => `<article class="take" data-opt="${esc(o.id)}">${option(o, { name, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links), links })}${o.diagram ? diagram(o.diagram) + practice(o.practice || [], links) : ''}</article>`).join('')}</div>`;
   }
   // A confirm says why it is asked; its View prototypes opens the viewer on its one take (?variant=).
   const confirmLine = (q) => q.confirm_of && q.state === 'open' ? `<div class="pr-rule">${RULE_ICON}A pick with a note gets a one-take confirm once Claude has updated the take.</div>` : '';
@@ -102,10 +104,10 @@
       <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge('ready', '✓ Resolved', { button: true, title: 'Reopen this question', attrs: { type: 'button', 'data-reopen': q.id } })}</div>
       <h3>${linkText(q.question, links)}</h3>
       ${q.answers.length ? '<div class="sent-line">Sent. Tap Resolved to reopen it.</div>' : ''}
-      ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
+      ${q.context ? `<div class="ctx">${markdown(q.context, links)}</div>` : ''}
       ${questionLink(q.url)}
       ${outcome || acted ? `<div class="small muted resolved-line">${outcome}${acted}</div>` : ''}
-      ${q.options.map((o) => option(o, { name: 'c-' + q.id, checked: last?.choice === o.id, locked: true })).join('')}
+      ${q.options.map((o) => option(o, { name: 'c-' + q.id, checked: last?.choice === o.id, locked: true, links })).join('')}
       ${said}
       ${q.reask ? '<div class="small muted reask-line">re-ask requested</div>' : ''}
     </section>`;
@@ -121,10 +123,10 @@
     return `<section class="q${q.urgent && q.state === 'open' ? ' urgent' : ''}${locked ? ' pr-busy' : ''}" id="${esc(q.id)}" data-q="${esc(q.id)}">
       <div class="row" style="margin:0"><span class="muted small">${n ? n + '. ' : ''}${esc(q.source || '')}</span>${badge(QUESTION_STATE[q.state].tone, QUESTION_STATE[q.state].label)}</div>
       <h3>${linkText(q.question, links)}</h3>
-      ${q.context ? `<div class="ctx">${linkText(q.context, links)}</div>` : ''}
+      ${q.context ? `<div class="ctx">${markdown(q.context, links)}</div>` : ''}
       ${questionLink(q.confirm_of && isPrototype(q.url) ? withParam(q.url, 'variant', q.options[0].id) : q.url)}
       ${confirmLine(q)}
-      ${drawn(q) ? takes(q, chosen, links, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links) })).join('')}
+      ${drawn(q) ? takes(q, chosen, links, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links), links })).join('')}
       ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, noteOf(q, draft))}
       ${answerHistory(q, links)}
     </section>`;

@@ -7,6 +7,7 @@
 // the board's CLI. A builder finishes its own work with builder done (finish.mjs), resolving any rebase conflict itself;
 // only judgment calls and deferred asks go to the session.
 import os from 'node:os';
+import { BRIEF_LINE_LIMIT } from './hub-lines.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchAgent } from './agents.mjs';
@@ -155,7 +156,7 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
     ...(text ? [`   The owner asked for this ${grill ? 'grill' : 'prototype'}, writing: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     ...(question ? [`   The owner asked for prototypes of question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`] : []),
-    `5. Record what you learned in the card's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it. Anything you leave open becomes a question with question add, never only a line in the notes, so the card can't go ready past it.`,
+    `5. Record what you learned in the card's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it. Anything you leave open becomes a question with question add, never only a line in the notes, so the card can't go ready past it. A question's text is one line of at most ${BRIEF_LINE_LIMIT} characters (question add refuses a longer one); put the detail in its context and the options' details, which take markdown.`,
     ...(grill ? [
       `6. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end the card \`${b} item set ${key} --phase prototyping\` instead and skip the prototype question. Otherwise the prototype question is what moves the card on: never set it ready yourself, and never leave a Next that asks the owner to mark it ready.`,
     ] : []),

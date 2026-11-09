@@ -135,6 +135,14 @@ test('question resolve refuses a question the owner asked a prototype of; the ro
   assert.equal(read(site('orch', 'data', 'owner.json')).items[0].resolved, 'Followed by prototype round 1');
 });
 
+test('question add refuses a question text past the briefLine limit, naming its length, and takes one at the limit', () => {
+  const add = (text) => { write(path.join(home, 'long.json'), question('q9', { question: text })); return board('question', 'add', '--site', 'orch', '--file', path.join(home, 'long.json')); };
+  const refused = add('x'.repeat(101));
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /question q9\.question runs to 101 characters, past 100; .*context/);
+  assert.equal(add('x'.repeat(100)).code, 0);
+});
+
 test('question add with round_of starts the next prototype round on the question it answers, resolving that one as followed by the round', () => {
   recordPrototype();
   recordPrototype('next');

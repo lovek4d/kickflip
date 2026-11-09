@@ -15,7 +15,7 @@
 // Needs app-core.js.
 BoardView.part((B) => {
   const { $, plural, state, toast } = B;
-  const { esc, escText, promptItem, choiceLabel, isPrototype, getDraft, setDraft, noteOf, waitOn } = BoardUI;
+  const { esc, escText, markdown, promptItem, choiceLabel, isPrototype, getDraft, setDraft, noteOf, waitOn } = BoardUI;
 
   const prompts = PromptAnswers.wire(B, {
     list: () => (state.board?.needs || []).filter((line) => line.prompt).map((line) => line.prompt),
@@ -65,6 +65,7 @@ BoardView.part((B) => {
   // order; any other line as itself. → [{id, what, html}]
   function deckOf(d, needs) {
     const items = d.items || [];
+    const links = BoardUI.linkContext(items);
     const owner = (d.owner || []).filter((q) => q.state === 'open');
     const topicOf = (line) => line.topic || items.find((it) => it.key === line.key)?.questions?.topic || null;
     return needs.flatMap((line) => {
@@ -73,7 +74,7 @@ BoardView.part((B) => {
       const topic = line.questions && topicOf(line);
       const order = (d.ownerTopics || []).find((t) => t.id === topic)?.questions || [];
       const asks = topic ? owner.filter((q) => q.topic === topic).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)) : [];
-      if (asks.length) return asks.map((q) => ({ id: `q:${q.id}`, what, html: questionHtml(q) }));
+      if (asks.length) return asks.map((q) => ({ id: `q:${q.id}`, what, html: questionHtml(q, links) }));
       const [label, href, attrs] = line.questions ? [`Answer ${plural(line.questions.open, 'question')}`, line.questions.url, '']
         : line.ready ? ['Ready on GitHub', line.ready, ' target="_blank" rel="noopener"']
         : line.action ? [line.action.label, line.action.url, '']
@@ -85,14 +86,14 @@ BoardView.part((B) => {
     });
   }
   // The marked option, the question's drafted pick, reads Send “<label>”.
-  const questionHtml = (q) => {
+  const questionHtml = (q, links) => {
     const marked = getDraft(q.id).choice;
     const optionHtml = (o) => {
       const armed = o.id === marked;
       const label = armed ? `Send “${esc(o.label)}”` : `${esc(choiceLabel(q, o.id))}${o.recommended ? ' <span class="rec-word">recommended</span>' : ''}`;
-      return `<button type="button" class="${[o.recommended && 'rec', armed && 'armed'].filter(Boolean).join(' ')}" aria-pressed="${armed}" data-deck-pick="${esc(o.id)}"><span class="lbl">${label}</span>${o.detail ? `<small>${escText(o.detail)}</small>` : ''}</button>`;
+      return `<button type="button" class="${[o.recommended && 'rec', armed && 'armed'].filter(Boolean).join(' ')}" aria-pressed="${armed}" data-deck-pick="${esc(o.id)}"><span class="lbl">${label}</span>${o.detail ? `<div class="det">${markdown(o.detail, links)}</div>` : ''}</button>`;
     };
-    return `<h3>${escText(q.question)}</h3>${q.context ? `<p class="ctx">${escText(q.context)}</p>` : ''}
+    return `<h3>${escText(q.question)}</h3>${q.context ? `<div class="ctx">${markdown(q.context, links)}</div>` : ''}
     ${isPrototype(q.url) ? `<a class="button deck-proto" href="${esc(q.url)}">View prototypes</a>` : ''}
     <div class="deck-opts" role="group" aria-label="${esc(q.question)}">${q.options.map(optionHtml).join('')}</div>`;
   };

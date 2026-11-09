@@ -5650,6 +5650,15 @@ const deckBoard = (questions, needs) => {
 };
 const topicNeed = (id, n) => ({ kind: 'Question', title: `Topic ${id}`, text: '', url: `questions.html#${id}`, topic: id, band: null, questions: { open: n, url: `questions.html#${id}` }, ready: null });
 
+test("the phone deck draws a question's context and an option's detail as markdown", async () => {
+  const q = deckQuestion('q1', 't1', { context: 'Why:\n\n- one\n- two', options: [{ id: 'A', label: 'Yes', detail: 'Do **it**' }, { id: 'B', label: 'No' }] });
+  const b = boardOnDom({ board: deckBoard([q], [topicNeed('t1', 1)]), threads: {} });
+  await b.settle();
+  const card = b.root.querySelector('#needsDeck .deck-card');
+  assert.match(card.innerHTML, /<div class="ctx"><p>Why:<\/p>\s*<ul><li>one<\/li>/);
+  assert.match(card.innerHTML, /<strong>it<\/strong>/);
+});
+
 test("on a phone, Needs you is a deck showing one thing at a time: a tap on an option marks it, turning it into Send, and a tap on the marked option sends that answer; Next and Prev step through without looping, dots count what waits, and the foot links to every open question", async () => {
   const questions = [deckQuestion('q1', 't1'), deckQuestion('q2', 't1'), deckQuestion('q3', 't2', { url: 'prototype-shell.html?q=q3' })];
   const action = { kind: 'Action needed', title: 'GH-9: Merge it', text: '', url: '#selectedCard=w%2FGH-9', key: 'w/GH-9', questions: null, ready: null, action: { label: 'Merge', url: '#selectedCard=w%2FGH-9' } };

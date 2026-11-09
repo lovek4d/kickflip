@@ -84,6 +84,7 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.ok(!(grill + proto).includes('--notes-file'));
   // docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: what a planner leaves open is a question, not a notes line.
   for (const brief of [grill, proto]) assert.ok(brief.includes('Anything you leave open becomes a question with question add, never only a line in the notes'));
+  for (const brief of [grill, proto]) assert.ok(brief.includes("A question's text is one line of at most 100 characters") && brief.includes('which take markdown'));
   assert.ok(grill.includes(`${b} builder done w/A1 --text "<what you asked>"`));
   // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md: a web round is a page in the
   // base prototype worktree, recorded --served, that takes ?variant= and ?state= and the viewer's message.
