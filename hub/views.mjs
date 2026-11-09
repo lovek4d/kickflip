@@ -89,7 +89,7 @@ const claudeView = (model) => ({
 // sidebar: the /_hub/sidebar.json data, whose hub detail already says when the hub runs older code (home.mjs
 // hubHealth), and hub.restart is true while it does, for the Hub row's Restart hub; rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
 // (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
-// codex: a shared/codex.mjs codexStatus; awake: awake.mjs awakeUntil, which the Health row's Keeping awake shows.
+// codex: a shared/codex.mjs codexStatus; awake: awake.mjs awakeOn, which the Health row's Keeping awake shows.
 // Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
@@ -103,7 +103,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
     .filter(([, list]) => list.length).map(([label, list]) => ({ label, sites: list.map(site) }));
   return {
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}`, restart: !current },
-    awake: awake && untilWords(awake, now, AWAKE_FOREVER),
+    awake: Boolean(awake),
     groups,
     integrations,
     usage: sidebar.usage,
@@ -123,9 +123,7 @@ export function hubView({ now, st, poll, sidebar, rows, links = new Map(), code 
 }
 
 export const SNOOZE_REFUSED = 'That snooze ends in the past or more than 30 days on. Pick another time.';
-export const AWAKE_REFUSED = 'That keep awake ends in the past or more than 30 days on. Pick another time.';
 const SNOOZE_FOREVER = 'until you end it';
-const AWAKE_FOREVER = 'until you turn it off';
 const PAUSE_FOREVER = 'until you resume';
 
 const untilWords = (end, now, forever) => (end === FOREVER ? forever : `until ${clock(end, now)}`);
@@ -136,13 +134,12 @@ const snoozedUntil = (n, now) => (n.on ? endOf(n.snoozed_until, now) : null);
 // The hub page's hub settings: the on/off, snooze and weekend controls (docs/adr/2026-10-29-1639-notifications-can-be-off-snoozed-or-off-on-weekends.md),
 // quiet hours, hub rules and the Linear key, of which only whether it is set, whether Linear refused it and
 // its workspace are shown (linear.mjs linearStatus; docs/adr/2026-11-01-1436-kickflip-reaches-linear-with-a-key-on-the-mac.md),
-// and Keep awake. Snooze and
-// Keep awake share one duration picker (docs/adr/2026-11-02-1402-snooze-and-keep-awake-share-one-duration-picker.md), whose
-// choices are null while that setting is on, and Snooze's while notifications are off. awake is
-// {until: awake.mjs awakeUntil, unsupported: awake.mjs awakeUnsupported}.
+// and Keep awake, an on/off toggle (docs/adr/2026-11-09-1200-keep-awake-is-a-toggle-that-holds-the-mac-awake-only-on-ac-power.md).
+// Snooze's choices are null while notifications are off. awake is
+// {on: awake.mjs awakeOn, unsupported: awake.mjs awakeUnsupported}.
 // pausedUntil is Pause hub's end, a Date or FOREVER, or null while it is off
 // (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md): its picker is the snooze picker's.
-export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, awake = { until: null, unsupported: null }, pausedUntil = null }) {
+export function settingsView({ now, st, rules = [], linear = { set: false }, slack = { set: false }, awake = { on: false, unsupported: null }, pausedUntil = null }) {
   const s = st.settings;
   const n = s.notifications;
   const until = snoozedUntil(n, now);
@@ -161,9 +158,8 @@ export function settingsView({ now, st, rules = [], linear = { set: false }, sla
     snooze: n.on && !until ? { choices: durationChoices(now, SNOOZE_FOREVER) } : null,
     awake: {
       unsupported: awake.unsupported,
-      on: awake.until ? { title: `Keeping awake ${untilWords(awake.until, now, AWAKE_FOREVER)}` } : null,
-      choices: awake.unsupported || awake.until ? null : durationChoices(now, AWAKE_FOREVER),
-      summary: awake.unsupported || (!awake.until ? 'Off' : awake.until === FOREVER ? 'On · forever' : `On until ${clock(awake.until, now)}`),
+      on: awake.on,
+      summary: awake.unsupported || (awake.on ? 'On' : 'Off'),
     },
     weekends: { on: n.weekends_off, sub: `Pushes wait from Friday ${timeOfDay(s.quiet.start)} until Monday ${timeOfDay(s.quiet.end)}. Urgent ones still go.` },
     quiet: quietView(s, now),

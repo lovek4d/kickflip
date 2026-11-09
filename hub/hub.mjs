@@ -70,8 +70,7 @@
 //                     setNotifications choice | off> → /_hub/api/settings's JSON, or 400 {error} when refused
 //                     (303 to ?refused=snooze). Custom posts a UTC ISO date-time; snoozeEnd refuses an end not
 //                     after now or more than 30 days on.
-//   /_hub/settings/keep-awake POST keep_awake=<duration.mjs durationEnd choice | off> → /_hub/api/settings's JSON, or
-//                     400 {error} for an end not after now or more than 30 days on (303 to ?refused=keep-awake), or
+//   /_hub/settings/keep-awake POST keep_awake=on (anything else, or nothing, is off) → /_hub/api/settings's JSON, or
 //                     409 {error} off macOS (awake.mjs)
 //   /_hub/settings/hub-pause POST pause=<usage-gate.mjs pauseEnd choice | off> → Pause hub, then /_hub/api/settings's
 //                     JSON, or 400 {error} for an end not after now or more than 30 days on
@@ -151,7 +150,7 @@
 // docs/adr/2026-10-30-1601-a-boards-session-wakes-when-an-event-arrives.md). A tap on an asleep board's page wakes it at once
 // through /_hub/wake (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md).
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
-// It runs caffeinate while Keep awake is on, and starts it again as it starts while time is left (awake.mjs).
+// It runs caffeinate -s while Keep awake is on, and starts it again as it starts (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
 // It reads the Mac and keeps machine-state.json, which holds every board's new work while the Mac is busy
 // (shared/machine-gate.mjs; docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
@@ -177,8 +176,8 @@ import { publicKey, addSubscription, removeSubscription, removeSubscriptionById,
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt, LOW_POINTS } from './schedule.mjs';
-import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED, AWAKE_REFUSED } from './views.mjs';
-import { caffeinate, setKeepAwake, awakeUntil, awakeUnsupported } from './awake.mjs';
+import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED } from './views.mjs';
+import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs';
 import { endOf } from './duration.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
@@ -827,7 +826,7 @@ async function hubData(req) {
   return {
     ...hubView({
       now, st: queueStatus(now), poll: pollState(), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-      code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: awakeUntil(now),
+      code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: awakeOn(),
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
     prompts: pendingFor(null).map(shown),
@@ -836,7 +835,7 @@ async function hubData(req) {
 }
 const settingsData = async () => {
   const now = new Date();
-  const awake = { until: awakeUntil(now), unsupported: awakeUnsupported() };
+  const awake = { on: awakeOn(), unsupported: awakeUnsupported() };
   const gate = readUsageGate({ now });
   const pausedUntil = gate.manual === 'hub' ? endOf(gate.resets_at, now) : null;
   return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), awake, pausedUntil }), closed: closedBoards() };
@@ -1067,10 +1066,9 @@ async function hubRoute(req, res, url, viewer = null) {
   }
   if (p === '/_hub/settings/keep-awake' && req.method === 'POST') {
     const f = new URLSearchParams(await readBody(req));
-    try { setKeepAwake(f.get('keep_awake')); } catch (e) {
-      if (e.status === 409) return json ? sendJSON(409, { error: e.message }) : send(409, 'text/plain; charset=utf-8', e.message);
-      if (e.status !== 400) throw e;
-      return json ? sendJSON(400, { error: AWAKE_REFUSED }) : redirect(res, '/_hub/?refused=keep-awake#keep-awake');
+    try { setKeepAwake(f.get('keep_awake') === 'on'); } catch (e) {
+      if (e.status !== 409) throw e;
+      return json ? sendJSON(409, { error: e.message }) : send(409, 'text/plain; charset=utf-8', e.message);
     }
     awake.apply();
     return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#keep-awake');

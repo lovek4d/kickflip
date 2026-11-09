@@ -15,9 +15,9 @@
     action: '/_hub/settings/hub-pause', name: 'pause', choices: p.choices, on: p.on, button: 'Resume' });
   const snoozeRow = (d) => durationPicker({ id: 'snooze', title: 'Snooze', icon: HubUI.tile('snooze', '#a855f7'), action: ACTION, name: 'snooze',
     choices: d.snooze?.choices, on: d.snoozed, button: 'End' });
-  // Grey while off and orange while on, as the machine working (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md).
-  const awakeRow = (a) => durationPicker({ id: 'awake', title: 'Keep awake', icon: HubUI.tile('coffee', a.on ? 'var(--color-notice)' : 'var(--color-quiet)'),
-    action: '/_hub/settings/keep-awake', name: 'keep_awake', choices: a.choices, on: a.on, button: 'Turn off' });
+  // A checkbox row like Push notifications, grey while off and orange while on, as the machine working
+  // (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md). Unchecked posts nothing, which the hub reads as off.
+  const awakeRow = (a) => `<form class="row field" method="post" action="/_hub/settings/keep-awake">${HubUI.tile('coffee', a.on ? 'var(--color-notice)' : 'var(--color-quiet)')}<label class="body"><span class="text"><span class="title">Keep awake</span></span><input type="checkbox" id="awake" name="keep_awake" value="on" class="toggle" data-submit${a.on ? ' checked' : ''}></label></form>`;
 
   // The on/off, snooze and weekend rows (docs/adr/2026-10-29-1639-notifications-can-be-off-snoozed-or-off-on-weekends.md).
   function notificationRows(d) {
@@ -77,7 +77,7 @@
           content.innerHTML = quietRows(last.quiet);
         } else if (active === 'keep-awake') {
           content.innerHTML = last.awake.unsupported ? `<p class="note">${esc(last.awake.unsupported)}.</p>`
-            : `<div class="group">${awakeRow(last.awake)}</div><p class="note">Runs <code>caffeinate -ims</code> on the host so it doesn’t sleep while boards work. The screen can still turn off.</p>`;
+            : `<div class="group">${awakeRow(last.awake)}</div><p class="note">Runs <code>caffeinate -s</code> on the host so it doesn’t sleep while boards work, only while it is on AC power. On battery it holds nothing. The screen can still turn off.</p>`;
         } else if (active === 'linear' || active === 'slack') {
           if (tokenSlot) tokenSlot.set(last[active]);
           else {

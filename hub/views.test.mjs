@@ -31,7 +31,6 @@ test("Pause hub offers the snooze picker's chips, Forever included, then says un
   assert.deepEqual(off, { on: null, summary: 'Off', choices: [['1h', '1h', 'until 11:00am'], ['3h', '3h', 'until 1:00pm'], ['6h', '6h', 'until 4:00pm'], ['1d', '1d', 'until 10:00am tomorrow'], ['forever', 'Forever', 'until you resume']].map(([value, label, until]) => ({ value, label, until })) });
   const values = (choices) => choices.map((c) => [c.value, c.label]);
   assert.deepEqual(values(v.pause.choices), values(v.snooze.choices), 'the same set as Snooze');
-  assert.deepEqual(values(v.pause.choices), values(v.awake.choices), 'the same set as Keep awake');
   assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), pausedUntil: t(13) }).pause), { on: { title: 'Paused until 1:00pm' }, summary: 'Paused until 1:00pm', choices: null });
   assert.deepEqual(plain(settingsView({ now, st: status(now, DEFAULTS), pausedUntil: 'forever' }).pause), { on: { title: 'Paused until you resume' }, summary: 'Paused · forever', choices: null });
 });
@@ -83,12 +82,10 @@ test('Hub Settings says whether pushes go, when a snooze ends and what each snoo
   assert.equal(v.device, 'pushes go out after each check');
   assert.deepEqual(v.snooze.choices.map((c) => [c.value, c.label, c.until]), [['1h', '1h', 'until 11:00am'], ['3h', '3h', 'until 1:00pm'], ['6h', '6h', 'until 4:00pm'],
     ['1d', '1d', 'until 10:00am tomorrow'], ['forever', 'Forever', 'until you end it']]);
-  assert.deepEqual(plain(v.awake), { unsupported: null, on: null, summary: 'Off', choices: [['1h', 'until 11:00am'], ['3h', 'until 1:00pm'], ['6h', 'until 4:00pm'],
-    ['1d', 'until 10:00am tomorrow'], ['forever', 'until you turn it off']].map(([value, until]) => ({ value, label: v.snooze.choices.find((c) => c.value === value).label, until })) });
-  const awake = (until, unsupported = null) => plain(settingsView({ now, st: status(now, DEFAULTS), awake: { until, unsupported } }).awake);
-  assert.deepEqual(awake(t(15)), { unsupported: null, on: { title: 'Keeping awake until 3:00pm' }, choices: null, summary: 'On until 3:00pm' });
-  assert.deepEqual(awake('forever'), { unsupported: null, on: { title: 'Keeping awake until you turn it off' }, choices: null, summary: 'On · forever' });
-  assert.deepEqual(awake(null, 'macOS only · this host runs Linux'), { unsupported: 'macOS only · this host runs Linux', on: null, choices: null, summary: 'macOS only · this host runs Linux' });
+  assert.deepEqual(plain(v.awake), { unsupported: null, on: false, summary: 'Off' });
+  const awake = (on, unsupported = null) => plain(settingsView({ now, st: status(now, DEFAULTS), awake: { on, unsupported } }).awake);
+  assert.deepEqual(awake(true), { unsupported: null, on: true, summary: 'On' });
+  assert.deepEqual(awake(false, 'macOS only · this host runs Linux'), { unsupported: 'macOS only · this host runs Linux', on: false, summary: 'macOS only · this host runs Linux' });
   assert.deepEqual(plain(v.rules), [{ id: 'r1', text: 'Be brief' }]);
 
   const snoozed = settingsView({ now, st: status(now, notify(DEFAULTS, { snoozed_until: t(12).toISOString() }), 2) });
@@ -138,7 +135,7 @@ test("the hub page's Codex share says what each choice means while Codex is usab
   assert.deepEqual([settings.codex, settings.codexShare], [undefined, undefined]);
 });
 
-test('Hub settings modals keep summaries, turn this device on, snooze and keep awake inline through one duration picker, with no Codex share row or modal', async () => {
+test('Hub settings modals keep summaries, turn this device on, snooze inline through one duration picker and keep awake as a toggle, with no Codex share row or modal', async () => {
   const document = {};
   const listeners = [];
   const { Element } = miniDom(class {
@@ -152,7 +149,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   let linear = { set: false };
   let slack = { set: false };
   let checked = null;
-  let awake = { until: null, unsupported: null };
+  let awake = { on: false, unsupported: null };
   let pausedUntil = null;
   const data = (notifications = ON) => settingsView({ now, st: status(now, notify(DEFAULTS, notifications)), linear, slack, awake, pausedUntil });
   let confirmed = false;
@@ -176,7 +173,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
     Notification: { permission: 'default', requestPermission: () => { requested = true; return Promise.resolve('granted'); } },
     FormData: class {
       constructor(form) { this.form = form; }
-      *[Symbol.iterator]() { for (const el of this.form.querySelectorAll('input[name]')) yield [el.getAttribute('name'), el.value]; }
+      *[Symbol.iterator]() { for (const el of this.form.querySelectorAll('input[name]')) if (el.getAttribute('type') !== 'checkbox' || el.hasAttribute('checked')) yield [el.getAttribute('name'), el.value]; }
     },
     BoardView: { page: (root, site, run) => { const B = { root, $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }; run(B); return B; } },
     RulesEditor: { mount: () => ({ set() {} }) },
@@ -204,8 +201,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
         return { ok: true, json: async () => data() };
       }
       if (url === '/_hub/settings/keep-awake') {
-        const choice = opts.body.get('keep_awake');
-        awake = { ...awake, until: choice === 'off' ? null : durationEnd(now, choice) };
+        awake = { ...awake, on: opts.body.get('keep_awake') === 'on' };
         return { ok: true, json: async () => data() };
       }
       return { ok: false, json: async () => ({}) };
@@ -351,37 +347,23 @@ test('Hub settings modals keep summaries, turn this device on, snooze and keep a
   assert.equal(root.querySelector('[data-summary="pause"]').textContent, 'Off');
   await B.openSettings({ hash: '#keep-awake' });
   assert.equal(root.querySelector('#hubSettingsTitle').textContent, 'Keep awake');
-  assert.match(root.querySelector('.setting-content').textContent, /caffeinate -ims/);
-  assert.deepEqual(root.querySelectorAll('.dur-choices button').map((b) => [b.textContent, b.getAttribute('name'), b.getAttribute('aria-label')]),
-    [['1h', 'keep_awake', '1h, until 11:00am'], ['3h', 'keep_awake', '3h, until 1:00pm'], ['6h', 'keep_awake', '6h, until 4:00pm'],
-      ['1d', 'keep_awake', '1d, until 10:00am tomorrow'], ['Forever', 'keep_awake', 'Forever, until you turn it off']]);
-  const turnOff = async () => {
-    const form = root.querySelector('.dur-on form');
-    assert.equal(form.querySelector('button').textContent, 'Turn off');
-    await submitForm(form, form.querySelector('button'));
-    assert.equal(posts.at(-1).opts.body.toString(), 'keep_awake=off');
-    assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'Off');
-  };
-  const awakeChips = root.querySelector('.dur-choices');
-  await submitForm(awakeChips, awakeChips.querySelector('button[value="forever"]'));
-  assert.equal(posts.at(-1).url, '/_hub/settings/keep-awake');
-  assert.equal(root.querySelector('.dur-on .title').textContent, 'Keeping awake until you turn it off');
-  assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'On · forever');
-  await turnOff();
-  const awakeInput = root.querySelector('[data-dur-at]');
-  assert.equal(awakeInput.getAttribute('aria-label'), 'Custom keep awake until a date and time');
-  awakeInput.form = root.querySelector('.dur-custom');
-  awakeInput.checkValidity = () => true;
-  awakeInput.form.requestSubmit = () => { saving = submitForm(awakeInput.form); };
-  awakeInput.value = '2026-10-14T13:30';
-  document.activeElement = null;
-  for (const l of listeners.filter((l) => l.target === root && l.type === 'change')) l.fn({ target: awakeInput });
-  await saving;
-  assert.equal(posts.at(-1).opts.body.get('keep_awake'), t(13, 30).toISOString());
-  assert.equal(root.querySelector('.dur-on .title').textContent, 'Keeping awake until 1:30pm');
-  assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'On until 1:30pm');
-  await turnOff();
-  awake = { until: null, unsupported: 'macOS only · this host runs Linux' };
+  assert.match(root.querySelector('.setting-content').textContent, /caffeinate -s.*only while it is on AC power/);
+  assert.equal(root.querySelector('.dur-choices'), null);
+  const awakeForm = () => root.querySelector('input[name="keep_awake"]').closest('form');
+  const awakeToggle = () => awakeForm().querySelector('input.toggle');
+  assert.equal(awakeToggle().hasAttribute('checked'), false);
+  assert.equal(awakeForm().querySelector('.title').textContent, 'Keep awake');
+  awakeToggle().setAttribute('checked', '');
+  await submitForm(awakeForm());
+  assert.deepEqual([posts.at(-1).url, posts.at(-1).opts.body.toString()], ['/_hub/settings/keep-awake', 'keep_awake=on']);
+  assert.equal(awakeToggle().hasAttribute('checked'), true);
+  assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'On');
+  awakeToggle().removeAttribute('checked');
+  await submitForm(awakeForm());
+  assert.equal(posts.at(-1).opts.body.toString(), '');
+  assert.equal(awakeToggle().hasAttribute('checked'), false);
+  assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'Off');
+  awake = { on: false, unsupported: 'macOS only · this host runs Linux' };
   live.paint(data());
   assert.equal(root.querySelector('#keep-awake').disabled, true);
   assert.equal(root.querySelector('[data-summary="keep-awake"]').textContent, 'macOS only · this host runs Linux');
@@ -500,8 +482,8 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   assert.deepEqual(held(t(10), notify(DEFAULTS, { snoozed_until: 'forever' })), { text: 'Notifications snoozed until you end it', end: true });
   const foreverQueue = hubView({ now: t(10), st: status(t(10), notify(DEFAULTS, { snoozed_until: 'forever' }), 1), poll: poll(t(10)), sidebar, rows });
   assert.equal(foreverQueue.polling.lines[1], '1 push queued; next send once the snooze ends.');
-  assert.equal(v.awake, null);
-  assert.deepEqual([t(15), 'forever'].map((awake) => hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows, awake }).awake), ['until 3:00pm', 'until you turn it off']);
+  assert.equal(v.awake, false);
+  assert.equal(hubView({ now, st: status(now, DEFAULTS), poll: poll(now), sidebar, rows, awake: true }).awake, true);
   assert.deepEqual(held(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), { text: 'Notifications held for the weekend until 8:00am Mon Oct 19', end: false });
   assert.deepEqual(held(t(23), DEFAULTS), { text: 'Notifications held overnight until 8:00am tomorrow', end: false });
   assert.equal(held(t(10), notify(DEFAULTS, { on: false, snoozed_until: t(15).toISOString() })), null);

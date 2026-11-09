@@ -181,7 +181,7 @@
     if (reset) input.value = input.defaultValue = localInput(new Date(now + 3_600_000));
   }
 
-  // The one duration picker Snooze, Keep awake, Pause hub and Pause board share (hub/duration.mjs): chips that post
+  // The one duration picker Snooze, Pause hub and Pause board share (hub/duration.mjs): chips that post
   // `name` to `action` at once, then Custom, whose date and time posts as `name` too. While its setting is on, `on`
   // replaces it with when it ends and a button that posts `name`=off.
   function durationPicker({ id, title, icon, action, name, choices, on, button }) {

@@ -301,7 +301,7 @@
     return `<div class="line6 sub card-time">${parts.join(SEP)}${tail}${count}</div>`;
   }
   // The Hold sheet's picker (app-cards.js): /api/board's holdChoices, the chips hub/duration.mjs shares with Snooze and
-  // Keep awake, then Custom. Its .hub-view root takes hub.css's duration picker rules, which view-hub-settings.js
+  // Pause hub, then Custom. Its .hub-view root takes hub.css's duration picker rules, which view-hub-settings.js
   // durationPicker's markup also uses. Each chip's length (ms, null for Forever) is worded as when it would end if picked
   // at `now`, here rather than on the server, so the board's version doesn't change with the clock
   // (docs/adr/2026-11-04-0128-the-board-download-leaves-out-resolved-questions.md).
