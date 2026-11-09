@@ -10,7 +10,7 @@
   // docs/adr/2026-11-04-2200-overnight-triage-suggests-your-earlier-answers.md
   // A question's pick on this device: its unsent draft, else its last answer, else the option the overnight triage
   // suggested, pre-checked so the topic's Send sends it.
-  const choiceOf = (q, draft) => draft.choice ?? (q.answers.length ? q.answers[q.answers.length - 1].choice : q.suggested?.option ?? null);
+  const choiceOf = (q, draft) => 'choice' in draft ? draft.choice : (q.answers.length ? q.answers[q.answers.length - 1].choice : q.suggested?.option ?? null);
   // A question's unsent note: its draft, else on a reopened question the note its last answer sent, so a changed pick
   // sends it again.
   const noteOf = (q, draft) => draft.note ?? (q.reopened ? q.answers.at(-1)?.note || '' : '');

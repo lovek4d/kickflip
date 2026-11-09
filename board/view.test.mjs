@@ -4231,6 +4231,51 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
   return { settle, answer, send, shown, decisions, sent, gets, server, root: shell.root, page, idle, unmount: () => questionsView.unmount() };
 }
 
+test('tapping the marked option again clears the pick: the suggestion stays cleared, Send stays off until a note, and Space on it clears it too', async () => {
+  const topic = { id: 'item:w/T1', title: 'INT-1: Topic' };
+  const question = { id: 'q1', topic: topic.id, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], suggested: { option: 'A', card: '#1', answer: 'yes' }, state: 'open' };
+  const v = questionsOnDom({ topics: [topic], questions: [question], at: 'q1' });
+  await v.settle();
+  const $ = (sel) => v.root.querySelector(sel);
+  const radio = (id) => { const i = $(`section.q[data-q="q1"] input[value="${id}"]`); i.type = 'radio'; return i; };
+  const draft = () => JSON.parse(v.page.win.localStorage.getItem('qdraft:q1') ?? '{}');
+  const tap = (input, was) => {
+    input.checked = was; // the radio is already checked when the tap lands
+    v.page.fire(v.root, 'pointerdown', { target: input });
+    input.checked = true; // a click leaves a radio checked
+    v.page.fire(v.root, 'click', { target: input });
+  };
+  assert.equal($('#send').disabled, false, 'the suggestion is pre-checked, so Send is on');
+  tap(radio('A'), true);
+  assert.deepEqual([radio('A').checked, draft()], [false, { choice: null }]);
+  assert.equal($('#send').disabled, true, 'a cleared pick with no note stays unsent');
+
+  const note = $('section.q[data-q="q1"] textarea.note');
+  note.value = 'Neither';
+  v.page.fire(v.root, 'input', { target: note });
+  assert.equal($('#send').disabled, false, 'a note alone sends');
+  await v.send();
+  assert.deepEqual(JSON.parse(JSON.stringify(v.sent)), [['owner-answers', { answers: [{ id: 'q1', question: 'Q?', choice: null, label: '', note: 'Neither' }] }]]);
+});
+
+test('a tap on an option that was not marked marks it, and Space on the marked one clears it', async () => {
+  const topic = { id: 'item:w/T1', title: 'INT-1: Topic' };
+  const question = { id: 'q1', topic: topic.id, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' };
+  const v = questionsOnDom({ topics: [topic], questions: [question], at: 'q1' });
+  await v.settle();
+  const radio = (id) => { const i = v.root.querySelector(`section.q[data-q="q1"] input[value="${id}"]`); i.type = 'radio'; return i; };
+  const draft = () => JSON.parse(v.page.win.localStorage.getItem('qdraft:q1') ?? '{}');
+  const a = radio('A');
+  v.page.fire(v.root, 'pointerdown', { target: a });
+  a.checked = true;
+  v.page.fire(v.root, 'change', { target: a });
+  v.page.fire(v.root, 'click', { target: a });
+  assert.deepEqual([a.checked, draft()], [true, { choice: 'A' }], 'the first tap marks');
+  v.page.fire(v.root, 'keydown', { target: a, key: ' ' });
+  v.page.fire(v.root, 'click', { target: a });
+  assert.deepEqual([a.checked, draft()], [false, { choice: null }], 'Space on the marked one clears it');
+});
+
 test("Waiting on you's Send follows the shared next question, leaving an urgent question's solo view, staying on the current topic or going to the board with its Sent toast", async () => {
   const topic = (n) => ({ id: `item:w/T${n}`, title: `INT-${n}: Topic ${n}` });
   const question = (id, n) => ({ id, topic: `item:w/T${n}`, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });

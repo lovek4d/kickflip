@@ -757,6 +757,8 @@ test('a question card pre-checks its suggested option, with a blue Orchestrator 
   assert.equal(ui.choiceOf(suggested, {}), 'A');
   assert.equal(ui.choiceOf(answered, {}), 'B');
   assert.equal(ui.choiceOf(question, {}), null);
+  assert.equal(ui.choiceOf(suggested, { choice: null }), null, 'a cleared pick stays cleared, not the suggestion');
+  assert.equal(ui.choiceOf(answered, { choice: null }), null);
 });
 
 // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md

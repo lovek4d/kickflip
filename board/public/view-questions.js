@@ -97,6 +97,8 @@
         const d = getDraft(q.id);
         if (filesOf(q).length) return true;
         const last = q.answers[q.answers.length - 1];
+        // A cleared pick sends only with a note.
+        if ('choice' in d && d.choice === null) return Boolean(d.note);
         if (!last && q.suggested) return true;
         if (q.reopened && choiceOf(q, d) !== null) return true;
         if (!('choice' in d) && !d.note) return false;
@@ -396,6 +398,17 @@
     B.on(root, 'change', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio') return;
       const d = getDraft(sec.dataset.q); d.choice = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
+    });
+    // A radio can't be unchecked natively: a pointer or Space press on a checked radio is noted, and its click clears it.
+    let pressed = null;
+    const radioOf = (el) => (el.type === 'radio' ? el : el.closest?.('label.opt')?.querySelector('input[type=radio]'));
+    B.on(root, 'pointerdown', (ev) => { const r = radioOf(ev.target); pressed = r?.checked ? r : null; });
+    B.on(root, 'keydown', (ev) => { if (ev.key === ' ' && ev.target.type === 'radio') pressed = ev.target.checked ? ev.target : null; });
+    B.on(root, 'click', (ev) => {
+      const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio' || pressed !== ev.target) return;
+      pressed = null;
+      ev.target.checked = false;
+      const d = getDraft(sec.dataset.q); d.choice = null; setDraft(sec.dataset.q, d); updateBar();
     });
     B.on(root, 'input', (ev) => {
       const sec = ev.target.closest('section.q'); if (!sec || ev.target.tagName !== 'TEXTAREA') return;

@@ -110,7 +110,7 @@ BoardView.part((B) => {
     showing = now.id;
     const at = deck.indexOf(now);
     const open = (d.owner || []).filter((q) => q.state === 'open').length;
-    const drafted = (d.owner || []).filter((q) => q.state === 'open' && 'choice' in getDraft(q.id)).length;
+    const drafted = (d.owner || []).filter((q) => q.state === 'open' && getDraft(q.id).choice != null).length;
     BoardUI.setHTML(el, `<div class="deck-head"><h2>Needs you</h2><span class="deck-n">${deck.length}</span></div>
       <div class="deck-card" data-deck="${esc(now.id)}"><p class="deck-what">${escText(now.what)}</p>${now.html}</div>
       ${deck.length > 1 ? `<div class="deck-bar"><button type="button" class="ghost" data-deck-prev${at === 0 ? ' disabled' : ''}>← Prev</button><span class="deck-dots" aria-hidden="true">${deck.map((x) => `<i${x === now ? ' class="on"' : ''}></i>`).join('')}</span><button type="button" class="ghost" data-deck-next${at === deck.length - 1 ? ' disabled' : ''}>Next →</button></div>` : ''}
