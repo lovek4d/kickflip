@@ -21,7 +21,7 @@
 @media (hover: hover) { .sidebar .sb-close:hover { background: var(--chip); color: var(--text); } }
 .sidebar .sb-label { margin: 12px 8px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .sidebar .sb-group { display: flex; flex-direction: column; gap: 2px; }
-.sidebar .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; }
+.sidebar .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overflow-wrap: anywhere; overscroll-behavior: contain; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; }
 .sidebar .sb-scroll > section { flex: none; }
 .sidebar .sb-utility { padding-top: 6px; }
 .sidebar .sb-boards { margin-top: auto; }

@@ -651,7 +651,7 @@ main > * { transition: opacity .25s ease; }
 :is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: 600; margin: 6px 0 2px; }
 :is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) :is(ul, ol) { padding-left: 18px; }
 :is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) :is(pre, code) { white-space: pre-wrap; font-size: 12px; }
-:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) table { display: block; overflow-x: auto; }
+:is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) table { display: block; max-width: 100%; overflow-x: hidden; }
 :is(.view-questions .ctx, .view-questions .opt .det, .deck-card .ctx, .deck-opts .det) > :last-child { margin-bottom: 0; }
 .view-questions .opt .suggested-why { margin-top: 4px; color: var(--color-info); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
 .view-questions .note { margin-top: 4px; }
@@ -736,18 +736,18 @@ main > * { transition: opacity .25s ease; }
 .view-notes .plan li { margin: 3px 0; }
 .view-notes .plan li.nested { margin-left: 20px; }
 .view-notes .plan code { font-size: 12.5px; background: var(--chip); border-radius: 4px; padding: 0 3px; }
-.view-notes .plan pre { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-.view-notes .plan pre code { background: none; padding: 0; overflow-wrap: normal; }
+.view-notes .plan pre { white-space: pre-wrap; overflow-x: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.view-notes .plan pre code { background: none; padding: 0; }
 .view-notes .plan blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
 .view-notes .plan hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
 .view-notes .plan a { color: var(--accent); }
-.view-notes .md-table { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-.view-notes .md-table table { border-collapse: collapse; font-size: 13px; line-height: 1.4; }
-.view-notes .md-table th, .view-notes .md-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); min-width: 5em; overflow-wrap: normal; }
+.view-notes .md-table { overflow-x: hidden; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.view-notes .md-table table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.4; }
+.view-notes .md-table th, .view-notes .md-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .view-notes .md-table th { background: var(--bg); font-weight: 600; }
 .view-notes .md-table tr:last-child td { border-bottom: 0; }
-.view-notes .md-table .wide { min-width: 14em; }
-.view-notes .md-table .wider { min-width: 24em; }
+/* The sidebar and every pane never scroll sideways: content wraps at the pane's width, overflow-x hidden is the last guard. */
+.view-questions, .view-notes, .reader-sheet, .pane-viewer { overflow-x: hidden; }
 /* A framed page (view-frame.js) fills the space beside the header, and scrolls inside its frame. */
 .view-frame { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .view-frame > .top { flex: none; }

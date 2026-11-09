@@ -1,0 +1,3 @@
+# The sidebar and every pane never scroll sideways
+
+The sidebar's scroller, the questions pane, the notes view and the reader wrap their content at their width, as modals already do. Wide tables and `pre` inside them wrap (`pre-wrap`, `overflow-wrap: anywhere`, table cells without a minimum width) instead of getting their own sideways scroll, and `overflow-x: hidden` is only the last guard. `board/no-sideways-scroll.test.mjs` loads the real stylesheets at phone and desktop width and checks each pane's `scrollWidth` equals its `clientWidth`, and that nothing inside is its own sideways scroller.
