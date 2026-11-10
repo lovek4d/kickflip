@@ -272,14 +272,16 @@ test("a phased status line reads its phase first on the card, and a free-text li
   assert.equal(progress({ phase: 'testing', text: 'Testing: x' }, { text: 'Cause: steady() anchored the card' }), 'Cause: steady() anchored the card');
 });
 
-test('lanes follow the PR, with a red ready PR in In Progress, and an open follow-up sits in Todo', () => {
+test('lanes follow the PR, with a red ready PR in In Review until a fix builder starts, and an open follow-up sits in Todo', () => {
   const lanes = (pr) => Object.fromEntries(board({ pr }).items.map((i) => [i.key, i.lane]));
   assert.deepEqual(lanes({ ...greenDraft, checks: { state: 'pending' } }), { 'w/A1': 'review', 'w/ENG-1': 'todo' });
   assert.equal(lanes({ ...greenDraft, checks: { state: 'fail' } })['w/A1'], 'review');
   assert.equal(lanes({ ...greenDraft, isDraft: false })['w/A1'], 'review');
   assert.equal(lanes({ ...greenDraft, isDraft: false, checks: { state: 'pending' } })['w/A1'], 'review');
   const red = board({ pr: { ...greenDraft, isDraft: false, checks: { state: 'fail' } } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual([red.lane, red.waitsOn, red.next, red.action], ['progress', null, 'Fix the failing CI', null]);
+  assert.deepEqual([red.lane, red.waitsOn, red.phase, red.next, red.action], ['review', null, null, 'Fix the failing CI', null]);
+  const fixing = board({ pr: { ...greenDraft, isDraft: false, checks: { state: 'fail' } }, agents: runningBuilders('A1') }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([fixing.lane, fixing.waitsOn], ['progress', 'builder'], 'a fix builder takes it to In Progress');
   assert.equal(lanes({ ...greenDraft, state: 'MERGED' })['w/A1'], 'done');
   const done = buildBoard({ fromWaves: false, files: [{ slug: 's', itemFile: { items: [{ id: 'S1', title: 'One', lane: 'done', next: 'Builds after S0' }] } }] }).items[0];
   assert.deepEqual([done.lane, done.next, done.actionButton], ['done', null, null]);
@@ -981,16 +983,22 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
     owner: { items: [{ id: 'q1', topic: 'item:w/A8', question: 'Which?', options: [{ id: 'a', label: 'A' }], asked_at: '2026-10-23T11:30:00Z' }] } };
   const card = (s, id) => buildBoard(s).items.find((i) => i.id === id);
   const state = (s, id) => (({ lane, waitsOn, closedAt, action, actionButton, next }) => [lane, waitsOn, closedAt, action?.kind ?? null, actionButton, next])(card(s, id));
-  assert.deepEqual(state(said, 'A4'), ['progress', null, null, null, null, NO_NEXT]);
+  // docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md: the reply waits on the orchestrator in In Review.
+  assert.deepEqual(state(said, 'A4'), ['review', null, null, null, null, 'Your reply waits on the orchestrator']);
+  assert.deepEqual(orchestratorWaits(buildBoard(said)).filter((w) => w.key === 'w/A4').map((w) => [w.kind, w.since, w.next]), [['reply', '2026-10-23T11:30:00Z', "Act on the owner's reply"]]);
   assert.deepEqual(card(said, 'A6').blockedBy, []);
-  assert.deepEqual(state(said, 'A7'), ['progress', null, null, null, null, NO_NEXT]);
+  assert.deepEqual(state(said, 'A7'), ['review', null, null, null, null, 'Your reply waits on the orchestrator']);
   assert.equal(card(said, 'A7').reopened, true);
   assert.deepEqual(state(said, 'A8'), ['review', 'owner', null, 'questions', 'openQuestions', 'Answer 1 question']);
   const answered = { ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
   assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, null, null, 'Tap Done once it is settled']);
   assert.deepEqual((({ awaitsDone, bumpable, resolvedBy }) => [awaitsDone, bumpable, resolvedBy])(card(answered, 'A4')), [true, false, null]);
   const followUp = (next_at) => ({ ...answered, files: [{ ...answered.files[0], itemFile: { items: items.map((i) => (i.id === 'A4' ? { ...i, next: 'Build the fix', next_at } : i)) } }] });
-  assert.deepEqual(state(followUp('2026-10-23T11:35:00Z'), 'A4'), ['progress', null, null, null, null, 'Build the fix'], 'a Next set after the reopen keeps the answered card In Progress');
+  assert.deepEqual(state(followUp('2026-10-23T11:35:00Z'), 'A4'), ['review', null, null, null, null, 'Build the fix'], 'a Next set after the reopen waits in In Review for its builder');
+  const building = { ...followUp('2026-10-23T11:35:00Z'), files: [{ ...followUp('2026-10-23T11:35:00Z').files[0], agents: { A4: { main: { started: '2026-10-23T11:45:00Z' } } } }] };
+  assert.deepEqual(state(building, 'A4').slice(0, 2), ['progress', 'builder'], 'its builder takes it to In Progress');
+  const built = { ...building, files: [{ ...building.files[0], agents: { A4: { main: { started: '2026-10-23T11:45:00Z', done: '2026-10-23T11:55:00Z' } } } }] };
+  assert.equal(state(built, 'A4')[0], 'progress', 'and it stays there once that run ends');
   assert.equal(card(followUp('2026-10-23T11:35:00Z'), 'A4').awaitsDone, false);
   assert.deepEqual(state(followUp('2026-10-23T11:05:00Z'), 'A4'), ['review', 'owner', null, null, null, 'Tap Done once it is settled'], 'a Next from before the reopen does not');
   assert.deepEqual(needsAnswer(buildBoard(answered)).items.filter((l) => l.url === '#selectedCard=w%2FA4'), []);
@@ -1007,7 +1015,7 @@ test('a message on a card whose PR merged reopens it after the merge, not before
   const card = (events, item = {}) => board({ pr: merged, events, item: { lane: 'progress', lane_at: '2026-10-23T10:00:00Z', ...item } }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual([card([msg('2026-10-23T10:30:00Z')]).lane, card([]).pr.status], ['done', 'merged']);
   const reopened = card([msg('2026-10-23T11:30:00Z')]);
-  assert.deepEqual([reopened.lane, reopened.reopened, reopened.pr.status, reopened.closedAt], ['progress', true, 'merged', null]);
+  assert.deepEqual([reopened.lane, reopened.reopened, reopened.pr.status, reopened.closedAt], ['review', true, 'merged', null]);
   const unlanded = board({ pr: { ...merged, state: 'CLOSED', mergedAt: null }, events: [msg('2026-10-23T11:30:00Z')], item: { lane: 'done', closed_at: '2026-10-23T11:00:00Z' } }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual([unlanded.lane, unlanded.reopened], ['done', false]);
 });
@@ -1165,8 +1173,8 @@ test("each lane has one fixed order, each card carrying the time it sorts by: To
   };
   const b = built();
   assert.deepEqual(lanesOf(b), {
-    review: ['R1', 'R2', 'S1', 'S2'],
-    progress: ['P2', 'P4', 'P3', 'P1'],
+    review: ['R1', 'R2', 'P4', 'S1', 'S2'],
+    progress: ['P2', 'P3', 'P1'],
     todo: ['ENG-1', 'T2', 'ENG-2', 'ask:a1', 'T1', 'ask:a2'],
     done: ['ask:a4', 'D4', 'ask:a3', 'D3', 'D2', 'D1'],
   });
@@ -1648,7 +1656,7 @@ test('a bump stays through In Review and ends when the card closes, merged or Do
   assert.equal(card({ ...done, events: [bump(1)] }).bumpedAt, null);
   const msg = { id: 'm1', ts: '2026-11-03T10:06:00.000Z', kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null };
   const reopened = card({ ...done, events: [bump(1), msg] });
-  assert.deepEqual([reopened.lane, reopened.reopened, reopened.bumpedAt], ['progress', true, null], 'a bump from before the close is over');
+  assert.deepEqual([reopened.lane, reopened.reopened, reopened.bumpedAt], ['review', true, null], 'a bump from before the close is over');
   assert.equal(card({ ...done, events: [bump(1), msg, bump(7)] }).bumpedAt, '2026-11-03T10:07:00.000Z');
 });
 
@@ -2135,6 +2143,9 @@ test("a card whose code landed stays in In Review on its owner step, the step as
   const msg = { id: 'm1', ts: '2026-10-23T11:30:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'One more thing' }, reply: null };
   const answered = card({ lane: 'done' }, { events: [msg], threads: { 'w/A1': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } });
   assert.deepEqual(look(answered), waiting);
+  // Until Claude answers, the reply keeps it in In Review waiting on the orchestrator
+  // (docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md).
+  assert.deepEqual(look(card({ lane: 'done' }, { events: [msg] })), ['review', null, 'Your reply waits on the orchestrator', null, false, true, null, true]);
 });
 
 // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
@@ -2163,14 +2174,14 @@ test('a draft PR waits in In Review with Action needed "Review draft PR #N" from
   assert.deepEqual([fixing.lane, fixing.waitsOn, fixing.action], ['progress', 'builder', null]);
 });
 
-test('with Skip the draft on, a draft waits on its CI in In Review with no Action needed, goes red to In Progress, and a ready PR reads as before', () => {
+test('with Skip the draft on, a draft waits on its CI in In Review with no Action needed, reads Fix the failing CI there once red, and a ready PR reads as before', () => {
   const card = (pr) => board({ pr, skipDraft: true }).items.find((i) => i.key === 'w/A1');
   for (const checks of ['pending', 'pass', 'none']) {
     const c = card({ ...greenDraft, checks: { state: checks } });
     assert.deepEqual([c.lane, c.waitsOn, c.next, c.action, c.resolvedBy], ['review', 'ci', 'Marked ready for review once CI passes', null, null], checks);
   }
   const red = card({ ...greenDraft, checks: { state: 'fail' } });
-  assert.deepEqual([red.lane, red.waitsOn, red.next, red.action], ['progress', null, 'Fix the failing CI', null]);
+  assert.deepEqual([red.lane, red.waitsOn, red.next, red.action], ['review', null, 'Fix the failing CI', null]);
   const ready = card({ ...greenDraft, isDraft: false });
   assert.deepEqual([ready.lane, ready.waitsOn, ready.next, ready.action], ['review', 'reviewers', 'Waiting for PR reviewers', null]);
   assert.deepEqual(board({ skipDraft: true }).needs, []);

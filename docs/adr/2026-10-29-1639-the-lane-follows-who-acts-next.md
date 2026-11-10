@@ -1,5 +1,5 @@
 ---
-status: superseded in part by 2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo
+status: superseded in part by 2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo, 2026-11-09-1804-in-progress-means-a-builder-runs
 ---
 
 # The lane follows who acts next, and a card waiting on the owner says Action needed
@@ -23,3 +23,5 @@ Considered:
 - the badge alone, with drafts and prototypes left in In Progress, which the owner's ask raised first; the lanes would still say nothing about who acts.
 
 Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): who acts next still places the card, and the settle pass stores that placement as its lane, with a thread line per move.
+
+Superseded in part by [In Progress means a builder runs](2026-11-09-1804-in-progress-means-a-builder-runs.md): a ready PR whose CI fails waits in In Review, Next "Fix the failing CI", until a fix builder starts.

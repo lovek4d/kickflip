@@ -1,5 +1,5 @@
 ---
-status: superseded in part by 2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping, 2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed, 2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state
+status: superseded in part by 2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping, 2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed, 2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state, 2026-11-09-1804-in-progress-means-a-builder-runs
 ---
 
 # A message or question on a Done card reopens it until the owner's Done
@@ -28,3 +28,5 @@ Considered:
 - refusing a question on a Done card until the session reopens it, which round 1 of hub/INT-269 built.
 
 Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a reopen is stored as a move out of Done with reopened_at; a Done card whose PRs all closed unmerged doesn't reopen.
+
+Superseded in part by [In Progress means a builder runs](2026-11-09-1804-in-progress-means-a-builder-runs.md): a reopened card waits in In Review, its Next "Your reply waits on the orchestrator" until Claude answers, and goes to In Progress only once a builder starts on it.

@@ -159,6 +159,7 @@ const OWNER_MERGE_NEXT = { waiting: 'Approved, Merge shows once CI and the merge
 const UNREVIEWED_MERGE_NEXT = { auto: 'Ready, merges once CI and the merge state allow', waiting: 'Ready, Merge shows once CI and the merge state allow', ready: 'Ready and green: tap Merge' };
 const heldNext = (base) => `Verified: tap Merge to land it on ${base}`;
 const FIX_CI = 'Fix the failing CI';
+const REPLY_WAITS = 'Your reply waits on the orchestrator';
 const TAP_DONE = 'Tap Done once it is settled';
 
 // Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's, and the board's fault lines; never
@@ -204,7 +205,9 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const followUp = Boolean(reopenAt) && Boolean(it.next) && String(it.next_at || '') > String(it.reopened_at || closed || '');
   if (reopenAt && !followUp) it = { ...it, next: undefined };
   const checkingAt = handedBackAt(agents);
-  const ownerPending = Boolean(reopenAt) && said.some((m) => String(m.ts) > doneAt && (m.state === 'waiting' || m.state === 'working'));
+  // The owner's reply to a reopened card that Claude hasn't answered, since its oldest message still owed one.
+  const replyAt = reopenAt ? said.filter((m) => String(m.ts) > doneAt && (m.state === 'waiting' || m.state === 'working')).map((m) => String(m.ts)).sort()[0] || null : null;
+  const ownerPending = Boolean(replyAt);
   const key = `${slug}/${it.id}`;
   const reviewers = reviewersOf(itemFile, boardReviewers);
   const sentAt = Object.fromEntries(Object.entries(reviewLinks(itemFile, it, key, topicItems, prLinks(prSlack, prs))).map(([name, link]) => [name, reviewTime(link.ts)]));
@@ -234,6 +237,12 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // A reopened card Claude has answered waits on the owner's Done.
   const awaitsDone = stepWaits || (Boolean(reopenAt) && lane === 'progress' && !waitsOn && !redReady && !ownerPending && !followUp);
   if (awaitsDone) waitsOn = 'owner';
+  // docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md: In Progress is a builder running on the card. A ready
+  // PR gone red, and a reopened card nothing has built since its reopening, the owner's reply unanswered or a follow-up
+  // Next set, wait in In Review on the orchestrator until it starts a builder.
+  const builtSinceReopen = Boolean(reopenAt) && agents.some((a) => builds(a) && String(a.started || '') > String(reopenAt));
+  const idle = lane === 'progress' && !waitsOn && (redReady || (Boolean(reopenAt) && !builtSinceReopen));
+  if (idle) lane = 'review';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
   // Only a Todo card reads held; old data can't show one in Done.
   const held = lane === 'todo' && (tapped ? Boolean(holdAsk.data.hold) : Boolean(it.held));
@@ -274,7 +283,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     ? agents.flatMap((a) => a.calls).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1)?.text ?? null : null;
   return {
     key, kind: 'work', order, file: slug, fileTitle: itemFile.title || slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
-    created: it.created || null, reviewSince: it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
+    created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: itemFile.internal === true, repo: itemFile.internal === true && !itemFile.repo ? null : repo,
     lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
     ownerStep: awaitsDone ? ownerStep : null,
@@ -285,7 +294,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
-    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), filedHeld: Boolean(it.filed_held), next: changing || lane === 'done' || waitsOn === 'checking' ? null : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
+    merging, refusal, manualSteps: it.manual_steps || [], fromAsk: it.from_ask || null, unfiled: Boolean(it.unfiled), filedHeld: Boolean(it.filed_held), next: changing || lane === 'done' || waitsOn === 'checking' ? null : idle && ownerPending ? REPLY_WAITS : redReady ? FIX_CI : rebasedNext || reviewNext || it.next || draftNext || null,
     rebaseFailed,
     branch: it.branch || pr?.headRefName || pushed?.branch || null, pushed: lane === 'done' || stepWaits ? null : pushed,
     mergeReady: lane === 'review' ? mergeReady : null,
@@ -307,23 +316,24 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     storedPhase: it.phase || null, phase: null,
     updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
-    waitFacts: waitFactsOf(it, { agents, thread, events, refusedAt: refusal ? newest.ts : null }),
+    waitFacts: waitFactsOf(it, { agents, thread, events, refusedAt: refusal ? newest.ts : null, replyAt: idle ? replyAt : null }),
   };
 }
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 // What a card's wait on the orchestrator is read from (orchestratorWaitOf), kept on the item only until buildBoard places
 // it: when its build handed back and its stored Next, its oldest builder ask with no answer, its newest grill and
-// prototype requests, when the pull refused it, whether its records hold unverified calls, and the session's writes on
-// it: a thread line of Claude's other than a status, agent, move or refusal line, a verify and a builder start.
-function waitFactsOf(it, { agents, thread, events, refusedAt }) {
+// prototype requests, when the pull refused it, the owner's reply it waits on in In Review, whether its records hold
+// unverified calls, and the session's writes on it: a thread line of Claude's other than a status, agent, move or
+// refusal line, a verify and a builder start.
+function waitFactsOf(it, { agents, thread, events, refusedAt, replyAt }) {
   const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
   const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
   const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
   const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', 'command', MOVE].includes(m.kind) && m.line !== BUILD_REFUSED).map((m) => m.ts);
   return {
     handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
-    grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, unblockedAt: it.unblocked_at || null,
+    grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, replyAt, unblockedAt: it.unblocked_at || null,
     unverified: agents.some((a) => a.calls.some((c) => !a.verified || String(c.at) > String(a.verified.at))),
     writes: [...lines, ...agents.flatMap((a) => [a.verified?.at, a.started])].filter(Boolean).map(String).sort(),
   };
@@ -1272,9 +1282,9 @@ export function buildBoard(snapshot) {
     if (it.kind !== 'work') continue;
     const answeredAt = (questionsOn.get(`item:${it.key}`) || []).filter((q) => q.state === 'answered').map((q) => q.answers.at(-1).ts).sort().pop();
     const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
-    // A rebase run's hand-back, its stale run or a stale review waits on the orchestrator from In Review (laneOf); a
-    // card the orchestrator stalled waits on the owner alone.
-    it.orchestrator = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt))) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
+    // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
+    // Review (laneOf, workItem); a card the orchestrator stalled waits on the owner alone.
+    it.orchestrator = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.replyAt))) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
   intakeWaits(items, events, working);
@@ -1679,7 +1689,7 @@ export function movesOf(built) {
 }
 function moveWhy(i, to) {
   if (to === 'todo') return i.held ? 'it is held' : i.blocked ? 'it is blocked' : 'nothing builds it';
-  if (i.reopened && to === 'progress') return 'a message or question reopened it';
+  if (i.reopened && i.storedLane === 'done') return 'a message or question reopened it';
   if (to === 'progress') return i.waitsOn === 'checking' ? 'its build handed back for a check' : i.builder ? 'a build started' : 'Claude acts next';
   return i.next || 'it waits on review';
 }
@@ -1737,6 +1747,7 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const wait = facts.ask ? { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` }
     : it.staging ? { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT }
     : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
+    : facts.replyAt ? { kind: 'reply', since: facts.replyAt, next: "Act on the owner's reply" }
     : ASKING.has(it.action?.kind) ? null
     : it.builder?.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the card` }
     : it.builder?.stale ? { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` }
