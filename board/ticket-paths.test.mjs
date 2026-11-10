@@ -34,6 +34,7 @@ const run = async (cmd, argv) => {
   assert.equal(cmd, 'gh');
   const repo = argv[argv.indexOf('--repo') + 1];
   if (argv[1] === 'create') { created.push({ title: argv[argv.indexOf('--title') + 1], body: argv[argv.indexOf('--body') + 1] }); return { status: 0, stdout: `https://github.com/${repo}/issues/${++issues}\n` }; }
+  if (argv[1] === 'view' && argv[2] === '404') return { status: 1, stderr: 'GraphQL: Could not resolve to an issue' };
   if (argv[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: Number(argv[2]), url: `https://github.com/${repo}/issues/${argv[2]}` }) };
   return { status: 1, stderr: `no fake for gh ${argv.join(' ')}` };
 };
@@ -106,6 +107,31 @@ test('item add --ticket links a ticket up front and names the card from it; --ne
   assert.deepEqual([made.id, made.ticket, made.ticket_created], [made.ticket.replace('#', 'GH-'), made.ticket, true]);
   assert.deepEqual(created.slice(before), [{ title: 'Made', body: 'Lands code.' }]);
   assert.equal(await cli('linked', 'item', 'add', 'linked', '--phase', 'grilling', '--title', 'Both', '--ticket', '#5', '--new-ticket'), 1);
+});
+
+test('item add <file>/GH-<n> links that issue; item set --ticket takes GH-<n>; an id the source lacks refuses and writes nothing', async (t) => {
+  quiet(t);
+  const errors = errorsOf(t);
+  const b = board('imported');
+  await saveBoardSettings(b.site, { tickets: { source: 'github' } });
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-488', '--phase', 'grilling', '--title', 'Imported'), 0);
+  assert.equal(b.item('GH-488').ticket, '#488');
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-404', '--phase', 'grilling', '--title', 'Missing'), 1);
+  assert.match(errors.at(-1), /Could not resolve/);
+  assert.equal(b.item('GH-404'), undefined);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-500', '--phase', 'grilling', '--title', 'Mismatch', '--ticket', '#501'), 1);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-500', '--phase', 'grilling', '--title', 'Same', '--ticket', '#500'), 0);
+  assert.equal(b.item('GH-500').ticket, '#500');
+  assert.equal(await cli('imported', 'item', 'add', 'imported/bump', '--phase', 'grilling', '--title', 'Plain'), 0);
+  assert.equal(b.item('bump').ticket, undefined);
+  assert.equal(await cli('imported', 'item', 'add', 'imported/T-9', '--phase', 'grilling', '--title', 'Task'), 0);
+  assert.equal(b.item('T-9').ticket, undefined);
+  assert.equal(await cli('imported', 'item', 'add', 'imported', '--phase', 'grilling', '--title', 'Setme'), 0);
+  assert.equal(await cli('imported', 'item', 'set', 'imported/T-10', '--ticket', 'GH-77'), 0);
+  assert.equal(b.item('T-10').ticket, '#77');
+  await saveBoardSettings(b.site, { tickets: { source: 'none' } });
+  assert.equal(await cli('imported', 'item', 'add', 'imported/GH-5', '--phase', 'grilling', '--title', 'No source'), 0);
+  assert.equal(b.item('GH-5').ticket, undefined);
 });
 
 test('item set --new-ticket gives a task a ticket in the source, keeping its key; refused on a card with one, and on a board with none', async (t) => {

@@ -11,7 +11,7 @@ import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ticket-gate-')));
 process.env.HOME = home;
 after(() => fs.rmSync(home, { recursive: true, force: true }));
-const { addQuestions, settleAnswers, settleQuestion } = await import('./store.mjs');
+const { addQuestions, settleAnswers, settleQuestion, setItem } = await import('./store.mjs');
 const linearData = linearWorld();
 const linear = fakeLinear(linearData);
 fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
@@ -85,4 +85,18 @@ test("the ticket question is the owner's: the orchestrator can't settle it", asy
   fs.writeFileSync(staged, JSON.stringify({ 't/T-1': [gate] }));
   fs.writeFileSync(path.join(site, 'data', 'screening.json'), JSON.stringify({ 't/T-1': new Date().toISOString() }));
   await assert.rejects(settleQuestion(site, 'q-ticket', 'No ticket.'), /is the card's ticket question, which is the owner's/);
+});
+
+test('linking a ticket resolves the open ticket question and moves a grilling card on; a staged one is dropped', async () => {
+  const { site, card, resolved } = world();
+  await addQuestions(site, [gate]);
+  await setItem(site, 't/T-1', { newTicket: true }, { linearFetch: linear.fetch });
+  assert.match(card().ticket, /^ENG-\d+$/);
+  assert.equal(resolved('q-ticket'), `Ticket linked: ${card().ticket}`);
+  assert.equal(card().phase, 'staging');
+  const w = world();
+  const staged = path.join(w.site, 'data', 'staged-questions.json');
+  fs.writeFileSync(staged, JSON.stringify({ 't/T-1': [other, gate] }));
+  await setItem(w.site, 't/T-1', { newTicket: true },{ linearFetch: linear.fetch });
+  assert.deepEqual(JSON.parse(fs.readFileSync(staged, 'utf8'))['t/T-1'].map((q) => q.id), ['q-other']);
 });

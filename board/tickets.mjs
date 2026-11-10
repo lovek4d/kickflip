@@ -25,7 +25,7 @@ const numberOf = (match) => {
   const n = match ? Number(match[1]) : null;
   return Number.isSafeInteger(n) ? n : null;
 };
-const issueNumber = (id) => numberOf(/^#?([1-9]\d*)$/.exec(String(id ?? '')));
+const issueNumber = (id) => numberOf(/^(?:#|GH-)?([1-9]\d*)$/.exec(String(id ?? '')));
 const keyOf = (source) => (source.source === 'linear' ? source.team : null);
 
 // The number of a stored ticket id that belongs to the source (#n or TEAM-n), else null: an id from
@@ -36,6 +36,15 @@ export function ticketIn(source, id) {
   const s = String(id ?? '');
   if (!key) return numberOf(/^#([1-9]\d*)$/.exec(s));
   return s.startsWith(`${key}-`) ? numberOf(/^([1-9]\d*)$/.exec(s.slice(key.length + 1))) : null;
+}
+
+// The ticket a card id or --ticket value names in the source's own forms (#n or GH-<n> on GitHub, TEAM-n on Linear),
+// as it is stored, else null: a board with no source names none.
+export function ticketNamed(source, id) {
+  if (!source) return null;
+  if (source.source === 'linear') return ticketIn(source, id) ? String(id) : null;
+  const n = issueNumber(id);
+  return n && /^(?:#|GH-)/.test(String(id)) ? `#${n}` : null;
 }
 
 export function ticketBadge(source, id, { repo } = {}) {

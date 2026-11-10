@@ -15,7 +15,7 @@ import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builder
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
 import { routeRecord } from '../hub/routes.mjs';
-import { ticketSource, resolveTicket, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
+import { ticketSource, resolveTicket, ticketNamed, ticketTarget, moveTicket, cardIdOf } from './tickets.mjs';
 import { LINEAR_NEEDS_KEY, linearStatus, linearWorks } from '../hub/linear.mjs';
 import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
@@ -2684,8 +2684,10 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
     moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
   } else if (start && !closed(item)) moveTo('progress', 'a build started');
   if (newTicket && item.ticket) fail(`${key} already has ticket ${item.ticket}`);
-  if (ticket !== undefined || newTicket) await assignTicket(site, itemFile, item, ticket, options, source.dir);
+  const linking = ticket !== undefined || newTicket;
+  if (linking) await assignTicket(site, itemFile, item, ticket, options, source.dir);
   await writeJSON(source.file, itemFile);
+  if (linking && site) await dropTicketQuestion(site, key, item.ticket);
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (rechecked) await appendNotes(site, key, `Re-checked (orchestrator, ${noteStamp()})`, said);
@@ -3102,6 +3104,18 @@ async function assignTicket(site, itemFile, item, ticket, options, dir, body) {
     if (r.created) item.ticket_created = true; else delete item.ticket_created;
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
 }
+// A card that has a ticket has no ticket question: a published one resolves, as one the orchestrator closes does (a
+// grilling card with nothing left open moves on), and a staged one is dropped.
+async function dropTicketQuestion(site, key, ticket) {
+  const staged = await readJSON(stagedFile(site), {});
+  const left = (staged[key] || []).filter((q) => !q.ticket_gate);
+  if (left.length !== (staged[key] || []).length) await writeJSON(stagedFile(site), left.length ? { ...staged, [key]: left } : withoutKey(staged, key));
+  const { owner, asked } = await cardQuestions(site, key);
+  const open = asked.filter((q) => q.ticket_gate && q.state === 'open').map((q) => q.id);
+  if (!open.length) return;
+  await markResolved(site, owner, open, `Ticket linked: ${ticket}`);
+  if ((await loadItem(site, key)).item.phase === 'grilling') await moveOnAnswered(site, key, { roundAt: true });
+}
 const NO_SOURCE = 'this board has no ticket source, so its cards stay tasks; pick GitHub issues or Linear in Board settings first';
 // The next task's id, T-<n> past the highest on the board, its Done archive included, so a key is never reused. Run under
 // the tickets lock (ticketWrite).
@@ -3171,7 +3185,11 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
   if (ask) item.from_ask = ask;
   if (phase !== undefined) item.phase = phase;
-  if (ticket !== undefined || newTicket) await assignTicket(site, itemFile, item, ticket, options, source.dir, body);
+  // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: an id in the source's own form names the ticket to link.
+  const named = id === undefined ? null : ticketNamed(await boardSource(site), id);
+  if (named && ticket !== undefined && ticketNamed(await boardSource(site), ticket) !== named) fail(`--ticket ${ticket} is not the ticket ${id} names`);
+  if (named && newTicket) fail(`${id} names ticket ${named}, so --new-ticket would make another; drop --new-ticket`);
+  if (ticket !== undefined || newTicket || named) await assignTicket(site, itemFile, item, ticket ?? named ?? undefined, options, source.dir, body);
   if (id === undefined && item.ticket) {
     item.id = cardIdOf(item.ticket);
     if (itemFile.items.some((it) => it.id === item.id)) fail(`item file "${slug}" already has an item "${item.id}"; link ${item.ticket} with item add ${slug}/<id> --ticket ${item.ticket}`);
