@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), the board's status lines, its builders'
 // asks, the owner's messages and their replies. Needs ui.js, ui-links.js, ui-enums.js and ui-markdown.js.
 (function () {
-  const { esc, escText, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, BUTTON } = globalThis.BoardUI;
+  const { esc, escText, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // ui-markdown.js loads after this file, so markdown is looked up when a thread draws.
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
@@ -120,12 +120,11 @@
   }
 
   // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-  // An In Review card's Done, the second of its thread box's pair after Reply, on ⌥↵. It confirms and sends ask-done or
-  // card-done (app-cards.js); the board applies it before the session follows up
+  // An In Review card's Done, the second of its thread box's pair after Reply, on ⌥↵. It confirms and sends card-done
+  // (app-cards.js); the board applies it before the session follows up
   // (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
-  // Orange while it clears an ask's Action needed, primary while a reopened card waits only on it
-  // (docs/adr/2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
-  const doneTone = (it) => (it.resolvedBy === BUTTON.done ? 'resolves' : it.awaitsDone ? 'closes' : '');
+  // Primary while a card waits only on it (docs/adr/2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
+  const doneTone = (it) => (it.awaitsDone ? 'closes' : '');
   function doneButton(it) {
     const tone = doneTone(it);
     return sendButton('Done', 1, `${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}"`);

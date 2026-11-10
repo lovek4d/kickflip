@@ -834,18 +834,18 @@ main > * { transition: opacity .25s ease; }
    its content gives way to a spinner in its text colour; the New version row's spinner sits in its pill; a bump icon keeps
    its arrow and pulses orange until the card moves; a toggle, select or field keeps its face with a spinner beside it */
 button[aria-busy="true"], button[aria-busy="true"]:disabled, .ask-actions .icon[aria-busy="true"]:disabled { cursor: default; opacity: 1; }
-:is(button[aria-busy="true"]:not([data-card-bump], [data-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go) { position: relative; -webkit-text-fill-color: transparent; }
-:is(button[aria-busy="true"]:not([data-card-bump], [data-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go) > * { visibility: hidden; }
-:is(button[aria-busy="true"]:not([data-card-bump], [data-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go)::after { content: ''; position: absolute; inset: 0; margin: auto;
+:is(button[aria-busy="true"]:not([data-card-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go) { position: relative; -webkit-text-fill-color: transparent; }
+:is(button[aria-busy="true"]:not([data-card-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go) > * { visibility: hidden; }
+:is(button[aria-busy="true"]:not([data-card-bump], .sb-update-row), .sb-update-row[aria-busy="true"] .sb-go)::after { content: ''; position: absolute; inset: 0; margin: auto;
   width: 12px; height: 12px; box-sizing: border-box; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: try-spin .8s linear infinite; }
 @keyframes wait-orange { 50% { color: var(--color-notice); opacity: 1; } }
-button[aria-busy="true"]:is([data-card-bump], [data-bump]) { color: var(--muted); animation: wait-orange 1s ease-in-out infinite; }
-button[aria-busy="true"]:is([data-card-bump], [data-bump]) svg { fill: currentColor; }
+button[aria-busy="true"]:is([data-card-bump]) { color: var(--muted); animation: wait-orange 1s ease-in-out infinite; }
+button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .try-spin.tap-beside { width: 12px; height: 12px; border-width: 2px; margin: 0 8px 0 auto; color: var(--muted); }
 .tk-field > span > .try-spin.tap-beside { margin: 0 0 0 6px; vertical-align: -2px; }
 @media (prefers-reduced-motion: reduce) {
   :is(button[aria-busy="true"], .sb-update-row[aria-busy="true"] .sb-go)::after { animation: none; }
-  button[aria-busy="true"]:is([data-card-bump], [data-bump]) { animation: none; color: var(--color-notice); }
+  button[aria-busy="true"]:is([data-card-bump]) { animation: none; color: var(--color-notice); }
 }
 .install { display: inline-flex; align-items: center; gap: 4px; }
 .external-links .install.tone-ready { color: var(--color-success); }

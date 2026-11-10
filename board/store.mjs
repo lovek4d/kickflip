@@ -157,26 +157,22 @@ export async function writeReply(site, eventId, md, title) {
   domId(eventId, 'the event id');
   const event = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
   if (!event) fail(`no event "${eventId}" in this site's data/events.jsonl`);
-  const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a reply to an ask answers the card
-  // it became, which takes --title.
+  // it became, which alone takes --title.
   const card = event.kind === 'ask' ? await askCardOf(site, eventId) : null;
+  const key = card ? card.key : event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
   if (card && answerable(card.item)) {
     text(md, 'the reply');
     await markAnswered(site, card, title);
-    title = undefined;
-  }
-  const titled = title === undefined ? undefined : /^ask:(.+)$/.exec(key || '')?.[1] || fail(`reply --title names an ask: "${eventId}" is not an ask or a message in an ask's thread`);
-  if (titled) text(title, '--title');
+  } else if (title !== undefined) fail(`reply --title titles the New or answered card an ask became; "${eventId}" is not one`);
   const dir = path.join(site, 'data', 'replies');
   const earlier = await replyFilesOf(dir, eventId);
   const file = path.join(dir, earlier.length ? `${eventId}~${earlier.at(-1).n + 1}.md` : `${eventId}.md`);
   await replace(file, text(md, 'the reply'));
-  if (titled) await titleAsk(site, titled, title);
   const lines = key ? await freshenPush(site, key, md) : [];
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   const triaged = event.kind === 'wave-triage' ? ['wave', 'file'].filter((k) => typeof event.data?.[k] === 'string').map((k) => `${k}:${event.data[k]}`) : [];
-  const topic = event.kind === 'ask' ? `item:ask:${eventId}` : triaged[0];
+  const topic = card ? `item:${card.key}` : triaged[0];
   if (topic) lines.push(...await resolveAnsweredOn(site, topic, 'Acted on: replied'));
   return { file, lines };
 }
@@ -481,38 +477,93 @@ function askTitle(ask, events) {
 }
 
 // Files ask eventId as a New T-<n> card in the board's first item file: from_ask, titled by its first line, no phase,
-// no thread line (its thread opens with the ask; domain.mjs threadOf). The board server runs it as an ask arrives and
-// on each board change, so an ask that was New before this rule is filed too. pending is the ask event the server is
-// about to write, filed first so the watcher's line names its card. → its key, or null when the ask already has a card
-// or isn't New: deleted, moved, folded or answered (askNotNew).
+// no thread line (its thread opens with the ask; domain.mjs threadOf). The board server runs it as an ask arrives, with
+// pending, the ask event it is about to write, filed first so the watcher's line names its card. → its key, or null
+// when the ask already has a card or isn't New: deleted, moved, folded or answered (askNotNew).
 export const fileAsk = (site, eventId, pending) => ticketWrite(site, async () => {
   needSite(site);
   const events = await readLines(path.join(site, 'data', 'events.jsonl'));
   const ask = pending || events.find((e) => e.id === eventId && e.kind === 'ask') || fail(`no ask "${eventId}" in this site's data/events.jsonl`);
   if (await askCardOf(site, eventId) || await askNotNew(site, eventId, events)) return null;
-  // The card goes in the first item file there is; a file-items board starts its one file. A waves board with no wave
-  // yet keeps the ask as its own New row (domain.mjs askItem): filing never makes a wave.
-  const sources = await itemSources(site);
-  let source;
-  let itemFile;
-  for (const s of sources) {
-    itemFile = await readJSON(s.file, null);
-    if (itemFile) { source = s; break; }
-  }
-  if (!source) {
-    if ((await boardConfig(site)).items === 'waves') return null;
-    [source] = sources;
-    itemFile = { items: [] };
-  }
-  if (!Array.isArray(itemFile.items)) fail(`${source.file} is not an item file with items[]`);
-  await fs.mkdir(source.dir, { recursive: true });
-  const created = new Date().toISOString();
-  const item = { id: await nextTaskId(site), title: askTitle(ask, events), created, lane: 'todo', lane_at: created, from_ask: eventId };
-  item.plan = freeNotesName(source.dir, item.id);
-  await writeNotesFile(path.join(source.dir, item.plan), `# ${item.title}\n`);
+  const { source, itemFile } = await askFile(site);
+  const item = await newAskCard(site, source, ask, askTitle(ask, events));
   itemFile.items.push(item);
   await writeJSON(source.file, itemFile);
   return `${source.slug}/${item.id}`;
+});
+
+// The item file an ask's card goes in, {source, itemFile}: the first there is; a file-items board starts its one file.
+// A waves board with no wave yet has nowhere to file it, and filing never makes a wave, so the ask is refused.
+async function askFile(site) {
+  const sources = await itemSources(site);
+  for (const source of sources) {
+    const itemFile = await readJSON(source.file, null);
+    if (!itemFile) continue;
+    if (!Array.isArray(itemFile.items)) fail(`${source.file} is not an item file with items[]`);
+    return { source, itemFile };
+  }
+  if ((await boardConfig(site)).items === 'waves') fail('this board has no wave yet to file a new task in; start a wave first');
+  await fs.mkdir(sources[0].dir, { recursive: true });
+  return { source: sources[0], itemFile: { items: [] } };
+}
+// A New T-<n> card for ask, with its notes file. Run under the tickets lock.
+async function newAskCard(site, source, ask, title) {
+  const created = new Date().toISOString();
+  const item = { id: await nextTaskId(site), title, created, lane: 'todo', lane_at: created, from_ask: ask.id };
+  item.plan = freeNotesName(source.dir, item.id);
+  await writeNotesFile(path.join(source.dir, item.plan), `# ${item.title}\n`);
+  return item;
+}
+
+// docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md
+// Files every ask with no card of its own, in asked order: one not deleted, not folded or merged (data/ask-links.json,
+// which also holds an archived card's own ask), not moved to another board (its thread's ask-moved line), and no live
+// card's from_ask. One Claude answered before every ask was a card (a reply, a Claude line in its thread, a done mark in
+// the retired data/ask-progress.json, or the owner's retired ask-done) becomes a Done card closed at its answer time:
+// its newest reply or Claude line, else that mark. One still New becomes its New card, as fileAsk files it. Each takes
+// the title triage gave it in the retired data/ask-titles.json, else its first line, and its item:ask:<id> questions
+// move to its card's topic. Then the two retired files go. The board server runs it as it starts and when its built
+// board lists an unfiled ask. → the keys it filed.
+export const fileAsks = (site) => ticketWrite(site, async () => {
+  needSite(site);
+  const data = (...p) => path.join(site, 'data', ...p);
+  const events = await readLines(data('events.jsonl'));
+  const links = await readAskLinks(site);
+  // Each ask's card by its id: a live card it became, else the card it went into.
+  const carded = new Map(Object.entries(links));
+  for (const s of await itemSources(site)) for (const it of (await readJSON(s.file, {})).items || []) if (it.from_ask) carded.set(it.from_ask, `${s.slug}/${it.id}`);
+  const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn').map((e) => e.data?.id));
+  const asks = events.filter((e) => e.kind === 'ask' && !withdrawn.has(e.id) && !carded.has(e.id))
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  const marks = (await readJSON(data('ask-progress.json'), {})).asks || {};
+  const titles = (await readJSON(data('ask-titles.json'), {})).titles || {};
+  const dones = new Map(events.filter((e) => e.kind === 'ask-done').map((e) => [e.data?.id, String(e.ts)]));
+  const filed = [];
+  let target;
+  for (const ask of asks) {
+    const thread = await readLines(threadFile(site, `ask:${ask.id}`));
+    if (thread.some((m) => m.line === 'ask-moved')) continue;
+    const replies = await Promise.all((await replyFilesOf(data('replies'), ask.id)).map((f) => fs.stat(data('replies', f.name)).then((st) => st.mtime.toISOString())));
+    const said = thread.filter((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status').map((m) => String(m.ts));
+    const answeredAt = [...replies, ...said].sort().pop() || [routeRecord(marks, ask.id)?.at, dones.get(ask.id)].filter(Boolean).sort().pop();
+    target ||= await askFile(site);
+    const item = await newAskCard(site, target.source, ask, routeRecord(titles, ask.id) || askTitle(ask, events));
+    item.created = ask.ts;
+    if (answeredAt) placeIn(item, 'done', answeredAt);
+    target.itemFile.items.push(item);
+    // Each card is written as it is made, so the next one's number counts it.
+    await writeJSON(target.source.file, target.itemFile);
+    carded.set(ask.id, `${target.source.slug}/${item.id}`);
+    filed.push(carded.get(ask.id));
+  }
+  const cardOf = (topic) => carded.get(/^item:ask:(.+)$/.exec(topic || '')?.[1]);
+  const owner = await readJSON(ownerFile(site), null);
+  if (owner?.items?.some((q) => cardOf(q.topic))) {
+    for (const q of owner.items) if (cardOf(q.topic)) q.topic = `item:${cardOf(q.topic)}`;
+    await writeJSON(ownerFile(site), owner);
+  }
+  for (const f of ['ask-progress.json', 'ask-titles.json']) await fs.rm(data(f), { force: true });
+  return filed;
 });
 
 // Retitles the New card ask eventId became from the ask's latest text, as an edit changes it. → its key, or null.
@@ -594,25 +645,14 @@ export async function relateAsk(site, eventId, key, summary, title) {
     const moved = await ticketWrite(site, () => dropCard(site, card));
     const askThread = threadFile(site, `ask:${eventId}`);
     for (const line of moved) await appendLine(askThread, line);
+    // --title names the merge in the top banner (domain.mjs merges).
     await appendLine(askThread, { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: 'card-merged', text: hubText('card-merged', { card: await cardName(site, key) }),
-      into: key, title: card.item.title, link: `#selectedCard=${encodeURIComponent(key)}` });
+      into: key, title: title ?? card.item.title, link: `#selectedCard=${encodeURIComponent(key)}` });
   }
   const links = await readAskLinks(site);
   await writeJSON(askLinksFile(site), { links: { ...links, [eventId]: key } });
   await appendMessage(site, key, { text: summary });
-  if (title !== undefined) await titleAsk(site, eventId, title);
   return askLinksFile(site);
-}
-
-// docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md
-// The titles triage gave asks that stay asks, data/ask-titles.json {titles: {<ask event id>: title}}, set by reply
-// --title and item relate-ask --title; an ask with none is titled by its first line (domain.mjs askItem).
-const askTitlesFile = (site) => path.join(site, 'data', 'ask-titles.json');
-export async function readAskTitles(site) {
-  return (await readJSON(askTitlesFile(site), {})).titles || {};
-}
-async function titleAsk(site, eventId, title) {
-  await writeJSON(askTitlesFile(site), { titles: { ...await readAskTitles(site), [eventId]: text(title, '--title') } });
 }
 
 // Moves a folded ask back out of the card it was folded into, to a card of its own.
@@ -625,35 +665,21 @@ export async function unfoldAsk(site, eventId) {
   return askLinksFile(site);
 }
 
-// Claude's latest mark on each ask, data/ask-progress.json {asks: {<ask event id>: {state, at, next?, moved?}}}: progress
-// keeps an answered ask in In Progress until the owner's ask-done or a done mark is newer
-// (docs/adr/2026-10-29-1639-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md). moved {route, title, id} is a done
-// mark that names the ask moveAsk sent to another board.
-const askProgressFile = (site) => path.join(site, 'data', 'ask-progress.json');
-export async function readAskProgress(site) {
-  return (await readJSON(askProgressFile(site), {})).asks || {};
-}
-
+// The ask-moved line moveAsk wrote in ask eventId's thread when it sent the ask to another board, or undefined: the
+// ask lives there now, at the line's link.
+const movedLine = async (site, eventId) => (await readLines(threadFile(site, `ask:${eventId}`))).find((m) => m.line === 'ask-moved');
 async function refuseMoved(site, eventId) {
-  const moved = routeRecord(await readAskProgress(site), eventId)?.moved;
-  if (moved) fail(`ask "${eventId}" was moved to /${moved.route}; it lives there now`);
-}
-
-export async function markAsk(site, eventId, state, next) {
-  await checkAsk(site, eventId, 'the ask');
-  await refuseMoved(site, eventId);
-  const asks = await readAskProgress(site);
-  await writeJSON(askProgressFile(site), { asks: { ...asks, [eventId]: { state, at: new Date().toISOString(), ...(next === undefined ? {} : { next: text(next, '--next') }) } } });
-  return askProgressFile(site);
+  const moved = await movedLine(site, eventId);
+  if (moved) fail(`ask "${eventId}" was moved to ${moved.link}; it lives there now`);
 }
 
 // Why an ask is no longer New on this board, or null. An ask that became work items is New to moveAsk while none of
 // them has started; it returns them as `items`.
 async function askNotNew(site, eventId, events) {
   const named = `ask "${eventId}"`;
-  if (events.some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId && !e.data?.key)) return { why: `${named} was deleted by the owner` };
-  const mark = routeRecord(await readAskProgress(site), eventId);
-  if (mark?.moved) return { why: `${named} was already moved to /${mark.moved.route}` };
+  if (events.some((e) => e.kind === 'ask-withdrawn' && e.data?.id === eventId)) return { why: `${named} was deleted by the owner` };
+  const moved = await movedLine(site, eventId);
+  if (moved) return { why: `${named} was already moved to ${moved.link}` };
   const folded = routeRecord(await readAskLinks(site), eventId);
   if (folded) return { why: `${named} is folded into ${folded}; run ask unfold ${eventId} first` };
   const items = [];
@@ -661,12 +687,9 @@ async function askNotNew(site, eventId, events) {
     const itemFile = await readJSON(s.file, null);
     for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) if (it.from_ask === eventId) items.push({ key: `${s.slug}/${it.id}`, it });
   }
-  const started = items.find(({ it }) => hasPR(it) || leftTodo(it));
-  if (started) return { why: `${named} became ${started.key}, which has started` };
-  if (items.length) return { items: items.map((i) => i.key) };
-  const answered = (await replyFilesOf(path.join(site, 'data', 'replies'), eventId)).length > 0 || Boolean(mark) || events.some((e) => e.kind === 'ask-done' && e.data?.id === eventId)
-    || (await readLines(threadFile(site, `ask:${eventId}`))).some((m) => (m.who || 'claude') === 'claude' && m.kind !== 'status');
-  return answered ? { why: `${named} is not New: Claude already answered it` } : null;
+  const started = items.find(({ it }) => hasPR(it) || leftTodo(it) || it.answered_at);
+  if (started) return { why: `${named} became ${started.key}, which has started or been answered` };
+  return items.length ? { items: items.map((i) => i.key) } : null;
 }
 
 // A copy of an upload in another site's data/uploads under a fresh stored name, or the file's name alone when this
@@ -689,8 +712,8 @@ async function copyUpload(from, to, f) {
 }
 
 // Sends a New ask to another board in the hub's manifest: there, an `ask` event with the owner's latest text, copies
-// of its uploads and `from {route, title, id}`, which wakes that board's session; here, a done mark naming it, and a
-// line in the ask's thread linking to its card there. Cards the ask became, none of them started, are dropped, leaving
+// of its uploads and `from {route, title, id}`, which wakes that board's session; here, an ask-moved line in the ask's
+// thread linking to its card there, which says it lives there now (movedLine). Cards the ask became, none of them started, are dropped, leaving
 // no Done row (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
 export async function moveAsk(site, eventId, route) {
   needSite(site);
@@ -712,10 +735,6 @@ export async function moveAsk(site, eventId, route) {
   const from = { route: path.basename(site), title: (await boardConfig(site)).title, id: eventId };
   const body = edited ? edited.data.text : ask.data?.text || '';
   const id = await appendEvent(target, 'ask', { text: body, ...(files.length ? { files } : {}), from });
-  const moved = { route, title: target.title, id };
-  const at = new Date().toISOString();
-  const asks = await readAskProgress(site);
-  await writeJSON(askProgressFile(site), { asks: { ...asks, [eventId]: { state: 'done', at, moved } } });
   const link = `/${route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`;
   await appendStatus(site, `ask:${eventId}`, 'ask-moved', { board: target.title }, { link });
   for (const key of state?.items || []) {
@@ -1476,8 +1495,12 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
-    if (q.topic.startsWith('item:ask:')) await checkAsk(site, q.topic.slice(9), `${name}.topic`);
-    else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
+    // docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md: an ask is a card, so a
+    // question on it goes on that card's topic.
+    if (q.topic.startsWith('item:ask:')) {
+      const card = await askCardOf(site, await checkAsk(site, q.topic.slice(9), `${name}.topic`));
+      fail(`${name}.topic: an ask's questions go on its card's topic${card ? `, item:${card.key}` : ''}`);
+    } else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
     else if (q.topic.startsWith('wave:')) await findWave(site, q.topic.slice(5));
     else if (q.topic.startsWith('file:')) await triagedFile(site, q.topic.slice(5));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);

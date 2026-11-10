@@ -1,10 +1,12 @@
 ---
-status: superseded in part by 2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once
+status: superseded in part by 2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once, 2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire
 ---
 
 # An ask can wait on the owner before Done, and the owner closes any open card from its thread
 
 Superseded in part by [the board applies the owner's Hold, Resume and Done at once](2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md): a work card's or follow-up's Done moves the card at once, with no "Closing…"; the session records it afterwards.
+
+Superseded in part by [old asks migrate into cards, and the ask-only records retire](2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md): there is no ask row, `ask progress`, `ask done` or `ask-done` event. An answered ask is a card waiting in In Review for the owner's Done. The thread's Done on any open card holds.
 
 An answered ask whose answer waits on the owner, such as a choice only the owner can settle, stays open instead of going to Done's Asks fold. It sits in In Review with an Action needed badge linking to its thread, and moves to In Progress while an owner message in its thread waits on Claude ([the lane follows who acts next, and a card waiting on the owner says Action needed](2026-10-29-1639-the-lane-follows-who-acts-next.md)). Every open card's thread has a **Done** button, just left of Send in its reply form, that the owner uses to close the card at any time. A card already in Done has none.
 

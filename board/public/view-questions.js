@@ -153,7 +153,7 @@
     }
 
     // A toast names a topic by its card's ref, the title up to its colon; an ask by its time.
-    const toastName = (t) => (t.askedAt ? topicName(t) : String(t.title).match(/^(\S+):/)?.[1] || t.title);
+    const toastName = (t) => String(t.title).match(/^(\S+):/)?.[1] || t.title;
     // The topic a tap on this page acts for, the pills before it and its name, which moveOn reads once it is recorded.
     function leaving() {
       const from = soloId ? topicOf(soloId)?.id : topicId;

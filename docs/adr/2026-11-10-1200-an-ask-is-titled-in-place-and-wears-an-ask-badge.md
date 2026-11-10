@@ -1,10 +1,10 @@
 ---
-status: superseded in part by 2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives
+status: superseded in part by 2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives, 2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire
 ---
 
 # An ask is titled in place and wears an Ask badge
 
-Superseded in part by [every ask is a task card from the moment it arrives](2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md): a new ask is a card from the moment it arrives, so nothing files it with `--from-ask` and an answered one is a card in In Review. The Ask badge and titling here hold for asks handled before that.
+Superseded in part by [every ask is a task card from the moment it arrives](2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md): a new ask is a card from the moment it arrives, so nothing files it with `--from-ask` and an answered one is a card in In Review. Superseded further by [old asks migrate into cards, and the ask-only records retire](2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md): the asks handled before that became cards too, taking their `ask-titles.json` title, and the Ask badge, "asked <time>" line and `ask-titles.json` are gone. A filed card still takes the ask's place by its sent time.
 
 The owner (#386): an ask that becomes a work item should be that item, retitled, with the original ask as its first thread item, not a second card filed beside it; and an ask that stays an ask should still get a title from triage, with an Ask badge in place of a ticket.
 

@@ -20,7 +20,6 @@
     const file = key && !key.startsWith('ask:') ? key.slice(0, key.indexOf('/')) : null;
     const byRef = new Map();
     for (const i of items) {
-      if (i.kind === 'ask') continue;
       for (const ref of new Set([i.ref, i.id])) {
         if (!ref || (!LINEAR_ID.test(ref) && !ISSUE.test(ref) && i.file !== file)) continue;
         byRef.set(ref, [...(byRef.get(ref) || []), i]);

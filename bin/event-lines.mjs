@@ -7,7 +7,7 @@ import { waitsAgainLine } from '../board/domain.mjs';
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap the board server applies
 // itself (Hold, Resume, Done, Unbump, a bare or worded Grill, Prototype or Visual) and an unblock wake nobody. A lifted
 // pause (usage-resumed) wakes nobody either: the watcher reads the gate itself, and the work it held wakes the session.
-export const RECORD_ONLY = ['main-pulled', 'settings', 'ask-done', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
+export const RECORD_ONLY = ['main-pulled', 'settings', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
   'card-hold', 'card-done', 'card-unbump', 'card-unblocked', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed'];
 const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
 export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
@@ -38,9 +38,7 @@ export const ON_CARD = {
     : e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping` : `message received from ${c}'s thread: reply in its thread`),
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
   'card-bump': (c) => `${c} bumped: handle its waits lines first; with none, leave it`,
-  'ask-bump': (c) => `${c} bumped: take that ask first`,
   'ask-edited': (c) => `${c} edited: use the new text, and say what changed if you had started`,
-  'ask-done': (c) => `${c} marked done`,
   'ask-withdrawn': (c) => `${c} deleted: drop it`,
   'card-done': (c) => `${c} marked done`,
   'card-hold': (c, e) => `${c} ${e.data?.hold ? 'held' : 'resumed'}`,

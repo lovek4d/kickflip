@@ -661,19 +661,8 @@ test("a Quick build ask carries quick: true to the session, and its thread reads
   fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
 });
 
-test("an ask's Done and a work card's Hold, Resume and Done apply at once from their events, a Hold's chosen time with them", async () => {
+test("a work card's Hold, Resume and Done apply at once from their events, a Hold's chosen time with them", async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
-  // An ask handled before asks arrived as cards keeps its own row (domain.mjs askItem); its progress is written first so
-  // the board never sees it New and files it.
-  const id = 'olddone1';
-  const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${id}`);
-  fs.writeFileSync(path.join(site, 'data', 'ask-progress.json'), JSON.stringify({ asks: { [id]: { state: 'progress', at: new Date(Date.now() - 1000).toISOString(), next: 'Pick a take' } } }));
-  fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id, ts: new Date(Date.now() - 2000).toISOString(), kind: 'ask', data: { text: 'Settings prototype' } }) + '\n');
-  // Waits for the card itself, not any new version.
-  await until(async () => (await card()).next === 'Pick a take', "the board sees the ask's progress");
-  assert.deepEqual(await card().then((c) => [c.lane, c.next, c.finishable]), ['review', 'Pick a take', true]);
-  await post('/_claude/events', { kind: 'ask-done', id });
-  assert.deepEqual(await card().then((c) => [c.lane, c.fold, c.finishable]), ['done', null, false]);
   const work = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/AK2');
   assert.deepEqual(await work().then((c) => [c.lane, c.held, c.finishable]), ['todo', false, true]);
   const filed = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'AK2');
@@ -1621,10 +1610,12 @@ test("a reload naming the number it holds as since gets a patch of the cards cha
   const { applyPatch } = vmContext.BoardUI;
   const content = (b) => { const { generatedAt: _, ...rest } = JSON.parse(JSON.stringify(b)); return rest; };
   const get = async (q = '') => (await fetch(`${base}/api/board${q}`)).json();
-  await boardSees(base, () => putWave(JSON.stringify({ items: [{ id: 'F1', title: 'Patched', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }, { id: 'F3', title: 'Gone soon', lane: 'todo' }] })));
+  // The cards earlier tests' asks became stay, so no ask is left without its card for the server to file again.
+  const asked = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.filter((i) => i.from_ask);
+  await boardSees(base, () => putWave(JSON.stringify({ items: [...asked, { id: 'F1', title: 'Patched', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }, { id: 'F3', title: 'Gone soon', lane: 'todo' }] })));
   await cardsMarkedRead('t/F');
   const first = await get();
-  await boardSees(base, () => putWave(JSON.stringify({ items: [{ id: 'F1', title: 'Patched again', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }] })));
+  await boardSees(base, () => putWave(JSON.stringify({ items: [...asked, { id: 'F1', title: 'Patched again', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }] })));
   const patch = await get(`?since=${first.version}`);
   assert.equal(patch.since, first.version);
   assert.deepEqual(patch.lists.items.set.map((c) => [c.key, c.title]), [['t/F1', 'Patched again']]);

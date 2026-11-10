@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-progress-bar.js.
 (function () {
-  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, bumpButton, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
@@ -322,30 +322,24 @@
     return `<div class="hub-view"><div class="dur-chips" role="group" aria-labelledby="holdTitle"><div class="dur-choices">${chips}</div>`
       + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom hold until a date and time"></div></div></div>`;
   }
-  // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
-  // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). top is whether it is bumped already. The New card an ask
-  // became bumps as a card, and edits and deletes its ask
-  // (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
-  const askActions = (it, top) => `<div class="ask-actions">${it.kind === 'ask' ? bumpButton(it, top) : cardBumpButton(it.key, Boolean(it.bumpedAt))}${it.ask.canEdit ? editButton(it.ask.eventId) : ''}${withdrawButton(it.ask.eventId)}</div>`;
+  // A New card's bump, edit and delete: it bumps as a card, and edits and deletes its ask; its line comes from its ask
+  // state (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
+  const askActions = (it) => `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}${editButton(it.ask.eventId)}${withdrawButton(it.ask.eventId)}</div>`;
   // A card waiting on its owner step has the owner's Done where the bump sits: a check icon that confirms, then sends
   // card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
   const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
   const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep}`)}">${CHECK}</button>`;
-  const cardActions = (it, top) => (it.isNew ? askActions(it, top) : it.ownerStep ? `<div class="ask-actions">${ownerDoneButton(it)}</div>`
+  const cardActions = (it) => (it.isNew ? askActions(it) : it.ownerStep ? `<div class="ask-actions">${ownerDoneButton(it)}</div>`
     : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a New card reads a grey "waiting", its dot
   // still, until the orchestrator picks it up (the watcher's working mark), then "thinking".
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting</span>';
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? thinkingLine() : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
-  function workLines(it, { unread = 0, top = false } = {}) {
+  function workLines(it, { unread = 0 } = {}) {
     const ticket = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
-    // A work card shows its ticket, or Task when it has none; an ask, and the card an ask became until it is sorted,
-    // shows New or Ask there (askChip).
-    const ids = it.kind === 'ask' || it.isNew ? askChip(it) : ticket;
+    // A card shows its ticket, or Task when it has none; the card an ask became shows New there until it is sorted.
+    const ids = it.isNew ? badge('notice', 'New') : ticket;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
-    // A handled ask's asked time sits under its title, since its Ask badge holds the ticket's spot
-    // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
-    const asked = it.kind === 'ask' && !it.isNew ? `<div class="line3 sub">asked ${esc(cardTime(it.ask.askedAt))}</div>` : '';
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       : it.orchestrator && !it.builder ? `${it.rebaseFailed ? `<div class="line3 sub">${escText(it.rebaseFailed)}</div>` : ''}${orchestratorStatus(it)}`
       : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
@@ -359,12 +353,11 @@
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
       : `<div class="line3 sub check">${escText(`Checks: ${it.ownerCheck.words}`)}</div>`;
-    return `${cardActions(it, top)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
-      ${asked}${status}${check}${eta}
+    return `${cardActions(it)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
+      ${status}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, progressBar(phaseStrip(it)))}`;
   }
-  const askChip = (it) => (it.isNew ? badge('notice', 'New') : badge('quiet', 'Ask'));
   function planButton(items) {
     const keys = items.filter((i) => i.kind === 'work' && !i.held && !i.blocked).map((i) => i.key);
     return keys.length > 1 ? `<button type="button" class="thread-more" data-plan="${esc(keys.join(' '))}"${BoardUI.pending.has('todo:plan') ? BoardUI.BUSY : ''}>Plan waves</button>` : '';
@@ -408,5 +401,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askChip, askActions, askLine, planButton, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askActions, askLine, planButton, reviewLane });
 })();

@@ -1,4 +1,4 @@
-// New tasks on the board view: bump, edit and delete for a New card or a
+// New tasks on the board view: edit and delete for a New card or a
 // pending thread message (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md,
 // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). Needs app-core.js and app-threads.js.
 BoardView.part((B) => {
@@ -15,23 +15,11 @@ BoardView.part((B) => {
   });
   BoardNewTask.wire(B);
 
-  // A bump moves the New card to the top once the server has recorded it, button (its icon, or the prototype button
-  // that bumps it) waiting meanwhile (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
-  async function bumpAsk(id, button) {
-    try { await waitOn(button, B.send('ask-bump', { id })); toast('Bumped to the top'); } catch (e) { B.failed(e); }
-  }
-  B.on(B.root, 'click', (ev) => {
-    const bump = ev.target.closest('button[data-bump]');
-    if (!bump) return;
-    ev.preventDefault();
-    bumpAsk(bump.dataset.bump, bump);
-  });
-  B.bumpAsk = bumpAsk;
   // A New card's icons sit on the card; a message in a thread, an ask's included, carries its thread's key.
   async function pendingMessage(b, id) {
     const card = b.closest('details.item');
     const thread = b.closest('[data-thread]')?.dataset.thread || card?.querySelector('[data-thread]')?.dataset.thread || card?.dataset.key || null;
-    const key = thread && thread !== `ask:${id}` ? thread : undefined;
+    const key = thread || undefined;
     let msg = b.closest('.msg');
     if (!msg && b.dataset.edit && card) {
       card.open = true;

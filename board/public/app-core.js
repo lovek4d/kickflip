@@ -104,8 +104,8 @@ BoardView.part((B) => {
     Object.assign(seen, marks);
     fetch(B.site.url('api/read'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ marks }) }).catch(() => {});
   }
-  // The newest message card it shows: its counted messages (domain.mjs othersAt), its questions' asks and its answer.
-  const newestOf = (it) => [...(it.othersAt || []), ...(it.questions?.askedAt || []), it.ask?.answerAt].filter(Boolean).map(String).sort().pop();
+  // The newest message card it shows: its counted messages (domain.mjs othersAt) and its questions' asks.
+  const newestOf = (it) => [...(it.othersAt || []), ...(it.questions?.askedAt || [])].filter(Boolean).map(String).sort().pop();
   // Card it, open, reads up to the newest message it shows.
   function markSeen(it) {
     if (!it) return;

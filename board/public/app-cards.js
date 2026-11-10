@@ -204,10 +204,6 @@ BoardView.part((B) => {
   B.on(holdSheet, 'focusout', (ev) => { if (ev.target.matches?.('[data-hold-at]')) holdCustom(ev.target); });
 
   function detail(it) {
-    if (it.kind === 'ask') {
-      const button = actionButton(it);
-      return `<div class="detail">${button ? `<div class="actions" data-actions="${esc(it.key)}">${actionRow('workflow', button)}</div>` : ''}${B.thread(it.key)}</div>`;
-    }
     const pr = it.pr;
     const ctx = links(it.key);
     const rows = [];
@@ -273,8 +269,7 @@ BoardView.part((B) => {
     'card-build': (it, ref) => (it.blocked
       ? `${it.held ? 'Unhold and implement' : 'Implement'} ${ref} once ${[it.blockedBy.length && `${it.blockedBy.map((d) => d.ref).join(', ')} ${it.blockedBy.length === 1 ? 'is' : 'are'} done`, it.blockedUntil].filter(Boolean).join(' and ')}? It is bumped to the top of Todo until then.`
       : `${it.held ? `Unhold and implement ${ref}?` : `Implement ${ref}?`} Claude starts its implementer now with the notes as they stand.`),
-    finish: (it, ref) => (it.kind === 'ask' ? `Mark this task done? "${it.title}" moves to Done.`
-      : it.ownerStep ? `Done with "${it.ownerStep}"? ${ref} moves to Done and its ticket closes.`
+    finish: (it, ref) => (it.ownerStep ? `Done with "${it.ownerStep}"? ${ref} moves to Done and its ticket closes.`
       : `Close ${ref}? It moves to Done and Claude stops work on it.${openPRs(it).length ? ` Its PR${openPRs(it).length > 1 ? 's stay' : ' stays'} open on GitHub.` : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
   };
 
@@ -307,10 +302,6 @@ BoardView.part((B) => {
   };
   const actionButton = (it) => ACTION_BUTTONS[it.actionButton]?.(it) || '';
 
-  // A bumped New card takes no second bump, which would only move it behind the earlier bumps
-  // (docs/adr/2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md,
-  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md).
-  const bumpedAsk = (it) => Boolean(it.isNew && it.bumpedAt);
   // Its open questions asked since this browser last opened it are one more unread message: the thread's "N new
   // questions" line (app-threads.js; docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
   function card(it) {
@@ -319,7 +310,7 @@ BoardView.part((B) => {
     return `<details class="item" data-key="${esc(it.key)}" ${state.openItems.has(it.key) ? 'open' : ''}>
           <summary class="work">
             <span class="status ${it.lane}"></span>
-            <div class="title-wrap">${workLines(it, { unread, top: bumpedAsk(it) })}</div>
+            <div class="title-wrap">${workLines(it, { unread })}</div>
           </summary>
           ${state.openItems.has(it.key) ? detail(it) : ''}
         </details>`;
@@ -480,7 +471,7 @@ BoardView.part((B) => {
     // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement and Done wait while the
     // server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
     const sent = { resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
-      finish: it.kind === 'ask' ? ['ask-done', { id: it.id }] : ['card-done', { key }] }[act];
+      finish: ['card-done', { key }] }[act];
     // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
     // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
     const close = act === 'finish' ? () => {

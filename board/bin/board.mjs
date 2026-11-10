@@ -33,13 +33,12 @@ Linear needs Hub's Linear key: settings set tickets refuses it without one, and 
 moves every Linear board to no ticket source. If the source can't make a ticket, the command fails and changes nothing.
 
   reply <eventId> (--text <md> | --file <path>)          data/replies/<eventId>.md, markdown the board draws. A
-                                                         reply to an ask resolves its answered questions
-                                                         (topic item:ask:<eventId>), and one to wave-triage its
-                                                         wave's, noting "Acted on: replied". A
+                                                         reply to an ask answers the card it became, as reply
+                                                         <file>/<id> does, and resolves that card's answered
+                                                         questions; one to wave-triage resolves its wave's,
+                                                         noting "Acted on: replied". A
                                                          reply to overnight-triage ends that triage
-         [--title <t>]                                   retitles the ask it answers, or whose thread the message
-                                                         is in, which then wears an Ask badge in place of its first
-                                                         line as title (data/ask-titles.json)
+         [--title <t>]                                   retitles the New or answered card the ask became
   reply <file>/<id> (--text <md> | --file <path>)        answers the New card an ask became: the answer goes in
          [--title <t>]                                   its thread and the card waits in In Review for the
                                                          owner's Done, --title as its title. Refuses a card
@@ -55,8 +54,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, prototype_gate?}; topic is declared, item:<file>/<id>, item:ask:<eventId>
-          for a New card not sorted yet, wave:<slug> for a wave's triage, or file:<slug> for an item file's triage on
+          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, prototype_gate?}; topic is declared, item:<file>/<id> (an ask's
+          questions go on its card's), wave:<slug> for a wave's triage, or file:<slug> for an item file's triage on
           a board over ~/.claude/waves. A question on a done card reopens it.
          A question on an item: topic whose card has a grill or prototype planner running is staged, not published,
          whoever adds it: it shows nowhere until the planner finishes, fails or is stopped, when every staged question
@@ -286,18 +285,14 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          owner's banner names the card it merged into. Refuses
                                                          an ask whose card is sorted. Again with another item
                                                          moves it there
-         [--title <t>]                                   retitles the ask, as reply's --title
-  ask progress <eventId> [--next <text>]                 keeps an answered ask in In Review, --next as its next
-                                                         line, until the owner's ask-done (the Done beside Reply
-                                                         in its thread) or ask done is newer. Use it when the answer
-                                                         waits on the owner, such as a pick between prototypes
-  ask done <eventId>                                     moves the ask to Done, as the owner's Done button does
+         [--title <t>]                                   names the merge in the owner's banner
   ask unfold <eventId>                                   moves a folded ask back out to a card of its own
   ask move <eventId> --to <route>                        sends a New ask to another board in the hub's manifest:
                                                          a New card there with the owner's text, attachments and
-                                                         "Moved from <this board>", which wakes its session; here the
-                                                         ask goes to Done with a thread line linking to that card.
-                                                         A card the ask became is dropped, unless it has started.
+                                                         "Moved from <this board>", which wakes its session; here
+                                                         the card the ask became is dropped, leaving a line in the
+                                                         ask's thread linking to that card. Refuses an ask whose
+                                                         card is no longer New.
                                                          Refuses a route that isn't another board, and an ask
                                                          that isn't New
                                                          Then sends the queued pushes, each on its own, unless
@@ -847,8 +842,6 @@ const COMMANDS = {
     return store.addNotes(site, key, f);
   }],
   'item relate-ask': [['eventId', 'file/id'], ['summary', 'title'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary, f.title)],
-  'ask progress': [['eventId'], ['next'], (site, [id], f) => store.markAsk(site, id, 'progress', f.next)],
-  'ask done': [['eventId'], [], (site, [id]) => store.markAsk(site, id, 'done')],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'wave create': [['slug'], ['title', 'goal', '...card', 'note', 'file'], (site, [slug], f) => store.createWave(site, slug, { title: f.title, goal: f.goal, cards: f.card, note: noteOf(f) })],
@@ -1047,8 +1040,6 @@ const SAID = {
   'item add': async (site, _, f, { key }) => `${await card(site, key)} added as ${key}`,
   'item notes': async (site, [key], f, { file, heading }) => `${await card(site, key)}: notes section "${heading}" added to ${file}`,
   'item relate-ask': async (site, [id, key]) => `task ${id} folded into ${await card(site, key)}`,
-  'ask progress': async (site, [id]) => `${await card(site, `ask:${id}`)}: in progress`,
-  'ask done': async (site, [id]) => `${await card(site, `ask:${id}`)}: done`,
   'ask unfold': (site, [id]) => `task ${id} back on a card of its own`,
   'ask move': (site, [id], f) => `task ${id} moved to /${f.to}`,
   'wave create': (site, [slug]) => `wave ${slug} created`,

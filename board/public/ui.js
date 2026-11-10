@@ -130,11 +130,9 @@
   // Deletes or edits a pending ask or thread message; app-asks.js handles [data-withdraw] and [data-edit] on one path.
   const withdrawButton = (id) => `<button class="ghost icon" data-withdraw="${esc(id)}" aria-label="Delete" title="Delete">${TRASH}</button>`;
   const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
-  // A waiting ask's bump, which app-asks.js sends as ask-bump {id}, filled orange and disabled once
-  // bumped. A work card's is the same icon: app-cards.js sends card-bump {key} with no confirm, and on a bumped card, where
-  // it is filled orange, card-unbump {key} (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
+  // A card's bump: app-cards.js sends card-bump {key} with no confirm, and on a bumped card, where it is filled orange,
+  // card-unbump {key} (docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md,
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
-  const bumpButton = (it, top) => `<button class="ghost icon${it.bumpedAt ? ' bumped' : ''}" data-bump="${esc(it.id)}" aria-label="Bump to top" title="Bump to top"${top ? ' disabled' : ''}>${BUMP}</button>`;
   const cardBumpButton = (key, bumped) => (bumped
     ? `<button class="ghost icon bumped" data-card-bump="${esc(key)}" data-bumped aria-pressed="true" aria-label="Unbump" title="Bumped. Tap to unbump">${BUMP}</button>`
     : `<button class="ghost icon" data-card-bump="${esc(key)}" aria-pressed="false" aria-label="Bump to top" title="Bump to top">${BUMP}</button>`);
@@ -467,6 +465,6 @@
   globalThis.BoardUI = {
     LINK_ARROW, escText, onBackdrop,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, copyNote, SENDS, holdSends,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, bumpButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
   };
 })();

@@ -389,7 +389,6 @@ function actionOf(it, questionById, autoMerge) {
     return { kind: ACTION_KIND.questions, url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: `Review draft PR #${it.pr.number}` };
-  if (it.kind === 'ask' && it.waitsOn === 'owner') return { kind: ACTION_KIND.done, url: thread, label: it.next || TAP_DONE };
   if (it.waitsOn === 'merge' && it.manualSteps.length && !it.mergeReady) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
   if (it.waitsOn === 'merge' && (!autoMerge || it.mergeReady) && !it.merging && it.prs.every((p) => ['MERGED', 'CLOSED'].includes(p.state) || mergeable(p, it.reviewers.length > 0))) return { kind: ACTION_KIND.merge, url: thread, label: 'Merge' };
@@ -437,7 +436,7 @@ export const PROTOTYPE_AGAIN = 'Prototype again';
 // PR's Review on GitHub, or Merge.
 const RESOLVED_BY = Object.freeze({
   [ACTION_KIND.pick]: BUTTON.openQuestions, [ACTION_KIND.questions]: BUTTON.openQuestions, [ACTION_KIND.ready]: BUTTON.github,
-  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.done]: BUTTON.done, [ACTION_KIND.stalled]: BUTTON.reply,
+  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.stalled]: BUTTON.reply,
 });
 
 // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md
@@ -491,58 +490,6 @@ export function owesNext(item, records) {
   const agents = records.filter((r) => r?.started);
   if (item.next || hasPR(item) || item.pushed || item.held || item.lane === 'done' || handedBackAt(agents)) return false;
   return !agents.some((r) => !r.done) && started(item.lane, agents);
-}
-
-// An ask is a New card in Todo, at the bottom among the cards by when it was sent (a bump moves it to the top), until Claude replies to it or writes in its thread; then it is an answered ask
-// in Done with its thread (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md,
-// docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md). An ask that became work has no card
-// of its own: buildBoard leaves it out. A folded ask stays, in Done, with a thread line saying where it went. msgs is its thread; bumpedAt is its latest ask-bump.
-// mark is Claude's latest data/ask-progress.json entry {state, at, next} and doneAt the owner's latest ask-done: the newer
-// one decides whether the ask sits in In Progress with a Done button (docs/adr/2026-10-29-1639-an-ask-can-wait-in-progress-until-the-owner-marks-it-done.md).
-// A mark with moved is an ask sent to another board on the owner's answer, so it never shows as an answer.
-// pending counts its questions (topic item:ask:<event id>) that are open or answered and waiting on Claude: an answered
-// ask with either stays in Todo until a mark or the owner's Done closes it, since only Claude's progress mark puts an
-// ask in In Progress (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md,
-// docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md).
-// titled is the title triage gave it (data/ask-titles.json), else its first line titles it.
-// An ask with no ticket is named by when it was asked: the time today, else the short date and time.
-function askedLabel(iso, now = new Date()) {
-  const d = new Date(iso);
-  const at = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  return d.toDateString() === now.toDateString() ? at : `${d.getMonth() + 1}/${d.getDate()} ${at}`;
-}
-function askItem(e, msgs, bumpedAt, linked, mark, doneAt, pending, titled) {
-  const msg = msgs.find((m) => m.kind === 'ask' && m.eventId === e.id);
-  const files = msg.files;
-  const title = titled || (msg.text || '').trim().split('\n')[0] || files.map((f) => f.name).join(', ') || 'Ask';
-  const answered = msg.state === 'replied' || msg.state === 'answered';
-  const inProgress = mark?.state === 'progress' && !(String(doneAt || '') > String(mark.at || ''));
-  const closed = !inProgress && (Boolean(mark) || Boolean(doneAt));
-  const asked = answered && !closed && !inProgress && pending.open > 0;
-  const onClaude = answered && !closed && !inProgress && !asked && pending.answered > 0;
-  const done = closed || (answered && !inProgress && !asked && !onClaude);
-  const answerAt = answered && !linked && !mark?.moved
-    ?[...msgs.filter((m) => m.who === 'claude' && m.kind !== 'ask-link' && m.kind !== 'status' && m.kind !== 'command').map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort().pop() || null
-    : null;
-  const handled = done || inProgress || asked || onClaude;
-  // An owner message Claude hasn't answered puts the next step back with Claude.
-  const ownerPending = msgs.some((m) => m.who === 'love' && m.kind !== 'ask' && (m.state === 'waiting' || m.state === 'working'));
-  // The owner's thread messages still owed an answer, by event id (intakeWaits).
-  const owed = msgs.filter((m) => m.who === 'love' && m.kind === 'item-message').flatMap(stateEntries).filter(([, s]) => s === 'waiting' || s === 'working').map(([id]) => id);
-  const state = handled ? 'answered' : msg.state;
-  const bumped = handled ? null : bumpedAt || null;
-  const othersAt = [...msgs.filter(countsUnread).map((m) => m.ts), ...msgs.map((m) => m.reply?.at)].filter(Boolean).sort();
-  const lastTs = [...msgs.map((m) => m.ts), ...othersAt, ...(inProgress ? [mark.at] : [])].filter(Boolean).sort().pop();
-  return {
-    key: `ask:${e.id}`, kind: 'ask', order: 0, file: null, fileTitle: null, id: e.id, ref: handled ? askedLabel(e.ts) : 'New', isNew: !handled, title, storedLane: null,
-    internal: false, repo: null, lane: inProgress ? 'progress' : done ? 'done' : 'todo', waitsOn: inProgress && !ownerPending ? 'owner' : null, builder: null, agents: [], eta: null, working: msgs.some((m) => stateEntries(m).some(([, state]) => state === 'working')),
-    deps: [], held: false, risky: false, bumpable: !handled, bumpedAt: bumped, manualSteps: [], fromAsk: null, from: null, next: inProgress ? mark.next || null : null, hasNotes: false, branch: null,
-    finishable: handled && !done,
-    linear: [], pr: null, prs: [], reviewers: [], review: {}, inReviewSince: null, reviewSince: null, progressSince: inProgress ? mark.at || null : null, closedAt: null,
-    threadCount: msgs.length, lastTs, othersAt: handled ? othersAt : [], grilling: false, prototyping: false, created: e.ts, updatedAt: handled ? lastTs : e.ts,
-    ask: { eventId: e.id, state, askedAt: e.ts, bumpedAt: bumped, edited: Boolean(msg.edited), canEdit: !handled, text: msg.text, files, answerAt, from: msg.from || null, owed },
-    fold: null, action: null,
-  };
 }
 
 // Two kinds of agent: planners, the grill and prototype agents, which write no output code, and implementers, every
@@ -803,7 +750,7 @@ const add = (map, key, value) => { const list = map.get(key); if (list) list.pus
 const groupBy = (list, keyOf) => { const map = new Map(); for (const x of list) add(map, keyOf(x), x); return map; };
 
 // A topic is resolved once every question in it is; questions without a known topic share "Other".
-// A card's questions use topic `item:<key>`: `item:<file>/<id>`, or `item:ask:<event id>` for a New card not yet sorted.
+// A card's questions use topic `item:<file>/<id>`.
 // The board supplies its title when owner.json has none, and names the card as card, so the page's board can leave the
 // title out and name the topic from its card (server.mjs pageBoard). closed holds the topics of Done cards: one with no open
 // question is resolved, so its answered questions never wait on Claude.
@@ -1065,7 +1012,7 @@ export const waveItems = (wave) => wave.items || wave.phases.flat();
 // snapshot: {files: [{slug, itemFile, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
 //   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <file>/<id>},
-//   askProgress: {<ask event id>: {state: progress|done, at, next, moved}}, askTitles: {<ask event id>: title}, owner: owner.json,
+//   owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   skipDraft: board.json's skip_draft (true leaves a draft to the hub's poll, which marks it ready once CI passes, so
 //   no draft gets the owner's review),
@@ -1079,10 +1026,9 @@ export function buildBoard(snapshot) {
   const { owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {} } = snapshot;
   const now = snapshot.now ?? Date.now();
   const index = threadIndex(events, owner);
-  const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn' && !e.data?.key).map((e) => e.data?.id));
+  const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn').map((e) => e.data?.id));
   const asks = new Map(events.filter((e) => e.kind === 'ask' && !withdrawn.has(e.id)).map((e) => [e.id, e]));
   const latest = (kind, field) => new Map(events.filter((e) => e.kind === kind).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.[field], e.ts]));
-  const bumps = latest('ask-bump', 'id');
   // A card's bump counts until a later card-unbump (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
   const cardUnbumps = latest('card-unbump', 'key');
   const cardBumps = new Map([...latest('card-bump', 'key')].filter(([key, ts]) => !(String(cardUnbumps.get(key) || '') > String(ts))));
@@ -1174,8 +1120,7 @@ export function buildBoard(snapshot) {
     script: buildScriptOf(run.target) } : null;
 
   const merges = [];
-  const askProgress = snapshot.askProgress || {};
-  const askDones = latest('ask-done', 'id');
+  const unfiled = [];
   const answerEvents = groupBy(events.filter((e) => e.kind === 'owner-answer'), (e) => e.data?.id);
   const requestEvents = groupBy(events.filter((e) => e.kind === 'prototype-request'), (e) => e.data?.question);
   const reaskEvents = groupBy(events.filter((e) => e.kind === 'reask-request'), (e) => e.data?.question);
@@ -1183,32 +1128,28 @@ export function buildBoard(snapshot) {
   const questions = (owner.items || []).map((q) => ownerQuestion(q, answerEvents.get(q.id) || [], requestEvents.get(q.id) || [], reaskEvents.get(q.id) || [], reopenEvents.get(q.id) || []));
   const questionById = new Map(questions.map((q) => [q.id, q]));
   const questionsOn = groupBy(questions, (q) => q.topic);
-  const pendingOn = (topic) => {
-    const qs = questionsOn.get(topic) || [];
-    return { open: qs.filter((q) => q.state === 'open').length, answered: qs.filter((q) => q.state === 'answered').length };
-  };
+  // docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md: every ask is a card and has
+  // no row of its own. It lives in the card it became, or the one it was folded or merged into (data/ask-links.json,
+  // which also holds an archived card's own ask), and its old links open that card. One sent to another board (its
+  // thread's ask-moved line) lives there. One with none of these yet is unfiled, for the board server to file
+  // (store.mjs fileAsks).
   for (const e of asks.values()) {
     const key = `ask:${e.id}`;
-    const related = works.get(routeRecord(askLinks, e.id));
-    const links = [...(madeFrom.get(e.id) || [])];
-    const folded = related && !links.some((l) => l.key === related.key);
-    if (folded) links.push({ key: related.key, ref: related.ref, title: related.title, became: false, folded: true });
-    if (links.length && !folded) { moved.set(key, links[0].key); continue; }
-    // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: an ask whose card merged into
-    // another card (store.mjs relateAsk) lives in that card's thread alone, and the merge shows in the top banner.
-    const merged = (routeRecord(threads, key) || []).filter((m) => m.line === MERGED_LINE).at(-1);
-    if (folded && merged) {
-      moved.set(key, related.key);
-      const text = merged.title || String(index.edits.get(e.id) ?? e.data?.text ?? '').trim().split('\n')[0] || 'Ask';
-      merges.push({ key: related.key, ref: related.ref, text, at: String(merged.ts) });
+    const lines = routeRecord(threads, key) || [];
+    const card = madeFrom.get(e.id)?.[0].key || routeRecord(askLinks, e.id);
+    if (!card) {
+      if (!lines.some((m) => m.line === 'ask-moved')) unfiled.push(e.id);
       continue;
     }
-    // An ask linked to a card the board no longer holds went with it to the archive (store.mjs archiveCards).
-    if (!folded && routeRecord(askLinks, e.id)) { moved.set(key, routeRecord(askLinks, e.id)); continue; }
-    const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links, index });
-    for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
-    claudeAt.set(key, claudeAtOf(msgs));
-    items.push(askItem(e, msgs, bumps.get(e.id), links.length > 0 || Boolean(routeRecord(askLinks, e.id)), routeRecord(askProgress, e.id), askDones.get(e.id), pendingOn(`item:${key}`), routeRecord(snapshot.askTitles || {}, e.id)));
+    moved.set(key, card);
+    // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: an ask whose card merged into
+    // another card (store.mjs relateAsk) shows in the top banner.
+    const merged = lines.filter((m) => m.line === MERGED_LINE).at(-1);
+    const into = works.get(card);
+    if (merged && into) {
+      const text = merged.title || String(index.edits.get(e.id) ?? e.data?.text ?? '').trim().split('\n')[0] || 'Ask';
+      merges.push({ key: into.key, ref: into.ref, text, at: String(merged.ts) });
+    }
   }
   for (const w of itemFiles) {
     const cards = items.filter((i) => i.file === w.slug);
@@ -1221,7 +1162,7 @@ export function buildBoard(snapshot) {
     return { ...l, keys: waveItems(l).map((id) => `${slug}/${id}`) };
   }));
   const topicsOf = () => ownerTopics([...(owner.topics || []), ...items.filter((it) => !declared.has(`item:${it.key}`))
-    .map((it) => ({ id: `item:${it.key}`, card: it.key, title: `${it.ref}: ${it.title}`, ...(it.kind === 'ask' ? { askedAt: it.ask.askedAt } : {}) })),
+    .map((it) => ({ id: `item:${it.key}`, card: it.key, title: `${it.ref}: ${it.title}` })),
   ...waves.filter((l) => !declared.has(`wave:${l.slug}`)).map((l) => ({ id: `wave:${l.slug}`, title: l.title, summary: 'Wave triage.' })),
   ...(snapshot.fromWaves ? itemFiles : []).filter((w) => !declared.has(`file:${w.slug}`)).map((w) => ({ id: `file:${w.slug}`, title: w.title, summary: 'Wave triage.' }))], questions,
   new Set(items.filter(closedLane).map((it) => `item:${it.key}`)));
@@ -1270,7 +1211,7 @@ export function buildBoard(snapshot) {
       delete it.askMsg;
       if (it.unsorted && m) {
         it.isNew = true;
-        it.ask = { eventId: m.eventId, state: m.state, askedAt: m.ts, bumpedAt: null, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, answerAt: null, from: m.from || null, owed: [] };
+        it.ask = { eventId: m.eventId, state: m.state, askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null };
       }
     }
     it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.action;
@@ -1291,11 +1232,7 @@ export function buildBoard(snapshot) {
     return e.data?.key || (e.kind.startsWith('ask-') && e.data?.id ? `ask:${e.data.id}` : null);
   };
   const cardOf = (e) => { const card = ownCardOf(e); return moved.get(card) || card; };
-  const closedAt = (key) => {
-    const id = key.startsWith('ask:') ? key.slice(4) : null;
-    const done = id && routeRecord(askProgress, id)?.state === 'done' ? routeRecord(askProgress, id).at : null;
-    return [cardDones.get(key), id && askDones.get(id), done, closedWork.get(key)].filter(Boolean).sort().pop() || '';
-  };
+  const closedAt = (key) => [cardDones.get(key), closedWork.get(key)].filter(Boolean).sort().pop() || '';
   const unanswered = (e) => {
     const card = cardOf(e);
     if (card === null) return !e.reply;
@@ -1338,12 +1275,12 @@ export function buildBoard(snapshot) {
   const inProgress = new Set(needs.filter((line) => line.questions && line.progress).map((line) => `item:${line.key}`));
   for (const t of topicList) if (inProgress.has(t.id)) t.progress = true;
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/2026-10-29-1639-every-ask-is-a-card.md).
-  // A card answered before it was sorted is an answer too, at its newest Claude line.
-  const answers = items.flatMap((i) => (i.ask?.answerAt ? [{ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }]
-    : i.answered && claudeAt.get(i.key) ? [{ key: i.key, id: i.id, text: i.title, at: claudeAt.get(i.key) }] : []))
+  // A card answered before it was sorted is an answer, at its newest Claude line.
+  const answers = items.flatMap((i) => (i.answered && claudeAt.get(i.key) ? [{ key: i.key, id: i.id, text: i.title, at: claudeAt.get(i.key) }] : []))
     .sort((a, b) => b.at.localeCompare(a.at));
   merges.sort((a, b) => b.at.localeCompare(a.at));
-  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, waveBands, items, moved: Object.fromEntries(moved), answers, merges, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now) }, snapshot);
+  // unfiled: the asks with no card yet, for the board server to file (store.mjs fileAsks).
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, waveBands, items, moved: Object.fromEntries(moved), answers, merges, unfiled, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now) }, snapshot);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
@@ -1386,11 +1323,8 @@ function linkCards(items, byKey, stored) {
 
 // docs/adr/2026-11-03-0223-each-lane-has-one-fixed-order.md
 // The time each lane sorts by, newest first: Todo when the card was made, In Progress and In Review when it
-// came into the lane, Done when it closed, an answered ask in Done when Claude answered. A card with none falls back to its latest activity.
-const SORT_AT = {
-  todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.reviewSince,
-  done: (i) => (i.kind === 'ask' ? i.ask.answerAt : i.closedAt),
-};
+// came into the lane, Done when it closed. A card with none falls back to its latest activity.
+const SORT_AT = { todo: (i) => i.created, progress: (i) => i.progressSince, review: (i) => i.reviewSince, done: (i) => i.closedAt };
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -1600,26 +1534,20 @@ export function visualsDue(items, events) {
 }
 
 // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
-// Intake is what reaches the board unsorted: a new task (ask), the owner's message in an ask's thread (item-message
-// keyed ask:<id>), and a card an agent added with no phase (card-added). The card an intake event is on, or null.
-const intakeKeyOf = (e) => (e.kind === 'ask' ? `ask:${e.id}`
+// Intake is what reaches the board unsorted: a new task (ask), on the card it became, and a card an agent added with no
+// phase (card-added). The card an intake event is on, or null: an ask the board server has yet to file has none.
+const intakeKeyOf = (e, moved) => (e.kind === 'ask' ? moved.get(`ask:${e.id}`) ?? null
   : e.kind === 'card-added' ? e.data?.key ?? null
-  : e.kind === 'item-message' && String(e.data?.key || '').startsWith('ask:') ? e.data.key
   : null);
-// Whether intake event e, on card key, still waits to be sorted: the ask still New, the message still unanswered, the
-// card still unfiled. items is a built board's items by key.
+// Whether intake event e, on card key, still waits to be sorted: the ask's card still New, the added card still
+// unfiled. items is a built board's items by key.
 function unsorted(items, e, key) {
   const it = items.get(key);
   if (!it) return false;
-  if (e.kind === 'ask') return it.isNew;
-  if (e.kind === 'card-added') return it.kind === 'work' && it.unfiled;
-  return (it.ask?.owed || []).includes(e.id);
+  return e.kind === 'ask' ? Boolean(it.isNew) : it.unfiled;
 }
-// An ask's card is filed by the board server (store.mjs fileAsk), so an ask with none yet waits only for that.
 const INTAKE_NEXT = {
-  ask: (key, e) => (key.startsWith('ask:') ? 'Sort the new task: the board files its card; sort that once it shows'
-    : `Sort the new task: item notes, then item set ${key} --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask ${e.id} <card> --summary; or answer it with reply ${key}`),
-  'item-message': () => "Answer the owner's message in the ask's thread: reply to it",
+  ask: (key, e) => `Sort the new task: item notes, then item set ${key} --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask ${e.id} <card> --summary; or answer it with reply ${key}`,
   'card-added': () => 'Link and file the card an agent added: item notes, then item set --relate and --phase',
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
@@ -1628,9 +1556,7 @@ function intakeWaits(items, events, working, moved) {
   const byKey = new Map(items.map((i) => [i.key, i]));
   const waited = new Set();
   for (const e of events) {
-    const own = intakeKeyOf(e);
-    // An ask's intake waits on the card it became.
-    const key = (e.kind === 'ask' && moved.get(own)) || own;
+    const key = intakeKeyOf(e, moved);
     if (!key || waited.has(key) || !unsorted(byKey, e, key)) continue;
     waited.add(key);
     byKey.get(key).orchestrator = { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, e) };

@@ -1,4 +1,10 @@
+---
+status: superseded by 2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire
+---
+
 # Answered asks fold into the one Done list, the kind shown in the ticket slot
+
+Superseded by [old asks migrate into cards, and the ask-only records retire](2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md): an answered ask is a Done card closed at its answer time, with its ticket slot and archive like any card; there is no Ask badge or ask row.
 
 This supersedes in part [answered asks have their own section below Done, and Done and Asks show 10 cards at a time](2026-11-03-0259-answered-asks-have-their-own-section-below-done.md) on the Asks lane, and keeps its "an answered ask stays in Todo until it closes" and its 10-card cap.
 

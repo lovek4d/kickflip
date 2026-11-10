@@ -7,7 +7,7 @@ import { home, at, site, write, read, run, board, question, takePath, recordProt
 test('question add appends valid questions and rejects the whole file otherwise', () => {
   const drawn = (more = {}) => ({ id: 'A', label: 'Keep', diagram: [[{ text: 'Hub' }, { text: 'Board', tone: 'info', to: [0] }], [{ text: 'Owner', tone: 'success' }]], practice: ['One place to change.'], ...more });
   recordPrototype();
-  write(path.join(home, 'q.json'), [question('q1', { url: 'prototype-site.html?q=q1' }), question('q2', { topic: 'item:w/A1', urgent: true, url: 'https://linear.app/x/issue/INT-1', options: [drawn(), { id: 'B', label: 'Drop' }] }), question('q4', { topic: 'item:ask:e1', suggested: { option: 'B', card: '#186', answer: 'Drop it.' } })]);
+  write(path.join(home, 'q.json'), [question('q1', { url: 'prototype-site.html?q=q1' }), question('q2', { topic: 'item:w/A1', urgent: true, url: 'https://linear.app/x/issue/INT-1', options: [drawn(), { id: 'B', label: 'Drop' }] }), question('q4', { topic: 'item:w/ENG-1', suggested: { option: 'B', card: '#186', answer: 'Drop it.' } })]);
   assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')).code, 0);
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q.url]), [['q1', 'prototype-site.html?q=q1'], ['q2', 'https://linear.app/x/issue/INT-1'], ['q4', undefined]]);
   assert.deepEqual(read(site('orch', 'data', 'owner.json')).items[1].options[0], drawn());
@@ -274,10 +274,9 @@ test('question add on a card follows answered questions with the first new quest
     on('answered'), prototype('answered-prototype'), prototype('open-prototype'), on('open'),
     prototype('replied'), prototype('resolved', { resolved: 'Already settled', resolved_at: '2026-10-24T00:00:00Z' }),
     on('other-card', { topic: 'item:w/ENG-1' }), prototype('declared', { topic: 'site' }),
-    on('ask', { topic: 'item:ask:e1' }),
     on('reopened', { resolved: 'Earlier answer', resolved_at: '2026-10-22T00:00:00Z' }),
   ] });
-  addEvents(...['answered', 'answered-prototype', 'replied', 'resolved', 'other-card', 'declared', 'ask', 'reopened'].map((id) =>
+  addEvents(...['answered', 'answered-prototype', 'replied', 'resolved', 'other-card', 'declared', 'reopened'].map((id) =>
     ({ id: `answer-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } })));
   assert.equal(board('reply', 'answer-replied', '--site', 'orch', '--text', 'Acted on it.').code, 0);
   const before = fs.readFileSync(file, 'utf8');
@@ -300,17 +299,13 @@ test('question add on a card follows answered questions with the first new quest
   }
   for (const id of ['open-prototype', 'replied']) assert.equal(items.find((q) => q.id === id).resolved, 'Replaced by first');
   const original = JSON.parse(before).items;
-  for (const id of ['open', 'resolved', 'other-card', 'declared', 'ask']) {
+  for (const id of ['open', 'resolved', 'other-card', 'declared']) {
     assert.deepEqual(items.find((q) => q.id === id), original.find((q) => q.id === id));
   }
   const declared = add(on('declared-next', { topic: 'site' }));
   assert.equal(declared.code, 0, declared.err);
   assert.deepEqual(declared.out.trim().split('\n').slice(1), []);
   assert.deepEqual(read(file).items.find((q) => q.id === 'declared'), original.find((q) => q.id === 'declared'));
-  const ask = add(on('ask-next', { topic: 'item:ask:e1' }));
-  assert.equal(ask.code, 0, ask.err);
-  assert.deepEqual(ask.out.trim().split('\n').slice(1), ['resolved: ask']);
-  assert.equal(read(file).items.find((q) => q.id === 'ask').resolved, 'Followed by ask-next');
 });
 
 test('a new topic takes questions, and resolving one records when', () => {

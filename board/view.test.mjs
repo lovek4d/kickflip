@@ -2795,7 +2795,8 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
   return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, patched, server, storage, doc: page.win.document };
 }
-const askCard = (id, lane) => ({ key: `ask:${id}`, id, kind: 'ask', lane, title: `Task ${id}`, deps: [], othersAt: [], ask: { askedAt: '2026-10-30T09:00:00.000Z' } });
+// The work card an ask became (from_ask; docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
+const askCard = (id, lane) => ({ key: `w/${id}`, id, kind: 'work', lane, title: `Task ${id}`, ref: `T-${id}`, fromAsk: id, deps: [], manualSteps: [], othersAt: [] });
 const boardOf = (items) => ({ title: 'A', generatedAt: '2026-10-30T10:00:00.000Z', items, files: [], needs: [], answers: [], doneArchived: 0 });
 const workCard = (id, extra) => ({ key: `w/${id}`, id, kind: 'work', lane: 'todo', title: `Work ${id}`, ref: id, internal: true, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], othersAt: [], ...extra });
 
@@ -2871,7 +2872,7 @@ test('a tap anywhere on an asleep board, refresh included, asks the hub to wake 
   b.view.unmount();
 });
 
-test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Questions links to its first question, a grill request no planner has picked up reads preheating in grey, and an ask's Done in its thread box confirms and sends ask-done", async () => {
+test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Questions links to its first question, a grill request no planner has picked up reads preheating in grey", async () => {
   const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const ready = { ...draft, isDraft: false };
   const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', label: null, older: false };
@@ -2887,8 +2888,6 @@ test("an open card shows its workflow buttons below a final details line of Note
     workCard('R1', { lane: 'review', actionButton: null, pr: ready, install }),
     workCard('S1', { lane: 'review', actionButton: null, pr: ready, manualSteps: ['Run the backfill'], action: { kind: 'steps', url: '#selectedCard=w%2FS1', label: 'Run the manual steps, then merge' }, resolvedBy: 'github' }),
     workCard('M1', { lane: 'review', actionButton: null, pr: ready, action: { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' }, resolvedBy: 'merge' }),
-    { ...askCard('a1', 'review'), ref: '10:00', actionButton: null, finishable: true, action: { kind: 'done', url: '#selectedCard=ask%3Aa1', label: 'Pick a take' }, resolvedBy: 'done' },
-    { ...askCard('a2', 'done'), ref: '10:00', actionButton: null },
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: {}, confirm: true });
   await b.settle();
@@ -2913,8 +2912,6 @@ test("an open card shows its workflow buttons below a final details line of Note
     'w/R1': [[], ['Install', 'Review on GitHub'], []],
     'w/S1': [[], ['Review on GitHub'], ['Review on GitHub']],
     'w/M1': [['Merge'], ['Review on GitHub'], ['Merge']],
-    'ask:a1': [[], [], ['Done⌥↵']],
-    'ask:a2': [[], [], []],
   });
   assert.equal(row('w/A1').querySelector('a.button').getAttribute('href'), 'questions.html#q7');
   const external = row('w/D1').querySelector('.grid .external-links');
@@ -2926,11 +2923,6 @@ test("an open card shows its workflow buttons below a final details line of Note
   assert.equal(b.root.querySelector('.action-row.external'), null);
   assert.equal(row('w/D1').querySelector('.actions .install, .actions a[target="_blank"]'), null);
   assert.equal(row('w/R1').querySelector('.external-links .resolves'), null);
-
-  b.page.fire(b.root, 'click', { target: row('ask:a1').querySelector('form [data-confirm="finish"]') });
-  await b.settle();
-  assert.deepEqual(b.confirms, ['Mark this task done? "Task a1" moves to Done.']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-done', { id: 'a1' }]]);
   assert.match(b.root.querySelector('details.item[data-key="w/A3"] summary .line3.sub.asked').textContent, /^preheating$/);
   assert.equal(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.planner'), null);
 });
@@ -3062,7 +3054,8 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
     workCard('P1', { lane: 'progress', finishable: true, holdable: true }),
     workCard('R1', { lane: 'review', finishable: true, holdable: true, awaitsDone: true }),
     workCard('S1', { lane: 'review', stale: true, finishable: true, holdable: true }),
-    { ...askCard('a1', 'review'), ref: '10:00', finishable: true, resolvedBy: 'done', action: { kind: 'done', url: '#selectedCard=ask%3Aa1', label: 'Tap Done' } },
+    // An answered ask's card waits in In Review for the owner's Done (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
+    { ...askCard('a1', 'review'), finishable: true, awaitsDone: true },
   ];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: boardOf(cards), threads: Object.fromEntries(cards.map((c) => [c.key, []])), confirm: true });
   await b.settle();
@@ -3071,15 +3064,15 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
   const actions = (key) => b.root.querySelector(`details.item[data-key="${key}"] .action-row.workflow`)?.querySelectorAll('a, button').map((el) => el.textContent.trim()) ?? [];
   assert.deepEqual(sends('w/R1'), ['Done⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/S1'), ['Done⌥↵', 'Reply⌘↵']);
-  assert.deepEqual(sends('ask:a1'), ['Done⌥↵', 'Reply⌘↵']);
+  assert.deepEqual(sends('w/a1'), ['Done⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/P1'), ['Send⌘↵']);
   assert.deepEqual(sends('w/T1'), ['Implement⌥↵', 'Reply⌘↵']);
   assert.equal(form('w/R1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
-  assert.equal(form('ask:a1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'resolves');
+  assert.equal(form('w/a1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
   for (const key of ['w/T1', 'w/P1']) assert.equal(form(key).querySelector('[data-confirm="finish"]'), null);
   assert.deepEqual(actions('w/T1'), ['Hold', 'Close', 'Notes']);
   assert.deepEqual(actions('w/P1'), ['Hold']);
-  assert.deepEqual(actions('ask:a1'), []);
+  assert.deepEqual(actions('w/a1'), []);
   // Reply sends the message; Done, tapped or on ⌥↵, confirms and closes the card.
   form('w/R1').querySelector('textarea').value = 'Looks good';
   b.page.fire(b.root, 'submit', { target: form('w/R1'), submitter: form('w/R1').querySelector('button[data-intent="reply"]') });
@@ -3491,30 +3484,30 @@ test("a bump or unbump waits for the server: its icon pulses, disabled, and the 
 });
 
 test("a New card's bump waits for the server, its icon pulsing, and the card moves only once the POST's board lands; a refusal toasts the reason and a load built before the board on screen doesn't undo a bump", async () => {
-  const ask = (id, at, extra) => ({ ...askCard(id, 'todo'), isNew: true, bumpable: true, sortAt: at, created: at, ask: { eventId: id, bumpedAt: null }, ...extra });
+  const ask = (id, at, extra) => ({ ...askCard(id, 'todo'), isNew: true, bumpable: true, sortAt: at, created: at, ask: { eventId: id }, ...extra });
   const a1 = ask('a1', '2026-10-30T09:00:00.000Z');
   const a2 = ask('a2', '2026-10-30T09:30:00.000Z');
   const sends = heldSends();
   const b = boardOnDom({ board: boardOf([a1, a2]), threads: {}, send: sends.send });
   await b.settle();
   const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
-  const icon = (id) => b.root.querySelector(`details.item[data-key="ask:${id}"] button[data-bump]`);
+  const icon = (id) => b.root.querySelector(`details.item[data-key="w/${id}"] button[data-card-bump]`);
   b.page.fire(b.root, 'click', { target: icon('a2') });
-  assert.deepEqual([order(), waitState(icon('a2'))], [['ask:a1', 'ask:a2'], WAITING]);
+  assert.deepEqual([order(), waitState(icon('a2'))], [['w/a1', 'w/a2'], WAITING]);
   sends.answer(false, 'The board server is restarting. Try again in a moment.');
   await b.settle();
-  assert.deepEqual([order(), waitState(icon('a2'))], [['ask:a1', 'ask:a2'], IDLE]);
+  assert.deepEqual([order(), waitState(icon('a2'))], [['w/a1', 'w/a2'], IDLE]);
   assert.match(b.root.textContent, /The board server is restarting\. Try again in a moment\./);
 
   b.page.fire(b.root, 'click', { target: icon('a2') });
   b.server.board = { ...boardOf([{ ...a2, bumpedAt: '2026-10-30T10:00:01.000Z' }, a1]), generatedAt: '2026-10-30T10:00:02.000Z' };
   sends.answer();
   await b.settle();
-  assert.deepEqual(order(), ['ask:a2', 'ask:a1']);
-  assert.match(b.root.textContent, /Bumped to the top/);
+  assert.deepEqual(order(), ['w/a2', 'w/a1']);
+  assert.match(b.root.textContent, /Moved to the top/);
   await b.change({ board: boardOf([a1, a2]) });
-  assert.deepEqual(order(), ['ask:a2', 'ask:a1']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-bump', { id: 'a2' }], ['ask-bump', { id: 'a2' }]]);
+  assert.deepEqual(order(), ['w/a2', 'w/a1']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/a2' }], ['card-bump', { key: 'w/a2' }]]);
   b.view.unmount();
 });
 
@@ -3525,23 +3518,23 @@ test("deleting a New card is one events POST: its trash icon waits, the card sta
   const b = boardOnDom({ board: boardOf([a1, a2]), threads: {}, send: sends.send, confirm: true });
   await b.settle();
   const keys = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
-  const trash = (id) => b.root.querySelector(`details.item[data-key="ask:${id}"] button[data-withdraw]`);
+  const trash = (id) => b.root.querySelector(`details.item[data-key="w/${id}"] button[data-withdraw]`);
   b.page.fire(b.root, 'click', { target: trash('a1') });
   await b.settle();
-  assert.deepEqual([keys(), waitState(trash('a1'))], [['ask:a1', 'ask:a2'], WAITING]);
+  assert.deepEqual([keys(), waitState(trash('a1'))], [['w/a1', 'w/a2'], WAITING]);
   b.server.board = boardOf([a2]);
   sends.answer();
   await b.settle();
-  assert.deepEqual(keys(), ['ask:a2']);
+  assert.deepEqual(keys(), ['w/a2']);
   assert.match(b.root.textContent, /Deleted/);
 
   b.page.fire(b.root, 'click', { target: trash('a2') });
   await b.settle();
   sends.answer(false, 'Couldn’t write the event: the board folder is read-only.');
   await b.settle();
-  assert.deepEqual([keys(), waitState(trash('a2'))], [['ask:a2'], IDLE]);
+  assert.deepEqual([keys(), waitState(trash('a2'))], [['w/a2'], IDLE]);
   assert.match(b.root.textContent, /the board folder is read-only/);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-withdrawn', { id: 'a1' }], ['ask-withdrawn', { id: 'a2' }]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-withdrawn', { id: 'a1', key: 'w/a1' }], ['ask-withdrawn', { id: 'a2', key: 'w/a2' }]]);
   assert.deepEqual(b.posts, [], 'nothing posts besides the one events POST');
   b.view.unmount();
 });
@@ -3683,11 +3676,11 @@ test("an edit's Save waits for the server with the edit box open and the old tex
   const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'ask', text: 'Fix the header', eventId: 'a1', canEdit: true, canDelete: true, state: 'waiting' };
   const card = { ...askCard('a1', 'todo'), isNew: true, title: 'Fix the header', ask: { eventId: 'a1', text: 'Fix the header' } };
   const sends = heldSends();
-  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([card]), threads: { 'ask:a1': [mine] }, send: sends.send });
+  const b = boardOnDom({ open: ['w/a1'], board: boardOf([card]), threads: { 'w/a1': [mine] }, send: sends.send });
   await b.settle();
   const form = () => b.root.querySelector('.msg[data-event="a1"] .edit-form');
   const save = () => form().querySelector('button[type="submit"]');
-  const title = () => b.root.querySelector('details.item[data-key="ask:a1"] summary').textContent;
+  const title = () => b.root.querySelector('details.item[data-key="w/a1"] summary').textContent;
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
   await b.settle();
   form().querySelector('textarea').value = 'Fix the footer';
@@ -3702,7 +3695,7 @@ test("an edit's Save waits for the server with the edit box open and the old tex
 
   b.page.fire(b.root, 'submit', { target: form() });
   b.server.board = boardOf([{ ...card, title: 'Fix the footer', ask: { eventId: 'a1', text: 'Fix the footer', edited: true } }]);
-  b.server.threads = { 'ask:a1': [{ ...mine, text: 'Fix the footer', edited: true }] };
+  b.server.threads = { 'w/a1': [{ ...mine, text: 'Fix the footer', edited: true }] };
   sends.answer();
   await b.settle();
   assert.equal(form(), null);
@@ -3722,13 +3715,13 @@ const EVERY_PART = { composer: true, button: true, files: true, drop: true };
 
 test('every text box on a board the owner sends from, the new task, a thread reply and an edit box, takes attachments the same way', async () => {
   const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'ask', text: 'Fix the header', eventId: 'a1', canEdit: true, canDelete: true, state: 'waiting' };
-  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([{ ...askCard('a1', 'todo'), isNew: true, ask: { eventId: 'a1', text: 'Fix the header' } }]), threads: { 'ask:a1': [mine] } });
+  const b = boardOnDom({ open: ['w/a1'], board: boardOf([{ ...askCard('a1', 'todo'), isNew: true, ask: { eventId: 'a1', text: 'Fix the header' } }]), threads: { 'w/a1': [mine] } });
   await b.settle();
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
   await b.settle();
   const edit = b.root.querySelector('.msg[data-event="a1"] .edit-form');
   assert.equal(edit.dataset.composer, 'edit:a1');
-  assert.deepEqual([b.root.querySelector('#askForm'), b.root.querySelector('form[data-reply="ask:a1"]'), edit].map(composerParts), [EVERY_PART, EVERY_PART, EVERY_PART]);
+  assert.deepEqual([b.root.querySelector('#askForm'), b.root.querySelector('form[data-reply="w/a1"]'), edit].map(composerParts), [EVERY_PART, EVERY_PART, EVERY_PART]);
   b.view.unmount();
 });
 
@@ -3841,8 +3834,6 @@ test("every owner action kind the board derives makes exactly one of the open ca
       { id: 'S', title: 'Steps', pr: 2, manual_steps: ['Run the backfill'] }, { id: 'M', title: 'Merge', pr: 3 }, { id: 'G', title: 'Grill' },
       { id: 'X', title: 'Stalled', lane: 'progress', stalled: { reason: 'Crashed twice', at: '2026-10-30T09:00:00Z' } },
     ] } }],
-    events: [{ id: 'a1', ts: '2026-10-30T09:00:00Z', kind: 'ask', data: { text: 'Which take?' }, reply: { html: 'Two takes.', at: '2026-10-30T09:10:00Z' } }],
-    askProgress: { a1: { state: 'progress', at: '2026-10-30T09:20:00Z', next: 'Pick a take' } },
   });
   assert.deepEqual(built.items.filter((i) => i.action).map((i) => i.action.kind).sort(), Object.values(ACTION_KIND).sort());
   for (const i of built.items) {
@@ -3913,7 +3904,7 @@ test("Needs you shows each pending prompt with its details and answers it from t
 
 test("a thread repaint while a message's edit box is open shows the new message and keeps the edit box's text, cursor and focus", async () => {
   const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', text: 'Fix the header', eventId: 'e1', canEdit: true, canDelete: true, state: 'waiting' };
-  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([askCard('a1', 'progress')]), threads: { 'ask:a1': [mine] } });
+  const b = boardOnDom({ open: ['w/a1'], board: boardOf([askCard('a1', 'progress')]), threads: { 'w/a1': [mine] } });
   await b.settle();
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="e1"] button[data-edit]') });
   await b.settle();
@@ -3923,8 +3914,8 @@ test("a thread repaint while a message's edit box is open shows the new message 
   ta.setSelectionRange(7, 7);
   b.page.fire(b.root, 'input', { target: ta });
 
-  await b.change({ threads: { 'ask:a1': [mine, { ts: '2026-10-30T10:01:00.000Z', who: 'claude', text: 'Looking at it now' }] } });
-  assert.match(b.root.querySelector('[data-thread="ask:a1"] .msgs').textContent, /Looking at it now/);
+  await b.change({ threads: { 'w/a1': [mine, { ts: '2026-10-30T10:01:00.000Z', who: 'claude', text: 'Looking at it now' }] } });
+  assert.match(b.root.querySelector('[data-thread="w/a1"] .msgs').textContent, /Looking at it now/);
   assert.equal(b.root.querySelector('.msg[data-event="e1"] .edit-form textarea'), ta);
   assert.deepEqual([ta.value, ta.selectionStart, ta.selectionEnd, b.doc.activeElement === ta], ['Fix the header and the footer', 7, 7, true]);
 });
@@ -4056,21 +4047,21 @@ function focusMoves(doc) {
 }
 
 test("a lane repaint while the owner types in a card's reply box moves the other cards and its own card at once, never takes focus off the reply, keeps its text, cursor and place on screen, scrolls for no change below it, and leaves the + sheet's text alone; with no box focused the open card's title row keeps its place", async () => {
-  const b = boardOnDom({ open: ['ask:a1'], board: boardOf([askCard('a1', 'progress'), askCard('b1', 'todo')]),
-    threads: { 'ask:a1': [{ ts: '2026-10-30T10:00:00.000Z', who: 'claude', text: 'Started' }] } });
+  const b = boardOnDom({ open: ['w/a1'], board: boardOf([askCard('a1', 'progress'), askCard('b1', 'todo')]),
+    threads: { 'w/a1': [{ ts: '2026-10-30T10:00:00.000Z', who: 'claude', text: 'Started' }] } });
   await b.settle();
   const view = layOut(b);
   const moves = focusMoves(b.doc);
-  const ta = b.root.querySelector('form[data-reply="ask:a1"] textarea');
+  const ta = b.root.querySelector('form[data-reply="w/a1"] textarea');
   ta.focus();
   ta.value = 'Half a reply';
   ta.setSelectionRange(4, 6);
   b.page.fire(b.root, 'input', { target: ta });
   b.root.querySelector('#askText').value = 'A new task';
   moves.length = 0;
-  const lane = (id) => b.root.querySelector(`details.item[data-key="ask:${id}"]`)?.closest('details.lane').dataset.lane;
+  const lane = (id) => b.root.querySelector(`details.item[data-key="w/${id}"]`)?.closest('details.lane').dataset.lane;
   const top = (sel) => b.root.querySelector(sel).getBoundingClientRect().top;
-  const BOX = 'form[data-reply="ask:a1"] textarea';
+  const BOX = 'form[data-reply="w/a1"] textarea';
   const boxTop = top(BOX);
   const kept = () => [b.root.querySelector(BOX) === ta, ta.value, ta.selectionStart, ta.selectionEnd, b.doc.activeElement === ta, moves.length, top(BOX)];
 
@@ -4088,22 +4079,22 @@ test("a lane repaint while the owner types in a card's reply box moves the other
   assert.equal(b.root.querySelector('#askText').value, 'A new task');
 
   ta.blur();
-  const TITLE = 'details.item[data-key="ask:a1"] > summary';
+  const TITLE = 'details.item[data-key="w/a1"] > summary';
   const titleTop = top(TITLE);
   await b.change({ board: boardOf([askCard('e1', 'review'), askCard('d1', 'review'), askCard('a1', 'review'), askCard('b1', 'done'), askCard('c1', 'todo')]) });
   assert.deepEqual([lane('e1'), top(TITLE)], ['review', titleTop]);
 });
 
-test("Done closes the card and leaves the page where it is as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves, or a work card that takes a New task's place, flashes once, and a card another hand updates takes the tint in its place", async () => {
-  const board = boardOf([askCard('b1', 'progress'), { ...askCard('a1', 'review'), finishable: true }]);
-  const b = boardOnDom({ open: ['ask:a1'], board, threads: {}, confirm: true });
+test("Done closes the card and leaves the page where it is as the card moves to Done, unflashed, and the owner's reply leaves its card untinted, while a card another hand moves flashes once, and a card another hand updates takes the tint in its place", async () => {
+  const board = boardOf([askCard('b1', 'progress'), { ...askCard('a1', 'review'), finishable: true }, workCard('C1')]);
+  const b = boardOnDom({ open: ['w/a1'], board, threads: {}, confirm: true });
   await b.settle();
   const view = layOut(b);
-  const card = () => b.root.querySelector('details.item[data-key="ask:a1"]');
+  const card = () => b.root.querySelector('details.item[data-key="w/a1"]');
   const tinting = () => [...b.root.querySelectorAll('details.item.tint')].map((el) => el.dataset.key);
   assert.deepEqual(tinting(), []);
   board.items[1] = { ...board.items[1], threadCount: 1 };
-  const form = card().querySelector('form[data-reply="ask:a1"]');
+  const form = card().querySelector('form[data-reply="w/a1"]');
   form.querySelector('textarea').value = 'On it';
   b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[data-intent="reply"]') });
   await b.settle();
@@ -4124,25 +4115,20 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   assert.deepEqual(tinting(), []);
 
   board.items[0] = { ...board.items[0], lane: 'review' };
-  board.items.push(askCard('n1', 'todo'));
   await b.change({ board });
-  assert.deepEqual(tinting(), ['ask:b1']);
-  board.items[2] = workCard('C1', { fromAsk: 'n1' });
-  await b.change({ board });
-  assert.deepEqual(tinting(), ['ask:b1', 'w/C1']);
-  board.items[0] = { ...board.items[0], threadCount: 1 };
+  assert.deepEqual(tinting(), ['w/b1']);
   board.items[2] = { ...board.items[2], builder: { progress: 'Tests pass' } };
   await b.change({ board });
-  assert.deepEqual(tinting(), ['ask:b1', 'w/C1'], 'an update takes the same tint a move does');
+  assert.deepEqual(tinting(), ['w/b1', 'w/C1'], 'an update takes the same tint a move does');
   assert.equal(b.root.querySelectorAll('.flash').length, 0, 'no border variant is left');
   // docs/adr/2026-11-05-2345-new-todo-cards-join-the-bottom.md
   board.items.push(workCard('C2'));
   await b.change({ board });
-  assert.deepEqual(tinting(), ['ask:b1', 'w/C1', 'w/C2'], 'a work card that joins Todo takes the tint');
+  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2'], 'a work card that joins Todo takes the tint');
   // docs/adr/2026-11-06-0300-a-new-task-lands-at-the-bottom-of-todo-and-flashes-blue.md
   board.items.push({ ...askCard('n2', 'todo'), isNew: true, ref: 'New', sortAt: '2026-10-30T08:00:00.000Z', ask: { eventId: 'n2', state: 'waiting', askedAt: '2026-10-30T08:00:00.000Z', text: 'Task n2', files: [], canEdit: true } });
   await b.change({ board });
-  assert.deepEqual(tinting(), ['ask:b1', 'w/C1', 'w/C2', 'ask:n2'], 'a New task that lands in Todo takes the tint');
+  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'a New task that lands in Todo takes the tint');
 });
 
 function questionsOnDom({ topics, questions, at, next, gate = null, items = [], embedded = false }) {
@@ -4769,13 +4755,13 @@ test('leaving a board with its settings open releases the modal and returning wi
 test("switching to another board through the sidebar and back returns to the page's scroll and open threads, and on a desktop to the box being typed in with its text and selection, but not to a box blurred inside the board, nor on a phone, nor when the link names a card", async () => {
   const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', text: 'Fix the header', eventId: 'e1', canEdit: true, canDelete: true, state: 'waiting' };
   const said = (n) => ({ ts: `2026-10-30T10:0${n}:00.000Z`, who: 'claude', text: `Line ${n}` });
-  const threads = { 'ask:a1': [mine], 'ask:b1': [1, 2, 3, 4, 5].map(said) };
+  const threads = { 'w/a1': [mine], 'w/b1': [1, 2, 3, 4, 5].map(said) };
   const fetch = async (url) => {
     const u = new URL(url, 'https://mac.ts.net/');
     const body = u.pathname.endsWith('/api/board') ? boardOf([askCard('a1', 'progress'), askCard('b1', 'progress')]) : threads[u.searchParams.get('key')] || [];
     return { ok: true, json: async () => structuredClone(body) };
   };
-  const storage = memoryStorage([['site:shop:openItems', JSON.stringify(['ask:a1', 'ask:b1'])]]);
+  const storage = memoryStorage([['site:shop:openItems', JSON.stringify(['w/a1', 'w/b1'])]]);
   const { win, doc, page, tap } = await shellPage('/shop/', { fetch, storage, realBoards: true });
   let desktop = true;
   win.matchMedia = (query) => Object.assign(new page.Target(), { matches: query === '(hover: hover) and (pointer: fine)' && desktop });
@@ -4791,11 +4777,11 @@ test("switching to another board through the sidebar and back returns to the pag
     tap(row(route));
     await settle();
   };
-  const lines = () => $('[data-thread="ask:b1"] .msgs').querySelectorAll('.msg .body').map((el) => el.textContent);
+  const lines = () => $('[data-thread="w/b1"] .msgs').querySelectorAll('.msg .body').map((el) => el.textContent);
   const focused = (el) => (el?.closest('.edit-form') ? 'edit' : el?.closest('form[data-reply]') ? 'reply' : null);
   const shown = () => [win.location.pathname, win.scrollY, focused(doc.activeElement)];
 
-  page.fire(doc.querySelector('.view-board'), 'click', { target: $('[data-thread="ask:b1"] [data-thread-more]') });
+  page.fire(doc.querySelector('.view-board'), 'click', { target: $('[data-thread="w/b1"] [data-thread-more]') });
   assert.deepEqual(lines(), ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5']);
   page.fire(doc.querySelector('.view-board'), 'click', { target: $('.msg[data-event="e1"] button[data-edit]') });
   await settle();
@@ -4814,7 +4800,7 @@ test("switching to another board through the sidebar and back returns to the pag
   assert.deepEqual([back.value, back.selectionStart, back.selectionEnd], ['Fix the header and the footer', 4, 10]);
   assert.deepEqual(lines(), ['Line 1', 'Line 2', 'Line 3', 'Line 4', 'Line 5']);
 
-  const reply = () => $('form[data-reply="ask:a1"] textarea');
+  const reply = () => $('form[data-reply="w/a1"] textarea');
   reply().focus();
   press($('main'));
   reply().blur();
@@ -4833,7 +4819,7 @@ test("switching to another board through the sidebar and back returns to the pag
   desktop = true;
   reply().focus();
   await switchTo('other');
-  win.AppShell.open('/shop/#selectedCard=ask%3Ab1');
+  win.AppShell.open('/shop/#selectedCard=w%2Fb1');
   await settle();
   assert.deepEqual(shown(), ['/shop/', 0, null]);
 });
@@ -5068,7 +5054,7 @@ test("each lane shows its cards in the order they arrive, with no sort icon in i
   const lane = (id) => b.root.querySelector(`#lanes details.lane[data-lane="${id}"]`);
   const order = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);
   const times = (id) => lane(id).querySelectorAll('details.item').map((el) => el.querySelector('summary .card-time time')?.getAttribute('datetime') ?? null);
-  assert.deepEqual(['review', 'progress', 'todo', 'done'].map(order), [['w/R1', 'w/R2'], ['w/P1'], ['ask:n1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);
+  assert.deepEqual(['review', 'progress', 'todo', 'done'].map(order), [['w/R1', 'w/R2'], ['w/P1'], ['w/n1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);
   assert.deepEqual(['review', 'todo', 'done'].map(times), [
     ['2026-10-29T08:00:00.000Z', '2026-10-28T08:00:00.000Z'], ['2026-10-30T08:00:00.000Z', '2026-10-21T08:00:00.000Z', '2026-10-20T08:00:00.000Z'], ['2026-10-25T08:00:00.000Z', '2026-10-24T08:00:00.000Z'],
   ]);
@@ -5094,7 +5080,7 @@ test('answered asks sit in the one Done list among the work cards by time, 10 sh
   const work = Array.from({ length: 12 }, (_, n) => workCard(`D${n}`, { lane: 'done', sortAt: day(2 * n) }));
   const asks = Array.from({ length: 11 }, (_, n) => ({ ...askCard(`a${n}`, 'done'), sortAt: day(2 * n + 1) }));
   const all = [...work, ...asks].sort((x, y) => y.sortAt.localeCompare(x.sortAt));
-  const b = boardOnDom({ open: ['ask:a10'], board: boardOf([...work, ...asks]), threads: {} });
+  const b = boardOnDom({ open: ['w/a10'], board: boardOf([...work, ...asks]), threads: {} });
   await b.settle();
   const lane = (id) => b.root.querySelector(`#lanes details.lane[data-lane="${id}"]`);
   const keys = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);

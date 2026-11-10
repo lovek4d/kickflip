@@ -335,7 +335,11 @@ test('item notes resolves only answered questions', () => {
 test("a reply, a build's start and a later builder start each resolve the answered questions they act on, leaving the rest", () => {
   const on = (id, topic) => question(id, { topic });
   const answer = (id) => ({ id: `answer-${id}`, ts: '2026-10-23T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' } });
-  write(site('orch', 'data', 'owner.json'), { topics: [], items: [on('ask-q', 'item:ask:e1'), on('card-q', 'item:w/A1'), on('wave-q', 'file:w'), on('open-q', 'item:w/A1')] });
+  // Ask e1 is New card w/T-1, so a reply to it acts on that card's questions.
+  const w = wave();
+  w.items.push({ id: 'T-1', title: 'Asked', lane: 'todo', from_ask: 'e1' });
+  write(at('waves', 'w', 'wave.json'), w);
+  write(site('orch', 'data', 'owner.json'), { topics: [], items: [on('ask-q', 'item:w/T-1'), on('card-q', 'item:w/A1'), on('wave-q', 'file:w'), on('open-q', 'item:w/A1')] });
   addEvents({ id: 'e2', ts: '2026-10-23T10:30:00Z', kind: 'wave-triage', data: { file: 'w' } }, answer('ask-q'), answer('card-q'), answer('wave-q'));
   const notes = () => Object.fromEntries(read(site('orch', 'data', 'owner.json')).items.map((q) => [q.id, q.resolved ?? null]));
   assert.match(board('reply', 'e1', '--site', 'orch', '--text', 'Done.').out, /^resolved: ask-q$/m);
@@ -772,25 +776,25 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   assert.match(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--phase', 'ready', '--site', 'orch').err, /^--from-ask needs --text/);
 });
 
-// docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md
-test('reply and item relate-ask take --title, which retitles the ask in data/ask-titles.json; a message in its thread titles the ask', () => {
-  const titles = () => read(site('orch', 'data', 'ask-titles.json')).titles;
-  assert.equal(board('reply', 'e1', '--site', 'orch', '--text', 'Done.', '--title', 'Header keeps its spacing').code, 0);
-  assert.deepEqual(titles(), { e1: 'Header keeps its spacing' });
+// docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md
+test('reply --title titles only the New or answered card an ask became, and item relate-ask --title names the merge', () => {
+  const w = wave();
+  w.items.push({ id: 'T-1', title: 'Header', lane: 'todo', from_ask: 'e1' }, { id: 'T-2', title: 'and the footer', lane: 'todo', from_ask: 'e2' });
+  write(at('waves', 'w', 'wave.json'), w);
   addEvents({ id: 'e2', ts: '2026-10-23T10:05:00Z', kind: 'ask', data: { text: 'and the footer' } },
-    { id: 'm1', ts: '2026-10-23T10:06:00Z', kind: 'item-message', data: { key: 'ask:e1', text: 'one more' } },
     { id: 'm2', ts: '2026-10-23T10:07:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'on a card' } });
-  const folded = board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--title', 'Footer spacing', '--site', 'orch');
-  assert.equal(folded.code, 0, folded.err);
-  assert.equal(board('reply', 'm1', '--site', 'orch', '--text', 'Yes.', '--title', 'Header and its spacing').code, 0);
-  assert.deepEqual(titles(), { e1: 'Header and its spacing', e2: 'Footer spacing' });
-  assert.deepEqual(board('reply', 'm2', '--site', 'orch', '--text', 'x', '--title', 'X'),
-    { code: 1, out: '', err: 'reply --title names an ask: "m2" is not an ask or a message in an ask\'s thread\n' });
   assert.match(board('reply', 'e1', '--site', 'orch', '--text', 'x', '--title', ' ').err, /--title/);
-  assert.deepEqual(titles(), { e1: 'Header and its spacing', e2: 'Footer spacing' });
+  assert.equal(board('reply', 'e1', '--site', 'orch', '--text', 'Done.', '--title', 'Header keeps its spacing').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'T-1').title, 'Header keeps its spacing');
+  assert.deepEqual(board('reply', 'm2', '--site', 'orch', '--text', 'x', '--title', 'X'),
+    { code: 1, out: '', err: 'reply --title titles the New or answered card an ask became; "m2" is not one\n' });
+  const merged = board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--title', 'Footer spacing', '--site', 'orch');
+  assert.equal(merged.code, 0, merged.err);
+  assert.equal(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl')).at(-1).title, 'Footer spacing');
+  assert.equal(fs.existsSync(site('orch', 'data', 'ask-titles.json')), false);
 });
 
-test("ask move sends a New ask to another board with the owner's latest text, its attachments and its edits' and where it came from, and leaves it Done here with a line linking there", () => {
+test("ask move sends a New ask to another board with the owner's latest text, its attachments and its edits' and where it came from, and leaves a line here linking there", () => {
   boardsManifest();
   write(site('orch', 'data', 'uploads', '1700-shot.png'), 'png bytes');
   write(site('orch', 'data', 'uploads', '.meta', '1700-shot.png.json'), { name: 'shot.png', type: 'image/png', size: 9, at: '2026-10-23T09:00:00Z' });
@@ -812,12 +816,9 @@ test("ask move sends a New ask to another board with the owner's latest text, it
   assert.equal(read(site('audit', 'data', 'uploads', '.meta', `${file.url.slice(8)}.json`)).name, 'shot.png');
   const link = `/audit/#selectedCard=ask%3A${moved.id}`;
   assert.match(r.out, new RegExp(`moved to ${link.replace(/[/#%]/g, '\\$&')}`));
-  const mark = read(site('orch', 'data', 'ask-progress.json')).asks.e2;
-  assert.deepEqual([mark.state, mark.moved], ['done', { route: 'audit', title: 'Audit', id: moved.id }]);
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', kind: 'hub', line: 'ask-moved', text: 'Moved to Audit.', link }]);
 
   assert.match(board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch').err, /ask "e2" was already moved to \/audit/);
-  assert.match(board('ask', 'progress', 'e2', '--site', 'orch').err, /ask "e2" was moved to \/audit/);
   assert.match(board('item', 'set', 'w/A1', '--from-ask', 'e2', '--phase', 'ready', '--site', 'orch', '--text', 'On it.').err, /ask "e2" was moved to \/audit/);
   assert.equal(lines(site('audit', 'data', 'events.jsonl')).length, 1);
 });
@@ -827,17 +828,20 @@ test('ask move refuses a route that is not another board, and an ask that is not
   addEvents({ id: 'e4', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Folded' } }, { id: 'e5', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Deleted' } },
     { id: 'e6', ts: '2026-10-23T11:01:00Z', kind: 'ask-withdrawn', data: { id: 'e5' } }, { id: 'e7', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Talked' } },
     { id: 'm1', ts: '2026-10-23T11:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Not an ask' } });
+  // e1's card is answered and e7's started, so neither moves.
+  const w = wave();
+  w.items.push({ id: 'T-1', title: 'Answered', lane: 'todo', from_ask: 'e1' }, { id: 'T-2', title: 'Talked', lane: 'progress', next: 'Building', from_ask: 'e7' });
+  write(at('waves', 'w', 'wave.json'), w);
   board('reply', 'e1', '--site', 'orch', '--text', 'Answered.');
   board('item', 'relate-ask', 'e4', 'w/A1', '--summary', 'Folded in', '--site', 'orch');
-  board('thread', 'ask:e7', '--site', 'orch', '--text', 'Answered in the thread.');
   const refusals = [
     [['e7', '--to', 'nope'], /--to nope: no board at \/nope in the hub's manifest; the boards are orch, audit/],
     [['e7', '--to', 'notes'], /no board at \/notes/],
     [['e7', '--to', 'orch'], /--to orch: that is this board/],
     [['e7'], /ask move needs --to <route>/],
     [['m1', '--to', 'audit'], /no ask "m1"/],
-    [['e1', '--to', 'audit'], /ask "e1" is not New: Claude already answered it/],
-    [['e7', '--to', 'audit'], /ask "e7" is not New/],
+    [['e1', '--to', 'audit'], /ask "e1" became w\/T-1, which has started or been answered/],
+    [['e7', '--to', 'audit'], /ask "e7" became w\/T-2, which has started or been answered/],
     [['e4', '--to', 'audit'], /ask "e4" is folded into w\/A1; run ask unfold e4 first/],
     [['e5', '--to', 'audit'], /ask "e5" was deleted by the owner/],
   ];
@@ -848,7 +852,6 @@ test('ask move refuses a route that is not another board, and an ask that is not
     assert.equal(r.err.trim().split('\n').length, 1);
   }
   assert.equal(fs.existsSync(site('audit', 'data', 'events.jsonl')), false);
-  assert.equal(fs.existsSync(site('orch', 'data', 'ask-progress.json')), false);
 });
 
 test('ask move drops the card an ask became when it has not started, and refuses one that has', () => {
@@ -863,7 +866,7 @@ test('ask move drops the card an ask became when it has not started, and refuses
   board('item', 'set', 'w/A2', '--from-ask', 'e3', '--phase', 'grilling', '--site', 'orch', '--text', 'Building it.');
   const started = board('builder', 'start', 'w/A2', '--site', 'orch', '--kind', 'claude');
   assert.equal(started.code, 0, started.err);
-  assert.match(board('ask', 'move', 'e3', '--to', 'audit', '--site', 'orch').err, /ask "e3" became w\/A2, which has started/);
+  assert.match(board('ask', 'move', 'e3', '--to', 'audit', '--site', 'orch').err, /ask "e3" became w\/A2, which has started or been answered/);
   const r = board('ask', 'move', 'e2', '--to', 'audit', '--site', 'orch');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^dropped: w\/A1$/m);
@@ -892,17 +895,6 @@ test('a card records when its lane last changed, and only then', () => {
   const closed = read(at('waves', 'w', 'wave.json')).items[0];
   assert.ok(closed.lane_at > first);
   assert.equal(closed.closed_at, closed.lane_at);
-});
-
-test('ask progress and ask done mark a known ask, keeping --next only while in progress, and refuse an unknown ask', () => {
-  assert.equal(board('ask', 'progress', 'e1', '--next', 'Pick a take', '--site', 'orch').code, 0);
-  const marked = read(site('orch', 'data', 'ask-progress.json')).asks.e1;
-  assert.deepEqual([marked.state, marked.next, Boolean(Date.parse(marked.at))], ['progress', 'Pick a take', true]);
-  assert.equal(board('ask', 'done', 'e1', '--site', 'orch').code, 0);
-  const done = read(site('orch', 'data', 'ask-progress.json')).asks.e1;
-  assert.deepEqual([done.state, done.next], ['done', undefined]);
-  assert.match(board('ask', 'progress', 'e9', '--site', 'orch').err, /no ask "e9"/);
-  assert.match(board('ask', 'done', 'e1', '--next', 'x', '--site', 'orch').err, /does not take --next/);
 });
 
 // docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md

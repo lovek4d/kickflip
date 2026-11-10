@@ -3,8 +3,8 @@
 // badge shows (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). Each value is its name,
 // since cards carry it in the board's JSON. Needs nothing else: board/domain.mjs runs this file in a vm context (docs/adr/2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md).
 (function () {
-  const BUTTON = Object.freeze({ openQuestions: 'openQuestions', done: 'done', github: 'github', merge: 'merge', reply: 'reply' });
-  const ACTION_KIND = Object.freeze({ pick: 'pick', questions: 'questions', ready: 'ready', steps: 'steps', merge: 'merge', done: 'done', stalled: 'stalled' });
+  const BUTTON = Object.freeze({ openQuestions: 'openQuestions', github: 'github', merge: 'merge', reply: 'reply' });
+  const ACTION_KIND = Object.freeze({ pick: 'pick', questions: 'questions', ready: 'ready', steps: 'steps', merge: 'merge', stalled: 'stalled' });
   const BUILDER_KIND = Object.freeze({ install: 'install' });
   const PR_STATE = Object.freeze({ open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' });
   // Each lane's phases, in order, which a card stores beside its lane (docs/adr/2026-11-11-1200-every-lane-has-phases.md).

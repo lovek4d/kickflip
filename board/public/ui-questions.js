@@ -133,15 +133,15 @@
       ${answerHistory(q, links)}
     </section>`;
   }
-  // A pill reads its topic's title, a card's being its ref then its title, whichever tracker it comes from; an ask (item:ask:<id>) reads the time it appeared.
-  const topicName = (t) => (t.askedAt ? BoardUI.cardTime(t.askedAt) : t.title);
+  // A pill reads its topic's title, a card's being its ref then its title, whichever tracker it comes from.
+  const topicName = (t) => t.title;
   // /api/board's ownerTopics, each card's topic named from its card, which the board sends in its place while the card
   // is on the board (board/server.mjs pageBoard). cards: the board's items.
   function cardTopics(topics, cards) {
     const byKey = new Map(cards.map((c) => [c.key, c]));
     return topics.map((t) => {
       const c = t.title === undefined && byKey.get(t.card);
-      return c ? { ...t, title: `${c.ref}: ${c.title}`, ...(c.kind === 'ask' ? { askedAt: c.ask.askedAt } : {}) } : t;
+      return c ? { ...t, title: `${c.ref}: ${c.title}` } : t;
     });
   }
   // Topics from /api/board ownerTopics, in order. pills: unresolved topics with an open question, plus the

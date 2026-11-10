@@ -87,7 +87,7 @@ BoardView.part((B) => {
     for (const it of state.board.items) {
       const was = drawn.get(it.key);
       const arrived = !was && drawn.size > 0 && it.lane === 'todo' && (it.isNew || (it.kind === 'work' && !it.fromAsk));
-      const moved = was ? was.lane !== it.lane : arrived || (Boolean(it.fromAsk) && drawn.has(`ask:${it.fromAsk}`));
+      const moved = was ? was.lane !== it.lane : arrived;
       const updated = Boolean(was) && was.sign !== updateSign(it);
       const own = ownChanges.get(it.key);
       if (own !== undefined) { if (moved || updated || (load !== null && load > own)) ownChanges.delete(it.key); continue; }

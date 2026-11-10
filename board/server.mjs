@@ -3,7 +3,7 @@
 // runs it with PORT and PREFIX (/<route>) set, and strips the prefix before forwarding.
 // It writes page events, hidden events, uploads and the owner's card taps; agent sessions write the other files
 // below through bin/board.mjs (store.mjs):
-//   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask, ask progress|done,
+//   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   wave create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
 // <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
@@ -46,9 +46,7 @@
 //                                question, context, url, options, urgent, asked_at, resolved, resolved_at, round, round_of, confirm_of}]};
 //                                Waiting on you shows an open `urgent` question alone, first
 //                                checks comes from data/checked.json (the hub's poll writes it),
-//                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes;
-//                                an ask's In Progress mark from data/ask-progress.json (board.mjs ask), and its title
-//                                from data/ask-titles.json (board.mjs reply --title, item relate-ask --title).
+//                                whether the board hears its events (../hub/boards.mjs listenState) and Claude's latest writes.
 //                                links: [{link, ok, detail, state, since?}], whether each hub link reaches this
 //                                board, state reading broken only past the link's grace period
 //                                (../hub/boards.mjs linksOf), null when the manifest has no board here; setup:
@@ -328,7 +326,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
-import { replyFilesOf, dropAskCard, fileAsk, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { GITHUB_STATE, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -436,7 +434,7 @@ async function readBody(req, limit = 64 * 1024) {
 // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
 // the header's GitHub check stay the owner's, as does any kind not listed.
 const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
-  'ask', 'ask-edited', 'ask-withdrawn', 'ask-bump', 'ask-done', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
+  'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
   'plan-waves']);
 const VIEW_ONLY = 'This board is shared with you to look at only.';
 const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
@@ -658,7 +656,7 @@ async function snapshot(outside, archived = []) {
   }
 
   return {
-    ...items, moved, commandRunning, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here), askProgress: await readAskProgress(here), askTitles: await readAskTitles(here),
+    ...items, moved, commandRunning, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
     checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
     owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
     topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
@@ -2221,12 +2219,14 @@ function checkArchive() {
   })().finally(() => { archiving = null; });
   return archiving;
 }
-// docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md
-// Each ask still New with no card, one the hub wrote while the server was down or one New before this rule among
-// them, is filed as its T-<n> card (store.mjs fileAsk), as the server starts and after each board change.
-async function fileNewAsks() {
+// docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md,
+// docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md
+// Each ask with no card, one another board or the hub wrote, or one from before every ask was a card, is filed as its
+// T-<n> card (store.mjs fileAsks): as the server starts, and after a board change that leaves one unfiled.
+async function fileNewAsks({ starting = false } = {}) {
   try {
-    for (const it of (await sharedBoard()).items.filter((i) => i.kind === 'ask' && i.isNew)) await fileAsk(here, it.id);
+    if (!starting && !(await sharedBoard()).unfiled.length) return;
+    for (const key of await fileAsks(here)) console.log(`filed ask card ${key}`);
   } catch (err) { console.error('Ask filing failed:', err.message); }
 }
 // docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
@@ -2250,7 +2250,7 @@ try { for (const line of await stageImplementAsks(here)) console.log(line); } ca
 try { for (const line of await splitSharedNotes(here)) console.log(line); } catch (e) { console.error('notes split:', e.message); }
 try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
 await launchCutOffBuilds();
-await fileNewAsks();
+await fileNewAsks({ starting: true });
 await settleLanes();
 await checkArchive();
 await markNewCards();
