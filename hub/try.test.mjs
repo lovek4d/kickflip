@@ -823,6 +823,19 @@ test('a pull only fast-forwards: local changes, a split from origin or a failed 
   assert.deepEqual(events, []);
 });
 
+test("a board whose pull throws is logged and leaves the boards after it pulled", async () => {
+  const push = originFor();
+  const lines = [];
+  manager = createTryManager({ now: () => clock, log: (...a) => lines.push(a.join(' ')), event: async () => 'e1' });
+  const broken = path.join(site, 'broken');
+  fs.mkdirSync(path.join(broken, 'data', 'try.json'), { recursive: true });
+  manifest.sites = { broken: { dir: broken, cmd: [process.execPath, path.join(root, 'board/server.mjs'), broken], port: 2, owner: { repo }, local: true }, orch: manifest.sites.orch };
+  const to = push('after');
+  assert.deepEqual(await manager.pullMains({ manifest }), ['orch']);
+  assert.equal(git(repo, 'rev-parse', 'main'), to);
+  assert.ok(lines.some((line) => line.startsWith('pull /broken failed:')), lines.join('\n'));
+});
+
 test("a board's own clone is reset hard to origin's branch on every poll, and a local folder with no origin has no pull record", async () => {
   const push = originFor();
   pullEvents();

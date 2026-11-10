@@ -448,11 +448,13 @@ function runPoll({ flush = true } = {}) {
     polls.remaining = result.rate?.remaining ?? null;
     // docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md
     if (result.merged.length) {
-      await fetchTryBranches({ manifest: loadManifest(), log, routes: result.merged });
+      try { await fetchTryBranches({ manifest: loadManifest(), log, routes: result.merged }); }
+      catch (e) { log('merge fetch failed:', e.message); }
       log(`merged on ${result.merged.join(', ')}: fetched and refreshing Main`);
       tryTick({ manifest: loadManifest(), routes: result.merged }).catch((e) => log('merge refresh failed:', e.message));
     }
-    await fetchTryBranches({ manifest: loadManifest(), log });
+    try { await fetchTryBranches({ manifest: loadManifest(), log }); }
+    catch (e) { log('fetch failed:', e.message); }
     // docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md
     try {
       const pulled = await pullMains({ manifest: loadManifest() });

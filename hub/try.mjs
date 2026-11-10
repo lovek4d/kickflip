@@ -649,16 +649,18 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     pulls.set(board.dir, running);
     return running;
   }
-  // The poll's pull of every board with an origin, or only routes. → the routes whose pull brought commits
+  // The poll's pull of every board with an origin, or only routes; a board whose pull throws is logged and the rest still pull. → the routes whose pull brought commits
   async function pullMains({ manifest = readManifest(), routes } = {}) {
     await initialize(manifest);
     const pulled = [];
     for (const board of listBoards(manifest)) {
       if (stopping) break;
       if (routes && !routes.includes(board.route)) continue;
-      const source = boardRepo(board.route, manifest);
-      if (!source.repo) continue;
-      if ((await pullMain(board, manifest))?.commits) pulled.push(board.route);
+      try {
+        const source = boardRepo(board.route, manifest);
+        if (!source.repo) continue;
+        if ((await pullMain(board, manifest))?.commits) pulled.push(board.route);
+      } catch (e) { log(`pull /${board.route} failed: ${e.message}`); }
     }
     return pulled;
   }
@@ -746,25 +748,27 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
   const fetched = routes ? readJSON(REPO_FETCH, {}) : {};
   for (const board of listBoards(manifest)) {
     if (routes && !routes.includes(board.route)) continue;
-    const source = boardRepo(board.route, manifest);
-    if (source.local || !source.repo) continue;
-    const branch = source.branch || 'main';
-    const at = new Date().toISOString();
-    const started = Date.now();
     try {
-      await originGit(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
-      fetched[board.route] = { at, ok: true };
-    } catch (e) {
-      log(`fetch /${board.route} after ${Date.now() - started} ms: ${e.message}`);
-      let github = board.github;
-      if (!github && !board.remote) { try { github = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
-      fetched[board.route] = { at, ok: false, ...gitReachFault(e.killed ? `git fetch timed out after ${ORIGIN_TIMEOUT_MS / 1000} s` : e.stderr, { github: github || '', remote: board.remote, repo: source.repo }) };
-      continue;
-    }
-    if (board.remote) {
-      try { await settlePushed(board, source.repo, branch, log); }
-      catch (e) { log(`pushed branches /${board.route}: ${e.message}`); }
-    }
+      const source = boardRepo(board.route, manifest);
+      if (source.local || !source.repo) continue;
+      const branch = source.branch || 'main';
+      const at = new Date().toISOString();
+      const started = Date.now();
+      try {
+        await originGit(source.repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+        fetched[board.route] = { at, ok: true };
+      } catch (e) {
+        log(`fetch /${board.route} after ${Date.now() - started} ms: ${e.message}`);
+        let github = board.github;
+        if (!github && !board.remote) { try { github = githubFromOrigin(await git(source.repo, 'remote', 'get-url', 'origin')); } catch {} }
+        fetched[board.route] = { at, ok: false, ...gitReachFault(e.killed ? `git fetch timed out after ${ORIGIN_TIMEOUT_MS / 1000} s` : e.stderr, { github: github || '', remote: board.remote, repo: source.repo }) };
+        continue;
+      }
+      if (board.remote) {
+        try { await settlePushed(board, source.repo, branch, log); }
+        catch (e) { log(`pushed branches /${board.route}: ${e.message}`); }
+      }
+    } catch (e) { log(`fetch /${board.route} failed: ${e.message}`); }
   }
   saveJSON(REPO_FETCH, fetched);
 }
