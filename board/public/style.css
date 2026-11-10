@@ -853,9 +853,10 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .external-links .install.tone-ready { color: var(--color-success); }
 .external-links .install.tone-danger { color: var(--color-danger); }
 .actions button[aria-disabled="true"] { opacity: .5; cursor: default; }
-.tb-main { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 13px; }
-.tb-main > svg { flex: none; color: var(--muted); }
-.tb-main-text { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.tb-main { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 13px; }
+.tb-main-row { display: flex; align-items: center; gap: 6px 10px; min-height: 30px; }
+.tb-main-row > svg { flex: none; color: var(--muted); }
+.tb-main-text { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
 .tb-main .meta { justify-content: flex-end; margin-left: auto; }
 /* #60: Main's refresh icon right of its timestamp; a failed pull's reason shows on hover, or on a tap on touch */
 .tb-main .main-pull { position: relative; display: inline-flex; align-items: center; vertical-align: middle; margin-left: 6px; }

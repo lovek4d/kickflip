@@ -147,18 +147,20 @@
     const why = failed ? `<span class="main-pull-why${open ? ' open' : ''}" role="tooltip">${esc(pull.error)}</span>` : '';
     return `<span class="main-pull"><button class="ghost gh-refresh${busy ? ' spinning' : ''}${failed ? ' failed' : ''}" type="button" data-main-pull aria-label="${esc(label)}"${busy ? ' aria-disabled="true"' : ''}>${BoardUI.refreshIcon(14)}</button>${why}</span>`;
   }
-  // While Main re-serves, or after its new build failed, the old server still serves (main.serving): the bar names its
-  // commit and keeps Visit to it, with Serving… or Failed left of Visit.
+  // Main's bar is two rows, each control in its own steady place: the name and Visit, then the commit, its age, the
+  // refresh icon and the state. While Main re-serves, or after its new build failed, the old server still serves
+  // (main.serving): the bar names its commit and keeps Visit to it, with Updating… or Update failed on row 2.
   function mainBar(main, pulling) {
     if (!main) return '';
     const words = tryWords(main.kind);
     const url = tryURL(main);
     const old = main.serving;
-    const status = main.state === 'running' ? badge('notice', spinner + esc(old ? 'Serving…' : words.going), { attrs: { role: 'status' } })
-      : main.state === 'failed' ? badge('danger', esc(old ? 'Failed' : words.failed), { button: true, attrs: { type: 'button', 'data-main-log': '', 'aria-haspopup': 'dialog' }, title: 'Read main’s build log and retry this tip.' }) : '';
+    const status = main.state === 'running' ? badge('notice', `${spinner}Updating…`, { attrs: { role: 'status' } })
+      : main.state === 'failed' ? badge('danger', 'Update failed', { button: true, attrs: { type: 'button', 'data-main-log': '', 'aria-haspopup': 'dialog' }, title: 'Read main’s build log and retry this tip.' }) : '';
     const visit = (main.state === 'ready' || old) && url ? badge('ready', `${words.done} ${LINK_ARROW}`, { href: url, attrs: main.kind === 'web' ? EXTERNAL : {} }) : '';
     const shown = old || main;
-    return `<div class="tb-main" role="region" aria-label="Main’s version">${BRANCH}<div class="tb-main-text">${esc(main.slug)} · <strong>${esc(main.branch)}</strong>@<code>${esc(shown.sha)}</code> · ${esc(ago(shown.at))}${mainPull(main.pull, pulling)}</div><div class="meta">${status}${visit}</div></div>`;
+    return `<div class="tb-main" role="region" aria-label="Main’s version"><div class="tb-main-row">${BRANCH}<div class="tb-main-text">${esc(main.slug)}</div><div class="meta">${visit}</div></div>`
+      + `<div class="tb-main-row"><div class="tb-main-text"><strong>${esc(main.branch)}</strong>@<code>${esc(shown.sha)}</code> <span class="muted">${esc(lasted(shown.at))}</span>${mainPull(main.pull, pulling)}</div><div class="meta">${status}</div></div></div>`;
   }
   // The open card's Merge, while the board's auto-merge is off: it confirms, then sends card-merge, waiting while the
   // server records it (app-cards.js), and waits (ui.js BUSY) while the session merges it, or the board server lands a
