@@ -59,7 +59,33 @@ const probe = (port) => new Promise((resolve) => {
   req.on('timeout', () => req.destroy());
   req.on('error', () => resolve(false));
 });
-const signalGroup = (child, signal) => { try { process.kill(-child.pid, signal); } catch {} };
+const signalGroup = (pgid, signal) => { try { process.kill(-pgid, signal); } catch {} };
+const groupUp = (pgid) => { try { process.kill(-pgid, 0); return true; } catch { return false; } };
+// SIGTERM to a process group, SIGKILL after 4s, then up to 1s more until the kernel has removed it.
+const endGroup = (pgid) => new Promise((resolve) => {
+  const finish = () => { clearTimeout(timer); clearInterval(check); resolve(); };
+  signalGroup(pgid, 'SIGTERM');
+  let timer = setTimeout(() => { signalGroup(pgid, 'SIGKILL'); timer = setTimeout(finish, 1000); }, 4000);
+  const check = setInterval(() => { if (!groupUp(pgid)) finish(); }, 20);
+});
+// The pids of a process group, each with its command and its working directory.
+async function groupMembers(pgid) {
+  const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,pgid=,command='], { encoding: 'utf8', timeout: 5000 });
+  const members = stdout.split('\n').map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)).filter((m) => m && Number(m[2]) === pgid)
+    .map((m) => ({ pid: m[1], command: m[3], cwd: '' }));
+  if (!members.length) return members;
+  try {
+    const { stdout: out } = await execFileAsync('lsof', ['-a', '-d', 'cwd', '-Fpn', '-p', members.map((m) => m.pid).join(',')], { encoding: 'utf8', timeout: 5000 });
+    let member;
+    for (const line of out.split('\n')) {
+      if (line[0] === 'p') member = members.find((m) => m.pid === line.slice(1));
+      else if (line[0] === 'n' && member) member.cwd = line.slice(1);
+    }
+  } catch {}
+  return members;
+}
+const insideDir = (value, dir) => value === dir || value.startsWith(dir + path.sep);
+const inWorktree = (member, worktree) => insideDir(member.cwd, worktree) || member.command.includes(worktree + path.sep) || member.command.endsWith(worktree);
 
 export async function installWorktree(board, key, manifest) {
   const record = await recordedWorktree(board.dir, key);
@@ -95,7 +121,7 @@ export async function installWorktree(board, key, manifest) {
   } catch { return ''; }
 }
 
-export function createTryManager({ now = Date.now, answers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate } = {}) {
+export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate } = {}) {
   const boards = new Map();
   const runs = new Map();
   // Main's old run, still serving its port while its successor builds, and for good when that build fails: board.dir → run
@@ -117,7 +143,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (boards.has(board.dir)) return boards.get(board.dir);
     const file = path.join(board.dir, 'data', 'try.json');
     const saved = readJSON(file, { kind: null, main: null, cards: {} });
-    const state = { ...(isTryPort(saved.main_port) ? { main_port: saved.main_port } : {}), kind: saved.kind || null, main: saved.main || null, cards: { ...saved.cards },
+    const state = { ...(Array.isArray(saved.groups) && saved.groups.length ? { groups: saved.groups } : {}), ...(isTryPort(saved.main_port) ? { main_port: saved.main_port } : {}), kind: saved.kind || null, main: saved.main || null, cards: { ...saved.cards },
       ...(saved.pull ? { pull: { ...saved.pull, running: undefined } } : {}) };
     const record = { state, file, written: JSON.stringify(saved) };
     boards.set(board.dir, record);
@@ -141,6 +167,43 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     if (value === record.written) return;
     saveJSON(record.file, record.state);
     record.written = value;
+  }
+  // Each live run's process group, so a hub that died hard can stop what it left running at its next startup.
+  function recordGroup(run) {
+    const { state } = stateOf(run.board);
+    run.group = { pgid: run.child.pid, key: run.key, worktree: run.worktree };
+    (state.groups ||= []).push(run.group);
+    persist(run.board);
+  }
+  function forgetGroup(run) {
+    const { state } = stateOf(run.board);
+    if (!state.groups?.includes(run.group)) return;
+    state.groups = state.groups.filter((group) => group !== run.group);
+    if (!state.groups.length) delete state.groups;
+    persist(run.board);
+  }
+  // Stops each recorded group still running its script: a leftover of a hub that died before it stopped its tries.
+  async function sweepGroups(board) {
+    const { state } = stateOf(board);
+    const recorded = state.groups || [];
+    delete state.groups;
+    persist(board);
+    for (const group of recorded) {
+      if (!groupUp(group.pgid)) continue;
+      let members = [];
+      try { members = await groupMembers(group.pgid); } catch (e) { log(`try startup sweep: could not read group ${group.pgid}: ${e.message}`); }
+      if (!members.some((member) => inWorktree(member, group.worktree))) continue;
+      await endGroup(group.pgid);
+      log(`stopped leftover try /${board.route} ${group.key} (pgid ${group.pgid})`);
+      await checkQuiet(board, group.key, group.port);
+    }
+  }
+  // After a stop, a port that still answers is a server outside the stopped group: a red fault on the card, else the log.
+  async function checkQuiet(board, key, port) {
+    if (!port || !await lingers(port)) return;
+    const message = `Port ${port} still answers after the run was stopped.`;
+    if (isCard(key)) await appendStatus(board.dir, key, 'run-failed', { kind: 'Serve', code: 1, why: message }).catch((e) => log(`build /${board.route} ${key}: ${e.message}`));
+    log(`build /${board.route} ${key}: ${message}`);
   }
   const runKey = (board, key) => `${board.dir}\0${key}`;
   const entryOf = (state, key) => isCard(key) ? state.cards[key] : state[OWN_ENTRY[key]];
@@ -291,6 +354,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     reserveMains(manifest);
     for (const board of listBoards(manifest)) stateOf(board);
     initializing = (async () => {
+      for (const board of listBoards(manifest)) await sweepGroups(board).catch((e) => log(`try startup sweep /${board.route}: ${e.message}`));
       try {
         const { stdout } = await tailscale(['serve', 'status', '--json']);
         const status = JSON.parse(stdout);
@@ -320,15 +384,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   }
   function terminate(run) {
     if (run.ending) return run.ending;
-    signalGroup(run.child, 'SIGTERM');
-    run.ending = new Promise((resolve) => {
-      const finish = () => { clearTimeout(timer); clearInterval(check); resolve(); };
-      // A group still up after 4s is killed, then waited on (up to 1s more) until the kernel has removed it.
-      let timer = setTimeout(() => { signalGroup(run.child, 'SIGKILL'); timer = setTimeout(finish, 1000); }, 4000);
-      const check = setInterval(() => {
-        try { process.kill(-run.child.pid, 0); } catch { finish(); }
-      }, 20);
-    });
+    run.ending = endGroup(run.child.pid);
     return run.ending;
   }
   async function halt(run, keepPort = false) {
@@ -365,9 +421,9 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const child = spawn(script, [key, worktree], { cwd: worktree, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
     setEntry(state, key, entry);
-    persist(board);
     const id = runKey(board, key);
     const run = { child, board, key, worktree, sha, at: metadata.at, logFile, visited: now(), stopped: false, port: null, ready: false };
+    recordGroup(run);
     runs.set(id, run);
     lastHeads.set(id, sha);
     let spawnError;
@@ -383,6 +439,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       const port = Number(match[1]);
       if (port < 1 || port > 65535) { fail('Build script printed an invalid port.'); return; }
       run.port = port;
+      run.group.port = port;
+      persist(board);
       clearTimeout(run.deadline);
       let until;
       let probing = false;
@@ -425,6 +483,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       (async () => {
         await terminate(run);
         await closePort(run);
+        forgetGroup(run);
+        if (!stopping) await checkQuiet(board, key, run.port);
         run.finished = true;
         if (run.stopped) return;
         if (serving.get(board.dir) === run) {

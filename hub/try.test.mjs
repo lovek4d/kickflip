@@ -1322,3 +1322,36 @@ fs.writeFileSync(f, String(n)); console.log('port ' + n); setInterval(() => {}, 
   assert.notEqual(state().prototypes.since, first.since);
   assert.ok(logs.some((line) => line.includes(`prototypes: the base moved to ${moved.slice(0, 7)}; restarting its serve`)), logs.join('\n'));
 });
+
+test('a run’s process group is recorded in try.json while it runs and forgotten once it ends', async () => {
+  setScript(`console.log('port ' + 1); setInterval(() => {}, 1000);`);
+  await start();
+  await until(() => state().groups?.[0]?.port === 1);
+  assert.deepEqual(state().groups[0], { pgid: state().groups[0].pgid, key: 'w/A1', worktree, port: 1 });
+  await manager.stop();
+  assert.equal(state().groups, undefined);
+});
+
+test('a hub that died hard stops a recorded group still running its script at startup, and leaves one outside the worktree', async (t) => {
+  const logs = [];
+  manager = createTryManager({ now: () => clock, log: (line) => logs.push(line) });
+  const leftover = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: worktree, detached: true, stdio: 'ignore' });
+  const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: home, detached: true, stdio: 'ignore' });
+  t.after(() => { for (const child of [leftover, stranger]) try { process.kill(-child.pid, 'SIGKILL'); } catch {} });
+  write(path.join(site, 'data/try.json'), { kind: 'app', cards: { 'w/A1': { state: 'running' } }, main: null, groups: [
+    { pgid: leftover.pid, key: 'w/A1', worktree }, { pgid: stranger.pid, key: 'w/A2', worktree }, { pgid: 2 ** 22 - 1, key: 'w/A3', worktree }] });
+  await manager.initialize(manifest);
+  assert.throws(() => process.kill(-leftover.pid, 0));
+  assert.doesNotThrow(() => process.kill(-stranger.pid, 0));
+  assert.ok(logs.includes(`stopped leftover try /orch w/A1 (pgid ${leftover.pid})`));
+  assert.equal(state().groups, undefined);
+});
+
+test('a stopped leftover whose port still answers posts a red fault on its card', async (t) => {
+  manager = createTryManager({ now: () => clock, log() {}, lingers: async () => true });
+  const leftover = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: worktree, detached: true, stdio: 'ignore' });
+  t.after(() => { try { process.kill(-leftover.pid, 'SIGKILL'); } catch {} });
+  write(path.join(site, 'data/try.json'), { kind: 'app', cards: {}, main: null, groups: [{ pgid: leftover.pid, key: 'w/A1', worktree, port: 4321 }] });
+  await manager.initialize(manifest);
+  assert.match(JSON.stringify(thread()), /Port 4321 still answers after the run was stopped/);
+});
