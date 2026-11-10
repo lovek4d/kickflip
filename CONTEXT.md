@@ -235,7 +235,7 @@ One unit of work in an **item file**, usually one PR. Its key is `<file>/<id>`. 
 _Avoid_: ticket (the identity of its work in the board’s ticket source)
 
 **Task**:
-A work item with no ticket, keyed `T-<n>` (its board's next number), with a quiet Task badge in the ticket slot. Every new card starts as one. It gets a ticket from `--ticket <id>`, `--new-ticket`, or a yes to its grill's ticket question, which is asked only on a board with a **ticket source**; a board with none keeps every card a task ([a task is a card with no ticket, keyed T-<n>](docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md)).
+A work item with no ticket, keyed `T-<n>` (its board's next number), with a quiet Task badge in the ticket slot. Every new card starts as one. It gets a ticket from `--ticket <id>`, `--new-ticket`, or the board making one when the card goes ready, which happens only on a board with a **ticket source**; a board with none keeps every card a task ([tickets are made at ready](docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md), [a task is a card with no ticket, keyed T-<n>](docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md)).
 _Avoid_: unticketed card
 
 **Ticket**:

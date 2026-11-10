@@ -11,7 +11,7 @@ import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ticket-gate-')));
 process.env.HOME = home;
 after(() => fs.rmSync(home, { recursive: true, force: true }));
-const { addQuestions, settleAnswers, settleQuestion, setItem } = await import('./store.mjs');
+const { addQuestions, settleAnswers, settleQuestion, setItem, addItem, supersedeTicketQuestions } = await import('./store.mjs');
 const linearData = linearWorld();
 const linear = fakeLinear(linearData);
 fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
@@ -57,7 +57,7 @@ test("yes makes the ticket at once from the card's title and notes, while anothe
   assert.deepEqual(linearData.issues[made.ticket].input.title, 'Bump the pins');
   assert.match(linearData.issues[made.ticket].input.description, /Lands code in package\.json/);
   assert.match(resolved('q-ticket'), /^Ticket: yes/);
-  assert.ok(thread().some((l) => l.text === `You asked for a ticket, so the board made ${made.ticket}.`));
+  assert.ok(thread().some((l) => l.text === `The board made ${made.ticket}.`));
 });
 
 test('no leaves the task without a ticket', async () => {
@@ -98,5 +98,35 @@ test('linking a ticket resolves the open ticket question and moves a grilling ca
   const staged = path.join(w.site, 'data', 'staged-questions.json');
   fs.writeFileSync(staged, JSON.stringify({ 't/T-1': [other, gate] }));
   await setItem(w.site, 't/T-1', { newTicket: true },{ linearFetch: linear.fetch });
+  assert.deepEqual(JSON.parse(fs.readFileSync(staged, 'utf8'))['t/T-1'].map((q) => q.id), ['q-other']);
+});
+
+// docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md
+test('a card going ready with no ticket gets one, with the board-made line; one that has a ticket is left alone', async () => {
+  const w = world({ item: { phase: 'staging', size: 'small' } });
+  await setItem(w.site, 't/T-1', { phase: 'ready', text: 'checked' }, { linearFetch: linear.fetch });
+  assert.match(w.card().ticket, /^ENG-\d+$/);
+  assert.deepEqual([w.card().id, w.card().phase, w.card().ticket_created], ['T-1', 'ready', true]);
+  assert.ok(w.thread().some((l) => l.text === `The board made ${w.card().ticket}.`));
+  const had = world({ item: { phase: 'staging', size: 'small', ticket: 'ENG-9' } });
+  await setItem(had.site, 't/T-1', { phase: 'ready', text: 'checked' }, { linearFetch: linear.fetch });
+  assert.equal(had.card().ticket, 'ENG-9');
+  const none = world({ tickets: null, item: { phase: 'staging', size: 'small' } });
+  await setItem(none.site, 't/T-1', { phase: 'ready', text: 'checked' });
+  assert.equal(none.card().ticket, undefined);
+  assert.equal(none.card().phase, 'ready');
+});
+
+test('open and staged ticket questions are superseded, and a grilling card with nothing else open moves on', async () => {
+  const w = world();
+  await addQuestions(w.site, [gate]);
+  const lines = await supersedeTicketQuestions(w.site);
+  assert.deepEqual(lines, ['t/T-1: ticket question superseded']);
+  assert.match(w.resolved('q-ticket'), /^Superseded/);
+  assert.equal(w.card().phase, 'staging');
+  const s = world();
+  const staged = path.join(s.site, 'data', 'staged-questions.json');
+  fs.writeFileSync(staged, JSON.stringify({ 't/T-1': [other, gate] }));
+  await supersedeTicketQuestions(s.site);
   assert.deepEqual(JSON.parse(fs.readFileSync(staged, 'utf8'))['t/T-1'].map((q) => q.id), ['q-other']);
 });

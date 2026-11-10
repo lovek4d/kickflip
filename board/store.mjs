@@ -2683,11 +2683,15 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   else if (handover && item.lane !== 'done') {
     moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
   } else if (start && !closed(item)) moveTo('progress', 'a build started');
+  // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a card going ready with no ticket gets one, on a board with a source.
+  const madeAtReady = phase === 'ready' && !item.ticket && ticket === undefined && !newTicket && Boolean(site && await boardSource(site));
+  if (madeAtReady) newTicket = true;
   if (newTicket && item.ticket) fail(`${key} already has ticket ${item.ticket}`);
   const linking = ticket !== undefined || newTicket;
   if (linking) await assignTicket(site, itemFile, item, ticket, options, source.dir);
   await writeJSON(source.file, itemFile);
   if (linking && site) await dropTicketQuestion(site, key, item.ticket);
+  if (madeAtReady) await appendStatus(site, key, 'ticket-made', { ticket: item.ticket });
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (rechecked) await appendNotes(site, key, `Re-checked (orchestrator, ${noteStamp()})`, said);
@@ -3133,7 +3137,7 @@ async function nextTaskId(site) {
 }
 
 const ticketWrite = (site, fn) => withFileLock(path.join(site || wavesDir(), 'tickets'), fn, { heartbeat: true });
-export const setItem = (site, key, changes, options) => (changes.ticket !== undefined || changes.newTicket
+export const setItem = (site, key, changes, options) => (changes.ticket !== undefined || changes.newTicket || changes.phase === 'ready'
   ? ticketWrite(site, () => changeItem(site, key, changes, options)) : changeItem(site, key, changes, options));
 export const addItem = (site, key, details, options) => ticketWrite(site, () => createItem(site, key, details, options));
 
@@ -3188,6 +3192,9 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: an id in the source's own form names the ticket to link.
   const named = id === undefined ? null : ticketNamed(await boardSource(site), id);
   if (named && ticket !== undefined && ticketNamed(await boardSource(site), ticket) !== named) fail(`--ticket ${ticket} is not the ticket ${id} names`);
+  // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a Quick build is filed ready, so it gets its ticket here.
+  const madeAtReady = phase === 'ready' && !named && ticket === undefined && !newTicket && Boolean(await boardSource(site));
+  if (madeAtReady) newTicket = true;
   if (named && newTicket) fail(`${id} names ticket ${named}, so --new-ticket would make another; drop --new-ticket`);
   if (ticket !== undefined || newTicket || named) await assignTicket(site, itemFile, item, ticket ?? named ?? undefined, options, source.dir, body);
   if (id === undefined && item.ticket) {
@@ -3205,6 +3212,7 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
     const links = await readAskLinks(site);
     if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   }
+  if (madeAtReady && site) await appendStatus(site, added, 'ticket-made', { ticket: item.ticket });
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added));
   return { file: source.file, key: added, lines: [] };
 }
@@ -3314,6 +3322,25 @@ export const migratePhases = (site) => ticketWrite(site, async () => {
     await writeArchive(site, cards);
     lines.push(`archive: ${changed} cards' states became phases`);
   });
+  return lines;
+});
+
+// docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md
+// A ticket question open or staged from before the board made tickets at ready is resolved as superseded, leaving any
+// answer alone; a grilling card with nothing left open moves on. Run by the board server as it starts. → one line per card.
+export const supersedeTicketQuestions = (site) => ticketWrite(site, async () => {
+  const lines = [];
+  const staged = await readJSON(stagedFile(site), {});
+  const keep = Object.fromEntries(Object.entries(staged).map(([k, qs]) => [k, qs.filter((q) => !q.ticket_gate)]).filter(([, qs]) => qs.length));
+  if (JSON.stringify(keep) !== JSON.stringify(staged)) await writeJSON(stagedFile(site), keep);
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  const open = (owner.items || []).filter((q) => q.ticket_gate && !q.resolved);
+  for (const q of open) {
+    await markResolved(site, owner, [q.id], 'Superseded: the board makes the ticket when the card goes ready');
+    const key = q.topic.slice(5);
+    if ((await loadItem(site, key).catch(() => null))?.item.phase === 'grilling') await moveOnAnswered(site, key, { roundAt: true });
+    lines.push(`${key}: ticket question superseded`);
+  }
   return lines;
 });
 
@@ -4548,7 +4575,7 @@ export async function briefFacts(site, key) {
   const said = (q, a) => [(q.options || []).find((o) => o.id === a.choice)?.label, a.note].filter(Boolean).join(': ') || 'answered';
   const answers = (await cardQuestions(site, key)).asked.filter((q) => q.ask && q.answers.length).map((q) => ({ ask: q.ask, question: q.question, answer: said(q, q.answers.at(-1)) }));
   return { key, ref: await cardName(site, key), title: item.title || key, notes: item.plan ? path.join(source.dir, item.plan) : null, thread: threadFile(site, key), worktree: (await recordedWorktree(site, key))?.path ?? null, answers, links: await cardLinks(site, key),
-    rebasePR: item.rebase_run?.pr ?? null, ticketQuestion: !item.ticket && Boolean(await boardSource(site)) };
+    rebasePR: item.rebase_run?.pr ?? null };
 }
 
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md
