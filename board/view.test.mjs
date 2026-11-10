@@ -5645,6 +5645,20 @@ test("every lane groups its cards under wave headers, none for a wave with no ca
   }
 });
 
+// docs/adr/2026-11-10-0030-group-headers-lead-with-a-chevron.md
+test("every group header, No wave included, leads with a chevron in place of the wave icon, and only the open group's body carries the divider", async () => {
+  const idle = { running: false, questions: 0 };
+  const band = { kind: 'wave', slug: 'a', title: 'Alpha', goal: null, keys: ['w/A1'], next: null, merged: 0, total: 1, triage: idle };
+  const b = boardOnDom({ board: { ...boardOf([workCard('A1', { lane: 'progress' }), workCard('L1', { lane: 'progress' })]), waveBands: [band] }, threads: {} });
+  await b.settle();
+  const heads = b.root.querySelectorAll('details.lane[data-lane="progress"] .wb > .wb-head');
+  assert.equal(heads.length, 2);
+  for (const h of heads) {
+    assert.ok(h.querySelector(':scope > svg.wb-chevron'));
+    assert.ok(!h.querySelector('.wave-icon'));
+  }
+});
+
 // docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md
 const deckQuestion = (id, topic, extra = {}) => ({ id, topic, source: 'Grill', question: `Question ${id}?`, context: `Why ${id}`, answers: [], state: 'open',
   options: [{ id: 'A', label: 'Yes', detail: 'Do it', recommended: true }, { id: 'B', label: 'No', detail: 'Leave it' }], ...extra });

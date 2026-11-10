@@ -125,7 +125,7 @@ BoardView.part((B) => {
     if (!grouped.length) return cards.map((it) => B.card(it)).join('');
     const loose = cards.filter((i) => !bands.some((b) => b.keys.includes(i.key)));
     const body = (list) => list.map((it) => B.card(it)).join('');
-    return grouped.map((b) => groupHtml(laneId, b.slug, true, BoardUI.WAVE_ICON + groupLabel(escText(b.title), inBand(b).length) + waveCounts(b, laneId), body(inBand(b)))).join('')
+    return grouped.map((b) => groupHtml(laneId, b.slug, true, groupLabel(escText(b.title), inBand(b).length) + waveCounts(b, laneId), body(inBand(b)))).join('')
       + (loose.length ? groupHtml(laneId, NO_WAVE, true, groupLabel('No wave', loose.length), body(loose)) : '');
   }
 
@@ -133,11 +133,12 @@ BoardView.part((B) => {
   // lives in storage under the lane and the group's slug. head is the header's content, body the cards under it.
   const NO_WAVE = 'no-wave';
   const groupStore = (id) => FOLDS[`band:${id}`].store;
+  const CHEVRON = '<svg class="wb-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
   const groupLabel = (name, n) => `<span class="wb-label"><span class="lane-name">${name}</span> <span class="count">${n}</span></span>`;
   function groupHtml(laneId, slug, open, head, body) {
     const id = `${laneId}/${slug}`;
     const isOpen = store.get(groupStore(id), open);
-    const header = `<div class="wb-head" data-band-toggle="${esc(id)}" role="button" tabindex="0" aria-expanded="${isOpen}">${head}</div>`;
+    const header = `<div class="wb-head" data-band-toggle="${esc(id)}" role="button" tabindex="0" aria-expanded="${isOpen}">${CHEVRON}${head}</div>`;
     return `<section class="wb" data-band="${esc(slug)}" data-lane="${laneId}"${isOpen ? ' data-open' : ''}>${header}${isOpen ? `<div class="wb-body">${body}</div>` : ''}</section>`;
   }
 
@@ -173,7 +174,7 @@ BoardView.part((B) => {
       ? `<button type="button" class="wv-link" data-confirm="card-build" data-key="${esc(next.key)}">Implement</button>`
       : `<span class="wb-next">next: ${esc(next.ref)} ${esc(next.word)}</span>`;
     const pop = goalShown === band.slug && band.goal ? `<div class="wb-pop" role="tooltip">${esc(band.goal)}</div>` : '';
-    const head = `${BoardUI.WAVE_ICON}<span class="wb-label">${name} <span class="count">${todo.length}</span>${progress}</span>`
+    const head = `<span class="wb-label">${name} <span class="count">${todo.length}</span>${progress}</span>`
       + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}</span>${go}</span>${pop}`;
     const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#selectedCard=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
     return groupHtml('todo', band.slug, open, head, doneRow + todo.map((it) => B.card(it)).join(''));
