@@ -323,8 +323,10 @@
       + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom hold until a date and time"></div></div></div>`;
   }
   // A New card's bump, edit and delete, and its line from its ask state (domain.mjs askItem;
-  // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). top is whether it is bumped already.
-  const askActions = (it, top) => `<div class="ask-actions">${bumpButton(it, top)}${it.ask.canEdit ? editButton(it.id) : ''}${withdrawButton(it.id)}</div>`;
+  // docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md). top is whether it is bumped already. The New card an ask
+  // became bumps as a card, and edits and deletes its ask
+  // (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
+  const askActions = (it, top) => `<div class="ask-actions">${it.kind === 'ask' ? bumpButton(it, top) : cardBumpButton(it.key, Boolean(it.bumpedAt))}${it.ask.canEdit ? editButton(it.ask.eventId) : ''}${withdrawButton(it.ask.eventId)}</div>`;
   // A card waiting on its owner step has the owner's Done where the bump sits: a check icon that confirms, then sends
   // card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
   const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
@@ -337,8 +339,9 @@
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? thinkingLine() : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
   function workLines(it, { unread = 0, top = false } = {}) {
     const ticket = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
-    // A work card shows its ticket, or Task when it has none; an ask shows New or Ask there (askChip).
-    const ids = it.kind === 'ask' ? askChip(it) : ticket;
+    // A work card shows its ticket, or Task when it has none; an ask, and the card an ask became until it is sorted,
+    // shows New or Ask there (askChip).
+    const ids = it.kind === 'ask' || it.isNew ? askChip(it) : ticket;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     // A handled ask's asked time sits under its title, since its Ask badge holds the ticket's spot
     // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).

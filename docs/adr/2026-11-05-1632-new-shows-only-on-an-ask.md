@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives
+---
+
 # New shows only on an ask; a filed card always shows its ticket
+
+Superseded in part by [every ask is a task card from the moment it arrives](2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md): a work card an ask became wears New in its ticket slot until the orchestrator sorts it.
 
 The owner (#337): "new should only last until the item is ingested into a real work item. effectively new always becomes either a ticket badge or an ask badge."
 

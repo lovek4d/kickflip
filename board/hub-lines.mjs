@@ -60,6 +60,9 @@ export const HUB_LINES = {
   'new-question': { mark: QUESTIONS, text: () => 'A new question on it, so it is grilling until you answer.' },
   'screen-timeout': { mark: QUESTIONS, text: () => 'Questions passed to you unscreened: the orchestrator didn’t screen them in 15 minutes.' },
   'ask-moved': { mark: MOVE, text: ({ board }) => fit('Moved to ', board, '.') },
+  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: on the ask's thread, the card it
+  // became merged into another (store.mjs relateAsk), which hides the ask's own row and feeds the top banner.
+  'card-merged': { mark: MOVE, text: ({ card }) => fit('Merged into ', card, '.') },
   'pr-found': { mark: MOVE, text: ({ pr, branch }) => fit(`Found PR #${pr} on branch `, branch, '.'), longest: { pr: 100000 } },
   'ci-passed': { mark: DONE, text: ({ pr }) => `CI passed, so PR #${pr} is marked ready for review.`, longest: { pr: 100000 } },
   'worktree-remade': { mark: MOVE, text: () => 'Remade its leftover worktree: it held no commits or changes.' },

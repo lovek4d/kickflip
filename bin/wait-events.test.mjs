@@ -288,6 +288,6 @@ test('on a board a new task wakes the session with its sort line and reads Worki
   await until(() => fs.existsSync(path.join(dir, 'data', 'watcher.json')), 'watcher started');
   fs.appendFileSync(events, JSON.stringify({ id: 'a1', kind: 'ask', ts: new Date().toISOString(), data: { text: 'New task' } }) + '\n');
   assert.equal(await exited, 0);
-  assert.ok(stdout.split('\n').includes('new task a1 received: sort it: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply'), stdout);
+  assert.ok(stdout.split('\n').includes('new task a1 received as task a1: sort that New card: item notes, then item set <its key> --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask a1 <card> --summary; or answer it with reply <its key>'), stdout);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['a1']);
 });

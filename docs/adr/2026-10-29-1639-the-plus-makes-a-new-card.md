@@ -1,8 +1,10 @@
 ---
-status: superseded in part by 2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo
+status: superseded in part by 2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo; superseded in part by 2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives
 ---
 
 # The + makes a New card, which Claude files, folds or answers
+
+Superseded in part by [every ask is a task card from the moment it arrives](2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md): the New card is a `T-<n>` work card from the moment the ask arrives, sorted with `item set --phase`, merged with `item relate-ask`, or answered into In Review to wait for the owner's Done.
 
 Superseded in part by [an unstarted card waits on its questions in Todo, and its one action button follows what it waits on](2026-10-30-1309-an-unstarted-card-waits-on-its-questions-in-todo.md) on answering: an answer that leaves a question open on the card keeps it in Todo as a Task with Action needed, not in Done, until its questions are settled or it is closed. A New card asked a question waits in Todo, not In Review.
 

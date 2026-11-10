@@ -88,7 +88,7 @@ test('a new task, a message in an ask thread and an agent-added card wake the se
   assert.equal(wakes({ id: 'a1', kind: 'ask', data: { text: 'Fix it' } }), true);
   assert.equal(wakes(event('card-added', { key: 'w/A2' })), true);
   assert.equal(wakes(event('item-message', { key: 'ask:a1', text: 'More' })), true);
-  assert.equal(PLAIN.ask({ id: 'a1' }), 'new task a1 received: sort it: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply');
+  assert.equal(ON_CARD.ask('T-4', { id: 'a1' }), 'new task a1 received as T-4: sort that New card: item notes, then item set <its key> --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask a1 <card> --summary; or answer it with reply <its key>');
   assert.equal(ON_CARD['card-added']('#7'), '#7 added by an agent: link it and file it: item notes, then item set --relate and --phase');
   assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1' })), "message received from the ask's thread: reply in its thread");
   assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1', text: '', intent: 'build' })), 'Implement asked on the ask: file it with item add --from-ask --phase ready, with its --size and notes');

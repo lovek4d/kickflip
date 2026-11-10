@@ -256,6 +256,7 @@ const ADDS = [
 ];
 const KNOWN = {
   'board/store.mjs createItem': 'a new card: a T-<n> task, or named from the ticket assignTicket links or makes',
+  'board/store.mjs fileAsk': "a new ask's New card: a T-<n> task from nextTaskId, under the tickets lock",
   'board/store.mjs migrateFollowups': "old follow-ups moved into cards, keeping the tickets they had",
   'board/store.mjs askNotNew': 'a list of the cards an ask became, read only',
   'board/store.mjs changeWave': "a wave's list of card ids, which makes no card",

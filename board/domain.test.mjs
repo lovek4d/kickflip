@@ -2328,7 +2328,8 @@ test('every unsorted new task, message in an ask thread or agent-added card is a
   const items = [{ id: 'A1', title: 'Filed', phase: 'grilling' }, { id: 'A2', title: 'Follow-up', unfiled: true }];
   const built = (events, { waveItems = items, working = {} } = {}) => buildBoard({ now: Date.parse(at(59)), events, working, files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: waveItems } }] });
   const waits = (events, options) => orchestratorWaits(built(events, options)).map(({ key, kind, since, picked, next }) => [key, kind, since, picked, next]);
-  const SORT = 'Sort the new task: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply';
+  // An ask the board hasn't filed as its card yet waits for that (ask-cards.test.mjs covers the card's own wait).
+  const SORT = 'Sort the new task: the board files its card; sort that once it shows';
 
   assert.deepEqual(waits([ask('e1', 1), ask('e2', 2)]), [['ask:e1', 'intake', at(1), null, SORT], ['ask:e2', 'intake', at(2), null, SORT]]);
   assert.deepEqual(waits([ask('e1', 1)], { working: { e1: at(4) } }), [['ask:e1', 'intake', at(1), at(4), SORT]], 'picked up when the watcher marks it working');

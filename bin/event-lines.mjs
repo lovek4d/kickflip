@@ -14,8 +14,6 @@ export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 
 // The kinds whose line reads from the event alone.
 export const PLAIN = {
-  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
-  ask: (e) => `new task ${e.id} received: sort it: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply`,
   'owner-answer': (e) => `answer received to question ${e.data?.id}: act on it on its card`,
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
@@ -56,4 +54,8 @@ export const ON_CARD = {
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text} (builder answer it, or builder defer it)`,
   'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}; fix it with item set --check, or drop it`,
   'card-added': (c) => `${c} added by an agent: link it and file it: item notes, then item set --relate and --phase`,
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md,
+  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: c is the New card the board filed
+  // for the ask; its waits line carries its key.
+  ask: (c, e) => `new task ${e.id} received as ${c}: sort that New card: item notes, then item set <its key> --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask ${e.id} <card> --summary; or answer it with reply <its key>`,
 };

@@ -40,6 +40,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--title <t>]                                   retitles the ask it answers, or whose thread the message
                                                          is in, which then wears an Ask badge in place of its first
                                                          line as title (data/ask-titles.json)
+  reply <file>/<id> (--text <md> | --file <path>)        answers the New card an ask became: the answer goes in
+         [--title <t>]                                   its thread and the card waits in In Review for the
+                                                         owner's Done, --title as its title. Refuses a card
+                                                         that is sorted or isn't one an ask became
   thread <file>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--who claude|love|<name>] [--via github|slack] of <file>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
@@ -151,13 +155,16 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          remote. Moves it to In Review as --pr does
          [--gh-since <ISO time>]                         records the last handled GitHub event, an ISO-8601 UTC
                                                          time such as 2026-10-23T11:00:00Z, stored as given
-         [--from-ask <eventId> --text <t>]               the ask it came from: its New card gives way to this item,
+         [--from-ask <eventId> --text <t>]               the ask it came from, for an ask from before asks
+                                                         arrived as cards: its New row gives way to this item,
                                                          whose thread opens with the ask and its thread, then --text
                                                          as the item's first line; it leaves a card it was folded into; refuses a card
-                                                         from another ask (use item relate-ask), and one with no
-                                                         phase when --phase is missing
+                                                         from another ask (use item relate-ask), an ask that is
+                                                         already a card, naming it (sort that card instead), and
+                                                         one with no phase when --phase is missing
          [--phase ready|grilling|prototyping]            a Todo card's phase: what it does next; it reads New
-                                                         until set. Refused on a card in another lane, whose phase
+                                                         until set, which sorts a New card an ask became (an
+                                                         answered one leaves In Review for Todo). Refused on a card in another lane, whose phase
                                                          the board sets, and as --state, its old name.
                                                          Staging is the board's: it stages a card on the owner's
                                                          Send, Implement or Reply on a ready card, and refuses
@@ -256,7 +263,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          ready is for a Quick build ask (--from-ask), with --size
                                                          and --notes or --notes-from, since a builder starts from it
          [--from-ask <eventId> --text <t>]               files the card from that ask in this one command, as
-                                                         item set's --from-ask: no grill starts before the ask is on
+                                                         item set's --from-ask, refusing an ask that is already a
+                                                         card: no grill starts before the ask is on
                                                          the card, which takes the ask's place in Todo. Needs --phase
                                                          On a board --phase is required, so no card an agent
                                                          adds reads New
@@ -272,10 +280,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          Resolves answered questions still waiting on Claude,
                                                          noting "Recorded in the card's notes", and prints
                                                          "resolved: <id>" for each
-  item relate-ask <eventId> <file>/<id> --summary <t>   folds an ask about an existing item into it: the ask's
-                                                         card goes, its message and thread show in the item's
-                                                         thread marked Moved, then the summary line. Again with
-                                                         another item moves it there
+  item relate-ask <eventId> <file>/<id> --summary <t>   folds an ask about an existing item into it: the New card
+                                                         the ask became goes, its message and thread show in the
+                                                         item's thread marked Moved, then the summary line, and the
+                                                         owner's banner names the card it merged into. Refuses
+                                                         an ask whose card is sorted. Again with another item
+                                                         moves it there
          [--title <t>]                                   retitles the ask, as reply's --title
   ask progress <eventId> [--next <text>]                 keeps an answered ask in In Review, --next as its next
                                                          line, until the owner's ask-done (the Done beside Reply
@@ -802,7 +812,8 @@ const COMMANDS = {
   }],
   reply: [['eventId'], ['text', 'file', 'title'], (site, [id], f) => {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('reply takes --text or --file');
-    return store.writeReply(site, id, f.text ?? readInput(f.file), f.title);
+    const md = f.text ?? readInput(f.file);
+    return id.includes('/') ? store.answerCard(site, id, md, f.title) : store.writeReply(site, id, md, f.title);
   }],
   thread: [['file/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendMessage(site, key, f)],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
@@ -1018,7 +1029,7 @@ function itemChanges(f) {
  * name: (site, args, flags, result) → line
  */
 const SAID = {
-  reply: async (site, [id]) => `reply written to ${await store.eventCard(site, id)}`,
+  reply: async (site, [id]) => (id.includes('/') ? `answered ${await card(site, id)}: it waits in In Review for the owner's Done` : `reply written to ${await store.eventCard(site, id)}`),
   thread: async (site, [key]) => `thread line on ${await card(site, key)}`,
   'topic add': (site, [id]) => `topic ${id} added`,
   'question add': async (site, _, f, { asked, staged }) => {

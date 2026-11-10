@@ -1,4 +1,10 @@
+---
+status: amended by 2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives
+---
+
 # `item add --from-ask` files an ask in one command
+
+Amended by [every ask is a task card from the moment it arrives](2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md): an ask that is already a card is refused, naming it; `--from-ask` is for asks from before that.
 
 Filing an ask took `item add --state grilling` then `item set --from-ask`. The board launched a grill on the add, before the set, so a Quick build ask could get a stray grill that asked the owner its questions twice (#374).
 

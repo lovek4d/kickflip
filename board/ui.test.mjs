@@ -1507,7 +1507,7 @@ test("a builder line shows the progress and its age, not who is building", () =>
 test("a New card reads New and its first line, then whether it was moved or edited and whether Claude has started, with bump, edit and delete and no Action needed, and ends with when it was sent", () => {
   const sent = ago(1);
   const card = (ask, extra = {}) => ui.workLines({ kind: 'ask', id: 'a1', key: 'ask:a1', ref: 'New', isNew: true, title: 'Fix <it>', linear: [], pr: null, prs: [], deps: [], blockedBy: [], created: sent, updatedAt: sent, sortAt: sent,
-    bumpedAt: ask.bumpedAt || null, ask: { askedAt: sent, bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
+    bumpedAt: ask.bumpedAt || null, ask: { eventId: 'a1', askedAt: sent, bumpedAt: null, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra }, { top: Boolean(ask.bumpedAt) });
   const at = ui.cardTime(sent);
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: grey "waiting", its dot still, until the
   // orchestrator picks the task up, then the blue "thinking".
@@ -1625,7 +1625,7 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
 });
 
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-test("a ready card's time line reads ready in green after its hold and before its unread messages, and an unsorted work card shows its ticket, never New", () => {
+test("a ready card's time line reads ready in green after its hold and before its unread messages, and an unsorted work card shows its ticket, and the card an ask became shows New until it is sorted", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt };
   const html = ui.workLines({ ...card, held: true, ready: true, phase: 'ready' }, { unread: 2 });
@@ -1635,6 +1635,11 @@ test("a ready card's time line reads ready in green after its hold and before it
   assert.deepEqual(lines(ui.workLines({ ...card, unsorted: true }))[0], 'ENG-1 Five');
   assert.doesNotMatch(ui.workLines({ ...card, unsorted: true }), />New</);
   assert.doesNotMatch(ui.workLines(card), />New</);
+  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: the card an ask became reads New
+  // with its ask's line until it is sorted, bumps as a card, and edits and deletes its ask.
+  const arrived = { ...card, key: 'w/T-3', id: 'T-3', ref: 'T-3', linear: [], unsorted: true, isNew: true, ask: { eventId: 'a7', state: 'waiting', canEdit: true, files: [] } };
+  assert.deepEqual(lines(ui.workLines(arrived)).slice(0, 2), ['New Five', 'waiting']);
+  assert.deepEqual([...ui.workLines(arrived).matchAll(/data-(card-bump|bump|edit|withdraw)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['card-bump', 'w/T-3'], ['edit', 'a7'], ['withdraw', 'a7']]);
 });
 
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md

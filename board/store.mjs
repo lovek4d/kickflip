@@ -158,6 +158,14 @@ export async function writeReply(site, eventId, md, title) {
   const event = (await readLines(path.join(site, 'data', 'events.jsonl'))).find((e) => e.id === eventId);
   if (!event) fail(`no event "${eventId}" in this site's data/events.jsonl`);
   const key = event.kind === 'ask' ? `ask:${eventId}` : event.kind === 'item-message' && typeof event.data?.key === 'string' ? event.data.key : null;
+  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a reply to an ask answers the card
+  // it became, which takes --title.
+  const card = event.kind === 'ask' ? await askCardOf(site, eventId) : null;
+  if (card && answerable(card.item)) {
+    text(md, 'the reply');
+    await markAnswered(site, card, title);
+    title = undefined;
+  }
   const titled = title === undefined ? undefined : /^ask:(.+)$/.exec(key || '')?.[1] || fail(`reply --title names an ask: "${eventId}" is not an ask or a message in an ask's thread`);
   if (titled) text(title, '--title');
   const dir = path.join(site, 'data', 'replies');
@@ -452,6 +460,121 @@ export async function eventCard(site, eventId) {
   return `the ${e?.kind} event`;
 }
 
+// docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md
+// The card ask eventId became, {source, itemFile, item, key}, or null.
+async function askCardOf(site, eventId) {
+  for (const source of await itemSources(site)) {
+    const itemFile = await readJSON(source.file, null);
+    const item = (Array.isArray(itemFile?.items) ? itemFile.items : []).find((i) => i.from_ask === eventId);
+    if (item) return { source, itemFile, item, key: `${source.slug}/${item.id}` };
+  }
+  return null;
+}
+// Whether the card an ask became is still New: nothing has sorted, answered or started it.
+const stillNew = (item) => !item.phase && !item.answered_at && !leftTodo(item) && !hasPR(item) && !item.filed_held;
+// An ask's title as its card takes it: the first line of its latest text, else its files' names.
+function askTitle(ask, events) {
+  const edit = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === ask.id && typeof e.data?.text === 'string')
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  const words = String(edit ? edit.data.text : ask.data?.text || '').trim().split('\n')[0].trim();
+  return words || (ask.data?.files || []).map((f) => f?.name).filter(Boolean).join(', ') || 'Ask';
+}
+
+// Files ask eventId as a New T-<n> card in the board's first item file: from_ask, titled by its first line, no phase,
+// no thread line (its thread opens with the ask; domain.mjs threadOf). The board server runs it as an ask arrives and
+// on each board change, so an ask that was New before this rule is filed too. pending is the ask event the server is
+// about to write, filed first so the watcher's line names its card. → its key, or null when the ask already has a card
+// or isn't New: deleted, moved, folded or answered (askNotNew).
+export const fileAsk = (site, eventId, pending) => ticketWrite(site, async () => {
+  needSite(site);
+  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  const ask = pending || events.find((e) => e.id === eventId && e.kind === 'ask') || fail(`no ask "${eventId}" in this site's data/events.jsonl`);
+  if (await askCardOf(site, eventId) || await askNotNew(site, eventId, events)) return null;
+  // The card goes in the first item file there is; a file-items board starts its one file. A waves board with no wave
+  // yet keeps the ask as its own New row (domain.mjs askItem): filing never makes a wave.
+  const sources = await itemSources(site);
+  let source;
+  let itemFile;
+  for (const s of sources) {
+    itemFile = await readJSON(s.file, null);
+    if (itemFile) { source = s; break; }
+  }
+  if (!source) {
+    if ((await boardConfig(site)).items === 'waves') return null;
+    [source] = sources;
+    itemFile = { items: [] };
+  }
+  if (!Array.isArray(itemFile.items)) fail(`${source.file} is not an item file with items[]`);
+  await fs.mkdir(source.dir, { recursive: true });
+  const created = new Date().toISOString();
+  const item = { id: await nextTaskId(site), title: askTitle(ask, events), created, lane: 'todo', lane_at: created, from_ask: eventId };
+  item.plan = freeNotesName(source.dir, item.id);
+  await writeNotesFile(path.join(source.dir, item.plan), `# ${item.title}\n`);
+  itemFile.items.push(item);
+  await writeJSON(source.file, itemFile);
+  return `${source.slug}/${item.id}`;
+});
+
+// Retitles the New card ask eventId became from the ask's latest text, as an edit changes it. → its key, or null.
+export const retitleAskCard = (site, eventId) => ticketWrite(site, async () => {
+  const card = await askCardOf(needSite(site), eventId);
+  if (!card || !stillNew(card.item)) return null;
+  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  card.item.title = askTitle(events.find((e) => e.id === eventId && e.kind === 'ask'), events);
+  await writeJSON(card.source.file, card.itemFile);
+  return card.key;
+});
+
+// Takes card out of its item file with its notes and thread file, keeping the task number it had as the file's
+// last_task, so nextTaskId never issues it again. → the thread lines it had.
+async function dropCard(site, { source, itemFile, item, key }) {
+  itemFile.items = itemFile.items.filter((i) => i !== item);
+  const n = Number(/^T-([1-9]\d*)$/.exec(item.id)?.[1] || 0);
+  if (n > (Number(itemFile.last_task) || 0)) itemFile.last_task = n;
+  await writeJSON(source.file, itemFile);
+  if (item.plan) await fs.rm(path.join(source.dir, item.plan), { force: true });
+  const thread = threadFile(site, key);
+  const lines = await readLines(thread);
+  await fs.rm(thread, { force: true });
+  return lines;
+}
+
+// The owner deleted ask eventId's message: its card goes, with no Done row, while it is still New. → its key, or null.
+export const dropAskCard = (site, eventId) => ticketWrite(site, async () => {
+  const card = await askCardOf(needSite(site), eventId);
+  if (!card || !stillNew(card.item)) return null;
+  await dropCard(site, card);
+  return card.key;
+});
+
+// docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md
+// The orchestrator answers the card an ask became, before sorting it (reply <file>/<id>, or reply <ask event id>):
+// md is a message in its thread unless the reply file holds it, title retitles the card, and answered_at holds it in
+// In Review for the owner's Done (domain.mjs workItem). A card answered already, and not closed since, answers again.
+const answerable = (item) => !item.phase && !item.closed_at && !hasPR(item) && (!leftTodo(item) || Boolean(item.answered_at));
+async function markAnswered(site, card, title) {
+  const { item, key } = card;
+  if (!item.from_ask) fail(`${key} is not a card an ask became; write in its thread with thread ${key} --text`);
+  if (!answerable(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so it is work: write in its thread with thread ${key} --text`);
+  if (title !== undefined) item.title = text(title, '--title');
+  item.answered_at ||= new Date().toISOString();
+  await writeJSON(card.source.file, card.itemFile);
+}
+// Refuses filing ask eventId onto a card other than key when the board already filed it as its own.
+async function refuseFiled(site, eventId, key) {
+  const card = await askCardOf(site, eventId);
+  if (card && card.key !== key) fail(`ask "${eventId}" is already card ${card.key}: sort it with item set ${card.key} --phase, or merge it with item relate-ask ${eventId} <card>`);
+}
+export async function answerCard(site, key, md, title) {
+  needSite(site);
+  const { source, itemFile, item } = await loadItem(site, key);
+  const card = { source, itemFile, item, key };
+  messageText(md);
+  if (title !== undefined) text(title, '--title');
+  await markAnswered(site, card, title);
+  return appendMessage(site, key, { text: md });
+}
+
 export async function relateAsk(site, eventId, key, summary, title) {
   needSite(site);
   domId(eventId, 'the event id');
@@ -461,6 +584,19 @@ export async function relateAsk(site, eventId, key, summary, title) {
   await loadItem(site, key);
   text(summary, '--summary');
   if (title !== undefined) text(title, '--title');
+  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a New card the ask became merges
+  // into key: it goes, its thread lines move to the ask's thread, which key's thread shows, and a card-merged line there
+  // names key. A card already sorted is work of its own.
+  const card = await askCardOf(site, eventId);
+  if (card && card.key === key) fail(`ask "${eventId}" is ${key} already`);
+  if (card && !stillNew(card.item)) fail(`ask "${eventId}" became ${card.key}, which is sorted; to fold that card's notes into ${key}, use item notes ${key} --from ${card.key}, then close it`);
+  if (card) {
+    const moved = await ticketWrite(site, () => dropCard(site, card));
+    const askThread = threadFile(site, `ask:${eventId}`);
+    for (const line of moved) await appendLine(askThread, line);
+    await appendLine(askThread, { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: 'card-merged', text: hubText('card-merged', { card: await cardName(site, key) }),
+      into: key, title: card.item.title, link: `#selectedCard=${encodeURIComponent(key)}` });
+  }
   const links = await readAskLinks(site);
   await writeJSON(askLinksFile(site), { links: { ...links, [eventId]: key } });
   await appendMessage(site, key, { text: summary });
@@ -554,8 +690,8 @@ async function copyUpload(from, to, f) {
 
 // Sends a New ask to another board in the hub's manifest: there, an `ask` event with the owner's latest text, copies
 // of its uploads and `from {route, title, id}`, which wakes that board's session; here, a done mark naming it, and a
-// line in the ask's thread linking to its card there. Work items the ask became, none of them started, close as Done
-// with a line saying where the ask went.
+// line in the ask's thread linking to its card there. Cards the ask became, none of them started, are dropped, leaving
+// no Done row (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
 export async function moveAsk(site, eventId, route) {
   needSite(site);
   domId(eventId, 'the event id');
@@ -582,9 +718,11 @@ export async function moveAsk(site, eventId, route) {
   await writeJSON(askProgressFile(site), { asks: { ...asks, [eventId]: { state: 'done', at, moved } } });
   const link = `/${route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`;
   await appendStatus(site, `ask:${eventId}`, 'ask-moved', { board: target.title }, { link });
-  // The ask has already gone to the other board, so a closing card's open question can't stop it.
-  for (const key of state?.items || []) await setItem(site, key, { done: true, force: true, closing: ['ask-moved-closed', { board: target.title }] });
-  return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `closed: ${k}`)] };
+  for (const key of state?.items || []) {
+    const { source, itemFile, item } = await loadItem(site, key);
+    await ticketWrite(site, () => dropCard(site, { source, itemFile, item, key }));
+  }
+  return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
 }
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
@@ -2355,10 +2493,18 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if ([done, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, hold, deps, blockedUntil, blockReason, parent, related, relate, unrelate, built, title, size, model, ticket, newTicket, ownerStep, check].every((v) => v === undefined || v === false)) fail('nothing to set: pass --done, --next, --clear-next, --pr, --pushed, --gh-since, --from-ask, --phase, --held, --unheld, --pick-up-at, --deps, --blocked-until, --block-reason, --parent, --related, --relate, --unrelate, --install, --clear-install, --title, --size, --model, --ticket, --new-ticket or --check');
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
-  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: filing a Quick build ask is the orchestrator's
-  // judgment, so it goes ready from any phase.
-  const quick = ask !== undefined && await quickAsk(site, ask);
+  if (ask) await refuseFiled(site, ask, key);
   const { source, itemFile, item } = await loadItem(site, key);
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: filing a Quick build ask is the orchestrator's
+  // judgment, so it goes ready from any phase, as does sorting the New card one became
+  // (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
+  const askOf = ask ?? (item.phase ? undefined : item.from_ask);
+  const quick = askOf !== undefined && await quickAsk(site, askOf);
+  // An answered card the orchestrator sorts after all is work: it goes back to Todo in that phase.
+  if (phase !== undefined && item.answered_at && !item.closed_at) {
+    delete item.answered_at;
+    if (leftTodo(item)) placeIn(item, 'todo', undefined, null);
+  }
   if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo card's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
   if (phase === 'ready' && !quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
@@ -2908,11 +3054,17 @@ async function assignTicket(site, itemFile, item, ticket, options, dir, body) {
 const NO_SOURCE = 'this board has no ticket source, so its cards stay tasks; pick GitHub issues or Linear in Board settings first';
 // The next task's id, T-<n> past the highest on the board, its Done archive included, so a key is never reused. Run under
 // the tickets lock (ticketWrite).
+// A card dropped from its item file (dropCard) leaves its number there as last_task.
 async function nextTaskId(site) {
   const ids = [];
-  for (const entry of await itemSources(site)) ids.push(...((await readJSON(entry.file, {})).items || []).map((it) => it.id));
+  const dropped = [];
+  for (const entry of await itemSources(site)) {
+    const itemFile = await readJSON(entry.file, {});
+    ids.push(...(itemFile.items || []).map((it) => it.id));
+    dropped.push(Number(itemFile.last_task) || 0);
+  }
   if (site) ids.push(...(await readArchive(site)).map((a) => a.item?.id));
-  return `T-${Math.max(0, ...ids.map((id) => Number(/^T-([1-9]\d*)$/.exec(String(id))?.[1] || 0))) + 1}`;
+  return `T-${Math.max(0, ...dropped, ...ids.map((id) => Number(/^T-([1-9]\d*)$/.exec(String(id))?.[1] || 0))) + 1}`;
 }
 
 const ticketWrite = (site, fn) => withFileLock(path.join(site || wavesDir(), 'tickets'), fn, { heartbeat: true });
@@ -2939,6 +3091,7 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
   const ask = fromAsk === undefined ? undefined : await checkAsk(site, fromAsk);
   if (ask) await refuseMoved(site, ask);
+  if (ask) await refuseFiled(site, ask);
   // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md: a card filed held takes no phase; it reads New until the unhold starts its grill.
   const hold = holdOf({ held, pickUpAt });
   if (hold && phase !== undefined) fail('a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');

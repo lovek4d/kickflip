@@ -328,7 +328,7 @@ import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
-import { replyFilesOf, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { replyFilesOf, dropAskCard, fileAsk, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { GITHUB_STATE, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -451,10 +451,11 @@ async function sharedWriter(req, p) {
 
 // Every page event, and the server's own such as a rules save, is one line here, which wakes the watcher. → its id
 const appendEvent = async (kind, data) => (await appendEvents([[kind, data]]))[0];
-// [[kind, data]] → their ids, every line in one append.
+const newEventId = () => 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+// [[kind, data, id?]] → their ids, every line in one append.
 async function appendEvents(list) {
   const ts = new Date().toISOString();
-  const lines = list.map(([kind, data]) => ({ id: 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), ts, kind, data }));
+  const lines = list.map(([kind, data, id = newEventId()]) => ({ id, ts, kind, data }));
   await fs.mkdir(replies, { recursive: true });
   await fs.appendFile(events, lines.map((e) => JSON.stringify(e) + '\n').join(''));
   // A check that runs again before the watcher reports this write would otherwise read the board without it and send
@@ -986,6 +987,7 @@ function changed({ read = false } = {}) {
   changeTimer = setTimeout(() => {
     changeTimer = null;
     broadcast(`event: change\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
+    fileNewAsks();
     settleLanes();
     checkArchive();
     markNewCards();
@@ -1244,7 +1246,14 @@ const server = http.createServer(async (req, res) => {
         const refused = await reopenRefused(String(body.question || ''));
         if (refused) return json(res, 400, { error: refused });
       }
-      const id = await appendEvent(kind, body);
+      // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a new task's card is filed
+      // before its event is written, so the watcher's line names the card.
+      const preset = kind === 'ask' ? newEventId() : undefined;
+      if (preset) await fileAsk(here, preset, { id: preset, ts: new Date().toISOString(), kind, data: body });
+      const id = (await appendEvents([[kind, body, preset]]))[0];
+      if (kind === 'ask-edited') await retitleAskCard(here, String(body.id || ''));
+      // A deleted ask's New card goes with it.
+      if (kind === 'ask-withdrawn') await dropAskCard(here, String(body.id || ''));
       // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bump moves the card's queued lands.
       if (kind === 'card-bump' || kind === 'card-unbump') moveQueuedLand(here, String(body.key || ''), kind === 'card-bump' ? new Date().toISOString() : null);
       if ((kind === 'grill-more' || kind === 'prototype-request') && body.key) {
@@ -2212,6 +2221,14 @@ function checkArchive() {
   })().finally(() => { archiving = null; });
   return archiving;
 }
+// docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md
+// Each ask still New with no card, one the hub wrote while the server was down or one New before this rule among
+// them, is filed as its T-<n> card (store.mjs fileAsk), as the server starts and after each board change.
+async function fileNewAsks() {
+  try {
+    for (const it of (await sharedBoard()).items.filter((i) => i.kind === 'ask' && i.isNew)) await fileAsk(here, it.id);
+  } catch (err) { console.error('Ask filing failed:', err.message); }
+}
 // docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
 // Each card new to the board is read up to now, and a card gone from it loses its mark (store.mjs markRead), as the
 // server starts and after each board change.
@@ -2233,6 +2250,7 @@ try { for (const line of await stageImplementAsks(here)) console.log(line); } ca
 try { for (const line of await splitSharedNotes(here)) console.log(line); } catch (e) { console.error('notes split:', e.message); }
 try { await stripDeadFields(here); } catch (e) { console.error('dead-field strip:', e.message); }
 await launchCutOffBuilds();
+await fileNewAsks();
 await settleLanes();
 await checkArchive();
 await markNewCards();

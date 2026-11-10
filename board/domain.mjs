@@ -21,6 +21,8 @@ import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
 import { buildScriptOf } from './build-script.mjs';
 import { HUB, hubLineOf } from './hub-lines.mjs';
+// The ask thread's line that says its card merged into another (hub-lines.mjs, store.mjs relateAsk).
+const MERGED_LINE = 'card-merged';
 
 // Page scripts with no exports, which the page loads as is, so node runs them the same way.
 const enums = vm.createContext({});
@@ -194,8 +196,13 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md).
   const doneAt = String(closed || '');
   const neverLanded = views.length > 0 && views.every((v) => v.status === PR_STATE.closed);
-  const reopenAt = (it.lane === 'done' || it.reopened_at || prStatus === PR_STATE.merged) && !neverLanded
+  const reopenedAt = (it.lane === 'done' || it.reopened_at || prStatus === PR_STATE.merged) && !neverLanded
     ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() || it.reopened_at || undefined : undefined;
+  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a card the orchestrator answered
+  // (store.mjs answerCard) before it was sorted or closed waits as a reopened card Claude has answered does: on the
+  // owner's Done in In Review, or on the orchestrator while the owner's reply is unanswered.
+  const answeredAt = it.answered_at && !it.phase && !it.closed_at && !reopenedAt ? String(it.answered_at) : undefined;
+  const reopenAt = reopenedAt || answeredAt;
   // docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md: the owner step
   // holds a card whose code landed (Done, or its PR merged) in In Review until the owner's Done.
   const ownerStep = it.owner_step && !tappedDone ? String(it.owner_step) : null;
@@ -285,7 +292,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     key, kind: 'work', order, file: slug, fileTitle: itemFile.title || slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
     created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: itemFile.internal === true, repo: itemFile.internal === true && !itemFile.repo ? null : repo,
-    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenAt), awaitsDone,
+    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt), answered: Boolean(answeredAt), awaitsDone,
     ownerStep: awaitsDone ? ownerStep : null,
     // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
@@ -1132,6 +1139,7 @@ export function buildBoard(snapshot) {
       // A card filed from an ask takes the ask's place: Todo sorts it by when the ask was sent
       // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
       if (asks.has(it.from_ask)) card.created = asks.get(it.from_ask).ts;
+      card.askMsg = msgs.find((m) => m.kind === 'ask' && m.eventId === it.from_ask) || null;
       storedLinks.set(key, { parent: it.parent ? linkKey(slug, it.parent) : null, related: (it.related || []).map((r) => linkKey(slug, r)) });
       if (card.lane === 'done') closedWork.set(key, card.closedAt || String(card.updatedAt || ''));
     });
@@ -1165,6 +1173,7 @@ export function buildBoard(snapshot) {
     // The script main's run used: its board's build target (build-script.mjs buildScriptOf).
     script: buildScriptOf(run.target) } : null;
 
+  const merges = [];
   const askProgress = snapshot.askProgress || {};
   const askDones = latest('ask-done', 'id');
   const answerEvents = groupBy(events.filter((e) => e.kind === 'owner-answer'), (e) => e.data?.id);
@@ -1185,6 +1194,15 @@ export function buildBoard(snapshot) {
     const folded = related && !links.some((l) => l.key === related.key);
     if (folded) links.push({ key: related.key, ref: related.ref, title: related.title, became: false, folded: true });
     if (links.length && !folded) { moved.set(key, links[0].key); continue; }
+    // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: an ask whose card merged into
+    // another card (store.mjs relateAsk) lives in that card's thread alone, and the merge shows in the top banner.
+    const merged = (routeRecord(threads, key) || []).filter((m) => m.line === MERGED_LINE).at(-1);
+    if (folded && merged) {
+      moved.set(key, related.key);
+      const text = merged.title || String(index.edits.get(e.id) ?? e.data?.text ?? '').trim().split('\n')[0] || 'Ask';
+      merges.push({ key: related.key, ref: related.ref, text, at: String(merged.ts) });
+      continue;
+    }
     // An ask linked to a card the board no longer holds went with it to the archive (store.mjs archiveCards).
     if (!folded && routeRecord(askLinks, e.id)) { moved.set(key, routeRecord(askLinks, e.id)); continue; }
     const msgs = threadOf(key, { lines: routeRecord(threads, key) || [], events, working, links, index });
@@ -1245,6 +1263,16 @@ export function buildBoard(snapshot) {
     // sets its phase (shown as its ticket, never New), and ready once Ready with nothing blocking it or waiting on the owner.
     const unstarted = it.kind === 'work' && it.lane === 'todo';
     it.unsorted = unstarted && (Boolean(it.fromAsk) || it.unfiled) && !it.filedHeld && it.phase === 'new';
+    // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: the card an ask became reads
+    // New, with its ask's state, edit and delete, until the orchestrator sorts or answers it.
+    if (it.kind === 'work') {
+      const m = it.askMsg;
+      delete it.askMsg;
+      if (it.unsorted && m) {
+        it.isNew = true;
+        it.ask = { eventId: m.eventId, state: m.state, askedAt: m.ts, bumpedAt: null, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, answerAt: null, from: m.from || null, owed: [] };
+      }
+    }
     it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.action;
     // docs/adr/2026-11-07-0700-staging-then-ready.md
     it.staging = unstarted && it.phase === 'staging';
@@ -1291,7 +1319,7 @@ export function buildBoard(snapshot) {
     it.orchestrator = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.replyAt))) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
     delete it.waitFacts;
   }
-  intakeWaits(items, events, working);
+  intakeWaits(items, events, working, moved);
   screenWaits(items, snapshot.screening || {});
   // Items arrive in the order the page shows them (public/ui-order.js).
   items.sort(laneOrder);
@@ -1310,9 +1338,12 @@ export function buildBoard(snapshot) {
   const inProgress = new Set(needs.filter((line) => line.questions && line.progress).map((line) => `item:${line.key}`));
   for (const t of topicList) if (inProgress.has(t.id)) t.progress = true;
   // The page shows those this browser hasn't seen in the answer banner (docs/adr/2026-10-29-1639-every-ask-is-a-card.md).
-  const answers = items.filter((i) => i.ask?.answerAt).sort((a, b) => b.ask.answerAt.localeCompare(a.ask.answerAt))
-    .map((i) => ({ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }));
-  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, waveBands, items, moved: Object.fromEntries(moved), answers, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now) }, snapshot);
+  // A card answered before it was sorted is an answer too, at its newest Claude line.
+  const answers = items.flatMap((i) => (i.ask?.answerAt ? [{ key: i.key, id: i.id, text: i.title, at: i.ask.answerAt }]
+    : i.answered && claudeAt.get(i.key) ? [{ key: i.key, id: i.id, text: i.title, at: claudeAt.get(i.key) }] : []))
+    .sort((a, b) => b.at.localeCompare(a.at));
+  merges.sort((a, b) => b.at.localeCompare(a.at));
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, waveBands, items, moved: Object.fromEntries(moved), answers, merges, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now) }, snapshot);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
@@ -1584,21 +1615,25 @@ function unsorted(items, e, key) {
   if (e.kind === 'card-added') return it.kind === 'work' && it.unfiled;
   return (it.ask?.owed || []).includes(e.id);
 }
+// An ask's card is filed by the board server (store.mjs fileAsk), so an ask with none yet waits only for that.
 const INTAKE_NEXT = {
-  ask: 'Sort the new task: file it with item add --from-ask, fold it with item relate-ask, or answer it with reply',
-  'item-message': "Answer the owner's message in the ask's thread: reply to it",
-  'card-added': 'Link and file the card an agent added: item notes, then item set --relate and --phase',
+  ask: (key, e) => (key.startsWith('ask:') ? 'Sort the new task: the board files its card; sort that once it shows'
+    : `Sort the new task: item notes, then item set ${key} --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask ${e.id} <card> --summary; or answer it with reply ${key}`),
+  'item-message': () => "Answer the owner's message in the ask's thread: reply to it",
+  'card-added': () => 'Link and file the card an agent added: item notes, then item set --relate and --phase',
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
 // its oldest such event, picked up once the watcher marked that event working (working, data/working.json).
-function intakeWaits(items, events, working) {
+function intakeWaits(items, events, working, moved) {
   const byKey = new Map(items.map((i) => [i.key, i]));
   const waited = new Set();
   for (const e of events) {
-    const key = intakeKeyOf(e);
+    const own = intakeKeyOf(e);
+    // An ask's intake waits on the card it became.
+    const key = (e.kind === 'ask' && moved.get(own)) || own;
     if (!key || waited.has(key) || !unsorted(byKey, e, key)) continue;
     waited.add(key);
-    byKey.get(key).orchestrator = { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind] };
+    byKey.get(key).orchestrator = { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, e) };
   }
 }
 
@@ -1694,6 +1729,7 @@ export function movesOf(built) {
 function moveWhy(i, to) {
   if (to === 'todo') return i.held ? 'it is held' : i.blocked ? 'it is blocked' : 'nothing builds it';
   if (i.reopened && i.storedLane === 'done') return 'a message or question reopened it';
+  if (i.answered && to === 'review') return 'answered, it waits for your Done';
   if (to === 'progress') return i.waitsOn === 'checking' ? 'its build handed back for a check' : i.builder ? 'a build started' : 'Claude acts next';
   return i.next || 'it waits on review';
 }

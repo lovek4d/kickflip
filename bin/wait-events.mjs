@@ -87,13 +87,13 @@ async function ackPings(dir, lines) {
   }
 }
 
-// One plain line per event line, from its kind and card (data.key, or data.id for an ask-* event), or null for a
+// One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a
 // line that isn't an event. A card name that can't be read falls back to the key, so the cursor still moves.
 async function plainLine(dir, line) {
   let e;
   try { e = JSON.parse(line); } catch { return null; }
   if (typeof e?.kind !== 'string') return null;
-  const key = typeof e.data?.key === 'string' ? e.data.key : e.kind.startsWith('ask-') && typeof e.data?.id === 'string' ? `ask:${e.data.id}` : null;
+  const key = typeof e.data?.key === 'string' ? e.data.key : e.kind.startsWith('ask-') && typeof e.data?.id === 'string' ? `ask:${e.data.id}` : e.kind === 'ask' ? `ask:${e.id}` : null;
   const card = key && await cardName(dir, key).catch(() => key);
   if (routeRecord(PLAIN, e.kind)) return PLAIN[e.kind](e);
   if (card && routeRecord(ON_CARD, e.kind)) return ON_CARD[e.kind](card, e);

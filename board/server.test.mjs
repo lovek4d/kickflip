@@ -619,13 +619,17 @@ test("a hidden thread message leaves the item's thread", async () => {
   assert.deepEqual(await thread(), []);
 });
 
-test("a new task is a New card until it becomes work, whose thread then holds the ask, its thread and the owner's replies to it", async () => {
+test("a new task is a New T-<n> card from the moment it arrives, whose thread holds the ask, its thread and the owner's replies to it", async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'ask', text: 'Fix the header' });
   const thread = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).map((m) => [m.eventId ?? m.link, m.text, m.state]);
   const board = async () => (await fetch(`${base}/api/board`)).json();
   const card = async () => (await board()).items.find((i) => i.kind === 'ask' && i.id === id);
-  assert.deepEqual([(await card()).lane, (await card()).isNew, (await card()).ask.state], ['todo', true, 'waiting']);
+  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md
+  const filed = (await board()).moved[`ask:${id}`];
+  const arrived = (await board()).items.find((i) => i.key === filed);
+  assert.deepEqual([await card(), arrived.kind, arrived.title, arrived.lane, arrived.isNew, arrived.ask.state], [undefined, 'work', 'Fix the header', 'todo', true, 'waiting']);
+  assert.deepEqual(await thread(filed), [[id, 'Fix the header', 'waiting']]);
   await putWave(JSON.stringify({ items: [{ id: 'AK2', title: 'Header', from_ask: id }] }));
   const reply = await post('/_claude/events', { kind: 'item-message', key: `ask:${id}`, text: 'Also the footer' });
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
@@ -641,24 +645,31 @@ test("a Quick build ask carries quick: true to the session, and its thread reads
   const logged = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).find((e) => e.id === id);
   assert.deepEqual(logged.data, { text: 'Add a badge', quick: true });
   const thread = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).map((m) => [m.text, Boolean(m.request)]);
-  assert.deepEqual(await thread(`ask:${id}`), [['Add a badge', false], ['Implementation requested', true]]);
-  const wave = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8'));
+  const arrived = (await (await fetch(`${base}/api/board`)).json()).moved[`ask:${id}`];
+  assert.deepEqual(await thread(arrived), [['Add a badge', false], ['Implementation requested', true]]);
+  // The ask arrived as a New card; Q1 stands in for the card it is sorted into.
+  const filed = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8'));
+  assert.deepEqual(filed.items.filter((i) => i.from_ask === id).map((i) => i.title), ['Add a badge']);
+  const wave = { ...filed, items: filed.items.filter((i) => i.from_ask !== id) };
   await putWave(JSON.stringify({ ...wave, items: [...wave.items, { id: 'Q1', title: 'Badge', from_ask: id }] }));
   const taps = [await post('/_claude/events', { kind: 'grill-more', key: 't/Q1' }), await post('/_claude/events', { kind: 'prototype-request', key: 't/Q1' })];
   assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['Implementation requested', true], ['Grill requested', true], ['Prototype requested', true]]);
   const card = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/Q1');
   assert.deepEqual([card.grilling, card.prototyping], [true, true]);
+  for (const e of [{ id }, ...taps]) await post('/api/hide', { id: e.id, hidden: true });
   await putWave(JSON.stringify(wave));
   fs.rmSync(path.join(site, 'data', 'agents'), { recursive: true, force: true });
-  for (const e of [{ id }, ...taps]) await post('/api/hide', { id: e.id, hidden: true });
 });
 
 test("an ask's Done and a work card's Hold, Resume and Done apply at once from their events, a Hold's chosen time with them", async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
-  const { id } = await post('/_claude/events', { kind: 'ask', text: 'Settings prototype' });
+  // An ask handled before asks arrived as cards keeps its own row (domain.mjs askItem); its progress is written first so
+  // the board never sees it New and files it.
+  const id = 'olddone1';
   const card = async () => (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === `ask:${id}`);
-  // Waits for the card itself, not any new version: the server marking the new ask read moves the version too.
   fs.writeFileSync(path.join(site, 'data', 'ask-progress.json'), JSON.stringify({ asks: { [id]: { state: 'progress', at: new Date(Date.now() - 1000).toISOString(), next: 'Pick a take' } } }));
+  fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id, ts: new Date(Date.now() - 2000).toISOString(), kind: 'ask', data: { text: 'Settings prototype' } }) + '\n');
+  // Waits for the card itself, not any new version.
   await until(async () => (await card()).next === 'Pick a take', "the board sees the ask's progress");
   assert.deepEqual(await card().then((c) => [c.lane, c.next, c.finishable]), ['review', 'Pick a take', true]);
   await post('/_claude/events', { kind: 'ask-done', id });
@@ -833,6 +844,8 @@ test('hiding and unhiding many events at once keeps every change', async () => {
   await Promise.all(ids.map((id) => post('/api/hide', { id, hidden: false })));
   const afterUndo = await shown();
   assert.deepEqual(ids.filter((id) => !afterUndo.has(id)), []);
+  // Hidden again so later tests that replace the item file don't see these asks come back as New cards.
+  await Promise.all(ids.map((id) => post('/api/hide', { id, hidden: true })));
 });
 
 test("the board lists its own title and reviewers from board.json, whatever its waves hold", async () => {

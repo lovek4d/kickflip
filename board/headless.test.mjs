@@ -877,13 +877,15 @@ test("a visual agent's brief has it start as its own agent, read the card and th
 });
 
 // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
-test('a new task launches no agent: it waits on the orchestrator, which sorts it', async () => {
+test('a new task launches no agent: it arrives as a New card that waits on the orchestrator, which sorts it', async () => {
   const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', phase: 'grilling', lane: 'progress' }]);
   const { child, send } = await b.start();
   try {
     const { id } = await send('ask', { text: 'Make the header blue' });
+    const filed = JSON.parse(fs.readFileSync(path.join(b.data, 'items.json'), 'utf8')).items.find((i) => i.from_ask === id);
+    assert.deepEqual([filed.title, filed.lane, filed.phase], ['Make the header blue', 'todo', undefined]);
     const waitsFile = path.join(b.data, 'orchestrator-waits.json');
-    await until(() => fs.existsSync(waitsFile) && JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits.some((w) => w.key === `ask:${id}` && w.kind === 'intake'), 'the intake wait');
+    await until(() => fs.existsSync(waitsFile) && JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits.some((w) => w.key === `t/${filed.id}` && w.kind === 'intake'), 'the intake wait');
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 0);
     assert.equal(fs.existsSync(path.join(b.data, 'intake-runs.json')), false);
