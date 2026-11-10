@@ -4299,7 +4299,7 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'sent 1 answer · 2 still open', hash: '#q1' });
 });
 
-test('on a phone, two taps on a pill open its card on the board, one tap only picks the topic, and the pill reads the whole title', async () => {
+test('on a phone, a tap on a pill only picks the topic, the topic title opens its card on the board, and the pill reads the whole title', async () => {
   const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: '#422: Open-items pills' }],
     questions: [question('q1', 'item:w/T1'), question('q2', 'item:w/T2')], at: 'q1' });
@@ -4310,8 +4310,11 @@ test('on a phone, two taps on a pill open its card on the board, one tap only pi
   assert.deepEqual([pill('item:w/T1').querySelector('.name').textContent, pill('item:w/T2').querySelector('.name').textContent], ['INT-1: Search', '#422: Open-items pills']);
   v.page.fire(v.root, 'click', { target: pill('item:w/T2') });
   await v.settle();
-  assert.deepEqual(opened, [], 'one tap only picks the topic');
+  assert.deepEqual(opened, [], 'a tap only picks the topic');
   v.page.fire(v.root, 'click', { target: pill('item:w/T2') });
+  await v.settle();
+  assert.deepEqual(opened, [], 'a second tap opens nothing either');
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('.topichead .topic-title') });
   assert.equal(opened.length, 1);
   assert.match(opened[0], /\/#item=w%2FT2$/);
 });
@@ -5858,7 +5861,7 @@ test("on a phone the board header's ? carries the open-question count as a badge
   b.view.unmount();
 });
 
-test("on a desktop, tapping a pill twice in the pane opens that topic's card on the board and scrolls to it, a wave topic opens its band, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
+test("on a desktop, one click on a pill in the pane opens that topic's card on the board and scrolls to it, a wave topic opens its band, a topic with nothing on the board does nothing, and a phone has no pane", async () => {
   const idle = { running: false, questions: 0 };
   const band = { kind: 'wave', slug: 'alpha', title: 'Alpha', goal: null, keys: ['w/T1'], next: null, merged: 0, total: 1, triage: idle };
   const board = { ...deckBoard([deckQuestion('q1', 'item:w/T1'), deckQuestion('q2', 'file:alpha'), deckQuestion('q3', 'item:w/T9')], []), items: [workCard('T1'), workCard('T2')], waveBands: [band] };
@@ -5866,7 +5869,7 @@ test("on a desktop, tapping a pill twice in the pane opens that topic's card on 
   await wide.settle();
   const scrolled = [];
   wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.band || this.dataset.topic); };
-  const dbl = async (id) => { const target = wide.root.querySelector(`#needsPane button[data-topic="${id}"]`); const slot = wide.root.querySelector('#needsPane .needs-questions'); wide.page.fire(slot, 'click', { target }); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
+  const dbl = async (id) => { const target = wide.root.querySelector(`#needsPane button[data-topic="${id}"]`); const slot = wide.root.querySelector('#needsPane .needs-questions'); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
   await dbl('item:w/T1');
   assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1', true, 'w/T1'], 'a card topic opens its card');
   scrolled.length = 0;

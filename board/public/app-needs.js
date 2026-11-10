@@ -8,7 +8,7 @@
 // - from 900px, #waiting, one line each, in the pane beside the lanes, over Waiting on you mounted there
 //   (view-questions.js, embedded) while the width lasts. Waiting on you shows the questions there, so #waiting leaves out
 //   a line that only asks questions, and with nothing else left the orange section is gone. Every questions URL lands
-//   here at that width (shell.js go, focusQuestion), and two taps on a pill focus its card on the board
+//   here at that width (shell.js go, focusQuestion), and a click on a pill focus its card on the board
 //   (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md). A prototype opens in the pane too, in place of
 //   Waiting on you until its ‹ Open questions (openViewer).
 // Below 900px the header's ? opens Waiting on you, with the open-question count as its badge.
@@ -156,7 +156,7 @@ BoardView.part((B) => {
 
   // From 900px, Waiting on you in the pane under the Needs you lines, mounted while the width lasts.
   let questions = null;
-  // Two taps on a pane pill focus its topic on the board: item:<key> is a card (an ask is one, ask:<id>),
+  // A click on a pane pill, or on the topic's title, focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>),
   // wave:<slug> or file:<slug> a band; any other topic, or one the board doesn't show, does nothing.
   function openOnBoard(id) {
     if (id.startsWith('item:')) B.focusOnBoard({ key: id.slice(5) });

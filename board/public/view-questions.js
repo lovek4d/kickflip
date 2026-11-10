@@ -86,7 +86,7 @@
     }
     // An arrival (arrive) slides in with a glow and settles (style.css .arrived).
     const pillHtml = (t, arrived = false) => `<button class="${arrived ? 'arrived ' : ''}${t.progress ? 'progress' : ''}" data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}"><span class="name">${esc(topicName(t))}</span><span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
-    const topicHead = (t) => t ? `<div class="topichead muted small"><span>${esc(t.title)}${t.summary ? ` · ${esc(t.summary)}` : ''}</span>${roundChip(t.round)}</div>` : '';
+    const topicHead = (t) => t ? `<div class="topichead"><button class="topic-title" data-open-card="${esc(t.id)}">${esc(t.title)}</button>${t.summary ? `<span class="muted small">${esc(t.summary)}</span>` : ''}${roundChip(t.round)}</div>` : '';
 
     // Only open questions changed here since their last answer, with files attached, reopened with a pick, or with a
     // suggested option pre-checked and never answered, are sent; a sent one is read-only.
@@ -368,7 +368,6 @@
       scroll(0);
     }
 
-    let lastTap = { id: null, at: 0 };
     // item:<key> is a card, wave:<slug> or file:<slug> a band. Embedded, the board is beside the pane; alone, it is the page before this one.
     function openOnBoard(id) {
       if (ctx.embedded) return ctx.openOnBoard(id);
@@ -382,17 +381,17 @@
       if (eye) { askPrototype(byId(eye.closest('section.q').dataset.q), eye); return; }
       const reopenBadge = ev.target.closest && ev.target.closest('[data-reopen]');
       if (reopenBadge) { if (!reopenBadge.disabled) reopen(byId(reopenBadge.dataset.reopen), reopenBadge); return; }
+      const title = ev.target.closest && ev.target.closest('[data-open-card]');
+      if (title) { openOnBoard(title.dataset.openCard); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) {
-        // Two taps on one pill within 300ms open its card on the board; a touch screen sends no dblclick.
-        const now = Date.now();
-        if (lastTap.id === b.dataset.topic && now - lastTap.at < 300) { lastTap = { id: null, at: 0 }; openOnBoard(b.dataset.topic); return; }
-        lastTap = { id: b.dataset.topic, at: now };
+        // Embedded in the desktop pane, one click also focuses the topic's card on the board; a phone only picks the topic.
         soloId = null; setTopic(b.dataset.topic); sentLine = ''; shown = '';
         const first = topics.find((t) => t.id === topicId)?.questions[0];
         if (first) setHash(first);
         ctx.onTopic?.(topicId);
         render(); scroll(0);
+        if (ctx.embedded) openOnBoard(topicId);
       }
     });
     B.on(root, 'change', (ev) => {

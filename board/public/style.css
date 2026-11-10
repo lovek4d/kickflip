@@ -671,6 +671,8 @@ main > * { transition: opacity .25s ease; }
 @media (prefers-reduced-motion: no-preference) { .view-questions .topics button.arrived { animation: pill-arrive .6s ease-out; } }
 .view-questions .topics .n { color: var(--muted); margin-left: 4px; }
 .view-questions .topichead { margin: 2px 0 6px; }
+.view-questions .topichead .topic-title { background: none; border: 0; padding: 0; color: var(--text, inherit); font: inherit; font-size: 18px; font-weight: 600; text-align: left; cursor: pointer; }
+.view-questions .topichead .topic-title:hover { text-decoration: underline; }
 .view-questions details.done > summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: 16px 0 4px; }
 .view-questions details.resolved-group > summary { list-style: none; min-height: 44px; display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 12px 0; }
 .view-questions details.resolved-group > summary::-webkit-details-marker { display: none; }
