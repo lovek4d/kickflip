@@ -88,6 +88,11 @@ async function readCwds(processes, args) {
     if (line[0] === 'p') current = byPid.get(line.slice(1));
     else if (line[0] === 'n' && current) current.cwd = line.slice(1);
   }
+  // Linux names a removed cwd "<path> (deleted)", and /proc reads it where lsof is missing.
+  for (const p of processes) {
+    if (!p.cwd && fs.existsSync('/proc')) { try { p.cwd = fs.readlinkSync(`/proc/${p.pid}/cwd`); } catch {} }
+    p.cwd = p.cwd.replace(/ \(deleted\)$/, '');
+  }
 }
 // Every process whose working directory or command line is inside dir, each with its process group.
 async function processesIn(dir) {
