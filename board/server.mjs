@@ -41,7 +41,7 @@
 //                                the page words when it ends), and lanes of those items, with
 //                                data/pr-slack.json's PR links, with per-item review_link_ts and legacy
 //                                ~/.claude/slack-bridge/topics/*.json fallbacks,
-//                                data/owner.json and GitHub (gh, cached for 45 s).
+//                                data/owner.json and each PR as the hub's GitHub check last read it (github-state.json).
 //                                owner.json: {topics: [{id, title, summary}], items: [{id, topic,
 //                                question, context, url, options, urgent, asked_at, resolved, resolved_at, round, round_of, confirm_of}]};
 //                                Waiting on you shows an open `urgent` question alone, first
@@ -315,7 +315,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
@@ -330,7 +330,7 @@ import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-p
 import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
 import { replyFilesOf, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
-import { boardAt, listenState, linksOf } from '../hub/boards.mjs';
+import { GITHUB_STATE, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
@@ -525,62 +525,12 @@ async function listEvents(kind, limit) {
   }));
 }
 
-// GitHub PR state, refreshed in the background when the board is read and the
-// entry is older than 45 s. A PR's first read waits for gh.
-const prCache = new Map();
-const PR_FIELDS = 'number,title,url,state,isDraft,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,mergedAt,headRefName,headRefOid,updatedAt,latestReviews';
-function ghPR(repo, n) {
-  return new Promise((resolve) => {
-    execFile('gh', ['pr', 'view', String(n), '--repo', repo, '--json', PR_FIELDS], { timeout: 20000 }, (err, out) => {
-      if (err) return resolve(null);
-      try { resolve(JSON.parse(out)); } catch { resolve(null); }
-    });
-  });
-}
-// Codex findings are top-level review comments by its bot; one is answered once any reply cites it.
-function ghCodexOpen(repo, n) {
-  return new Promise((resolve) => {
-    execFile('gh', ['api', `repos/${repo}/pulls/${n}/comments?per_page=100`], { timeout: 20000 }, (err, out) => {
-      if (err) return resolve(0);
-      try {
-        const comments = JSON.parse(out);
-        const answered = new Set(comments.map((c) => c.in_reply_to_id).filter(Boolean));
-        resolve(comments.filter((c) => !c.in_reply_to_id && /codex/i.test(c.user?.login || '') && !answered.has(c.id)).length);
-      } catch { resolve(0); }
-    });
-  });
-}
-function checksOf(rollup) {
-  const list = rollup || [];
-  let fail = 0, pending = 0;
-  for (const c of list) {
-    const concl = (c.conclusion || c.state || '').toUpperCase();
-    const status = (c.status || '').toUpperCase();
-    if (['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(concl)) fail++;
-    else if ((status && status !== 'COMPLETED') || concl === 'PENDING' || concl === 'EXPECTED') pending++;
-  }
-  return { total: list.length, fail, pending, state: fail ? 'fail' : pending ? 'pending' : list.length ? 'pass' : 'none' };
-}
-async function prState(repo, n) {
-  const key = `${repo}#${n}`;
-  let entry = prCache.get(key);
-  if (!entry) { entry = { at: 0, value: null, loading: null }; prCache.set(key, entry); }
-  if (Date.now() - entry.at > 45000 && !entry.loading) {
-    entry.loading = Promise.all([ghPR(repo, n), ghCodexOpen(repo, n)]).then(([v, codexOpen]) => {
-      if (v) {
-        const { statusCheckRollup, latestReviews, ...rest } = v;
-        const reviews = Object.fromEntries((latestReviews || []).map((r) => [r.author?.login, r.state]));
-        const value = { ...rest, checks: checksOf(statusCheckRollup), reviews, codexOpen };
-        if (JSON.stringify(value) !== JSON.stringify(entry.value)) dataVersion++;
-        entry.value = value;
-      }
-      entry.at = Date.now();
-      entry.loading = null;
-    });
-  }
-  if (!entry.value && entry.loading) await entry.loading;
-  return entry.value;
-}
+// docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md: a PR's state is the hub's last check of it,
+// its summary in github-state.json (hub/github.mjs summarize), with the fields the board's badges draw; null before
+// the hub has checked it.
+const prViewOf = (s) => (s ? { title: s.title, url: s.url, state: s.state, isDraft: s.isDraft, reviewDecision: s.reviewDecision, mergeStateStatus: s.mergeStateStatus,
+  mergeable: s.mergeable, checks: s.checks, mergedAt: s.mergedAt, headRefName: s.headRefName, headRefOid: s.headRefOid, updatedAt: s.updatedAt,
+  reviews: s.reviews, codexOpen: s.codexOpen } : null);
 
 const config = () => boardConfig(here);
 
@@ -652,21 +602,22 @@ async function itemSnapshot({ cfg, github, local, hub, remote, branch }, files) 
 }
 
 // Reads every source buildBoard needs: item files and their builder records,
-// PR state from gh, item threads, page events with Claude's replies, owner
+// PR state from the hub's GitHub check (prViewOf), item threads, page events with Claude's replies, owner
 // questions and legacy review-link fallbacks; outside is outsideData's. With archive entries, it reads their cards and
-// questions beside the item files' and owner.json's, and their PR states only as the server last read them, asking
-// GitHub nothing for them.
+// questions beside the item files' and owner.json's, and no PR state for them: their badges draw what they kept
+// (store.mjs keptPRs).
 async function snapshot(outside, archived = []) {
   const items = await itemSnapshot(outside, archived.length ? await withArchived(archived) : undefined);
   const { files, threads: threadLines, working } = items;
   const prs = Object.create(null);
   const archivedKeys = new Set(archived.map((a) => a.key));
-  await Promise.all(files.flatMap(({ slug, itemFile }) => {
+  const checked = (await readJSON(GITHUB_STATE, {})).prs || {};
+  for (const { slug, itemFile } of files) {
     const repo = items.github || itemFile.repo;
-    return itemFile.items.flatMap((it) => cardPRs(it, repo).map(async (p) => {
-      prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? prCache.get(prKeyOf(p))?.value ?? null : await prState(p.repo, p.number);
-    }));
-  }));
+    for (const it of itemFile.items) {
+      for (const p of cardPRs(it, repo)) prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? null : prViewOf(routeRecord(checked, prKeyOf(p)));
+    }
+  }
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'item-message', 'wave-triage', 'overnight-triage']);
   const pageEvents = await Promise.all((await shownEvents()).map((e) => (needsReply.has(e.kind) || routeRecord(working, e.id) ? withReply(e) : { ...e, reply: null })));
   await Promise.all(pageEvents.filter((e) => e.kind === 'ask').map(async (e) => {

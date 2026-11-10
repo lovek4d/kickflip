@@ -88,6 +88,13 @@ test('the next check follows the last one by the cadence now, and coming back ch
   assert.deepEqual(nextCheckAt({ last, present: true, backAt: t(11, 59) }), t(12, 1));
 });
 
+test('quiet hours count as away: the check runs every 5 minutes, present or not, and coming back waits for it', () => {
+  const last = t(23, 0);
+  assert.deepEqual(nextCheckAt({ last, present: true, quiet: true }), t(23, 5));
+  assert.deepEqual(nextCheckAt({ last, present: true, quiet: true, remaining: 10 }), t(23, 15));
+  assert.deepEqual(nextCheckAt({ last, present: true, quiet: true, backAt: t(23, 2) }), t(23, 5));
+});
+
 test('holdsPushes holds the quiet hours a few minutes past their start, until their end', () => {
   assert.equal(holdsPushes(t(21), DEFAULTS), false);
   assert.equal(holdsPushes(t(22, 4), DEFAULTS), false);

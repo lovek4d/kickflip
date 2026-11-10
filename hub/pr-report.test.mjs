@@ -85,7 +85,8 @@ test('state fields follow null fallthrough, check conclusions and status-only pe
   ] });
   const report = reportOf({ view, issueComments: [], reviewComments: [], reviews: [] }, { pr: '7', since, me: 'owner' });
   assert.deepEqual(report, { pr: 7, state: 'OPEN', isDraft: true, reviewDecision: '', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: '1234567890', failing: ['failure', 'error', 'legacy', 'null conclusion', ''], pending: 2, events: [],
-    title: null, additions: null, deletions: null, files: null, approved: false, commits: [] });
+    title: null, additions: null, deletions: null, files: null, approved: false, commits: [],
+    url: null, mergedAt: null, headRefName: null, headRefOid: '1234567890abcdef', updatedAt: null, checks: { total: 10, fail: 6, pending: 2, state: 'fail' }, reviews: {}, codexOpen: 0 });
   const missing = reportOf({ view: {}, issueComments: [{ user: { login: 'ann' }, created_at: '2026-10-23T11:00:00Z' }], reviewComments: [{ created_at: '2026-10-23T12:00:00Z' }], reviews: [{ submitted_at: '2026-10-23T13:00:00Z' }] }, { ...input, me: 'owner' });
   assert.equal(missing.head, null);
   assert.equal(missing.state, null);
@@ -208,6 +209,29 @@ test('fetchPRs reads every PR in one GraphQL query, in the shapes reportOf reads
   assert.deepEqual([site.isDraft, site.failing, site.head], [true, ['lint'], 'abc1234567']);
   // The PR's Slack link and push replies read its title, size, whether anyone approved and its newest commits.
   assert.deepEqual([site.title, site.additions, site.deletions, site.files, site.approved, site.commits], ['Fix limiter', 84, 12, 5, true, [{ oid: 'aaa0000000', subject: 'Add limiter' }, { oid: 'bbb0000000', subject: 'Fix reset' }]]);
+});
+
+// docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md
+test("the query brings what a board's badges draw: url, merge time, branch, update time, CI counts, each reviewer's state and open Codex findings", async () => {
+  writeUser(dir, { login: 'owner' });
+  writePR(dir, 7, prView({ failing: ['lint'], pending: 1, head: 'f'.repeat(40), url: 'https://github.com/o/r/pull/7', mergedAt: null, headRefName: 'A7', updatedAt: '2026-10-23T11:30:00Z',
+    latestReviews: { nodes: [{ state: 'APPROVED', author: { __typename: 'User', login: 'ann' } }, { state: 'CHANGES_REQUESTED', author: { __typename: 'User', login: 'bea' } }] } }));
+  const codex = 'chatgpt-codex-connector[bot]';
+  writeReviewComments(dir, 7, [
+    { ...comment(20, codex, '2026-10-23T09:00:00Z'), path: 'a.mjs', line: 1 },
+    { ...comment(21, codex, '2026-10-23T09:01:00Z'), path: 'a.mjs', line: 2 },
+    { ...comment(22, 'owner', '2026-10-23T09:02:00Z'), path: 'a.mjs', line: 1, in_reply_to_id: 20 },
+    { ...comment(23, codex, '2026-10-23T09:03:00Z'), path: 'a.mjs', line: 1, in_reply_to_id: 20 },
+    { ...comment(24, 'bea', '2026-10-23T09:04:00Z'), path: 'b.mjs', line: 3 },
+  ]);
+  const { results } = await fetchPRs([{ repo: 'o/r', pr: 7 }]);
+  const report = reportOf(results[0], { ...input, me: 'owner' });
+  assert.deepEqual({ url: report.url, mergedAt: report.mergedAt, headRefName: report.headRefName, headRefOid: report.headRefOid, updatedAt: report.updatedAt, checks: report.checks, reviews: report.reviews, codexOpen: report.codexOpen }, {
+    url: 'https://github.com/o/r/pull/7', mergedAt: null, headRefName: 'A7', headRefOid: 'f'.repeat(40), updatedAt: '2026-10-23T11:30:00Z',
+    checks: { total: 2, fail: 1, pending: 1, state: 'fail' }, reviews: { ann: 'APPROVED', bea: 'CHANGES_REQUESTED' },
+    // 20 has a reply and a codex reply (23) isn't a finding of its own: 21 is the one open.
+    codexOpen: 1,
+  });
 });
 
 test('a PR GitHub can\'t resolve fails alone, and a query that fails fails as a whole', async () => {

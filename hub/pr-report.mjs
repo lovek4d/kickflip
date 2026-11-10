@@ -94,9 +94,11 @@ export async function fetchPR({ repo, pr, since }) {
 // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). GraphQL has no `since`,
 // so each PR brings its last 50 comments, reviews and review threads of 20 comments, and reportOf filters them by time.
 const AUTHOR = 'author { __typename login }';
-// Title, size, whether anyone approved and the newest commits are for the PR's Slack link and push replies.
-const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus headRefOid title additions deletions changedFiles'
-  + ' latestReviews(first: 50) { nodes { state } } recent: commits(last: 20) { nodes { commit { oid messageHeadline } } }'
+// Title, size, whether anyone approved and the newest commits are for the PR's Slack link and push replies; url, merge
+// time, branch, update time and each reviewer's latest state are for the board's badges
+// (docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md).
+const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus headRefOid title additions deletions changedFiles url mergedAt headRefName updatedAt'
+  + ` latestReviews(first: 50) { nodes { state ${AUTHOR} } } recent: commits(last: 20) { nodes { commit { oid messageHeadline } } }`
   + ' commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes { __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }'
   + ` comments(last: 50) { nodes { databaseId ${AUTHOR} createdAt body url } }`
   + ` reviews(last: 50) { nodes { databaseId ${AUTHOR} submittedAt body state url } }`
@@ -116,6 +118,25 @@ function graphql(query, env = process.env) {
 
 // REST's login for a GraphQL author: a bot's ends in [bot], as reportOf reads it.
 const user = (a) => (a?.login ? { login: a.__typename === 'Bot' ? `${a.login}[bot]` : a.login } : null);
+
+// Codex findings are top-level review comments by its bot; one is answered once any comment replies to it.
+// comments: REST-shaped review comments. → how many are still open
+function codexOpen(comments) {
+  const answered = new Set(comments.map((c) => c.in_reply_to_id).filter(Boolean));
+  return comments.filter((c) => !c.in_reply_to_id && /codex/i.test(c.user?.login || '') && !answered.has(c.id)).length;
+}
+
+// A PR's CI for the board's badges, from a status check rollup: {total, fail, pending, state: fail | pending | pass | none}.
+export function checksOf(rollup) {
+  let fail = 0, pending = 0;
+  for (const c of rollup) {
+    const concl = (c.conclusion || c.state || '').toUpperCase();
+    const status = (c.status || '').toUpperCase();
+    if (['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(concl)) fail++;
+    else if ((status && status !== 'COMPLETED') || concl === 'PENDING' || concl === 'EXPECTED') pending++;
+  }
+  return { total: rollup.length, fail, pending, state: fail ? 'fail' : pending ? 'pending' : rollup.length ? 'pass' : 'none' };
+}
 
 // docs/adr/2026-11-05-1000-the-poll-links-a-pr-opened-by-hand-on-a-cards-branch.md: each repo also lists its newest 100 open PRs'
 // head branches, for the poll to link a PR opened by hand on a card's branch.
@@ -140,14 +161,18 @@ export async function fetchPRs(prs, repos = []) {
     const p = data[`pr${i}`]?.pullRequest;
     if (!p) return { error: `${repo}#${pr}: ${errors.find((e) => e.path?.[0] === `pr${i}`)?.message || 'GitHub did not answer for it'}` };
     const comment = (c) => ({ id: c.databaseId ?? null, user: user(c.author), created_at: c.createdAt ?? null, body: c.body ?? null, html_url: c.url ?? null });
+    const reviewComments = (p.reviewThreads?.nodes ?? []).flatMap((t) => t.comments?.nodes ?? []).map((c) => ({ ...comment(c), path: c.path ?? null, line: c.line ?? null, in_reply_to_id: c.replyTo?.databaseId ?? null }));
     return {
       view: { state: p.state, isDraft: p.isDraft, reviewDecision: p.reviewDecision, mergeable: p.mergeable, mergeStateStatus: p.mergeStateStatus, headRefOid: p.headRefOid,
         statusCheckRollup: p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [],
         title: p.title ?? null, additions: p.additions ?? null, deletions: p.deletions ?? null, changedFiles: p.changedFiles ?? null,
         approved: (p.latestReviews?.nodes ?? []).some((r) => r.state === 'APPROVED'),
-        commits: (p.recent?.nodes ?? []).map((n) => ({ oid: n.commit.oid.slice(0, 10), subject: n.commit.messageHeadline })) },
+        commits: (p.recent?.nodes ?? []).map((n) => ({ oid: n.commit.oid.slice(0, 10), subject: n.commit.messageHeadline })),
+        url: p.url ?? null, mergedAt: p.mergedAt ?? null, headRefName: p.headRefName ?? null, updatedAt: p.updatedAt ?? null,
+        reviews: Object.fromEntries((p.latestReviews?.nodes ?? []).filter((r) => r.author?.login).map((r) => [r.author.login, r.state])),
+        codexOpen: codexOpen(reviewComments) },
       issueComments: (p.comments?.nodes ?? []).map(comment),
-      reviewComments: (p.reviewThreads?.nodes ?? []).flatMap((t) => t.comments?.nodes ?? []).map((c) => ({ ...comment(c), path: c.path ?? null, line: c.line ?? null, in_reply_to_id: c.replyTo?.databaseId ?? null })),
+      reviewComments,
       reviews: (p.reviews?.nodes ?? []).map((r) => ({ id: r.databaseId ?? null, user: user(r.author), submitted_at: r.submittedAt ?? null, body: r.body ?? null, state: r.state ?? null, html_url: r.url ?? null })),
     };
   });
@@ -172,6 +197,9 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
     pending: checks.filter((c) => (c.status ?? 'COMPLETED') !== 'COMPLETED').length, events,
     title: view.title ?? null, additions: view.additions ?? null, deletions: view.deletions ?? null, files: view.changedFiles ?? null,
     approved: Boolean(view.approved), commits: view.commits ?? [],
+    // The board's badges (fetchPRs; a REST fetchPR view has none but the CI and the full head).
+    url: view.url ?? null, mergedAt: view.mergedAt ?? null, headRefName: view.headRefName ?? null, headRefOid: view.headRefOid ?? null,
+    updatedAt: view.updatedAt ?? null, checks: checksOf(checks), reviews: view.reviews ?? {}, codexOpen: view.codexOpen ?? 0,
   };
 }
 

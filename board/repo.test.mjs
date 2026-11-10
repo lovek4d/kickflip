@@ -6,7 +6,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-test('hub polling, server PR fetches and cards follow manifest repo changes and retain the wave fallback', async () => {
+// docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md: the board reads each PR from the hub's
+// github-state.json and runs no gh of its own for it.
+test("hub polling, the server's PR reads and cards follow manifest repo changes and retain the wave fallback", async () => {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-repo-')));
   const site = path.join(home, 'site');
   const bin = path.join(home, 'bin');
@@ -24,6 +26,8 @@ fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(argv) + '\\n');
 const repo = argv[argv.indexOf('--repo') + 1];
 console.log(JSON.stringify(argv[0] === 'api' ? [] : { state: 'OPEN', title: repo, isDraft: true }));
 `, { mode: 0o755 });
+  fs.writeFileSync(path.join(home, '.claude/kickflip/github-state.json'), JSON.stringify({ prs: Object.fromEntries(['new/project', 'another/project', 'old/project']
+    .map((repo) => [`${repo}#7`, { state: 'OPEN', title: repo, isDraft: true, url: `https://github.com/${repo}/pull/7`, at: '2026-11-09T12:00:00.000Z' }])) }));
   const server = fileURLToPath(new URL('./server.mjs', import.meta.url));
   const entry = { dir: site, cmd: [process.execPath, server] };
   try {
@@ -64,10 +68,8 @@ console.log(JSON.stringify(argv[0] === 'api' ? [] : { state: 'OPEN', title: repo
       assert.equal(card.repo, repo);
       assert.equal(card.pr.title, repo);
       assert.equal(card.pr.url, `https://github.com/${repo}/pull/7`);
-      const calls = fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
-      assert.ok(calls.some((argv) => argv[0] === 'pr' && argv[argv.indexOf('--repo') + 1] === repo));
-      assert.ok(calls.some((argv) => argv[0] === 'api' && argv[1] === `repos/${repo}/pulls/7/comments?per_page=100`));
     }
+    assert.equal(fs.existsSync(log), false, 'the board runs no gh for its PRs');
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

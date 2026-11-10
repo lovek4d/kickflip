@@ -31,7 +31,15 @@ test('summarize keeps the state fields, sorted failing names and the newest even
     state: 'OPEN', isDraft: false, reviewDecision: null, mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: 'abc1234567',
     failing: ['build', 'lint'], pending: 2, eventId: '12', eventAt: '2026-10-23T11:00:00Z',
     title: 'Fix', additions: 3, deletions: 1, files: 2, approved: true, commits,
+    url: null, mergedAt: null, headRefName: null, headRefOid: null, updatedAt: null, checks: null, reviews: {}, codexOpen: 0,
   });
+});
+
+// docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md
+test("summarize keeps what a board's badges draw, so boards read it from github-state.json", () => {
+  const board = { url: 'https://github.com/o/r/pull/7', mergedAt: '2026-10-23T12:00:00Z', headRefName: 'A7', headRefOid: 'f'.repeat(40), updatedAt: '2026-10-23T12:00:00Z',
+    checks: { total: 2, fail: 0, pending: 0, state: 'pass' }, reviews: { ann: 'APPROVED' }, codexOpen: 2 };
+  assert.deepEqual(Object.fromEntries(Object.keys(board).map((k) => [k, sum(board)[k]])), board);
 });
 
 test('a PR seen for the first time reports only a merge or unhandled comments', () => {

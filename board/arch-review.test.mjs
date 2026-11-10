@@ -33,17 +33,14 @@ async function boardServer({ items = 'data/items.json', site: entry = {}, skills
     fs.writeFileSync(path.join(home, '.claude', 'skills', name, 'SKILL.md'), `# ${name}\n`);
   }
   const [port] = await freePorts();
-  // gh answers the server's pr view from <gh>/<n>.json, and fails for a PR with none.
-  const gh = path.join(home, 'fake-gh');
-  fs.mkdirSync(gh);
-  fs.writeFileSync(path.join(gh, 'gh'), `#!${process.execPath}\nconst fs = require('node:fs');\nconst [cmd, verb, n] = process.argv.slice(2);\nconst file = ${JSON.stringify(gh)} + '/' + n + '.json';\nif (cmd !== 'pr' || verb !== 'view' || !fs.existsSync(file)) process.exit(1);\nprocess.stdout.write(fs.readFileSync(file, 'utf8'));\n`);
-  fs.chmodSync(path.join(gh, 'gh'), 0o755);
-  const child = spawn(process.execPath, [serverFile, site], { env: { ...process.env, HOME: home, PORT: String(port), PATH: `${gh}:${process.env.PATH}` } });
+  const child = spawn(process.execPath, [serverFile, site], { env: { ...process.env, HOME: home, PORT: String(port) } });
   children.push(child);
   await boardListening(child);
   const base = `http://127.0.0.1:${port}`;
   return {
-    home, site, base, gh,
+    home, site, base,
+    // The hub's check of each PR, as board/server.mjs reads it (hub/github.mjs summarize).
+    checked: (prs) => fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'github-state.json'), JSON.stringify({ prs })),
     arch: async () => (await (await fetch(`${base}/api/board`)).json()).arch,
     run: async () => { const r = await fetch(`${base}/api/arch-review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); return { status: r.status, body: await r.json() }; },
     events: () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []),
@@ -81,7 +78,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   const done = readJSON(path.join(b.site, 'data', 'items.json'));
   Object.assign(done.items.find((it) => it.id === 'T-1'), { lane: 'done', closed_at: new Date().toISOString() });
   // INT-10 never landed: its one PR closed unmerged, so it isn't built.
-  fs.writeFileSync(path.join(b.gh, '10.json'), JSON.stringify({ number: 10, state: 'CLOSED', isDraft: false, statusCheckRollup: [], latestReviews: [] }));
+  b.checked({ 'owner/app-repo#10': { state: 'CLOSED', isDraft: false, checks: { total: 0, fail: 0, pending: 0, state: 'none' }, reviews: {}, codexOpen: 0 } });
   done.items.push({ id: 'INT-9', title: 'Split the store', lane: 'done', closed_at: new Date().toISOString() }, { id: 'INT-10', title: 'Merge the readers', lane: 'done', closed_at: new Date().toISOString(), prs: [{ number: 10 }] });
   done.waves[0].items.push('INT-9', 'INT-10');
   await putWave(path.join(b.site, 'data', 'items.json'), JSON.stringify(done));

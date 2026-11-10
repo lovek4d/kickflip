@@ -332,17 +332,13 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
     { id: 'R2', title: 'Linked by hand', pr: 6 },
     { id: 'R3', title: 'Clean', pr: 7 },
   ] }));
-  // gh answers the board's own `gh pr view <n> --json …` (server.mjs ghPR) from this map, and nothing else.
-  const ghDir = path.join(home, 'gh');
-  fs.mkdirSync(ghDir);
-  const view = (n, over) => ({ number: n, state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', statusCheckRollup: [], headRefName: n === 6 ? 'by-hand' : `R${n - 4}`, ...over });
-  fs.writeFileSync(path.join(ghDir, 'prs.json'), JSON.stringify({
-    5: view(5, { isDraft: true, mergeable: 'CONFLICTING', headRefOid: 'a'.repeat(40) }),
-    6: view(6, { mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }),
-    7: view(7, { headRefOid: 'c'.repeat(40) }),
-  }));
-  fs.writeFileSync(path.join(ghDir, 'gh'), `#!/usr/bin/env node\nconst a = process.argv.slice(2);\nconst prs = require(${JSON.stringify(path.join(ghDir, 'prs.json'))});\nif (a[0] === 'pr' && a[1] === 'view' && prs[a[2]]) console.log(JSON.stringify(prs[a[2]])); else process.exit(1);\n`);
-  fs.chmodSync(path.join(ghDir, 'gh'), 0o755);
+  // The hub's check of each PR, which the board reads (server.mjs prViewOf).
+  const view = (n, over) => ({ state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', checks: { total: 0, fail: 0, pending: 0, state: 'none' }, reviews: {}, codexOpen: 0, headRefName: n === 6 ? 'by-hand' : `R${n - 4}`, ...over });
+  fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'github-state.json'), JSON.stringify({ prs: {
+    'owner/project#5': view(5, { isDraft: true, mergeable: 'CONFLICTING', headRefOid: 'a'.repeat(40) }),
+    'owner/project#6': view(6, { mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }),
+    'owner/project#7': view(7, { headRefOid: 'c'.repeat(40) }),
+  } }));
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = path.join(home, 'claude');
   fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n`);
@@ -351,7 +347,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   const read = (file) => JSON.parse(fs.readFileSync(path.join(data, file), 'utf8'));
   const [port] = await freePorts();
   const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], {
-    env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake, PATH: `${ghDir}:${process.env.PATH}` } });
+    env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
   try {
     await boardListening(child);
     await until(() => runs().length === 2, 'both rebase runs launch');

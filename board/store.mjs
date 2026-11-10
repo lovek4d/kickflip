@@ -3176,7 +3176,7 @@ export const archiveCards = (site, picks) => archiveWrite(site, async () => {
 
 // docs/adr/2026-11-06-1547-a-cards-pr-badges-stay-once-added.md
 // item with each stored PR that a view in views [{repo, number, state, checks, reviews, codexOpen}] read from GitHub
-// marked kept: {checks, reviews, codexOpen}, the last state its badges draw once the board no longer asks GitHub.
+// marked kept: {checks, reviews, codexOpen}, the last state its badges draw once the board no longer reads the hub's check for it.
 function keptPRs(item, views) {
   if (!hasPR(item)) return item;
   const prs = storedPRs(item).map((p) => {
