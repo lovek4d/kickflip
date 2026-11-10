@@ -140,6 +140,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   // Main's old run, still serving its port while its successor builds: board.dir → run
   // (docs/adr/2026-11-09-1815-a-main-re-serve-keeps-the-old-server-up-until-the-new-one-answers.md).
   const serving = new Map();
+  // The boards whose old single Main worktree this hub has swept for leftover servers.
+  const sweptLegacy = new Set();
   const live = () => [...runs.values(), ...serving.values()];
   const starting = new Set();
   const interrupted = new Set();
@@ -554,17 +556,23 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     failureLog(board, 'main', error);
     persist(board);
   }
-  // The single Main worktree of a hub from before the alternating pair: every process in it stops, as a sweep stops a
-  // leftover group, then it is removed, by git or else by hand. Nothing here fails the launch; each step logs.
+  // The single Main worktree of a hub from before the alternating pair. Once per board per hub, every process in it stops,
+  // as a sweep stops a leftover group, even when the folder is gone: a server keeps a deleted cwd, and lsof still names
+  // it by its old path. Then the folder, when there, is removed by git or else by hand. Nothing here fails the launch;
+  // each step logs.
   async function removeLegacyMain(board, repo, dir) {
     const prefix = `try /${board.route} main:`;
-    try {
-      const found = await processesIn(dir);
-      for (const pgid of new Set(found.map((p) => p.pgid))) {
-        await endGroup(pgid);
-        for (const p of found.filter((p) => p.pgid === pgid)) log(`${prefix} stopped pid ${p.pid} (pgid ${pgid}) in the old main worktree ${dir}`);
-      }
-    } catch (e) { log(`${prefix} could not stop the processes in the old main worktree ${dir}: ${e.message}`); }
+    if (!sweptLegacy.has(board.dir)) {
+      sweptLegacy.add(board.dir);
+      try {
+        const found = await processesIn(dir);
+        for (const pgid of new Set(found.map((p) => p.pgid))) {
+          await endGroup(pgid);
+          for (const p of found.filter((p) => p.pgid === pgid)) log(`${prefix} stopped pid ${p.pid} (pgid ${pgid}) in the old main worktree ${dir}`);
+        }
+      } catch (e) { log(`${prefix} could not stop the processes in the old main worktree ${dir}: ${e.message}`); }
+    }
+    if (!exists(dir)) return;
     try { await git(repo, 'worktree', 'remove', '--force', dir); return; }
     catch (e) {
       try {
@@ -591,7 +599,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       const worktreeOf = (side) => path.join(os.homedir(), '.claude', 'kickflip', 'try', `${board.route}-main${side}`);
       const dir = worktreeOf(old?.worktree === worktreeOf('-a') ? '-b' : '-a');
       fs.mkdirSync(path.dirname(dir), { recursive: true });
-      if (exists(worktreeOf(''))) await removeLegacyMain(board, repo, worktreeOf(''));
+      await removeLegacyMain(board, repo, worktreeOf(''));
       if (exists(dir)) await git(dir, 'checkout', '--detach', '--force', metadata.sha);
       else {
         await git(repo, 'worktree', 'prune');

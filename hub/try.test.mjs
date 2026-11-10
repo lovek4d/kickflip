@@ -733,6 +733,27 @@ test('the single main worktree of a hub from before the pair has its servers sto
   assert.ok(logs.some((line) => line.startsWith(`try /orch main: git could not remove the old main worktree ${legacy}; removed the folder: `)));
 });
 
+test('a server left in the old single main worktree is stopped even after the folder was removed under it', async (t) => {
+  fakeRelays(t);
+  const logs = [];
+  manager = createTryManager({ now: () => clock, answers: async () => true, log: (line) => logs.push(line) });
+  const legacy = path.join(home, '.claude/kickflip/try/orch-main');
+  fs.mkdirSync(legacy, { recursive: true });
+  const inside = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: legacy, detached: true, stdio: 'ignore' });
+  t.after(() => { try { process.kill(-inside.pid, 'SIGKILL'); } catch {} });
+  let exited = false;
+  inside.once('exit', () => { exited = true; });
+  await new Promise((resolve) => inside.once('spawn', resolve));
+  fs.rmSync(legacy, { recursive: true, force: true });
+  mainPortScript(32123);
+  mainCommit('first');
+  await tick();
+  await until(() => state().main?.state === 'ready');
+  await until(() => exited);
+  assert.ok(logs.includes(`try /orch main: stopped pid ${inside.pid} (pgid ${inside.pid}) in the old main worktree ${legacy}`));
+  assert.ok(!logs.some((line) => line.includes('could not remove the old main worktree')));
+});
+
 test("a local board's main builds the tip of its recorded branch in its folder, not a branch called main", async () => {
   git(repo, 'switch', '--quiet', '-c', 'trunk');
   setScript('process.exit(0);', repo);
