@@ -11,7 +11,7 @@ import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ticket-gate-')));
 process.env.HOME = home;
 after(() => fs.rmSync(home, { recursive: true, force: true }));
-const { addQuestions, settleAnswers, settleQuestion, setItem, addItem, supersedeTicketQuestions } = await import('./store.mjs');
+const { addQuestions, settleAnswers, settleQuestion, setItem, addItem } = await import('./store.mjs');
 const linearData = linearWorld();
 const linear = fakeLinear(linearData);
 fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
@@ -117,16 +117,3 @@ test('a card going ready with no ticket gets one, with the board-made line; one 
   assert.equal(none.card().phase, 'ready');
 });
 
-test('open and staged ticket questions are superseded, and a grilling card with nothing else open moves on', async () => {
-  const w = world();
-  await addQuestions(w.site, [gate]);
-  const lines = await supersedeTicketQuestions(w.site);
-  assert.deepEqual(lines, ['t/T-1: ticket question superseded']);
-  assert.match(w.resolved('q-ticket'), /^Superseded/);
-  assert.equal(w.card().phase, 'staging');
-  const s = world();
-  const staged = path.join(s.site, 'data', 'staged-questions.json');
-  fs.writeFileSync(staged, JSON.stringify({ 't/T-1': [other, gate] }));
-  await supersedeTicketQuestions(s.site);
-  assert.deepEqual(JSON.parse(fs.readFileSync(staged, 'utf8'))['t/T-1'].map((q) => q.id), ['q-other']);
-});

@@ -3325,25 +3325,6 @@ export const migratePhases = (site) => ticketWrite(site, async () => {
   return lines;
 });
 
-// docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md
-// A ticket question open or staged from before the board made tickets at ready is resolved as superseded, leaving any
-// answer alone; a grilling card with nothing left open moves on. Run by the board server as it starts. → one line per card.
-export const supersedeTicketQuestions = (site) => ticketWrite(site, async () => {
-  const lines = [];
-  const staged = await readJSON(stagedFile(site), {});
-  const keep = Object.fromEntries(Object.entries(staged).map(([k, qs]) => [k, qs.filter((q) => !q.ticket_gate)]).filter(([, qs]) => qs.length));
-  if (JSON.stringify(keep) !== JSON.stringify(staged)) await writeJSON(stagedFile(site), keep);
-  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
-  const open = (owner.items || []).filter((q) => q.ticket_gate && !q.resolved);
-  for (const q of open) {
-    await markResolved(site, owner, [q.id], 'Superseded: the board makes the ticket when the card goes ready');
-    const key = q.topic.slice(5);
-    if ((await loadItem(site, key).catch(() => null))?.item.phase === 'grilling') await moveOnAnswered(site, key, { roundAt: true });
-    lines.push(`${key}: ticket question superseded`);
-  }
-  return lines;
-});
-
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 // An Implement message's wait from before staging, implement_at, becomes staging, keeping its time as staged_at; a card
 // already ready, which the old release would have started, stays ready. Run by the board server as it starts. → one
