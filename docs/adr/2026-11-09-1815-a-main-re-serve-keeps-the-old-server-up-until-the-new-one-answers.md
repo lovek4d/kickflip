@@ -13,3 +13,5 @@ Main went dark on every merge (#493, #497). `launchMain` stopped the old run, ch
 **No old server outlives its hub.** A stopping hub stops the old run too, and the next hub drops `serving` from try.json. A Main whose new build failed before the restart therefore shows Failed with no Visit until a retry or the next merge, as before this change.
 
 This supersedes [a board's build script serves or builds each card and main](2026-11-01-1846-a-boards-build-script-serves-or-builds-each-card-and-main.md)'s single Main worktree and its stop-before-checkout.
+
+Superseded in part by [Main serves again after the pair update](2026-11-10-0108-main-serves-again-after-the-pair-update.md): a new serve that exits before answering while the old one serves now stops it and serves once more.

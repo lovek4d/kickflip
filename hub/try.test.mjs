@@ -650,32 +650,16 @@ test('a main re-serve keeps the old server on its port until the new one answers
   assert.equal(state().main.serving, undefined);
 });
 
-test('a failed main build keeps the old server serving, and a build that prints the old server’s port stops it before probing', async (t) => {
+test('a build that prints the old main server’s port stops the old server before probing', async (t) => {
   const relays = fakeRelays(t);
   const probes = [];
   manager = createTryManager({ now: () => clock, answers: async (port) => { probes.push([port, Boolean(relays[0]?.closed)]); return true; }, log() {} });
   mainPortScript(32123);
-  const first = mainCommit('first');
+  mainCommit('first');
   await tick();
   await until(() => state().main?.state === 'ready');
-  setScript('process.exit(3);', repo);
-  const broken = mainCommit('broken');
-  await tick();
-  await until(() => state().main.state === 'failed');
-  assert.equal(state().main.sha, broken);
-  assert.equal(state().main.serving.sha, first);
-  assert.equal(relays[0].closed, undefined);
-  assert.equal(relayOf(8500), 'http://127.0.0.1:49000');
-  await tick();
-  assert.equal(state().main.state, 'failed');
-  // Retry builds in the worktree the old server isn't using, and the old server stays through it.
-  assert.deepEqual(await start({ key: 'main' }), { status: 'started' });
-  await until(() => state().main.state === 'failed' && fs.existsSync(path.join(site, 'data/try/main.log')));
-  assert.equal(git(mainDir('b'), 'rev-parse', 'HEAD'), broken);
-  assert.equal(state().main.serving.sha, first);
-  assert.equal(relays[0].closed, undefined);
   probes.length = 0;
-  mainPortScript(32123);
+  write(path.join(repo, 'file'), 'same port');
   const same = mainCommit('same port');
   await tick();
   await until(() => state().main.state === 'ready' && state().main.sha === same);
@@ -684,6 +668,69 @@ test('a failed main build keeps the old server serving, and a build that prints 
   assert.equal(state().main.serving, undefined);
   assert.equal(relayOf(8500), 'http://127.0.0.1:49001');
   assert.equal(read(path.join(home, 'tailscale.status')).Web['mac.ts.net:8500'].Handlers['/'].Proxy, 'http://127.0.0.1:49001');
+});
+
+// A dev server that allows one server per project, as next dev does: it exits while another of its servers runs.
+const oneServerScript = (port) => setScript(`const fs = require('node:fs');
+const lock = require('node:path').join(process.env.HOME, 'main.lock');
+let other = 0;
+try { other = Number(fs.readFileSync(lock, 'utf8')); process.kill(other, 0); } catch { other = 0; }
+if (other) { console.log('Another dev server is already running. PID: ' + other); process.exit(1); }
+fs.writeFileSync(lock, String(process.pid));
+console.log('port ${port}');
+setInterval(() => {}, 1000);`, repo);
+
+test('a main serve that exits before answering while the old one serves stops the old serve and serves once more in the same worktree', async (t) => {
+  const relays = fakeRelays(t);
+  const logs = [];
+  manager = createTryManager({ now: () => clock, answers: async () => true, log: (line) => logs.push(line) });
+  oneServerScript(32123);
+  const first = mainCommit('first');
+  await tick();
+  await until(() => state().main?.state === 'ready');
+  oneServerScript(32124);
+  const second = mainCommit('second');
+  await tick();
+  await until(() => state().main.state === 'ready' && state().main.sha === second);
+  assert.equal(state().main.serving, undefined);
+  assert.equal(state().main.https, 8500);
+  assert.equal(manager.lookup('orch', 'main', { manifest }).port, 32124);
+  assert.equal(git(mainDir('b'), 'rev-parse', 'HEAD'), second);
+  assert.equal(git(mainDir('a'), 'rev-parse', 'HEAD'), first);
+  assert.ok(relays[0].closed);
+  assert.equal(relayOf(8500), `http://127.0.0.1:${relays.at(-1).address().port}`);
+  assert.ok(logs.includes(`try /orch main: the new serve exited before answering while the old one served; stopped the old serve and serving again in ${mainDir('b')}`));
+  assert.match(fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8'), /^The new serve exited before answering while the old one served; stopped the old serve and serving again\.\n/);
+  // A commit that fails on its own still fails once the old serve is stopped, and is served again only once.
+  setScript('console.log("broken"); process.exit(3);', repo);
+  const broken = mainCommit('broken');
+  await tick();
+  await until(() => state().main.state === 'failed' && state().main.sha === broken);
+  assert.equal(state().main.serving, undefined);
+  assert.equal(logs.filter((line) => line.includes('the new serve exited before answering')).length, 2);
+});
+
+test('the single main worktree of a hub from before the pair has its servers stopped and is removed, even where git refuses to remove it', async (t) => {
+  fakeRelays(t);
+  const logs = [];
+  manager = createTryManager({ now: () => clock, answers: async () => true, log: (line) => logs.push(line) });
+  // Not a worktree git knows, so git worktree remove refuses it; an old Main server still runs inside it, and another
+  // runs elsewhere with a file inside it on its command line.
+  const legacy = path.join(home, '.claude/kickflip/try/orch-main');
+  write(path.join(legacy, 'server.js'), 'setInterval(() => {}, 1000);');
+  const inside = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: legacy, detached: true, stdio: 'ignore' });
+  const named = spawn(process.execPath, [path.join(legacy, 'server.js')], { cwd: home, detached: true, stdio: 'ignore' });
+  t.after(() => { for (const child of [inside, named]) try { process.kill(-child.pid, 'SIGKILL'); } catch {} });
+  const ended = (child) => new Promise((resolve) => child.once('exit', resolve));
+  const gone = Promise.all([ended(inside), ended(named)]);
+  mainPortScript(32123);
+  mainCommit('first');
+  await tick();
+  await until(() => state().main?.state === 'ready');
+  await gone;
+  assert.equal(fs.existsSync(legacy), false);
+  for (const child of [inside, named]) assert.ok(logs.includes(`try /orch main: stopped pid ${child.pid} (pgid ${child.pid}) in the old main worktree ${legacy}`));
+  assert.ok(logs.some((line) => line.startsWith(`try /orch main: git could not remove the old main worktree ${legacy}; removed the folder: `)));
 });
 
 test("a local board's main builds the tip of its recorded branch in its folder, not a branch called main", async () => {

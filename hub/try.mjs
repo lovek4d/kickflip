@@ -74,15 +74,28 @@ async function groupMembers(pgid) {
   const members = stdout.split('\n').map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)).filter((m) => m && Number(m[2]) === pgid)
     .map((m) => ({ pid: m[1], command: m[3], cwd: '' }));
   if (!members.length) return members;
-  try {
-    const { stdout: out } = await execFileAsync('lsof', ['-a', '-d', 'cwd', '-Fpn', '-p', members.map((m) => m.pid).join(',')], { encoding: 'utf8', timeout: 5000 });
-    let member;
-    for (const line of out.split('\n')) {
-      if (line[0] === 'p') member = members.find((m) => m.pid === line.slice(1));
-      else if (line[0] === 'n' && member) member.cwd = line.slice(1);
-    }
-  } catch {}
+  await readCwds(members, ['-a', '-d', 'cwd', '-Fpn', '-p', members.map((m) => m.pid).join(',')]);
   return members;
+}
+// Fills each process's cwd from lsof; lsof exits 1 when it can't read some process, so its output is read either way.
+async function readCwds(processes, args) {
+  let out = '';
+  try { out = (await execFileAsync('lsof', args, { encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 * 1024 })).stdout; }
+  catch (e) { out = e.stdout || ''; }
+  const byPid = new Map(processes.map((p) => [p.pid, p]));
+  let current;
+  for (const line of out.split('\n')) {
+    if (line[0] === 'p') current = byPid.get(line.slice(1));
+    else if (line[0] === 'n' && current) current.cwd = line.slice(1);
+  }
+}
+// Every process whose working directory or command line is inside dir, each with its process group.
+async function processesIn(dir) {
+  const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,pgid=,command='], { encoding: 'utf8', timeout: 5000, maxBuffer: 64 * 1024 * 1024 });
+  const all = stdout.split('\n').map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)).filter(Boolean)
+    .map((m) => ({ pid: m[1], pgid: Number(m[2]), command: m[3], cwd: '' }));
+  await readCwds(all, ['-d', 'cwd', '-Fpn']);
+  return all.filter((p) => inWorktree(p, dir));
 }
 const insideDir = (value, dir) => value === dir || value.startsWith(dir + path.sep);
 const inWorktree = (member, worktree) => insideDir(member.cwd, worktree) || member.command.includes(worktree + path.sep) || member.command.endsWith(worktree);
@@ -124,7 +137,7 @@ export async function installWorktree(board, key, manifest) {
 export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate } = {}) {
   const boards = new Map();
   const runs = new Map();
-  // Main's old run, still serving its port while its successor builds, and for good when that build fails: board.dir → run
+  // Main's old run, still serving its port while its successor builds: board.dir → run
   // (docs/adr/2026-11-09-1815-a-main-re-serve-keeps-the-old-server-up-until-the-new-one-answers.md).
   const serving = new Map();
   const live = () => [...runs.values(), ...serving.values()];
@@ -400,7 +413,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     update(run.board, run.key, { state: undefined, port: undefined, https: undefined, ...(!run.ready ? { sha: undefined } : {}) });
     if (!run.ready) lastHeads.delete(runKey(run.board, run.key));
   }
-  async function launch(board, key, worktree, metadata = {}) {
+  async function launch(board, key, worktree, metadata = {}, preface = '') {
     if (!worktree) throw new BuildError('This card has no valid worktree.');
     const script = scriptAt(worktree, board.build_target);
     const error = buildScriptError(script);
@@ -418,11 +431,12 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'w', 0o600);
     fs.fchmodSync(fd, 0o600);
+    if (preface) fs.writeSync(fd, preface);
     const child = spawn(script, [key, worktree], { cwd: worktree, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
     setEntry(state, key, entry);
     const id = runKey(board, key);
-    const run = { child, board, key, worktree, sha, at: metadata.at, logFile, visited: now(), stopped: false, port: null, ready: false };
+    const run = { child, board, key, worktree, sha, at: metadata.at, metadata, logFile, visited: now(), stopped: false, port: null, ready: false };
     recordGroup(run);
     runs.set(id, run);
     lastHeads.set(id, sha);
@@ -492,6 +506,10 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
           update(board, key, { serving: undefined });
           return;
         }
+        if (key === 'main' && !run.ready && serving.has(board.dir) && !stopping) {
+          await handOverFailed(run);
+          return;
+        }
         // The prototype site is a web page, so a script that ends without serving one failed.
         const unserved = key === BASE_KEY && !run.port ? new Error('Build script exited without printing "port <n>".') : null;
         if (failed || spawnError || code !== 0 || (run.port && !run.ready) || unserved) await failure(run, code ?? 1, signal, failed || spawnError || (run.port && !run.ready ? new Error('Build script exited before its port answered.') : unserved));
@@ -519,6 +537,43 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     update(board, 'main', { serving: undefined });
     await halt(old);
   }
+  // A Main serve that exits before answering while the old run serves may have been refused by it, as next dev refuses a
+  // second dev server for a project: the old run stops and the serve runs once more in the same worktree
+  // (docs/adr/2026-11-10-0108-main-serves-again-after-the-pair-update.md).
+  async function handOverFailed(run) {
+    const { board, worktree } = run;
+    await retire(board);
+    log(`try /${board.route} main: the new serve exited before answering while the old one served; stopped the old serve and serving again in ${worktree}`);
+    const { serving: _old, ...metadata } = run.metadata;
+    try { await launch(board, 'main', worktree, metadata, 'The new serve exited before answering while the old one served; stopped the old serve and serving again.\n'); }
+    catch (e) { mainFailed(board, metadata, e); }
+  }
+  function mainFailed(board, metadata, error) {
+    if (error.status === 503) return;
+    stateOf(board).state.main = { ...metadata, state: 'failed' };
+    failureLog(board, 'main', error);
+    persist(board);
+  }
+  // The single Main worktree of a hub from before the alternating pair: every process in it stops, as a sweep stops a
+  // leftover group, then it is removed, by git or else by hand. Nothing here fails the launch; each step logs.
+  async function removeLegacyMain(board, repo, dir) {
+    const prefix = `try /${board.route} main:`;
+    try {
+      const found = await processesIn(dir);
+      for (const pgid of new Set(found.map((p) => p.pgid))) {
+        await endGroup(pgid);
+        for (const p of found.filter((p) => p.pgid === pgid)) log(`${prefix} stopped pid ${p.pid} (pgid ${pgid}) in the old main worktree ${dir}`);
+      }
+    } catch (e) { log(`${prefix} could not stop the processes in the old main worktree ${dir}: ${e.message}`); }
+    try { await git(repo, 'worktree', 'remove', '--force', dir); return; }
+    catch (e) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+        log(`${prefix} git could not remove the old main worktree ${dir}; removed the folder: ${(e.stderr || e.message).trim().split('\n').at(-1)}`);
+        await git(repo, 'worktree', 'prune');
+      } catch (e2) { log(`${prefix} could not remove the old main worktree ${dir}: ${e2.message}`); }
+    }
+  }
   // Main builds each new tip in the other of two worktrees, <route>-main-a and -b, so a serving Main keeps its own
   // worktree while its successor builds; its old run moves to `serving` until the successor answers.
   async function launchMain(board, repo, metadata) {
@@ -536,8 +591,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       const worktreeOf = (side) => path.join(os.homedir(), '.claude', 'kickflip', 'try', `${board.route}-main${side}`);
       const dir = worktreeOf(old?.worktree === worktreeOf('-a') ? '-b' : '-a');
       fs.mkdirSync(path.dirname(dir), { recursive: true });
-      // The single Main worktree of a hub from before the alternating pair.
-      if (exists(worktreeOf(''))) await git(repo, 'worktree', 'remove', '--force', worktreeOf(''));
+      if (exists(worktreeOf(''))) await removeLegacyMain(board, repo, worktreeOf(''));
       if (exists(dir)) await git(dir, 'checkout', '--detach', '--force', metadata.sha);
       else {
         await git(repo, 'worktree', 'prune');
@@ -545,11 +599,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       }
       return await launch(board, 'main', dir, metadata);
     } catch (e) {
-      if (e.status !== 503) {
-        stateOf(board).state.main = { ...metadata, state: 'failed' };
-        failureLog(board, 'main', e);
-        persist(board);
-      }
+      mainFailed(board, metadata, e);
       throw e;
     } finally { starting.delete(id); }
   }
