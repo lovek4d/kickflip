@@ -6051,7 +6051,7 @@ test("the + is on the board's left pane on desktop and gone from the Open questi
   const shell = readFileSync(new URL('./public/shell.js', import.meta.url), 'utf8');
   assert.doesNotMatch(shell, /BoardNewTask/);
   assert.doesNotMatch(css, /view-questions[^{]*\.fab/);
-  assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(50% /);
+  assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.view-board \.fab \{ right: calc\(var\(--pane-w, calc\(50% /);
 });
 
 test("a card's workflow buttons run quiet first: Hold, Notes, Serve, then Questions, then Merge", async () => {

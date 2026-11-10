@@ -934,6 +934,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 /* Needs you (app-needs.js): a deck at the top of the board on a phone; from 900px a pane beside the lanes, its lines over
    Waiting on you (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md). */
 .needs-pane { display: none; }
+.col-handle { display: none; }
 .needs-deck { margin: 0 0 12px; border: 1px solid color-mix(in srgb, var(--color-notice) 45%, var(--line)); border-radius: 14px;
   background: color-mix(in srgb, var(--color-notice) 7%, var(--panel)); overflow: hidden; }
 .deck-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px 4px; }
@@ -964,16 +965,24 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .deck-more::after { content: '›'; color: var(--accent); font-size: 18px; }
 .deck-more:hover { text-decoration: none; }
 @media (min-width: 900px) {
-  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) var(--pane-w, minmax(0, 1fr)); align-items: start; }
   .split > main { max-width: none; margin: 0; }
   .needs-deck { display: none; }
   /* Waiting on you is the board's pane here, so neither page shows the switch to the other. */
   .top .pages-switch { display: none; }
   .top .nav a.pages-switch { display: none; }
   /* The board's + sits at the bottom right of the left pane: the pane ends at the middle of the space right of the sidebar. */
-  .view-board .fab { right: calc(50% - var(--sidebar-w, 0px) / 2 + var(--fab-edge)); }
-  body.has-sidebar { --sidebar-w: 272px; }
+  .view-board .fab { right: calc(var(--pane-w, calc(50% - var(--sidebar-w, 0px) / 2)) + var(--fab-edge)); }
+  body.has-sidebar { --sidebar-w: var(--sb-w, 272px); }
   html.sb-collapsed body.has-sidebar { --sidebar-w: 0px; }
+  /* The drag edges (col-resize.js): a hairline that thickens on hover, on the pane's left edge and the sidebar's right. */
+  .col-handle { display: block; position: absolute; z-index: 5; top: 0; bottom: 0; width: 9px; cursor: col-resize; touch-action: none; }
+  .col-handle::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: transparent; transition: background .12s, width .12s, left .12s; }
+  .col-handle:is(:hover, :focus-visible, .dragging)::after { left: 3px; width: 3px; background: var(--accent); }
+  .col-handle:focus-visible { outline: none; }
+  html.col-dragging, html.col-dragging * { cursor: col-resize !important; user-select: none; }
+  .split > .col-handle { right: calc(var(--pane-w, 50%) - 4px); }
+  .split:has(.needs-pane.widened) > .col-handle { display: none; }
   .needs-pane { display: block; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 16px 0; border-left: 1px solid var(--line); }
   .needs-pane .needs-questions main { padding: 0; max-width: none; }
   .needs-pane:has(.q-empty), .needs-pane .needs-questions:has(.q-empty), .needs-pane .needs-questions:has(.q-empty) main, .needs-pane #page:has(.q-empty) { display: flex; flex-direction: column; }

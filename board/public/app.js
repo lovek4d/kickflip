@@ -464,6 +464,7 @@ ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <div id="downLanding" hidden></div>
   ${BoardUI.boardFoot()}
 </main>
+<div class="col-handle" data-col="pane" role="separator" aria-orientation="vertical" aria-label="Resize the Waiting on you pane" tabindex="0"></div>
 <aside id="needsPane" class="needs-pane" aria-label="Needs you"><section id="waiting" class="waiting" hidden></section></aside>
 </div>
 ${BoardNewTask.markup()}

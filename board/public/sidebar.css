@@ -188,12 +188,14 @@ html.sb-hub-down body.has-sidebar > .top .hub::after, html.sb-hub-down body.has-
 .sidebar .t-paused { --tone: var(--muted); }
 
 @media (min-width: 900px) {
-  body.has-sidebar { padding-left: 272px; }
-  body.has-sidebar .sidebar { width: 272px; transform: none; visibility: visible; transition: none; z-index: 4; }
+  body.has-sidebar { padding-left: var(--sidebar-w, 272px); }
+  body.has-sidebar .sidebar { width: var(--sb-w, 272px); transform: none; visibility: visible; transition: none; z-index: 4; }
   body.has-sidebar .sidebar .sb-close { display: none; }
   body.has-sidebar .sidebar-scrim { display: none; }
   html:not(.sb-collapsed) body.has-sidebar > .top .hub, html:not(.sb-collapsed) body.has-sidebar > :not(.sidebar) > .top .hub { display: none; }
   html.sb-collapsed body.has-sidebar { padding-left: 0; }
+  body.has-sidebar > .col-handle { position: fixed; left: calc(var(--sidebar-w, 272px) - 4px); }
+  html.sb-collapsed body.has-sidebar > .col-handle { display: none; }
   html.sb-collapsed body.has-sidebar .sidebar { transform: translateX(-102%); visibility: hidden; }
   /* Switch mode shows a collapsed rail over the page until it ends, and leaves it collapsed. */
   html.sb-collapsed body.has-sidebar .sidebar.ks-on { transform: none; visibility: visible; z-index: 20; }
