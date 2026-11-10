@@ -1003,5 +1003,5 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   .pane-viewer .ps-sheet button span + span { color: var(--muted); }
 }
 /* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
-body .view-questions main { padding-bottom: var(--app-bottom, 0px); }
+body .view-questions.view-questions main { padding-bottom: var(--app-bottom, 0px); }
 .pfile.retry { cursor: pointer; }
