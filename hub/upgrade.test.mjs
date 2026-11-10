@@ -87,3 +87,21 @@ test('a pull that finishes OK but leaves the installed version where it was logs
   assert.equal(pulled, 0);
   assert.deepEqual(logs, ['update left v0.6.0; npm has 0.6.1', 'update left v0.6.0; npm has 0.6.1']);
 });
+
+// docs/adr/2026-11-10-1140-tapping-the-hub-pages-version-checks-npm-now.md
+test('check answers what it found: clone, same, pulling (also while a pull runs) or failed', async () => {
+  const clone = upgrader({ root: install({ clone: true }), fetch: registry('9.0.0').fetch, run: async () => ({ ok: true }) });
+  assert.deepEqual(await clone.check(), { state: 'clone' });
+
+  const root = install({ version: '0.4.0' });
+  let answer = registry('0.4.0').fetch;
+  let finish;
+  const up = upgrader({ root, fetch: (...a) => answer(...a), run: () => new Promise((resolve) => { finish = resolve; }) });
+  assert.deepEqual(await up.check(), { state: 'same', latest: '0.4.0' });
+  answer = async () => ({ ok: false, status: 503, json: async () => ({}) });
+  assert.deepEqual(await up.check(), { state: 'failed', error: 'npm answered 503' });
+  answer = registry('0.5.0').fetch;
+  assert.deepEqual(await up.check(), { state: 'pulling', latest: '0.5.0' });
+  assert.deepEqual(await up.check(), { state: 'pulling', latest: '0.5.0' });
+  finish({ ok: false, error: 'down' });
+});

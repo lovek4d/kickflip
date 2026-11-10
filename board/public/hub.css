@@ -78,6 +78,7 @@
 .hub-view .dur-on .title { font-weight:600; white-space:normal; }
 .hub-view code { font-family:var(--mono); font-size:.85em; white-space:nowrap; }
 .hub-view footer { color:var(--muted); font-size:12px; margin:1.8rem 2px 0; }
+.hub-view .version { font:inherit; color:inherit; background:none; border:0; padding:0; text-decoration:underline dotted; cursor:pointer; }
 .hub-view .host { font-family:var(--mono); font-size:11px; overflow-wrap:anywhere; }
 .hub-view .st.ok { color:var(--color-success); }
 .hub-view .links { display:block; margin-top:2px; }

@@ -29,6 +29,11 @@ test("Restart hub answers once the hub service's restart is asked for, then runs
       hub.once('exit', reject);
     });
     assert.equal((await (await fetch(`${base}/_hub/api/hub`)).json()).hub.restart, false);
+    // The version tap's check: this hub runs from a clone, which never asks npm and answers with its commit.
+    const checked = await fetch(`${base}/_hub/check-update`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const check = await checked.json();
+    assert.equal(check.state, 'clone');
+    assert.match(check.commit, /^[0-9a-f]{7,}$/);
     const codeFile = path.join(home, '.claude', 'kickflip', 'hub-code.json');
     write(codeFile, { ...JSON.parse(fs.readFileSync(codeFile, 'utf8')), hash: 'old' });
     const stale = await fetch(`${base}/_hub/api/hub`);

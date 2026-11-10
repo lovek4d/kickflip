@@ -922,3 +922,64 @@ test('the pause stepper and banner forms save in place, refresh the sidebar and 
   assert.equal(changed, 3);
   assert.deepEqual(posts, [['/_hub/settings/pause-at', 'POST', 'value=85'], ['/_hub/settings/keep-going', 'POST', 'value=on'], ['/_hub/settings/keep-going', 'POST', 'value=off']]);
 });
+
+// docs/adr/2026-11-10-1140-tapping-the-hub-pages-version-checks-npm-now.md
+test("a tap on the footer's version checks npm now and shows the answer beside it: checking…, then up to date, pulling, a failure or a clone's commit", async () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  let live;
+  const listeners = [], requests = [], answers = [];
+  const context = vm.createContext({
+    navigator: {},
+    setTimeout: (fn) => Promise.resolve().then(fn),
+    BoardView: { page: (root, site, run) => run({ $: (s) => root.querySelector(s), alive: () => true, atUnmount() {}, on: (target, type, fn) => listeners.push({ target, type, fn }) }) },
+    BoardDialogs: { confirm: async () => true },
+    AppShell: { reload() {} },
+    fetch: (url, init = {}) => { requests.push([url, init.method || 'GET', init.body]); return new Promise((resolve) => answers.push(resolve)); },
+    HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    BoardUI: { ...BOARD_UI },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    HubKit: { forms: () => ({}), live: (B, opts) => { live = opts; } },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+  document.body = root;
+  context.AppViews.hub.create(root, '/_hub', {});
+  const now = t(19);
+  live.paint({ ...hubView({ now, st: status(now, DEFAULTS), rows: [], code: { running: 'abc', onDisk: 'abc' },
+    sidebar: { pause: CALM_GATE, sites: [], hub: { tone: 'ok', word: 'ok', detail: '' }, notifications: {}, total: 0 } }), version: '0.7.7' });
+  const tap = () => listeners.find((l) => l.target === root.querySelector('.hub-foot') && l.type === 'click').fn({ target: root.querySelector('[data-check-update]') });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const note = () => root.querySelector('.update-note')?.textContent ?? null;
+  const reply = (status, body) => answers.shift()({ ok: status < 400, json: async () => body });
+
+  assert.equal(root.querySelector('[data-check-update]').textContent, 'v0.7.7');
+  assert.equal(note(), null);
+  tap();
+  await settle();
+  assert.deepEqual(requests, [['/_hub/check-update', 'POST', '{}']]);
+  assert.equal(note(), 'checking…');
+  tap();
+  await settle();
+  assert.equal(requests.length, 1, 'a tap while a check runs asks nothing more');
+  reply(200, { state: 'same', latest: '0.7.7' });
+  await settle();
+  assert.equal(note(), 'up to date');
+  for (const [out, text] of [
+    [{ state: 'pulling', latest: '0.7.8' }, 'pulling 0.7.8…'],
+    [{ state: 'failed', error: 'npm answered 503' }, 'check failed: npm answered 503'],
+    [{ state: 'clone', commit: 'abc1234' }, 'abc1234 · pulls with main'],
+  ]) {
+    tap();
+    await settle();
+    reply(200, out);
+    await settle();
+    assert.equal(note(), text);
+  }
+  tap();
+  await settle();
+  reply(500, {});
+  await settle();
+  assert.equal(note(), 'could not check. Is the host awake?');
+});

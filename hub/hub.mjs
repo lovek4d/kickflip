@@ -45,6 +45,8 @@
 //   /_hub/reopen-board POST {route} restores that entry and resumes its recorded session (close-board.mjs)
 //   /_hub/restart-board POST {route} stops the board's session, restarts its server and, once that answers, resumes
 //                     the session → {route, title, session}, or {error} (restart-board.mjs)
+//   /_hub/check-update POST from the version in the hub page's footer: runs upgrade.mjs check() now and answers its result
+//                     ({state: clone | same | pulling | failed, latest?, error?, commit?})
 //   /_hub/restart-hub POST from the hub page's Restart hub: answers {restarting, command} (the hub service's restart
 //                     command, for a restart by hand), then runs that restart (board/worktree.mjs restartRunner), which
 //                     replaces this process; 409 while one is out
@@ -915,6 +917,15 @@ async function hubRoute(req, res, url, viewer = null) {
         if (why) { hubRestarting = false; log(`hub restart failed: ${why}`); }
       });
       return sendJSON(200, { restarting: true, command: hubService().restartCommand });
+    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+  }
+  // The hub page's version tap: check npm now, like the hourly check (hub/upgrade.mjs). A clone answers with its commit.
+  if (p === '/_hub/check-update' && req.method === 'POST') {
+    try {
+      await readJSONBody(req);
+      const out = await upgrade.check();
+      if (out.state === 'clone') out.commit = execFileSync('git', ['-C', cloneRoot(), 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+      return sendJSON(200, out);
     } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
   }
   if (p === '/_hub/presence' && req.method === 'POST') {

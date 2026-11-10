@@ -4,7 +4,7 @@
 // once: run() → {ok, error} runs `kickflip update --no-restart`, which installs from npm and leaves the hub running. A pull
 // that finishes OK calls pulled() only when the package.json on disk is newer than the version the hub started with, and the
 // hub answers by restarting itself (self-restart.mjs); an OK pull that left the version put logs both versions instead. A
-// failed pull is only logged by run, and the next check tries again. A clone (root has .git) never asks.
+// failed pull is only logged by run, and the next check tries again. A clone (root has .git) never asks. The hub page's version tap runs check() now (/_hub/check-update) and shows its answer.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -19,7 +19,8 @@ export function newer(a, b) {
   return false;
 }
 
-// → {check()}
+// → {check()}; check() → {state: 'clone' | 'same' | 'pulling' | 'failed', latest?, error?}, where pulling means a pull runs (this check
+// began it or an earlier one had).
 export function upgrader({ root, fetch = globalThis.fetch, run, log = () => {}, pulled = () => {} }) {
   const clone = fs.existsSync(path.join(root, '.git'));
   const installed = () => JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -28,14 +29,16 @@ export function upgrader({ root, fetch = globalThis.fetch, run, log = () => {}, 
 
 
   async function check() {
-    if (clone) return;
+    if (clone) return { state: 'clone' };
     let latest;
     try {
       const response = await fetch(LATEST_URL, { signal: AbortSignal.timeout(15_000) });
       if (!response.ok) throw new Error(`npm answered ${response.status}`);
       latest = (await response.json()).version;
-    } catch (e) { log(`kickflip update check failed: ${e.message}`); return; }
-    if (newer(latest, installed())) pull(latest);
+    } catch (e) { log(`kickflip update check failed: ${e.message}`); return { state: 'failed', error: e.message }; }
+    if (!newer(latest, installed())) return { state: 'same', latest };
+    pull(latest);
+    return { state: 'pulling', latest };
   }
 
   function pull(latest) {

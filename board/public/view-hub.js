@@ -91,7 +91,15 @@ ${d.empty ? row({ title: 'No sites yet', sub: 'In a Claude session, run <code>/k
 ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembered?.length ? `<h2 class="label">Sessions without a board</h2><div class="group">${rememberedHtml(d.remembered)}</div>` : ''}<p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, the fetch of its repo, events (its session and a watcher run, or the hub can wake it), daily wakes and reviewer links. One that just broke reads settling first.</p>`;
   }
 
-  const footer = (d) => `<footer>${esc(d.sites)}. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">${esc(d.host)}</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / v${esc(d.version)}</span></footer>`;
+  // The version is a button: a tap checks npm now (POST /_hub/check-update) and the answer shows beside it (updateNote).
+  const footer = (d, note = '') => `<footer>${esc(d.sites)}. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">${esc(d.host)}</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / <button type="button" class="version" data-check-update>v${esc(d.version)}</button>${note ? ` <span class="update-note" role="status">${esc(note)}</span>` : ''}</span></footer>`;
+  // What the hub's answer to a version tap says (hub/upgrade.mjs check()).
+  const updateNote = (out) => ({
+    clone: `${out.commit} · pulls with main`,
+    same: 'up to date',
+    pulling: `pulling ${out.latest}…`,
+    failed: `check failed: ${out.error}`,
+  })[out.state];
 
   // iOS shows an app badge only in a Home Screen app with notifications allowed; elsewhere this does nothing.
   function badge(n) {
@@ -166,6 +174,20 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         flash = { text: `The hub hasn’t come back. On the host, run ${out.command}`, error: true };
         if (B.alive()) paint();
       }
+      // A tap on the version asks the hub to check npm now and shows the answer beside it until the next paint of new data.
+      let updateText = '';
+      async function checkUpdate() {
+        if (updateText === 'checking…') return;
+        updateText = 'checking…';
+        paint();
+        try {
+          const r = await fetch('/_hub/check-update', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: '{}' });
+          const out = await r.json();
+          if (!r.ok) throw new Error();
+          updateText = updateNote(out);
+        } catch { updateText = 'could not check. Is the host awake?'; }
+        if (B.alive()) paint();
+      }
       async function forgetDevice(id) {
         const out = await fetch('/_hub/push/forget', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }).then((r) => r.ok, () => false);
         if (!out) { flash = { text: 'Could not remove that device. Is the host awake?', error: true }; paint(); return; }
@@ -181,12 +203,13 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
         if (restarter) restart(restarter.dataset.restart, restarter.dataset.title);
       });
       const foot = B.$('.hub-foot');
+      B.on(foot, 'click', (e) => { if (e.target.closest?.('[data-check-update]')) checkUpdate(); });
       // A #keep-awake link scrolls to Health's Keep awake row once it is drawn.
       let scrollToAwake = ctx.view?.hash === '#keep-awake';
       const paint = () => {
         if (!last) return;
         main.innerHTML = html(last, { flash, prompts, restarting, restartingHub });
-        foot.innerHTML = footer(last);
+        foot.innerHTML = footer(last, updateText);
         if (scrollToAwake) { scrollToAwake = false; B.$('#keep-awake')?.scrollIntoView(); }
       };
       const prompts = PromptAnswers.wire(B, {
