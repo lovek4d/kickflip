@@ -95,7 +95,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   question settle <id> --note <text>                    a question a finished grill left for the orchestrator to screen
          (a screen wait), which the board already answers: it is published resolved "Settled by the
          orchestrator: <text>", and the answer goes into the card's notes. Refuses the prototype question,
-         which is the owner's
+         which is the owner's. On a ready card waiting on your re-check since its block ended, it answers
+         one of the card's questions again the same way, when what landed made its answer stale
   question publish <file>/<id>                          passes the rest of the card's screened questions on to the owner.
          The board server publishes any left unscreened 15 minutes on, with a thread line
   question move <id>,<id>,… --to <file>/<id> [--block <file>/<id>,…]   merges open questions that ask one thing onto
@@ -174,7 +175,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          answered question in that file, since a builder starts
                                                          from it; it resolves those answered questions.
                                                          grilling or prototyping on a staging or ready card sends
-                                                         it back, and the board starts that round's planner
+                                                         it back, and the board starts that round's planner.
+                                                         A ready card whose block ended waits on your re-check:
+                                                         ready again with --text "<what you re-checked>", which
+                                                         goes into its notes, releases it to the pull
          [--held | --unheld | --pick-up-at <time>]       holds or resumes the card on the owner's words; the board
                                                          server records the owner's own Hold and Resume taps. A later
                                                          --held/--unheld overrides a tap.

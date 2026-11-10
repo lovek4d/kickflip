@@ -15,3 +15,5 @@ It supersedes "Wakes are untouched" in [a block past Todo bumps a build and hold
 
 - A running builder is still stopped and sent back to Todo; pausing it at its next stopping point is #432.
 - A hold's pick-up time marks no `unblocked_at`; holds are #432's.
+
+Amended by [a block only keeps a card from In Progress](2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md): an unblock in Todo of a ready card is a re-check wait, not record-only.

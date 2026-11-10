@@ -8,3 +8,5 @@ Blocked by stopped a build but not a plan. The board's grill on arrival ([every 
 
 Considered:
 - waiting only until the blocker's own plan is settled: the survey found no stale design, but the owner chose to wait until every blocker is done (gh249-wait-until).
+
+Superseded by [a block only keeps a card from In Progress](2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md): a blocked card is grilled and prototyped as any other, after the unblocked arrivals.

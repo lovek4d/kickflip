@@ -320,7 +320,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr || prs[least]?.kept, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: planningOf('grill', events, agents, askedAt), prototyping: planningOf('prototype', events, agents, askedAt),
-    storedPhase: it.phase || null, phase: null,
+    storedPhase: it.phase || null, phase: null, recheckAt: it.recheck_at || null,
     updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
     waitFacts: waitFactsOf(it, { agents, thread, events, refusedAt: refusal ? newest.ts : null, replyAt: idle ? replyAt : null }),
@@ -1214,7 +1214,9 @@ export function buildBoard(snapshot) {
         it.ask = { eventId: m.eventId, state: m.state, askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null };
       }
     }
-    it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.action;
+    // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a card whose block ended waits for the
+    // orchestrator's re-check before it is ready to build.
+    it.ready = unstarted && it.phase === 'ready' && !it.blocked && !it.recheckAt && !it.action;
     // docs/adr/2026-11-07-0700-staging-then-ready.md
     it.staging = unstarted && it.phase === 'staging';
     // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped ready card a busy host holds
@@ -1407,10 +1409,11 @@ export function needsAnswer(b) {
   };
 }
 
-// A card ready to build: an unstarted work card that isn't held, with state ready and nothing blocking it. Ready says
-// the rest: it comes only from staging, and a question, a Grill or Prototype tap, or a Reply takes a card out of it
-// (docs/adr/2026-11-07-0700-staging-then-ready.md).
-const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.held && !i.blocked;
+// A card ready to build: an unstarted work card that isn't held, with state ready, nothing blocking it and no re-check
+// owed since its block ended. Ready says the rest: it comes only from staging, and a question, a Grill or Prototype
+// tap, or a Reply takes a card out of it (docs/adr/2026-11-07-0700-staging-then-ready.md,
+// docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md).
+const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.held && !i.blocked && !i.recheckAt;
 
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 // A board's Maximum parallel implementers when board.json sets none.
@@ -1493,14 +1496,17 @@ export function rebasesDue(items, sent, base) {
 // How many grills and prototypes a board runs at once, unless its max_planners setting says otherwise.
 export const MAX_PLANNERS = 3;
 // For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
-// card in Todo nothing has picked up: buildable, neither ready nor staging, filed (not New), blocked by no unfinished dep, held or worked on by a session, with
+// card in Todo nothing has picked up: buildable, neither ready nor staging, filed (not New), not held or worked on by a session, with
 // no planner record ever, no grill or prototype requested and no question topic. However it was filed (an ask, item add,
-// the +, an import) it counts the same. The cap, less the planners running, takes them from the top; the rest wait.
+// the +, an import) it counts the same, and a blocked card arrives too: a block only keeps a card from In Progress
+// (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). The cap, less the planners running, takes
+// the unblocked arrivals first, then the blocked ones, each in board order; the rest wait.
 export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
-  const arrived = open.filter((i) => i.buildable && !['ready', 'staging'].includes(i.phase) && !i.unsorted && !i.blocked && !i.held && !i.working && !i.grilling && !i.prototyping
+  const fresh = open.filter((i) => i.buildable && !['ready', 'staging'].includes(i.phase) && !i.unsorted && !i.held && !i.working && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL));
+  const arrived = [...fresh.filter((i) => !i.blocked), ...fresh.filter((i) => i.blocked)];
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped arrival gets its grill past the cap.
   const bumped = arrived.filter((i) => i.bumpedAt);
   return [...bumped, ...arrived.filter((i) => !i.bumpedAt).slice(0, Math.max(0, cap - planners - bumped.length))].map((i) => i.key);
@@ -1707,6 +1713,7 @@ const STALL_NEXT = "item stall it with the reason when it can't go on";
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
 // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a staged card whose split was answered Split is filed as its split, not set ready.
 const STAGING_NEXT = 'Judge the staged card against the whole board: item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead';
+const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions against what landed; answer a stale one again with question settle <id> --note, or send the card back with item set --phase grilling when the change is too big; then item set --phase ready --text "<what you re-checked>"';
 function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
@@ -1722,6 +1729,9 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
       : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }
     : it.grilling && facts.grillAt && !running('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }
     : it.prototyping && facts.prototypeAt && !running('prototype') ? { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' }
+    // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
+    // for the re-check that releases it to the pull.
+    : it.recheckAt && it.lane === 'todo' && it.phase === 'ready' && !it.blocked ? { kind: 'recheck', since: it.recheckAt, next: RECHECK_NEXT }
     : it.refusal && facts.refusedAt ? { kind: 'refused', since: facts.refusedAt, next: it.refusal }
     : it.next === NO_NEXT && lastBuild ? { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' }
     // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.

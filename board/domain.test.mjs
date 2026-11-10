@@ -2075,7 +2075,6 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
     card('w/A3', { phase: 'prototyping' }),
   ];
   const pickedUp = [
-    card('w/B0', { blockedBy: [{ key: 'w/X' }], blocked: true }),
     card('w/B1', { phase: 'ready' }),
     card('w/B2', { held: true }),
     card('w/B4', { working: true }),
@@ -2088,8 +2087,11 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
     card('w/C2', { lane: 'done', buildable: false }),
   ];
   assert.deepEqual(arrivalsOf([...pickedUp, ...arrived], { cap: 99 }), ['w/A1', 'w/A2', 'w/A3']);
-  assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }], blocked: true })]), [], 'a blocked card waits for its blockers');
-  assert.deepEqual(arrivalsOf([card('w/B0')]), ['w/B0'], 'and arrives once none is left');
+  // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a block stops a build, not a plan.
+  assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }], blocked: true })]), ['w/B0'], 'a blocked card arrives and is grilled');
+  const blockedOrNot = [card('w/K1', { blocked: true }), card('w/K2'), card('w/K3', { blocked: true }), card('w/K4')];
+  assert.deepEqual(arrivalsOf(blockedOrNot, { cap: 3 }), ['w/K2', 'w/K4', 'w/K1'], 'unblocked arrivals take the planner slots first, then blocked ones, each in board order');
+  assert.deepEqual(arrivalsOf([...blockedOrNot, card('w/K5', { blocked: true, bumpedAt: at })], { cap: 2 }), ['w/K5', 'w/K2'], 'a bump still comes first');
   // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: filed and linked before its grill.
   assert.deepEqual(arrivalsOf([card('w/U0', { unsorted: true })]), [], 'a card that reads New arrives once its session files it');
   assert.deepEqual(arrivalsOf([...pickedUp, ...arrived]), ['w/A1', 'w/A2', 'w/A3'], 'the default cap takes three');
@@ -2396,6 +2398,16 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   const unblocked = { lane: 'review', unblocked_at: at };
   assert.deepEqual(shape(one(unblocked)), [['w/A1', 'unblocked', at, null]]);
   assert.deepEqual(one({ ...unblocked, lane: 'todo' }), [], 'a Todo card is the pull\'s');
+
+  // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
+  // for the orchestrator's re-check of its notes before the pull takes it.
+  const recheck = one({ phase: 'ready', recheck_at: at });
+  assert.deepEqual(shape(recheck), [['w/A1', 'recheck', at, null]]);
+  assert.match(recheck[0].next, /question settle <id> --note/);
+  assert.match(recheck[0].next, /item set --phase ready --text/);
+  assert.deepEqual(one({ phase: 'ready', recheck_at: at, blocked_until: 'the API ships' }), [], 'blocked again, it waits on its block');
+  const rechecking = built({ items: [{ id: 'A1', title: 'One', phase: 'ready', recheck_at: at }] });
+  assert.deepEqual([rechecking.items[0].ready, pullOf(rechecking.items).pullable], [false, []], 'the pull leaves it until the re-check releases it');
   assert.deepEqual(one({ ...unblocked, blocked_until: 'the API ships' }), [], 'blocked again');
   assert.equal(one(unblocked, { threads: { 'w/A1': [{ ts: later, who: 'claude', text: 'On it.' }] } }).length, 0, 'the session wrote on it');
 
@@ -2626,14 +2638,14 @@ test('a builder whose launch the board holds for a usage pause is no wait on the
 });
 
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
-test('a card blocked until a condition, with a reason, is blocked as a dep blocks it: not ready, not pulled, not grilled, until the condition clears', () => {
+test('a card blocked until a condition, with a reason, is blocked as a dep blocks it: not ready and not pulled until the condition clears, but grilled', () => {
   const built = (item) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [
     { id: 'A1', title: 'One', phase: 'ready', ...item }, { id: 'A2', title: 'Two', lane: 'progress' }] } }] });
   const card = (b) => b.items.find((i) => i.key === 'w/A1');
   const blocked = built({ blocked_until: 'the CI run on main is green', block_reason: 'the suite is red on main' });
   assert.deepEqual([card(blocked).blockedUntil, card(blocked).blockReason, card(blocked).blocked, card(blocked).ready], ['the CI run on main is green', 'the suite is red on main', true, false]);
   assert.deepEqual(pullOf(blocked.items).pullable, []);
-  assert.deepEqual(arrivalsOf(built({ phase: undefined, blocked_until: 'x' }).items), []);
+  assert.deepEqual(arrivalsOf(built({ phase: undefined, blocked_until: 'x' }).items), ['w/A1'], 'it is grilled all the same');
   assert.deepEqual(arrivalsOf(built({ phase: undefined }).items), ['w/A1']);
   const free = built({});
   assert.deepEqual([card(free).blockedUntil, card(free).blockReason, card(free).blocked, card(free).ready], [null, null, false, true]);

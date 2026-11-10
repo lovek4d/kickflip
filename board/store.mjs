@@ -1591,7 +1591,7 @@ export async function settleQuestion(site, id, note) {
   const staged = await readJSON(stagedFile(site), {});
   const screening = await readJSON(screeningFile(site), {});
   const key = Object.keys(staged).find((k) => staged[k].some((q) => q.id === id));
-  if (!key) fail(`no staged question "${id}"; question settle takes a question a finished grill left for you to screen`);
+  if (!key) return settleStale(site, id, said);
   if (!screening[key]) fail(`${id} waits for ${key}'s planner to finish`);
   const q = staged[key].find((x) => x.id === id);
   if (q.prototype_gate) fail(`${id} is the card's prototype question, which is the owner's; question publish ${key} passes it on`);
@@ -1602,6 +1602,21 @@ export async function settleQuestion(site, id, note) {
   const left = staged[key].filter((x) => x.id !== id);
   await writeJSON(stagedFile(site), left.length ? { ...staged, [key]: left } : withoutKey(staged, key));
   if (!left.length) await writeJSON(screeningFile(site), withoutKey(screening, key));
+  await appendNotes(site, key, `Answers (orchestrator, ${noteStamp()})`, `- ${id} (${q.question}): settled by the orchestrator. "${said}"`);
+  return ownerFile(site);
+}
+
+// docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: on a card waiting on the re-check its
+// block's end owes, the orchestrator answers a question the landed work made stale again, in its notes, as it settles
+// a screened one.
+async function settleStale(site, id, said) {
+  const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
+  const q = (owner.items || []).find((x) => x.id === id && x.topic?.startsWith('item:'));
+  if (!q) fail(`no staged question "${id}"; question settle takes a question a finished grill left for you to screen, or a card's question while it waits on your re-check`);
+  const key = q.topic.slice('item:'.length);
+  if (!(await loadItem(site, key)).item.recheck_at) fail(`${key} waits on no re-check, so its question ${id} stays answered as it is`);
+  const at = new Date().toISOString();
+  await writeJSON(ownerFile(site), { ...owner, items: owner.items.map((x) => x === q ? { ...x, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at } : x) });
   await appendNotes(site, key, `Answers (orchestrator, ${noteStamp()})`, `- ${id} (${q.question}): settled by the orchestrator. "${said}"`);
   return ownerFile(site);
 }
@@ -2372,10 +2387,14 @@ async function moveWaiters(site, key, { entries, words, waiters }) {
 
 // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo records when its block
 // ended, which domain.mjs orchestratorWaitOf reads as a wait until the session writes on the card. ts is its Unblocked line's.
+// A ready card in Todo records it as recheck_at, which keeps the pull off it until the orchestrator re-checks its notes
+// against what landed and releases it with item set --phase ready --text
+// (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). One still planning is judged in staging.
 async function markUnblocked(site, key, ts) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (!leftTodo(item)) return;
-  item.unblocked_at = ts;
+  if (leftTodo(item)) item.unblocked_at = ts;
+  else if (item.phase === 'ready') item.recheck_at = ts;
+  else return;
   await writeJSON(source.file, itemFile);
 }
 
@@ -2576,8 +2595,11 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
       : `${key} is held; start it only once the owner resumes it, with item set ${key} --unheld`);
   }
   const handover = pr !== undefined || pushed !== undefined || mergeReady !== undefined;
-  // A card that leaves Todo is never still held.
-  if (start || done || handBack || handover) clearHold(item);
+  // A card that leaves Todo is never still held, nor waiting on a re-check.
+  if (start || done || handBack || handover) {
+    clearHold(item);
+    delete item.recheck_at;
+  }
   if (start) {
     const blockers = await unfinishedDeps(site, parseKey(key).file, item);
     if (blockers.length) fail(`${key} is blocked by ${blockers.join(', ')}; start it once ${blockers.length === 1 ? 'that is' : 'those are'} done`);
@@ -2627,12 +2649,17 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   // the orchestrator's judgment against the whole board, which --text records in its notes.
   const judged = phase === 'ready' && item.phase === 'staging' && fromAsk === undefined;
   if (judged && said === undefined) fail(`${key} goes ready from staging on your judgment: pass --text "<what you checked it against on the board>", which goes into its notes`);
-  if (phase === 'ready' && !judged && said !== undefined && fromAsk === undefined && !done) fail(`${key} reads ${item.phase || 'no phase'}, not staging, so there is no judgment for --text to record`);
+  // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready card whose block ended goes back to
+  // the pull on the orchestrator's re-check, which --text records in its notes.
+  const rechecked = phase === 'ready' && item.phase === 'ready' && Boolean(item.recheck_at) && fromAsk === undefined;
+  if (rechecked && said === undefined) fail(`${key}'s block ended, so it builds once you re-check its notes against what landed: pass --text "<what you re-checked>", which goes into its notes`);
+  if (phase === 'ready' && !judged && !rechecked && said !== undefined && fromAsk === undefined && !done) fail(`${key} reads ${item.phase || 'no phase'}, not staging, so there is no judgment for --text to record`);
   const readied = phase === 'ready' && item.phase !== 'ready';
   if (phase !== undefined) {
     // docs/adr/2026-11-07-0700-staging-then-ready.md: sent back from staging or ready, the card gets its round from the board (domain.mjs roundsDue).
     if (phase !== 'ready' && ['staging', 'ready'].includes(item.phase)) item.round_at = new Date().toISOString();
     item.phase = phase;
+    delete item.recheck_at;
     delete item.staged_at;
     delete item.unfiled;
     delete item.filed_held;
@@ -2661,6 +2688,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   await writeJSON(source.file, itemFile);
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
+  if (rechecked) await appendNotes(site, key, `Re-checked (orchestrator, ${noteStamp()})`, said);
   if (readied) await appendCommand(site, key, { command: 'readied' });
   if (blocked) {
     const pausing = site && !(await isLanding(site, key)) && await requestPause(site, key, { cause: 'blocked', words: `blocked ${blocked}` });
