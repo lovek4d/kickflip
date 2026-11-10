@@ -12,7 +12,7 @@ import { BoardError, opensPRs, settingsOf } from './store.mjs';
 import { boardAt, hubCode, listBoards, readJSON, readManifest, samePath } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
-import { storedPath } from '../bin/install.mjs';
+import { nodeBin, storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
@@ -166,7 +166,7 @@ export function nodeTests(dir, { limit = 15 * 60 * 1000, testLimit = 5 * 60 * 10
   const files = testFiles(dir);
   if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
   const { NODE_TEST_CONTEXT: _, ...env } = process.env;
-  const child = spawn(process.execPath, ['--test', '--test-reporter=tap', `--test-timeout=${testLimit}`, ...files], { cwd: dir, env, detached: true });
+  const child = spawn(nodeBin(), ['--test', '--test-reporter=tap', `--test-timeout=${testLimit}`, ...files], { cwd: dir, env, detached: true });
   // macOS answers EPERM, not ESRCH, for a group whose processes have all died but aren't yet reaped.
   child.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH' && e.code !== 'EPERM') throw e; } });
   let stdout = '';
@@ -256,7 +256,7 @@ export function restartRunner(what, route) {
   } else if (what === 'hub') {
     return hubService().restart();
   } else {
-    cmd = [process.execPath, KICKFLIP, 'restart', route];
+    cmd = [nodeBin(), KICKFLIP, 'restart', route];
   }
   const r = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8' });
   return r.status === 0 ? null : (r.stderr || r.error?.message || `exit ${r.status}`).trim().split('\n')[0];

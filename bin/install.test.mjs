@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath, tailnetUrl, WATCHER_STOP } from './install.mjs';
+import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, storedPath, nodeBin, tailnetUrl, WATCHER_STOP } from './install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
@@ -1067,4 +1067,13 @@ test('install maps the hub through the GUI app’s tailscale when that is the on
     run: (command, argv) => { calls.push([command, ...argv].join(' ')); return { status: 0, stdout: '{}' }; },
   });
   assert.deepEqual(calls.filter((call) => /tailscale/i.test(call)), [`${APP_CLI} serve --bg 19460`, `${APP_CLI} serve status --json`]);
+});
+
+test('nodeBin names the Homebrew link only when the running node is the Cellar node', () => {
+  const link = path.join(home, 'node-link');
+  fs.writeFileSync(link, '');
+  const cellar = '/opt/homebrew/Cellar/node/26.12.0/bin/node';
+  assert.equal(nodeBin(cellar, link), link);
+  assert.equal(nodeBin(cellar, path.join(home, 'missing')), cellar);
+  assert.equal(nodeBin('/Users/x/.nvm/versions/node/v24/bin/node', link), '/Users/x/.nvm/versions/node/v24/bin/node');
 });

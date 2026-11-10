@@ -180,6 +180,7 @@ import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt, quietAt 
 import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs';
 import { endOf } from './duration.mjs';
+import { nodeBin } from '../bin/install.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
 import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
@@ -766,7 +767,7 @@ function runUpdate() {
   const out = fs.openSync(file, 'a');
   log('pulling the new kickflip');
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'update', '--no-restart'], { detached: true, stdio: ['ignore', out, out] });
+    const child = spawn(nodeBin(), [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'update', '--no-restart'], { detached: true, stdio: ['ignore', out, out] });
     fs.closeSync(out);
     child.unref();
     child.on('error', (e) => resolve({ ok: false, error: e.message }));

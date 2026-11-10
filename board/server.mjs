@@ -333,6 +333,7 @@ import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { GITHUB_STATE, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
+import { nodeBin } from '../bin/install.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
@@ -1838,7 +1839,7 @@ function runHeldMerge(key) {
   const logs = path.join(os.homedir(), '.claude', 'kickflip', 'logs');
   mkdirSync(logs, { recursive: true });
   const out = openSync(path.join(logs, `merge-${key.split('/')[1]}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`), 'a');
-  const cmd = process.env.KICKFLIP_MERGE_CMD ? JSON.parse(process.env.KICKFLIP_MERGE_CMD) : [process.execPath, BOARD_CLI];
+  const cmd = process.env.KICKFLIP_MERGE_CMD ? JSON.parse(process.env.KICKFLIP_MERGE_CMD) : [nodeBin(), BOARD_CLI];
   const child = spawn(cmd[0], [...cmd.slice(1), '--site', route, 'merge', key], { detached: true, stdio: ['ignore', out, out] });
   closeSync(out);
   child.on('error', (e) => appendStatus(here, key, 'land-failed', { why: `the land couldn't start (${e.message})` }).catch(() => {}));

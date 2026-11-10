@@ -6,8 +6,10 @@ import { cloneRoot as runningClone } from '../shared/repos.mjs';
 import { hubService, runCommand } from '../shared/service.mjs';
 import { tailscaleBin, tailscaleInstallHint } from '../shared/tailscale.mjs';
 
-// Homebrew's node link survives `brew upgrade`, which removes the versioned folder process.execPath names.
-export const nodeBin = () => (fs.existsSync('/opt/homebrew/bin/node') ? '/opt/homebrew/bin/node' : process.execPath);
+// Homebrew's node link survives `brew upgrade`, which removes the versioned Cellar folder process.execPath names.
+// Another install (nvm, a system node) keeps its own execPath.
+const HOMEBREW_LINK = '/opt/homebrew/bin/node';
+export const nodeBin = (execPath = process.execPath, link = HOMEBREW_LINK) => (execPath.startsWith('/opt/homebrew/Cellar/') && fs.existsSync(link) ? link : execPath);
 // The watcher a site's owning session runs as a background task (bin/wait-events.mjs).
 export const watcherCommand = (route, session, root = runningClone()) => `${nodeBin()} ${path.join(root, 'bin', 'wait-events.mjs')} ${route} ${session}`;
 
