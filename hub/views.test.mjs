@@ -589,6 +589,15 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.match(lists[1].textContent, /s-alone.*WebSearch/);
   live.paint({ ...data, groups: data.groups.map((g) => ({ ...g, sites: g.sites.map((s) => ({ ...s, remembered: [] })) })) });
   assert.equal(root.querySelector('.remembered'), null);
+  // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md: while GitHub's limit holds, the row is red,
+  // rate limited with its reset and the waits line, and no fix.
+  live.paint({ ...data, version: '0.4.2', integrations: [{ ...integrations[0], fix: undefined, limited: true, missing: 'resets at 3:12pm' }, ...integrations.slice(1)] });
+  const limited = root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations').nextSibling.querySelector('.row');
+  assert.equal(limited.querySelector('.st.down').textContent, 'rate limited');
+  assert.equal(limited.querySelector('.st.wait'), null);
+  assert.match(limited.textContent, /rate limited · resets at 3:12pm/);
+  assert.equal(limited.querySelector('.rd-waits').textContent, integrations[0].waits);
+  assert.match(limited.querySelector('.icon').getAttribute('style'), /var\(--color-danger\)/);
 });
 
 // docs/adr/2026-11-03-1638-the-hub-restarts-itself-from-its-stale-code-notice.md

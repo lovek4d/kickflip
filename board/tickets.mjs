@@ -54,7 +54,7 @@ async function issueRunner(source, run) {
   const token = await run('gh', ['auth', 'token', '-u', source.account]);
   if (token.status !== 0 || !token.stdout?.trim()) refuse(`gh has no ${source.account} account; run gh auth login`);
   const as = { ...process.env, GH_TOKEN: token.stdout.trim() };
-  return (command, argv) => run(command, argv, { env: as });
+  return (command, argv) => run(command, argv, { env: as, account: source.account });
 }
 
 const linearCall = async (fn) => { try { return await fn(); } catch (e) { refuse(e.message); } };

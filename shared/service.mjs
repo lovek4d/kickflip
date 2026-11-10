@@ -2,12 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { ghSync } from './gh.mjs';
 
 export const LOGIN_LABEL = 'local.claude.kickflip-hub';
 export const UNIT = 'kickflip-hub.service';
 
+// gh runs through GitHub's limit gate (shared/gh.mjs).
 export function runCommand(command, argv, { env = process.env, timeout = 10000 } = {}) {
-  const r = spawnSync(command, argv, { encoding: 'utf8', env, timeout });
+  const r = command === 'gh' ? ghSync(argv, { env, timeout }) : spawnSync(command, argv, { encoding: 'utf8', env, timeout });
   return { status: r.status ?? 1, stdout: r.stdout || '', error: (r.error?.message || r.stderr || `exit ${r.status}`).trim().split('\n')[0] };
 }
 

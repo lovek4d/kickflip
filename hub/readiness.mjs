@@ -2,6 +2,8 @@
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { githubLogin } from './pr-report.mjs';
+import { clock } from './schedule.mjs';
+import { gateFile, limitedUntil } from '../shared/gh.mjs';
 import { codexStatusReader } from '../shared/codex.mjs';
 import { linearStatus } from './linear.mjs';
 import { slackStatus } from './slack.mjs';
@@ -24,7 +26,10 @@ const settingsFix = (settings, label, text) => ({ settings, label: `Hub settings
 export function readinessRows(checks, { now = Date.now(), platform = process.platform } = {}) {
   const row = (id, value) => {
     switch (id) {
-      case 'github': return value ? { ready: true, detail: `gh logged in as ${value}` }
+      // value: gh's login, null when gh has none, or {limited: the reset} while GitHub's limit holds gh's account
+      // (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md).
+      case 'github': return value?.limited ? { ready: false, limited: true, missing: `resets at ${clock(new Date(value.limited), new Date(now))}` }
+        : value ? { ready: true, detail: `gh logged in as ${value}` }
         : { ready: false, missing: "gh isn't logged in on the host", fix: { command: 'gh auth login' } };
       case 'codex': return value.usable ? { ready: true, detail: 'Installed and logged in' }
         : { ready: false, missing: value.words, fix: { command: value.fix } };
@@ -67,6 +72,8 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
   const cache = new Map();
   async function check(id, fresh) {
     if (!['github', 'tailscale'].includes(id)) return read[id]({ fresh });
+    const limited = id === 'github' && limitedUntil({ file: gateFile(home), now: now() });
+    if (limited) return { limited };
     const saved = cache.get(id);
     if (!fresh && saved && now() - saved.at < cacheMs) return saved.value;
     const value = Promise.resolve().then(() => read[id]());

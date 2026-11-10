@@ -24,10 +24,14 @@
     const look = pr.status === PR_STATE.open && waitsOnReviewer(pr) ? { ...base, tone: 'ready', label: 'Ready for review' } : base;
     const CI = { pass: { tone: 'ready', mark: '✓' }, fail: { tone: 'danger', mark: '✗' }, pending: { tone: 'notice', mark: '●' } }[pr.checks?.state] || { tone: 'quiet', mark: '?' };
     const live = pr.state === 'OPEN';
-    const ci = pr.checks ? badge(live ? CI.tone : 'quiet', `CI ${CI.mark}`, { title: `CI ${pr.checks.state}` }) : '';
-    const codex = pr.codexOpen ? badge(live ? 'notice' : 'quiet', `codex ${esc(pr.codexOpen)}`, { title: `${pr.codexOpen} Codex finding${pr.codexOpen === 1 ? '' : 's'} not answered yet` }) : '';
+    // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md: while GitHub's limit holds the hub's check
+    // (pr.limited, its reset), the PR's chips dim and their titles say when it resets.
+    const note = pr.limited ? ` · GitHub rate limited, resets at ${clock(new Date(pr.limited))}` : '';
+    const dim = pr.limited ? { 'data-limited': '' } : {};
+    const ci = pr.checks ? badge(live ? CI.tone : 'quiet', `CI ${CI.mark}`, { title: `CI ${pr.checks.state}${note}`, attrs: dim }) : '';
+    const codex = pr.codexOpen ? badge(live ? 'notice' : 'quiet', `codex ${esc(pr.codexOpen)}`, { title: `${pr.codexOpen} Codex finding${pr.codexOpen === 1 ? '' : 's'} not answered yet${note}`, attrs: dim }) : '';
     const name = prName(pr);
-    const label = look.label ? { title: look.label, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${look.label}` } } : { attrs: EXTERNAL };
+    const label = look.label ? { title: `${look.label}${note}`, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${look.label}`, ...dim } } : { title: note.slice(3) || undefined, attrs: { ...EXTERNAL, ...dim } };
     return `${badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label })}${ci}${codex}`;
   }
   const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');

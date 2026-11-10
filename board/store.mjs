@@ -6,6 +6,7 @@ import { constants as fsConstants, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
+import { gh, limitWords } from '../shared/gh.mjs';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, waveItems, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
@@ -2810,8 +2811,14 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   const prs = cardPRs(item, repo);
   if (!prs.length) fail(`${key} has no repo`);
   const now = new Date().toISOString();
+  // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md: GitHub's limit refusing a read or the merge
+  // goes in the card's thread with its reset.
+  const limited = (until) => appendStatus(site, key, 'gh-limited', { what: 'Not merged', words: limitWords(until) });
   let fetched;
-  try { fetched = await Promise.all(prs.map((p) => fetchPR({ repo: p.repo, pr: p.number, since: now }))); } catch (e) { fail(e.message); }
+  try { fetched = await Promise.all(prs.map((p) => fetchPR({ repo: p.repo, pr: p.number, since: now }))); } catch (e) {
+    if (e.limited) await limited(e.limited);
+    fail(e.message);
+  }
   const states = fetched.map(({ view }) => view);
   if (allLanded(states)) {
     const merged = prs.map((p, i) => ({ ...p, at: states[i].mergedAt })).filter((_, i) => states[i].state === 'MERGED');
@@ -2848,10 +2855,9 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   }
   const done = [];
   for (const p of open) {
-    const error = await new Promise((resolve) => {
-      execFile('gh', ['pr', 'merge', String(p.number), '--repo', p.repo, '--squash'], { encoding: 'utf8', timeout: 120_000 }, (e, stdout, stderr) => resolve(e ? String(stderr || e.message).trim().split('\n')[0] : null));
-    });
-    if (error) fail(`gh pr merge ${prNames([p], repo)} failed: ${error}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
+    const merged = await gh(['pr', 'merge', String(p.number), '--repo', p.repo, '--squash'], { timeout: 120_000 });
+    if (merged.limited) await limited(merged.limited);
+    if (merged.status !== 0) fail(`gh pr merge ${prNames([p], repo)} failed: ${merged.stderr.trim().split('\n')[0] || `gh exited ${merged.status}`}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
     done.push(p);
   }
   // The merge is the board's status line, and the orchestrator's words on it, when it gave any, its message after.

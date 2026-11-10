@@ -133,3 +133,24 @@ test('readiness uses the extracted Tailscale checks with an asynchronous runner'
   assert.equal(missing.ready, false);
   assert.equal(missing.fix.command, 'kickflip doctor --fix');
 });
+
+// docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md
+test("while GitHub's limit holds gh's account, the GitHub row reads rate limited with its reset, read fresh each time", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'readiness-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const gate = path.join(home, '.claude', 'kickflip', 'gh-limit.json');
+  fs.mkdirSync(path.dirname(gate), { recursive: true });
+  const reset = new Date(now + 41 * 60_000);
+  let logins = 0;
+  const r = readinessReader({ home, now: () => now, probes: { ...probesOf(ready()), github: () => { logins++; return 'love'; } } });
+  assert.equal((await r.rows())[0].ready, true);
+  fs.writeFileSync(gate, JSON.stringify({ octo: { core: reset.toISOString() } }));
+  assert.equal((await r.rows())[0].ready, true, "another account's limit leaves the row ready");
+  fs.writeFileSync(gate, JSON.stringify({ primary: { core: new Date(now + 60_000).toISOString(), graphql: reset.toISOString() } }));
+  const [row] = await r.rows();
+  const at = `${reset.getHours() % 12 || 12}:${String(reset.getMinutes()).padStart(2, '0')}${reset.getHours() < 12 ? 'am' : 'pm'}`;
+  assert.deepEqual(row, { id: 'github', name: 'GitHub', ready: false, limited: true, missing: `resets at ${at}`, waits: 'GitHub polling and PR reports wait on this.' });
+  fs.writeFileSync(gate, JSON.stringify({ primary: { graphql: new Date(now - 1000).toISOString() } }));
+  assert.equal((await r.rows())[0].ready, true, 'the row is ready again once the limit resets');
+  assert.equal(logins, 1, 'gh is asked only when the cache runs out, the gate on every read');
+});

@@ -63,7 +63,7 @@ The word on the Hub row of the sidebar and the hub page's Health card: **healthy
 _Avoid_: broken, hub health
 
 **Integration readiness**:
-What each integration needs before its features can run: the Hub page’s Integrations section between Health and Boards lists GitHub, Codex, Linear, Slack, Tailscale and Notifications in that order. A row reading ready says what passed; one reading not ready is orange and says what is missing, how to fix it and which features wait. Slack is ready while Hub’s Slack token is saved and Slack hasn’t refused it; the hub shares the same readiness and words with feature gates ([integrations show readiness, and features wait until theirs is ready](docs/adr/2026-11-02-1118-integrations-show-readiness-and-features-wait.md)).
+What each integration needs before its features can run: the Hub page’s Integrations section between Health and Boards lists GitHub, Codex, Linear, Slack, Tailscale and Notifications in that order. A row reading ready says what passed; one reading not ready is orange and says what is missing, how to fix it and which features wait. While GitHub's hourly limit holds gh's account, GitHub's row is red, "rate limited · resets at <time>", every kickflip gh call on the spent budget refuses at once with that time, and boards dim their PR badges ([gh refuses while GitHub's hourly limit holds](docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md)). Slack is ready while Hub’s Slack token is saved and Slack hasn’t refused it; the hub shares the same readiness and words with feature gates ([integrations show readiness, and features wait until theirs is ready](docs/adr/2026-11-02-1118-integrations-show-readiness-and-features-wait.md)).
 _Avoid_: integration health, availability
 
 **Usage reading**:
@@ -569,6 +569,7 @@ Refs in text that Claude or the owner wrote are linked by the renderer, never by
 | `../hub/try.mjs` | Hub-owned card and main runs, async git tick, branch fetches, proxy lookup, idle cleanup and atomic try state |
 | `../build-script.mjs` | Fixed build script file, ownership, permissions and executable checks |
 | `../shared/usage-gate.mjs` | The pause line, Keep going, Codex handoff and file reader shared by the hub, CLI, hooks, watcher and builder start |
+| `../shared/gh.mjs` | The one gh runner, holding GitHub's hourly limit gate (`gh-limit.json`) by account and budget, which every kickflip gh call goes through |
 | `../shared/colors.css` | Every color, served as `colors.css` and linked before `style.css`; the hub serves it as `/_hub/colors.css` |
 | `ui.js` | Shared helpers: escaping, times, reply bodies, attachments, icons and message buttons, badges by tone, `setHTML`, which patches a region in place and keeps the focused field's focus when it moves, and `fetchJSON`, through which the side pages read the API and wait out a board restart |
 | `ui-links.js` | Linking refs, Linear ids, PRs and URLs in written text; load it right after `ui.js` |

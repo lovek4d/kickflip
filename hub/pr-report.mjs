@@ -1,47 +1,47 @@
 // GitHub's raw PR data and the session's report (docs/adr/2026-11-01-2314-the-hub-reads-github-itself.md).
-import { execFile } from 'node:child_process';
+import { gh as ghRun, PRIMARY } from '../shared/gh.mjs';
 
 export const PR_VIEW_FIELDS = 'state,isDraft,reviewDecision,mergeable,mergeStateStatus,headRefOid,statusCheckRollup';
+// The hub runs under the host's service manager, whose PATH may not hold gh.
 const GH_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+const withPath = (env = process.env) => ({ ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') });
 const firstLine = (value) => String(value).trim().split(/\r?\n/)[0].slice(0, 200);
 
-function gh(args, env = process.env) {
-  return new Promise((resolve, reject) => {
-    execFile('gh', args, { env: { ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') }, timeout: 90_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(firstLine(stderr || err.message)));
-      try { resolve(JSON.parse(stdout)); } catch (e) { reject(new Error(firstLine(`unreadable output (${e.message})`))); }
-    });
-  });
+// One gh call through the gate (shared/gh.mjs), as account (its env carrying that account's token). → its JSON
+async function gh(args, { env, account } = {}) {
+  const r = await ghRun(args, { env: withPath(env), account, timeout: 90_000, maxBuffer: 16 * 1024 * 1024 });
+  if (r.status !== 0) throw Object.assign(new Error(firstLine(r.stderr || `gh exited ${r.status}`)), { limited: r.limited });
+  try { return JSON.parse(r.stdout); } catch (e) { throw new Error(firstLine(`unreadable output (${e.message})`)); }
 }
 
 // Every GitHub post Claude writes opens with the robot and ends with the marker reportOf reads as Claude's own.
 export const CLAUDE_PREFIX = '🤖 ';
 export const CLAUDE_MARK = '<!-- claude-bridge -->';
 
-// gh's environment as login when given (its token from gh's own store, read each time since it can be rotated), else as
-// gh's active account.
-async function envFor(login) {
-  const env = process.env;
-  if (!login) return env;
-  const token = await new Promise((resolve) => execFile('gh', ['auth', 'token', '-u', login], { env: { ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') } }, (err, stdout) => resolve(err ? '' : stdout.trim())));
+// gh as login when given (its token from gh's own store, read each time since it can be rotated), else as gh's active
+// account. → {env, account} for gh
+async function asLogin(login) {
+  if (!login) return { env: process.env, account: PRIMARY };
+  const r = await ghRun(['auth', 'token', '-u', login], { env: withPath() });
+  const token = r.status === 0 ? r.stdout.trim() : '';
   if (!token) throw new Error(`gh has no ${login} account; run gh auth login`);
-  return { ...env, GH_TOKEN: token };
+  return { env: { ...process.env, GH_TOKEN: token }, account: login };
 }
 
 // Posts Claude's words on PR pr of repo: a comment, or with replyTo a reply in that review comment's thread, as login.
 // → the post's url
 export async function postToPR({ repo, pr, replyTo, words, login }) {
-  const env = await envFor(login);
+  const as = await asLogin(login);
   const endpoint = replyTo === undefined ? `repos/${repo}/issues/${pr}/comments` : `repos/${repo}/pulls/${pr}/comments/${replyTo}/replies`;
-  try { return (await gh(['api', endpoint, '-f', `body=${CLAUDE_PREFIX}${words}\n\n${CLAUDE_MARK}`], env)).html_url; }
+  try { return (await gh(['api', endpoint, '-f', `body=${CLAUDE_PREFIX}${words}\n\n${CLAUDE_MARK}`], as)).html_url; }
   catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
 }
 
 // Posts body as one Comment review (never an approval or a request for changes) on PR pr of repo at commit head, as
 // login. → the review's url
 export async function postReview({ repo, pr, head, body, login }) {
-  const env = await envFor(login);
-  try { return (await gh(['api', `repos/${repo}/pulls/${pr}/reviews`, '-f', `body=${body}`, '-f', 'event=COMMENT', '-f', `commit_id=${head}`], env)).html_url; }
+  const as = await asLogin(login);
+  try { return (await gh(['api', `repos/${repo}/pulls/${pr}/reviews`, '-f', `body=${body}`, '-f', 'event=COMMENT', '-f', `commit_id=${head}`], as)).html_url; }
   catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
 }
 
@@ -65,11 +65,9 @@ export async function reviewsSince({ repo, pr, since }) {
 
 // Marks a draft PR ready for review as gh's active account, the one the finish opened it with (board/finish.mjs).
 // Throws with gh's reason when GitHub refuses.
-export function markReady({ repo, pr }) {
-  return new Promise((resolve, reject) => {
-    execFile('gh', ['pr', 'ready', String(pr), '--repo', repo], { env: { ...process.env, PATH: [process.env.PATH, GH_PATH].filter(Boolean).join(':') }, timeout: 90_000 },
-      (err, _stdout, stderr) => (err ? reject(new Error(firstLine(stderr || err.message))) : resolve()));
-  });
+export async function markReady({ repo, pr }) {
+  const r = await ghRun(['pr', 'ready', String(pr), '--repo', repo], { env: withPath(), timeout: 90_000 });
+  if (r.status !== 0) throw new Error(firstLine(r.stderr || `gh exited ${r.status}`));
 }
 
 // Whether a PR's checks all passed, from GraphQL's status check rollup: every check run completed as a success,
@@ -80,7 +78,7 @@ export const checksPassed = (rollup) => rollup.every((c) => (c.__typename === 'S
 export async function fetchPR({ repo, pr, since }) {
   let view;
   try { view = await gh(['pr', 'view', String(pr), '--repo', repo, '--json', PR_VIEW_FIELDS]); }
-  catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
+  catch (e) { throw Object.assign(new Error(`${repo}#${pr}: ${e.message}`), { limited: e.limited }); }
   const list = (endpoint) => gh(['api', '--paginate', '--slurp', `repos/${repo}/${endpoint}`]).then((pages) => pages.flat()).catch(() => []);
   const [issueComments, reviewComments, reviews] = await Promise.all([
     list(`issues/${pr}/comments?since=${encodeURIComponent(since)}`),
@@ -105,15 +103,12 @@ const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus
   + ` reviewThreads(last: 50) { nodes { comments(first: 20) { nodes { databaseId ${AUTHOR} createdAt body url path line replyTo { databaseId } } } } }`;
 
 // gh api graphql answers a query that partly failed with its data and errors on stdout and a non-zero exit.
-function graphql(query, env = process.env) {
-  return new Promise((resolve, reject) => {
-    execFile('gh', ['api', 'graphql', '-f', `query=${query}`], { env: { ...env, PATH: [env.PATH, GH_PATH].filter(Boolean).join(':') }, timeout: 90_000, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
-      let body = null;
-      try { body = JSON.parse(stdout); } catch {}
-      if (body?.data) return resolve(body);
-      reject(new Error(`GitHub query: ${firstLine(err ? stderr || err.message : 'unreadable output')}`));
-    });
-  });
+async function graphql(query) {
+  const r = await ghRun(['api', 'graphql', '-f', `query=${query}`], { env: withPath(), timeout: 90_000, maxBuffer: 64 * 1024 * 1024 });
+  let body = null;
+  try { body = JSON.parse(r.stdout); } catch {}
+  if (body?.data) return body;
+  throw new Error(`GitHub query: ${firstLine(r.status !== 0 ? r.stderr || `gh exited ${r.status}` : 'unreadable output')}`);
 }
 
 // REST's login for a GraphQL author: a bot's ends in [bot], as reportOf reads it.
@@ -224,7 +219,7 @@ export async function prFiles(repo, pr) {
 }
 
 export async function githubLogin({ env } = {}) {
-  const user = await gh(['api', 'user'], env);
+  const user = await gh(['api', 'user'], { env });
   if (typeof user?.login !== 'string' || !user.login) throw new Error('gh api user: missing login');
   return user.login;
 }

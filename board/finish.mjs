@@ -12,7 +12,7 @@
 // changes the card, so the builder stays on, fixes it and finishes again.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { ghSync, limitWords } from '../shared/gh.mjs';
 import * as store from './store.mjs';
 import { builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
@@ -137,11 +137,13 @@ async function sendForReview(site, key, { path: dir, branch, base, ref, text }) 
     return { said: `pushed ${branch} for its merge`, lines: set.lines };
   }
   const { title } = await store.briefFacts(site, key);
-  const created = spawnSync('gh', ['pr', 'create', '--draft', '--repo', github, '--base', base, '--head', branch, '--title', `${ref}: ${title}`, '--body', text], { cwd: dir, encoding: 'utf8' });
+  const created = ghSync(['pr', 'create', '--draft', '--repo', github, '--base', base, '--head', branch, '--title', `${ref}: ${title}`, '--body', text], { cwd: dir });
   // A PR an earlier finish opened for the branch is the one the card moves to.
   const out = `${created.stdout || ''}\n${created.stderr || ''}`;
   const number = (created.status === 0 || /already exists/.test(out)) && /\/pull\/(\d+)/.exec(out)?.[1];
-  if (!number) fail(`could not open a draft PR for ${branch}: ${(created.stderr || created.error?.message || `gh exited ${created.status}`).trim().split('\n')[0]}`);
+  // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md: GitHub's limit refusing it goes in the card's thread.
+  if (created.limited) await store.appendStatus(site, key, 'gh-limited', { what: 'No PR opened', words: limitWords(created.limited) });
+  if (!number) fail(`could not open a draft PR for ${branch}: ${(created.stderr || `gh exited ${created.status}`).trim().split('\n')[0]}`);
   const set = await store.setItem(site, key, { pr: Number(number) });
   await store.appendMessage(site, key, { text });
   return { said: `draft PR #${number} opened`, lines: set.lines };

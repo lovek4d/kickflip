@@ -31,6 +31,10 @@ const jsonl = (dir, name) => {
 export const calls = (dir) => jsonl(dir, 'calls.jsonl');
 // {remaining, resetAt}: the rate limit the GraphQL query answers, or {fail: true} to fail the whole query.
 export const writeRate = (dir, value) => write(dir, '', 'rate', value);
+// {core?, graphql?: reset ISO time}: GitHub's hourly limit holds those budgets, so a call spending one fails as GitHub
+// answers it and gh api rate_limit shows it spent; {secondary: true}: every call that spends a budget hits the
+// secondary limit, which rate_limit doesn't show.
+export const writeLimit = (dir, value) => write(dir, '', 'limit', value);
 // One entry per GraphQL query: the owner/repo#n of each PR it asked for, in order
 // (not the repos it listed open PRs of).
 export const queried = (dir) => calls(dir).filter((a) => a[0] === 'api' && a[1] === 'graphql')
@@ -57,6 +61,21 @@ const args = process.argv.slice(2);
 fs.appendFileSync(path.join(dir, 'calls.jsonl'), JSON.stringify(args) + '\\n');
 fs.appendFileSync(path.join(dir, 'tokens.jsonl'), JSON.stringify({ args, token: process.env.GH_TOKEN || null }) + '\\n');
 const fail = () => { console.error('no fixture for: ' + args.join(' ')); process.exit(1); };
+let limit = null;
+try { limit = JSON.parse(fs.readFileSync(path.join(dir, 'limit.json'), 'utf8')); } catch {}
+if (args[0] === 'api' && args[1] === 'rate_limit') {
+  const budget = (b) => (limit?.[b] ? { limit: 5000, remaining: 0, reset: Math.floor(Date.parse(limit[b]) / 1000) } : { limit: 5000, remaining: 4990, reset: Math.floor(Date.now() / 1000) + 3600 });
+  console.log(JSON.stringify({ resources: { core: budget('core'), graphql: budget('graphql') } }));
+  process.exit(0);
+}
+const spends = args[0] === 'api' ? (args.slice(1).find((a) => !a.startsWith('-')) === 'graphql' ? 'graphql' : 'core')
+  : ['pr', 'issue', 'repo'].includes(args[0]) ? 'graphql' : args[0] === 'run' || (args[0] === 'auth' && args[1] !== 'token') ? 'core' : null;
+if (spends && limit?.secondary) { console.error('gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)'); process.exit(1); }
+if (spends && limit?.[spends]) {
+  if (args[1] === 'graphql') console.log(JSON.stringify({ errors: [{ type: 'RATE_LIMITED', message: 'API rate limit already exceeded for user ID 1.' }] }));
+  console.error(spends === 'graphql' ? 'GraphQL: API rate limit already exceeded for user ID 1.' : 'gh: API rate limit exceeded for user ID 1. (HTTP 403)');
+  process.exit(1);
+}
 // The repo's own fixture for PR n, else the one for n in any repo.
 const fixture = (folder, repo, n) => {
   const own = path.join(dir, folder, repo.replace('/', '__') + '__' + n + '.json');

@@ -331,6 +331,7 @@ import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resu
 import { replyFilesOf, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readAskProgress, readAskTitles, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { GITHUB_STATE, boardAt, listenState, linksOf } from '../hub/boards.mjs';
+import { limitedUntil } from '../shared/gh.mjs';
 import { pendingFor, shown } from '../hub/prompts.mjs';
 import { routeRecord } from '../hub/routes.mjs';
 import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
@@ -527,10 +528,11 @@ async function listEvents(kind, limit) {
 
 // docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md: a PR's state is the hub's last check of it,
 // its summary in github-state.json (hub/github.mjs summarize), with the fields the board's badges draw; null before
-// the hub has checked it.
-const prViewOf = (s) => (s ? { title: s.title, url: s.url, state: s.state, isDraft: s.isDraft, reviewDecision: s.reviewDecision, mergeStateStatus: s.mergeStateStatus,
+// the hub has checked it. limited is when GitHub's limit on the check's GraphQL resets while it holds, else null, for the
+// badges to dim (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md).
+const prViewOf = (s, limited) => (s ? { title: s.title, url: s.url, state: s.state, isDraft: s.isDraft, reviewDecision: s.reviewDecision, mergeStateStatus: s.mergeStateStatus,
   mergeable: s.mergeable, checks: s.checks, mergedAt: s.mergedAt, headRefName: s.headRefName, headRefOid: s.headRefOid, updatedAt: s.updatedAt,
-  reviews: s.reviews, codexOpen: s.codexOpen } : null);
+  reviews: s.reviews, codexOpen: s.codexOpen, limited } : null);
 
 const config = () => boardConfig(here);
 
@@ -612,10 +614,11 @@ async function snapshot(outside, archived = []) {
   const prs = Object.create(null);
   const archivedKeys = new Set(archived.map((a) => a.key));
   const checked = (await readJSON(GITHUB_STATE, {})).prs || {};
+  const limited = limitedUntil({ budget: 'graphql' });
   for (const { slug, itemFile } of files) {
     const repo = items.github || itemFile.repo;
     for (const it of itemFile.items) {
-      for (const p of cardPRs(it, repo)) prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? null : prViewOf(routeRecord(checked, prKeyOf(p)));
+      for (const p of cardPRs(it, repo)) prs[prKeyOf(p)] = archivedKeys.has(`${slug}/${it.id}`) ? null : prViewOf(routeRecord(checked, prKeyOf(p)), limited);
     }
   }
   const needsReply = new Set(['ask', 'owner-answer', 'grill-more', 'visual-request', 'item-message', 'wave-triage', 'overnight-triage']);

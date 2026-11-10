@@ -85,6 +85,8 @@ export const HUB_LINES = {
   'lander-failed': { mark: FAULT, fault: true, text: ({ error }) => fit("Couldn't launch the lander; land it by hand: ", error) },
   'rebase-failed': { mark: FAULT, fault: true, text: ({ pr, error }) => fit(`PR #${pr} conflicts, but the rebase run couldn't start: `, error), longest: { pr: 100000 } },
   'rebase-launch-failed': { mark: FAULT, fault: true, text: ({ error }) => fit("Couldn't launch the rebase run; it reads stopped: ", error) },
+  // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md: a merge or a finish's PR that GitHub's limit refused.
+  'gh-limited': { mark: FAULT, fault: true, text: ({ what, words }) => fit(`${what}: `, words, '.'), longest: { what: 'No PR opened' } },
   'merge-refused': { mark: FAULT, fault: true, text: ({ why }) => fit('Not merged: ', why, '.') },
   'land-failed': { mark: FAULT, fault: true, text: ({ why }) => fit('Not merged: ', why, '. Tap Merge again.') },
   'push-failed': { mark: FAULT, fault: true, text: ({ base, error }) => fit(`Landed, but ${base} didn't reach origin: `, error), longest: { base: 'a-long-base-branch' } },

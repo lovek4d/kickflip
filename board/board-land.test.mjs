@@ -5,7 +5,8 @@ import path from 'node:path';
 import { until } from '../shared/test-helpers.mjs';
 import { land as landWorktree } from './worktree.mjs';
 import { opensPRs, settingsOf } from './store.mjs';
-import { fakeGh, prView, writePR, writeReviews, writeMerge, calls } from '../shared/fake-gh.mjs';
+import { fakeGh, prView, writePR, writeReviews, writeMerge, writeLimit, calls } from '../shared/fake-gh.mjs';
+import { clock } from '../hub/schedule.mjs';
 import { bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, restarts, land, branches, finishEnv, onOrch, record, itemOf, threadOf, remoteBoard, tapMerge, addEvents } from './board-fixture.mjs';
 
 test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and leaves its refusal off the card's thread", () => {
@@ -51,6 +52,24 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   assert.equal(merge('w/A2').code, 0);
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A2.jsonl')).at(-1).text, 'PR #8 was already merged.');
   assert.equal(merges().length, 2);
+});
+
+// docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md
+test("while GitHub's limit holds, merge refuses at once with the reset time and says so in the card's thread", () => {
+  const dir = path.join(home, 'fake-gh');
+  const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
+  const merge = (...args) => run('board.mjs', ['--site', 'orch', 'merge', ...args], undefined, env);
+  write(at('waves', 'w', 'wave.json'), { ...wave(), repo: 'o/r', items: [{ id: 'A1', title: 'One', pr: 7, lane: 'review' }] });
+  writePR(dir, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' }));
+  const reset = new Date(Math.floor(Date.now() / 1000 + 3600) * 1000);
+  writeLimit(dir, { graphql: reset.toISOString() });
+  const words = `GitHub rate limited, resets at ${clock(reset)}`;
+  assert.deepEqual(merge('w/A1'), { code: 1, out: '', err: `o/r#7: ${words}\n` });
+  const ran = calls(dir).length;
+  assert.deepEqual(merge('w/A1'), { code: 1, out: '', err: `o/r#7: ${words}\n` });
+  assert.equal(calls(dir).length, ran, 'a merge under the limit runs no gh');
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => [m.line, m.text]), [['gh-limited', `Not merged: ${words}.`], ['gh-limited', `Not merged: ${words}.`]]);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items[0].lane, 'review');
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
@@ -645,6 +664,29 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   assert.deepEqual([itemOf().prs, itemOf().lane, typeof record().done], [[{ number: 100 }], 'review', 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it on the phone.');
   assert.equal(fs.existsSync(worktree()), true);
+});
+
+// docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md
+test("while GitHub's limit holds, builder done pushes the branch but opens no PR, and says so with the reset time in the card's thread", () => {
+  const ghDir = path.join(home, 'gh');
+  remoteBoard(() => ({ github: 'owner/project' }));
+  const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
+  const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  const reset = new Date(Math.floor(Date.now() / 1000 + 3600) * 1000);
+  writeLimit(ghDir, { graphql: reset.toISOString() });
+  const words = `GitHub rate limited, resets at ${clock(reset)}`;
+  const r = b('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(r.code, 1);
+  assert.ok(r.err.includes(`could not open a draft PR for A1: ${words}`), r.err);
+  assert.equal(itemOf().prs, undefined);
+  assert.deepEqual([threadOf().at(-1).line, threadOf().at(-1).text], ['gh-limited', `No PR opened: ${words}.`]);
+  fs.rmSync(path.join(ghDir, 'limit.json'));
+  fs.rmSync(path.join(home, '.claude', 'kickflip', 'gh-limit.json'));
+  const again = b('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(again.code, 0, again.err);
+  assert.ok(again.out.includes('\nA1: draft PR #101 opened\n'), again.out);
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md

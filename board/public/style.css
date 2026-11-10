@@ -73,6 +73,8 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px 80px; }
 button.chip { border: 0; }
 .chip.tone-quiet { color: var(--color-quiet); } .chip.tone-normal { color: var(--color-info); } .chip.tone-notice { color: var(--color-notice); }
 .chip.tone-danger { color: var(--color-danger); } .chip.tone-ready { color: var(--color-success); } .chip.tone-merged { color: var(--color-merged); }
+/* A PR's chips while GitHub's limit holds the hub's check (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md) */
+.chip[data-limited] { opacity: .45; }
 /* Action needed keeps the notice orange; unread takes the accent so the two never read alike. */
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--color-quiet); }
 .dot.pass { background: var(--color-success); } .dot.pending { background: var(--color-notice); } .dot.fail { background: var(--color-danger); }

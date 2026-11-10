@@ -134,6 +134,16 @@ test('PR chips show the repo with an orange dot for a draft or a green check onc
   assert.deepEqual(['pass', 'fail', 'pending', 'unknown'].map(ci), ['tone-ready', 'tone-danger', 'tone-notice', 'tone-quiet']);
 });
 
+// docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md
+test("while GitHub's limit holds the hub's check, a PR's badge, CI and Codex chips dim and say when it resets", () => {
+  const reset = new Date(2026, 10, 9, 15, 12).toISOString();
+  const chips = ui.prChips({ prs: [{ ...openPR, codexOpen: 1, limited: reset }] });
+  assert.equal(text(chips), 'repo#7 ✓ CI ✓ codex 1');
+  assert.equal([...chips.matchAll(/<(?:a|span) class="chip tone-\w+"[^>]* data-limited="">/g)].length, 3);
+  assert.equal([...chips.matchAll(/title="[^"]*· GitHub rate limited, resets at 3:12 pm"/g)].length, 3);
+  assert.doesNotMatch(ui.prChips({ prs: [{ ...openPR, codexOpen: 1, limited: null }] }), /data-limited|rate limited/);
+});
+
 test("a card with several PRs shows a badge for each, in its order, with that PR's state, CI and link", () => {
   const site = { ...openPR, number: 1, url: 'https://github.com/o/site/pull/1', isDraft: true, status: 'draft', checks: { state: 'fail' } };
   const merged = { ...openPR, state: 'MERGED', status: 'merged' };

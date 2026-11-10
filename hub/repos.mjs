@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { gh } from '../shared/gh.mjs';
 import { reposDir } from '../shared/repos.mjs';
 import { withFileLock } from './locks.mjs';
 import { storedPath } from '../bin/install.mjs';
@@ -67,8 +68,10 @@ export async function repoLookupRoute(url, { repos, manifest, sendJSON }) {
   catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
 }
 
-// onStderr takes each stderr chunk as it arrives, such as git's progress.
+// onStderr takes each stderr chunk as it arrives, such as git's progress. gh runs through GitHub's limit gate
+// (shared/gh.mjs) as options.account, gh's active login when unset.
 export function runRepo(command, argv, { onStderr, ...options } = {}) {
+  if (command === 'gh') return gh(argv, { maxBuffer: 256 * 1024 * 1024, ...options });
   return new Promise((resolve) => {
     const child = spawn(command, argv, { ...options, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';

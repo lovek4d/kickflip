@@ -7,8 +7,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 // docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md: the board reads each PR from the hub's
-// github-state.json and runs no gh of its own for it.
+// github-state.json and runs no gh of its own for it. docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md:
+// while GitHub's limit holds GraphQL for gh's account, each PR carries the reset, for its badges to dim.
 test("hub polling, the server's PR reads and cards follow manifest repo changes and retain the wave fallback", async () => {
+  const reset = new Date(Date.now() + 3_600_000).toISOString();
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-repo-')));
   const site = path.join(home, 'site');
   const bin = path.join(home, 'bin');
@@ -43,6 +45,8 @@ console.log(JSON.stringify(argv[0] === 'api' ? [] : { state: 'OPEN', title: repo
       const results = [];
       for (const github of ['new/project', 'another/project', undefined]) {
         fs.writeFileSync(${JSON.stringify(manifestFile)}, JSON.stringify({ sites: { board: { ...${JSON.stringify(entry)}, github } } }));
+        if (github === 'another/project') fs.writeFileSync(${JSON.stringify(path.join(home, '.claude/kickflip/gh-limit.json'))}, JSON.stringify({ primary: { core: ${JSON.stringify(reset)} } }));
+        if (github === undefined) fs.writeFileSync(${JSON.stringify(path.join(home, '.claude/kickflip/gh-limit.json'))}, JSON.stringify({ primary: { graphql: ${JSON.stringify(reset)} } }));
         const response = await new Promise((resolve) => {
           const req = { method: 'GET', url: '/api/board', headers: {}, socket: { remoteAddress: '127.0.0.1' } };
           const res = {
@@ -68,6 +72,7 @@ console.log(JSON.stringify(argv[0] === 'api' ? [] : { state: 'OPEN', title: repo
       assert.equal(card.repo, repo);
       assert.equal(card.pr.title, repo);
       assert.equal(card.pr.url, `https://github.com/${repo}/pull/7`);
+      assert.equal(card.pr.limited, github ? null : reset, "only GraphQL's limit dims the badges, which the hub's check reads on it");
     }
     assert.equal(fs.existsSync(log), false, 'the board runs no gh for its PRs');
   } finally {

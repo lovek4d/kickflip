@@ -5,6 +5,7 @@
 // A run → {passed: true, found} once the thing is there, {passed: false} while it isn't yet, and throws when the check
 // can't run (a missing repo or package, no auth, a bad path, an unreachable address).
 import { execFile } from 'node:child_process';
+import { gh } from './gh.mjs';
 
 const REPO = /^[\w.-]+\/[\w.-]+$/;
 const PACKAGE = /^(@[\w.-]+\/)?[\w.][\w.-]*$/;
@@ -113,9 +114,14 @@ export function runCheck({ name, args }, { since, exec = execArgv, fetchImpl = f
   return KINDS[name].run(args, { since, exec, fetchImpl });
 }
 
-// No shell: the command and its arguments go to execFile as they are. A non-zero exit throws its stderr's first line,
-// with stdout and stderr on the error.
-function execArgv(cmd, args) {
+// No shell: the command and its arguments go to execFile as they are, gh through GitHub's limit gate (shared/gh.mjs). A
+// non-zero exit throws its stderr's first line, with stdout and stderr on the error.
+async function execArgv(cmd, args) {
+  if (cmd === 'gh') {
+    const r = await gh(args, { timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
+    if (r.status === 0) return r.stdout;
+    throw Object.assign(new Error(`gh ${args[0]} failed: ${r.stderr.trim().split('\n').find(Boolean) || `exit ${r.status}`}`), { stdout: r.stdout, stderr: r.stderr });
+  }
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout);
