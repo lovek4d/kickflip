@@ -185,7 +185,7 @@ import { endOf } from './duration.mjs';
 import { nodeBin } from '../bin/install.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
-import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON } from './boards.mjs';
+import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -237,6 +237,7 @@ try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.len
 try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
 try { const route = await migrateHubBoard(); if (route) log(`manifest: /${route}, the hub board, builds from its own folder's local main`); } catch (e) { log('hub board migration failed:', e.message); }
 try { const routes = await migrateWaveNames(); if (routes.length) log(`boards: lineups renamed to waves and wave files to item files on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('wave name migration failed:', e.message); }
+try { const { routes, loginItem } = await migrateCellarNode(); if (routes.length) log(`manifest: ${routes.map((r) => `/${r}`).join(', ')} spawn node by Homebrew's link`); if (loginItem) log("hub login item file: spawns node by Homebrew's link"); } catch (e) { log('Cellar node migration failed:', e.message); }
 const repos = repoService();
 const readUsage = usageReader();
 const awake = caffeinate({ log });

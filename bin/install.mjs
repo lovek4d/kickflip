@@ -10,6 +10,10 @@ import { tailscaleBin, tailscaleInstallHint } from '../shared/tailscale.mjs';
 // Another install (nvm, a system node) keeps its own execPath.
 const HOMEBREW_LINK = '/opt/homebrew/bin/node';
 export const nodeBin = (execPath = process.execPath, link = HOMEBREW_LINK) => (execPath.startsWith('/opt/homebrew/Cellar/') && fs.existsSync(link) ? link : execPath);
+// A stored command or service file naming a versioned Cellar node (`node/<version>`, not a `node@NN` keg) names the
+// Homebrew link instead, where the link exists. The link's folder replaces the versioned bin folder too.
+const CELLAR_NODE = /\/opt\/homebrew\/Cellar\/node\/[^/\s"'<>:]+\/bin(\/node)?(?![^/\s"'<>:])/g;
+export const relinkCellarNode = (text, link = HOMEBREW_LINK) => (fs.existsSync(link) ? text.replace(CELLAR_NODE, (_, node) => (node ? link : path.dirname(link))) : text);
 // The watcher a site's owning session runs as a background task (bin/wait-events.mjs).
 export const watcherCommand = (route, session, root = runningClone()) => `${nodeBin()} ${path.join(root, 'bin', 'wait-events.mjs')} ${route} ${session}`;
 

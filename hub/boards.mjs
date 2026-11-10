@@ -19,7 +19,7 @@ import { SLOWEST_CHECK_MINUTES } from './schedule.mjs';
 import { liveSessions, ps } from './live.mjs';
 import { withFileLock } from './locks.mjs';
 import { dropSessionPrompts, readPrompts, savePrompts, withPromptsLock } from './prompts.mjs';
-import { storedPath } from '../bin/install.mjs';
+import { storedPath, relinkCellarNode, nodeBin } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { githubFromOrigin } from './repos.mjs';
@@ -57,6 +57,34 @@ export const readManifest = () => readJSON(MANIFEST, { sites: {} });
 // Runs fn while holding the manifest's lock, the directory manifest.json.lock that bin/kickflip.mjs takes too. A lock
 // older than 30 seconds is a dead holder's and is taken over. Throws with code 'ELOCKED' after 10 seconds.
 export const withManifestLock = (fn) => withFileLock(MANIFEST, fn);
+
+// Run by the hub as it starts, before any site does: stored commands naming a removed Homebrew Cellar node (site cmds,
+// the hub's login item file) name the Homebrew link, as nodeBin() does for new ones
+// (docs/adr/2026-11-09-1800-long-running-servers-spawn-node-by-homebrews-link.md). The login item is rewritten as a
+// file only; launchd or systemd reads it at the next bootstrap or login. → {routes: the sites changed, loginItem}
+export async function migrateCellarNode({ link, file = hubService().file } = {}) {
+  const cellar = /^\/opt\/homebrew\/Cellar\/node\/[^/]+\/bin\/node$/;
+  const routes = await withManifestLock(async () => {
+    const manifest = readManifest();
+    const changed = [];
+    for (const [route, site] of Object.entries(manifest.sites || {})) {
+      if (!Array.isArray(site.cmd) || !cellar.test(site.cmd[0])) continue;
+      const node = nodeBin(site.cmd[0], link);
+      if (node === site.cmd[0]) continue;
+      site.cmd = [node, ...site.cmd.slice(1)];
+      changed.push(route);
+    }
+    if (changed.length) await writeManifest(manifest);
+    return changed;
+  });
+  let loginItem = false;
+  if (file && fs.existsSync(file)) {
+    const text = fs.readFileSync(file, 'utf8');
+    const next = relinkCellarNode(text, link);
+    if (next !== text) { fs.writeFileSync(file, next); loginItem = true; }
+  }
+  return { routes, loginItem };
+}
 
 // Call under the manifest lock. Clear both sessions before publishing an ownership change, even with the hub down.
 export function writeManifest(m) {
