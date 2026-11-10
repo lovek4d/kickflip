@@ -2783,3 +2783,9 @@ test("a wave:<slug> dep waits on every card the wave holds now until each is Don
   assert.deepEqual(card(snapshot(['A1']), 'B1').blockedBy, []);
   assert.equal(card(snapshot(['A1']), 'B1').blocked, false);
 });
+
+test("a PR whose hub record has no url still links to it, by its repo and number, so the card's chips draw", () => {
+  const item = board({ pr: { state: 'MERGED', isDraft: false, reviewDecision: 'APPROVED', url: undefined } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual(item.prs.map((p) => p.url), ['https://github.com/o/r/pull/7']);
+  assert.equal(item.pr.url, 'https://github.com/o/r/pull/7');
+});

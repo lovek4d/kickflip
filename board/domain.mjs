@@ -178,8 +178,9 @@ const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET
 // The board's lines while a land waits its turn or a lander takes it over, which leave the card merging.
 const STILL_MERGING = ['lander-handoff', 'land-waiting'];
 function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder, reachedPhase, agents, worktree, eta, thread, events, working, said, askedAt, topicItems, prSlack, boardReviewers, now, bumpedAt, holdAsk, closedAt, mergeAt, autoMerge, skipDraft, tickets }) {
-  // An archived PR the board no longer reads the hub's check for draws what it kept (store.mjs keptPRs).
-  const views = prs.map((p) => ({ repo: p.repo, number: p.number, url: prURL(p), ...(p.gh || p.kept || {}), status: prStateOf(p.gh, p.merged_at) }));
+  // An archived PR the board no longer reads the hub's check for draws what it kept (store.mjs keptPRs). A hub record
+  // read without its url (a Done card's PR) keeps the one its repo and number give.
+  const views = prs.map((p) => ({ repo: p.repo, number: p.number, ...(p.gh || p.kept || {}), url: (p.gh || p.kept)?.url || prURL(p), status: prStateOf(p.gh, p.merged_at) }));
   const least = leastReady(prs.map((p) => p.gh));
   const pr = prs[least]?.gh || null;
   const prStatus = views[least]?.status ?? null;
