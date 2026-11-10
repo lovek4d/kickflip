@@ -98,8 +98,8 @@ BoardView.part((B) => {
     }
   });
 
-  // Main's refresh icon pulls now, spinning until the server answers. After a failed pull, a hover pointer's click
-  // pulls again while its reason shows on hover; a touch tap opens the reason instead, and a tap anywhere closes it.
+  // Main's refresh icon pulls now on every tap or click, spinning until the server answers. A pull that fails opens its
+  // reason (a hover pointer also sees it on hover), and a tap anywhere closes it.
   // An open reason shifts left as far as it would run past the screen's right edge, less the 16px gutter.
   function paintMain() {
     BoardUI.setHTML($('#tryMain'), BoardUI.mainBar(state.board?.main, state.mainPull));
@@ -117,11 +117,6 @@ BoardView.part((B) => {
     ev.preventDefault();
     const pull = state.board?.main?.pull;
     if (!pull || pull.running || BoardUI.pending.has('main:pull')) return;
-    if (pull.error && !matchMedia('(hover: hover)').matches) {
-      state.mainPull.open = !state.mainPull.open;
-      paintMain();
-      return;
-    }
     state.mainPull = { open: false };
     // Spins until a board shows the pull running or changed (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
     // A pull that brought no commits changes nothing a board shows, so its answer ends the spinner; one that did waits
@@ -134,6 +129,7 @@ BoardView.part((B) => {
       const response = await fetch(B.site.url('api/try/main/pull'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
       const out = await response.json();
       if (!response.ok) throw new Error(out.error || 'The hub refused the pull.');
+      if (out.error) state.mainPull.open = true;
       if (out.commits) BoardUI.pending.answered('main:pull'); else BoardUI.pending.drop('main:pull');
     } catch (error) {
       BoardUI.pending.drop('main:pull');

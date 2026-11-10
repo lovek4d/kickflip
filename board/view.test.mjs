@@ -3249,7 +3249,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   b.view.unmount();
 });
 
-test("Main's refresh icon pulls now and spins only itself until the server answers; a failed pull's tap opens its reason on touch and retries on a hover pointer", async () => {
+test("Main's refresh icon pulls now and spins only itself until the server answers; a tap pulls again after a failure on any device, and a failed pull opens its reason", async () => {
   const main = { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500, pull: { running: false, error: null } };
   const data = { ...boardOf([]), main };
   const b = boardOnDom({ board: data, threads: {} });
@@ -3298,24 +3298,36 @@ test("Main's refresh icon pulls now and spins only itself until the server answe
   const why = () => b.root.querySelector('#tryMain .main-pull-why');
   assert.equal(why().textContent, 'can’t pull: local changes');
   assert.doesNotMatch(why().getAttribute('class'), /open/);
-  b.page.fire(b.root, 'click', { target: icon() });
-  await b.settle();
+  // A tap pulls on every device, hover or not; the reason opens on its own only when that pull fails.
+  const noHover = b.page.win.matchMedia;
+  const tapAndAnswer = async (out, ok = true) => {
+    b.page.fire(b.root, 'click', { target: icon() });
+    await b.settle();
+    answer(out, ok);
+    await b.settle();
+  };
+  await tapAndAnswer({ commits: 0, error: 'can’t pull: local changes' });
+  assert.equal(posts.length, 2);
   assert.match(why().getAttribute('class'), /open/);
-  assert.equal(posts.length, 1);
   b.page.fire(b.root, 'click', { target: b.root.querySelector('#lanes') });
   await b.settle();
   assert.doesNotMatch(why().getAttribute('class'), /open/);
 
-  const noHover = b.page.win.matchMedia;
   b.page.win.matchMedia = (query) => ({ ...noHover(query), matches: query === '(hover: hover)' || noHover(query).matches });
-  b.page.fire(b.root, 'click', { target: icon() });
+  await tapAndAnswer({ commits: 0, error: 'can’t pull: local changes' });
+  assert.equal(posts.length, 3);
+  assert.match(why().getAttribute('class'), /open/);
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('#lanes') });
   await b.settle();
-  assert.equal(posts.length, 2);
-  assert.equal(why(), null);
   b.page.win.matchMedia = noHover;
-  answer({ error: 'The hub is stopping.' }, false);
-  await b.settle();
+
+  await tapAndAnswer({ commits: 0 });
+  assert.equal(posts.length, 4);
+  assert.doesNotMatch(why().getAttribute('class'), /open/);
+  await tapAndAnswer({ error: 'The hub is stopping.' }, false);
+  assert.equal(posts.length, 5);
   assert.match(b.root.textContent, /The hub is stopping\./);
+  assert.doesNotMatch(why().getAttribute('class'), /open/);
   b.view.unmount();
 });
 
