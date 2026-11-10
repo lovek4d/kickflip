@@ -111,8 +111,10 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await manager.stop();
-  const dir = path.join(home, '.claude/kickflip/try/orch-main');
-  if (fs.existsSync(dir)) git(repo, 'worktree', 'remove', '--force', dir);
+  for (const name of ['orch-main', 'orch-main-a', 'orch-main-b']) {
+    const dir = path.join(home, '.claude/kickflip/try', name);
+    if (fs.existsSync(dir)) git(repo, 'worktree', 'remove', '--force', dir);
+  }
 });
 after(() => fs.rmSync(home, { recursive: true, force: true }));
 
@@ -301,7 +303,7 @@ test('main builds at the remote tip regardless of auto_build, uses a detached wo
   await tick();
   await until(() => state().main?.state === 'ready');
   assert.deepEqual(state().main, { sha, branch: 'main', slug: 'example/project', at: git(repo, 'log', '-1', '--format=%cI'), state: 'ready', script: true });
-  const dir = path.join(home, '.claude/kickflip/try/orch-main');
+  const dir = path.join(home, '.claude/kickflip/try/orch-main-a');
   assert.equal(git(dir, 'rev-parse', 'HEAD'), sha);
   assert.throws(() => git(dir, 'symbolic-ref', '-q', 'HEAD'));
   await assert.rejects(start({ key: 'main' }), { status: 409, message: 'Main has no failed build to retry.' });
@@ -373,7 +375,7 @@ test('a board’s build target runs .kickflip/build-<target> for its cards and m
   await tick();
   assert.equal(state().cards['w/A1'].script, true);
   await until(() => state().main?.state === 'ready');
-  const dir = path.join(home, '.claude/kickflip/try/orch-main');
+  const dir = path.join(home, '.claude/kickflip/try/orch-main-a');
   assert.deepEqual(read(path.join(dir, 'ran.json')), { target: 'web', args: ['main', dir], board: 'orch', host: '127.0.0.1' });
   assert.equal(state().main.target, 'web');
   await start();
@@ -397,7 +399,7 @@ test('a board’s build target runs .kickflip/build-<target> for its cards and m
 });
 
 test('a restart clears dead web cards and stops main so the next tick serves it again', async () => {
-  write(path.join(site, 'data/try.json'), { kind: 'web', cards: { 'w/A1': { state: 'ready', port: 1 } }, main: { state: 'ready', port: 2, sha: 'old', script: true } });
+  write(path.join(site, 'data/try.json'), { kind: 'web', cards: { 'w/A1': { state: 'ready', port: 1 } }, main: { state: 'running', sha: 'old', script: true, serving: { sha: 'older', https: 8500 } } });
   await manager.initialize(manifest);
   assert.deepEqual(state(), { kind: 'web', cards: {}, main: { sha: 'old', script: true } });
 });
@@ -583,6 +585,105 @@ test('a stopping hub leaves its try ports mapped, and each tick serves a gone or
   await manager.stop();
   assert.ok(!calls().includes('serve --https=8500 off'));
   assert.equal(read(path.join(home, 'tailscale.status')).Web['mac.ts.net:8500'].Handlers['/'].Proxy, relay);
+});
+
+const mainDir = (side) => path.join(home, '.claude/kickflip/try', `orch-main-${side}`);
+const mainPortScript = (port) => setScript(`console.log('port ${port}'); setInterval(() => {}, 1000);`, repo);
+function mainCommit(name) {
+  const sha = commit(repo, name);
+  git(repo, 'update-ref', 'refs/remotes/origin/main', sha);
+  return sha;
+}
+
+test('a main re-serve keeps the old server on its port until the new one answers, then hands the port over and stops the old one, building in alternating worktrees', async (t) => {
+  const relays = fakeRelays(t);
+  const answering = new Set([32123]);
+  manager = createTryManager({ now: () => clock, answers: async (port) => answering.has(port), log() {} });
+  // A hub from before the alternating worktrees left one Main worktree; the next build removes it.
+  git(repo, 'worktree', 'add', '--quiet', '--detach', path.join(home, '.claude/kickflip/try/orch-main'), 'HEAD');
+  mainPortScript(32123);
+  const first = mainCommit('first');
+  await tick();
+  await until(() => state().main?.state === 'ready');
+  assert.equal(fs.existsSync(path.join(home, '.claude/kickflip/try/orch-main')), false);
+  assert.equal(git(mainDir('a'), 'rev-parse', 'HEAD'), first);
+  const at = state().main.at;
+  mainPortScript(32124);
+  const second = mainCommit('second');
+  await tick();
+  await until(() => fs.existsSync(path.join(site, 'data/try/main.log')) && fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8').includes('port 32124'));
+  assert.equal(git(mainDir('b'), 'rev-parse', 'HEAD'), second);
+  assert.equal(git(mainDir('a'), 'rev-parse', 'HEAD'), first);
+  assert.equal(state().main.state, 'running');
+  assert.equal(state().main.sha, second);
+  assert.deepEqual(state().main.serving, { sha: first, at, https: 8500 });
+  assert.equal(relayOf(8500), 'http://127.0.0.1:49000');
+  assert.equal(relays[0].closed, undefined);
+  answering.add(32124);
+  await until(() => state().main.state === 'ready');
+  assert.equal(state().main.serving, undefined);
+  assert.equal(state().main.https, 8500);
+  assert.equal(manager.lookup('orch', 'main', { manifest }).port, 32124);
+  assert.equal(relayOf(8500), 'http://127.0.0.1:49001');
+  await until(() => relays[0].closed);
+  assert.ok(!calls().includes('serve --https=8500 off'), 'the old run leaves the port its successor holds');
+  assert.equal(read(path.join(home, 'tailscale.status')).Web['mac.ts.net:8500'].Handlers['/'].Proxy, 'http://127.0.0.1:49001');
+  await tick();
+  assert.equal(relayOf(8500), 'http://127.0.0.1:49001');
+  answering.add(32125);
+  mainPortScript(32125);
+  const third = mainCommit('third');
+  await tick();
+  await until(() => state().main.state === 'ready' && state().main.sha === third);
+  assert.equal(git(mainDir('a'), 'rev-parse', 'HEAD'), third);
+  assert.equal(git(mainDir('b'), 'rev-parse', 'HEAD'), second);
+  await until(() => relays[1].closed);
+  // A hub stops every server it started, so the next hub's try.json names no old server.
+  mainPortScript(32126);
+  mainCommit('fourth');
+  await tick();
+  await until(() => state().main.serving?.https === 8500);
+  await manager.stop();
+  assert.ok(relays.every((relay) => relay.closed));
+  manager = createTryManager({ now: () => clock, answers: async () => false, log() {} });
+  await manager.initialize(manifest);
+  assert.equal(state().main.serving, undefined);
+});
+
+test('a failed main build keeps the old server serving, and a build that prints the old server’s port stops it before probing', async (t) => {
+  const relays = fakeRelays(t);
+  const probes = [];
+  manager = createTryManager({ now: () => clock, answers: async (port) => { probes.push([port, Boolean(relays[0]?.closed)]); return true; }, log() {} });
+  mainPortScript(32123);
+  const first = mainCommit('first');
+  await tick();
+  await until(() => state().main?.state === 'ready');
+  setScript('process.exit(3);', repo);
+  const broken = mainCommit('broken');
+  await tick();
+  await until(() => state().main.state === 'failed');
+  assert.equal(state().main.sha, broken);
+  assert.equal(state().main.serving.sha, first);
+  assert.equal(relays[0].closed, undefined);
+  assert.equal(relayOf(8500), 'http://127.0.0.1:49000');
+  await tick();
+  assert.equal(state().main.state, 'failed');
+  // Retry builds in the worktree the old server isn't using, and the old server stays through it.
+  assert.deepEqual(await start({ key: 'main' }), { status: 'started' });
+  await until(() => state().main.state === 'failed' && fs.existsSync(path.join(site, 'data/try/main.log')));
+  assert.equal(git(mainDir('b'), 'rev-parse', 'HEAD'), broken);
+  assert.equal(state().main.serving.sha, first);
+  assert.equal(relays[0].closed, undefined);
+  probes.length = 0;
+  mainPortScript(32123);
+  const same = mainCommit('same port');
+  await tick();
+  await until(() => state().main.state === 'ready' && state().main.sha === same);
+  assert.ok(probes.length);
+  assert.ok(probes.every(([port, stopped]) => port === 32123 && stopped), 'the old server is gone before the new port is probed');
+  assert.equal(state().main.serving, undefined);
+  assert.equal(relayOf(8500), 'http://127.0.0.1:49001');
+  assert.equal(read(path.join(home, 'tailscale.status')).Web['mac.ts.net:8500'].Handlers['/'].Proxy, 'http://127.0.0.1:49001');
 });
 
 test("a local board's main builds the tip of its recorded branch in its folder, not a branch called main", async () => {
@@ -1011,7 +1112,8 @@ test('an automatic validation refusal records one failed head and useful thread 
   await manager.initialize(manifest);
   await tick();
   assert.equal(state().main.state, 'failed');
-  assert.equal(fs.existsSync(path.join(home, '.claude/kickflip/try/orch-main')), false);
+  assert.equal(fs.existsSync(path.join(home, '.claude/kickflip/try/orch-main-a')), false);
+  assert.equal(fs.existsSync(path.join(home, '.claude/kickflip/try/orch-main-b')), false);
 });
 
 test('startup removes only unowned in-range ports and parses stdout despite a version warning', async () => {

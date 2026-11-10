@@ -19,3 +19,5 @@ Considered:
 - rebuilding through a card's session and builder records: the hub can run and track both app builds and long-lived servers without moving cards between lanes;
 - a badge in the board header: the confirmed slim main bar keeps the repo, branch, commit and age together and fits a phone;
 - stopping main when Auto-build is off, or capping card servers: main always follows merges, while a 30-minute idle limit bounds unused card servers without a cap.
+
+Superseded in part: Main's single worktree and stop-before-checkout ([a Main re-serve keeps the old server up until the new one answers](2026-11-09-1815-a-main-re-serve-keeps-the-old-server-up-until-the-new-one-answers.md)).

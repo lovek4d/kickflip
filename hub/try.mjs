@@ -98,6 +98,10 @@ export async function installWorktree(board, key, manifest) {
 export function createTryManager({ now = Date.now, answers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate } = {}) {
   const boards = new Map();
   const runs = new Map();
+  // Main's old run, still serving its port while its successor builds, and for good when that build fails: board.dir → run
+  // (docs/adr/2026-11-09-1815-a-main-re-serve-keeps-the-old-server-up-until-the-new-one-answers.md).
+  const serving = new Map();
+  const live = () => [...runs.values(), ...serving.values()];
   const starting = new Set();
   const interrupted = new Set();
   const cardPorts = new Map();
@@ -124,6 +128,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       state.cards = Object.fromEntries(unfinished);
       if (state.main && state.main.state !== 'failed') { delete state.main.state; delete state.main.port; delete state.main.https; }
     } else if (state.main?.state === 'running') { delete state.main.state; delete state.main.sha; }
+    // A hub stops every server it started, so no old Main server outlives it.
+    if (state.main) delete state.main.serving;
     // The next tick serves the base worktree again; a failure stays until Try again.
     if (saved.prototypes?.state === 'failed') state.prototypes = saved.prototypes;
     persist(board);
@@ -192,7 +198,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   }
   // A shared login's responses still open, ended once the board no longer shares with it; run.shared: Set of {login, res}.
   function endUnshared() {
-    for (const run of runs.values()) {
+    for (const run of live()) {
       if (!run.shared?.size) continue;
       const logins = sharedWith(run.board);
       for (const open of run.shared) if (!logins.includes(open.login)) { run.shared.delete(open); open.res.destroy(); }
@@ -252,8 +258,9 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     run.closing = true;
     await run.opening?.catch(() => {});
     // A stopping hub leaves its try ports mapped: the next hub starts before this one has exited, re-serves the same fixed
-    // ports, and its startup sweep removes any no run claims.
-    if (run.exposed && !stopping) await removePort(run.https);
+    // ports, and its startup sweep removes any no run claims. Main's old run leaves the port its successor now maps.
+    const handedOver = [...runs.values()].some((other) => other !== run && other.exposed && other.https === run.https);
+    if (run.exposed && !stopping && !handedOver) await removePort(run.https);
     if (run.relay) {
       for (const socket of run.sockets) socket.destroy();
       await new Promise((resolve) => run.relay.close(resolve));
@@ -263,12 +270,14 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   // A try port's mapping can still go missing outside this hub, so each tick serves again any open port whose mapping
   // isn't its relay.
   async function reserve() {
-    const open = [...runs.values()].filter((run) => run.ready && run.relay && !run.closing);
+    const open = live().filter((run) => run.ready && run.relay && !run.closing);
     if (!open.length) return;
     let config;
     try { config = JSON.parse((await tailscale(['serve', 'status', '--json'])).stdout); }
     catch (e) { log(`try ports check: ${(e.stderr || e.message).trim()}`); return; }
     for (const run of open) {
+      // A run stopped while the status was read, such as Main's old run once its successor took the port, keeps no mapping.
+      if (run.stopped) continue;
       const relay = `http://127.0.0.1:${run.relay.address().port}`;
       const web = Object.entries(config?.Web || {}).find(([host]) => host.endsWith(`:${run.https}`))?.[1];
       if (web?.Handlers?.['/']?.Proxy === relay) continue;
@@ -358,7 +367,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     setEntry(state, key, entry);
     persist(board);
     const id = runKey(board, key);
-    const run = { child, board, key, logFile, visited: now(), stopped: false, port: null, ready: false };
+    const run = { child, board, key, worktree, sha, at: metadata.at, logFile, visited: now(), stopped: false, port: null, ready: false };
     runs.set(id, run);
     lastHeads.set(id, sha);
     let spawnError;
@@ -375,7 +384,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       if (port < 1 || port > 65535) { fail('Build script printed an invalid port.'); return; }
       run.port = port;
       clearTimeout(run.deadline);
-      const until = now() + 60_000;
+      let until;
       let probing = false;
       const check = async () => {
         if (probing || run.stopped || run.ready || child.exitCode !== null || child.signalCode !== null) return;
@@ -391,11 +400,19 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
             state.kind = 'web';
             update(board, key, { state: 'ready', port, https: run.https });
             clearInterval(run.poll);
+            if (key === 'main') await retire(board);
           } else if (now() >= until) fail('Nothing answered on the build script’s port within 60 seconds.');
         } finally { probing = false; }
       };
-      run.poll = setInterval(() => check().catch((e) => fail(e.message)), 250);
-      check().catch((e) => fail(e.message));
+      const probeFrom = () => {
+        if (run.stopped) return;
+        until = now() + 60_000;
+        run.poll = setInterval(() => check().catch((e) => fail(e.message)), 250);
+        check().catch((e) => fail(e.message));
+      };
+      // A build on Main's old server's port can't overlap it: the old server stops first, so the probe hears the new one.
+      if (key === 'main' && serving.get(board.dir)?.port === port) retire(board).then(probeFrom, (e) => fail(e.message));
+      else probeFrom();
     });
     run.deadline = setTimeout(() => fail('No port line within 60 minutes.'), 60 * 60_000);
     // A script's process owns the server; surviving children cannot keep a dead run served.
@@ -410,6 +427,11 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
         await closePort(run);
         run.finished = true;
         if (run.stopped) return;
+        if (serving.get(board.dir) === run) {
+          serving.delete(board.dir);
+          update(board, key, { serving: undefined });
+          return;
+        }
         // The prototype site is a web page, so a script that ends without serving one failed.
         const unserved = key === BASE_KEY && !run.port ? new Error('Build script exited without printing "port <n>".') : null;
         if (failed || spawnError || code !== 0 || (run.port && !run.ready) || unserved) await failure(run, code ?? 1, signal, failed || spawnError || (run.port && !run.ready ? new Error('Build script exited before its port answered.') : unserved));
@@ -429,14 +451,33 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     log(`build /${board.route} ${key}: started; log ${logFile}`);
     return { status: 'started' };
   }
+  // Stops Main's old run: once its successor holds the port, or before a successor that printed the old run's port.
+  async function retire(board) {
+    const old = serving.get(board.dir);
+    if (!old) return;
+    serving.delete(board.dir);
+    update(board, 'main', { serving: undefined });
+    await halt(old);
+  }
+  // Main builds each new tip in the other of two worktrees, <route>-main-a and -b, so a serving Main keeps its own
+  // worktree while its successor builds; its old run moves to `serving` until the successor answers.
   async function launchMain(board, repo, metadata) {
     const id = runKey(board, 'main');
     if (starting.has(id)) throw new BuildError('A build is already running for main.', 409);
     starting.add(id);
     try {
-      if (runs.has(id)) await stopRun(runs.get(id), true);
-      const dir = path.join(os.homedir(), '.claude', 'kickflip', 'try', `${board.route}-main`);
+      const current = runs.get(id);
+      if (current?.ready && !current.ending) {
+        runs.delete(id);
+        serving.set(board.dir, current);
+      } else if (current) await stopRun(current, true);
+      const old = serving.get(board.dir);
+      if (old) metadata = { ...metadata, serving: { sha: old.sha, at: old.at, https: old.https } };
+      const worktreeOf = (side) => path.join(os.homedir(), '.claude', 'kickflip', 'try', `${board.route}-main${side}`);
+      const dir = worktreeOf(old?.worktree === worktreeOf('-a') ? '-b' : '-a');
       fs.mkdirSync(path.dirname(dir), { recursive: true });
+      // The single Main worktree of a hub from before the alternating pair.
+      if (exists(worktreeOf(''))) await git(repo, 'worktree', 'remove', '--force', worktreeOf(''));
       if (exists(dir)) await git(dir, 'checkout', '--detach', '--force', metadata.sha);
       else {
         await git(repo, 'worktree', 'prune');
@@ -550,6 +591,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       await reserve();
       const listed = listBoards(manifest);
       const prs = readJSON(GITHUB_STATE, {}).prs || {};
+      for (const [dir, old] of [...serving]) if (!listed.some((b) => b.dir === dir)) { serving.delete(dir); await halt(old); }
       for (const run of [...runs.values()]) {
         if (!listed.some((b) => b.dir === run.board.dir) || (isCard(run.key) && run.ready && now() - run.visited >= IDLE_MS)) {
           await stopRun(run);
@@ -602,6 +644,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
           if (!script) {
             const run = runs.get(runKey(board, 'main'));
             if (run) await stopRun(run);
+            await retire(board);
             state.main = null;
             persist(board);
             continue;
@@ -680,7 +723,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
   async function stop() {
     stopping = true;
     // A build still going keeps `running`, so the next hub starts it again (docs/adr/2026-11-02-1731-a-build-the-hub-stops-starts-again-after-it-restarts.md).
-    const stopped = Promise.all([...runs.values()].map((run) => run.ready ? stopRun(run) : halt(run)));
+    const stopped = Promise.all([...runs.values()].map((run) => run.ready ? stopRun(run) : halt(run)).concat([...serving.values()].map((old) => halt(old))));
     await Promise.all([stopped, ticking, ...pulls.values()]);
   }
   return { start, tick, stop, lookup, initialize, pull, pullMains, endUnshared };

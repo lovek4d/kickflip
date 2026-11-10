@@ -1155,7 +1155,11 @@ export function buildBoard(snapshot) {
   }
   const run = tries.main;
   const main = run?.script && run.sha ? { slug: run.slug, branch: run.branch || 'main', sha: run.sha.slice(0, 7), at: run.at,
-    kind, state: run.state || null, url: kind === 'web' ? null : snapshot.main?.install?.url || null, port: kind === 'web' && run.state === 'ready' ? run.https || null : null,
+    kind, state: run.state || null, url: kind === 'web' ? null : snapshot.main?.install?.url || null,
+    // A web Main rebuilding, or whose new build failed, keeps its old server on the port: serving is that server's commit
+    // (hub/try.mjs launchMain).
+    port: kind === 'web' ? (run.state === 'ready' ? run.https : run.serving?.https) || null : null,
+    serving: kind === 'web' && run.serving ? { sha: run.serving.sha.slice(0, 7), at: run.serving.at } : null,
     // A local board's pull from origin (hub/try.mjs pullMain), which Main's refresh icon shows.
     pull: tries.pull ? { running: tries.pull.running === true, error: tries.pull.error || null } : null,
     // The script main's run used: its board's build target (build-script.mjs buildScriptOf).

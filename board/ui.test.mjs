@@ -1763,6 +1763,20 @@ test('main is a slim branch bar with a ready link, running status or failed log 
   }
 });
 
+test('while main re-serves or after its new build failed, the bar names the old server’s commit and keeps Visit to it, with Serving… or Failed left of it', () => {
+  const main = { kind: 'web', slug: 'owner/repo', branch: 'main', sha: '58818ab', at: ago(1), state: 'running', url: null, port: 8500, serving: { sha: '54837cd', at: ago(9) } };
+  const rebuilding = ui.mainBar(main);
+  assert.match(rebuilding, /@<code>54837cd<\/code> · 9h ago/);
+  assert.match(rebuilding, /<div class="meta"><span[^>]*role="status"[^>]*><span class="try-spin"[^>]*><\/span>Serving…<\/span><a[^>]*href="https:\/\/mac\.ts\.net:8500\/"/);
+  assert.ok(text(rebuilding).indexOf('Serving…') < text(rebuilding).indexOf('Visit'));
+  const failed = ui.mainBar({ ...main, state: 'failed' });
+  assert.match(failed, /@<code>54837cd<\/code>/);
+  assert.match(failed, /<div class="meta"><button[^>]*data-main-log=""[^>]*>Failed<\/button><a[^>]*href="https:\/\/mac\.ts\.net:8500\/"/);
+  // With no old server left (a hub restart, or a build on the old server's port), the bar is as before.
+  assert.doesNotMatch(ui.mainBar({ ...main, port: null, serving: null }), /href=|Serving…/);
+  assert.match(ui.mainBar({ ...main, port: null, serving: null }), /@<code>58818ab<\/code>/);
+});
+
 test("a local board's Main has a refresh icon right of its timestamp that spins while a pull runs and turns red with the reason when one fails", () => {
   const main = { kind: 'web', slug: 'owner/repo', branch: 'main', sha: '1234567', at: ago(2), state: 'ready', url: null, port: 8500 };
   assert.doesNotMatch(ui.mainBar({ ...main, pull: null }), /data-main-pull/);
