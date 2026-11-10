@@ -44,7 +44,15 @@
     if (w.state === 'reset') return `Reset ${esc(usageClock(w.resets_at))}`;
     return `<span class="u-num">${Math.round(w.used_percentage)}%</span> · resets ${esc(usageClock(w.resets_at))}`;
   }
-  function sidebarUsage(data) {
+  // Claude's week shows as a second bar once it is live within the near band under the pause line, which starts twice the
+  // buffer below 100 (shared/usage-gate.mjs nearFrom): orange under the line, red at it. Off (100) has no band.
+  function weekBar(reading, pauseAt) {
+    const w = reading.seven_day;
+    if (!(pauseAt < 100) || w?.state !== 'live' || !(w.used_percentage >= 2 * pauseAt - 100)) return '';
+    const tone = w.used_percentage >= pauseAt ? 'full' : 'high';
+    return `<span class="u-one u-tone-${tone}"><span class="u-line"><span class="u-name">Claude week</span> ${usageWords(reading, 'seven_day')}</span>${usageBar(w)}</span>`;
+  }
+  function sidebarUsage(data, pauseAt) {
     const products = usageProducts(data);
     return products.length ? `<span class="sb-usage">${products.map((p) => {
       const r = data[p];
@@ -54,7 +62,7 @@
         : w.state === 'stale' ? `${name} · last seen ${esc(usageClock(r.at))}`
           : w.state === 'reset' ? `${name} · reset ${esc(usageClock(w.resets_at))}`
             : `${name} ${usageWords(r, 'five_hour')}`;
-      return `<span class="u-one u-tone-${usageTone(w)}"><span class="u-line">${words}</span>${usageBar(w)}</span>`;
+      return `<span class="u-one u-tone-${usageTone(w)}"><span class="u-line">${words}</span>${usageBar(w)}</span>${p === 'claude' ? weekBar(r, pauseAt) : ''}`;
     }).join('')}</span>` : '';
   }
   // The utility rows, in the order they show.
@@ -227,7 +235,7 @@
     const turnOn = device === 'off' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Turn on notifications', sub: 'Off on this device', cls: 'sb-turnon' })
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
-    const usage = sidebarUsage(data?.usage);
+    const usage = sidebarUsage(data?.usage, data?.pause?.pause_at);
     const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: 'the host is busy' } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());

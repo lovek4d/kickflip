@@ -2268,6 +2268,25 @@ test('usage stays within the Hub link and its card shows both windows, reset, st
   assert.deepEqual([74, 75, 89, 90].map((n) => ui.usageTone(live(n))), ['ok', 'high', 'high', 'full']);
 });
 
+test('the sidebar shows Claude’s week as a second bar once it is within the near band of the pause line', () => {
+  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live' });
+  const hub = (week, pause_at, state = 'live') => /<a class="sb-row on sb-hub-usage"[^>]*>([^]*?)<\/a>/.exec(ui.sidebar({
+    usage: { claude: { at: resets_at, five_hour: live(34), seven_day: { ...live(week), state } }, codex: null }, pause: { pause_at },
+  }, { here: '_hub/' }))[1];
+  const bars = (html) => (html.match(/class="u-bar"/g) || []).length;
+  assert.equal(bars(hub(79, 90)), 1);
+  assert.equal(bars(hub(80, 90)), 2);
+  assert.match(text(hub(86, 90)), /Claude 34% · resets .* Claude week 86% · resets /);
+  assert.match(hub(86, 90), /u-tone-high[^]*Claude week/);
+  assert.match(hub(90, 90), /u-tone-full"><span class="u-line"><span class="u-name">Claude week/);
+  assert.equal(bars(hub(60, 80)), 2);
+  assert.equal(bars(hub(59, 80)), 1);
+  assert.equal(bars(hub(99, 100)), 1);
+  assert.equal(bars(hub(95, 90, 'stale')), 1);
+  assert.equal(bars(hub(95, 90, 'reset')), 1);
+});
+
 test('the pause line stepper, both tools’ ticks, banners and status slots follow the gate', () => {
   const resets_at = new Date(Date.now() + 3600_000).toISOString();
   const until = ui.usageClock(resets_at);
