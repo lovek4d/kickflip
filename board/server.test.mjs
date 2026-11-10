@@ -1,4 +1,4 @@
-import { test, before, after } from 'node:test';
+import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -63,6 +63,21 @@ test("a held card's Merge records the tap on the card and runs board.mjs merge d
     await until(() => fs.existsSync(path.join(home, 'merges.jsonl')) && fs.readFileSync(path.join(home, 'merges.jsonl'), 'utf8').endsWith('\n'), 'the merge runs');
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, 'merges.jsonl'), 'utf8').trim()), ['--site', 'site', 'merge', 't/M1']);
   } finally { if (before) await putWave(before); else fs.rmSync(waveFile); }
+});
+// Each test's asks are withdrawn when it ends: an open ask becomes a T-<n> card on every board change (store.mjs
+// fileAsks), so one left open races a later test's board reads.
+afterEach(async () => {
+  const file = path.join(site, 'data', 'events.jsonl');
+  if (!child || !fs.existsSync(file)) return;
+  const events = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn').map((e) => e.data?.id));
+  // An ask a test sorted into a card of its own (from_ask on a non-T-<n> id) stays: later tests use that card.
+  const itemsFile = path.join(site, 'data', 'items.json');
+  const items = fs.existsSync(itemsFile) ? JSON.parse(fs.readFileSync(itemsFile, 'utf8')).items || [] : [];
+  const sorted = new Set(items.filter((i) => i.from_ask && !/^T-\d+$/.test(i.id)).map((i) => i.from_ask));
+  for (const { id } of events.filter((e) => e.kind === 'ask' && !withdrawn.has(e.id) && !sorted.has(e.id))) {
+    await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask-withdrawn', id }) });
+  }
 });
 after(async () => { child?.kill(); await slackServer?.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
