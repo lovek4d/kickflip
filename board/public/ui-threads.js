@@ -20,7 +20,7 @@
   const stateOf = (m) => m.state || (m.reply ? 'replied' : 'waiting');
   // A message's footer: the tap it came from (m.status, such as "answers submitted"), then, to its right, Claude's
   // pick-up while it waits (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
-  const PICK_UP = { working: thinkingLine, waiting: () => 'Waiting for Claude…' };
+  const PICK_UP = { working: thinkingLine, waiting: () => 'waiting…' };
   const msgFooter = (m) => {
     const parts = [m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, PICK_UP[stateOf(m)]?.()].filter(Boolean);
     return parts.length ? `<div class="reply muted small">${parts.join('')}</div>` : '';

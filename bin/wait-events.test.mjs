@@ -291,3 +291,17 @@ test('on a board a new task wakes the session with its sort line and reads Worki
   assert.ok(stdout.split('\n').includes('new task a1 received as task a1: sort that New card: item notes, then item set <its key> --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask a1 <card> --summary; or answer it with reply <its key>'), stdout);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['a1']);
 });
+
+// docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md
+test('a wake prints a message the PostToolUse hook already showed again, its plain line tagged already shown', { timeout: 30000 }, async (t) => {
+  const { home, dir, add, watch } = shop(t);
+  ownSession(home, 's1');
+  write(path.join(dir, 'board.json'), { title: 'Shop' });
+  fs.appendFileSync(path.join(dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', kind: 'item-message', ts: new Date().toISOString(), data: { key: 'w/A1', text: 'Blue' } }) + '\n');
+  add('ask');
+  write(path.join(dir, 'data', '.shown-s1.json'), { ids: ['m1'] });
+  const { code, stdout } = await watch().done;
+  assert.equal(code, 0);
+  assert.match(stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nalready shown: message received from A1's thread: reply in its thread$/m);
+  assert.match(stdout, /^event data\/events.jsonl .*"kind":"ask".*\nnew task ask received/m);
+});

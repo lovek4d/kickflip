@@ -1,7 +1,16 @@
 // What each event kind tells the session that bin/wait-events.mjs wakes: a record-only kind wakes nothing, and every
 // other kind the board writes has an action line here and an entry in SKILL.md
 // (docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md; bin/event-lines.test.mjs keeps it so).
+import path from 'node:path';
 import { waitsAgainLine } from '../board/domain.mjs';
+import { cardName } from '../board/store.mjs';
+import { routeRecord } from '../hub/routes.mjs';
+
+// The owner's own words, which hooks-plugin/hooks/board-messages.mjs shows mid-task and the next wake prints again,
+// tagged (docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md).
+export const OWNER_WORDS = ['item-message', 'ask', 'ask-edited'];
+// The ids of those the hook showed a session since its watcher's last wake: {ids: [event id]}.
+export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${session}.json`);
 
 // docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md,
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap the board server applies
@@ -57,3 +66,16 @@ export const ON_CARD = {
   // for the ask; its waits line carries its key.
   ask: (c, e) => `new task ${e.id} received as ${c}: sort that New card: item notes, then item set <its key> --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask ${e.id} <card> --summary; or answer it with reply <its key>`,
 };
+
+// One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a
+// line that isn't an event. A card name that can't be read falls back to the key, so the cursor still moves.
+export async function plainLine(dir, line) {
+  let e;
+  try { e = JSON.parse(line); } catch { return null; }
+  if (typeof e?.kind !== 'string') return null;
+  const key = typeof e.data?.key === 'string' ? e.data.key : e.kind.startsWith('ask-') && typeof e.data?.id === 'string' ? `ask:${e.data.id}` : e.kind === 'ask' ? `ask:${e.id}` : null;
+  const card = key && await cardName(dir, key).catch(() => key);
+  if (routeRecord(PLAIN, e.kind)) return PLAIN[e.kind](e);
+  if (card && routeRecord(ON_CARD, e.kind)) return ON_CARD[e.kind](card, e);
+  return card ? `${e.kind} on ${card}` : `${e.kind} received`;
+}

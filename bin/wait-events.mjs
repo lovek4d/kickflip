@@ -6,7 +6,9 @@
 // counting lines that match `filter` (a regex; every line when unset).
 // Prints and exits on:
 //   event <file> <line>       new matching lines (several, batched for 2 s), each followed by one plain line saying
-//                             what came in, on which card and what to do (plainLine, from ./event-lines.mjs); on a board it marks each ask,
+//                             what came in, on which card and what to do (plainLine, from ./event-lines.mjs), prefixed `already shown: `
+//                             for one the PostToolUse hook showed mid-task (./event-lines.mjs shownFile,
+//                             docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md); on a board it marks each ask,
 //                             item-message, wave-triage and overnight-triage working in data/working.json and answers a ping for the
 //                             session (board/store.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
@@ -45,9 +47,9 @@ import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mjs';
 import { parentOf, sessionGone } from '../hub/live.mjs';
-import { ackPing, cardName, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
+import { ackPing, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
-import { recordOnly, PLAIN, ON_CARD } from './event-lines.mjs';
+import { recordOnly, plainLine, shownFile } from './event-lines.mjs';
 
 const [route, session] = process.argv.slice(2);
 if (!route || !session) { console.error('usage: wait-events.mjs <route> <session-id>'); process.exit(2); }
@@ -85,19 +87,6 @@ async function ackPings(dir, lines) {
     try { e = JSON.parse(line); } catch { continue; }
     if ((e.kind === 'ping' || e.kind === 'hello') && typeof e.id === 'string') await ackPing(dir, e.id).catch((err) => console.log(`ping ${e.id} not answered (${err.message})`));
   }
-}
-
-// One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a
-// line that isn't an event. A card name that can't be read falls back to the key, so the cursor still moves.
-async function plainLine(dir, line) {
-  let e;
-  try { e = JSON.parse(line); } catch { return null; }
-  if (typeof e?.kind !== 'string') return null;
-  const key = typeof e.data?.key === 'string' ? e.data.key : e.kind.startsWith('ask-') && typeof e.data?.id === 'string' ? `ask:${e.data.id}` : e.kind === 'ask' ? `ask:${e.id}` : null;
-  const card = key && await cardName(dir, key).catch(() => key);
-  if (routeRecord(PLAIN, e.kind)) return PLAIN[e.kind](e);
-  if (card && routeRecord(ON_CARD, e.kind)) return ON_CARD[e.kind](card, e);
-  return card ? `${e.kind} on ${card}` : `${e.kind} received`;
 }
 
 // One line per card idle on the orchestrator (board/domain.mjs orchestratorWaits), none while the board server hasn't
@@ -174,14 +163,16 @@ for (;;) {
   const started = [];
   const heard = new Set(Object.values(base.$quietHeld || {}).flat());
   const pings = [];
+  let shown = [];
+  try { shown = JSON.parse(fs.readFileSync(shownFile(s.dir, session), 'utf8')).ids || []; } catch {}
   for (const [f, lines] of Object.entries(waiting)) {
     held[f] = lines.filter((line) => !eligible(line, gate));
     for (const line of lines.filter((line) => eligible(line, gate))) {
       if (!heard.has(line)) pings.push(line);
       console.log(`event ${f} ${line}`);
       const plain = await plainLine(s.dir, line);
-      if (plain) console.log(plain);
       const e = parsed(line);
+      if (plain) console.log(shown.includes(e?.id) ? `already shown: ${plain}` : plain);
       if (e && WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id);
     }
   }

@@ -757,7 +757,7 @@ test('a thread names who wrote each message and where', () => {
     { ts: ago(2), who: 'Jamie', via: 'github', text: 'Looks good' },
     { ts: ago(1), who: 'love', via: 'site', text: 'Ship it', eventId: 'e1', reply: null },
   ]);
-  assert.match(text(html), /^Jamie · GitHub · .* Looks good You · .* Ship it Waiting for Claude…$/);
+  assert.match(text(html), /^Jamie · GitHub · .* Looks good You · .* Ship it waiting…$/);
   const log = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'done', log: 'b.log' }]);
   assert.match(log, /<a href="log\.html\?file=b\.log">View transcript<\/a>/);
   assert.doesNotMatch(log, /link-arrow|→/);
@@ -818,7 +818,7 @@ test("a reopened question checks this device's draft over the last answer and fi
   assert.match(ui.questionCard(reopened, { draft: { note: 'Drop it' } }), />Drop it<\/textarea>/);
   assert.equal(ui.noteOf(reopened, {}), 'Keep the badge');
   assert.equal(ui.noteOf({ ...reopened, reopened: false }, {}), '');
-  assert.doesNotMatch(text(ui.questionCard(reopened)), /Waiting for Claude/);
+  assert.doesNotMatch(text(ui.questionCard(reopened)), /waiting…/);
 });
 
 test("a sent question, waiting on Claude, replied to or resolved, draws as the green Resolved card, numbered, locked at its pick, saying how to reopen it", () => {
@@ -828,7 +828,7 @@ test("a sent question, waiting on Claude, replied to or resolved, draws as the g
     assert.match(html, /^<section class="q resolved" id="q1"/);
     assert.match(html, /<span class="muted small">3\. Triage<\/span><button class="chip tone-ready" title="Reopen this question" type="button" data-reopen="q1">✓ Resolved<\/button>/);
     assert.match(html, /<div class="sent-line">Sent\. Tap Resolved to reopen it\.<\/div>/);
-    assert.doesNotMatch(html, /<textarea|data-proto|Waiting for Claude|waiting for claude/);
+    assert.doesNotMatch(html, /<textarea|data-proto|waiting…/);
     assert.match(html, /value="B" checked disabled/);
   }
   assert.doesNotMatch(ui.questionCard({ ...question, state: 'resolved', resolved: 'Replaced by q9' }), /sent-line/, 'one resolved with no answer sent says nothing of sending');
@@ -1289,7 +1289,7 @@ test('a thread message says thinking while Claude works on it, and only a pendin
     { ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true },
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'Old', eventId: 'e2', reply: null, state: 'answered', canDelete: false },
   ]);
-  assert.match(text(html), /Fix it thinking .* Old$/);
+  assert.match(text(html), /Fix it thinking… .* Old$/);
   assert.deepEqual([...html.matchAll(/data-withdraw="(\w+)"/g)].map((m) => m[1]), ['e1']);
 });
 
@@ -1501,18 +1501,18 @@ test("a New card reads New and its first line, then whether it was moved or edit
   const card = (ask, extra = {}) => ui.workLines({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, title: 'Fix <it>', linear: [], pr: null, prs: [], deps: [], blockedBy: [], created: sent, updatedAt: sent, sortAt: sent,
     bumpedAt: ask.bumpedAt || null, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra });
   const at = ui.cardTime(sent);
-  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: grey "waiting", its dot still, until the
-  // orchestrator picks the task up, then the blue "thinking".
-  assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', 'waiting', at]);
-  assert.match(card({ state: 'waiting' }), /<span class="pickup-wait"><span class="working-dot" aria-hidden="true"><\/span>waiting<\/span>/);
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: grey "waiting…", its dot still, until the
+  // orchestrator picks the task up, then the blue "thinking…".
+  assert.deepEqual(lines(card({ state: 'waiting' })), ['New Fix <it>', 'waiting…', at]);
+  assert.match(card({ state: 'waiting' }), /<span class="pickup-wait"><span class="working-dot" aria-hidden="true"><\/span>waiting…<\/span>/);
   assert.doesNotMatch(card({ state: 'waiting' }), /class="thinking"/);
-  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['New Fix <it>', 'Edited · thinking', at]);
+  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['New Fix <it>', 'Edited · thinking…', at]);
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: it bumps as a card, and edits and deletes its ask.
   assert.deepEqual([...card({ state: 'waiting' }).matchAll(/data-(card-bump="w\/T-3"|edit="a1"|withdraw="a1")/g)].map((m) => m[1].split('=')[0]), ['card-bump', 'edit', 'withdraw']);
   assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /class="ghost icon bumped" data-card-bump="w\/T-3" data-bumped aria-pressed="true" aria-label="Unbump"/);
   assert.doesNotMatch(card({ state: 'waiting' }), /bumped/);
   assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
-  assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch · waiting', at]);
+  assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch · waiting…', at]);
   const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
   assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', `${at} · Action needed`]);
 });
@@ -1576,8 +1576,8 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
   // The card an ask became, once sorted, reads as any task: Task where its ticket would be, and no asked line.
   const fromAsk = { kind: 'work', key: 'w/T-3', id: 'T-3', ref: 'T-3', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true };
-  assert.deepEqual(lines(ui.workLines(fromAsk)), ['Task Fix it', 'thinking']);
-  assert.deepEqual(lines(ui.workLines(fromAsk, { unread: 2 })), ['Task Fix it', 'thinking', '2 new messages']);
+  assert.deepEqual(lines(ui.workLines(fromAsk)), ['Task Fix it', 'thinking…']);
+  assert.deepEqual(lines(ui.workLines(fromAsk, { unread: 2 })), ['Task Fix it', 'thinking…', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
   const followup = { ...workCard, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, prs: [], reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five']);
@@ -1625,7 +1625,7 @@ test("a ready card's time line reads ready in green after its hold and before it
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: the card an ask became reads New
   // with its ask's line until it is sorted, bumps as a card, and edits and deletes its ask.
   const arrived = { ...card, key: 'w/T-3', id: 'T-3', ref: 'T-3', linear: [], unsorted: true, isNew: true, ask: { eventId: 'a7', state: 'waiting', canEdit: true, files: [] } };
-  assert.deepEqual(lines(ui.workLines(arrived)).slice(0, 2), ['New Five', 'waiting']);
+  assert.deepEqual(lines(ui.workLines(arrived)).slice(0, 2), ['New Five', 'waiting…']);
   assert.deepEqual([...ui.workLines(arrived).matchAll(/data-(card-bump|bump|edit|withdraw)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['card-bump', 'w/T-3'], ['edit', 'a7'], ['withdraw', 'a7']]);
 });
 
@@ -1823,7 +1823,7 @@ test('a pending message offers bump, edit and delete in that order, a thread mes
   assert.deepEqual(order(ui.askActions(fresh)), ['card-bump', 'edit', 'withdraw']);
   const html = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it well', edited: true, eventId: 'e1', reply: null, state: 'waiting', canDelete: true, canEdit: true }]);
   assert.deepEqual(order(html), ['edit', 'withdraw']);
-  assert.match(text(html), /^You · Edited · .* Fix it well Waiting for Claude…$/);
+  assert.match(text(html), /^You · Edited · .* Fix it well waiting…$/);
   const moved = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Swipe the gallery', moved: true, eventId: 'a1', reply: null, state: 'answered' }]);
   assert.match(text(moved), /^You · Moved · .* Swipe the gallery$/);
 });
@@ -1865,7 +1865,7 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   const reopened = ui.threadMessages([{ ts: ago(0.2), who: 'love', kind: 'question-reopen', request: true, mark: 'question reopened', text: 'Question 2 was reopened' }]);
   assert.ok(ui.MARK_ICONS['question reopened']);
   assert.ok(reopened.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['question reopened']}</span>Question 2 was reopened <span class="muted">`));
-  assert.doesNotMatch(requests, /class="who"|Waiting for Claude|data-event/);
+  assert.doesNotMatch(requests, /class="who"|waiting…|data-event/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.msg\.request \{[^}]*color: var\(--muted\)/);
   // One fixed box for every mark, so the text starts at the same place.
@@ -1876,22 +1876,22 @@ test('a builder status line, and an agent starting or finishing, reads as one li
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
-test("a request with text, a question's prototype request and an answer are the owner's message with the tap's status in the footer, Waiting for Claude to its right until Claude picks it up; a folded submit of answers carries one footer", () => {
+test("a request with text, a question's prototype request and an answer are the owner's message with the tap's status in the footer, waiting… to its right until Claude picks it up; a folded submit of answers carries one footer", () => {
   const msg = (extra) => ({ ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', text: 'Phone width first', eventId: 'p1', state: 'waiting', files: [], status: 'Prototype requested', ...extra });
   const foot = (html) => /<div class="reply muted small">(.*?)<\/div>/s.exec(html)?.[1];
   const status = (words) => `<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`;
-  assert.equal(foot(ui.threadMessages([msg()])), `${status('Prototype requested')}Waiting for Claude…`);
+  assert.equal(foot(ui.threadMessages([msg()])), `${status('Prototype requested')}waiting…`);
   assert.match(ui.threadMessages([msg()]), /<div class="body">Phone width first<\/div>/);
   assert.equal(foot(ui.threadMessages([msg({ state: 'answered' })])), status('Prototype requested'));
   assert.match(foot(ui.threadMessages([msg({ state: 'working' })])), /^<span class="foot-status">.*Prototype requested<\/span><span class="thinking">/);
-  assert.equal(foot(ui.threadMessages([msg({ kind: 'grill-more', status: 'Grill requested' })])), `${status('Grill requested')}Waiting for Claude…`);
+  assert.equal(foot(ui.threadMessages([msg({ kind: 'grill-more', status: 'Grill requested' })])), `${status('Grill requested')}waiting…`);
   const answer = (id, ts) => ({ ts, who: 'love', via: 'questions', kind: 'owner-answer', text: `${id}?\n→ A`, eventId: id, state: 'waiting', files: [], status: 'answers submitted' });
   const submit = { ...answer('a1', ago(1)), text: 'a1?\n→ A\n\na2?\n→ B', answers: [{ eventId: 'a1', state: 'waiting', text: 'a1?\n→ A' }, { eventId: 'a2', state: 'waiting', text: 'a2?\n→ B' }] };
   const folded = ui.threadMessages([submit]);
   assert.equal(folded.match(/class="msg love"/g).length, 1);
   assert.equal(folded.match(/answers submitted/g).length, 1);
   assert.match(folded, /a1\?\n→ A\n\na2\?\n→ B/);
-  assert.equal(foot(folded), `${status('answers submitted')}Waiting for Claude…`);
+  assert.equal(foot(folded), `${status('answers submitted')}waiting…`);
   // Answers that were submitted apart each draw their own footer.
   assert.equal(ui.threadMessages([answer('a1', ago(2)), answer('a2', ago(1))]).match(/answers submitted/g).length, 2);
   // A member's reply draws under the message, quoting its own answer.
@@ -1899,7 +1899,7 @@ test("a request with text, a question's prototype request and an answer are the 
   assert.match(replied, /<blockquote class="quote">a2\?\n→ B<\/blockquote>/);
   assert.doesNotMatch(replied, /<blockquote class="quote">a1/);
   // An owner message with no tap behind it keeps its plain footer.
-  assert.equal(foot(ui.threadMessages([msg({ kind: 'item-message', status: undefined })])), 'Waiting for Claude…');
+  assert.equal(foot(ui.threadMessages([msg({ kind: 'item-message', status: undefined })])), 'waiting…');
 });
 
 test("a card's open questions asked since it was last seen are one blue line in its thread, with a plain question mark, linking to the first", () => {
@@ -1998,7 +1998,7 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
   const grill = { ts: at(0), who: 'love', via: 'site', kind: 'grill-more', text: 'Grill', eventId: 'g1', state: 'replied', reply: { html: 'Questions up.', at: at(1) } };
   const answers = Array.from({ length: 12 }, (_, i) => answer(10 + i));
   const bodies = (html) => [...html.matchAll(/<div class="body">([^<]*)/g)].map((m) => m[1].replace(/\n.*/, ''));
-  const waits = (html) => html.split(/(?=<div class="msg )/).filter((h) => h.includes('Waiting for Claude')).map((h) => /Q\d+/.exec(h)[0]);
+  const waits = (html) => html.split(/(?=<div class="msg )/).filter((h) => h.includes('waiting…')).map((h) => /Q\d+/.exec(h)[0]);
 
   const read = ui.threadMessages([grill, ...answers], {}, new Map(), { seenAt: at(59), more: 0 });
   assert.deepEqual(bodies(read), ['Q19?', 'Q20?', 'Q21?']);
@@ -2033,7 +2033,7 @@ test("an ask's link line opens the work it became, and a thread line opens a lin
   const moved = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Moved to Audit.', link: '/audit/#selectedCard=ask%3Ab1' }]);
   assert.match(moved, /<a href="\/audit\/#selectedCard=ask%3Ab1">Open the task →<\/a>/);
   const arrived = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Fix the header', from: 'Orch', eventId: 'b1', reply: null, state: 'waiting' }]);
-  assert.match(text(arrived), /^You · Moved from Orch · .* Fix the header Waiting for Claude…$/);
+  assert.match(text(arrived), /^You · Moved from Orch · .* Fix the header waiting…$/);
 });
 
 test("a thread's links to this hub's pages open in place, and only other origins open a new window", () => {
