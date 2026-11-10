@@ -24,7 +24,7 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
   const reader = readinessReader({ now: () => now, probes: probesOf(off()) });
   const missing = await reader.rows();
   assert.ok(missing.every((r) => !r.ready && r.missing && (r.fix || r.keyButton)));
-  assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex implementing and reviewing wait on this; Codex share stays Off.', null, 'Reviewer DMs and digests wait on this.', 'Try builds wait on this.', 'Pushes wait on this.']);
+  assert.deepEqual(missing.map((r) => r.waits), ['GitHub polling and PR reports wait on this.', 'Codex implementing and reviewing wait on this; Codex share stays Off.', null, null, 'Try builds wait on this.', 'Pushes wait on this.']);
   assert.equal(missing[0].fix.command, 'gh auth login');
   assert.equal(missing[1].fix.command, 'install codex');
   assert.deepEqual([missing[2].fix, missing[2].keyButton], [undefined, 'Add key']);
@@ -37,7 +37,7 @@ test('readiness shares fixed row order, ready details, fixes, waits and waiting 
 
 test('Slack is ready while Hub’s token is saved and Slack has not refused it, and its button opens its key modal: Add key or Change key', () => {
   const row = (slack) => readinessRows({ slack })[0];
-  assert.deepEqual(row({ set: false }), { id: 'slack', name: 'Slack', ready: false, missing: 'No Slack token set', keyButton: 'Add key', waits: 'Reviewer DMs and digests wait on this.' });
+  assert.deepEqual(row({ set: false }), { id: 'slack', name: 'Slack', ready: false, missing: 'No Slack token set', keyButton: 'Add key', waits: null });
   assert.deepEqual([row({ set: true, refused: true, team: 'Acme', user: 'love' }).missing, row({ set: true, refused: true }).keyButton], ['Slack refused the token', 'Change key']);
   assert.equal(row({ set: true, team: 'Acme', user: 'love' }).keyButton, 'Change key');
   assert.equal(row({ set: true, team: 'Acme', user: 'love' }).detail, 'Token set · Acme workspace, sending as love');

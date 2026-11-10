@@ -13,11 +13,13 @@ import { tailscaleBin, tailscaleInstallCommand } from '../shared/tailscale.mjs';
 
 // The third entry is the sentence a missing integration shows, or null for a row that shows none. Linear and Slack rows carry keyButton, the words of the
 // button that opens their key modal on the Hub page, in every state (docs/adr/2026-11-09-2230-linear-and-slack-keys-open-in-modals-from-their-integrations-rows.md).
+// Slack's row shows no waits line, but its sends still wait on it.
+const GATES = { slack: 'Reviewer DMs and digests wait on this.' };
 const INTEGRATIONS = [
   ['github', 'GitHub', 'GitHub polling and PR reports wait on this.'],
   ['codex', 'Codex', 'Codex implementing and reviewing wait on this; Codex share stays Off.'],
   ['linear', 'Linear', null],
-  ['slack', 'Slack', 'Reviewer DMs and digests wait on this.'],
+  ['slack', 'Slack', null],
   ['tailscale', 'Tailscale', 'Try builds wait on this.'],
   ['notifications', 'Notifications', 'Pushes wait on this.'],
 ];
@@ -83,7 +85,8 @@ export function readinessReader({ home = os.homedir(), env = process.env, now = 
   const rows = async ({ fresh = false } = {}) => readinessRows(Object.fromEntries(await Promise.all(INTEGRATIONS.map(async ([id]) => [id, await check(id, fresh)]))), { now: now() });
   async function waiting(id) {
     const [row] = readinessRows({ [id]: await check(id, false) }, { now: now() });
-    return row.ready || !row.waits ? null : row.waits.replace('this', `${row.name}: ${row.missing.replace(/\.$/, '')}`);
+    const waits = row.waits ?? GATES[id];
+    return row.ready || !waits ? null : waits.replace('this', `${row.name}: ${row.missing.replace(/\.$/, '')}`);
   }
   return { rows, waiting };
 }

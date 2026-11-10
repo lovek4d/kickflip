@@ -510,7 +510,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
     { id: 'github', name: 'GitHub', ready: false, missing: "gh isn't logged in <img>", fix: { command: 'gh auth login <img>' }, waits: 'GitHub polling and PR reports wait on this.' },
     { id: 'codex', name: 'Codex', ready: true, detail: 'Installed and logged in <img>' },
     { id: 'linear', name: 'Linear', ready: false, missing: 'No Linear key set', keyButton: 'Add key', waits: null },
-    { id: 'slack', name: 'Slack', ready: true, detail: 'Token set · Acme workspace, sending as love', keyButton: 'Change key', waits: 'Reviewer DMs and digests wait on this.' },
+    { id: 'slack', name: 'Slack', ready: true, detail: 'Token set · Acme workspace, sending as love', keyButton: 'Change key', waits: null },
     { id: 'notifications', name: 'Notifications', ready: true, detail: 'Pushes on · 2 devices', devices: [
       { id: 'mine', kind: 'Mac', browser: 'Chrome', added: new Date(Date.now() - 2 * 3600_000).toISOString() },
       { id: 'other', kind: 'iPhone', browser: '', added: new Date(Date.now() - 5 * 60_000).toISOString() }] },
