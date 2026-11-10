@@ -319,7 +319,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { PAUSE_CLEARS, pauseWork, plans, providerOf, archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { PAUSE_CLEARS, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -1703,7 +1703,10 @@ async function resumeRun(key) {
 // → the keys of the paused builds due to resume, oldest pause first.
 let pausesLive = false;
 async function checkPauses(items, gate) {
-  const work = pauseWork(items, { usageHeld: (kind) => pausesRunning(gate, kind) });
+  const opts = { usageHeld: (kind) => pausesRunning(gate, kind) };
+  const work = pauseWork(items, opts);
+  // docs/adr/2026-11-10-1400-the-auto-pass-re-reads-a-pause-before-dropping-it.md
+  if (work.drop.length) { dataVersion++; work.drop = confirmedDrops(work.drop, (await sharedBoard()).items, opts); }
   for (const key of work.ask) {
     if (await requestPause(here, key, { cause: 'usage', words: pausedWords(gate) })) logCall({ call: 'pause', key, result: 'asked', reason: pauseReasonFor(gate, 'claude'), inputs: { gate } });
   }

@@ -657,6 +657,14 @@ export function pauseWork(items, { now = Date.now(), usageHeld }) {
   return out;
 }
 
+// docs/adr/2026-11-10-1400-the-auto-pass-re-reads-a-pause-before-dropping-it.md
+// The drops a fresh read of the built items still lists: a Hold writes the item file and then the builder's record, so
+// a snapshot between the two reads the pause without the hold. → the keys of drops that fresh drops as well.
+export function confirmedDrops(drops, fresh, opts) {
+  const again = pauseWork(fresh, opts).drop;
+  return drops.filter((key) => again.includes(key));
+}
+
 // The model the agent runs: a Claude kind's record holds it as model (opus or sonnet), a record without one reads from its kind.
 // Records written before kind became the provider hold kind opus or sonnet, which read as kind claude with that model.
 const MODEL_NAMES = { opus: 'Claude Opus', sonnet: 'Claude Sonnet', codex: 'Codex' };

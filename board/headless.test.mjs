@@ -799,7 +799,7 @@ test("the owner's Hold pauses the card's running builder at its next progress re
     const session = b.record('H1').session.id;
     await send('card-hold', { key: 't/H1', hold: true });
     assert.doesNotThrow(() => process.kill(pid, 0), 'the builder runs on to its stopping point');
-    assert.deepEqual([b.record('H1').done, b.record('H1').pause.cause, b.item('H1').lane], [undefined, 'held', 'progress']);
+    assert.deepEqual({ done: b.record('H1').done, pause: b.record('H1').pause?.cause, lane: b.item('H1').lane }, { done: undefined, pause: 'held', lane: 'progress' }, `read the record ${JSON.stringify(b.record('H1'))}`);
     assert.deepEqual(b.thread('H1').at(-1).text, 'Held', 'nothing stopped, so no stop line');
     const old = process.env.HOME;
     process.env.HOME = b.home;

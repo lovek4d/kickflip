@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { home, at, site, write, read, run, runAsync, itemOf, threadOf, record } from './board-fixture.mjs';
 import * as store from './store.mjs';
 import { bumpOut } from './stop.mjs';
-import { pullOf, pauseWork, PAUSE_HARD_STOP } from './domain.mjs';
+import { pullOf, pauseWork, confirmedDrops, PAUSE_HARD_STOP } from './domain.mjs';
 
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const now = () => new Date().toISOString();
@@ -163,6 +163,16 @@ test('pauseWork asks every running build to pause while usage holds its kind, an
   assert.deepEqual(pauseWork(items, { now: at, usageHeld: () => false }), { ask: [], drop: ['w/E'], stop: ['w/F'], resume: ['w/G', 'w/C'] });
   assert.deepEqual(pauseWork(items, { now: at, usageHeld: () => true }).ask, ['w/A'], 'a build already pausing, a landing one and a planner are left');
   assert.deepEqual(pauseWork(items, { now: Date.parse('2026-11-09T13:00:00.000Z'), usageHeld: () => false }).resume, ['w/G', 'w/H', 'w/C'], 'oldest pause first');
+});
+
+// docs/adr/2026-11-10-1400-the-auto-pass-re-reads-a-pause-before-dropping-it.md
+test("a pause the auto pass would drop stands unless a fresh read drops it too: the Hold's two writes can straddle the snapshot", () => {
+  const usageHeld = () => false;
+  const pause = { cause: 'held', at: '2026-11-09T11:50:00.000Z' };
+  const stale = [card('w/A', {}, { pause }), card('w/B', {}, { pause })];
+  const fresh = [card('w/A', { held: true }, { pause }), card('w/B', {}, { pause })];
+  assert.deepEqual(pauseWork(stale, { usageHeld }).drop, ['w/A', 'w/B'], 'the snapshot read A\'s record after the Hold, its item file before it');
+  assert.deepEqual(confirmedDrops(pauseWork(stale, { usageHeld }).drop, fresh, { usageHeld }), ['w/B'], 'A is held on the fresh read, so its pause stays');
 });
 
 test('a paused build frees its implementer slot, and a build already pausing is never bumped out again', () => {
