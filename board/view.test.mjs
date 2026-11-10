@@ -4945,7 +4945,7 @@ test("Todo has no Queued section: its cards show in the server's order, a bumped
 });
 
 // docs/adr/2026-11-09-1321-a-waves-cards-wait-only-on-the-earlier-cards-they-conflict-with.md
-test("a wave's band lists its cards with no step number and no ⋯ menu, a card waiting on another reads the board's blocked-by line, and its Implement starts the first ready card", async () => {
+test("a wave's band lists its cards with no step number and no ⋯ menu, a card waiting on another reads the board's blocked-by line, and its header carries no Implement", async () => {
   const keys = ['w/P1', 'w/P2', 'w/P3', 'w/P4'];
   const band = (next) => ({ kind: 'wave', slug: 'cw', title: 'Conflicts', goal: 'G', keys, next, merged: 1, total: 4, triage: { running: false, questions: 0 } });
   const cards = (p2 = {}) => [workCard('P1', { lane: 'done' }), workCard('P2', { ready: true, buildable: true, ...p2 }), workCard('P3', { ready: true, buildable: true }), workCard('P4', { blockedBy: [{ key: 'w/P2', ref: 'P2' }] })];
@@ -4956,15 +4956,14 @@ test("a wave's band lists its cards with no step number and no ⋯ menu, a card 
   assert.deepEqual(shown(), ['w/P2', 'w/P3', 'w/P4']);
   assert.deepEqual([b.root.querySelector('.wb .wn'), b.root.querySelector('.wb [data-band-menu]')], [null, null]);
   assert.equal(b.root.querySelector('.wb details.item[data-key="w/P4"] .card-blocked').textContent, 'blocked by P2');
-  assert.equal(head().querySelector('button[data-confirm="card-build"]').dataset.key, 'w/P2');
+  assert.equal(head().querySelector('button[data-confirm="card-build"]'), null);
   await b.change({ board: { ...boardOf(cards({ lane: 'progress' })), waveBands: [band({ key: 'w/P3', ref: 'P3', ready: true, word: 'ready' })] } });
   assert.deepEqual(shown(), ['w/P3', 'w/P4']);
-  assert.equal(head().querySelector('button[data-confirm="card-build"]').dataset.key, 'w/P3');
-  assert.equal(head().querySelector('.wb-label').textContent, 'Conflicts 2 · P2 in progress');
+  assert.equal(head().querySelector('.wb-label').textContent, 'Conflicts');
 });
 
 // docs/adr/2026-11-03-1840-waves-are-bands-in-todo.md
-test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, Implement or what the next card waits on, Notes and Triage in its head, its Todo cards in order and its done ones one line", async () => {
+test("each wave is a band in Todo above its loose cards: only the first with a ready next card starts open, its goal on its name, its name then Notes then the counts in its head with no next section, its Todo cards in order and its done ones one line", async () => {
   const idle = { running: false, questions: 0 };
   const band = (slug, title, keys, next, extra = {}) => ({ kind: 'wave', slug, title, goal: `${title} goal.`, keys: keys.map((id) => `w/${id}`), next, merged: 1, total: keys.length, triage: idle, ...extra });
   const cards = [workCard('A3'), workCard('A2', { blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A5'), workCard('A6', { ready: true, buildable: true }), workCard('A7'), workCard('A4'),
@@ -4988,16 +4987,15 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
 
   assert.equal(head('go').querySelector('[data-goal]').getAttribute('title'), 'Go goal.');
   assert.equal(b.root.querySelector('.wb-goal'), null);
-  assert.equal(head('go').querySelector('.wb-label').textContent, 'Go 2');
+  assert.equal(head('go').querySelector('.wb-label').textContent, 'Go');
+  assert.deepEqual(head('go').children.map((el) => el.getAttribute('class').split(' ')[0]).slice(1, 4), ['wb-label', 'wb-links', 'wb-counts']);
   assert.equal(head('go').querySelector('a[href="notes.html?wave=go"]').textContent.trim(), 'Notes');
   assert.equal(head('go').querySelector('button[data-triage]'), null);
   assert.equal(head('pilot').querySelector('a[href^="notes.html"]'), null);
   assert.equal(head('pilot').querySelector('button[data-triage]'), null);
-  const implement = head('go').querySelector('button[data-confirm="card-build"]');
-  assert.deepEqual([implement.textContent, implement.dataset.key], ['Implement', 'w/A6']);
-  assert.equal(head('mon').querySelector('button[data-confirm]'), null);
-  assert.equal(head('mon').querySelector('.wb-next').textContent, 'next: A2 waits on A9');
-  assert.equal(head('mon').querySelector('.wb-label').textContent, 'Monitor 2 · A8 in progress');
+  assert.equal(b.root.querySelector('.wb-head button[data-confirm]'), null);
+  assert.equal(b.root.querySelector('.wb-next'), null);
+  assert.equal(head('mon').querySelector('.wb-label').textContent, 'Monitor');
   assert.deepEqual(shown('go'), ['w/A6', 'w/A7']);
 
   b.page.fire(b.root, 'click', { target: head('mon').querySelector('.wb-label') });
@@ -5014,15 +5012,9 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   b.page.fire(b.root, 'click', { target: head('go') });
   await b.settle();
 
-  b.page.fire(b.root, 'click', { target: head('go').querySelector('button[data-confirm="card-build"]') });
-  await b.settle();
-  assert.match(b.confirms.at(-1), /^Implement A6\? Claude starts its implementer now/);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-build', { key: 'w/A6' }]]);
-  assert.equal(head('go').getAttribute('aria-expanded'), 'true');
-
   await b.change({ board: { ...b.server.board, waveBands: bands({ running: true, questions: 0 }, { running: false, questions: 1 }) } });
   assert.equal(b.root.querySelector('.wv-busy'), null);
-  assert.equal(head('pilot').querySelector('.wb-links').textContent.includes('Triage'), false);
+  assert.equal(head('pilot').textContent.includes('Triage'), false);
 
   const touch = (type) => b.page.fire(b.root, type, { target: head('go').querySelector('[data-goal]'), pointerType: 'touch' });
   touch('pointerdown');

@@ -148,7 +148,6 @@ BoardView.part((B) => {
   // any Todo card) starts open. A band's name shows its goal as a tooltip, or a popover on a long-press. goalShown is
   // the band whose goal popover is open.
   let goalShown = null;
-  const LANE_WORDS = { progress: 'in progress', review: 'in review' };
 
   // Todo's wave bands and loose cards, in the order they arrive (domain.mjs laneOrder).
   function todoRows(d, shown, todo) {
@@ -165,17 +164,10 @@ BoardView.part((B) => {
   function bandHtml(band, cards, open) {
     const todo = cards.filter((i) => i.lane === 'todo');
     const done = cards.filter((i) => i.lane === 'done');
-    const now = cards.filter((i) => LANE_WORDS[i.lane]).map((i) => `${esc(i.ref)} ${LANE_WORDS[i.lane]}`);
-    const progress = now.length ? ` <span class="count">· ${now.join(' · ')}</span>` : '';
     const name = `<span class="lane-name wb-name"${band.goal ? ` title="${esc(band.goal)}" data-goal="${esc(band.slug)}"` : ''}>${escText(band.title)}</span>`;
-    const notes = band.kind === 'wave' ? `<span class="external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span><span class="external-separator" aria-hidden="true"> · </span>` : '';
-    const next = band.next;
-    const go = !next ? '' : next.ready
-      ? `<button type="button" class="wv-link" data-confirm="card-build" data-key="${esc(next.key)}">Implement</button>`
-      : `<span class="wb-next">next: ${esc(next.ref)} ${esc(next.word)}</span>`;
+    const notes = band.kind === 'wave' ? `<span class="wb-links external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span>` : '';
     const pop = goalShown === band.slug && band.goal ? `<div class="wb-pop" role="tooltip">${esc(band.goal)}</div>` : '';
-    const head = `<span class="wb-label">${name} <span class="count">${todo.length}</span>${progress}</span>`
-      + waveCounts(band, 'todo') + `<span class="wb-end"><span class="wb-links">${notes}</span>${go}</span>${pop}`;
+    const head = `<span class="wb-label">${name}</span>` + notes + waveCounts(band, 'todo') + pop;
     const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#selectedCard=${encodeURIComponent(i.key)}">${esc(i.ref)}</a>`).join(', ')}</div>` : '';
     return groupHtml('todo', band.slug, open, head, doneRow + todo.map((it) => B.card(it)).join(''));
   }
