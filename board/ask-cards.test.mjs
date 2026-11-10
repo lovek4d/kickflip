@@ -37,7 +37,7 @@ test('an answered card waits in In Review for the owner\'s Done with no Action n
   const threads = { 'hub/T-1': [{ ts: '2026-11-09T10:05:00Z', who: 'claude', text: 'It jumps because of the sticky bar.' }] };
   const answered = built({ item: { answered_at: '2026-11-09T10:05:00Z' }, threads });
   const c = card(answered);
-  assert.deepEqual([c.lane, c.waitsOn, c.awaitsDone, c.action, c.next, Boolean(c.isNew), c.answered], ['review', 'owner', true, null, 'Tap Done once it is settled', false, true]);
+  assert.deepEqual([c.lane, c.waitsOn, c.awaitsDone, c.action, c.next, Boolean(c.isNew), c.answered], ['review', 'owner', true, null, 'Tap Done', false, true]);
   assert.deepEqual(answered.answers.map((a) => [a.key, a.at]), [['hub/T-1', '2026-11-09T10:05:00Z']]);
   // The settle pass moves it to In Review saying why.
   assert.deepEqual(movesOf(answered).map((m) => [m.key, m.to, m.why]), [['hub/T-1', 'review', 'answered, it waits for your Done']]);

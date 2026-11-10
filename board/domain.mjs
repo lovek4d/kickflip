@@ -162,7 +162,7 @@ const UNREVIEWED_MERGE_NEXT = { auto: 'Ready, merges once CI and the merge state
 const heldNext = (base) => `Verified: tap Merge to land it on ${base}`;
 const FIX_CI = 'Fix the failing CI';
 const REPLY_WAITS = 'Your reply waits on the orchestrator';
-const TAP_DONE = 'Tap Done once it is settled';
+const TAP_DONE = 'Tap Done';
 
 // Only Claude's and GitHub's messages are ever unread, and replies, which are Claude's, and the board's fault lines; never
 // the owner's lines, their answers included, nor status, agent or ask-link lines, nor the board's other status lines,

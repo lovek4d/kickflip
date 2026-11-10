@@ -975,7 +975,7 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
   assert.equal(card(said, 'A7').reopened, true);
   assert.deepEqual(state(said, 'A8'), ['review', 'owner', null, 'questions', 'openQuestions', 'Answer 1 question']);
   const answered = { ...said, threads: { 'w/A4': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
-  assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, null, null, 'Tap Done once it is settled']);
+  assert.deepEqual(state(answered, 'A4'), ['review', 'owner', null, null, null, 'Tap Done']);
   assert.deepEqual((({ awaitsDone, bumpable, resolvedBy }) => [awaitsDone, bumpable, resolvedBy])(card(answered, 'A4')), [true, false, null]);
   const followUp = (next_at) => ({ ...answered, files: [{ ...answered.files[0], itemFile: { items: items.map((i) => (i.id === 'A4' ? { ...i, next: 'Build the fix', next_at } : i)) } }] });
   assert.deepEqual(state(followUp('2026-10-23T11:35:00Z'), 'A4'), ['review', null, null, null, null, 'Build the fix'], 'a Next set after the reopen waits in In Review for its builder');
@@ -984,11 +984,11 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
   const built = { ...building, files: [{ ...building.files[0], agents: { A4: { main: { started: '2026-10-23T11:45:00Z', done: '2026-10-23T11:55:00Z' } } } }] };
   assert.equal(state(built, 'A4')[0], 'progress', 'and it stays there once that run ends');
   assert.equal(card(followUp('2026-10-23T11:35:00Z'), 'A4').awaitsDone, false);
-  assert.deepEqual(state(followUp('2026-10-23T11:05:00Z'), 'A4'), ['review', 'owner', null, null, null, 'Tap Done once it is settled'], 'a Next from before the reopen does not');
+  assert.deepEqual(state(followUp('2026-10-23T11:05:00Z'), 'A4'), ['review', 'owner', null, null, null, 'Tap Done'], 'a Next from before the reopen does not');
   assert.deepEqual(needsAnswer(buildBoard(answered)).items.filter((l) => l.url === '#selectedCard=w%2FA4'), []);
   assert.deepEqual(state({ ...answered, events: [...answered.events, close('w/A4', '2026-10-23T11:50:00Z')] }, 'A4'), ['done', null, '2026-10-23T11:50:00Z', null, null, null]);
   const mergedAnswered = { ...said, threads: { 'w/A7': [{ ts: '2026-10-23T11:40:00Z', who: 'claude', text: 'Done that.' }] } };
-  assert.deepEqual(state(mergedAnswered, 'A7'), ['review', 'owner', null, null, null, 'Tap Done once it is settled']);
+  assert.deepEqual(state(mergedAnswered, 'A7'), ['review', 'owner', null, null, null, 'Tap Done']);
   assert.deepEqual(state({ ...mergedAnswered, events: [...mergedAnswered.events, close('w/A7', '2026-10-23T11:50:00Z')] }, 'A7'), ['done', null, '2026-10-23T11:50:00Z', null, null, null]);
   assert.equal(card({ ...mergedAnswered, events: [...mergedAnswered.events, close('w/A7', '2026-10-23T11:50:00Z')] }, 'A7').pr.status, 'merged');
 });
