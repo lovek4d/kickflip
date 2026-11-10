@@ -513,7 +513,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
           update(board, key, { serving: undefined });
           return;
         }
-        if (key === 'main' && !run.ready && serving.has(board.dir) && !stopping) {
+        if (key === 'main' && !run.ready && refusedByOld(board, run) && !stopping) {
           await handOverFailed(run);
           return;
         }
@@ -544,13 +544,19 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     update(board, 'main', { serving: undefined });
     await halt(old);
   }
-  // A Main serve that exits before answering while the old run serves may have been refused by it, as next dev refuses a
-  // second dev server for a project: the old run stops and the serve runs once more in the same worktree
+  // A Main serve's log names the old run's worktree when the tool refused to share the project with it, as next dev
+  // prints the other server's Dir; a serve that exits for its own reasons leaves the old run serving.
+  function refusedByOld(board, run) {
+    const old = serving.get(board.dir);
+    return Boolean(old) && fs.readFileSync(run.logFile, 'utf8').includes(old.worktree);
+  }
+  // A Main serve that exits before answering after naming the old run's worktree was refused by it: the old run
+  // stops and the serve runs once more in the same worktree
   // (docs/adr/2026-11-10-0108-main-serves-again-after-the-pair-update.md).
   async function handOverFailed(run) {
     const { board, worktree } = run;
     await retire(board);
-    log(`try /${board.route} main: the new serve exited before answering while the old one served; stopped the old serve and serving again in ${worktree}`);
+    log(`try /${board.route} main: the new serve refused to run beside the old one; stopped the old serve and serving again in ${worktree}`);
     const { serving: _old, ...metadata } = run.metadata;
     try { await launch(board, 'main', worktree, metadata, 'The new serve exited before answering while the old one served; stopped the old serve and serving again.\n'); }
     catch (e) { mainFailed(board, metadata, e); }

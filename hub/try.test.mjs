@@ -673,14 +673,14 @@ test('a build that prints the old main server’s port stops the old server befo
 // A dev server that allows one server per project, as next dev does: it exits while another of its servers runs.
 const oneServerScript = (port) => setScript(`const fs = require('node:fs');
 const lock = require('node:path').join(process.env.HOME, 'main.lock');
-let other = 0;
-try { other = Number(fs.readFileSync(lock, 'utf8')); process.kill(other, 0); } catch { other = 0; }
-if (other) { console.log('Another dev server is already running. PID: ' + other); process.exit(1); }
-fs.writeFileSync(lock, String(process.pid));
+let other = 0, dir = '';
+try { [other, dir] = fs.readFileSync(lock, 'utf8').split('\\n'); process.kill(Number(other), 0); } catch { other = 0; }
+if (other) { console.log('Another dev server is already running. PID: ' + other + ' Dir: ' + dir); process.exit(1); }
+fs.writeFileSync(lock, process.pid + '\\n' + process.cwd());
 console.log('port ${port}');
 setInterval(() => {}, 1000);`, repo);
 
-test('a main serve that exits before answering while the old one serves stops the old serve and serves once more in the same worktree', async (t) => {
+test('a main serve that is refused beside the old one stops the old serve and serves once more in the same worktree, and one that fails on its own leaves the old one serving', async (t) => {
   const relays = fakeRelays(t);
   const logs = [];
   manager = createTryManager({ now: () => clock, answers: async () => true, log: (line) => logs.push(line) });
@@ -699,15 +699,15 @@ test('a main serve that exits before answering while the old one serves stops th
   assert.equal(git(mainDir('a'), 'rev-parse', 'HEAD'), first);
   assert.ok(relays[0].closed);
   assert.equal(relayOf(8500), `http://127.0.0.1:${relays.at(-1).address().port}`);
-  assert.ok(logs.includes(`try /orch main: the new serve exited before answering while the old one served; stopped the old serve and serving again in ${mainDir('b')}`));
+  assert.ok(logs.includes(`try /orch main: the new serve refused to run beside the old one; stopped the old serve and serving again in ${mainDir('b')}`));
   assert.match(fs.readFileSync(path.join(site, 'data/try/main.log'), 'utf8'), /^The new serve exited before answering while the old one served; stopped the old serve and serving again\.\n/);
-  // A commit that fails on its own still fails once the old serve is stopped, and is served again only once.
+  // A commit that fails on its own, naming no worktree, fails beside the serve that keeps answering.
   setScript('console.log("broken"); process.exit(3);', repo);
   const broken = mainCommit('broken');
   await tick();
   await until(() => state().main.state === 'failed' && state().main.sha === broken);
-  assert.equal(state().main.serving, undefined);
-  assert.equal(logs.filter((line) => line.includes('the new serve exited before answering')).length, 2);
+  assert.equal(state().main.serving.sha, second);
+  assert.equal(logs.filter((line) => line.includes('refused to run beside the old one')).length, 1);
 });
 
 test('the single main worktree of a hub from before the pair has its servers stopped and is removed, even where git refuses to remove it', async (t) => {
