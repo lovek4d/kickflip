@@ -1098,6 +1098,38 @@ test('try builds refuse with 409 while waiting and main rebuilds wait without a 
   assert.deepEqual(messages, []);
 });
 
+test("the prototype serve's relay drops the headers that refuse a frame, and a card's relay keeps them", async () => {
+  const gate = ownerGate({ addresses: () => ['127.0.0.1', '::1'], node: async () => ({ login: 'lovek4d@github', addresses: [] }) });
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {}, gate });
+  const base = path.join(home, '.claude', 'kickflip', 'worktrees', 'orch-prototypes');
+  git(repo, 'worktree', 'add', '--quiet', '--detach', base, 'main');
+  const free = async () => {
+    const server = http.createServer();
+    await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    await new Promise((resolve) => server.close(resolve));
+    return port;
+  };
+  const framed = (port) => `const s = require('node:http').createServer((q, r) => { r.setHeader('X-Frame-Options', 'SAMEORIGIN'); r.setHeader('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'"); r.end('page'); });
+  s.listen(${port}, '127.0.0.1', () => console.log('port ${port}'));`;
+  setScript(framed(await free()), base);
+  setScript(framed(await free()));
+  write(path.join(site, 'data', 'owner.json'), { topics: [], items: [{ id: 'q1', topic: 'item:w/A1', question: 'Which?', url: 'prototype-look.html?q=q1', options: [{ id: 'A', label: 'A' }] }] });
+  write(path.join(site, 'data', 'prototypes.json'), { prototypes: [{ topic: 'look', title: 'Look', served: '/proto/look', takes: [{ key: 'A', label: 'A' }] }] });
+  await tick();
+  await until(() => state().prototypes?.state === 'ready');
+  await start();
+  await until(() => state().cards['w/A1'].state === 'ready');
+  const proto = await fetch(relayOf(state().prototypes.https) + '/');
+  assert.equal(proto.headers.get('x-frame-options'), null);
+  assert.equal(proto.headers.get('content-security-policy'), "default-src 'self'");
+  const card = await fetch(relayOf(state().cards['w/A1'].https) + '/');
+  assert.equal(card.headers.get('x-frame-options'), 'SAMEORIGIN');
+  assert.match(card.headers.get('content-security-policy'), /frame-ancestors/);
+  await manager.stop();
+  git(repo, 'worktree', 'remove', '--force', base);
+});
+
 // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md
 test("the board's base prototype worktree is served while an open question links a served round: never idle, back after a restart, stopped once resolved, and a failure waits for Try again", async (t) => {
   fakeRelays(t);

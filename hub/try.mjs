@@ -30,6 +30,16 @@ export const isTryPort = (port) => /^\d+$/.test(String(port)) && Number(port) >=
 const IDLE_MS = 30 * 60_000;
 // What tailscale serve adds to say who a request is from; the try relay drops them before the app.
 const IDENTITY_HEADERS = ['tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'x-forwarded-for'];
+// What stops a page from being framed by the board, which is another origin on the same host.
+const FRAME_HEADERS = ['x-frame-options'];
+const withoutFraming = (headers) => {
+  const kept = Object.fromEntries(Object.entries(headers).filter(([name]) => !FRAME_HEADERS.includes(name)));
+  if (typeof kept['content-security-policy'] === 'string') {
+    const policy = kept['content-security-policy'].split(';').filter((part) => !/^\s*frame-ancestors\b/i.test(part)).join(';').trim();
+    if (policy) kept['content-security-policy'] = policy; else delete kept['content-security-policy'];
+  }
+  return kept;
+};
 // Main and the board's base prototype worktree (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md)
 // are no card: each keeps its own entry in try.json, posts no thread line and never idles out.
 const OWN_ENTRY = { main: 'main', [BASE_KEY]: 'prototypes' };
@@ -213,7 +223,8 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       }
       const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !IDENTITY_HEADERS.includes(name)));
       const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers }, (answer) => {
-        res.writeHead(answer.statusCode, answer.headers);
+        // The prototype serve is framed by the board's own page, so its answers lose the headers that refuse a frame.
+        res.writeHead(answer.statusCode, run.key === BASE_KEY ? withoutFraming(answer.headers) : answer.headers);
         answer.on('data', visit);
         answer.pipe(res);
         answer.on('close', () => { if (!answer.complete) res.destroy(); });
