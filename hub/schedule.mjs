@@ -1,6 +1,6 @@
 // When the hub checks git and GitHub, and when pushes wait
 // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). The check's cadence
-// is fixed in code and follows the owner's presence (presence.mjs), quiet hours counting as away: checkEvery and nextCheckAt. Quiet hours, `quiet`
+// is fixed in code and follows the owner's presence (presence.mjs): checkEvery and nextCheckAt. Quiet hours, `quiet`
 // in settings.json, run from `start` to `end`, wrapping past midnight: with `hold` on, non-urgent pushes queued in
 // them wait for their end, the snoozes tonight, morning and monday end at their edges, and their end is the daily wake,
 // when the hub wakes each board's session once, whether GitHub changed or not. heldUntil is the gate every push passes.
@@ -39,12 +39,10 @@ export function checkEvery({ present, remaining = null }) {
 }
 
 // When the check after the one started at `last` runs: checkEvery later, or at `backAt`, when the owner came back
-// since, so coming back checks at once and the cadence restarts from there. In quiet hours (quietAt) the owner counts
-// as away, present or not, and coming back waits for the next check
-// (docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md).
-export function nextCheckAt({ last, present, quiet = false, remaining = null, backAt = null }) {
-  if (backAt && backAt > last && !quiet) return new Date(backAt);
-  return new Date(last.getTime() + checkEvery({ present: present && !quiet, remaining }) * 60_000);
+// since, so coming back checks at once and the cadence restarts from there.
+export function nextCheckAt({ last, present, remaining = null, backAt = null }) {
+  if (backAt && backAt > last) return new Date(backAt);
+  return new Date(last.getTime() + checkEvery({ present, remaining }) * 60_000);
 }
 
 // Returns { notifications } with snoozed_until as an ISO time, FOREVER or null, or { error }. Missing fields get the defaults.

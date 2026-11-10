@@ -134,7 +134,7 @@
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. A site with a port and
 // no `cmd` runs its own server: the hub only probes it, and it reads Down while nothing answers
 // (docs/adr/2026-11-01-1446-a-page-joins-without-a-session.md). Every minute while the owner is present and every 5
-// while away or in quiet hours (schedule.mjs nextCheckAt, presence.mjs ownerTracker), and once a minute after it starts, it checks
+// while away (schedule.mjs nextCheckAt, presence.mjs ownerTracker), and once a minute after it starts, it checks
 // GitHub (github.mjs), fetches and pulls each board's repo, checks each auto-review board's incoming PRs (incoming.mjs), pushes once for each board that is deaf (boards.mjs
 // checkListening, listenState), then sends the queued pushes unless schedule.mjs heldUntil holds them;
 // one poll never overlaps another, and coming back from away runs one at once. At the end of quiet hours it wakes each
@@ -178,7 +178,7 @@ import { routeRecord } from './routes.mjs';
 import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, deliver } from './push.mjs';
 import { ownerTracker } from './presence.mjs';
 import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
-import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt, quietAt } from './schedule.mjs';
+import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
 import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs';
 import { endOf } from './duration.mjs';
@@ -429,12 +429,11 @@ const ERROR_LOG_MS = 60 * 60_000;
 const polls = { running: null, startedAt: 0, firstAt: Date.now() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0 };
 const owner = ownerTracker();
 
-const quietNow = () => quietAt(new Date(), readSettings());
-const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), quiet: quietNow(), remaining: polls.remaining }) : new Date(polls.firstAt));
-// A change in the owner's presence repaints every page's moon; coming back runs a check at once, outside quiet hours.
+const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
+// A change in the owner's presence repaints every page's moon; coming back runs a check at once.
 function presenceChanged({ changed, back }) {
   if (changed) stream.refresh();
-  if (back && polls.startedAt && !polls.running && !quietNow()) runPoll().catch((e) => log('poll failed:', e.message));
+  if (back && polls.startedAt && !polls.running) runPoll().catch((e) => log('poll failed:', e.message));
 }
 
 function runPoll({ flush = true } = {}) {
