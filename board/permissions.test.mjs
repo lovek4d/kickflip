@@ -21,14 +21,15 @@ test('the switches are the fixed list, each naming the rule it writes', () => {
     ['Push main after a land', 'Bash(git push origin main)'],
     ['Push release tags', 'Bash(git push origin v*)'],
     ['Open draft PRs', 'Bash(gh pr create --draft *)'],
+    ['Approve PRs', 'Bash(gh pr review *)'],
   ]);
 });
 
 test('a switch writes its rule into a folder with no settings file and creates .claude', async () => {
   const { root, folder, site } = scratch();
   try {
-    assert.deepEqual(await readPermissions(folder), { pushMain: false, pushTags: false, draftPr: false });
-    assert.deepEqual(await setPermission(folder, site, 'pushTags', true), { pushMain: false, pushTags: true, draftPr: false });
+    assert.deepEqual(await readPermissions(folder), { pushMain: false, pushTags: false, draftPr: false, approvePr: false });
+    assert.deepEqual(await setPermission(folder, site, 'pushTags', true), { pushMain: false, pushTags: true, draftPr: false, approvePr: false });
     assert.deepEqual(read(settingsFile(folder)), { permissions: { allow: ['Bash(git push origin v*)'] } });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -39,7 +40,7 @@ test("switching merges with what's there and off removes only its own rule", asy
     fs.mkdirSync(path.join(folder, '.claude'));
     const mine = { env: { A: '1' }, permissions: { allow: ['Bash(npm test)', 'Bash(git push origin main)'], deny: ['Bash(rm -rf *)'] } };
     fs.writeFileSync(settingsFile(folder), JSON.stringify(mine));
-    assert.deepEqual(await readPermissions(folder), { pushMain: true, pushTags: false, draftPr: false });
+    assert.deepEqual(await readPermissions(folder), { pushMain: true, pushTags: false, draftPr: false, approvePr: false });
     await setPermission(folder, site, 'draftPr', true);
     assert.deepEqual(read(settingsFile(folder)), { ...mine, permissions: { ...mine.permissions, allow: [...mine.permissions.allow, 'Bash(gh pr create --draft *)'] } });
     await setPermission(folder, site, 'pushMain', false);
@@ -67,6 +68,7 @@ test('a command matches the switch whose rule allows it, with * for any run of c
   assert.equal(permissionFor('git push origin v0.9.0')?.id, 'pushTags');
   assert.equal(permissionFor('git push origin main')?.id, 'pushMain');
   assert.equal(permissionFor('gh pr create --draft --title x')?.id, 'draftPr');
+  assert.equal(permissionFor('gh pr review 3808 --repo Ever-Cars/evercars-backend --approve --body "ok"')?.id, 'approvePr');
   assert.equal(permissionFor('git push origin main --force')?.id, undefined);
   assert.equal(permissionFor('gh pr create --title x'), null);
   assert.equal(permissionFor(undefined), null);
@@ -87,6 +89,7 @@ test('a refusal shows under its switch only while it is on, and a change to that
       ['pushMain', false, null],
       ['pushTags', true, { command: 'git push origin v1.0.0', how: 'denied', at: at.toISOString() }],
       ['draftPr', false, null],
+      ['approvePr', false, null],
     ]);
     await recordRefusal(folder, site, bash('git push origin v1.0.1', 'PermissionRequest'), at);
     assert.equal((await permissionsView(folder, site)).permissions[1].refused.how, 'asked');

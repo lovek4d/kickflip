@@ -1430,10 +1430,10 @@ test("/api/permissions writes the board folder's settings.local.json and reads i
   const set = (body) => fetch(`${base}/api/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   try {
     const first = await get();
-    assert.deepEqual([first.file, first.permissions.map((p) => [p.id, p.on])], [local, [['pushMain', false], ['pushTags', false], ['draftPr', false]]]);
+    assert.deepEqual([first.file, first.permissions.map((p) => [p.id, p.on])], [local, [['pushMain', false], ['pushTags', false], ['draftPr', false], ['approvePr', false]]]);
     const on = await set({ id: 'pushTags', on: true });
     assert.equal(on.status, 200);
-    assert.deepEqual((await on.json()).permissions.map((p) => [p.id, p.on]), [['pushMain', false], ['pushTags', true], ['draftPr', false]]);
+    assert.deepEqual((await on.json()).permissions.map((p) => [p.id, p.on]), [['pushMain', false], ['pushTags', true], ['draftPr', false], ['approvePr', false]]);
     assert.deepEqual(JSON.parse(fs.readFileSync(local, 'utf8')), { permissions: { allow: ['Bash(npm test)', 'Bash(git push origin v*)'] } });
     assert.equal((await set({ id: 'nope', on: true })).status, 400);
     await ok200(set({ id: 'pushTags', on: false }));
