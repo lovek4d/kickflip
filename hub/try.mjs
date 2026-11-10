@@ -610,7 +610,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     return ticking;
   }
   // docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md: fast-forwards a local board's branch
-  // from origin (pullBranch) and records try.json pull {at, error?, running?}, which Main's refresh icon shows; new commits
+  // from origin (pullBranch), or resets a clone's to it (resetBranch, docs/adr/2026-11-09-1620-a-kickflip-clone-is-reset-to-origin-on-every-poll-and-refresh.md) and records try.json pull {at, error?, running?}, which Main's refresh icon shows; new commits
   // send the board main-pulled {branch, from, to, commits}. One pull runs at a time on a board; a second call shares it.
   // → {commits, error?}, or null for a folder with no origin
   function pullMain(board, manifest) {
@@ -622,7 +622,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       state.pull = { ...state.pull, running: true };
       persist(board);
       let pulled, error;
-      try { pulled = await pullBranch(source.repo, branch); }
+      try { pulled = await (source.local ? pullBranch : resetBranch)(source.repo, branch); }
       catch (e) { error = e.message; }
       if (pulled === null) delete state.pull;
       else state.pull = { at: stamp(), ...(error ? { error } : {}) };
@@ -630,7 +630,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       if (pulled === null) return null;
       if (error) { log(`pull /${board.route}: ${error}`); return { commits: 0, error }; }
       if (pulled.commits) {
-        log(`pull /${board.route}: ${branch} fast-forwarded ${pulled.commits} commit${pulled.commits === 1 ? '' : 's'} to ${pulled.to.slice(0, 7)}`);
+        log(`pull /${board.route}: ${branch} ${source.local ? 'fast-forwarded' : 'reset'} ${pulled.commits} commit${pulled.commits === 1 ? '' : 's'} to ${pulled.to.slice(0, 7)}`);
         try { await event(board, 'main-pulled', { branch, ...pulled }); } catch (e) { log(`pull /${board.route}: could not send main-pulled (${e.message})`); }
       }
       return { commits: pulled.commits };
@@ -638,7 +638,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     pulls.set(board.dir, running);
     return running;
   }
-  // The poll's pull of every local board, or only routes. → the routes whose pull brought commits
+  // The poll's pull of every board with an origin, or only routes. → the routes whose pull brought commits
   async function pullMains({ manifest = readManifest(), routes } = {}) {
     await initialize(manifest);
     const pulled = [];
@@ -646,7 +646,7 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
       if (stopping) break;
       if (routes && !routes.includes(board.route)) continue;
       const source = boardRepo(board.route, manifest);
-      if (!source.local || !source.repo) continue;
+      if (!source.repo) continue;
       if ((await pullMain(board, manifest))?.commits) pulled.push(board.route);
     }
     return pulled;
@@ -659,10 +659,9 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
     const board = listBoards(manifest).find((b) => b.route === input.route);
     if (!board) throw new BuildError(`/${input.route} is not a board.`, 404);
     const source = boardRepo(board.route, manifest);
-    if (!source.local || !source.repo) throw new BuildError('This board fetches its branch on every poll; only a local board pulls.', 409);
     const result = await pullMain(board, manifest);
     if (!result) throw new BuildError('This board’s folder has no origin to pull from.', 409);
-    if (result.commits) tick({ manifest, routes: [board.route] }).catch((e) => log(`try /${board.route} main: ${e.message}`));
+    if (result.commits || !source.local) tick({ manifest, routes: [board.route] }).catch((e) => log(`try /${board.route} main: ${e.message}`));
     return result;
   }
   async function stop() {
@@ -679,6 +678,24 @@ export function createTryManager({ now = Date.now, answers = probe, log = consol
 // fetch from a private https origin, which waits on two round trips and the keychain.
 const ORIGIN_TIMEOUT_MS = 10_000;
 const originGit = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: ORIGIN_TIMEOUT_MS, env: remoteGitEnv() })).stdout;
+
+// Makes branch in repo, a clone kickflip owns (repos.mjs), exactly origin's: fetched first with originGit, then checked
+// out forced onto it and cleaned, so a clone never diverges. Throws "can’t pull: <reason>" when the fetch or the reset fails.
+// → {from, to, commits}, from being the branch before the reset (origin's old tip when the clone had no branch yet)
+export async function resetBranch(repo, branch, { run = originGit } = {}) {
+  const git = async (...args) => (await run(...args)).trim();
+  const tip = (ref) => git(repo, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`).catch(() => '');
+  const origin = `refs/remotes/origin/${branch}`;
+  const before = await tip(`refs/heads/${branch}`) || await tip(origin);
+  try {
+    await git(repo, 'fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:${origin}`);
+    await git(repo, 'checkout', '--quiet', '--force', '-B', branch, origin);
+    await git(repo, 'clean', '--quiet', '-fd');
+  } catch (e) { throw new Error(`can’t pull: ${e.killed ? `git fetch timed out after ${ORIGIN_TIMEOUT_MS / 1000} s` : gitReachFault(e.stderr, { repo }).error}`); }
+  const to = await tip(origin);
+  const commits = before && before !== to ? Number(await git(repo, 'rev-list', '--count', `${before}..${to}`)) : 0;
+  return { from: before || to, to, commits };
+}
 
 // Fast-forwards branch in repo to origin's: fetched first with originGit, then merged --ff-only in the worktree that has
 // it checked out, refusing while that worktree has uncommitted changes, or moved in place when no worktree has it. A

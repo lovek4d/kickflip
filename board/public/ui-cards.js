@@ -131,7 +131,7 @@
     return `<button type="button" data-try="${esc(it.key)}"${attrs}>${t.state === 'failed' && !reason ? 'Retry' : words.go}</button>`;
   }
   const BRANCH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';
-  // Main's refresh icon on a local board (docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md),
+  // Main's refresh icon on a board with an origin (docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md),
   // the header's refresh icon as a ghost button right of the timestamp: it spins while a pull runs or a tap waits on the
   // server, and turns red when the last pull failed, with the reason as a tooltip on hover or a popover a tap opens
   // (`open`). Visit is left alone: it changes only once Main rebuilds.

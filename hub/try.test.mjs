@@ -823,13 +823,19 @@ test('a pull only fast-forwards: local changes, a split from origin or a failed 
   assert.deepEqual(events, []);
 });
 
-test('only a local board with an origin pulls; a GitHub board keeps its fetch and a folder with no origin has no pull record', async () => {
+test("a board's own clone is reset hard to origin's branch on every poll, and a local folder with no origin has no pull record", async () => {
   const push = originFor();
-  push();
-  const before = git(repo, 'rev-parse', 'main');
+  pullEvents();
   delete manifest.sites.orch.local;
+  write(path.join(repo, 'file'), 'edited');
+  write(path.join(repo, 'stray'), 'untracked');
+  git(repo, 'commit', '--quiet', '-am', 'diverged here');
+  const tip = push();
+  assert.deepEqual(await manager.pullMains({ manifest }), ['orch']);
+  assert.equal(git(repo, 'rev-parse', 'main'), tip);
+  assert.equal(fs.existsSync(path.join(repo, 'stray')), false);
+  assert.deepEqual(Object.keys(state().pull), ['at']);
   assert.deepEqual(await manager.pullMains({ manifest }), []);
-  assert.equal(git(repo, 'rev-parse', 'main'), before);
   manifest.sites.orch.local = true;
   git(repo, 'remote', 'remove', 'origin');
   assert.deepEqual(await manager.pullMains({ manifest }), []);
@@ -854,7 +860,7 @@ test('the pull reads running while it fetches, which a restart clears', async ()
   assert.deepEqual(state().pull, { at: 'earlier' });
 });
 
-test("a tap pulls now and rebuilds Main only when the pull brought commits; it refuses a board that isn't local", async () => {
+test("a tap pulls now and rebuilds Main only when the pull brought commits; it resets a clone's board too", async () => {
   setScript('process.exit(0);', repo);
   commit(repo, 'script');
   const push = originFor();
@@ -873,7 +879,13 @@ test("a tap pulls now and rebuilds Main only when the pull brought commits; it r
   await assert.rejects(manager.pull({ route: 'orch', key: 'x' }, { manifest }), { status: 400 });
   await assert.rejects(manager.pull({ route: 'nope' }, { manifest }), { status: 404 });
   delete manifest.sites.orch.local;
-  await assert.rejects(manager.pull({ route: 'orch' }, { manifest }), { status: 409 });
+  const next = push('more');
+  assert.deepEqual(await manager.pull({ route: 'orch' }, { manifest }), { commits: 2 });
+  assert.equal(git(repo, 'rev-parse', 'main'), next);
+  assert.equal(state().pull.error, undefined);
+  git(repo, 'remote', 'set-url', 'origin', path.join(site, 'gone.git'));
+  assert.match((await manager.pull({ route: 'orch' }, { manifest })).error, /^can’t pull: /);
+  assert.match(state().pull.error, /^can’t pull: /);
 });
 
 test('the hub build route enforces loopback and fixed inputs', async () => {
@@ -921,7 +933,7 @@ test('the hub build route enforces loopback and fixed inputs', async () => {
     });
     for (const headers of [{ origin: 'https://mac.ts.net' }, { 'x-forwarded-for': '100.64.0.1' }, { host: 'mac.ts.net' }]) assert.equal(await pull({ route: 'orch' }, headers), 403);
     assert.equal(await pull({ route: 'orch', key: 'main' }), 400);
-    assert.equal(await pull({ route: 'orch' }), 409);
+    assert.equal(await pull({ route: 'orch' }), 200);
   } finally { hub.kill('SIGTERM'); await exited; }
 });
 
