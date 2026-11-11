@@ -1,6 +1,6 @@
 # Slack sends hang off PRs and go out from the hub tick
 
-Status: accepted (#277, 11/07)
+Status: accepted (#277, 11/07). Superseded in part by [review posts go into one day thread per board](2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md) (#522): links and their bumps now go into each reviewer's day thread.
 
 ## Context
 

@@ -338,16 +338,18 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   slack set [--self-dm D..] [--user U..]                 sets hub Slack identity in ~/.claude/kickflip/slack.json
             [--domain x] [--timezone Area/City]
   integrations                                          readiness rows as one JSON line
-  review updated <file>/<id> --text "<what changed>"     queues “Updated: <what changed>” in the thread of every
+  review updated <file>/<id> --text "<what changed>"     queues “updated: <what changed>” for every reviewer with a
                                                          posted link on the card's PRs; the hub's next poll sends it
   review due                                            one JSON line of the Slack sends the hub owes, from local state
-                                                         and data/pr-slack.json: {links: [{pr, key, reviewer,
+                                                         and data/pr-slack.json: {date, links: [{pr, key, reviewer,
                                                          slack_user, head, text}], replies: [{pr, id, reviewer,
                                                          channel, thread_ts, text}], reactions: [{pr, reviewer,
-                                                         channel, ts, emoji}], digest: review digest's answer while
-                                                         due, else null}. links: each open, non-draft PR's link to
-                                                         each reviewer without one; reactions: git_approved once
-                                                         anyone approved, git_merged on merge, x on close. The hub
+                                                         reply?, channel, ts, emoji}], digest: review digest's
+                                                         answer while due, else null}. links: each open, non-draft
+                                                         PR's link to each reviewer without one; links and replies
+                                                         with no thread_ts go in the reviewer's thread for date;
+                                                         reactions: git_approved once anyone approved, git_merged
+                                                         on merge, x on close, on every link and reply. The hub
                                                          sends and records each. While Slack isn't ready: {waiting}
                                                          and nothing owed
   review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
@@ -536,8 +538,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          mark it broken and append owner-check-broken {key, check,
                                                          error}; fix it with item set --check. land takes it too
          [--updated "<what changed>" | --updated none]   on a card whose PR link a reviewer already has, done
-                                                         refuses without it: the text queues “Updated: <what
-                                                         changed>” in each link's thread, as review updated does;
+                                                         refuses without it: the text queues “updated: <what
+                                                         changed>” for each reviewer, as review updated does;
                                                          none sends nothing, for a change only to comments, names,
                                                          docs or tests
          builder takes --dir <dir> for an item file in <dir>; its records go in <dir>/agents
