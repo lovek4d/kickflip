@@ -79,25 +79,25 @@ export const HUB_LINES = {
   'lander-handoff': { mark: BUILD, text: ({ why }) => fit('Not merged yet: ', why, '. Its builder resumes to fix it and land it.') },
   'builder-resumed-to-land': { mark: BUILD, text: ({ session }) => fit('Builder resumed to land, session ', session) },
   // Faults.
-  'build-refused': { mark: FAULT, fault: true, text: ({ why }) => fit("Couldn't start implementing: ", why) },
-  'planner-failed': { mark: FAULT, fault: true, text: ({ kind, error }) => fit(`Couldn't start the ${kind}: `, error), longest: { kind: 'visual agent' } },
-  'helper-failed': { mark: FAULT, fault: true, text: ({ name, error }) => fit(`Couldn't start helper ${name}: `, error), longest: { name: 'a-helper-name-of-24-char' } },
+  'build-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why }) => fit("Couldn't start implementing: ", why) },
+  'planner-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ kind, error }) => fit(`Couldn't start the ${kind}: `, error), longest: { kind: 'visual agent' } },
+  'helper-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ name, error }) => fit(`Couldn't start helper ${name}: `, error), longest: { name: 'a-helper-name-of-24-char' } },
   'exited-twice': { mark: FAULT, fault: true, text: () => 'Its builder exited twice unfinished; it reads stopped until the orchestrator takes it up.' },
-  'resume-failed': { mark: FAULT, fault: true, text: ({ error }) => fit("Couldn't resume the builder headless: ", error) },
-  'relaunch-failed': { mark: FAULT, fault: true, text: ({ error }) => fit("Couldn't relaunch the builder headless: ", error) },
-  'lander-failed': { mark: FAULT, fault: true, text: ({ error }) => fit("Couldn't launch the lander; land it by hand: ", error) },
-  'rebase-failed': { mark: FAULT, fault: true, text: ({ pr, error }) => fit(`PR #${pr} conflicts, but the rebase run couldn't start: `, error), longest: { pr: 100000 } },
-  'rebase-launch-failed': { mark: FAULT, fault: true, text: ({ error }) => fit("Couldn't launch the rebase run; it reads stopped: ", error) },
+  'resume-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't resume the builder headless: ", error) },
+  'relaunch-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't relaunch the builder headless: ", error) },
+  'lander-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't launch the lander; land it by hand: ", error) },
+  'rebase-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ pr, error }) => fit(`PR #${pr} conflicts, but the rebase run couldn't start: `, error), longest: { pr: 100000 } },
+  'rebase-launch-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't launch the rebase run; it reads stopped: ", error) },
   // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md: a merge or a finish's PR that GitHub's limit refused.
-  'gh-limited': { mark: FAULT, fault: true, text: ({ what, words }) => fit(`${what}: `, words, '.'), longest: { what: 'No PR opened' } },
-  'merge-refused': { mark: FAULT, fault: true, text: ({ why }) => fit('Not merged: ', why, '.') },
-  'land-failed': { mark: FAULT, fault: true, text: ({ why }) => fit('Not merged: ', why, '. Tap Merge again.') },
-  'push-failed': { mark: FAULT, fault: true, text: ({ base, error }) => fit(`Landed, but ${base} didn't reach origin: `, error), longest: { base: 'a-long-base-branch' } },
-  'answers-failed': { mark: FAULT, fault: true, text: ({ what, error }) => fit(`Answers recorded, but ${what} failed: `, error), longest: { what: 'writing them into its notes' } },
+  'gh-limited': { mark: FAULT, fault: true, detail: ({ words }) => words, text: ({ what, words }) => fit(`${what}: `, words, '.'), longest: { what: 'No PR opened' } },
+  'merge-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why }) => fit('Not merged: ', why, '.') },
+  'land-failed': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why }) => fit('Not merged: ', why, '. Tap Merge again.') },
+  'push-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ base, error }) => fit(`Landed, but ${base} didn't reach origin: `, error), longest: { base: 'a-long-base-branch' } },
+  'answers-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ what, error }) => fit(`Answers recorded, but ${what} failed: `, error), longest: { what: 'writing them into its notes' } },
   'notes-missing': { mark: FAULT, fault: true, text: () => 'Its notes file was missing, so the board started a new one.' },
   'notes-shared': { mark: FAULT, fault: true, text: ({ card }) => fit('It shared its notes file with ', card, ', so the board gave it its own copy.') },
-  'check-broken': { mark: FAULT, fault: true, text: ({ error }) => fit("The owner step's check can't run, so it stopped: ", error) },
-  'run-failed': { mark: FAULT, fault: true, text: ({ kind, code, why }) => fit(`${kind} failed (exit ${code})`, why ? `: ${why}` : ''), longest: { kind: 'Serve', code: 255 } },
+  'check-broken': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("The owner step's check can't run, so it stopped: ", error) },
+  'run-failed': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ kind, code }) => `${kind} failed (exit ${code})`, longest: { kind: 'Serve', code: 255 } },
 };
 // A kind's words from its inputs, refused when the kind is unknown or the words run past BRIEF_LINE_LIMIT.
 export function hubText(line, inputs = {}) {
@@ -106,6 +106,12 @@ export function hubText(line, inputs = {}) {
   const words = kind.text(inputs);
   if (!words || words.length > BRIEF_LINE_LIMIT) throw new Error(`the "${line}" status line runs to ${words.length} characters, past ${BRIEF_LINE_LIMIT}: ${words}`);
   return words;
+}
+// The whole error behind a fault line's short words, kept past BRIEF_LINE_LIMIT up to MESSAGE_LIMIT (its end, where a
+// command's last words sit, when longer); the thread draws it inside a folded section under the line's words.
+export function detailOf(line, inputs = {}) {
+  const whole = String(HUB_LINES[line]?.detail?.(inputs) ?? '').trim();
+  return whole.length > MESSAGE_LIMIT ? `…${whole.slice(-(MESSAGE_LIMIT - 1))}` : whole;
 }
 // A stored line's mark and fault from its kind; a kind no longer in the table draws no mark.
 export const hubLineOf = (m) => ({ mark: HUB_LINES[m.line]?.mark || '', fault: Boolean(HUB_LINES[m.line]?.fault) });

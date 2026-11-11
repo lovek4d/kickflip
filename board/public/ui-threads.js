@@ -49,6 +49,7 @@
     : m.request ? `<div class="msg status-line request${m.command === 'readied' ? ' readied' : ''}">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
     // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
     // own line, its kind's mark and words, red for a fault.
+    : m.kind === 'hub' && m.detail ? `<details class="msg status-line request hub fault-detail${m.fault ? ' fault' : ''}"><summary>${statusMark(m.mark)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></summary><pre class="fault-error">${esc(m.detail)}</pre></details>`
     : m.kind === 'hub' ? `<div class="msg status-line request hub${m.fault ? ' fault' : ''}">${statusMark(m.mark)}${m.link ? `<a href="${esc(m.link)}">${escText(m.text)}</a>` : escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? `<div class="msg status-line request move">${statusMark('move')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`

@@ -417,6 +417,11 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 /* Only a run's finished line is green: the fold's summary mirrors its last line, green once the run has finished, else the
    started and status lines' orange or a planner's blue (docs/adr/2026-11-07-1600-only-a-runs-finished-line-is-green.md). */
 .msg.calls.status-fold summary.finished { color: var(--color-success); }
+.msg.fault-detail summary { cursor: pointer; list-style: none; overflow-wrap: anywhere; }
+.msg.fault-detail summary::-webkit-details-marker { display: none; }
+.msg.fault-detail[open] summary .mark-icon { transform: rotate(90deg); }
+/* The whole error of a fault line, monospace, wrapping at any width. */
+.fault-error { margin: 4px 0 4px 23px; padding: 8px; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-soft, rgba(127,127,127,.12)); border-radius: 6px; color: var(--fg, inherit); }
 .msg.calls ol { margin: 4px 0; padding-left: 23px; }
 .agent-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 5px; vertical-align: 1px; }
 /* Every thread status line's leading mark, icon or dot, sits centred in one 18px box, so the text after it always starts

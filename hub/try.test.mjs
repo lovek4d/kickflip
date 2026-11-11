@@ -210,7 +210,7 @@ test('a failed run writes one failure status line with its exit and one reason, 
   release();
   assert.deepEqual(await retry, { status: 'started' });
   assert.equal(thread().length, 1);
-  assert.deepEqual([thread()[0].line, thread()[0].text], ['run-failed', 'Build failed (exit 7): unlock the login keychain on the host']);
+  assert.deepEqual([thread()[0].line, thread()[0].text, thread()[0].detail], ['run-failed', 'Build failed (exit 7)', 'unlock the login keychain on the host']);
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(thread().length, 1);
 });
@@ -268,7 +268,7 @@ test('a port announcement followed by exit before readiness fails, even with exi
   await start();
   await until(() => thread().length === 1);
   assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.match(thread()[0].text, /^Serve failed \(exit 0\): Build script exited before its port answered/);
+  assert.match(thread()[0].detail, /^Build script exited before its port answered/);
 });
 
 test('the auto-build tick refreshes head, changes and script and runs each new head only when enabled', async () => {
@@ -440,7 +440,7 @@ take();`);
   fs.chmodSync(script(), 0o600);
   await tick();
   assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.match(thread()[0].text, /^Build failed \(exit 1\): Build script must be executable/);
+  assert.match(thread()[0].detail, /^Build script must be executable/);
 });
 
 test("a web script serves root paths and upgrades through the relay to the owner and the board's shared logins alone, and keeps its port across a new commit and Retry", async () => {
@@ -1129,7 +1129,7 @@ test('a running script with no port fails after sixty minutes', async (t) => {
   t.mock.timers.tick(60_000);
   await until(() => thread().length === 1);
   assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.match(thread()[0].text, /No port line within 60 minutes/);
+  assert.match(thread()[0].detail, /No port line within 60 minutes/);
   t.mock.timers.reset();
 });
 
@@ -1141,7 +1141,7 @@ test('an unanswered announced port fails after sixty seconds', async () => {
   clock += 61_000;
   await until(() => thread().length === 1);
   assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.match(thread()[0].text, /Nothing answered.*60 seconds/);
+  assert.match(thread()[0].detail, /Nothing answered.*60 seconds/);
 });
 
 test('shutdown kills the whole process group, escalating when a server ignores SIGTERM, with no failure message, and refuses new starts', async () => {
@@ -1168,7 +1168,7 @@ test('an automatic validation refusal records one failed head and useful thread 
   await tick();
   assert.equal(state().cards['w/A1'].sha, sha);
   assert.equal(state().cards['w/A1'].state, 'failed');
-  assert.match(thread()[0].text, /Serve failed \(exit 1\): Build script must be executable/);
+  assert.match(thread()[0].detail, /^Build script must be executable/);
   await tick();
   assert.equal(thread().length, 1);
   setScript('process.exit(0);', repo);
@@ -1199,7 +1199,7 @@ test('a failed Tailscale registration fails the run with stderr and removes the 
   await until(() => thread().length === 1);
   assert.equal(state().cards['w/A1'].state, 'failed');
   assert.equal(state().cards['w/A1'].https, undefined);
-  assert.match(thread()[0].text, /Couldn't open try port 8500: permission denied by tailscaled/);
+  assert.match(thread()[0].detail, /Couldn't open try port 8500: permission denied by tailscaled/);
   assert.ok(relays[0].closed);
   assert.ok(calls().includes('serve --https=8500 off'));
   fs.rmSync(path.join(home, 'tailscale.fail'));
@@ -1249,7 +1249,7 @@ test('exhausted try ports fail clearly without adding a serve entry', async () =
   setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
   await start();
   await until(() => thread().length === 1);
-  assert.match(thread()[0].text, /No try ports available \(8500–8599\)/);
+  assert.match(thread()[0].detail, /No try ports available \(8500–8599\)/);
   assert.equal(calls().some((call) => call.includes('--bg')), false);
 });
 

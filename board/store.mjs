@@ -21,7 +21,7 @@ import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { merge3 } from './merge3.mjs';
-import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText } from './hub-lines.mjs';
+import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText, detailOf } from './hub-lines.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
@@ -379,7 +379,7 @@ const checkThreadKey = async (site, key) => (String(key).startsWith('ask:') ? ch
 export async function appendStatus(site, key, kind, inputs = {}, { link } = {}) {
   needSite(site);
   await checkThreadKey(site, key);
-  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(link ? { link } : {}) };
+  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(detailOf(kind, inputs) ? { detail: detailOf(kind, inputs) } : {}), ...(link ? { link } : {}) };
   await appendLine(threadFile(site, key), line);
   return { line, lines: hubLineOf(line).fault ? await freshenPush(site, key, line.text) : [] };
 }

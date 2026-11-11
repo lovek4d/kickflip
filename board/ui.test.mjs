@@ -2761,3 +2761,12 @@ test('a task wears a Task badge where a ticket would be, and a ticketed card its
   assert.match(ui.workLines(ticketed), />#451</);
   assert.match(ui.workLines({ ...task, ticket: { id: 'INT-3', url: null, source: null } }), /title="INT-3 · not from this board’s ticket source">INT-3</);
 });
+
+test('a fault line with an error draws as a closed section: its title shows, the whole error sits in a monospace block, escaped', () => {
+  const why = 'Warning: client version "1.104.5" != tailscaled server version "1.96.2"\nCouldn\'t open try port 8504 <denied>';
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'run-failed', mark: 'Fault', fault: true, text: 'Serve failed (exit 1)', detail: why }]);
+  assert.match(html, /<details class="msg status-line request hub fault-detail fault"><summary>.*Serve failed \(exit 1\).*<\/summary><pre class="fault-error">/s);
+  assert.ok(html.includes('&lt;denied&gt;') && html.includes('client version &quot;1.104.5&quot;'));
+  assert.doesNotMatch(html, /<details[^>]* open/);
+  assert.doesNotMatch(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'exited-twice', mark: 'Fault', fault: true, text: 'x' }]), /<details/);
+});

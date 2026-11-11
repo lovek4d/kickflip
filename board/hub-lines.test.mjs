@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HUB_LINES, BRIEF_LINE_LIMIT, hubText, fit } from './hub-lines.mjs';
+import { HUB_LINES, BRIEF_LINE_LIMIT, MESSAGE_LIMIT, hubText, detailOf, fit } from './hub-lines.mjs';
 
 // Every input a kind doesn't bound in its longest is as long as an error, a path or a title can be.
 const UNBOUNDED = 'x'.repeat(5000);
@@ -37,4 +37,18 @@ test('the host-busy hold reads in the owner\'s words, and fit cuts only the free
   assert.equal(fit('Failed: ', `${os.homedir()}/repo is gone`), 'Failed: ~/repo is gone');
   assert.equal(fit('Failed: ', `spawn /var/folders/${'q'.repeat(80)}/no-such-claude ENOENT`), 'Failed: spawn …/no-such-claude ENOENT');
   assert.throws(() => hubText('no-such-kind'), /no status line kind "no-such-kind"/);
+});
+
+test('a fault line with an error keeps the whole error as its detail, up to MESSAGE_LIMIT from its end', () => {
+  const warning = 'Warning: client version "1.104.5" != tailscaled server version "1.96.2"\n';
+  const why = `${warning}Couldn't open try port 8504: access denied`;
+  assert.equal(hubText('run-failed', { kind: 'Serve', code: 1, why }), 'Serve failed (exit 1)');
+  assert.equal(detailOf('run-failed', { kind: 'Serve', code: 1, why }), why);
+  assert.equal(detailOf('run-failed', { kind: 'Serve', code: 1 }), '');
+  assert.equal(detailOf('land-failed', { why: 'main moved' }), 'main moved');
+  assert.equal(detailOf('host-busy'), '');
+  const long = detailOf('push-failed', { base: 'main', error: `${'a'.repeat(3000)}END` });
+  assert.equal(long.length, MESSAGE_LIMIT);
+  assert.ok(long.startsWith('…') && long.endsWith('END'));
+  for (const [name, kind] of Object.entries(HUB_LINES)) if (kind.fault && kind.detail) assert.ok(kind.detail(longestInputs(kind)), name);
 });

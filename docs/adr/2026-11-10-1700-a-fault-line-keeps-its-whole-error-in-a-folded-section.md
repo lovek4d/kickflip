@@ -1,0 +1,3 @@
+# A fault line keeps its whole error in a folded section
+
+Amends 2026-11-09-1200 (the board writes status lines): a status line's words stay within BRIEF_LINE_LIMIT, but a fault line that carries an error also stores `detail`, the whole error (at most MESSAGE_LIMIT characters, its end kept when longer). The thread draws such a line as a closed `<details>`: the line's words as the title, the error in a monospace block on tap. Tailscale's client/daemon version warning stays in the error. `run-failed` words are only its title, "Serve failed (exit 1)". Other fault kinds keep their words, fitted, as the title.
