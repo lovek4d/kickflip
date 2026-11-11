@@ -1008,7 +1008,7 @@ export async function reviewDue(site, options) {
     const wanted = [approved(gh) && 'git_approved', gh?.state === 'MERGED' ? 'git_merged' : gh?.state === 'CLOSED' && 'x'].filter(Boolean);
     const react = (name, message, reply) => {
       if (!message.ts) return;
-      for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply ? { reply } : {}), channel: rec.links[name].channel, ts: message.ts, emoji });
+      for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply ? { reply } : {}), channel: message.channel || rec.links[name].channel, ts: message.ts, emoji });
     };
     for (const [name, link] of Object.entries(rec.links)) react(name, link);
     for (const reply of rec.replies) {
@@ -1128,6 +1128,17 @@ export async function postDigest(site, date, reviewer, { channel, header, post }
   for (const [i, reply] of sent.replies.entries()) {
     if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text }));
   }
+  // A one-PR reply is a message about that PR, so it joins the PR's bumps, posted, and gets its reactions (the digest
+  // file keeps only today); a reply naming several PRs gets none.
+  const posted = entry(await readJSON(file, {})).replies.filter((r) => r.pr && r.ts);
+  if (posted.length) await editJSON(prSlackFile(site), (all) => {
+    const id = `digest-${date}`;
+    for (const reply of posted) {
+      const rec = all[reply.pr] ||= { links: {}, replies: [] };
+      const bump = rec.replies.find((r) => r.id === id) || rec.replies[rec.replies.push({ id, text: reply.text, to: {} }) - 1];
+      bump.to[reviewer.name] ||= { channel: sent.channel, ts: reply.ts, reactions: [] };
+    }
+  });
 }
 
 // One reviewer or an array; each replaces the board's reviewer of the same name, ignoring case, or is added.

@@ -225,6 +225,13 @@ test('the digest is owed to each reviewer until its header and every reply are p
   world.messages.length = 0;
   await poll();
   assert.equal(world.messages.length, 0);
+  // A digest's one-PR reply is a message about that PR, so a merge reacts on it as on the link; its header gets none.
+  const digestTs = (name, n) => digests().find((d) => d.reviewer === name).replies.find((r) => r.pr === `o/r#${n}`).ts;
+  const linkTs = (name) => prSlack()['o/r#1'].links[name].ts;
+  setPRs({ 'o/r#1': pr({ state: 'MERGED' }), 'o/r#2': pr() });
+  await poll();
+  assert.deepEqual(world.reactions.map((r) => `${r.channel} ${r.timestamp} ${r.name}`).sort(),
+    [`D1 ${digestTs('Ann', 1)} git_merged`, `D1 ${linkTs('Ann')} git_merged`, `D2 ${digestTs('Bob', 1)} git_merged`, `D2 ${linkTs('Bob')} git_merged`].sort());
   // The next day starts afresh, keeping only that day's record.
   await poll(new Date('2026-11-03T17:00:00Z'));
   assert.deepEqual(digests().map((d) => d.date), ['2026-11-03', '2026-11-03']);
