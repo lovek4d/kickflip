@@ -240,7 +240,7 @@ code { overflow-wrap: anywhere; }
 /* Compose button and sheet */
 main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 /* The + sits two thirds of (16px + the safe area) from the corner, and at least 32px where there is no safe area. */
-:root { --fab-edge: max(32px, calc((16px + env(safe-area-inset-bottom)) * 2 / 3)); }
+:root { --sel-bg: var(--accent-soft); --sel-line: var(--accent); --fab-edge: max(32px, calc((16px + env(safe-area-inset-bottom)) * 2 / 3)); }
 .fab { position: fixed; z-index: 6; right: max(32px, calc((16px + max(env(safe-area-inset-right), env(safe-area-inset-bottom))) * 2 / 3)); bottom: calc(var(--app-bottom, 0px) + var(--fab-edge));
   width: 75px; height: 75px; padding: 0; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent);
   display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
@@ -643,7 +643,7 @@ main > * { transition: opacity .25s ease; }
 .view-questions .ctx { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
 .view-questions .opt { display: grid; grid-template-columns: 22px 1fr; gap: 6px; padding: 8px; border: 1px solid var(--line);
   border-radius: 8px; margin: 6px 0; cursor: pointer; }
-.view-questions .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.view-questions .opt:has(input:checked) { border-color: var(--sel-line); background: var(--sel-bg); }
 .view-questions .opt input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--accent); }
 .view-questions .opt .lbl { font-weight: 600; }
 .view-questions .opt .rec { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
@@ -671,9 +671,9 @@ main > * { transition: opacity .25s ease; }
 .view-questions .topics button { min-width: 0; border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 13px;
   background: var(--panel); color: var(--text); display: inline-flex; max-width: 100%; text-align: left; }
 .view-questions .topics .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.view-questions .topics button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.view-questions .topics button[aria-pressed="true"] { border-color: var(--sel-line); background: var(--sel-bg); }
 .view-questions .topics button.progress { border-color: var(--line); background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); }
-.view-questions .topics button.progress[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--color-notice) 12%, var(--accent-soft)); }
+.view-questions .topics button.progress[aria-pressed="true"] { border-color: var(--sel-line); background: var(--sel-bg); }
 @keyframes pill-arrive { from { opacity: 0; transform: translateX(-12px); box-shadow: 0 0 0 3px var(--accent); } to { opacity: 1; transform: none; box-shadow: 0 0 0 0 transparent; } }
 @media (prefers-reduced-motion: no-preference) { .view-questions .topics button.arrived { animation: pill-arrive .6s ease-out; } }
 .view-questions .topics .n { color: var(--muted); margin-left: 4px; }
@@ -956,7 +956,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .deck-opts { display: flex; flex-direction: column; gap: 6px; }
 .deck-opts button { text-align: left; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
 .deck-opts button.rec { border-color: var(--accent); }
-.deck-opts button.armed { background: var(--color-notice); border-color: var(--color-notice); color: #000; font-weight: 600; }
+.deck-opts button.armed { border-color: var(--sel-line); background: var(--sel-bg); font-weight: 600; }
 .deck-opts .rec-word { color: var(--accent); font-weight: 500; font-size: 12px; margin-left: 4px; }
 .deck-opts .det { color: var(--muted); font-size: 12.5px; font-weight: 400; }
 .deck-prompt { margin: 0; padding: 0; list-style: none; }

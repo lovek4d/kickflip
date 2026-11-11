@@ -90,7 +90,7 @@ BoardView.part((B) => {
     const marked = getDraft(q.id).choice;
     const optionHtml = (o) => {
       const armed = o.id === marked;
-      const label = armed ? `Send “${esc(o.label)}”` : `${esc(choiceLabel(q, o.id))}${o.recommended ? ' <span class="rec-word">recommended</span>' : ''}`;
+      const label = armed ? `Send “${esc(o.label)}”?` : `${esc(choiceLabel(q, o.id))}${o.recommended ? ' <span class="rec-word">recommended</span>' : ''}`;
       return `<button type="button" class="${[o.recommended && 'rec', armed && 'armed'].filter(Boolean).join(' ')}" aria-pressed="${armed}" data-deck-pick="${esc(o.id)}"><span class="lbl">${label}</span>${o.detail ? `<div class="det">${markdown(o.detail, links)}</div>` : ''}</button>`;
     };
     return `<h3>${escText(q.question)}</h3>${q.context ? `<div class="ctx">${markdown(q.context, links)}</div>` : ''}

@@ -5717,11 +5717,11 @@ test("on a phone, Needs you is a deck showing one thing at a time: a tap on an o
   assert.deepEqual(JSON.parse(b.page.win.localStorage.getItem('qdraft:q1')), { note: 'keep this note', choice: 'B' }, 'it marks the pick in the questions page store, keeping the note');
   assert.deepEqual([card().dataset.deck, deck().querySelector('.deck-n').textContent], ['q:q1', '4'], 'the deck stays on the question');
   const marked = () => card().querySelectorAll('[data-deck-pick]').map((x) => [x.dataset.deckPick, x.getAttribute('aria-pressed'), x.classList.contains('armed'), x.querySelector('.lbl').textContent]);
-  assert.deepEqual(marked(), [['A', 'false', false, 'A. Yes recommended'], ['B', 'true', true, 'Send “No”']], 'the marked option turns into Send');
+  assert.deepEqual(marked(), [['A', 'false', false, 'A. Yes recommended'], ['B', 'true', true, 'Send “No”?']], 'the marked option turns into Send');
   assert.match(deck().querySelector('a.deck-more').textContent, /3 · 1 drafted/);
   await tap('[data-deck-pick="A"]');
   assert.deepEqual(b.sent, [], 'a tap on another option moves the mark and sends nothing');
-  assert.deepEqual(marked(), [['A', 'true', true, 'Send “Yes”'], ['B', 'false', false, 'B. No']]);
+  assert.deepEqual(marked(), [['A', 'true', true, 'Send “Yes”?'], ['B', 'false', false, 'B. No']]);
   await tap('[data-deck-pick="A"]');
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.map(([kind, data]) => [kind, data.answers]))), [['owner-answers', [{ id: 'q1', question: 'Question q1?', choice: 'A', label: 'A. Yes', note: 'keep this note' }]]], 'a tap on the marked option sends it with its note');
   assert.equal(b.page.win.localStorage.getItem('qdraft:q1'), '{}', 'the sent draft is cleared');
@@ -6110,17 +6110,18 @@ test("a card the reader closes stays closed through a repaint that changed its s
   assert.equal(el().open, false);
 });
 
-// docs/adr/2026-11-07-0400-an-in-progress-pill-is-tinted-not-outlined.md
-test('an In Progress pill is a faint orange tint on the plain border, and a selected one keeps the tint under the selected style', async () => {
+// docs/adr/2026-11-11-1400-one-selected-look-no-yellow-fill.md
+test('an In Progress pill is a faint orange tint, and every selected option, pill and armed deck option draws the one blue selected look', async () => {
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const rule = (sel) => css.split('\n').findIndex((l) => l.startsWith(`${sel} {`));
-  const progress = rule('.view-questions .topics button.progress');
-  const pressed = rule('.view-questions .topics button.progress[aria-pressed="true"]');
-  assert.ok(progress >= 0 && pressed > progress, 'the selected In Progress rule comes after the tint rule');
   const lines = css.split('\n');
-  assert.match(lines[progress], /border-color: var\(--line\); background: color-mix\(in srgb, var\(--color-notice\) 12%, var\(--panel\)\)/);
-  assert.match(lines[pressed], /border-color: var\(--accent\); background: color-mix\(in srgb, var\(--color-notice\) 12%, var\(--accent-soft\)\)/);
+  const rule = (sel) => lines.find((l) => l.startsWith(`${sel} {`));
+  assert.match(rule('.view-questions .topics button.progress'), /border-color: var\(--line\); background: color-mix\(in srgb, var\(--color-notice\) 12%, var\(--panel\)\)/);
+  assert.match(css, /--sel-bg: var\(--accent-soft\); --sel-line: var\(--accent\)/);
+  for (const sel of ['.view-questions .opt:has(input:checked)', '.view-questions .topics button[aria-pressed="true"]', '.view-questions .topics button.progress[aria-pressed="true"]', '.deck-opts button.armed']) {
+    assert.match(rule(sel), /border-color: var\(--sel-line\); background: var\(--sel-bg\)/, sel);
+    assert.doesNotMatch(rule(sel), /color-notice|color: #000/, sel);
+  }
 });
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
