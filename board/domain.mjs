@@ -119,7 +119,8 @@ export function handedBackAt(agents) {
   const newest = newestBuild(agents);
   return newest?.done && newest.handed_back ? newest.handed_back : null;
 }
-const newestBuild = (agents) => agents.filter((a) => a?.started && builds(a) && a.kind !== BUILDER_KIND.install)
+// A helper's record never stands for the card's build, however late it started.
+const newestBuild = (agents) => agents.filter((a) => a?.started && builds(a) && a.kind !== BUILDER_KIND.install && a.kind !== HELPER)
   .sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
 
 // Each reviewer's state, and since when the link has waited on them.

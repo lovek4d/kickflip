@@ -3091,7 +3091,7 @@ export async function tapMerge(site, key) {
 // The Claude model of the card's newest builder record that kept a worktree, for its lander.
 export async function builderModel(site, key) {
   const { source, item } = await loadItem(site, key);
-  const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter((r) => r?.worktree?.path);
+  const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter((r) => r?.worktree?.path && r.kind !== HELPER);
   return records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0]?.model;
 }
 
@@ -3252,7 +3252,7 @@ function statusToFacts(item, records = []) {
   if (['merged', 'done', 'dropped'].includes(item.status)) Object.assign(item, { lane: 'done', lane_at: at, closed_at: at });
   if (item.status === 'merged' || item.merged_at) { item.prs = storedPRs(item).map((p) => ({ ...p, merged_at: p.merged_at || at })); delete item.pr; }
   if (item.status === 'held') item.held = true;
-  const newest = records.filter((r) => r.started && builds(r)).sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
+  const newest = records.filter((r) => r.started && builds(r) && r.kind !== HELPER).sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
   if (item.status === 'checking' && newest) newest.handed_back = at;
   delete item.status; delete item.status_at; delete item.merged_at;
   return true;
@@ -4394,7 +4394,7 @@ export async function recordedWorktree(site, key, { dir } = {}) {
   const { id } = parseKey(key);
   const agents = path.dirname(await builderFile(site, key, dir));
   const files = await builderFiles(path.dirname(agents), id);
-  const records = (await Promise.all(files.map((f) => readJSON(f, null)))).filter((r) => r?.worktree?.path);
+  const records = (await Promise.all(files.map((f) => readJSON(f, null)))).filter((r) => r?.worktree?.path && r.kind !== HELPER);
   return records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0]?.worktree ?? null;
 }
 
@@ -4402,7 +4402,7 @@ export async function recordedWorktree(site, key, { dir } = {}) {
 // both, a past lander's or resumed session's included, so a second land continues the newest one. Null when none has.
 export async function recordedSession(site, key) {
   const { source } = await loadItem(site, key);
-  const records = (await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)))).filter((r) => r?.session?.id && r.worktree?.path);
+  const records = (await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)))).filter((r) => r?.session?.id && r.worktree?.path && r.kind !== HELPER);
   const newest = records.sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
   return newest ? { id: newest.session.id, worktree: newest.worktree.path } : null;
 }
@@ -4598,7 +4598,7 @@ export async function landable(site) {
       if (!verified || records.some((r) => unverifiedCalls(r).length)) continue;
       const key = `${source.slug}/${item.id}`;
       if ((await cardQuestions(site, key)).asked.some((q) => q.state === 'open') || await blockWords(site, key, item)) continue;
-      const newest = records.filter((r) => r.worktree?.path).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
+      const newest = records.filter((r) => r.worktree?.path && r.kind !== HELPER).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0];
       if (newest && existsSync(newest.worktree.path)) out.push({ key, verified, kind: providerOf(newest.kind), model: newest.model });
     }
   }
@@ -4667,16 +4667,18 @@ export async function finishesCard(site, key, { agent = 'main' }) {
   return true;
 }
 
-// What `builder verified` does next: null when the card isn't a handed-back build whose every call is now verified
-// (handed back and not done, no builder open, its newest worktree still there); else {waits: [question id]} while the
-// card's questions are open, or {} when verifying finishes it.
+// What `builder verified` does next: null when the card is closed; {held: why} when it isn't a handed-back build whose
+// every call is now verified (handed back and not done, no builder open, its main build's worktree still there); else
+// {waits: [question id]} while the card's questions are open, or {} when verifying finishes it.
 export async function verifiedFinish(site, key) {
   const { source, item } = await loadItem(site, key);
   if (closed(item)) return null;
   const records = (await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)))).filter(Boolean);
-  if (!handedBackAt(records) || records.some((r) => unverifiedCalls(r).length || (r.started && !r.done && r.kind !== 'install'))) return null;
+  if (!handedBackAt(records)) return { held: "the build hasn't handed back; run builder done first" };
+  if (records.some((r) => unverifiedCalls(r).length)) return { held: 'a builder record still has unverified judgment calls' };
+  if (records.some((r) => r.started && !r.done && r.kind !== 'install')) return { held: 'a builder record is still open' };
   const tree = await recordedWorktree(site, key);
-  if (!tree || !existsSync(tree.path)) return null;
+  if (!tree || !existsSync(tree.path)) return { held: "the build's worktree is gone" };
   return { waits: (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id) };
 }
 

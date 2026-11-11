@@ -1005,3 +1005,31 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
   assert.equal(git(origin, 'show', 'main:later.txt'), 'origin moved');
   assert.deepEqual([itemOf().lane, itemOf().prs], ['done', undefined]);
 });
+
+test("a finished helper that started after the main build never stands for the card: builder verified lands the main worktree, and one that can't land says why", () => {
+  const repo = scratchRepo();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old name').code, 0);
+  const helper = at('waves', 'w', 'agents', 'A1@page-tests.json');
+  write(helper, { started: new Date(Date.now() + 60_000).toISOString(), done: new Date(Date.now() + 120_000).toISOString(), kind: 'helper', label: 'page-tests', worktree: { path: path.join(home, 'gone', 'A1-page-tests'), branch: 'A1-page-tests', repo } });
+  const main = git(repo, 'rev-parse', 'main');
+  const done = onOrch('builder', 'done', 'w/A1');
+  assert.equal(done.code, 0, done.err);
+  assert.match(done.out, /^handed back: /m);
+  assert.equal(typeof record().handed_back, 'string');
+  const r = onOrch('builder', 'verified', 'w/A1', '--note', 'Checked.');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.out.includes('\nA1: judgment calls verified; landed and done\n'), r.out);
+  assert.notEqual(git(repo, 'rev-parse', 'main'), main);
+  assert.equal(itemOf().lane, 'done');
+});
+
+test("builder verified names why it didn't land when the build hasn't handed back", () => {
+  const repo = scratchRepo();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old name').code, 0);
+  const r = onOrch('builder', 'verified', 'w/A1');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, "A1: judgment calls verified; A1 didn't land: the build hasn't handed back; run builder done first\n");
+});

@@ -947,6 +947,7 @@ const COMMANDS = {
     await store.verifyCalls(site, key, f);
     const next = site && !f.dir ? await store.verifiedFinish(site, key) : null;
     if (!next) return {};
+    if (next.held) return { said: `${await store.cardName(site, key)} didn't land: ${next.held}` };
     if (next.waits.length) return { lines: [`${await store.cardName(site, key)} finishes once the owner answers ${next.waits.join(', ')}`] };
     try { return await finishCard(site, key, { text: f.note ?? 'Judgment calls verified.' }); } catch (e) {
       if (!(e instanceof store.BoardError)) throw e;

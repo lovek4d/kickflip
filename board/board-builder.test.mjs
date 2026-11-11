@@ -128,7 +128,7 @@ test('builder call appends a one-line call to the open record, calls prints them
   assert.match(board('builder', 'done', 'w/A1', '--site', 'orch').out, /^handed back: /m);
 
   const verified = board('--site', 'orch', 'builder', 'verified', 'w/A1', '--note', 'All match the notes.');
-  assert.deepEqual([verified.code, verified.out], [0, 'A1: judgment calls verified\n']);
+  assert.deepEqual([verified.code, verified.out], [0, "A1: judgment calls verified; A1 didn't land: the build's worktree is gone\n"]);
   assert.equal(read(main).verified.note, 'All match the notes.');
   assert.match(board('builder', 'calls', 'w/A1').out, /^3\. Dropped the cap\nverified \S+: All match the notes\.$/m);
   assert.match(board('builder', 'verified', 'w/A1').err, /no unverified judgment calls/);
