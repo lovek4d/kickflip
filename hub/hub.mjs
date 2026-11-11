@@ -189,7 +189,7 @@ import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendTo
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
-import { readNeeds, sidebarSites, startRoute, hubHealth } from './home.mjs';
+import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds } from './home.mjs';
 import { checkSessions, compactFullContexts, startingBoards } from './sessions.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
@@ -651,6 +651,8 @@ function status() {
 // ---------- pages ----------
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// route -> {at, needs}: the last good answer, which a failed read shows in its place (home.mjs holdNeeds).
+const goodNeeds = new Map();
 // route -> {at, needs}: needs is a promise of home.mjs readNeeds' answer from the site's GET /_claude/needs,
 // or of null when the site doesn't serve it, errs or takes over NEEDS_TIMEOUT.
 const needsCache = new Map();
@@ -670,8 +672,12 @@ async function waitingCounts(rows, { fresh = false } = {}) {
     const c = needsCache.get(r.route);
     if (fresh === true || fresh?.has?.(r.route) || !c || Date.now() - c.at >= NEEDS_TTL) needsCache.set(r.route, { at: Date.now(), needs: fetchNeeds(r.port) });
   }
-  const needs = await Promise.all(up.map((r) => needsCache.get(r.route).needs));
-  return new Map(up.map((r, i) => [r.route, needs[i]]));
+  const reads = await Promise.all(up.map((r) => needsCache.get(r.route).needs));
+  return new Map(up.map((r, i) => {
+    const held = holdNeeds(goodNeeds.get(r.route) ?? null, reads[i], needsCache.get(r.route).at, Date.now());
+    if (held.good) goodNeeds.set(r.route, held.good); else goodNeeds.delete(r.route);
+    return [r.route, held.needs];
+  }));
 }
 // A site whose answer is unknown adds nothing. A board's pending prompts are in its count already; the rest wait on the
 // hub page.

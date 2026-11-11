@@ -55,7 +55,18 @@ export function statusLine(state, needs, listen) {
   const chips = needs?.count ? [{ lane: 'needs', text: `${needs.count} need you` }, ...(lane || [])] : lane;
   const word = s ? `<span class="dot t-${s.tone}${s.tone === 'working' ? ' pulse' : ''}" aria-hidden="true"></span><span class="word t-${s.tone}">${esc(s.word)}</span>` : '';
   const lanes = chips === null ? '' : chips.length ? chips.map((c) => `<span class="lc lc-${c.lane}">${esc(c.text)}</span>`).join('') : '<span>nothing open</span>';
-  return word || lanes ? `${word}${lanes ? `<span class="lcs">${lanes}</span>` : ''}` : '';
+  if (!word && !lanes) return '';
+  const line = `${word}${needs?.stale ? '<span class="stale-word"> (stale)</span>' : ''}${lanes ? `<span class="lcs">${lanes}</span>` : ''}`;
+  return needs?.stale ? `<span class="held">${line}</span>` : line;
+}
+
+export const NEEDS_STALE_MS = 15_000;
+// A board's needs read against its last good answer: a failed read (null) keeps the last good one, marked stale from
+// NEEDS_STALE_MS after that good read. → {good: {at, needs} or null, needs: what the row shows}
+export function holdNeeds(good, read, readAt, now) {
+  if (read) return { good: { at: readAt, needs: read }, needs: read };
+  if (!good) return { good: null, needs: null };
+  return { good, needs: now - good.at >= NEEDS_STALE_MS ? { ...good.needs, stale: true } : good.needs };
 }
 
 // The sidebar's site rows, from hub.mjs status() rows, each site's readNeeds answer (a Map by route), the set of
