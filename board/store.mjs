@@ -3019,7 +3019,7 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   // goes in the card's thread with its reset.
   const limited = (until) => appendStatus(site, key, 'gh-limited', { what: 'Not merged', words: limitWords(until) });
   let fetched;
-  try { fetched = await Promise.all(prs.map((p) => fetchPR({ repo: p.repo, pr: p.number, since: now }))); } catch (e) {
+  try { fetched = await Promise.all(prs.map((p) => fetchPR({ repo: p.repo, pr: p.number, comments: false }))); } catch (e) {
     if (e.limited) await limited(e.limited);
     fail(e.message);
   }

@@ -95,19 +95,21 @@ test('state fields follow null fallthrough, check conclusions and status-only pe
   assert.equal(missing.events[2].state, null);
 });
 
-test('view failure and unreadable JSON name repo and PR; list failures are isolated', async () => {
+test('view failure and unreadable JSON name repo and PR; a failed list throws too', async () => {
   writePR(dir, 7, { fail: true });
   await assert.rejects(fetchPR(input), /^Error: o\/r#7: no fixture for:/);
   fs.writeFileSync(path.join(dir, 'pr/7.json'), 'not json');
   await assert.rejects(fetchPR(input), /^Error: o\/r#7: unreadable output/);
   writePR(dir, 7, prView());
-  writeIssueComments(dir, 7, { fail: true });
-  writeReviewComments(dir, 7, [comment(8, 'ann', '2026-10-23T11:00:00Z')]);
+  writeIssueComments(dir, 7, []);
+  writeReviewComments(dir, 7, []);
   writeReviews(dir, 7, { fail: true });
-  const fetched = await fetchPR(input);
-  assert.deepEqual(fetched.issueComments, []);
-  assert.deepEqual(fetched.reviews, []);
-  assert.deepEqual(reportOf(fetched, { ...input, me: 'owner' }).events.map((e) => e.id), [8]);
+  await assert.rejects(fetchPR(input), /^Error: o\/r#7: no fixture for:/);
+  writeReviews(dir, 7, []);
+  writeIssueComments(dir, 7, { fail: true });
+  await assert.rejects(fetchPR(input), /^Error: o\/r#7: no fixture for:/);
+  const fetched = await fetchPR({ ...input, comments: false });
+  assert.deepEqual([fetched.issueComments, fetched.reviewComments, fetched.reviews], [[], [], []]);
 });
 
 test('a configured board login labels posts, and the check never asks gh api user', async () => {

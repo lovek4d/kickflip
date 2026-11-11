@@ -75,14 +75,18 @@ export async function markReady({ repo, pr }) {
 export const checksPassed = (rollup) => rollup.every((c) => (c.__typename === 'StatusContext'
   ? c.state === 'SUCCESS' : c.status === 'COMPLETED' && ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion)));
 
-export async function fetchPR({ repo, pr, since }) {
+// The PR's view, its reviews, and unless comments is false its comments since the ISO time since.
+export async function fetchPR({ repo, pr, since, comments = true }) {
   let view;
   try { view = await gh(['pr', 'view', String(pr), '--repo', repo, '--json', PR_VIEW_FIELDS]); }
   catch (e) { throw Object.assign(new Error(`${repo}#${pr}: ${e.message}`), { limited: e.limited }); }
-  const list = (endpoint) => gh(['api', '--paginate', '--slurp', `repos/${repo}/${endpoint}`]).then((pages) => pages.flat()).catch(() => []);
+  // A list GitHub can't give throws like the view does, so no caller reads a PR's reviews as none.
+  const list = (endpoint) => gh(['api', '--paginate', '--slurp', `repos/${repo}/${endpoint}`]).then((pages) => pages.flat())
+    .catch((e) => { throw Object.assign(new Error(`${repo}#${pr}: ${e.message}`), { limited: e.limited }); });
+  const none = Promise.resolve([]);
   const [issueComments, reviewComments, reviews] = await Promise.all([
-    list(`issues/${pr}/comments?since=${encodeURIComponent(since)}`),
-    list(`pulls/${pr}/comments?since=${encodeURIComponent(since)}`),
+    comments ? list(`issues/${pr}/comments?since=${encodeURIComponent(since)}`) : none,
+    comments ? list(`pulls/${pr}/comments?since=${encodeURIComponent(since)}`) : none,
     list(`pulls/${pr}/reviews`),
   ]);
   return { view, issueComments, reviewComments, reviews };
