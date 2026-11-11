@@ -289,13 +289,15 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 @keyframes sheet-in { from { transform: translateY(100%); } }
 @keyframes sheet-out { to { transform: translateY(100%); } }
 @keyframes fade-in { from { opacity: 0; } }
+@keyframes reader-in { from { transform: translateX(100%); } }
+@keyframes reader-out { to { transform: translateX(100%); } }
 @media (min-width: 700px) {
   .sheet { bottom: calc(var(--kb, 0px) + 24px); max-height: calc(var(--vh, 100dvh) - env(safe-area-inset-top) - 12px); padding-bottom: 0;
     border-bottom: 1px solid var(--line); border-radius: 16px; }
   .sheet form { padding-bottom: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sheet[open], .sheet[open]::backdrop, .sheet.closing, .sheet.closing::backdrop { animation: none; }
+  .sheet[open], .sheet.reader-sheet[open], .sheet[open]::backdrop, .sheet.closing, .sheet.reader-sheet.closing, .sheet.closing::backdrop { animation: none; }
   .fab:active { transform: none; }
 }
 /* The hub lives at the tailnet root, outside this site, so its link is root-absolute. */
@@ -988,6 +990,12 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   html.col-dragging, html.col-dragging * { cursor: col-resize !important; user-select: none; }
   .split > .col-handle { right: calc(var(--pane-w, 50%) - 4px); }
   .split:has(.needs-pane.widened) > .col-handle { display: none; }
+  /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
+  .sheet.reader-sheet { inset: 56px 0 0 auto; margin: 0; width: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); max-width: none;
+    height: auto; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
+  .sheet.reader-sheet[open] { animation: reader-in .22s ease-out; }
+  .sheet.reader-sheet.closing { animation: reader-out .18s ease-in forwards; }
+  .reader-sheet::backdrop { background: transparent; }
   .needs-pane { display: block; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 16px 0; border-left: 1px solid var(--line); }
   .needs-pane .needs-questions main { padding: 0; max-width: none; }
   .needs-pane:has(.q-empty), .needs-pane .needs-questions:has(.q-empty), .needs-pane .needs-questions:has(.q-empty) main, .needs-pane #page:has(.q-empty) { display: flex; flex-direction: column; }
