@@ -786,6 +786,33 @@ test("builder done takes --text on a planner run and writes it as the run's clos
   assert.match(board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Review', '--text', 'x').err, /--text goes on/);
 });
 
+// docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md
+test("a grill or prototype planner's builder done leaves a fault line when the card is still in its phase with no question open, staged or screening, and prints it", () => {
+  for (const [kind, phase] of [['grill', 'grilling'], ['prototype', 'prototyping']]) {
+    write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase }] });
+    fs.rmSync(site('orch', 'data', 'threads', 'w__A1.jsonl'), { force: true });
+    assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', kind).code, 0);
+    const done = board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Ended');
+    assert.equal(done.code, 0, done.err);
+    assert.match(done.out, new RegExp(`Its ${kind} planner ended without posting a question, so it waits on the orchestrator\\.`));
+    const fault = lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).find((l) => l.line === 'planner-unasked');
+    assert.equal(fault.detail, kind);
+    // A card already past the phase, or with a question staged for it, gets no fault.
+    fs.rmSync(site('orch', 'data', 'threads', 'w__A1.jsonl'), { force: true });
+    write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase: 'ready' }] });
+    assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', kind).code, 0);
+    assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Ended').code, 0);
+    assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).some((l) => l.line === 'planner-unasked'), false);
+    write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase }] });
+    if (kind !== 'grill') continue; // a prototype planner's questions publish at once, so only a grill's stay staged
+    write(site('orch', 'data', 'staged-questions.json'), { 'w/A1': [{ id: 'q1' }] });
+    assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', kind).code, 0);
+    assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Asked').code, 0);
+    assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).some((l) => l.line === 'planner-unasked'), false);
+    fs.rmSync(site('orch', 'data', 'staged-questions.json'), { force: true });
+  }
+});
+
 // docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
 test("a builder start over a finished record keeps that run as a past record with its label, kind, times and log, and none of its calls, worktree or hand-back; an unfinished record and another agent's are not kept", () => {
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });

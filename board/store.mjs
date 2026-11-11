@@ -4770,6 +4770,18 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
   return file;
 }
 
+// A planner's `builder done`: stopBuilder, then, if the card is still in the planner's phase with no question open,
+// staged or screening for it, a fault line (domain.mjs orchestratorWaitOf reads it as a wait). → {file, lines}
+export async function stopPlanner(site, key, flags) {
+  const kind = (await readJSON(await builderFile(site, key, undefined, flags.agent), null))?.kind;
+  const file = await stopBuilder(site, key, flags);
+  const phase = (await loadItem(site, key)).item.phase;
+  const asked = await hasOpenQuestion(site, key) || Boolean((await readJSON(stagedFile(site), {}))[key]);
+  if (phase !== { grill: 'grilling', prototype: 'prototyping' }[kind] || asked) return { file, lines: [] };
+  const { line, lines } = await appendStatus(site, key, 'planner-unasked', { kind });
+  return { file, lines: [line.text, ...lines] };
+}
+
 export async function openBoardBuilders(site) {
   const builders = [];
   for (const source of await itemSources(site)) {

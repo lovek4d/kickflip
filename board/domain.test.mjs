@@ -2337,6 +2337,21 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
   assert.deepEqual(waits([message]).filter((w) => w[1] === 'intake'), []);
 });
 
+// docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md
+test("a planner's unasked line is an orchestrator wait on a card still in its phase, held until a question, a planner of its kind, or a new phase", () => {
+  const at = '2026-11-04T10:00:00Z';
+  const line = (kind) => ({ ts: at, who: 'claude', kind: 'hub', line: 'planner-unasked', text: `Its ${kind} planner ended without posting a question, so it waits on the orchestrator.`, detail: kind });
+  const waits = ({ phase, kind, agents = {}, owner = {} }) => orchestratorWaits(buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner, events: [], threads: { 'w/A1': [line(kind)] }, working: {},
+    files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'todo', phase }] } }] })).map(({ kind: k, since, next }) => [k, since, next]);
+  for (const [kind, phase] of [['grill', 'grilling'], ['prototype', 'prototyping']]) {
+    const ended = { A1: { planner: { kind, started: '2026-11-04T09:00:00Z', done: '2026-11-04T09:59:00Z' } } };
+    assert.deepEqual(waits({ phase, kind, agents: ended }), [['unasked', at, `Its ${kind} planner ended without its question: read its log, then post the question, start the planner again, or move the card's phase`]]);
+    assert.deepEqual(waits({ phase: 'ready', kind, agents: ended }), [], 'a new phase clears it');
+    assert.equal(waits({ phase, kind, agents: { A1: { planner: { ...ended.A1.planner, started: '2026-11-04T10:30:00Z', done: undefined } } } }).some((w) => w[0] === 'unasked'), false, 'a planner running again clears it');
+  }
+  assert.deepEqual(waits({ phase: 'prototyping', kind: 'grill' }), [], 'another phase than its planner kind');
+});
+
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 test('the board lists each card idle on the orchestrator, In Progress then Todo, with since and when it was picked up', () => {
   const at = '2026-11-04T10:00:00Z';

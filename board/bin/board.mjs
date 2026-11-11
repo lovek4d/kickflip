@@ -794,7 +794,7 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ..
     if (text === undefined) throw new UsageError(`a helper hands back its result: pass --text "<what you did or found>"`);
     return store.stopBuilder(site, key, { ...f, note: text });
   }
-  if (onBoard && text !== undefined && await store.isPlanner(site, key, f.agent)) return store.stopBuilder(site, key, { ...f, note: text, requireNext: true });
+  if (onBoard && text !== undefined && await store.isPlanner(site, key, f.agent)) return store.stopPlanner(site, key, { ...f, note: text, requireNext: true });
   if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card, the main build with a worktree and no --next, or on a helper\'s or a planner\'s');
   return store.stopBuilder(site, key, { ...f, requireNext: true });
 }

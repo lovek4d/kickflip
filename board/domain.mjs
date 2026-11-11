@@ -342,6 +342,7 @@ function waitFactsOf(it, { agents, thread, events, refusedAt, replyAt }) {
   const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', 'command', MOVE].includes(m.kind) && m.line !== BUILD_REFUSED).map((m) => m.ts);
   return {
     handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
+    unasked: thread.filter((m) => m.line === 'planner-unasked').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((m) => ({ at: m.ts, kind: m.detail })).pop() || null,
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, replyAt, unblockedAt: it.unblocked_at || null,
     unverified: agents.some((a) => a.calls.some((c) => !a.verified || String(c.at) > String(a.verified.at))),
     writes: [...lines, ...agents.flatMap((a) => [a.verified?.at, a.started])].filter(Boolean).map(String).sort(),
@@ -1727,6 +1728,8 @@ const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions 
 function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
+  const unasked = facts.unasked && it.storedPhase === { grill: 'grilling', prototype: 'prototyping' }[facts.unasked.kind]
+    && !it.agents.some((a) => a.kind === facts.unasked.kind && a.started && (!a.done || String(a.started) > facts.unasked.at)) ? facts.unasked : null;
   const wait = facts.ask ? { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` }
     : it.staging ? { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT }
     : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
@@ -1739,6 +1742,9 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
       : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }
     : it.grilling && facts.grillAt && !running('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }
     : it.prototyping && facts.prototypeAt && !running('prototype') ? { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' }
+    // docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md: held until the card
+    // has a question (the asking branch above), a planner of that kind running or started since, or a new phase.
+    : unasked ? { kind: 'unasked', since: unasked.at, next: `Its ${unasked.kind} planner ended without its question: read its log, then post the question, start the planner again, or move the card's phase` }
     // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
     // for the re-check that releases it to the pull.
     : it.recheckAt && it.lane === 'todo' && it.phase === 'ready' && !it.blocked ? { kind: 'recheck', since: it.recheckAt, next: RECHECK_NEXT }
