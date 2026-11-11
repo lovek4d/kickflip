@@ -101,3 +101,13 @@ server.listen(0, process.env.HOST, () => console.log('port ' + server.address().
   const r = ask();
   assert.equal(r.code, 0, r.err);
 });
+
+// The hub serves these under /_hub/; the check serves the same files, so a take that draws the kit's sidebar or hub header passes.
+test('a prototype question publishes when a take draws the sidebar and one draws the hub with its header', { skip }, () => {
+  recordPrototype('site', ['A:Sidebar', 'B:Hub'], false);
+  write(takePath('site', 'A'), 'export function render(stage, kit) { stage.innerHTML = kit.sidebar(); }');
+  write(takePath('site', 'B'), 'export function render(stage, kit) { stage.innerHTML = kit.hub(); }');
+  const r = add(['A', 'B']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(read(site('orch', 'data', 'owner.json')).items.length, 1);
+});

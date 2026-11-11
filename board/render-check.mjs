@@ -34,7 +34,14 @@ const BODY = `(document.body?.innerText || '').trim()`;
 function serve(site, proto) {
   const roots = [path.join(site, 'public'), path.join(board, 'public'), path.join(board, '..', 'starter', 'public'), path.join(board, '..', 'shared')];
   return http.createServer(async (req, res) => {
-    const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    // The hub's own /_hub/ files (hub/hub.mjs), from the folders they live in.
+    const icon = /^\/_hub\/(icon-(?:180|192|512)\.png)$/.exec(p);
+    if (icon) {
+      res.writeHead(200, { 'content-type': types['.png'] }).end(await fsp.readFile(path.join(board, '..', 'hub', icon[1])));
+      return;
+    }
+    if (['/_hub/kickflip.png', '/_hub/hub.css', '/_hub/colors.css'].includes(p)) p = p.slice('/_hub'.length);
     if (p === `/prototype-${proto.topic}.html`) { res.writeHead(200, { 'content-type': types['.html'] }).end(await prototypePage(site, proto)); return; }
     for (const root of roots) {
       const file = path.resolve(root, `.${p}`);
