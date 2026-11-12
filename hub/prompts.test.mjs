@@ -13,7 +13,7 @@ const HOOK = path.join(HUB_DIR, 'permission-hook.mjs');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prompts-')));
 process.env.HOME = home;
 const { expired, GONE_AFTER, NO_ANSWER, UNREACHABLE, DROPPED, DENIED, WAIT_MS,
-  promptRecord, answerOf, rememberRules, rememberedAnswer, pruneRemembered, readPrompts, savePrompts, updatePrompts, withPromptsLock, rememberedFor, pendingFor, matchesRule } = await import('./prompts.mjs');
+  promptRecord, answerOf, pushOf, shown, rememberRules, rememberedAnswer, pruneRemembered, readPrompts, savePrompts, updatePrompts, withPromptsLock, rememberedFor, pendingFor, matchesRule } = await import('./prompts.mjs');
 const { readManifest, writeManifest, withManifestLock, saveJSON } = await import('./boards.mjs');
 
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
@@ -48,6 +48,15 @@ const kept = (inputs, choice = 'always') => {
   }
   return store;
 };
+
+// docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md
+test("every pending prompt is answered on the hub page: a board session's push opens the hub, and the page names its board", () => {
+  const ours = promptRecord(bash('npm test'), { board, live });
+  const nobody = promptRecord({ ...bash('ls'), session_id: 's-nobody', cwd: path.join(home, 'work') }, { board: null, live });
+  assert.deepEqual([pushOf(ours).url, pushOf(nobody).url], ['/_hub/', '/_hub/']);
+  assert.equal(pushOf(ours).body, 'npm test');
+  assert.deepEqual([shown(ours).board, shown(nobody).board], ['Shop', null]);
+});
 
 test('remembered rules persist by session and match only the exact command, path, domain or bare tool', () => {
   const writeFile = (file_path) => ({ ...bash(''), tool_name: 'Write', tool_input: { file_path, content: 'x' } });
@@ -461,6 +470,7 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
   const data = async () => (await (await fetch(`${base}/_hub/api/hub`)).json());
   const queue = () => JSON.parse(fs.readFileSync(web('push', 'queue.json'), 'utf8')).items;
   const first = await post(bash('npm test'));
+  assert.deepEqual((await data()).prompts.map((x) => [x.id, x.board]), [[first.id, 'Shop']], "the hub page lists a board session's prompt, naming its board");
   assert.equal((await answer(first.id, { choice: 'always' })).status, 200);
   const wait = await (await fetch(`${base}/_hub/prompts/${first.id}/wait`)).json();
   assert.equal(wait.answer.choice, 'always');

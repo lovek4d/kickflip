@@ -76,7 +76,7 @@ BoardView.part((B) => {
   const openReviews = new Set();
   const reviewsHtml = (d) => BoardUI.reviewLane(d.reviews, {
     open: { lane: store.get('lanes', {}).reviews, earlier: store.get(FOLDS['reviews-earlier'].store, false), cards: openReviews } });
-  // Opens PR number's review and its lane or fold, for a Needs you line or a push's #review=<number>.
+  // Opens PR number's review and its lane or fold, for a push's #review=<number>.
   function openReview(number) {
     openReviews.add(number);
     const s = store.get('lanes', {}); s.reviews = true; store.set('lanes', s);
@@ -198,12 +198,11 @@ BoardView.part((B) => {
     return groupHtml('todo', band.slug, open, head, doneRow + todo.map((it) => B.card(it)).join(''));
   }
 
-  // Opens the band holding card key or named slug, for a #selectedCard= link or a Needs you line.
-  function openBand({ key, slug }) {
-    const lane = (key && state.board?.items.find((i) => i.key === key)?.lane) || 'todo';
-    const band = (state.board?.waveBands || []).find((b) => b.slug === slug || b.keys.includes(key));
+  // Opens the band holding card key, for a #selectedCard= link.
+  function openBand({ key }) {
+    const lane = state.board?.items.find((i) => i.key === key)?.lane || 'todo';
+    const band = (state.board?.waveBands || []).find((b) => b.keys.includes(key));
     if (band) store.set(groupStore(`${lane}/${band.slug}`), true);
-    return band;
   }
 
   B.on(B.root, 'toggle', (ev) => {
@@ -225,8 +224,6 @@ BoardView.part((B) => {
       catch { B.notice('Could not send. Is the host awake?'); }
       return;
     }
-    const review = ev.target.closest('a[data-review-open]');
-    if (review) { ev.preventDefault(); openReview(Number(review.dataset.reviewOpen)); return; }
     const filterBtn = ev.target.closest('button.lane-filter');
     if (filterBtn) { ev.preventDefault(); filterOpen = !filterOpen; B.render(); return; }
     const box = ev.target.closest('[data-todo-filter]');
@@ -248,7 +245,7 @@ BoardView.part((B) => {
     }
     const pb = ev.target.closest('button[data-plan]');
     if (pb) {
-      if (!(await B.confirm('Claude triages these Todo cards into one or more waves and asks you about them in Needs you. Nothing is implemented until you answer. Start?'))) return;
+      if (!(await B.confirm('Claude triages these Todo cards into one or more waves and asks you about them in Waiting on you. Nothing is implemented until you answer. Start?'))) return;
       // Spins until a board shows a grill running on one of the cards (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
       const keys = pb.dataset.plan.split(' ');
       BoardUI.pending.start('todo:plan', (board) => board.items.some((i) => keys.includes(i.key) && i.grilling), B.stillWaiting);
@@ -258,14 +255,6 @@ BoardView.part((B) => {
         B.render();
       } catch { BoardUI.pending.drop('todo:plan'); B.render(); B.notice('Could not send. Is the host awake?'); }
       return;
-    }
-    const show = ev.target.closest('a[data-band-show]');
-    if (show) {
-      ev.preventDefault();
-      if (!openBand({ slug: show.dataset.bandShow })) return;
-      const s = store.get('lanes', {}); s.todo = true; store.set('lanes', s);
-      B.render();
-      $(`.wb[data-lane="todo"][data-band="${CSS.escape(show.dataset.bandShow)}"]`)?.scrollIntoView({ block: 'start' });
     }
   });
 

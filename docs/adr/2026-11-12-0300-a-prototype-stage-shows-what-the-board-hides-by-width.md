@@ -9,3 +9,5 @@ T-90's round 3 drew its examples inside `.needs-deck`, which style.css hides fro
 - No `kit.deck()` helper: the deck's markup stays in app-needs.js.
 
 Simplifying the prototype system is a separate card.
+
+Superseded in part by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): `.needs-deck` and `.needs-pane` are gone, so the stage undoes only `.key-hint`'s hide.

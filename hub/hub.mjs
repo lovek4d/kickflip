@@ -112,12 +112,12 @@
 //   /_hub/pull        POST {route}, loopback only: Main's refresh icon on a local board. Fast-forwards the board's
 //                     branch from origin now and rebuilds Main when that brought commits → {commits, error?} (try.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
-//                     prompts.json, on the board whose owner is that session, else the hub page, with a push
+//                     prompts.json, answered on the hub page, with a push
 //                     (docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md), or {state: 'answered', answer}
 //                     with allow when the session has a remembered exact match, with no pending prompt or push
 //   /_hub/prompts/<id>/wait?ms=N  GET, the hook's poll, held up to N ms (at most prompts.mjs POLL_MS) →
 //                     {state: 'pending'} or {state: 'answered', answer}, which removes the prompt; 404 once it's gone
-//   /_hub/prompts/<id>/answer  POST the owner's {choice: allow | always | deny, answers?} from Needs you → {ok};
+//   /_hub/prompts/<id>/answer  POST the owner's {choice: allow | always | deny, answers?} from the hub page → {ok};
 //                     404 when gone, 409 when already answered, 400 {error} for a choice that doesn't fit
 //   /_hub/prompts/<id> DELETE, the hook giving up at its deadline
 //   /_hub/permission-denied  POST a PermissionDenied hook's input (permission-denied-hook.mjs) → {noted}: the board
@@ -181,7 +181,7 @@ import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
 import { publicKey, addSubscription, removeSubscription, removeSubscriptionById, sendAll, flushQueue, queueStatus, saveSettings, readSettings, migrateSettings, setNotifications, readCodexShare, setCodexShare, readClaudeModel, setClaudeModel, deliver } from './push.mjs';
 import { ownerTracker } from './presence.mjs';
-import { POLL_MS, answerOf, expired, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
+import { POLL_MS, answerOf, expired, pending, pendingFor, promptRecord, pushOf, updatePrompts, shown, pruneRemembered, rememberRules, rememberedAnswer, rememberedFor } from './prompts.mjs';
 import { hold, heldUntil, holdLine, editQuiet, checkEvery, nextCheckAt } from './schedule.mjs';
 import { capital, hubView, settingsView, flushView, SNOOZE_REFUSED } from './views.mjs';
 import { caffeinate, setKeepAwake, awakeOn, awakeUnsupported } from './awake.mjs';
@@ -684,8 +684,8 @@ async function waitingCounts(rows, { fresh = false } = {}) {
     return [r.route, held.needs];
   }));
 }
-// A site whose answer is unknown adds nothing. A board's pending prompts are in its count already; the rest wait on the
-// hub page.
+// A site whose answer is unknown adds nothing. A board's pending prompts are in its count already, so only the rest
+// add here; the hub page lists them all.
 const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0) + pendingFor(null).length;
 
 // ---------- sidebar ----------
@@ -855,7 +855,7 @@ async function hubData(req) {
       code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
       remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
     }),
-    prompts: pendingFor(null).map(shown),
+    prompts: pending().map(shown),
     remembered: rememberedFor(null),
   };
 }

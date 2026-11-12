@@ -7,3 +7,5 @@ Now the first tap marks the option: it is drafted in the questions page's store 
 The prototype round (topic confirm-tap) drew three takes of the second tap; the owner picked the marked option turning into Send over a "Tap again to send" line under the marked option and a separate Send button under the options.
 
 This supersedes the deck's "Draft, then Send" in [Needs you is a deck on a phone and a pane on a desktop](2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md). The owner's earlier worry there, that sending at once would hurt notes, holds less now: the first tap only marks, and a note drafted on the questions page goes with the send. The desktop pane is unchanged: its Waiting on you keeps radio picks and Send.
+
+Superseded by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): there is no deck.

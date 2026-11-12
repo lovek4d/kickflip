@@ -1,14 +1,14 @@
 // The full-bleed prototype viewer's controls (docs/adr/2026-10-29-1639-prototypes-come-on-request.md,
 // docs/adr/2026-11-05-1302-a-questions-prototypes-open-in-a-full-page-viewer.md,
 // docs/adr/2026-11-07-0300-prototypes-have-their-own-button-and-viewer.md,
-// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md).
+// docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md).
 // Load it with a relative src after claude.js, on a page whose header leads with the back arrow, then call
 //   const sw = PrototypeSwitcher.mount({ takes: { A: 'A. Name', … }, states: { empty: 'No cards', … }?, initial: 'A', render(take, state) {…}, above: el? })
 // render runs at mount and on each switch of take or state; sw.take is the current key. A served round's named states
 // (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md) are a row of chips above the
 // pager, the state kept in ?state=, else the first. The page's header is hidden: a ✕ at the top
 // right goes back as its back arrow does, and the footer, full width on the bottom edge at every width, holds the
-// ‹ take › pager. Framed in the board's right pane, the pane's top bar takes the ✕'s and the Round pill's place. ←/→
+// ‹ take › pager. ←/→
 // and a sideways swipe switch unless a field has focus, and the take stays in ?variant=. With ?q=<owner question id>, the bar's second row offers
 // the take as that question's pick: a take is pickable when an option's id equals its key. Choose this drafts it, with
 // the note typed above the bar, in the {choice, note} questions.html keeps for that question, and goes back to the
@@ -118,10 +118,7 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
   .ps-pill { width:min(640px, 100%); }
   .ps-switch .ps-text { width:min(640px, 100%); }
   .ps-states { flex-wrap:wrap; overflow-x:visible; }
-}
-.ps-pane main.proto-main { padding-top:0; }
-.ps-pane .ps-top { display:none; }
-.ps-pane .ps-states { flex-wrap:wrap; overflow-x:visible; justify-content:center; }`;
+}`;
 
   const typing = (el) => Boolean(el?.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])'));
 
@@ -132,8 +129,6 @@ main.proto-main { padding-top:calc(60px + env(safe-area-inset-top)); }
     const qid = params.get('q');
     const site = globalThis.ClaudeSite;
     if (!document.getElementById('ps-style')) document.head.insertAdjacentHTML('beforeend', `<style id="ps-style">${CSS}</style>`);
-    // Framed in the board's right pane (app-needs.js openViewer), whose top bar holds the way back and the Round pill.
-    if (window.frameElement?.closest('.needs-pane')) document.documentElement.classList.add('ps-pane');
     let take = startTake(keys, params.get('variant'), initial);
     let question = null;
     // A push opened this page (board/store.mjs pushUrl). Read once and dropped from the URL, so a reload stays on the

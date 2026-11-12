@@ -38,11 +38,10 @@ BoardView.part((B) => {
     if (view) B.root.dataset.board = view; else delete B.root.dataset.board;
   }
 
-  // The lines a fresh board can change: each lane count, Needs you line and thread message. A card shows its own sign below.
+  // The lines a fresh board can change: each lane count and thread message. A card shows its own sign below.
   function lines() {
     const out = new Map();
     for (const count of $$('.lane[data-lane] > summary .count')) out.set(`lane:${count.closest('.lane').dataset.lane}`, count);
-    $$('#waiting li').forEach((li, i) => out.set(`needs:${i}`, li));
     for (const msgs of $$('[data-thread] > .msgs')) [...msgs.children].forEach((m, i) => out.set(`thread:${msgs.parentElement.dataset.thread}|${i}`, m));
     return out;
   }

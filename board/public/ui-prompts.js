@@ -22,7 +22,7 @@
   // '<question index>:<label>'. It waits (ui.js BUSY) and the line's other buttons are disabled.
   function promptItem(p, { picks = {}, sending = null } = {}) {
     const off = (tapped) => (sending === null ? '' : sending === tapped ? BoardUI.BUSY : ' disabled');
-    const where = [ago(p.at), p.cwd].filter(Boolean).map(esc).join(' · ');
+    const where = [p.board, ago(p.at), p.cwd].filter(Boolean).map(esc).join(' · ');
     const head = `<div class="prompt-head"><b>${esc(p.questions ? 'Question' : p.tool)}</b><span class="muted small">${where}</span></div>`;
     if (p.questions) {
       const questions = p.questions.map((q, i) => `<div class="prompt-q"><p>${q.header ? `<span class="chip">${esc(q.header)}</span> ` : ''}${esc(q.question)}</p>

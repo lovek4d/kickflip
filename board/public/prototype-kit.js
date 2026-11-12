@@ -3,7 +3,7 @@
 // with board.mjs prototype add (docs/adr/2026-11-01-1448-the-board-serves-every-prototype-from-one-template.md). A take file,
 // public/prototypes/<topic>/<KEY>.js, is a module:
 //   export function render(stage, kit) { stage.innerHTML = kit.hub(); return () => {…} }   // the cleanup is optional
-// A take draws any board class at any width: prototype.html undoes the board's width-gated hides in the stage (.needs-deck, .needs-pane).
+// A take draws any board class at any width: prototype.html undoes the board's width-gated hides in the stage (.key-hint).
 // render runs on every switch to that take with a fresh, empty stage; it may be async. The stage contains its layout
 // and paint, so nothing in it, position: fixed included, can cover the viewer's bar, its ✕ or the app shell.
 //   kit.sidebar(data?, {here, switching, device, head, height})  ui-sidebar.js sidebar() as an open drawer card in the

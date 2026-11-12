@@ -16,3 +16,5 @@ Considered:
 - **A tap on an option that sends the answer at once as `owner-answers`** (the builder's first version). The owner overruled it on gh248-deck-send, picking "Draft, then Send": "send at once would damage notes experience, simple for now". Round 5 drew it that way too.
 
 The deck's "Draft, then Send" is superseded by [a deck option sends on a second tap](2026-11-07-1212-a-deck-option-sends-on-a-second-tap.md).
+
+Superseded by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): the board has no deck and no pane; the header's ? opens Waiting on you at every width.

@@ -7,3 +7,5 @@ From 900px the board has three columns: the sidebar rail, the lanes and the Wait
 - Clamps: sidebar 220–420px; the lanes and the pane each 360px or more. A window too narrow for both keeps the pane at 360px. A stored width is clamped again on every resize, without being rewritten.
 - A double-click on a handle forgets its width; ←/→ on a focused handle moves it 16px.
 - Everything keyed to the old widths reads the variables: `--sidebar-w` (body padding, the widened pane's left edge) and the board's + (`--pane-w` or the old midpoint).
+
+Superseded in part by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): the lanes | pane seam, `--pane-w` and `hub:paneWidth` are gone; the sidebar's edge still drags.

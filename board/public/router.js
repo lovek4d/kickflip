@@ -3,7 +3,7 @@
 // ui.test.mjs runs them in node:vm. listen() catches clicks on links to a view the shell mounts, and back and forward.
 // A view is {kind, …}:
 //   start                       `/`, which the shell turns into the last board
-//   board {route, hash}         /<route>/, hash such as #selectedCard=<key>&openItemsCard=<topic id>, or the older #item=<key>&reply
+//   board {route, hash}         /<route>/, hash such as #selectedCard=<key>, or the older #item=<key>&reply
 //   settings {route}            /<route>/settings.html, a request to open the modal over that board
 //   questions {route, id}       /<route>/questions.html#<id>
 //   notes {route, item | wave}  /<route>/notes.html?item=<key> or ?wave=<wave slug>, and plan.html, which the board
@@ -81,24 +81,23 @@ globalThis.AppRouter = (function () {
 
   // The page tree (docs/adr/2026-10-30-1125-back-follows-the-page-tree.md): a board, its Waiting on you, and a prototype page tied
   // to one of its questions by ?q=, framed. levelOf → 0, 1 or 2 down the tree, or null for a view outside it.
-  // A board's prototype page, which from 900px opens in the board's right pane (shell.js go).
+  // A board's prototype page.
   const isPrototype = (view, boards) => view?.kind === 'frame' && boards.has(view.route) && /^\/[^/]+\/prototype-[\w-]+\.html$/.test(new URL(view.url, 'http://hub').pathname);
   function questionOf(view, boards) {
     return isPrototype(view, boards) ? new URL(view.url, 'http://hub').searchParams.get('q') || null : null;
   }
-  // wide: from 900px Waiting on you is the board's pane, so a prototype's parent is the board itself.
-  function levelOf(view, { boards = new Set(), wide = false } = {}) {
+  function levelOf(view, { boards = new Set() } = {}) {
     if (view?.kind === 'board') return 0;
     if (view?.kind === 'questions') return 1;
-    return questionOf(view, boards) ? (wide ? 1 : 2) : null;
+    return questionOf(view, boards) ? 2 : null;
   }
   // → the views above view in the tree, its board first. card: the card whose thread the owner left the board from,
   // which the board keeps open.
-  function parentsOf(view, { boards = new Set(), card = null, wide = false } = {}) {
+  function parentsOf(view, { boards = new Set(), card = null } = {}) {
     const q = questionOf(view, boards);
     if (!q && view?.kind !== 'questions') return [];
     const board = { kind: 'board', route: view.route, hash: card ? `#selectedCard=${encodeURIComponent(card)}` : '' };
-    return q && !wide ? [board, { kind: 'questions', route: view.route, id: q }] : [board];
+    return q ? [board, { kind: 'questions', route: view.route, id: q }] : [board];
   }
 
   // Each history entry carries {idx}, its distance from the shell's first entry, pushed when a push opened it, and on a
@@ -111,8 +110,8 @@ globalThis.AppRouter = (function () {
   // boards() → the board routes now.
   // → {push(href, from), replace(href), up()}: push and replace write an entry for a view go is showing; replace answers
   // 'up' when it went back to a parent instead, which then takes href, and go shows it on that pop.
-  function listen({ boards, go, wide = () => false }) {
-    const b = () => ({ boards: boards(), wide: wide() });
+  function listen({ boards, go }) {
+    const b = () => ({ boards: boards() });
     const mark = (pushed) => (pushed ? { pushed: true } : {});
     let idx = Number.isInteger(history.state?.idx) ? history.state.idx : 0;
     let landing = null;
@@ -225,32 +224,27 @@ globalThis.AppRouter = (function () {
     return { push: (href, from) => write('push', href, from), replace: (href) => write('replace', href), up };
   }
 
-  // A board's fragment is &-joined keys: selectedCard=<key> (the focused card), openItemsCard=<topic id> (the selected
-  // open-items pill), review=<PR number>, and a bare reply. The older #item=<key> reads as selectedCard.
-  // → {selectedCard, openItemsCard, review, reply}, each null or false when absent.
+  // A board's fragment is &-joined keys: selectedCard=<key> (the focused card), review=<PR number>, and a bare reply.
+  // The older #item=<key> reads as selectedCard.
+  // → {selectedCard, review, reply}, each null or false when absent.
   function fragmentOf(hash) {
-    const out = { selectedCard: null, openItemsCard: null, review: null, reply: false };
+    const out = { selectedCard: null, review: null, reply: false };
     const decode = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
     for (const part of String(hash).replace(/^#/, '').split('&')) {
       const eq = part.indexOf('=');
       const [k, v] = eq < 0 ? [part, ''] : [part.slice(0, eq), part.slice(eq + 1)];
       if (k === 'selectedCard' || k === 'item') out.selectedCard = decode(v) || null;
-      else if (k === 'openItemsCard') out.openItemsCard = decode(v) || null;
       else if (k === 'review' && /^\d+$/.test(v)) out.review = Number(v);
       else if (k === 'reply') out.reply = true;
     }
     return out;
   }
   // hash with the named keys of changes replaced (null drops one) → the new fragment, '' for none. A #review= link is
-  // alone in its fragment, so a change to a card or pill replaces it; reply is spent once the card is shown.
+  // alone in its fragment, so a change to the card replaces it; reply is spent once the card is shown.
   function hashWith(hash, changes) {
-    const now = fragmentOf(hash);
-    const next = { selectedCard: now.selectedCard, openItemsCard: now.openItemsCard, ...changes };
-    const parts = [];
-    if (next.selectedCard) parts.push(`selectedCard=${encodeURIComponent(next.selectedCard)}`);
-    if (next.openItemsCard) parts.push(`openItemsCard=${encodeURIComponent(next.openItemsCard)}`);
-    return parts.length ? '#' + parts.join('&') : '';
+    const next = { selectedCard: fragmentOf(hash).selectedCard, ...changes };
+    return next.selectedCard ? `#selectedCard=${encodeURIComponent(next.selectedCard)}` : '';
   }
 
-  return { viewOf, urlOf, mounted, entryOf, isPrototype, listen, fragmentOf, hashWith };
+  return { viewOf, urlOf, mounted, entryOf, listen, fragmentOf, hashWith };
 })();

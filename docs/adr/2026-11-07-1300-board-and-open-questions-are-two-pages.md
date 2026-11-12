@@ -12,3 +12,5 @@ Considered:
 - **A Board · Questions switch in the header** (prototype round 1, take B). The owner preferred a single button, as space in the phone's header is short.
 - **A circled question mark, or the count beside the ? or in a pill, or a dot** (round 2). The owner asked for a bare ? and leaned to the corner badge.
 - **The bulb and gear as buttons at the top of the board, or in the header beside the ?** (round 3). The owner picked the bottom of the board.
+
+Superseded in part by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): the two pages are apart at every width, with no pane from 900px, and the header's ? shows on a desktop too.

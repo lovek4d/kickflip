@@ -23,22 +23,20 @@
 // The page shows open questions only: it ends at the Send bar, opens by itself only a topic with an open question, and
 // with none shows the hub's moon and "no open questions". A link to a question still opens its topic, as a work item's
 // Questions button does (docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md).
-// markup({embedded: true}) and ctx.embedded mount it in the board's desktop Needs you pane (app-needs.js): no header,
-// and the board's URL and scroll are left alone.
 (globalThis.AppViews ||= {}).questions = {
   className: 'view-questions',
   title: () => 'Waiting On You',
-  markup: ({ embedded = false } = {}) => `${embedded ? '' : BoardUI.header({ lead: 'logo', title: 'Waiting on you', logoSrc: '/_hub/kickflip.png', controls: false, trail: '<span class="muted small" id="progress"></span>', pages: 'board' })}
+  markup: () => `${BoardUI.header({ lead: 'logo', title: 'Waiting on you', logoSrc: '/_hub/kickflip.png', controls: false, trail: '<span class="muted small" id="progress"></span>', pages: 'board' })}
 <main>
-  ${embedded ? '<span class="muted small" id="progress" hidden></span>' : ''}<section id="page"></section>
+  <section id="page"></section>
 </main>`,
 
   create: (root, siteRoot, ctx) => BoardView.page(root, siteRoot, (B) => {
     const { $, site } = B;
-    const scroll = (y) => { if (!ctx.embedded) scrollTo(0, y); };
-    const setHash = (id) => { if (!ctx.embedded) history.replaceState(history.state, '', '#' + encodeURIComponent(id)); };
+    const scroll = (y) => scrollTo(0, y);
+    const setHash = (id) => history.replaceState(history.state, '', '#' + encodeURIComponent(id));
     const { esc, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, questionCard, roundChip, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, downLanding } = BoardUI;
-    const hashId = () => { if (ctx.embedded) return ''; const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
+    const hashId = () => { const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
 
     let all = [];
     // The shown topic's resolved questions, which /api/board leaves out: GET /api/questions answers them as the topic
@@ -372,9 +370,8 @@
       scroll(0);
     }
 
-    // item:<key> is a card, wave:<slug> or file:<slug> a band. Embedded, the board is beside the pane; alone, it is the page before this one.
+    // item:<key> is a card, opened on the board, the page before this one.
     function openOnBoard(id) {
-      if (ctx.embedded) return ctx.openOnBoard(id);
       if (!id.startsWith('item:')) return;
       const href = new URL(`./#item=${encodeURIComponent(id.slice(5))}`, location.href).href;
       if (!AppShell.open(href)) location.assign(href);
@@ -389,14 +386,11 @@
       if (title) { openOnBoard(title.dataset.openCard); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) {
-        // Embedded in the desktop pane, one click also focuses the topic's card on the board; a phone only picks the topic.
         picks++; soloId = null; setTopic(b.dataset.topic); sentLine = ''; shown = '';
         const first = topics.find((t) => t.id === topicId)?.questions[0];
         if (first) setHash(first);
-        ctx.onTopic?.(topicId);
         const y = scrollY;
         render(); scroll(y);
-        if (ctx.embedded) openOnBoard(topicId);
       }
     });
     B.on(root, 'change', (ev) => {
@@ -458,7 +452,7 @@
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);
     // A link to another question here only moves the hash.
-    if (!ctx.embedded) B.on(window, 'hashchange', () => {
+    B.on(window, 'hashchange', () => {
       if (!loaded) return;
       pick(hashId());
       sentLine = '';
@@ -466,19 +460,6 @@
       render();
       scroll(0);
     });
-
-    // In the board's pane, the shell opens the topic of a question or topic id there, a resolved one included, and with
-    // none or one that's gone the topic the page would open (app-needs.js focusQuestion). → false before the first load.
-    if (ctx.embedded) B.openTopic = (id) => {
-      if (!loaded) return false;
-      const topic = topics.find((t) => t.id === id);
-      if (topic) { picks++; soloId = null; setTopic(topic.id); } else pick(id || '');
-      ctx.onTopic?.(topicId);
-      sentLine = '';
-      shown = '';
-      render();
-      return true;
-    };
 
     load(true);
     B.every(15000, () => { if (!document.hidden) load(false); });

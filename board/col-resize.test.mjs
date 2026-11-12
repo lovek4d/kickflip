@@ -1,4 +1,5 @@
-// The desktop columns drag: the sidebar's edge and the lanes | Waiting on you seam (docs/adr/2026-11-10-1600-the-desktop-columns-drag-and-this-device-keeps-their-widths.md).
+// The sidebar's edge drags on a desktop (docs/adr/2026-11-10-1600-the-desktop-columns-drag-and-this-device-keeps-their-widths.md);
+// the lanes | Waiting on you seam went with the pane (docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -27,22 +28,14 @@ function load({ stored = {}, width = 1600 } = {}) {
 
 test('a sidebar width clamps to 220–420px', () => {
   const { api } = load();
-  assert.equal(api.clamp('sidebar', 100, 1600, 272), 220);
-  assert.equal(api.clamp('sidebar', 300, 1600, 272), 300);
-  assert.equal(api.clamp('sidebar', 900, 1600, 272), 420);
+  assert.equal(api.clamp(100), 220);
+  assert.equal(api.clamp(300), 300);
+  assert.equal(api.clamp(900), 420);
 });
 
-test('a pane width keeps the lanes and the pane each at 360px or more', () => {
-  const { api } = load();
-  assert.equal(api.clamp('pane', 100, 1600, 272), 360);
-  assert.equal(api.clamp('pane', 5000, 1600, 272), 1600 - 272 - 360);
-  assert.equal(api.clamp('pane', 500, 1600, 272), 500);
-});
-
-test('a stored width is applied at load and clamped to a narrower window', () => {
-  const { vars } = load({ stored: { 'hub:sidebarWidth': '300', 'hub:paneWidth': '900' }, width: 1000 });
-  assert.equal(vars['--sb-w'], '300px');
-  assert.equal(vars['--pane-w'], '360px');
+test('a stored width is applied at load, clamped', () => {
+  const { vars } = load({ stored: { 'hub:sidebarWidth': '900', 'hub:paneWidth': '900' }, width: 1000 });
+  assert.deepEqual({ ...vars }, { '--sb-w': '420px' }, 'an old pane width is ignored');
 });
 
 test('no stored width leaves the stylesheet defaults', () => {
@@ -52,27 +45,26 @@ test('no stored width leaves the stylesheet defaults', () => {
 
 test('setting a width stores it for this device; reset forgets it', () => {
   const { api, vars, store } = load();
-  api.set('pane', 600);
-  assert.equal(store.get('hub:paneWidth'), '600');
-  assert.equal(vars['--pane-w'], '600px');
-  api.reset('pane');
-  assert.equal(store.has('hub:paneWidth'), false);
-  assert.equal(vars['--pane-w'], undefined);
+  api.set(300);
+  assert.equal(store.get('hub:sidebarWidth'), '300');
+  assert.equal(vars['--sb-w'], '300px');
+  api.reset();
+  assert.equal(store.has('hub:sidebarWidth'), false);
+  assert.equal(vars['--sb-w'], undefined);
 });
 
 test('the CSS reads the widths from the variables, desktop only', () => {
   const style = read('style.css');
   const side = read('sidebar.css');
-  assert.match(style, /grid-template-columns: minmax\(0, 1fr\) var\(--pane-w, minmax\(0, 1fr\)\)/);
+  assert.doesNotMatch(style, /--pane-w/);
   assert.match(style, /body\.has-sidebar \{ --sidebar-w: var\(--sb-w, 272px\); \}/);
-  assert.match(style, /\.view-board \.fab \{ right: calc\(var\(--pane-w, calc\(50% - var\(--sidebar-w, 0px\) \/ 2\)\) \+ var\(--fab-edge\)\); \}/);
   assert.match(side, /body\.has-sidebar \{ padding-left: var\(--sidebar-w, 272px\); \}/);
   assert.doesNotMatch(side, /272px; \}\n\s*body\.has-sidebar \.sidebar \{ width: 272px/);
   assert.match(style, /\.col-handle \{ display: none; \}/);
 });
 
-test('both handles are in the markup and the page loads the helper', () => {
+test('the sidebar handle is in the markup, the board has none, and the page loads the helper', () => {
   assert.match(read('app.html'), /class="col-handle"[^>]*data-col="sidebar"/);
   assert.match(read('app.html'), /col-resize\.js/);
-  assert.match(read('app.js'), /class="col-handle"[^>]*data-col="pane"/);
+  assert.doesNotMatch(read('app.js'), /col-handle/);
 });

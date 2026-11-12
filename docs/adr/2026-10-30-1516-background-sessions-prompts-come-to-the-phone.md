@@ -17,3 +17,5 @@ Considered:
 - the hook's own timeout as the 10-minute limit, which leaves the session stuck;
 - Always allow written to the repo's settings, or as a prefix rule such as `Bash(curl:*)`, wider than the owner picked;
 - only reading `claude agents --json`'s `waitingFor` to show that a session waits, with no way to answer from the phone.
+
+Superseded in part by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): every pending prompt, a board session's included, is answered on the hub page, and its push opens the hub page.

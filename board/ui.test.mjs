@@ -520,18 +520,17 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
   assert.equal(tap({ url: `${page}&from=push`, state: { idx: 3 } }), 'href');
 });
 
-test("a board's fragment names the focused card and the selected open-items pill, reads the older #item= link as the card, and rewrites one key without the other", () => {
+test("a board's fragment names the focused card, reads the older #item= link as the card, and drops a key it doesn't know", () => {
   const routerContext = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { fragmentOf, hashWith, viewOf } = routerContext.AppRouter;
   const base = { review: null, reply: false };
-  assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA2')), { selectedCard: 'w/A1', openItemsCard: 'item:w/A2', ...base });
-  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { selectedCard: 'w/A1', openItemsCard: null, review: null, reply: true });
-  assert.deepEqual(plain(fragmentOf('#review=12')), { selectedCard: null, openItemsCard: null, review: 12, reply: false });
-  assert.deepEqual(plain(fragmentOf('')), { selectedCard: null, openItemsCard: null, ...base });
-  assert.equal(hashWith('#item=w%2FA1&reply', { openItemsCard: 'q-1' }), '#selectedCard=w%2FA1&openItemsCard=q-1');
-  assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { selectedCard: 'w/B' }), '#selectedCard=w%2FB&openItemsCard=q-1');
-  assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { openItemsCard: null }), '#selectedCard=w%2FA1');
+  assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA2')), { selectedCard: 'w/A1', ...base });
+  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { selectedCard: 'w/A1', review: null, reply: true });
+  assert.deepEqual(plain(fragmentOf('#review=12')), { selectedCard: null, review: 12, reply: false });
+  assert.deepEqual(plain(fragmentOf('')), { selectedCard: null, ...base });
+  assert.equal(hashWith('#item=w%2FA1&reply', { selectedCard: 'w/A1' }), '#selectedCard=w%2FA1');
+  assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { selectedCard: 'w/B' }), '#selectedCard=w%2FB');
   assert.equal(hashWith('#selectedCard=w%2FA1', { selectedCard: null }), '');
   const read = (url) => plain(viewOf(`https://mac.ts.net${url}`, { boards: new Set(['orch']), base: 'https://mac.ts.net/orch/' }));
   assert.deepEqual(read('/orch/#selectedCard=w%2FA1&openItemsCard=q-1'), { kind: 'board', route: 'orch', hash: '#selectedCard=w%2FA1&openItemsCard=q-1' });
@@ -581,7 +580,7 @@ test("the app's router reads every hub URL as a view and writes each view back a
       '/orch/prototype-sidebar.html?q=q1&from=push', '/orch/shots-gallery.html', '/learn/', '/learn/lessons/lesson-2.html#top']);
 });
 
-function appHistory(url, state = null, { wide = false } = {}) {
+function appHistory(url, state = null) {
   let entries = [{ url: new URL(url), state }];
   let at = 0;
   let backs = 0;
@@ -606,7 +605,7 @@ function appHistory(url, state = null, { wide = false } = {}) {
     addEventListener: (type, fn) => { handlers[type] = fn; } });
   for (const file of ['ui-page-header.js', 'router.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
   const shown = [];
-  const router = context.AppRouter.listen({ boards: () => new Set(['orch']), wide: () => wide,
+  const router = context.AppRouter.listen({ boards: () => new Set(['orch']),
     go: (view, href, how, from) => {
       shown.push(`${how} ${view.kind}`);
       if (how === 'push') router.push(href, from);
@@ -693,19 +692,6 @@ test("in the app, back follows the page tree: a prototype goes up to Waiting on 
   const picked = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push');
   picked.router.replace('https://mac.ts.net/orch/#selectedCard=w%2FA1&reply');
   assert.deepEqual([picked.stack(), picked.shown.at(-1)], [['#selectedCard=w%2FA1&reply'], 'pop board']);
-});
-
-test("from 900px, back from a prototype goes to the board, since Waiting on you is the board's pane and no page of its own sits between", () => {
-  const cold = appHistory('https://mac.ts.net/orch/prototype-x.html?q=q1&from=push', null, { wide: true });
-  assert.deepEqual(cold.stack(), ['', 'prototype-x.html?q=q1']);
-  assert.equal(cold.tap('./', { cls: 'back' }), 'back');
-  assert.deepEqual([cold.stack(), cold.shown.at(-1)], [[''], 'pop board']);
-
-  const thread = appHistory('https://mac.ts.net/orch/', null, { wide: true });
-  thread.tap('prototype-x.html?q=q2&variant=B', { card: 'w/A1' });
-  assert.deepEqual(thread.stack(), ['#selectedCard=w%2FA1', 'prototype-x.html?q=q2&variant=B']);
-  assert.equal(thread.router.replace('https://mac.ts.net/orch/'), 'up');
-  assert.deepEqual([thread.stack(), thread.shown.at(-1)], [[''], 'pop board']);
 });
 
 test('Action needed shows only while the card waits on the owner, as orange words that link to what they act on', () => {
@@ -2519,6 +2505,9 @@ test("a prompt line's tapped answer waits, disabled with its label kept behind t
   assert.deepEqual(looks(ui.promptItem(ask, { sending: '0:Blue' })), [['data-prompt-opt="Red"', 'disabled'], ['data-prompt-opt="Blue"', 'waits'], ['data-prompt-choice="deny"', 'disabled']]);
   assert.doesNotMatch(text(ui.promptItem(perm, { sending: 'allow' })), /Sending/);
   assert.equal(text(ui.promptItem(perm, { sending: 'allow' })).includes('Allow once'), true);
+  // On the hub page a board session's prompt names its board first (docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md).
+  assert.match(ui.promptItem({ ...perm, board: 'Shop' }), /<span class="muted small">Shop · /);
+  assert.doesNotMatch(ui.promptItem(perm), /Shop/);
 });
 
 test("This device's Turn on and Test wait in place of their label while they run", () => {

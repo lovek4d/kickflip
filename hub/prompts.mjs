@@ -1,6 +1,7 @@
-// Pending prompts: a permission prompt or an AskUserQuestion from a background board session, which its
-// PermissionRequest hook (permission-hook.mjs) hands to the hub and the owner answers in that board's Needs you
-// (docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md). The hub and ownership commands write
+// Pending prompts: a permission prompt or an AskUserQuestion from a background session, which its
+// PermissionRequest hook (permission-hook.mjs) hands to the hub and the owner answers on the hub page
+// (docs/adr/2026-10-30-1516-background-sessions-prompts-come-to-the-phone.md,
+// docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md). The hub and ownership commands write
 // ~/.claude/kickflip/prompts.json {prompts: {<id>: record}, remembered: {<session>: {route, ownerSince, runtime, rules}}};
 // a board server reads its own route's pending prompts from it.
 // A record: {id, session, route (null when no board's owner is that session), title (the board's, else the cwd),
@@ -245,22 +246,24 @@ export function dropSessionPrompts(store, sessions) {
   }
 }
 
-// What waits on the owner: unanswered records, oldest first, for one route, or with route null for no board's.
-export function pendingFor(route, store = readPrompts()) {
-  return Object.values(store.prompts).filter((r) => !r.answer && r.route === route).sort((a, b) => a.at.localeCompare(b.at));
+// What waits on the owner: unanswered records, oldest first, every one (the hub page's), or with pendingFor one
+// route's, or with route null no board's.
+export function pending(store = readPrompts()) {
+  return Object.values(store.prompts).filter((r) => !r.answer).sort((a, b) => a.at.localeCompare(b.at));
 }
+export const pendingFor = (route, store = readPrompts()) => pending(store).filter((r) => r.route === route);
 
-// The fields a page shows for one record.
-export const shown = ({ id, title, cwd, tool, action, detail, rule, questions, at }) => ({ id, title, cwd: tilde(cwd), tool, action, detail, rule, questions, at });
+// The fields a page shows for one record; board is the title of the board whose owner session asks, else null.
+export const shown = ({ id, route, title, cwd, tool, action, detail, rule, questions, at }) => ({ id, board: route ? title : null, title, cwd: tilde(cwd), tool, action, detail, rule, questions, at });
 
 // The push for a new record: "<board> wants to <action>", or for a question "<board> asks: <question>", opening the
-// board whose Needs you shows it, or the hub page for no board's.
+// hub page, which lists every pending prompt.
 export function pushOf(r) {
   const q = r.questions?.[0];
   return {
     title: q ? `${r.title} asks: ${cut(q.question, 90)}` : `${r.title} wants to ${r.action}`,
-    body: q ? q.options.map((o) => o.label).join(' · ') + (r.questions.length > 1 ? ` (+${r.questions.length - 1} more)` : '') : cut(r.detail, 160) || `Answer in ${r.route ? 'Needs you' : 'the hub page'}.`,
-    url: r.route ? `/${r.route}/` : '/_hub/',
+    body: q ? q.options.map((o) => o.label).join(' · ') + (r.questions.length > 1 ? ` (+${r.questions.length - 1} more)` : '') : cut(r.detail, 160) || 'Answer on the hub page.',
+    url: '/_hub/',
     tag: `prompt-${r.id}`,
   };
 }

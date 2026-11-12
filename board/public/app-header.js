@@ -1,6 +1,8 @@
 // The board view's header and GitHub status: the time since the last change signal or refresh, refresh, the In Review
 // header's GitHub line (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md);
 // the GitHub mark's Hub links sheet and a new board's setup checklist (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md);
+// the ?, the way to Waiting on you at every width, with the open-question count as its badge
+// (docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md);
 // and the wake: any tap on an asleep board's page, refresh included, asks the hub to resume its session
 // (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). Needs app-core.js.
 BoardView.part((B) => {
@@ -15,6 +17,12 @@ BoardView.part((B) => {
     $('#setup').hidden = !d.setup;
     $('#setup').innerHTML = setupCard(d.setup);
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
+    const open = (d.owner || []).filter((q) => q.state === 'open').length;
+    const ask = $('#questionsLink');
+    const badge = ask.querySelector('.q-badge');
+    badge.hidden = !open;
+    badge.textContent = open ? String(open) : '';
+    ask.setAttribute('aria-label', open ? `Open questions, ${open} open` : 'Open questions');
   }
   // The status line, and the moon right of the title while the owner reads away (hub/presence.mjs ownerTracker).
   const renderStatus = () => {

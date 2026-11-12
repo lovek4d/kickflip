@@ -47,9 +47,9 @@
   // lead is 'logo' (the kickflip, which toggles the sidebar, sidebar.js; logoHref, the hub's page, without it)
   // or 'back' (the arrow, which follows backStep, with backHref the work item or the board, after the logo). The controls (time and refresh) paint disabled with refresh spinning until the
   // page's script turns them on (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md). With controls
-  // false, trail (HTML) takes their place. pages is the switch between a board's two pages below 900px
+  // false, trail (HTML) takes their place. pages is the switch between a board's two pages
   // (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md): 'questions' puts the ? after the controls, with
-  // the open-question count in its badge (app-needs.js), and 'board' puts the check, back up to the board, after trail. leadAttrs adds to or replaces the lead link's attributes, and level is the
+  // the open-question count in its badge (app-header.js), and 'board' puts the check, back up to the board, after trail. leadAttrs adds to or replaces the lead link's attributes, and level is the
   // title's heading level, for a header that isn't the page's own, such as the sidebar's (ui-sidebar.js). moon puts the
   // away moon right of the title, hidden until app-header.js renderStatus shows it (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md).
   function header({ lead = 'logo', title = '', titleId, backHref = './', backLabel = 'Back to the board', backId, logoSrc = 'kickflip.png',

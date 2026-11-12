@@ -21,7 +21,7 @@
   // resolved it. A sent question draws as resolvedCard, locked, until its badge reopens it.
   const isSent = (q) => q.state === 'answered' || q.state === 'replied' || q.state === 'resolved';
   // A question's unsent {choice, note} on this device, in localStorage under qdraft:<id>. view-questions.js and the
-  // phone's deck (app-needs.js) and the prototype viewer's Choose this (prototype-switcher.js) write it.
+  // prototype viewer's Choose this (prototype-switcher.js) write it.
   const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
   const setDraft = (id, v) => { try { localStorage.setItem('qdraft:' + id, JSON.stringify(v)); } catch {} };
   const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(q.suggested.reason ?? `you answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
@@ -178,8 +178,7 @@
     },
   };
 
-  // A prototype viewer's Round pill and its sheet, on the full page (prototype-switcher.js) and in the board's right pane
-  // (app-needs.js). rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds
+  // A prototype viewer's Round pill and its sheet (prototype-switcher.js). rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds
   // lists them ({n, q, url, confirm, state}). The pill names the round qid is in, out of the newest round's number; a
   // card with a single round gets none.
   function roundPill(rounds, qid) {

@@ -242,35 +242,10 @@ window.AppShell = (function () {
     // go(view, href, how, from): router.js's, with how 'replace' for a framed page's hand-off and 'reload' for a view's
     // own refresh. → true, or a promise of whether the view switched once the owner answers about an unsaved edit.
     let router = null;
-    const wide = matchMedia('(min-width: 900px)');
-    // Board and Waiting on you are a board's two pages (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md):
-    // from 900px the board shows Waiting on you in its pane, so every view of the questions page, a link, a push, a
-    // hand-off, a history entry or a cold load, shows the board at its own URL and opens the question's topic there (id,
-    // or null for none). A board's prototype page does the same and opens in the pane
-    // (docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md).
-    const inPane = (view) => wide.matches && (view?.kind === 'questions' || AppRouter.isPrototype(view, boards()));
-    // ask(B) → true once the board's pane did what the view asks. A board just shown takes a moment to fill its pane, so
-    // the pane is asked again until it has.
-    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openViewer?.(href));
-    function askPane(ask, tries = 50) {
-      if (current?.view.kind !== 'board' || ask(current.v.B) || tries <= 0) return;
-      setTimeout(() => askPane(ask, tries - 1), 100);
-    }
+    // Board and Waiting on you are a board's two pages at every width, and a prototype is a page of its own
+    // (docs/adr/2026-11-07-1300-board-and-open-questions-are-two-pages.md, docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md).
     function go(view, href, how, from) {
       if (!AppRouter.mounted(view)) return false;
-      if (inPane(view)) {
-        const ask = paneAsk(view, href);
-        const board = { kind: 'board', route: view.route, hash: '' };
-        const boardHref = new URL(AppRouter.urlOf(board), location.href).href;
-        if (how === 'pop') history.replaceState(history.state, '', boardHref);
-        // On its own board it only asks the pane, so the URL, history and an open card stay as they are.
-        else if (current?.view.kind === 'board' && current.route === view.route && !settings) {
-          askPane(ask);
-          sidebar.close();
-          return true;
-        }
-        return Promise.resolve(go(board, boardHref, how, from)).then((shown) => { if (shown) askPane(ask); return shown; });
-      }
       if (view.kind === 'settings') {
         if (current?.view.kind === 'board' && current.route === view.route) {
           const here = AppRouter.viewOf(location.href, { boards: boards() });
@@ -322,17 +297,7 @@ window.AppShell = (function () {
     }
     if (!AppRouter.mounted(first)) { location.replace('/_hub/'); return; }
 
-    let pane = null;
-    if (inPane(first)) {
-      pane = paneAsk(first, location.href);
-      first = { kind: 'board', route: first.route, hash: '' };
-      history.replaceState(history.state, '', AppRouter.urlOf(first));
-    }
-    router = AppRouter.listen({ boards, go, wide: () => wide.matches });
-    // Widening past 900px on Waiting on you or a prototype swaps to the board with it open in the pane.
-    wide.addEventListener('change', () => {
-      if (current && inPane(current.view)) go(AppRouter.viewOf(location.href, { boards: boards() }), location.href, 'replace');
-    });
+    router = AppRouter.listen({ boards, go });
     opener = (url, { replace = false, frames = true } = {}) => {
       const view = AppRouter.viewOf(url, { boards: boards() });
       if (!AppRouter.mounted(view) || (!frames && view.kind === 'frame')) return false;
@@ -348,7 +313,6 @@ window.AppShell = (function () {
     navigator.serviceWorker?.startMessages?.();
 
     show(first);
-    if (pane) askPane(pane);
     openStream();
     addEventListener('visibilitychange', () => { if (!document.hidden) openStream(); });
     addEventListener('pageshow', openStream);
