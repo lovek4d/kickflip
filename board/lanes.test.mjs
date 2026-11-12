@@ -28,7 +28,7 @@ test('item set refuses --status and --clear-status, and --done closes the card i
 });
 
 test('a new card starts in Todo; a build start moves it to In Progress and a PR to In Review, each with a move line', () => {
-  assert.equal(board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'Two', '--phase', 'grilling').code, 0);
+  assert.equal(board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling').code, 0);
   const added = auditItem('B2');
   assert.equal(added.lane, 'todo');
   assert.equal(added.lane_at, added.created);

@@ -55,10 +55,10 @@ test("staging to ready needs the orchestrator's judgment as --text, which goes i
 });
 
 test('item add without --from-ask files a card grilling or prototyping, never ready', () => {
-  const r = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--phase', 'ready', '--size', 'small');
+  const r = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--phase', 'ready', '--size', 'small');
   assert.deepEqual(r, { code: 1, out: '', err: "item add files a card discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
   assert.equal(item('Q1'), undefined);
-  assert.equal(board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--phase', 'grilling').code, 0);
+  assert.equal(board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--phase', 'grilling').code, 0);
 });
 
 // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md
@@ -67,7 +67,7 @@ test('item add without --from-ask files a card grilling or prototyping, never re
 test('item add --from-ask files a Quick build ask ready and a Discuss ask grilling, with the ask as the card\'s first line, and a refusal writes nothing', () => {
   addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } },
     { id: 'ed', ts: '2026-11-06T10:01:00Z', kind: 'ask', data: { text: 'Rethink the footer' } });
-  const add = (id, ask, ...more) => board('item', 'add', `w/${id}`, '--site', 'orch', '--title', id, '--from-ask', ask, '--text', 'Filed.', ...more);
+  const add = (id, ask, ...more) => board('item', 'add', `w/${id}`, '--site', 'orch', '--title', `feat: ${id.toLowerCase()}`, '--from-ask', ask, '--text', 'Filed.', ...more);
   const refusals = [
     [add('Q1', 'eq', '--phase', 'ready', '--notes', 'Fit the header.'), /no size/],
     [add('Q1', 'eq', '--phase', 'ready', '--size', 'small'), /no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready/],
@@ -76,7 +76,7 @@ test('item add --from-ask files a Quick build ask ready and a Discuss ask grilli
     [add('Q1', 'nope', '--phase', 'ready', '--size', 'small'), /ask/],
     [add('Q1', 'ed', '--phase', 'staging'), /--phase staging is set by the board/],
     [add('Q1', 'eq'), /pass --phase/],
-    [board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Q1', '--from-ask', 'eq', '--phase', 'ready', '--size', 'small'), /--text/],
+    [board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'feat: q1', '--from-ask', 'eq', '--phase', 'ready', '--size', 'small'), /--text/],
   ];
   for (const [r, why] of refusals) assert.ok(r.code === 1 && why.test(r.err), r.err);
   assert.equal(item('Q1'), undefined);
@@ -155,7 +155,7 @@ test('an Implement message waiting from before staging becomes staging, keeping 
 test('a Quick build ask filed held and grilling goes ready and unholds in one item set --from-ask', () => {
   addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } });
   write(`${home}/draft.md`, '# Quick\n');
-  const added = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--notes-from', `${home}/draft.md`, '--held');
+  const added = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--notes-from', `${home}/draft.md`, '--held');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([item('Q1').phase, item('Q1').held], [undefined, true]);
   const filed = board('item', 'set', 'w/Q1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--unheld', '--size', 'small');

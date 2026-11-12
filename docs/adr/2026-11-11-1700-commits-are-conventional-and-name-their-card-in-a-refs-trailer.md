@@ -34,4 +34,4 @@ The owner's answers on #517:
 
 - A branch built before this lands holds "#N: ..." commits, which land now refuses. Its builder or lander rewords them to the standard, adding `Refs: <ref>`, then lands again.
 - The first release after this lists the old-form subjects landed since v0.8.0 alongside the new ones.
-- An external PR added to a card with `item set --pr` merges with its own title as the subject, unchecked.
+- An external PR added to a card with `item set --pr` merges with its own title as the subject, unchecked. Since [a card's title is its PR title](2026-11-12-0800-a-cards-title-is-its-pr-title.md), merge checks it, and a new PR takes the card's title in place of the first commit subject.

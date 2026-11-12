@@ -20,6 +20,27 @@ export function subjectFault(subject) {
   return null;
 }
 
+// docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md
+// A card's title is the subject its PR and squash commit take, or, for a question about the board, an ask:
+// "ask(<scope>): <question>?". → why title isn't one, or null when it is.
+const ASK = /^ask(\([a-z][a-z0-9-]*\))?: \S.*\?$/;
+const isAsk = (title) => /^ask[(:]/.test(title);
+export function cardTitleFault(title) {
+  if (!isAsk(title)) return subjectFault(title);
+  if (!ASK.test(title)) return 'isn\'t "ask(<scope>): <question>?", ending with "?"';
+  if (title.length > SUBJECT_MAX) return `is ${title.length} characters, over ${SUBJECT_MAX}`;
+  return null;
+}
+// How a card's title is written, for a refusal.
+export const cardTitleWords = `"<type>(<scope>): <summary>" of at most ${SUBJECT_MAX} characters, or "ask(<scope>): <question>?" for a question`;
+
+// Why the card key titled title can't go into In Progress, naming the fix, or null when it can: its title is the
+// subject its PR takes, and an ask is answered, not built.
+export function startTitleFault(key, title) {
+  const fault = isAsk(title) ? 'is an ask, which is answered, not built' : subjectFault(title);
+  return fault && `${key}'s title "${title}" ${fault}; retitle it with item set ${key} --title "<type>(<scope>): <summary>" before it goes into In Progress`;
+}
+
 // A release commit's message: "chore(release): <version>", then the subjects landed since the last tag, oldest first.
 export const releaseMessage = (version, subjects) => [`chore(release): ${version}`, '', ...subjects.map((s) => `- ${s}`)].join('\n');
 

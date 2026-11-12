@@ -8,7 +8,7 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
-import { squashBody } from './commit-message.mjs';
+import { cardTitleFault, cardTitleWords, squashBody, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, waveItems, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
@@ -110,6 +110,12 @@ export const SCREEN_AFTER = 15 * 60 * 1000;
 const needSite = (site) => site || fail('this command needs --site <route>');
 const text = (v, name) => (typeof v === 'string' && v.trim() ? v.trim() : fail(`${name} must be non-empty text`));
 const optional = (v, check) => (v === undefined ? undefined : check(v));
+// docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a --title a card takes is a Conventional subject or an ask.
+const cardTitle = (v) => {
+  const title = text(v, '--title');
+  const fault = cardTitleFault(title);
+  return fault ? fail(`--title "${title}" ${fault}; a card's title is ${cardTitleWords}`) : title;
+};
 const PROTOTYPE_PAGE = /^prototype-[\w-]+\.html(?:[?#]\S*)?$/;
 const VISUAL_PAGE = /^visuals\/[\w-]+\/[\w-]+\.html$/;
 const pageUrl = (v, name) => (typeof v === 'string' && (PROTOTYPE_PAGE.test(v) || VISUAL_PAGE.test(v) || /^https?:\/\/\S+$/.test(v)) ? v : fail(`${name} must be an http(s) URL or a site page such as prototype-<topic>.html?q=<id>`));
@@ -141,6 +147,7 @@ async function loadItem(site, key) {
   const item = loaded.itemFile.items.find((it) => it.id === id) || fail(`item file "${slug}" has no item "${id}"`);
   return { ...loaded, item };
 }
+export const cardTitleOf = async (site, key) => (await loadItem(site, key)).item.title;
 
 // A reply's file, data/replies/<eventId>.<ext>: .md, which `reply` writes; .html, which replies before markdown are; .json.
 // An event's thread of replies is append-only: its first reply is <eventId>.<ext>, and each later one is its own file,
@@ -610,7 +617,7 @@ async function markAnswered(site, card, title) {
   const { item, key } = card;
   if (!item.from_ask) fail(`${key} is not a card an ask became; write in its thread with thread ${key} --text`);
   if (!answerable(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so it is work: write in its thread with thread ${key} --text`);
-  if (title !== undefined) item.title = text(title, '--title');
+  if (title !== undefined) item.title = cardTitle(title);
   item.phase = 'discussing';
   delete item.unfiled;
   delete item.filed_held;
@@ -626,7 +633,7 @@ export async function answerCard(site, key, md, title, { waitsOn } = {}) {
   const { source, itemFile, item } = await loadItem(site, key);
   const card = { source, itemFile, item, key };
   messageText(md);
-  if (title !== undefined) text(title, '--title');
+  if (title !== undefined) cardTitle(title);
   if (waitsOn) item.waits_on_owner = { on: waitsOn, at: new Date().toISOString() };
   await markAnswered(site, card, title);
   return appendMessage(site, key, { text: md });
@@ -2757,7 +2764,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (spec === '' || !item.owner_step) delete item.owner_check;
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
   const owedBefore = owesNext(item, records);
-  if (title !== undefined) item.title = text(title, '--title');
+  if (title !== undefined) item.title = cardTitle(title);
   setBuildChoice(item, { size, model });
   if (deps !== undefined) {
     const list = await depList(site, parseKey(key).file, deps, key);
@@ -3249,14 +3256,22 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
     if (tapped) await appendStatus(site, key, 'merge-refused', { why: reasons.join('; ') });
     fail(why);
   }
-  const done = [];
+  // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: the squash commit is the
+  // PR's title, with no " (#N)", over its body and the card's trailers. docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md:
+  // every PR's title is a Conventional subject before any merges.
+  const sources = [];
   for (const p of open) {
-    // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: the squash commit is the
-    // PR's title, with no " (#N)", over its body and the card's trailers.
     const viewed = await gh(['pr', 'view', String(p.number), '--repo', p.repo, '--json', 'title,body,commits']);
     if (viewed.limited) await limited(viewed.limited);
-    if (viewed.status !== 0) fail(`gh pr view ${prNames([p], repo)} failed: ${viewed.stderr.trim().split('\n')[0] || `gh exited ${viewed.status}`}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
-    const { title, body, commits } = JSON.parse(viewed.stdout);
+    if (viewed.status !== 0) fail(`gh pr view ${prNames([p], repo)} failed: ${viewed.stderr.trim().split('\n')[0] || `gh exited ${viewed.status}`}`);
+    const source = JSON.parse(viewed.stdout);
+    const fault = subjectFault(source.title);
+    if (fault) fail(`PR ${prNames([p], repo)}'s title "${source.title}" ${fault}; retitle it with gh pr edit ${p.number} --repo ${p.repo} --title "<type>(<scope>): <summary>" and merge again`);
+    sources.push(source);
+  }
+  const done = [];
+  for (const [n, p] of open.entries()) {
+    const { title, body, commits } = sources[n];
     const message = ['--subject', title, '--body', squashBody(await cardName(site, key), body, commits)];
     const merged = await gh(['pr', 'merge', String(p.number), '--repo', p.repo, '--squash', ...message], { timeout: 120_000 });
     if (merged.limited) await limited(merged.limited);
@@ -3362,7 +3377,8 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   const { source, itemFile } = await loadItemFile(site, slug);
   if (id !== undefined && itemFile.items.some((it) => it.id === id)) fail(`item file "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
-  const item = { id, title: text(title, '--title'), created, lane: 'todo', lane_at: created };
+  // An agent's card is titled Conventionally; the board's own (an architecture review's) waits for a retitle before its build.
+  const item = { id, title: intake ? cardTitle(title) : text(title, '--title'), created, lane: 'todo', lane_at: created };
   if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a card, such as <file>/<id>');
   // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
   if (splitOf !== undefined && parent !== undefined) fail('--split-of sets the Parent; drop --parent');
@@ -4051,6 +4067,10 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   if (agent !== 'main' && given !== VISUAL && given !== HELPER && tapOpen(await readJSON(await builderFile(site, key, dir), null))) fail(`the Implement tap opened ${key}'s main builder record and no agent has taken it up; run builder start ${key} without --agent first`);
   const takeUp = before?.dispatched && !before.done ? before : null;
   const was = build && !dir ? (await loadItem(site, key)).item : undefined;
+  const marking = build && !dir && !closed(was) && was.lane !== 'progress';
+  // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a card goes into In Progress titled as its PR will be.
+  const untitled = marking && startTitleFault(key, was.title);
+  if (untitled) fail(untitled);
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
   // dispatched one included (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
@@ -4079,7 +4099,6 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     // A helper's record keeps what agent launch asked of it.
     ...(k === HELPER && before?.kind === HELPER ? { label: before.label, task: before.task, writes: before.writes, requested: before.requested } : {}),
   };
-  const marking = build && !dir && !closed(was) && was.lane !== 'progress';
   const marked = marking ? await setItem(site, key, { start: true }) : { lines: [] };
   let wt;
   let remade = null;

@@ -160,7 +160,10 @@ if (args[0] === 'pr' && args[1] === 'create' && args.includes('--repo')) {
   process.exit(0);
 }
 if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === 'title,body,commits') {
-  console.log(${JSON.stringify(JSON.stringify(SQUASH_SOURCE))});
+  // A PR fixture's own title stands over the squash source's.
+  let own = {};
+  try { own = JSON.parse(fs.readFileSync(fixture('pr', args[4], args[2]), 'utf8')); } catch {}
+  console.log(JSON.stringify({ ...${JSON.stringify(SQUASH_SOURCE)}, ...(own.title ? { title: own.title } : {}) }));
   process.exit(0);
 }
 let file;

@@ -21,6 +21,7 @@ import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
 import { buildScriptOf } from './build-script.mjs';
 import { HUB, hubLineOf } from './hub-lines.mjs';
+import { startTitleFault } from './commit-message.mjs';
 // The ask thread's line that says its card merged into another (hub-lines.mjs, store.mjs relateAsk).
 const MERGED_LINE = 'card-merged';
 
@@ -1466,7 +1467,8 @@ export const MAX_IMPLEMENTERS = 10;
 // and every bumped one, past the cap (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
 // taken is the slots the server's pass already filled with landers and rebase runs. free is the slots left before the
 // helpers and the pull; pastCap the bumped pulls past the cap, and bumpOuts [{key, by}] the builds to stop for them.
-// hold lists the cards an unanswered overnight triage names, which the pull leaves.
+// hold lists the cards an unanswered overnight triage names, which the pull leaves. retitle lists the cards ready to
+// build whose title isn't a Conventional subject, which are left out of pullable until retitled.
 export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [], taken = 0 } = {}) {
   const open = items.filter((i) => !closedLane(i));
   // A paused build frees its slot (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
@@ -1475,7 +1477,10 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [], 
   // A card the orchestrator stalled frees its slot, its stopped run still open
   // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
   const implementers = open.filter((i) => !i.stalled).reduce((n, i) => n + (i.agents || []).filter((a, _, all) => counts(a, all)).length, 0);
-  const pullable = open.filter((i) => pullableCard(i) && !i.working).map((i) => i.key);
+  // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a card whose title its PR can't take waits to be retitled.
+  const ready = open.filter((i) => pullableCard(i) && !i.working);
+  const retitle = ready.filter((i) => startTitleFault(i.key, i.title)).map((i) => i.key);
+  const pullable = ready.map((i) => i.key).filter((k) => !retitle.includes(k));
   const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
   const requested = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name, writes: a.writes })));
   const free = Math.max(0, cap - implementers - waiting.length - taken);
@@ -1490,7 +1495,7 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [], 
   const pulls = [...first, ...fresh.filter((k) => !bumped.has(k)).slice(0, Math.max(0, room - first.length))];
   const pastCap = first.slice(room);
   const bumpOuts = bumpOutsOf(open, counts).slice(0, pastCap.length).map((key, n) => ({ key, by: pastCap[n] }));
-  return { idle: !implementers && !open.some((i) => i.waitsOn === 'checking'), pullable, waiting, pulls, helpers, bumpOuts, pastCap, free };
+  return { idle: !implementers && !open.some((i) => i.waitsOn === 'checking'), pullable, retitle, waiting, pulls, helpers, bumpOuts, pastCap, free };
 }
 // The open cards a bump past the cap may bump out, newest build first: an In Progress card not bumped or stalled, with
 // no PR, pushed branch or held Merge, whose one running implementer is a build the board launched and not already

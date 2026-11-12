@@ -323,8 +323,10 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { PAUSE_CLEARS, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { BUILD_REFUSED, PAUSE_CLEARS, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
+import { startTitleFault } from './commit-message.mjs';
+import { hubText } from './hub-lines.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
@@ -1508,8 +1510,18 @@ async function runAuto() {
   if (!heldByPause) await launchRebases(items, room);
   const resumes = await checkPauses(items, gate);
   if (!heldByPause) for (const key of resumes.slice(0, room.free)) { room.free--; await resumeBuild(key); }
-  const { idle, pullable, waiting, pulls, helpers, bumpOuts, pastCap } = pullOf(items, { cap, pulled, hold, taken: free - room.free });
+  const { idle, pullable, retitle, waiting, pulls, helpers, bumpOuts, pastCap } = pullOf(items, { cap, pulled, hold, taken: free - room.free });
   const ready = idle && !heldByPause;
+  // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: the pull refuses a ready card it can't title its PR by,
+  // once, as builder start would, and the refusal stays on the Todo card until it is retitled.
+  for (const key of settings.auto_pull ? retitle : []) {
+    const card = items.find((i) => i.key === key);
+    const why = startTitleFault(key, card.title);
+    if (card.refusal === hubText(BUILD_REFUSED, { why })) continue;
+    await appendStatus(here, key, BUILD_REFUSED, { why });
+    logCall({ call: 'pull', key, result: 'refused', reason: why, inputs: { title: card.title } });
+    dataVersion++;
+  }
   if (!heldByPause) await launchHelpers(helpers);
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   await checkTriage(settings, log, items, ready);

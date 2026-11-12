@@ -45,7 +45,7 @@ export async function withDevice(fn) {
   try { await fn(b, device.received); } finally { await device.close(); }
 }
 
-export const wave = () => ({ title: 'W', items: [{ id: 'A1', title: 'One', next: 'Old' }, { id: 'ENG-1', title: 'Later', created: '2026-10-22', parent: 'A1' }] });
+export const wave = () => ({ title: 'W', items: [{ id: 'A1', title: 'feat: one', next: 'Old' }, { id: 'ENG-1', title: 'feat: later', created: '2026-10-22', parent: 'A1' }] });
 export const question = (id, extra = {}) => ({ id, topic: 'site', question: 'Keep it?', options: [{ id: 'A', label: 'Keep', recommended: true }, { id: 'B', label: 'Drop' }], ...extra });
 
 beforeEach(() => {

@@ -90,13 +90,13 @@ test("a grill that ends asking nothing on a card whose prototype answer is kept 
 
 test('item add --split-of sets the Parent and copies its gates; it refuses --parent beside it', async () => {
   const w = world({ gates: { prototype: 'no' } }, [{ id: 'B1', title: 'Bare', lane: 'todo', phase: 'grilling' }]);
-  const { key } = await addItem(w.site, 't/C1', { title: 'Slice one', splitOf: 't/A1', phase: 'grilling', intake: true });
+  const { key } = await addItem(w.site, 't/C1', { title: 'feat: slice one', splitOf: 't/A1', phase: 'grilling', intake: true });
   assert.equal(key, 't/C1');
   assert.deepEqual([w.read('C1').parent, w.read('C1').gates], ['t/A1', { prototype: 'no' }]);
-  await addItem(w.site, 't/C2', { title: 'Slice of a bare card', splitOf: 't/B1', phase: 'grilling', intake: true });
+  await addItem(w.site, 't/C2', { title: 'feat: slice of a bare card', splitOf: 't/B1', phase: 'grilling', intake: true });
   assert.deepEqual([w.read('C2').parent, 'gates' in w.read('C2')], ['t/B1', false]);
-  await assert.rejects(addItem(w.site, 't/C3', { title: 'Both', splitOf: 't/A1', parent: 't/A1', phase: 'grilling', intake: true }), /--split-of sets the Parent; drop --parent/);
-  await assert.rejects(addItem(w.site, 't/C4', { title: 'Gone', splitOf: 't/Z9', phase: 'grilling', intake: true }), /Z9/);
+  await assert.rejects(addItem(w.site, 't/C3', { title: 'feat: both', splitOf: 't/A1', parent: 't/A1', phase: 'grilling', intake: true }), /--split-of sets the Parent; drop --parent/);
+  await assert.rejects(addItem(w.site, 't/C4', { title: 'feat: gone', splitOf: 't/Z9', phase: 'grilling', intake: true }), /Z9/);
 });
 
 // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a card's ticket is made at ready, so no question asks for one.

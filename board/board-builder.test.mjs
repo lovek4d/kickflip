@@ -199,7 +199,7 @@ test('builder pick names the kind that builds now, builder start refuses the oth
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).kind, 'claude');
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).model, 'opus');
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].lane, 'progress');
-  write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'A2', title: 'Two', deps: ['A1'] }] });
+  write(at('waves', 'w', 'wave.json'), { ...read(at('waves', 'w', 'wave.json')), items: [...read(at('waves', 'w', 'wave.json')).items, { id: 'A2', title: 'feat: two', deps: ['A1'] }] });
   const blocked = noCodex('builder', 'start', 'w/A2', '--site', 'orch', '--kind', 'claude');
   assert.equal(blocked.code, 1);
   assert.match(blocked.err, /A1/);
@@ -238,16 +238,16 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   assert.deepEqual(['size' in card(), 'model' in card()], [false, false]);
   assert.match(board('item', 'set', 'w/A1', '--size', 'tiny').err, /^--size takes small or large/);
   assert.match(board('item', 'set', 'w/A1', '--model', 'haiku').err, /^--model takes opus or sonnet/);
-  const added = board('item', 'add', 'w/A9', '--title', 'Nine', '--size', 'small', '--model', 'sonnet');
+  const added = board('item', 'add', 'w/A9', '--title', 'feat: nine', '--size', 'small', '--model', 'sonnet');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items.at(-1).size, read(at('waves', 'w', 'wave.json')).items.at(-1).model], ['small', 'sonnet']);
   assert.equal('phase' in read(at('waves', 'w', 'wave.json')).items.at(-1), false, 'a card added without --phase gets its grill from the board');
   // docs/adr/2026-11-07-0700-staging-then-ready.md: item add never files a card ready; it reaches ready through staging.
   const count = () => read(at('waves', 'w', 'wave.json')).items.length;
   const before = count();
-  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--phase', 'planned').err, /--phase takes ready, discussing, grilling or prototyping/);
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'feat: quick', '--phase', 'planned').err, /--phase takes ready, discussing, grilling or prototyping/);
   write(at('waves', 'w', 'q1.md'), '# Quick\n');
-  assert.match(board('item', 'add', 'w/Q1', '--title', 'Quick', '--phase', 'ready', '--size', 'small').err, /item add files a card discussing, grilling or prototyping/);
+  assert.match(board('item', 'add', 'w/Q1', '--title', 'feat: quick', '--phase', 'ready', '--size', 'small').err, /item add files a card discussing, grilling or prototyping/);
   assert.equal(count(), before, 'a refused add writes no card');
 
   write(at('kickflip', 'settings.json'), { claudeModel: 'sonnet' });
@@ -549,7 +549,7 @@ test("a builder's start keeps the session id its launch recorded since the recor
 });
 
 test("builder start --dispatch opens the record before the agent launches, for build, prototype and grill, and the agent's own start takes it up", () => {
-  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo' }, { id: 'A2', title: 'Two', lane: 'todo' }] });
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'feat: one', lane: 'todo' }, { id: 'A2', title: 'feat: two', lane: 'todo' }] });
   const dispatched = board('--site', 'orch', 'builder', 'start', 'w/A1', '--dispatch', '--kind', 'build', '--model', 'sonnet', '--label', 'Sonnet builder');
   assert.equal(dispatched.code, 0, dispatched.err);
   const open = read(at('waves', 'w', 'agents', 'A1.json'));

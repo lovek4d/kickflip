@@ -578,7 +578,7 @@ test("a card's own ask reads answered once the card has a phase, so a readied Qu
   const ask = { id: 'a1', ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Hi' }, reply: null };
   const msg = { id: 'm1', ts: '2026-10-23T08:30:00Z', kind: 'item-message', data: { key: 'w/T-1', text: 'more' }, reply: null };
   const working = { a1: '2026-10-23T08:01:00Z', m1: '2026-10-23T08:31:00Z' };
-  const built = (events, phase) => buildBoard({ fromWaves: false, events, working, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'Hi', from_ask: 'a1', ...(phase ? { phase } : {}) }] } }] });
+  const built = (events, phase) => buildBoard({ fromWaves: false, events, working, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'feat: hi', from_ask: 'a1', ...(phase ? { phase } : {}) }] } }] });
   const card = (b) => b.items.find((i) => i.key === 'w/T-1');
   const unsorted = built([ask]);
   assert.equal(card(unsorted).working, true, 'a New card keeps working');
@@ -1592,8 +1592,8 @@ test('Todo has no queue: every Todo card keeps its place, bumped first and the r
   const at = (m) => `2026-11-04T10:${String(m).padStart(2, '0')}:00.000Z`;
   const items = [
     { id: 'A1', title: 'Blocker', lane: 'progress' },
-    { id: 'R1', title: 'Ready old', phase: 'ready', created: at(1) },
-    { id: 'R2', title: 'Ready new', phase: 'ready', created: at(2) },
+    { id: 'R1', title: 'feat: ready old', phase: 'ready', created: at(1) },
+    { id: 'R2', title: 'feat: ready new', phase: 'ready', created: at(2) },
     { id: 'B1', title: 'Blocked', deps: ['A1'], created: at(3) },
     { id: 'T1', title: 'Not ready', created: at(5) },
     { id: 'H1', title: 'Held ready', phase: 'ready', held: true, created: at(6) },
@@ -1617,7 +1617,7 @@ test('a staging card stays in Todo waiting on the orchestrator, and is neither p
   const at = (m) => `2026-11-07T10:${String(m).padStart(2, '0')}:00.000Z`;
   const items = [
     { id: 'S1', title: 'Staged', phase: 'staging', staged_at: at(1) },
-    { id: 'R1', title: 'Ready', phase: 'ready', created: at(2) },
+    { id: 'R1', title: 'feat: ready', phase: 'ready', created: at(2) },
   ];
   const b = buildBoard({ fromWaves: false, now: Date.parse(at(30)), files: [{ slug: 'w', itemFile: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
@@ -1700,7 +1700,7 @@ test('a bump stays through In Review and ends when the card closes, merged or Do
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
 test('a bumped ready card starts past the cap, bumping out the newest unbumped build, never a bumped one, a lander, one with a PR or a helper, or a session\'s own', () => {
   const run = (started, more = {}) => ({ name: 'main', kind: 'claude', pid: 1, started, done: null, ...more });
-  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], bumpedAt: null, ...more });
+  const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], bumpedAt: null, ...more });
   const progress = (key, agent, more) => card(key, { lane: 'progress', buildable: false, state: null, agents: [agent], ...more });
   const old = progress('w/P1', run('2026-11-06T10:00:00Z'));
   const newest = progress('w/P2', run('2026-11-06T10:30:00Z'));
@@ -1726,7 +1726,7 @@ test('a bumped ready card starts past the cap, bumping out the newest unbumped b
   // On a built board, a build the board launched carries its session's pid; a session's own build has none.
   const launched = { started: '2026-11-06T10:00:00Z', kind: 'claude', session: { id: 's1', pid: 42, at: '2026-11-06T10:00:00Z' } };
   const built = (record) => buildBoard({ fromWaves: false, events: [{ id: 'cb', ts: '2026-11-06T11:00:00Z', kind: 'card-bump', data: { key: 'w/T1' } }],
-    files: [{ slug: 'w', agents: { P1: { main: record } }, itemFile: { internal: true, items: [{ id: 'P1', title: 'Running', lane: 'progress' }, { id: 'T1', title: 'Bumped', phase: 'ready' }] } }] }).items;
+    files: [{ slug: 'w', agents: { P1: { main: record } }, itemFile: { internal: true, items: [{ id: 'P1', title: 'Running', lane: 'progress' }, { id: 'T1', title: 'feat: bumped', phase: 'ready' }] } }] }).items;
   assert.deepEqual(pullOf(built(launched), { cap: 1 }).bumpOuts, [{ key: 'w/P1', by: 'w/T1' }]);
   assert.deepEqual(pullOf(built({ ...launched, session: undefined }), { cap: 1 }).bumpOuts, []);
 });
@@ -1780,7 +1780,7 @@ test("a card made from an ask reads New until its session sets ready, grilling o
   const q = { id: 'q1', topic: 'item:w/A1', question: 'Which way?', options: [{ id: 'A', label: 'One' }] };
   const card = ({ item = {}, owner = {}, agents = {}, dep, events = [] } = {}) => buildBoard({
     fromWaves: false, events, owner, prs: {},
-    files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'One', from_ask: 'e1', ...item }, ...(dep ? [{ id: 'A2', title: 'Two', status: dep }] : [])] } }],
+    files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items: [{ id: 'A1', title: 'feat: one', from_ask: 'e1', ...item }, ...(dep ? [{ id: 'A2', title: 'Two', status: dep }] : [])] } }],
   }).items.find((i) => i.id === 'A1');
   const fields = (c) => [c.unsorted, c.ready, c.grilling];
   const fresh = card();
@@ -2049,7 +2049,7 @@ test('only a running build keeps the board from being idle: a running planner le
 // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
 test('the pull fills every free implementer slot with the top ready cards; builds take a slot, Orchestrator review, planners and owner waits do not, and a card pulled but not started keeps its slot', () => {
   const run = (kind) => [{ kind, started: '2026-11-04T10:00:00Z', done: null }];
-  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const progress = (key, more) => card(key, { lane: 'progress', buildable: false, state: null, ...more });
   const todo = ['w/T1', 'w/T2', 'w/T3', 'w/T4'].map((k) => card(k));
   const busy = [progress('w/P1', { agents: run('claude') }), progress('w/P2', { waitsOn: 'checking' }), progress('w/P3', { waitsOn: 'owner' }), progress('w/P4', { agents: run('grill') })];
@@ -2072,7 +2072,7 @@ test('the pull fills every free implementer slot with the top ready cards; build
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 test('the limit counts running implementer agents, not cards: a helper that writes takes a slot, a read-only one none, and an agent waiting on its helper none', () => {
   const at = '2026-11-06T10:00:00Z';
-  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const progress = (key, agents) => card(key, { lane: 'progress', buildable: false, state: null, agents });
   const main = (more = {}) => ({ name: 'main', kind: 'claude', started: at, done: null, ...more });
   const helper = (name, more = {}) => ({ name, kind: 'helper', writes: true, started: at, done: null, ...more });
@@ -2103,7 +2103,7 @@ test('the limit counts running implementer agents, not cards: a helper that writ
 
 // docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md
 test('the pull takes only ready cards in board order, never a card with no state', () => {
-  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const items = [card('w/A1'), card('w/A2', { phase: 'ready' }), card('w/A3'), card('w/A4', { phase: 'ready' }), card('w/A5', { phase: 'ready', blockedBy: [{ key: 'w/X' }], blocked: true })];
   assert.deepEqual(pullOf(items).pullable, ['w/A2', 'w/A4']);
 });
@@ -2230,7 +2230,7 @@ test('with Skip the draft on, a draft waits on its CI in In Review with no Actio
 test('a board is strictly idle only with nothing building, grilling, prototyping, landing, pulled or worked on', () => {
   const at = '2026-11-04T10:00:00Z';
   const built = (item = {}, agents = {}, events = []) => buildBoard({ now: Date.parse(at), owner: {}, events,
-    files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', ...item }, { id: 'A2', title: 'Two', lane: 'done', closed_at: at }] } }] });
+    files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'feat: one', ...item }, { id: 'A2', title: 'Two', lane: 'done', closed_at: at }] } }] });
   assert.equal(strictlyIdle(built()), true, 'a ready card with nothing running is idle');
   assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'claude', started: at } } })), false, 'a builder runs');
   assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'claude', started: at, done: at } } })), true, 'a finished builder');
@@ -2694,7 +2694,7 @@ test('a builder whose launch the board holds for a usage pause is no wait on the
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
 test('a card blocked until a condition, with a reason, is blocked as a dep blocks it: not ready and not pulled until the condition clears, but grilled', () => {
   const built = (item) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [
-    { id: 'A1', title: 'One', phase: 'ready', ...item }, { id: 'A2', title: 'Two', lane: 'progress' }] } }] });
+    { id: 'A1', title: 'feat: one', phase: 'ready', ...item }, { id: 'A2', title: 'Two', lane: 'progress' }] } }] });
   const card = (b) => b.items.find((i) => i.key === 'w/A1');
   const blocked = built({ blocked_until: 'the CI run on main is green', block_reason: 'the suite is red on main' });
   assert.deepEqual([card(blocked).blockedUntil, card(blocked).blockReason, card(blocked).blocked, card(blocked).ready], ['the CI run on main is green', 'the suite is red on main', true, false]);
@@ -2738,7 +2738,7 @@ test("a run gone silent reads stale and waits on the orchestrator; one the orche
   const open = { A1: { main: { kind: 'claude', started: '2026-11-06T10:00:00Z' } } };
   const stopped = { A1: { main: { kind: 'claude', started: '2026-11-06T10:00:00Z', stopped: { run: 'build', at: '2026-11-06T11:00:00Z' } } } };
   const built = (agents, a1 = {}) => buildBoard({ now, files: [{ slug: 'w', agents, itemFile: { internal: true, items: [
-    { id: 'A1', title: 'One', lane: 'progress', ...a1 }, { id: 'T1', title: 'Next', phase: 'ready', created: '2026-11-06T09:00:00Z' }] } }] });
+    { id: 'A1', title: 'One', lane: 'progress', ...a1 }, { id: 'T1', title: 'feat: next', phase: 'ready', created: '2026-11-06T09:00:00Z' }] } }] });
   const card = (b) => b.items.find((i) => i.key === 'w/A1');
 
   const stale = built(open);

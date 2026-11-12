@@ -179,7 +179,7 @@ test('a paused build frees its implementer slot, and a build already pausing is 
   const paused = card('w/A', {}, { pause: { cause: 'blocked', at: now(), paused: now() } });
   const pausing = card('w/B', {}, { pause: { cause: 'bumped', at: now() } });
   const running = card('w/C', {}, { started: '2026-11-09T09:00:00.000Z' });
-  const bumped = { key: 'w/T', lane: 'todo', kind: 'work', phase: 'ready', ready: true, buildable: true, bumpedAt: now(), agents: [] };
+  const bumped = { key: 'w/T', title: 'feat: bumped', lane: 'todo', kind: 'work', phase: 'ready', ready: true, buildable: true, bumpedAt: now(), agents: [] };
   const pull = pullOf([paused, pausing, running, bumped], { cap: 2 });
   assert.equal(pull.free, 0, 'the pausing build still holds its slot until it stops');
   assert.deepEqual(pull.bumpOuts.map((b) => b.key), ['w/C']);

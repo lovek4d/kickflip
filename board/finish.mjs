@@ -118,10 +118,12 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   const { github } = boardRepo(boardAt(site).route);
   const open = github ? await store.cardPR(site, key) : null;
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: a new PR's title is a
-  // Conventional subject, the builder's --title, else the branch's first commit subject.
-  const title = given ?? git(dir, 'log', '--reverse', '--format=%s', `refs/remotes/origin/${base}..HEAD`).out.split('\n')[0];
-  const fault = github && !open && subjectFault(title);
-  if (fault) fail(`--title "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 72 characters`);
+  // Conventional subject, the builder's --title, else the card's title
+  // (docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md).
+  const opens = github && !open;
+  const title = given ?? (opens ? await store.cardTitleOf(site, key) : undefined);
+  const fault = opens && subjectFault(title);
+  if (fault) fail(`${given === undefined ? "the card's title" : '--title'} "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 72 characters`);
   await passTests(dir, { outcome: 'nothing was pushed' });
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
   // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is.

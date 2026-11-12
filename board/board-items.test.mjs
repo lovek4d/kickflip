@@ -16,22 +16,22 @@ test('item add records creation on a card placed in Todo, and refuses a taken id
     assert.equal(lane_at, created);
     return rest;
   };
-  const summed = board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'Two', '--notes', 'Why', '--summary', 'Asked why.');
+  const summed = board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: two', '--notes', 'Why', '--summary', 'Asked why.');
   assert.equal(summed.code, 2);
   assert.match(summed.err, /item add does not take --summary/);
-  assert.equal(board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'Two', '--notes', 'Why').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'Two', lane: 'todo', phase: 'grilling', plan: 'b2-notes.md' });
-  assert.equal(board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'Three', '--deps', 'A1,B2').code, 0);
-  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'Three', lane: 'todo', deps: ['A1', 'B2'], phase: 'grilling', plan: 'c3-notes.md' });
-  const taken = board('item', 'add', 'w/A1', '--phase', 'grilling', '--site', 'orch', '--title', 'Again');
+  assert.equal(board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: two', '--notes', 'Why').code, 0);
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'feat: two', lane: 'todo', phase: 'grilling', plan: 'b2-notes.md' });
+  assert.equal(board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: three', '--deps', 'A1,B2').code, 0);
+  assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'feat: three', lane: 'todo', deps: ['A1', 'B2'], phase: 'grilling', plan: 'c3-notes.md' });
+  const taken = board('item', 'add', 'w/A1', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: again');
   assert.equal(taken.code, 1);
   assert.match(taken.err, /already has an item "A1"/);
-  const dep = board('item', 'add', 'w/D4', '--phase', 'grilling', '--site', 'orch', '--title', 'Four', '--deps', 'Z9');
+  const dep = board('item', 'add', 'w/D4', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: four', '--deps', 'Z9');
   assert.equal(dep.code, 1);
   assert.match(dep.err, /no item "Z9"/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 4);
-  assert.equal(board('item', 'add', 'audit/E5', '--phase', 'grilling', '--site', 'audit', '--title', 'Five').code, 0);
-  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'items.json')).items.at(-1)), { id: 'E5', title: 'Five', lane: 'todo', phase: 'grilling', plan: 'e5-notes.md' });
+  assert.equal(board('item', 'add', 'audit/E5', '--phase', 'grilling', '--site', 'audit', '--title', 'feat: five').code, 0);
+  assert.deepEqual(withoutCreated(read(site('audit', 'data', 'items.json')).items.at(-1)), { id: 'E5', title: 'feat: five', lane: 'todo', phase: 'grilling', plan: 'e5-notes.md' });
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].created, undefined);
 });
 
@@ -77,7 +77,7 @@ test('item set edits the item in a waves board and in a file board', () => {
   const { lane_at: _w, review_since: arrived, next_at: nextAt, ...edited } = read(at('waves', 'w', 'wave.json')).items[0];
   assert.equal(typeof arrived, 'string');
   assert.equal(typeof nextAt, 'string');
-  assert.deepEqual(edited, { id: 'A1', title: 'One', lane: 'review', next: 'Run tests', prs: [{ number: 42 }] });
+  assert.deepEqual(edited, { id: 'A1', title: 'feat: one', lane: 'review', next: 'Run tests', prs: [{ number: 42 }] });
   for (const [key, route, file] of [['w/A1', 'orch', at('waves', 'w', 'wave.json')], ['audit/A1', 'audit', site('audit', 'data', 'items.json')]]) {
     assert.equal(board('item', 'set', key, '--site', route, '--held').code, 0);
     assert.equal(read(file).items[0].held, true);
@@ -96,7 +96,7 @@ test('item set edits the item in a waves board and in a file board', () => {
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--clear-next').code, 0);
   const { lane_at, closed_at, review_since: _r, held_at: _h, ...audit } = read(site('audit', 'data', 'items.json')).items[0];
   assert.equal(closed_at, lane_at);
-  assert.deepEqual(audit, { id: 'A1', title: 'One', lane: 'done', phase: 'closed', prs: [{ number: 7 }] });
+  assert.deepEqual(audit, { id: 'A1', title: 'feat: one', lane: 'done', phase: 'closed', prs: [{ number: 7 }] });
   assert.equal(board('item', 'set', 'w/A1', '--site', 'audit', '--held').code, 1);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--phase', 'shipped').code, 1);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--pr', 'abc').code, 1);
@@ -181,7 +181,7 @@ test('item set --next requires unfinished card ids and refs to be deps, and allo
   ] });
   const items = () => read(site('audit', 'data', 'items.json')).items;
   for (const name of ['S133', 'INT-133', 'audit/S133', 'audit/INT-133', 'INT-134', 'audit/INT-134']) {
-    const r = board('item', 'set', 'audit/A1', '--site', 'audit', '--next', `Wait for (${name}).`, '--title', 'Changed');
+    const r = board('item', 'set', 'audit/A1', '--site', 'audit', '--next', `Wait for (${name}).`, '--title', 'feat: changed');
     assert.equal(r.code, 1, name);
     assert.match(r.err, /audit\/(S133|INT-134).*--deps/);
     assert.equal(r.err.trim().split('\n').length, 1);
@@ -207,20 +207,20 @@ const readOnly = (file) => (fs.statSync(file).mode & 0o222) === 0;
 
 test("item add makes the card's own read-only <id>-notes.md, from --notes-from or --notes, and --notes-file and --plan are gone", () => {
   write(path.join(home, 'draft.md'), '# Two\n\nWhy it matters.\n');
-  assert.equal(board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'Two', '--notes-from', path.join(home, 'draft.md')).code, 0);
+  assert.equal(board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: two', '--notes-from', path.join(home, 'draft.md')).code, 0);
   const two = read(at('waves', 'w', 'wave.json')).items.at(-1);
   assert.deepEqual([two.plan, two.notes], ['b2-notes.md', undefined]);
   assert.equal(fs.readFileSync(notesOf('B2'), 'utf8'), '# Two\n\nWhy it matters.\n');
   assert.ok(readOnly(notesOf('B2')));
   assert.throws(() => fs.appendFileSync(notesOf('B2'), 'more'), { code: 'EACCES' });
   assert.throws(() => fs.writeFileSync(notesOf('B2'), 'over'), { code: 'EACCES' });
-  assert.equal(board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'Three', '--notes', 'Short note').code, 0);
-  assert.equal(fs.readFileSync(notesOf('C3'), 'utf8'), '# Three\n\nShort note\n');
-  assert.equal(board('item', 'add', 'w/D4', '--phase', 'grilling', '--site', 'orch', '--title', 'Four').code, 0);
-  assert.equal(fs.readFileSync(notesOf('D4'), 'utf8'), '# Four\n');
-  assert.equal(board('item', 'add', 'w/E5', '--phase', 'grilling', '--site', 'orch', '--title', 'Five', '--notes', 'x', '--notes-from', path.join(home, 'draft.md')).code, 2);
+  assert.equal(board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: three', '--notes', 'Short note').code, 0);
+  assert.equal(fs.readFileSync(notesOf('C3'), 'utf8'), '# feat: three\n\nShort note\n');
+  assert.equal(board('item', 'add', 'w/D4', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: four').code, 0);
+  assert.equal(fs.readFileSync(notesOf('D4'), 'utf8'), '# feat: four\n');
+  assert.equal(board('item', 'add', 'w/E5', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: five', '--notes', 'x', '--notes-from', path.join(home, 'draft.md')).code, 2);
   for (const flag of ['--notes-file', '--plan']) {
-    const added = board('item', 'add', 'w/E5', '--phase', 'grilling', '--site', 'orch', '--title', 'Five', flag, 'draft.md');
+    const added = board('item', 'add', 'w/E5', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: five', flag, 'draft.md');
     assert.equal(added.code, 2);
     assert.match(added.err, new RegExp(`${flag} is gone: the board names a card's notes file.*item add --notes-from <draft.md>`));
     const set = board('item', 'set', 'w/A1', '--site', 'orch', flag, 'draft.md');
@@ -236,10 +236,10 @@ test('item notes appends a section, starting the notes of a card that has none, 
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^A1: notes section "Grill \(11\/06\)" added to a1-notes\.md\n$/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].plan, 'a1-notes.md');
-  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# One\n\n## Grill (11/06)\nSettled: keep it.\n');
+  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# feat: one\n\n## Grill (11/06)\nSettled: keep it.\n');
   write(path.join(home, 'more.md'), 'Later: drop the strip.');
   assert.equal(board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Answers (owner, 11/07 09:00)', '--file', path.join(home, 'more.md')).code, 0);
-  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# One\n\n## Grill (11/06)\nSettled: keep it.\n\n## Answers (owner, 11/07 09:00)\nLater: drop the strip.\n');
+  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# feat: one\n\n## Grill (11/06)\nSettled: keep it.\n\n## Answers (owner, 11/07 09:00)\nLater: drop the strip.\n');
   assert.ok(readOnly(notesOf('A1')));
   for (const args of [['--file', path.join(home, 'more.md')], ['--heading', 'H'], ['--heading', 'H', '--file', path.join(home, 'more.md'), '--from', 'w/ENG-1']]) {
     assert.equal(board('item', 'notes', 'w/A1', '--site', 'orch', ...args).code, 2, args.join(' '));
@@ -253,27 +253,27 @@ test('item notes appends a section, starting the notes of a card that has none, 
 test('item notes --file - and item add --notes-from - read the draft from stdin', () => {
   const notes = run('board.mjs', ['item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Piped', '--file', '-'], 'From stdin.\n');
   assert.equal(notes.code, 0, notes.err);
-  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# One\n\n## Piped\nFrom stdin.\n');
-  const added = run('board.mjs', ['item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'Two', '--notes-from', '-'], '# Two\n\nPiped seed.\n');
+  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# feat: one\n\n## Piped\nFrom stdin.\n');
+  const added = run('board.mjs', ['item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: two', '--notes-from', '-'], '# Two\n\nPiped seed.\n');
   assert.equal(added.code, 0, added.err);
   assert.equal(fs.readFileSync(notesOf('B2'), 'utf8'), '# Two\n\nPiped seed.\n');
   assert.match(run('board.mjs', ['item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'H', '--file', '-'], '\n \n').err, /- is empty/);
 });
 
 test("a draft that is any card's notes file, live, done or archived, is refused naming the card, and --from folds another card's notes but never its own", () => {
-  assert.equal(board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'Two', '--notes', 'Why two.').code, 0);
+  assert.equal(board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: two', '--notes', 'Why two.').code, 0);
   const taken = board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'H', '--file', notesOf('B2'));
   assert.equal(taken.code, 1);
-  assert.match(taken.err, /is the notes file of B2 "Two".*item notes w\/A1 --from w\/B2/);
+  assert.match(taken.err, /is the notes file of B2 "feat: two".*item notes w\/A1 --from w\/B2/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].plan, undefined);
-  assert.match(board('item', 'notes', 'w/B2', '--site', 'orch', '--heading', 'H', '--file', notesOf('B2')).err, /is the notes file of B2 "Two".*holding only the new section$/m);
+  assert.match(board('item', 'notes', 'w/B2', '--site', 'orch', '--heading', 'H', '--file', notesOf('B2')).err, /is the notes file of B2 "feat: two".*holding only the new section$/m);
   write(at('waves', 'w', 'z9-old.md'), '# Gone\n');
   write(site('orch', 'data', 'done-archive.json'), { cards: [{ key: 'w/Z9', file: 'w', closed_at: '2026-10-01T00:00:00Z', item: { id: 'Z9', title: 'Gone', lane: 'done', plan: 'z9-old.md' } }] });
   fs.symlinkSync(at('waves', 'w', 'z9-old.md'), path.join(home, 'link.md'));
   for (const draft of [at('waves', 'w', 'z9-old.md'), path.join(home, 'link.md')]) {
     const archived = board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'H', '--file', draft);
     assert.match(archived.err, /is the notes file of Z9 "Gone"/);
-    assert.match(board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'Three', '--notes-from', draft).err, /is the notes file of Z9 "Gone"/);
+    assert.match(board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: three', '--notes-from', draft).err, /is the notes file of Z9 "Gone"/);
   }
   assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 3);
 
@@ -282,9 +282,9 @@ test("a draft that is any card's notes file, live, done or archived, is refused 
   assert.match(own.err, /w\/B2 can't fold its own notes into itself/);
   const folded = board('item', 'notes', 'w/A1', '--site', 'orch', '--from', 'w/B2');
   assert.equal(folded.code, 0, folded.err);
-  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# One\n\n## Folded from B2 "Two"\n# Two\n\nWhy two.\n');
+  assert.equal(fs.readFileSync(notesOf('A1'), 'utf8'), '# feat: one\n\n## Folded from B2 "feat: two"\n# feat: two\n\nWhy two.\n');
   assert.equal(board('item', 'notes', 'w/A1', '--site', 'orch', '--from', 'w/B2', '--heading', 'Merged in').code, 0);
-  assert.match(fs.readFileSync(notesOf('A1'), 'utf8'), /\n## Merged in\n# Two\n\nWhy two\.\n$/);
+  assert.match(fs.readFileSync(notesOf('A1'), 'utf8'), /\n## Merged in\n# feat: two\n\nWhy two\.\n$/);
   // Two cards that still name one file (from before the board named them) can't fold into each other.
   const items = read(at('waves', 'w', 'wave.json'));
   items.items[1].plan = 'b2-notes.md';
@@ -381,11 +381,11 @@ test('item set --install records a device build with when it was built, takes on
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test('a follow-up is item add --parent; item set sets or clears a Parent and replaces Related to on both sides', () => {
   const item = (id) => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
-  const added = board('item', 'add', 'audit/ENG-7', '--phase', 'grilling', '--site', 'audit', '--title', 'Tidy', '--parent', 'A1');
+  const added = board('item', 'add', 'audit/ENG-7', '--phase', 'grilling', '--site', 'audit', '--title', 'feat: tidy', '--parent', 'A1');
   assert.deepEqual([added.code, added.err], [0, '']);
   assert.deepEqual([item('ENG-7').parent, item('ENG-7').lane], ['audit/A1', 'todo']);
   for (const [args, err] of [
-    [['item', 'add', 'audit/X1', '--phase', 'grilling', '--title', 'X', '--parent', 'NOPE'], /^item file "audit" has no item "NOPE"/],
+    [['item', 'add', 'audit/X1', '--phase', 'grilling', '--title', 'feat: x', '--parent', 'NOPE'], /^item file "audit" has no item "NOPE"/],
     [['item', 'set', 'audit/ENG-7', '--parent', 'ENG-7'], /^--parent: a card can't be its own Parent/],
     [['item', 'set', 'audit/A1', '--parent', 'ENG-7'], /^--parent: audit\/ENG-7 is a child of audit\/A1, so it can't be its Parent/],
     [['item', 'set', 'audit/A1', '--related', 'A1'], /^--related: a card can't be related to itself/],
@@ -411,7 +411,7 @@ test('a follow-up is item add --parent; item set sets or clears a Parent and rep
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md
 test('item set --relate adds links and --unrelate removes them on both sides, keeping the rest; neither goes with --related', () => {
   const item = (id) => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
-  for (const id of ['R1', 'R2', 'R3']) assert.equal(board('item', 'add', `audit/${id}`, '--site', 'audit', '--title', id, '--phase', 'grilling').code, 0);
+  for (const id of ['R1', 'R2', 'R3']) assert.equal(board('item', 'add', `audit/${id}`, '--site', 'audit', '--title', `feat: ${id.toLowerCase()}`, '--phase', 'grilling').code, 0);
   assert.equal(board('item', 'set', 'audit/A1', '--site', 'audit', '--related', 'R1').code, 0);
   const added = board('item', 'set', 'audit/A1', '--site', 'audit', '--relate', 'R2,audit/R1');
   assert.deepEqual([added.code, added.out], [0, 'A1: related to R2, audit/R1 added\n']);
@@ -438,22 +438,22 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
   const item = (id) => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
   const events = () => (fs.existsSync(site('audit', 'data', 'events.jsonl')) ? fs.readFileSync(site('audit', 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((e) => e.kind === 'card-added');
   const before = events().length;
-  const stateless = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'Follow it up', '--parent', 'A1');
+  const stateless = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up', '--parent', 'A1');
   assert.deepEqual([stateless.code, stateless.err, item('F1')], [1, 'item add files a card on a board: pass --phase discussing, grilling or prototyping, or --held to file it for later\n', undefined]);
-  const filed = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'Follow it up', '--parent', 'A1', '--phase', 'grilling', '--relate', 'A1');
+  const filed = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up', '--parent', 'A1', '--phase', 'grilling', '--relate', 'A1');
   assert.deepEqual([filed.code, filed.err], [0, '']);
   assert.deepEqual([item('F1').phase, 'unfiled' in item('F1'), item('F1').related], ['grilling', false, ['audit/A1']]);
-  const held = board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'Filed', '--phase', 'prototyping', '--relate', 'A1,F1', '--held');
+  const held = board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'feat: filed', '--phase', 'prototyping', '--relate', 'A1,F1', '--held');
   assert.deepEqual([held.code, held.err, item('F2')], [1, 'a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase\n', undefined]);
-  assert.equal(board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'Filed', '--relate', 'A1,F1', '--held').code, 0);
+  assert.equal(board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'feat: filed', '--relate', 'A1,F1', '--held').code, 0);
   assert.deepEqual([item('F2').phase, item('F2').held, item('F2').related], [undefined, true, ['audit/A1', 'audit/F1']]);
   assert.equal(events().length, before, 'a card filed with its state wakes nobody');
   // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md
-  const later = board('item', 'add', 'audit/F4', '--site', 'audit', '--title', 'Later', '--held');
+  const later = board('item', 'add', 'audit/F4', '--site', 'audit', '--title', 'feat: later', '--held');
   assert.deepEqual([later.code, later.err, item('F4').phase, item('F4').held, item('F4').filed_held], [0, '', undefined, true, true]);
   assert.equal(board('item', 'set', 'audit/F4', '--site', 'audit', '--phase', 'grilling').code, 0);
   assert.deepEqual([item('F4').phase, item('F4').filed_held], ['grilling', undefined]);
-  const bad = board('item', 'add', 'audit/F3', '--site', 'audit', '--title', 'X', '--phase', 'done');
+  const bad = board('item', 'add', 'audit/F3', '--site', 'audit', '--title', 'feat: x', '--phase', 'done');
   assert.deepEqual([bad.code, /^--phase takes ready, discussing, grilling or prototyping/.test(bad.err), item('F3')], [1, true, undefined]);
 });
 
@@ -501,7 +501,7 @@ test("a wave file's follow-ups move into its items once: ids, titles, tickets an
 });
 
 test("closing a card resolves its answered questions, refuses while one has no answer, changing nothing, and --force closes it anyway", () => {
-  board('item', 'add', 'w/A2', '--phase', 'grilling', '--title', 'Two', '--site', 'orch');
+  board('item', 'add', 'w/A2', '--phase', 'grilling', '--title', 'feat: two', '--site', 'orch');
   const on = (key) => ({ topic: `item:${key}` });
   write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [
     question('q1', on('w/A1')),
@@ -586,11 +586,11 @@ test('a write that would leave a built card In Progress with nothing building an
 
 test('item set refuses to start a blocked item, and finishing a dep prints, threads and emits each unblocking once', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
-    { id: 'A1', title: 'One', lane: 'progress' },
-    { id: 'A2', title: 'Two', deps: ['A1'] },
-    { id: 'A3', title: 'Three', deps: ['A1', 'A2'] },
-    { id: 'A4', title: 'Four', lane: 'done', deps: ['A1'] },
-    { id: 'A5', title: 'Five', deps: ['d/A3'] },
+    { id: 'A1', title: 'feat: one', lane: 'progress' },
+    { id: 'A2', title: 'feat: two', deps: ['A1'] },
+    { id: 'A3', title: 'feat: three', deps: ['A1', 'A2'] },
+    { id: 'A4', title: 'feat: four', lane: 'done', deps: ['A1'] },
+    { id: 'A5', title: 'feat: five', deps: ['d/A3'] },
   ] });
   const lanes = () => read(at('waves', 'd', 'wave.json')).items.map((it) => it.lane);
   const events = () => lines(site('orch', 'data', 'events.jsonl')).filter((e) => e.kind === 'card-unblocked');
@@ -642,8 +642,8 @@ test('item set refuses to start a blocked item, and finishing a dep prints, thre
 
 test('a hand-back unblocks nothing, and closing a handed-back card unblocks as usual', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
-    { id: 'A1', title: 'One', lane: 'progress' },
-    { id: 'A2', title: 'Two', deps: ['A1'] },
+    { id: 'A1', title: 'feat: one', lane: 'progress' },
+    { id: 'A2', title: 'feat: two', deps: ['A1'] },
   ] });
   const unblocked = (r) => r.out.split('\n').filter((l) => l.startsWith('unblocked'));
   assert.equal(board('builder', 'start', 'd/A1', '--site', 'orch', '--kind', 'claude').code, 0);
@@ -661,9 +661,9 @@ test('a hand-back unblocks nothing, and closing a handed-back card unblocks as u
 
 test('a held item emits its unblocking but never starts until --unheld resumes it', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
-    { id: 'A1', title: 'One', lane: 'progress' },
-    { id: 'A2', title: 'Two', deps: ['A1'] },
-    { id: 'A3', title: 'Three', held: true, deps: ['A1'] },
+    { id: 'A1', title: 'feat: one', lane: 'progress' },
+    { id: 'A2', title: 'feat: two', deps: ['A1'] },
+    { id: 'A3', title: 'feat: three', held: true, deps: ['A1'] },
   ] });
   const start = (key) => board('builder', 'start', key, '--site', 'orch', '--kind', 'claude');
   const items = () => read(at('waves', 'd', 'wave.json')).items;
@@ -686,7 +686,7 @@ test('a held item emits its unblocking but never starts until --unheld resumes i
 });
 
 test('--pick-up-at holds a card until a time, read as local time without an offset and stored as UTC; a past time is refused, "" and --unheld resume it, and --held drops the time', () => {
-  write(at('waves', 'd', 'wave.json'), { items: [{ id: 'A1', title: 'One', lane: 'todo' }] });
+  write(at('waves', 'd', 'wave.json'), { items: [{ id: 'A1', title: 'feat: one', lane: 'todo' }] });
   const item = (id = 'A1') => read(at('waves', 'd', 'wave.json')).items.find((it) => it.id === id);
   const later = new Date(Date.now() + 2 * 86_400_000);
   const pad = (n) => String(n).padStart(2, '0');
@@ -713,7 +713,7 @@ test('--pick-up-at holds a card until a time, read as local time without an offs
   assert.equal(board('item', 'set', 'd/A1', '--pick-up-at', local, '--site', 'orch').code, 0);
   assert.equal(board('item', 'set', 'd/A1', '--unheld', '--site', 'orch').code, 0);
   assert.deepEqual([item().held, item().pick_up_at], [undefined, undefined]);
-  assert.equal(board('item', 'add', 'd/A2', '--title', 'Two', '--pick-up-at', local, '--site', 'orch').code, 0);
+  assert.equal(board('item', 'add', 'd/A2', '--title', 'feat: two', '--pick-up-at', local, '--site', 'orch').code, 0);
   assert.deepEqual([item('A2').lane, item('A2').phase, item('A2').held, item('A2').pick_up_at], ['todo', undefined, true, nine]);
 });
 
@@ -784,9 +784,9 @@ test('reply --title titles only the New or answered card an ask became, and item
   addEvents({ id: 'e2', ts: '2026-10-23T10:05:00Z', kind: 'ask', data: { text: 'and the footer' } },
     { id: 'm2', ts: '2026-10-23T10:07:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'on a card' } });
   assert.match(board('reply', 'e1', '--site', 'orch', '--text', 'x', '--title', ' ').err, /--title/);
-  assert.equal(board('reply', 'e1', '--site', 'orch', '--text', 'Done.', '--title', 'Header keeps its spacing').code, 0);
-  assert.equal(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'T-1').title, 'Header keeps its spacing');
-  assert.deepEqual(board('reply', 'm2', '--site', 'orch', '--text', 'x', '--title', 'X'),
+  assert.equal(board('reply', 'e1', '--site', 'orch', '--text', 'Done.', '--title', 'fix: header keeps its spacing').code, 0);
+  assert.equal(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'T-1').title, 'fix: header keeps its spacing');
+  assert.deepEqual(board('reply', 'm2', '--site', 'orch', '--text', 'x', '--title', 'feat: x'),
     { code: 1, out: '', err: 'reply --title titles the New or answered card an ask became; "m2" is not one\n' });
   const merged = board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--title', 'Footer spacing', '--site', 'orch');
   assert.equal(merged.code, 0, merged.err);
@@ -862,7 +862,7 @@ test('ask move drops the card an ask became when it has not started, and refuses
   write(at('kickflip', 'manifest.json'), manifest);
   addEvents({ id: 'e2', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Filed first' } }, { id: 'e3', ts: '2026-10-23T11:00:00Z', kind: 'ask', data: { text: 'Started' } });
   board('item', 'set', 'w/A1', '--from-ask', 'e2', '--phase', 'grilling', '--site', 'orch', '--text', 'Filed.');
-  board('item', 'add', 'w/A2', '--phase', 'grilling', '--title', 'Two', '--site', 'orch');
+  board('item', 'add', 'w/A2', '--phase', 'grilling', '--title', 'feat: two', '--site', 'orch');
   board('item', 'set', 'w/A2', '--from-ask', 'e3', '--phase', 'grilling', '--site', 'orch', '--text', 'Building it.');
   const started = board('builder', 'start', 'w/A2', '--site', 'orch', '--kind', 'claude');
   assert.equal(started.code, 0, started.err);
@@ -1059,9 +1059,9 @@ test('item set --done refuses a done card the owner reopened with a message; it 
 // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
 test('item set blocks a card until a condition with a reason, refuses its start while it holds, and clearing it threads and emits card-unblocked once', () => {
   write(at('waves', 'd', 'wave.json'), { items: [
-    { id: 'A1', title: 'One', lane: 'progress' },
-    { id: 'A2', title: 'Two', phase: 'ready' },
-    { id: 'A3', title: 'Three', deps: ['A1'] },
+    { id: 'A1', title: 'feat: one', lane: 'progress' },
+    { id: 'A2', title: 'feat: two', phase: 'ready' },
+    { id: 'A3', title: 'feat: three', deps: ['A1'] },
   ] });
   const item = (id) => read(at('waves', 'd', 'wave.json')).items.find((i) => i.id === id);
   const events = () => (fs.existsSync(site('orch', 'data', 'events.jsonl')) ? lines(site('orch', 'data', 'events.jsonl')) : []).filter((e) => e.kind === 'card-unblocked');
@@ -1100,7 +1100,7 @@ test('item set blocks a card until a condition with a reason, refuses its start 
 
 test("--deps wave:<slug> blocks a card on every card in the wave as it grows, unblocks when the last is Done, and refuses an unknown wave or the card's own; wave finish refuses while a card in it is open", () => {
   const file = site('audit', 'data', 'items.json');
-  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }, { id: 'A3', title: 'Three' }, { id: 'B1', title: 'Waiter' }, { id: 'B2', title: 'Other' }] });
+  write(file, { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }, { id: 'A3', title: 'Three' }, { id: 'B1', title: 'feat: waiter' }, { id: 'B2', title: 'Other' }] });
   const b = (...args) => board('--site', 'audit', ...args);
   assert.equal(b('wave', 'create', 'mon', '--title', 'Monitor', '--goal', 'G', '--card', 'audit/A1', '--card', 'audit/A2', '--note', 'N').code, 0);
   assert.match(b('item', 'set', 'audit/B1', '--deps', 'wave:nope').err, /no wave "nope"/);

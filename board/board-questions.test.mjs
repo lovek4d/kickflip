@@ -334,8 +334,8 @@ test('resolving a question leaves a missing or empty push queue alone', () => {
 test('question move puts a merged question on one card, resolves the duplicates there, and blocks and relates the other cards in order', () => {
   const ok = (...args) => assert.equal(board(...args, '--site', 'orch').code, 0);
   const move = (...args) => board('question', 'move', ...args, '--site', 'orch');
-  ok('item', 'add', 'w/B2', '--phase', 'grilling', '--title', 'Two');
-  ok('item', 'add', 'w/C3', '--phase', 'grilling', '--title', 'Three');
+  ok('item', 'add', 'w/B2', '--phase', 'grilling', '--title', 'feat: two');
+  ok('item', 'add', 'w/C3', '--phase', 'grilling', '--title', 'feat: three');
   const file = site('orch', 'data', 'owner.json');
   write(file, { topics: [], items: ['A1', 'B2', 'C3'].map((c, i) => question(`q${i + 1}`, { topic: `item:w/${c}` })) });
   assert.equal(move('q9', '--to', 'w/A1').err, 'no question "q9" in owner.json\n');

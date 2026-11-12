@@ -38,7 +38,7 @@ const threadLine = (thread) => `The card's thread, which holds the owner's messa
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md: builder done finishes the card.
 const finishSteps = ({ route, key, worktree, base }) => [
-  `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the full test suite, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead, titled by \`--title "<type>(<scope>): <what the PR does>"\`, a Conventional subject of at most 72 characters written from the whole diff, else the branch's first commit subject; with Auto-merge off it stops before the fast-forward, and the card waits for the owner's Merge).`,
+  `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the full test suite, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead, titled by \`--title "<type>(<scope>): <what the PR does>"\`, a Conventional subject of at most 72 characters written from the whole diff, else the card's title; with Auto-merge off it stops before the fast-forward, and the card waits for the owner's Merge).`,
   `- On a conflict it undoes its rebase and names the files: run \`${rebase(base)}\` in ${worktree}, resolve each conflict keeping both sides' intent, continue with \`git -c core.commentChar=';' rebase --continue\`, rerun the tests, and run done again.`,
   '- On failing tests, fix them, commit, and run done again.',
   '- While another card is landing, done waits its turn and then lands; leave it running.',

@@ -582,7 +582,7 @@ test("builder done --next on a build stops it without finishing, an --agent help
 
 test("a finish on a local board pushes its branch to origin once it lands when the board's push switch is on; off, nothing is pushed, and a push that fails is said without undoing the land", () => {
   const repo = scratchRepo();
-  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }, { id: 'A3', title: 'Three' }] });
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'feat: one' }, { id: 'A2', title: 'feat: two' }, { id: 'A3', title: 'feat: three' }] });
   const origin = path.join(home, 'origin.git');
   git(home, 'init', '--quiet', '--bare', origin);
   git(repo, 'remote', 'add', 'origin', origin);
@@ -698,8 +698,8 @@ test("while GitHub's limit holds, builder done pushes the branch but opens no PR
   const again = b('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(again.code, 0, again.err);
   assert.ok(again.out.includes('\nA1: draft PR #101 opened\n'), again.out);
-  // With no --title, the PR takes the branch's first commit subject.
-  assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').at(-1).slice(9, 11), ['--title', 'fix: the first commit']);
+  // With no --title, the PR takes the card's title, not a commit subject.
+  assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').at(-1).slice(9, 11), ['--title', 'feat: one']);
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
@@ -972,7 +972,8 @@ test('on Merge, a hub card branches from its folder\'s main and lands there, ope
 test("on Draft PR or Ready PR, a hub card branches from origin's main, and its finish pushes the branch and opens a draft PR holding only the card's commits, leaving main as it was", () => {
   const ghDir = path.join(home, 'gh');
   const { origin, folder } = hubBoard();
-  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: 'One' }, { id: 'A2', title: 'Two' }] });
+  const titles = { A1: 'feat: one', A2: 'feat: two' };
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: [{ id: 'A1', title: titles.A1 }, { id: 'A2', title: titles.A2 }] });
   const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
   const folderMain = git(folder, 'rev-parse', 'main');
@@ -987,7 +988,7 @@ test("on Draft PR or Ready PR, a hub card branches from origin's main, and its f
     assert.match(r.out, new RegExp(`\\n${id}: draft PR #\\d+ opened\\n`));
     assert.equal(git(origin, 'rev-parse', id), git(tree, 'rev-parse', 'HEAD'));
     assert.equal(git(origin, 'rev-list', '--count', `main..${id}`), '1');
-    assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr').at(-1), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', id, '--title', 'feat: work', '--body', `Checked ${id}.`]);
+    assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr').at(-1), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', id, '--title', titles[id], '--body', `Checked ${id}.`]);
     assert.deepEqual([itemOf(id).lane, itemOf(id).prs?.length], ['review', 1]);
   };
   assert.deepEqual(b('settings', 'set', 'prs', 'on'), { code: 0, out: 'prs on\n', err: '' });

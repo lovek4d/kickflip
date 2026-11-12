@@ -128,7 +128,7 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
   await assert.rejects(slackAnswer(site, question.id, 'x'.repeat(251), client), /runs to 251 characters, past the orchestrator's 250/);
   await assert.rejects(slackAnswer(site, 'enope', 'ok', client), /no slack-question "enope"/);
 
-  const filed = await slackTask(site, question.id, 'w', { title: 'Digest skips drafts', notes: 'Ann asks the digest to skip drafts.' }, client);
+  const filed = await slackTask(site, question.id, 'w', { title: 'feat(digest): skip drafts', notes: 'Ann asks the digest to skip drafts.' }, client);
   assert.equal(filed.key, 'w/T-1');
   const card = read(waveFile).items.find((i) => i.id === 'T-1');
   assert.equal(card.phase, 'discussing');
@@ -182,11 +182,11 @@ test('board.mjs slack thread, slack answer, slack say and slack task run through
     const said = await cli('slack', 'say', 'Ann', '--text', 'Batching is filed.');
     assert.equal(said.code, 0, said.err);
     assert.equal(world.messages.at(-1).text, 'Batching is filed.\n- :claude_kickflip:');
-    const filed = await cli('slack', 'task', question.id, 'w', '--title', 'Batch sends', '--notes', 'Ann asks for batching.');
+    const filed = await cli('slack', 'task', question.id, 'w', '--title', 'feat(slack): batch sends', '--notes', 'Ann asks for batching.');
     assert.equal(filed.code, 0, filed.err);
     assert.match(filed.out, /w\/T-1/);
     // A reviewer's request is filed discussing, for the owner's review: the command takes no phase or size.
-    const refused = await cli('slack', 'task', question.id, 'w', '--title', 'Batch sends', '--notes', 'x', '--phase', 'ready');
+    const refused = await cli('slack', 'task', question.id, 'w', '--title', 'feat(slack): batch sends', '--notes', 'x', '--phase', 'ready');
     assert.notEqual(refused.code, 0);
     assert.equal(read(waveFile).items.find((i) => i.id === 'T-1').phase, 'discussing');
   } finally { await server.close(); }

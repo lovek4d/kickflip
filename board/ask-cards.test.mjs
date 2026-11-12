@@ -93,10 +93,10 @@ test('reply on a New card starts its discussion: a message in its thread, the ca
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const r = board('reply', 'audit/T-1', '--text', 'It jumps because of the sticky bar.', '--title', 'Header jumps on scroll', '--site', 'audit');
+  const r = board('reply', 'audit/T-1', '--text', 'It jumps because of the sticky bar.', '--title', 'fix: header jumps on scroll', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   const t1 = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
-  assert.deepEqual([t1.answered_at, t1.phase, t1.title], [undefined, 'discussing', 'Header jumps on scroll']);
+  assert.deepEqual([t1.answered_at, t1.phase, t1.title], [undefined, 'discussing', 'fix: header jumps on scroll']);
   assert.deepEqual(lines(audit('data', 'threads', 'audit__T-1.jsonl')).map((m) => m.text), ['It jumps because of the sticky bar.']);
   assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit').code, 0);
   assert.match(board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit').err, /sorted/);

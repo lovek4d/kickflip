@@ -492,9 +492,9 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { site: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
   await putWave(JSON.stringify({ items: [
-    { id: 'B1', title: 'Tapped', lane: 'todo', next: 'Implement' }, { id: 'B2', title: 'Held', lane: 'todo', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'Blocked', lane: 'todo', deps: ['B4'] }, { id: 'B4', title: 'Dep', lane: 'todo' },
-    { id: 'B5', title: 'Held and blocked', lane: 'todo', deps: ['B4'], held: true }, { id: 'B6', title: 'Leftover worktree', lane: 'todo' }, { id: 'B7', title: 'Leftover work', lane: 'todo' },
-    { id: 'B8', title: 'Held and unstarted', lane: 'todo', held: true }, { id: 'B9', title: 'Held and waiting', lane: 'todo', held: true }, { id: 'B10', title: 'Held and grilled', lane: 'todo', held: true },
+    { id: 'B1', title: 'feat: tapped', lane: 'todo', next: 'Implement' }, { id: 'B2', title: 'feat: held', lane: 'todo', held: true, pick_up_at: '2099-01-01T00:00:00.000Z' }, { id: 'B3', title: 'feat: blocked', lane: 'todo', deps: ['B4'] }, { id: 'B4', title: 'feat: dep', lane: 'todo' },
+    { id: 'B5', title: 'feat: held and blocked', lane: 'todo', deps: ['B4'], held: true }, { id: 'B6', title: 'feat: leftover worktree', lane: 'todo' }, { id: 'B7', title: 'feat: leftover work', lane: 'todo' },
+    { id: 'B8', title: 'feat: held and unstarted', lane: 'todo', held: true }, { id: 'B9', title: 'feat: held and waiting', lane: 'todo', held: true }, { id: 'B10', title: 'Held and grilled', lane: 'todo', held: true },
     { id: 'B11', title: 'Ready', lane: 'todo', phase: 'ready' }, { id: 'B12', title: 'Grilling', lane: 'todo', phase: 'grilling', unfiled: true }, { id: 'B13', title: 'Leftover work, prototyping', lane: 'todo', phase: 'prototyping' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8'));

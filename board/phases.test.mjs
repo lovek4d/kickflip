@@ -21,10 +21,10 @@ test("each lane's phases, in order: Todo's, the five build steps, In Review's an
 });
 
 test('item add and item set take --phase, store it as phase, and refuse --state naming --phase', () => {
-  const added = board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'Two', '--phase', 'grilling');
+  const added = board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([auditItem('B2').phase, 'state' in auditItem('B2')], ['grilling', false]);
-  for (const args of [['item', 'set', 'audit/B2', '--state', 'prototyping'], ['item', 'add', 'audit/B3', '--title', 'Three', '--state', 'grilling']]) {
+  for (const args of [['item', 'set', 'audit/B2', '--state', 'prototyping'], ['item', 'add', 'audit/B3', '--title', 'feat: three', '--state', 'grilling']]) {
     const r = board(...args, '--site', 'audit');
     assert.equal(r.code, 1);
     assert.match(r.err, /^--state is now --phase/);
@@ -34,7 +34,7 @@ test('item add and item set take --phase, store it as phase, and refuse --state 
 });
 
 test("--phase sets only a Todo card's phase", () => {
-  assert.equal(board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'Two', '--phase', 'grilling').code, 0);
+  assert.equal(board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling').code, 0);
   assert.equal(board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude').code, 0);
   const r = board('item', 'set', 'audit/B2', '--site', 'audit', '--phase', 'grilling');
   assert.equal(r.code, 1);
@@ -57,7 +57,7 @@ test('moveCard writes the lane and its phase together; a phase change inside a l
 });
 
 test("the store's own moves write the phase: a build's start reads reading, a block that leaves it in place, a close merged or closed", () => {
-  write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'Two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'Four', lane: 'progress', phase: 'testing' }] });
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'A1', title: 'feat: one', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'feat: two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'feat: four', lane: 'progress', phase: 'testing' }] });
   assert.equal(board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude').code, 0);
   assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'reading']);
   write(site('audit', 'data', 'agents', 'A4.json'), { kind: 'claude', started: '2026-11-04T09:00:00Z', done: '2026-11-04T10:00:00Z', handed_back: '2026-11-04T10:00:00Z' });

@@ -22,42 +22,42 @@ test('tickets link or are made in the board source through the CLI and an inject
     if (argv[1] === 'view') return { status: 0, stdout: JSON.stringify({ number: 41, url: `https://github.com/${repo}/issues/41` }) };
     return { status: 0, stdout: `https://github.com/${repo}/issues/42\n` };
   } });
-  assert.equal(await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'Two', '--ticket', 'INT-19'), 1);
+  assert.equal(await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--ticket', 'INT-19'), 1);
   assert.match(err.at(-1), /this board has no ticket source/);
-  assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'A task'), 0);
+  assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'feat: a task'), 0);
   assert.equal(out.at(-1), 'T-1 added as audit/T-1');
   assert.equal(calls.length, 0);
   const waveFile = site('audit', 'data', 'items.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
   await saveBoardSettings(site('audit'), { tickets: { source: 'github' } });
-  assert.equal(await cli('item', 'add', 'audit/F6', '--phase', 'grilling', '--title', 'Six', '--ticket', '#41'), 0);
+  assert.equal(await cli('item', 'add', 'audit/F6', '--phase', 'grilling', '--title', 'feat: six', '--ticket', '#41'), 0);
   assert.equal(await cli('item', 'set', 'audit/F6', '--ticket', '41'), 0);
-  assert.equal(await cli('item', 'add', 'audit/G7', '--phase', 'grilling', '--title', 'Seven', '--notes', 'Why this matters', '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/G7', '--phase', 'grilling', '--title', 'feat: seven', '--notes', 'Why this matters', '--new-ticket'), 0);
   write(path.join(home, 'notes.md'), '# Full notes');
-  assert.equal(await cli('item', 'add', 'audit/H8', '--phase', 'grilling', '--title', 'Eight', '--notes-from', path.join(home, 'notes.md'), '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/H8', '--phase', 'grilling', '--title', 'feat: eight', '--notes-from', path.join(home, 'notes.md'), '--new-ticket'), 0);
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'I9', title: 'From ask', notes: 'Asked why' }] });
   assert.equal(await cli('item', 'set', 'audit/I9', '--from-ask', 'e1', '--phase', 'grilling', '--text', 'On it.'), 0);
   assert.equal(read(waveFile).items.at(-1).ticket, undefined);
   assert.equal(await cli('item', 'set', 'audit/I9', '--new-ticket'), 0);
-  assert.equal(await cli('item', 'add', 'audit/github-follow', '--phase', 'grilling', '--title', 'Another follow', '--parent', 'audit/A1', '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/github-follow', '--phase', 'grilling', '--title', 'feat: another follow', '--parent', 'audit/A1', '--new-ticket'), 0);
   assert.deepEqual(calls, [
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
     ['gh', ['issue', 'view', '41', '--repo', 'o/r', '--json', 'number,url']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Seven', '--body', 'Why this matters']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Eight', '--body', '# Full notes']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: seven', '--body', 'Why this matters']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: eight', '--body', '# Full notes']],
     ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'From ask', '--body', 'Asked why']],
-    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Another follow', '--body', '']],
+    ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: another follow', '--body', '']],
   ]);
   assert.equal(read(waveFile).items.at(-1).ticket, '#42');
   assert.equal(await cli('item', 'set', 'audit/F6', '--next', 'Then this'), 0);
   assert.equal(out.at(-1), '#41: next line set');
-  assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'Ten', '--notes', 'From the source', '--new-ticket'), 0);
-  assert.deepEqual(calls.at(-1), ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'Ten', '--body', 'From the source']]);
+  assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'feat: ten', '--notes', 'From the source', '--new-ticket'), 0);
+  assert.deepEqual(calls.at(-1), ['gh', ['issue', 'create', '--repo', 'o/r', '--title', 'feat: ten', '--body', 'From the source']]);
   assert.equal(out.at(-1), '#42 added as audit/GH-42');
   assert.deepEqual(['id', 'ticket', 'ticket_created'].map((k) => read(waveFile).items.at(-1)[k]), ['GH-42', '#42', true]);
   const items = read(waveFile).items.length;
-  assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'Eleven', '--new-ticket'), 1);
+  assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'feat: eleven', '--new-ticket'), 1);
   assert.equal(err.at(-1), 'item file "audit" already has an item "GH-42"; link #42 with item add audit/<id> --ticket #42');
   assert.equal(read(waveFile).items.length, items);
   const before = fs.readFileSync(waveFile, 'utf8');
@@ -81,18 +81,18 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   const { saveBoardSettings, main, out, err, world, linear, gh, ghAnswers, cli, item } = await ticketCli(t);
   await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' } });
   write(path.join(home, 'notes.md'), '# Why it matters');
-  assert.equal(await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'Two', '--notes-from', path.join(home, 'notes.md'), '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--notes-from', path.join(home, 'notes.md'), '--new-ticket'), 0);
   assert.deepEqual([item('B2').ticket, item('B2').ticket_created], ['ENG-101', true]);
-  assert.deepEqual(world.issues['ENG-101'].input, { teamId: 'team-eng', projectId: 'proj-audit', title: 'Two', description: '# Why it matters' });
+  assert.deepEqual(world.issues['ENG-101'].input, { teamId: 'team-eng', projectId: 'proj-audit', title: 'feat: two', description: '# Why it matters' });
   world.issues['ENG-8'] = { team: 'OPS', assignee: 'user-me', state: 'o-todo' };
   world.issues['ENG-9'] = { team: 'ENG', assignee: 'someone', state: 's-todo' };
   world.issues['ENG-10'] = { team: 'ENG', assignee: 'user-me', state: 's-todo' };
   for (const [ticket, message] of [['ENG-50', 'Linear has no issue ENG-50.'], ['ENG-8', "ENG-8 is in Linear's OPS team, not ENG."], ['OPS-1', 'Ticket must match ENG-<number>.']]) {
-    assert.equal(await cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'Three', '--ticket', ticket), 1);
+    assert.equal(await cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'feat: three', '--ticket', ticket), 1);
     assert.equal(err.at(-1), message);
   }
-  assert.equal(await cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'Three', '--ticket', 'ENG-9'), 0);
-  assert.equal(await cli('item', 'add', 'audit/D4', '--phase', 'grilling', '--title', 'Four', '--ticket', 'ENG-10'), 0);
+  assert.equal(await cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'feat: three', '--ticket', 'ENG-9'), 0);
+  assert.equal(await cli('item', 'add', 'audit/D4', '--phase', 'grilling', '--title', 'feat: four', '--ticket', 'ENG-10'), 0);
   assert.deepEqual([item('C3').ticket, item('C3').ticket_created, item('D4').ticket], ['ENG-9', undefined, 'ENG-10']);
   const stateOf = (id) => world.teams[0].states.find((s) => s.id === world.issues[id].state).name;
   // builder start's move of the ticket reaches Linear through the global fetch, not the CLI's injected one.
@@ -116,10 +116,10 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   const before = linear.calls.length;
   for (const flags of [['--held'], ['--next', 'Then this']]) assert.equal(await cli('item', 'set', 'audit/C3', ...flags), 0);
   assert.equal(linear.calls.length, before);
-  assert.equal(await cli('item', 'add', 'audit/E5', '--phase', 'grilling', '--title', 'Five', '--new-ticket'), 0);
-  assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'Named in Linear', '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/E5', '--phase', 'grilling', '--title', 'feat: five', '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit', '--phase', 'grilling', '--title', 'feat: named in linear', '--new-ticket'), 0);
   assert.equal(out.at(-1), 'ENG-103 added as audit/ENG-103');
-  assert.deepEqual([item('ENG-103').ticket, world.issues['ENG-103'].input.title], ['ENG-103', 'Named in Linear']);
+  assert.deepEqual([item('ENG-103').ticket, world.issues['ENG-103'].input.title], ['ENG-103', 'feat: named in linear']);
   const offline = async () => { throw new Error('offline'); };
   globalThis.fetch.mock.mockImplementation(offline);
   assert.equal(await start('E5'), 0);
@@ -129,9 +129,9 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
   const waveFile = site('audit', 'data', 'items.json');
   write(waveFile, { ...read(waveFile), repo: 'o/r' });
   await saveBoardSettings(site('audit'), { tickets: { source: 'github' } });
-  assert.equal(await cli('item', 'add', 'audit/F6', '--phase', 'grilling', '--title', 'Six', '--new-ticket'), 0);
-  assert.equal(await cli('item', 'add', 'audit/G7', '--phase', 'grilling', '--title', 'Seven', '--ticket', '#41'), 0);
-  assert.equal(await cli('item', 'add', 'audit/H8', '--phase', 'grilling', '--title', 'Eight', '--ticket', '#43', '--deps', 'audit/F6'), 0);
+  assert.equal(await cli('item', 'add', 'audit/F6', '--phase', 'grilling', '--title', 'feat: six', '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/G7', '--phase', 'grilling', '--title', 'feat: seven', '--ticket', '#41'), 0);
+  assert.equal(await cli('item', 'add', 'audit/H8', '--phase', 'grilling', '--title', 'feat: eight', '--ticket', '#43', '--deps', 'audit/F6'), 0);
   gh.length = 0;
   for (const id of ['F6', 'G7']) assert.equal(await start(id), 0);
   assert.equal(await cli('item', 'set', 'audit/G7', '--pr', '7'), 0);
@@ -153,7 +153,7 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
 test("a board still on Linear after Hub's key went refuses new tickets and links, changing nothing, and its moves say the key is missing", async (t) => {
   const { saveBoardSettings, out, err, linear, cli, item } = await ticketCli(t);
   await saveBoardSettings(site('audit'), { tickets: { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' } });
-  assert.equal(await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'Two', '--notes', 'Why', '--new-ticket'), 0);
+  assert.equal(await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--notes', 'Why', '--new-ticket'), 0);
   assert.equal(item('B2').ticket, 'ENG-101');
   const calls = linear.calls.length;
   write(at('kickflip', 'secrets.json'), {});
@@ -162,7 +162,7 @@ test("a board still on Linear after Hub's key went refuses new tickets and links
   write(site('audit', 'data', 'events.jsonl'), JSON.stringify({ id: 'e1', kind: 'ask', data: { text: 'Ask' } }) + '\n');
   write(waveFile, { ...read(waveFile), items: [...read(waveFile).items, { id: 'D4', title: 'Asked' }] });
   const before = fs.readFileSync(waveFile, 'utf8');
-  for (const args of [['item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'Three', '--new-ticket'], ['item', 'add', 'audit', '--phase', 'grilling', '--title', 'Unnamed', '--new-ticket'], ['item', 'add', 'audit/later', '--phase', 'grilling', '--title', 'Later', '--parent', 'A1', '--new-ticket'],
+  for (const args of [['item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'feat: three', '--new-ticket'], ['item', 'add', 'audit', '--phase', 'grilling', '--title', 'feat: unnamed', '--new-ticket'], ['item', 'add', 'audit/later', '--phase', 'grilling', '--title', 'feat: later', '--parent', 'A1', '--new-ticket'],
     ['item', 'set', 'audit/B2', '--ticket', 'ENG-4'], ['item', 'set', 'audit/D4', '--new-ticket']]) {
     assert.equal(await cli(...args), 1, args.join(' '));
     assert.equal(err.at(-1), noKey);
@@ -186,8 +186,8 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   const last = (...args) => cli(...args).out.trim().split('\n').at(-1);
   assert.equal(last('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}'), 'setting tickets {"source":"github","account":"lovek4d"}');
   assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
-  assert.equal(cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'Two', '--new-ticket').code, 0);
-  assert.equal(cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'Three', '--ticket', '#9').code, 0);
+  assert.equal(cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--new-ticket').code, 0);
+  assert.equal(cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'feat: three', '--ticket', '#9').code, 0);
   assert.equal(last('item', 'set', 'audit/B2', '--done', '--text', 'Done.'), 'ticket #1: closed');
   assert.equal(cli('item', 'set', 'audit/C3', '--pr', '7').code, 0);
   const report = cli('pr', 'audit/C3');
@@ -202,7 +202,7 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"nobody"}').code, 0);
   const issueCalls = () => calls(dir).filter((a) => a[0] === 'issue').length;
   const before = issueCalls();
-  assert.deepEqual(cli('item', 'add', 'audit/D4', '--phase', 'grilling', '--title', 'Four', '--new-ticket'), { code: 1, out: '', err: 'gh has no nobody account; run gh auth login\n' });
+  assert.deepEqual(cli('item', 'add', 'audit/D4', '--phase', 'grilling', '--title', 'feat: four', '--new-ticket'), { code: 1, out: '', err: 'gh has no nobody account; run gh auth login\n' });
   assert.equal(last('item', 'set', 'audit/C3', '--done', '--text', 'Done.'), 'ticket #9: could not move to Done (gh has no nobody account; run gh auth login)');
   assert.equal(issueCalls(), before);
   assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}').code, 1);
@@ -216,7 +216,7 @@ test("a card with an owner step keeps its GitHub issue open when the session clo
   write(site('audit', 'data', 'items.json'), { ...wave(), internal: true, items: [] });
   const cli = (...args) => run('board.mjs', ['--site', 'audit', ...args], undefined, env);
   assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}').code, 0);
-  assert.equal(cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'Two', '--new-ticket').code, 0);
+  assert.equal(cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--new-ticket').code, 0);
   const file = site('audit', 'data', 'items.json');
   write(file, { ...read(file), items: read(file).items.map((it) => ({ ...it, owner_step: 'Tag the first release' })) });
   const closes = () => calls(dir).filter((a) => a[0] === 'issue' && a[1] === 'close').length;

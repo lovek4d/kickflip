@@ -239,8 +239,8 @@ test("the server launches the builder for a tap and a pull instead of waking the
   fs.writeFileSync(path.join(data, 'agents', 'H3.json'), JSON.stringify(verified));
   fs.writeFileSync(path.join(data, 'agents', 'H4.json'), JSON.stringify({ ...verified, worktree: { ...verified.worktree, path: lander, branch: 'H4' } }));
   fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [
-    { id: 'H1', title: 'Tapped', phase: 'ready', size: 'large', plan: 'h1.md' },
-    { id: 'H2', title: 'Pulled', phase: 'ready', size: 'large' },
+    { id: 'H1', title: 'feat: tapped', phase: 'ready', size: 'large', plan: 'h1.md' },
+    { id: 'H2', title: 'feat: pulled', phase: 'ready', size: 'large' },
     { id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" },
     { id: 'H4', title: 'Asked', lane: 'progress', next: "Answer the builder's questions" },
   ] }));
@@ -345,8 +345,8 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   fs.mkdirSync(path.join(data, 'agents'));
   fs.writeFileSync(path.join(data, 'agents', 'R1.json'), JSON.stringify({ label: 'Builder', kind: 'claude', model: 'opus', started: '2026-11-05T01:00:00.000Z', done: '2026-11-05T02:00:00.000Z', worktree: { path: built, branch: 'R1', repo: clone } }));
   fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [
-    { id: 'R1', title: 'Built here', pr: 5 },
-    { id: 'R2', title: 'Linked by hand', pr: 6 },
+    { id: 'R1', title: 'feat: built here', pr: 5 },
+    { id: 'R2', title: 'feat: linked by hand', pr: 6 },
     { id: 'R3', title: 'Clean', pr: 7 },
   ] }));
   // The hub's check of each PR, which the board reads (server.mjs prViewOf).
@@ -796,7 +796,7 @@ test('within twice the buffer of the line the board starts one agent, and the ne
 });
 
 test('a build whose builder fails to launch goes back to Todo with the reason, and wakes no session', async () => {
-  const b = oneLaunchBoard([{ id: 'F1', title: 'Fail me', phase: 'ready', size: 'large' }], path.join(os.tmpdir(), 'no-such-claude-here'));
+  const b = oneLaunchBoard([{ id: 'F1', title: 'feat: fail me', phase: 'ready', size: 'large' }], path.join(os.tmpdir(), 'no-such-claude-here'));
   const { child, send } = await b.start();
   try {
     const tapped = await send('card-build', { key: 't/F1' });
@@ -833,7 +833,7 @@ test("the owner's Hold pauses the card's running builder at its next progress re
   fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\n${untilTestEnds()};\n`);
   fs.chmodSync(fake, 0o755);
   const runs = () => fs.readFileSync(seen, 'utf8').trim().split('\n').map(JSON.parse);
-  const b = oneLaunchBoard([{ id: 'H1', title: 'Hold me', phase: 'ready', size: 'large' }], fake);
+  const b = oneLaunchBoard([{ id: 'H1', title: 'feat: hold me', phase: 'ready', size: 'large' }], fake);
   const { child, send } = await b.start();
   let pid, resumed;
   try {

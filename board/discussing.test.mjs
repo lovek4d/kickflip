@@ -69,9 +69,9 @@ test('reply on a New card starts its discussion: a message in its thread, the ca
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const r = board('reply', 'audit/T-1', '--text', 'The footer could fold into the sidebar.', '--title', 'Footer rethink', '--site', 'audit');
+  const r = board('reply', 'audit/T-1', '--text', 'The footer could fold into the sidebar.', '--title', 'feat: footer rethink', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
-  assert.deepEqual([t1().phase, t1().lane, t1().answered_at, t1().title], ['discussing', 'todo', undefined, 'Footer rethink']);
+  assert.deepEqual([t1().phase, t1().lane, t1().answered_at, t1().title], ['discussing', 'todo', undefined, 'feat: footer rethink']);
   const again = board('reply', 'audit/T-1', '--text', 'Or stay as it is on desktop.', '--site', 'audit');
   assert.deepEqual([again.code, again.err], [0, '']);
   assert.deepEqual(lines(audit('data', 'threads', 'audit__T-1.jsonl')).filter((m) => !m.kind).map((m) => m.text), ['The footer could fold into the sidebar.', 'Or stay as it is on desktop.']);
@@ -95,7 +95,7 @@ test("item set --phase discussing files a card discussing, and leaving it for gr
 
 test('item add --phase discussing files a card discussing; ready still comes only from staging', async () => {
   await store();
-  const r = board('item', 'add', 'audit/D1', '--title', 'Talk it through', '--phase', 'discussing', '--site', 'audit');
+  const r = board('item', 'add', 'audit/D1', '--title', 'feat: talk it through', '--phase', 'discussing', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'D1').phase, 'discussing');
   write(audit('data', 'D1.md'), '# D1\n');
