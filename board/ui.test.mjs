@@ -2020,6 +2020,23 @@ test("an open card's thread shows its newest 3 messages with the lines between t
   assert.deepEqual(shown(editing).slice(0, 2), ['Two?', 'Two.']);
 });
 
+test("withdrawing a pending message keeps the window's top edge, so no older message comes out from behind Show more", () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const msgs = ['One', 'Two', 'Three', 'Four', 'Five', 'Six'].map((text, i) => ({ ts: at(i), who: 'claude', text }));
+  msgs[5] = { ts: at(5), who: 'love', kind: 'item-message', text: 'Six', eventId: 'e6', state: 'waiting', reply: null };
+  const words = (html) => [...html.matchAll(/>(One|Two|Three|Four|Five|Six)</g)].map((m) => m[1]);
+  const more = (html) => html.match(/· (\d+) previous/)?.[1] ?? null;
+  const read = { seenAt: at(59), more: 0, upto: at(5) };
+  const first = ui.threadMessages(msgs, {}, new Map(), read);
+  assert.deepEqual([words(first), more(first)], [['Four', 'Five', 'Six'], '3']);
+  const from = ui.threadFrom(msgs, read, new Map());
+  assert.equal(from, at(3));
+  const after = ui.threadMessages(msgs.slice(0, 5), {}, new Map(), { ...read, from });
+  assert.deepEqual([words(after), more(after)], [['Four', 'Five'], '3']);
+  const tapped = ui.threadMessages(msgs.slice(0, 5), {}, new Map(), { ...read, from, more: 1 });
+  assert.deepEqual([words(tapped), more(tapped)], [['One', 'Two', 'Three', 'Four', 'Five'], null]);
+});
+
 test("only Claude's and GitHub's messages are unread: the owner's answers after an unread reply fold under Show more past 10 lines, and each answer submitted apart waits on Claude under itself", () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const answer = (n) => ({ ts: at(n), who: 'love', via: 'questions', kind: 'owner-answer', text: `Q${n}?\n→ A${n}`, eventId: `o${n}`, reply: null, state: 'waiting' });

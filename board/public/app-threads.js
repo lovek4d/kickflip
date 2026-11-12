@@ -43,16 +43,18 @@ BoardView.part((B) => {
   const kept = B.place?.threads;
   const moreTaps = new Map(kept?.moreTaps);
   const firstDrawn = new Map(kept?.firstDrawn);
-  B.keep(() => ({ threads: { moreTaps: [...moreTaps], firstDrawn: [...firstDrawn] } }));
+  const topEdge = new Map(kept?.topEdge);
+  B.keep(() => ({ threads: { moreTaps: [...moreTaps], firstDrawn: [...firstDrawn], topEdge: [...topEdge] } }));
   const seenAt = (key) => (B.seenBefore.has(key) ? B.seenBefore.get(key) : B.seen[key] || null);
   const newestTs = (msgs) => msgs.reduce((top, m) => [String(m.ts), m.reply?.at ? String(m.reply.at) : ''].reduce((a, b) => (b > a ? b : a), top), '');
-  const viewOf = (key) => ({ seenAt: seenAt(key), more: moreTaps.get(key) || 0, upto: firstDrawn.get(key) || null });
+  const viewOf = (key) => ({ seenAt: seenAt(key), more: moreTaps.get(key) || 0, upto: firstDrawn.get(key) || null, from: topEdge.get(key) || null });
   B.on(B.root, 'toggle', (ev) => {
     const el = ev.target;
     if (!el.matches?.('details.item') || el.open) return;
     B.seenBefore.delete(el.dataset.key);
     moreTaps.delete(el.dataset.key);
     firstDrawn.delete(el.dataset.key);
+    topEdge.delete(el.dataset.key);
   }, true);
   B.on(B.root, 'click', (ev) => {
     const key = ev.target.closest('[data-thread-more]')?.closest('[data-thread]')?.dataset.thread;
@@ -68,6 +70,8 @@ BoardView.part((B) => {
     syncSends(el, key);
     const edits = editsIn(key);
     if (!firstDrawn.has(key) && msgs.length) firstDrawn.set(key, newestTs(msgs));
+    // The window's top edge is fixed when the card first draws, so a deleted message never pulls an older one in.
+    if (!topEdge.has(key) && msgs.length) topEdge.set(key, BoardUI.threadFrom(msgs, viewOf(key), edits) || '');
     const view = viewOf(key);
     const asked = newQuestionsLine(state.board?.items.find((i) => i.key === key)?.questions, seenAt(key));
     const lines = asked.length ? [...msgs, ...asked].sort((a, b) => String(a.ts).localeCompare(String(b.ts))) : msgs;

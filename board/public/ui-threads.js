@@ -96,15 +96,26 @@
   // ui-cards.js unreadCount); the orchestrator's answer to a builder's ask never is.
   const unread = (m, seenAt) => Boolean(seenAt) && (m.fault || (isMessage(m) && m.kind !== 'command' && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github'))) && String(m.ts) > seenAt;
   // The window opens from the oldest unread message, at most UNREAD_CAP messages back; a message being edited always shows.
-  function threadWindow(lines, { seenAt = null, more = 0, upto = null }, edits) {
+  function threadWindow(lines, { seenAt = null, more = 0, upto = null, from = null }, edits) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));
     const firstUnread = lines.findIndex((m) => unread(m, seenAt));
     const unreadSpan = firstUnread < 0 ? 0 : counted.filter((i) => i >= firstUnread).length;
     const want = Math.max(STEP, Math.min(UNREAD_CAP, unreadSpan)) + STEP * more;
     const pinned = lines.findIndex((m) => m.eventId && edits.has(m.eventId));
-    const start = Math.min(counted.length > want ? counted[counted.length - want] : 0, pinned < 0 ? Infinity : pinned);
+    // Once drawn, the top edge is `from` and Show more taps move it back, so a deleted message leaves a gap.
+    const edge = from ? lines.findIndex((m) => String(m.ts) >= from) : -1;
+    const before = counted.filter((i) => i < edge);
+    const back = STEP * more;
+    const top = edge < 0 ? (counted.length > want ? counted[counted.length - want] : 0) : back && before.length >= back ? before[before.length - back] : back ? 0 : edge;
+    const start = Math.min(top, pinned < 0 ? Infinity : pinned);
     const hidden = lines.filter((m, i) => i < start && isMessage(m)).length;
     return { start: hidden ? start : 0, hidden };
+  }
+  // The ts of the oldest line the window draws, null when it hides none: the open card's `from`.
+  function threadFrom(msgs, view, edits) {
+    const lines = foldStatus(withReplies(msgs));
+    const { start } = threadWindow(lines, view, edits);
+    return start ? String(lines[start].ts) : null;
   }
   const moreButton = (hidden) => `<button type="button" class="thread-more" data-thread-more>Show more <span class="n">· ${hidden} previous message${hidden === 1 ? '' : 's'}</span></button>`;
 
@@ -140,5 +151,5 @@
     return [{ ts: fresh.at(-1), who: 'claude', kind: 'questions', text: `${fresh.length} new question${fresh.length === 1 ? '' : 's'}`, link: `questions.html#${encodeURIComponent(questions.first)}` }];
   }
 
-  Object.assign(globalThis.BoardUI, { threadMessages, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
+  Object.assign(globalThis.BoardUI, { threadMessages, threadFrom, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
 })();
