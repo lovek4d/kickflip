@@ -731,6 +731,19 @@ test("a New card asked whether to move waits on the owner in Todo, then a move d
   assert.equal(threadOf('w/T-1', { events: [arrived], fromAsk: 'b1' })[0].from, 'Orch');
 });
 
+// docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
+test("a routed ask's thread opens with a blue status line naming where it came from and the router's reason, above the ask", () => {
+  const routed = { reason: 'checkout is the shop', via: 'slack', by: 'Maya', link: 'https://slack.com/archives/D1/p1', at: '2026-10-23T09:39:59Z' };
+  const arrived = askAt('b1', '2026-10-23T09:40:00Z', { data: { text: 'The checkout 500s', routed } });
+  const msgs = threadOf('w/T-1', { events: [arrived], fromAsk: 'b1' });
+  assert.deepEqual(msgs.map(({ who, kind, line, text, link, ts }) => [who, kind, line, text, link, ts]), [
+    ['claude', 'hub', 'ask-routed', 'Routed here from Slack: checkout is the shop', 'https://slack.com/archives/D1/p1', '2026-10-23T09:39:59Z'],
+    ['love', 'ask', undefined, 'The checkout 500s', undefined, '2026-10-23T09:40:00Z'],
+  ]);
+  assert.equal(msgs[0].mark, 'ask-link');
+  assert.equal(threadOf('w/T-1', { events: [askAt('b2', '2026-10-23T09:40:00Z')], fromAsk: 'b2' }).length, 1, 'an ask the router never saw has no routed line');
+});
+
 test("the owner's reply on a Done ask's card, sent on the card or the ask's old key, waits and works like a work item's thread message, and reopens the card", () => {
   const ask = askAt('a1', '2026-10-23T09:00:00Z', { reply: { html: 'Yes.' } });
   const working = { m1: '2026-10-23T10:01:00Z' };

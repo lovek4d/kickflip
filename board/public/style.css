@@ -489,6 +489,10 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .new-done, .new-link { color: var(--color-info); font-size: 12px; font-weight: 600; text-decoration: none; }
 .new-entry .new-dismiss { padding: 4px 8px; font-size: 12px; color: var(--muted); }
 .new-entry .edit-form { margin-top: 2px; }
+/* The hub's Routed section on the same strip: a row's muted second line (who, when, the router's reason) and the empty state. */
+.new-why { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.new-entry .new-why { margin-top: 2px; }
+.new-empty { font-size: 13px; color: var(--muted); }
 /* Each lane's sort icon and its menu, grey (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md) */
 /* A board shared with someone else (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md):
    shell.js marks the page .shared-view, which hides Board settings and the architecture review, and, unless the person

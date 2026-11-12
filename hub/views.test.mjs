@@ -17,7 +17,7 @@ const notify = (s, n) => ({ ...s, notifications: { ...ON, ...n } });
 const status = (now, s, count = 0) => ({ settings: s, hold: hold(now, s), count, nextFlushAt: count ? flushAt(now, s) : null });
 const plain = (v) => JSON.parse(JSON.stringify(v));
 // The hub views wait on ui.js waitOn and draw its BUSY; board/view.test.mjs tests how a waiting control looks.
-const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn: (control, promise) => promise, onBackdrop: (ev, backdrop) => ev.target === backdrop };
+const BOARD_UI = { header: () => '', BUSY: ' disabled aria-busy="true"', waitOn: (control, promise) => promise, onBackdrop: (ev, backdrop) => ev.target === backdrop, newStrip: () => '' };
 const USABLE = { usable: true, reason: null, words: null, fix: null };
 const NOT_INSTALLED = codexStatus({ installed: false });
 const LOGGED_OUT = codexStatus({ installed: true, home: '/nonexistent' });
@@ -988,4 +988,41 @@ test("a tap on the footer's version checks npm now and shows the answer beside i
   reply(500, {});
   await settle();
   assert.equal(note(), 'could not check. Is the host awake?');
+});
+
+// docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
+test("the hub page's Routed section sits under Boards, drawn by the board's own New strip under a Routed head, with an empty state", () => {
+  const document = {};
+  const { Element } = miniDom(class {}, document);
+  const root = new Element('div');
+  let live;
+  const strips = [];
+  const context = vm.createContext({
+    navigator: {}, localStorage: { getItem: () => null },
+    BoardView: { page: (r, site, run) => run({ $: (s) => r.querySelector(s), alive: () => true, atUnmount() {}, on() {} }) },
+    HubSettings: { create: () => ({ B: {}, mount() {}, unmount() {} }) },
+    BoardUI: { ...BOARD_UI, newStrip: (entries, edits, opts) => { strips.push({ entries, opts }); return `<i class="strip">${entries.length}</i>`; } },
+    PromptAnswers: { wire: () => ({ shows: () => true }) },
+    HubKit: { forms: () => ({}), live: (B, opts) => { live = opts; } },
+  });
+  for (const file of ['ui-sidebar.js', 'ui-hub.js', 'view-hub.js']) vm.runInContext(fs.readFileSync(new URL(`../board/public/${file}`, import.meta.url), 'utf8'), context);
+  root.innerHTML = '<main><div class="hub-status"></div><section class="hub-settings"></section><div class="hub-foot"></div></main>';
+  document.body = root;
+  context.AppViews.hub.create(root, '/_hub', {});
+  const now = t(19);
+  const row = { id: 'r1', at: now.toISOString(), text: 'checkout', via: 'slack', by: 'Maya', reason: 'shop', to: { route: 'alpha', ref: 'T-1', title: 'Checkout', href: '/alpha/#selectedCard=w%2FT-1' } };
+  const view = (routed) => hubView({ now, st: status(now, DEFAULTS), routed,
+    sidebar: { pause: CALM_GATE, sites: [{ route: 'alpha', board: true }], hub: { tone: 'ok', word: 'healthy', detail: '1 of 1 site up' }, notifications: {}, total: 0 },
+    rows: [{ route: 'alpha', title: 'Alpha', state: 'up' }, { route: 'page', title: 'Page', state: 'up' }], code: { running: 'abc', onDisk: 'abc' } });
+  assert.deepEqual(plain(view([row]).routed), [row]);
+  live.paint({ ...view([row]), version: '1' });
+  const section = root.querySelector('section.new-strip.routed');
+  assert.equal(section.getAttribute('aria-label'), 'Routed');
+  const order = section.parentNode.children.filter((el) => el.tagName === 'H2' || el === section).map((el) => (el === section ? 'Routed' : el.textContent));
+  assert.deepEqual(order.slice(-3), ['Boards', 'Routed', 'Pages'], 'it follows the Boards group');
+  assert.deepEqual(plain(strips.at(-1).entries), [{ id: 'r1', routed: row }]);
+  assert.equal(strips.at(-1).opts.label, 'Routed');
+  live.paint({ ...view([]), version: '1' });
+  assert.deepEqual(strips.at(-1).entries.length, 0);
+  assert.match(strips.at(-1).opts.empty, /^Nothing routed yet\./);
 });

@@ -71,10 +71,11 @@ const claudeView = (model) => ({
 // hubHealth), and hub.restart is true while it does, for the Hub row's Restart hub; rows: hub.mjs status() rows, whose restart (restart-board.mjs restartable) gives a board its Restart; links: Map of route to linksOf; code: {running, onDisk}, the hub's code hashes
 // (boards.mjs); host: the address the page was loaded from; version: the running hub's package.json version, named in the footer; rules: the hub rules; codexShare: push.mjs readCodexShare(codex); claudeModel: push.mjs readClaudeModel;
 // codex: a shared/codex.mjs codexStatus; awake: {on: awake.mjs awakeOn, unsupported: awake.mjs awakeUnsupported}, which Health's Keep awake row shows.
-// Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js).
+// Boards and Pages stay apart, as in the sidebar (board/public/ui-sidebar.js). routed: router.mjs routedRows, the Routed
+// section under Boards (docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md).
 // hold, for the page's banner, is null unless pushes are held or snoozed; its text matches the sidebar moon's tooltip,
 // and end is true when End can lift it, which only a snooze allows.
-export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null } }) {
+export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, host = '', version, rules = [], remembered = new Map(), integrations = [], codexShare = 'off', claudeModel = 'auto', codex = codexStatus({ installed: false }), awake = { on: false, unsupported: null }, routed = [] }) {
   const boards = new Set(sidebar.sites.filter((x) => x.board).map((x) => x.route));
   const current = Boolean(code.running && code.running === code.onDisk);
   const codeLine = current ? ` · runs the code in its files (${code.onDisk})` : '';
@@ -86,6 +87,7 @@ export function hubView({ now, st, sidebar, rows, links = new Map(), code = {}, 
     hub: { tone: sidebar.hub.tone, word: sidebar.hub.word, detail: `${sidebar.hub.detail}${codeLine}`, restart: !current },
     awake,
     groups,
+    routed,
     integrations,
     usage: sidebar.usage,
     pause: sidebar.pause,

@@ -51,7 +51,7 @@
   // A request or board line's one tone, by the colour rule (red fault > orange staged > green readied > blue created >
   // gray); style.css colours its icon, words and link from this class alone.
   const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.command === 'readied' ? ' readied'
-    : ['created', 'created-from'].includes(m.command) || m.line === 'ticket-made' ? ' created' : '');
+    : ['created', 'created-from'].includes(m.command) || ['ticket-made', 'ask-routed'].includes(m.line) ? ' created' : '');
   const line = (m, links) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg status-line link">${statusMark('ask-link')}<a href="${esc(m.link)}">${escText(m.text)} →</a></div>`

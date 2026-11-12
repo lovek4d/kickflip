@@ -389,9 +389,24 @@
     const body = edit ? editForm(e.id, edit.text) : `<div class="new-msg">${esc(e.text)}</div>${globalThis.BoardUI.attachments(e.files)}`;
     return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${line}</div></div>`;
   }
-  // entries: newEntries; edits: app-asks.js's state.edits, by ask id.
-  const newStrip = (entries, edits) => `<div class="new-head"><span class="lane-name">New</span><span class="count">${entries.length}</span></div>
-    <div class="new-list">${entries.map((e) => newEntry(e, edits.get(e.id))).join('')}</div>`;
+  // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
+  // A hub Routed row (hub/router.mjs routedRows), drawn as a New entry with no actions: a blue link to the card it
+  // became, was added to, or a later ask move sent it to, then a muted line with who sent it, from where, when and the
+  // router's reason. One still queued reads waiting….
+  const VIA = { slack: 'Slack' };
+  function routedEntry(r) {
+    const to = r.moved || r.to;
+    const words = r.moved ? 'Moved to' : to?.into ? 'Added to' : 'Routed to';
+    const line = r.waiting ? PICKUP_WAIT
+      : `<a class="new-link" href="${esc(to.href)}">${words} <b>/${esc(to.route)}${to.ref ? ` ${esc(to.ref)}` : ''}</b>${to.title ? ` · ${esc(to.title)}` : ''}</a>`;
+    const why = r.waiting ? '' : r.moved ? ` — was routed to /${r.to.route}: ${r.reason}` : ` — ${r.reason}`;
+    return `<div class="new-entry" data-new="${esc(r.id)}"><div class="new-msg">${esc(r.text)}</div><div class="new-line sub${r.waiting ? '' : ' new-done'}">${line}</div>`
+      + `<div class="new-line sub new-why">${esc([r.by, VIA[r.via] || r.via, cardTime(r.at)].filter(Boolean).join(' · '))}${esc(why)}</div></div>`;
+  }
+  // entries: newEntries, or {id, routed} for the hub's Routed rows; edits: app-asks.js's state.edits, by ask id. label
+  // heads it, New on a board; empty is what an empty strip says, which a board's never draws.
+  const newStrip = (entries, edits, { label = 'New', empty = '' } = {}) => `<div class="new-head"><span class="lane-name">${esc(label)}</span><span class="count">${entries.length}</span></div>
+    <div class="new-list">${entries.length ? entries.map((e) => (e.routed ? routedEntry(e.routed) : newEntry(e, edits.get(e.id)))).join('') : `<div class="new-entry new-empty">${esc(empty)}</div>`}</div>`;
 
   function workLines(it, { unread = 0 } = {}) {
     const ids = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);

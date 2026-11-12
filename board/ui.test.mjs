@@ -1580,6 +1580,31 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   assert.match(css, /^\.new-done, \.new-link \{ color: var\(--color-info\);/m);
 });
 
+// docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
+test("the hub's Routed section is the New strip under its own head: each row links to its card, the reason on a muted second line, with no Dismiss", () => {
+  const at = ago(3);
+  const rows = [
+    { id: 'q1', at, text: 'held one', via: 'slack', by: 'Quinn', waiting: true },
+    { id: 'r1', at, text: 'checkout <500s>', via: 'slack', by: 'Maya', reason: 'checkout is the shop', to: { route: 'shop', ref: 'T-5', title: 'Checkout 500s', href: '/shop/#selectedCard=items%2FT-5' } },
+    { id: 'r2', at, text: 'rename it', via: 'slack', by: 'Sam', reason: 'nearest board', to: { route: 'shop', ref: null, title: null, href: '/shop/#selectedCard=ask%3Ae2' }, moved: { route: 'other', ref: 'T-9', title: 'Rename', href: '/other/#selectedCard=items%2FT-9' } },
+    { id: 'r3', at, text: 'also this', via: 'slack', by: 'Sam', reason: 'same work', to: { route: 'shop', ref: 'T-5', title: 'Checkout 500s', href: '/shop/#selectedCard=items%2FT-5', into: true } },
+  ];
+  const html = ui.newStrip(rows.map((routed) => ({ id: routed.id, routed })), new Map(), { label: 'Routed', empty: 'Nothing routed yet.' });
+  assert.match(html, /<div class="new-head"><span class="lane-name">Routed<\/span><span class="count">4<\/span><\/div>/);
+  assert.match(html, /<div class="new-msg">checkout &lt;500s&gt;<\/div>/);
+  assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)">(.*?)<\/a>/g)].map((m) => [m[1], text(m[2])]), [
+    ['/shop/#selectedCard=items%2FT-5', 'Routed to /shop T-5 · Checkout 500s'],
+    ['/other/#selectedCard=items%2FT-9', 'Moved to /other T-9 · Rename'],
+    ['/shop/#selectedCard=items%2FT-5', 'Added to /shop T-5 · Checkout 500s'],
+  ]);
+  const whys = [...html.matchAll(/<div class="new-line sub new-why">(.*?)<\/div>/g)].map((m) => text(m[1]));
+  assert.deepEqual(whys.map((w) => w.replace(ui.cardTime(at), 'TIME')), ['Quinn · Slack · TIME', 'Maya · Slack · TIME — checkout is the shop', 'Sam · Slack · TIME — was routed to /shop: nearest board', 'Sam · Slack · TIME — same work']);
+  assert.match(html, /pickup-wait/, 'a queued request reads waiting…');
+  assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw|new-dismiss/);
+  assert.match(ui.newStrip([], new Map(), { label: 'Routed', empty: 'Nothing routed yet.' }), /<span class="count">0<\/span>[^]*<div class="new-entry new-empty">Nothing routed yet\.<\/div>/);
+  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /^\.new-why \{[^}]*color: var\(--muted\)/m);
+});
+
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
 const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five', internal: false, held: false, risky: false, threadCount: 4,
   linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, prs: [{ ...openPR, isDraft: true, status: 'draft' }], reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
@@ -2769,6 +2794,9 @@ test('a Created ticket, a Created from and a ticket-made line are blue; a Relate
   assert.equal(html.match(/<div class="msg status-line request">/g).length, 1);
   const made = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', text: 'Created ticket #5', fault: false }]);
   assert.match(made, /class="msg status-line request hub created"/);
+  // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the router's line is info the owner reads.
+  const routed = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ask-routed', mark: 'ask-link', text: 'Routed here from Slack: the shop', link: 'https://slack.com/x', fault: false }]);
+  assert.match(routed, /class="msg status-line request hub created"><span class="mark" aria-hidden="true"><svg[^]*<a href="https:\/\/slack.com\/x">Routed here from Slack: the shop<\/a>/);
   assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.msg\.request\.created \{ color: var\(--accent\); \}/);
 });
 

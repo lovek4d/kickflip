@@ -168,7 +168,9 @@
 // card's board first and refreshes its Main at once (docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md).
 // Try worktrees live in ~/.claude/kickflip/try/<route>-main; board data/try.json and data/try/*.log record runs.
 // State lives in ~/.claude/kickflip: manifest.json, logs/<route>.log, run/<route>.pid, github-state.json, wake-state.json,
-// deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, secrets.json.
+// deaf-state.json, link-faults.json, repo-fetch.json, hub-code.json, resume-state.json, prompts.json, secrets.json,
+// and the router's route-queue.json and routed.json: every 15 seconds the router files the requests still queued
+// (router.mjs drainRoutes; docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md).
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
@@ -189,6 +191,7 @@ import { endOf } from './duration.mjs';
 import { nodeBin } from '../bin/install.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
+import { drainRoutes, routedRows } from './router.mjs';
 import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
@@ -577,8 +580,20 @@ async function checkUsageGate() {
   return usageCheck;
 }
 
+// docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: routes the requests that waited
+// out a usage pause or a failed call, one drain at a time.
+let routing = null;
+function runRoutes() {
+  routing ||= drainRoutes({ manifest: loadManifest() }).then((r) => {
+    for (const e of r.routed) log(`router: ${e.via} request from ${e.by || 'someone'} → /${e.route}: ${e.reason}`);
+    for (const why of r.failed) log(`router: could not file a request on ${why}`);
+    if (r.routed.length) stream.refresh();
+  }).catch((e) => log('router failed:', e.message)).finally(() => { routing = null; });
+}
+
 setInterval(() => {
   tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message));
+  runRoutes();
   checkUsageGate().catch((e) => log('usage gate failed:', e.message));
   try { checkMachine(); } catch (e) { log('machine check failed:', e.message); }
   owner.check().then(presenceChanged, (e) => log('presence check failed:', e.message)).finally(() => {
@@ -853,7 +868,7 @@ async function hubData(req) {
     ...hubView({
       now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
       code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
-      remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])),
+      remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }),
     }),
     prompts: pending().map(shown),
     remembered: rememberedFor(null),

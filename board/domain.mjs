@@ -20,7 +20,7 @@ import { cardPRs, hasPR, leastReady, prKeyOf, prURL } from '../shared/card-prs.m
 import vm from 'node:vm';
 import { checkWords, parseCheck } from '../shared/owner-check.mjs';
 import { buildScriptOf } from './build-script.mjs';
-import { HUB, hubLineOf } from './hub-lines.mjs';
+import { HUB, hubLineOf, hubText } from './hub-lines.mjs';
 import { startTitleFault } from './commit-message.mjs';
 // The ask thread's line that says its card merged into another (hub-lines.mjs, store.mjs relateAsk).
 const MERGED_LINE = 'card-merged';
@@ -881,6 +881,15 @@ const numbered = (asked, q) => `Question ${numberOf(asked, q.id)} · ${q.questio
 const REOPENED = 'question reopened';
 // A Grill or Prototype request: bare (the request line) or carrying the owner's text, files or question (a message with
 // its status); a thread message has its button's label as its status (intentLabel).
+// docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: a routed ask's status line, at its
+// routing time, just before the ask arrived, linked to the message it came from.
+const VIA_NAMES = { slack: 'Slack' };
+function routedLine(e) {
+  const r = e.data?.routed;
+  if (!r) return [];
+  const m = { ts: r.at, who: 'claude', kind: HUB, line: 'ask-routed', text: hubText('ask-routed', { via: VIA_NAMES[r.via] || r.via, reason: r.reason }) };
+  return [{ ...m, ...hubLineOf(m), html: null, link: r.link || null, via: null }];
+}
 // A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
 // A link's line (store.mjs postLinkLines) names the other card by its stored key; its words are the command's, then that
@@ -988,7 +997,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     }),
     ...(index.reopens.get(`item:${key}`) || []).map((e) => ({ ts: e.ts, who: 'love', kind: e.kind, request: true, mark: REOPENED, text: `Question ${numberOf(asked, e.data.question)} was reopened`, ...byOf(e) })),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
-      .flatMap((e) => [{ ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
+      .flatMap((e) => [...routedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', ...commandLine('implement'), text: COMMANDS.implement }] : []),
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#selectedCard=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
