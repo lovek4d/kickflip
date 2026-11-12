@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
-import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
+import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
 
@@ -829,6 +829,14 @@ test('stopAgents signals only the agents whose process started when their sessio
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.deepEqual(sent.slice(2), [[1, 'SIGKILL'], [2, 'SIGKILL']]);
   assert.equal(stopAgents([{ pid: 9, at }], { starts: () => null, kill: () => assert.fail('ps gave no answer') }), 0);
+});
+
+// docs/adr/2026-11-12-2100-a-ps-with-no-answer-closes-no-planner.md
+test('an agent may run when ps gave no answer, and not when ps answered without its pid', () => {
+  const agent = { pid: 7, at: new Date().toISOString() };
+  assert.equal(agentMayRun(agent, { starts: () => null }), true);
+  assert.equal(agentMayRun(agent, { starts: () => new Map() }), false);
+  assert.equal(agentMayRun(agent, { starts: () => new Map([[7, Date.parse(agent.at) - 5000]]) }), true);
 });
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md

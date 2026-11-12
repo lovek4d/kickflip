@@ -253,6 +253,12 @@ export function launchedAgents(agents, { starts = processStarts } = {}) {
   });
 }
 
+// Whether the agent launchBuilder started may still run: false only when ps answered and its process isn't listed.
+// With no answer from ps its liveness is unknown, so it may run (a closing check never reads a busy Mac as a dead agent).
+export function agentMayRun(agent, { starts = processStarts } = {}) {
+  return starts([agent.pid]) === null || launchedAgents([agent], { starts }).length > 0;
+}
+
 // Stops the agents launchBuilder started (launchedAgents): SIGTERM to each agent's process group (it leads its own, so
 // its children go too), SIGKILL after killAfter ms. → how many it signalled.
 export function stopAgents(agents, { starts = processStarts, kill = (pid, sig) => process.kill(-pid, sig), killAfter = 5000 } = {}) {
