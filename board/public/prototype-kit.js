@@ -198,6 +198,8 @@
     if (run.state !== 'failed') return '<p class="kit-missing">Starting the prototype site…</p>';
     return `<div class="kit-missing kit-served-failed"><p>The prototype site didn’t start.</p><pre>${esc((run.lines || []).join('\n'))}</pre><button type="button" data-kit-served="retry">Try again</button></div>`;
   }
+  const KEEP_UP_MS = 5 * 60_000;
+  const STOPPED = 'The prototype site had stopped. Starting it again...';
   function served(data) {
     const site = globalThis.ClaudeSite;
     const stage = document.getElementById('stage');
@@ -206,8 +208,14 @@
     // The run the frame shows: its since from api/try/prototypes.
     let framed = null;
     let origin = null;
-    let started = false;
+    // Set once the stage says the site had stopped, until it shows a run again.
+    let stopped = false;
     const serve = () => fetch(site.url('api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'prototypes' }) }).catch(() => {});
+    const visible = () => document.visibilityState === 'visible';
+    // The page's ask keeps the site up (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md):
+    // on load, every 5 minutes while visible, and on becoming visible again.
+    const keepUp = () => { if (visible()) serve(); wait(keepUp, KEEP_UP_MS); };
+    nativeAdd.call(document, 'visibilitychange', () => { if (visible()) serve(); });
     const post = () => frame.contentWindow.postMessage({ kickflip: 'prototype', ...at }, origin);
     // Polls the serve while the page is open (docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md):
     // a ready run the frame doesn't show, the first or a new one after a restart or a base move, gets a new frame at the
@@ -224,6 +232,7 @@
           const src = servedSrc({ https: run.https, path: data.served, ...at });
           origin = new URL(src).origin;
           framed = run.since ?? null;
+          stopped = false;
           frame = document.createElement('iframe');
           frame.className = 'kit-served';
           frame.title = data.title;
@@ -236,9 +245,9 @@
         return;
       }
       frame = null;
-      stage.innerHTML = servedStatus(run);
-      // A serve that's down is started once from here; a failed one waits for Try again.
-      if (!run.state && !started) { started = true; serve(); }
+      // A site the page had framed that is now down had stopped: say so and ask again at once. A failed serve waits for Try again.
+      if (!run.state && framed !== null) { framed = null; stopped = true; serve(); }
+      stage.innerHTML = stopped && !run.state ? `<p class="kit-missing">${STOPPED}</p>` : servedStatus(run);
       if (run.state !== 'failed') wait(poll, 1500);
     }
     nativeAdd.call(stage, 'click', (e) => {
@@ -254,6 +263,8 @@
       if (frame) post();
     } });
     poll();
+    serve();
+    wait(keepUp, KEEP_UP_MS);
     return sw;
   }
 

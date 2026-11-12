@@ -142,13 +142,14 @@ test("the served viewer frames the page at the base worktree's port with the tak
 // docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md
 test('the served viewer keeps polling while the frame shows: Starting while the serve is down, and a new frame at the same take and state once a new run is ready', async () => {
   const timers = [];
+  const keeps = [];
   const answers = [];
   const posts = [];
   const stage = Object.assign(new EventTarget(), { innerHTML: '', frame: null, replaceChildren(el) { this.frame = el; this.innerHTML = ''; } });
   let switcher;
   const context = vm.createContext({
-    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/orch/prototype-look.html' }, URL, EventTarget, clearTimeout, setInterval, clearInterval,
-    setTimeout: (fn) => timers.push(fn),
+    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/orch/prototype-look.html' }, URL, EventTarget, Event, clearTimeout, setInterval, clearInterval,
+    setTimeout: (fn, ms) => (ms === 5 * 60_000 ? keeps : timers).push(fn),
     fetch: async (url, opts) => {
       if (opts?.method === 'POST') { posts.push(url); return {}; }
       const next = answers.shift();
@@ -159,6 +160,7 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
     PrototypeSwitcher: { mount(opts) { switcher = opts; opts.render(opts.initial, 'busy'); return {}; } },
     document: Object.assign(new EventTarget(), {
       documentElement: { dataset: {} },
+      visibilityState: 'visible',
       getElementById: (id) => (id === 'stage' ? stage : null),
       createElement: () => Object.assign(new EventTarget(), { contentWindow: { postMessage() {} } }),
     }),
@@ -177,7 +179,21 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
   context.PrototypeKit.start({ served: '/proto/look', title: 'Look', takes: [{ key: 'A', label: 'A' }, { key: 'B', label: 'B' }], states: [{ key: 'busy', label: 'Busy' }] });
   await settle();
   assert.match(stage.innerHTML, /Starting the prototype site/);
+  assert.equal(posts.length, 1, 'the page asks on load');
   assert.equal(await step({ state: 'ready', https: 8500, since: 's1' }), 'https://mac.ts.net:8500/proto/look?variant=A&state=busy');
+  assert.equal(posts.length, 1, 'a poll that finds the site up asks nothing');
+  context.document.visibilityState = 'hidden';
+  keeps.shift()();
+  assert.equal(posts.length, 1, 'a hidden page does not ask');
+  context.document.visibilityState = 'visible';
+  keeps.shift()();
+  assert.equal(posts.length, 2, 'a visible page asks every 5 minutes');
+  context.document.visibilityState = 'hidden';
+  context.document.dispatchEvent(new context.Event('visibilitychange'));
+  assert.equal(posts.length, 2);
+  context.document.visibilityState = 'visible';
+  context.document.dispatchEvent(new context.Event('visibilitychange'));
+  assert.equal(posts.length, 3, 'a page that becomes visible asks');
   const first = stage.frame;
   switcher.render('B', 'busy');
   assert.equal(await step({ state: 'ready', https: 8500, since: 's1' }), first.src);
@@ -185,7 +201,10 @@ test('the served viewer keeps polling while the frame shows: Starting while the 
   assert.equal(await step(new Error('the board is out of reach')), first.src);
   assert.equal(stage.frame, first, 'a poll that fails keeps the frame');
   stage.frame = null;
-  assert.match(await step({ state: null }), /Starting the prototype site/);
+  assert.equal(await step({ state: null }), '<p class="kit-missing">The prototype site had stopped. Starting it again...</p>');
+  assert.equal(posts.length, 4, 'a framed site found down is asked for at once');
+  assert.match(await step({ state: null }), /had stopped/);
+  assert.equal(posts.length, 4, 'once');
   assert.match(await step({ state: 'running' }), /Starting the prototype site/);
   assert.equal(await step({ state: 'ready', https: 8500, since: 's2' }), 'https://mac.ts.net:8500/proto/look?variant=B&state=busy');
   const second = stage.frame;

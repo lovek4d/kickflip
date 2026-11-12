@@ -33,6 +33,8 @@ export const isTryPort = (port) => /^\d+$/.test(String(port)) && Number(port) >=
 // reads Serve failed (docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md).
 const RESTARTS = 3;
 const RESTART_WINDOW_MS = 10 * 60_000;
+// The base prototype serve stays up this long after a viewer last asked for it or loaded through it, with no open served round.
+const IDLE_MS = 30 * 60_000;
 export const BUSY_ASK = 'The host is busy, start this serve anyway?';
 // What tailscale serve adds to say who a request is from; the try relay drops them before the app.
 const IDENTITY_HEADERS = ['tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'x-forwarded-for'];
@@ -319,6 +321,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     run.relay = http.createServer(async (req, res) => {
       const verdict = await relayVerdict(req, run.board);
       if (verdict !== 'owner' && verdict !== 'shared') { refuse(req, res, verdict); return; }
+      run.visited = now();
       if (verdict === 'shared') {
         const open = { login: req.headers['tailscale-user-login'], res };
         shared.add(open);
@@ -472,7 +475,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
     setEntry(state, key, entry);
     const id = runKey(board, key);
-    const run = { child, board, key, worktree, sha, at: metadata.at, metadata, logFile, stopped: false, port: null, ready: false };
+    const run = { child, board, key, worktree, sha, at: metadata.at, metadata, logFile, stopped: false, port: null, ready: false, visited: now() };
     recordGroup(run);
     runs.set(id, run);
     lastHeads.set(id, sha);
@@ -668,7 +671,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     } finally { starting.delete(id); }
   }
   // auto: the tick's own start, which has checked the board's room for it.
-  async function start(input, { manifest = readManifest(), auto = false } = {}) {
+  async function start(input, { manifest = readManifest(), auto = false, moved = false } = {}) {
     await initialize(manifest);
     reserveMains(manifest);
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
@@ -683,6 +686,11 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     if (reason) throw new BuildError(reason, 409);
     const id = runKey(board, key);
     const current = runs.get(id);
+    // A viewer's ask on a ready prototype serve is a keep-alive: only the base moving restarts it (serveBase).
+    if (key === BASE_KEY && !moved && current?.ready && !current.stopped && !current.finished && !starting.has(id)) {
+      current.visited = now();
+      return { status: 'ready' };
+    }
     if (starting.has(id) || (current && !current.ready && !current.finished)) throw new BuildError(`A build is already running for ${key === 'main' ? 'main' : key === BASE_KEY ? 'the prototype site' : 'this card'}.`, 409);
     if (key === 'main') {
       const entry = stateOf(board).state.main;
@@ -732,7 +740,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const dir = baseWorktreeOf(board.route);
     return exists(dir) && fs.statSync(dir).isDirectory() ? fs.realpathSync(dir) : '';
   };
-  // Serves the base worktree while an open question links a served round, and stops it once none does; a failed serve
+  // Serves the base worktree while an open question links a served round or a viewer asked within IDLE_MS (a ready serve
+  // starts again from the page's next ask), and stops it once neither holds; a failed serve
   // waits for Try again (start with BASE_KEY) while a round stays open. A ready serve whose worktree moved to another
   // commit (prototype base) restarts on the same https port, so every open page reloads into the new tree whole
   // (docs/adr/2026-11-07-1231-a-base-move-restarts-the-prototype-serve-and-a-demo-hub-never-restarts-itself.md).
@@ -740,7 +749,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const { state } = stateOf(board);
     const id = runKey(board, BASE_KEY);
     const run = runs.get(id);
-    const open = (await servedRoundsOpen(board.dir)).length > 0 && baseWorktree(board);
+    const wanted = (await servedRoundsOpen(board.dir)).length > 0 || starting.has(id) || (run && now() - run.visited < IDLE_MS);
+    const open = wanted && baseWorktree(board);
     if (!open) {
       if (run) await stopRun(run);
       if (state.prototypes) { state.prototypes = null; persist(board); }
@@ -751,7 +761,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       if (head === state.prototypes?.sha) return;
       log(`try /${board.route} prototypes: the base moved to ${head.slice(0, 7)}; restarting its serve`);
     } else if (run || starting.has(id) || state.prototypes?.state === 'failed' || await waiting()) return;
-    try { await start({ route: board.route, key: BASE_KEY }, { manifest }); }
+    try { await start({ route: board.route, key: BASE_KEY }, { manifest, moved: true }); }
     catch (e) {
       if ([409, 503].includes(e.status)) return;
       state.prototypes = { state: 'failed' };

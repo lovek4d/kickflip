@@ -1498,6 +1498,7 @@ test("the board's base prototype worktree is served while an open question links
   await tick();
   await until(() => state().prototypes?.state === 'ready');
   round({ resolved: '2026-11-06T10:00:00Z' });
+  clock += 31 * 60_000;
   await tick();
   assert.ok(!state().prototypes);
   assert.equal(manager.lookup('orch', 'prototypes', { manifest }), null);
@@ -1580,4 +1581,33 @@ test('a stopped leftover whose port still answers posts a red fault on its card'
   write(path.join(site, 'data/try.json'), { kind: 'app', cards: {}, main: null, groups: [{ pgid: leftover.pid, key: 'w/A1', worktree, port: 4321 }] });
   await manager.initialize(manifest);
   assert.match(JSON.stringify(thread()), /Port 4321 still answers after the run was stopped/);
+});
+
+// docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md
+test("with no open question the base serve stays up for 30 minutes after a viewer's ask: an ask on a ready serve only stamps the visit, and a stale one lets it stop", async (t) => {
+  fakeRelays(t);
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  const base = path.join(home, '.claude', 'kickflip', 'worktrees', 'orch-prototypes');
+  git(repo, 'worktree', 'add', '--quiet', '--detach', base, 'main');
+  t.after(() => git(repo, 'worktree', 'remove', '--force', base));
+  setScript("console.log('port 32125'); setInterval(() => {}, 1000);", base);
+  write(path.join(site, 'data', 'owner.json'), { topics: [], items: [] });
+  write(path.join(site, 'data', 'prototypes.json'), { prototypes: [] });
+  await tick();
+  assert.ok(!state().prototypes);
+  await manager.start({ route: 'orch', key: 'prototypes' }, { manifest });
+  await until(() => state().prototypes?.state === 'ready');
+  const first = state().prototypes;
+  clock += 20 * 60_000;
+  await tick();
+  assert.equal(state().prototypes.since, first.since, 'a recent ask keeps it');
+  assert.deepEqual(await manager.start({ route: 'orch', key: 'prototypes' }, { manifest }), { status: 'ready' });
+  assert.equal(state().prototypes.since, first.since, 'an ask on a ready serve does not restart it');
+  clock += 20 * 60_000;
+  await tick();
+  assert.equal(state().prototypes.since, first.since, 'the ask moved the 30 minutes on');
+  clock += 11 * 60_000;
+  await tick();
+  assert.ok(!state().prototypes, 'a stale ask stops it');
+  assert.equal(manager.lookup('orch', 'prototypes', { manifest }), null);
 });
