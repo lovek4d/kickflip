@@ -76,7 +76,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
-          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, prototype_gate?}; topic is declared, item:<file>/<id> (an ask's
+          source?, context?, url?, urgent?, round_of?, reask_of?, ask?, suggested?, next_gate?, prototype_gate?}; topic is declared, item:<file>/<id> (an ask's
           questions go on its card's), wave:<slug> for a wave's triage, or file:<slug> for an item file's triage on
           a board over ~/.claude/waves. A question on a done card reopens it.
          A question on an item: topic whose card has a grill or prototype planner running is staged, not published,
@@ -101,12 +101,15 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          and printed as "replaced: <old id>". round_of names the question on the same topic whose
          prototype-request this answers; the question needs a prototype url, takes the next round
          number, and resolves that one, noting "Followed by prototype round N".
-         prototype_gate: true marks a grill's closing "Prototype round first?" question (options yes, no, on a card's
-         topic): the owner's yes moves the card to prototyping and starts its prototype planner, a no stages it
-         once no question on it is left open, the board doing both with no orchestrator step. The answer stays
-         on the card as its gates.prototype, so a regrill or a split child never asks it again: question add
-         refuses a prototype_gate whose answer the card keeps, and a yes is spent once the card
-         moves to prototyping on it.
+         next_gate: true marks a grill's closing "What next, given these answers?" question (options implement,
+         prototype, discuss, in that order, on a card's topic). Once no question on the card is left open the
+         board, with no orchestrator step, stages it on implement, moves it to prototyping and starts its
+         prototype planner on prototype, and returns it to discussing on discuss. Implement and prototype stay on
+         the card as its gates.prototype, no or yes, so a regrill or a split child never asks it again: question
+         add refuses a next_gate whose answer the card keeps, and a yes is spent once the card moves to
+         prototyping on it. Discuss is spent once the card moves, so the next grill asks again.
+         prototype_gate: true marks the older closing "Prototype round first?" question (options yes, no): yes
+         acts as prototype and no as implement. A question sets one of the two.
          reask_of names a resolved question on the same topic that the owner asked to ask again
          (reask-request): it resolves that one again, noting "Asked again as <new id>", printed as "resolved: <old id>".
          ask names a builder ask the session deferred on the item (builder defer): the question puts it to the

@@ -115,21 +115,25 @@ test("a headless planner's brief names its card and its notes so far, spells its
   }
   assert.match(proto, /write no output code in .*?\/r\/shop itself/);
   assert.ok(grill.includes('write no output code there'));
-  // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md: every grill ends with the gate.
-  assert.match(grill, /End every grill with one more question, "Prototype round first\?", whose options are yes and no, with "prototype_gate": true/);
-  assert.ok(grill.includes('Recommend yes when the card changes the hub\'s or a board\'s UI, no otherwise') && grill.includes('Ask it even when it is your only question'));
-  assert.ok(!proto.includes('prototype_gate'));
+  // docs/adr/2026-11-12-1400-a-grill-ends-asking-to-implement-prototype-or-discuss.md: every grill ends with one
+  // closing question, Implement, Prototype first or Keep discussing, which the board acts on.
+  assert.ok(grill.includes('End every grill with one more question, "What next, given these answers?", whose options are implement (label "Implement"), prototype ("Prototype first") and discuss ("Keep discussing"), in that order, with "next_gate": true in its `question add --file` entry'));
+  assert.ok(grill.includes('the board moves the card to staging on implement, to prototyping on prototype, or back to discussing on discuss'));
+  assert.ok(grill.includes("Recommend implement when your questions settle the card and it doesn't change the hub's or a board's UI, prototype when it does") && grill.includes('Ask it even when it is your only question'));
+  assert.ok(!grill.includes('prototype_gate') && !grill.includes('Prototype round first?'));
+  assert.ok(!proto.includes('next_gate'));
   // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a card that keeps its prototype answer is never asked again.
   for (const [prototype, moves] of [['yes', 'to prototyping'], ['no', 'to staging'], ['ran', 'to staging']]) {
     const kept = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', prototype });
-    assert.ok(!kept.includes('prototype_gate') && !kept.includes('End every grill with one more question'), prototype);
-    assert.ok(kept.includes(`The card keeps the owner's answer to its prototype question, ${prototype}, so ask no "Prototype round first?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the card ${moves}.`), prototype);
+    assert.ok(!kept.includes('next_gate') && !kept.includes('End every grill with one more question'), prototype);
+    assert.ok(kept.includes(`The card keeps the owner's answer to its prototype question, ${prototype}, so ask no closing "What next, given these answers?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the card ${moves}.`), prototype);
   }
-  // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: the grill no longer asks about a ticket.
+  // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: the grill never asks about a ticket, and says so.
   assert.ok(!grill.includes('ticket_gate') && !grill.includes('Create a ticket') && !proto.includes('ticket_gate'));
+  assert.ok(grill.includes('Never ask whether to make a ticket: the board makes a card\'s ticket when it goes ready.'));
   // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a grill proposes a split as one question.
   assert.ok(grill.includes('separable parts') && grill.includes('"Split as proposed"') && grill.includes('"Keep as one card"'));
-  assert.ok(grill.includes('ahead of the prototype question'));
+  assert.ok(grill.includes('ahead of the closing question'));
   // docs/adr/2026-11-09-2200-splits-and-waves-follow-vertical-slices-with-stated-conflicts.md: the slicing comes from /to-tickets, the conflicts are named per card.
   assert.ok(grill.includes('~/.claude/skills/to-tickets/SKILL.md') && grill.includes('step 3, "Draft vertical slices"'));
   assert.ok(grill.includes('the earlier proposed cards it waits on, or none'));
@@ -137,7 +141,7 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.ok(!grill.includes('which cards build side by side'));
   assert.ok(!proto.includes('Split as proposed'));
   // A grill sets no ready itself: the gate's answer moves the card; the owner asking for prototypes ends it prototyping.
-  assert.ok(grill.includes(`end the card \`${b} item set w/A1 --phase prototyping\` instead and skip the prototype question`));
+  assert.ok(grill.includes(`end the card \`${b} item set w/A1 --phase prototyping\` instead and skip the closing question`));
   assert.ok(grill.includes('never set it ready yourself'));
   assert.ok(grill.includes('never leave a Next that asks the owner to mark it ready'));
   assert.ok(!proto.includes('--phase ready'));

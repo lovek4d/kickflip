@@ -40,7 +40,7 @@ function world(phase = 'grilling') {
 
 test('a prototype_gate question takes exactly yes and no, on a card', async () => {
   const { site } = world();
-  await assert.rejects(addQuestions(site, { ...gate, options: [{ id: 'no', label: 'No' }, { id: 'yes', label: 'Yes' }] }), /takes exactly the options yes and no/);
+  await assert.rejects(addQuestions(site, { ...gate, options: [{ id: 'no', label: 'No' }, { id: 'yes', label: 'Yes' }] }), /takes exactly the options yes, no, in that order/);
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), JSON.stringify({ topics: [{ id: 'general', title: 'General' }], items: [] }));
   await assert.rejects(addQuestions(site, { ...gate, topic: 'general' }), /goes on a card's topic/);
   await assert.rejects(addQuestions(site, { ...gate, prototype_gate: 'yes' }), /must be true or false/);

@@ -1618,7 +1618,7 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
   const topics = new Set((owner.topics || []).map((t) => t.id));
   for (const [i, q] of questions.entries()) {
     const name = `question ${q?.id ?? i + 1}`;
-    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested', 'prototype_gate'], name);
+    onlyKeys(q, ['id', 'topic', 'source', 'question', 'context', 'url', 'urgent', 'options', 'round_of', 'reask_of', 'ask', 'suggested', 'prototype_gate', 'next_gate'], name);
     if (taken.has(domId(q.id, `${name}.id`))) fail(`question id "${q.id}" is already used`);
     taken.add(q.id);
     text(q.topic, `${name}.topic`);
@@ -1637,7 +1637,8 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
     checkOptions(q.options, name);
-    for (const flag of Object.keys(GATES)) if (q[flag] !== undefined && checkGate(q[flag], q, `${name}.${flag}`)) await checkGateFact(site, q, flag, name);
+    if (q.prototype_gate && q.next_gate) fail(`${name} sets prototype_gate and next_gate; a grill asks one closing question, next_gate`);
+    for (const flag of Object.keys(GATES)) if (q[flag] !== undefined && checkGate(flag, q, `${name}.${flag}`)) await checkGateFact(site, q, flag, name);
     optional(q.suggested, (v) => checkSuggested(v, q.options, `${name}.suggested`));
     await checkPrototype(site, q, name);
     if (q.ask !== undefined) await checkAskQuestion(site, q, name);
@@ -1720,7 +1721,7 @@ export async function settleQuestion(site, id, note) {
   if (!key) return settleStale(site, id, said);
   if (!screening[key]) fail(`${id} waits for ${key}'s planner to finish`);
   const q = staged[key].find((x) => x.id === id);
-  if (q.prototype_gate) fail(`${id} is the card's prototype question, which is the owner's; question publish ${key} passes it on`);
+  if (q.prototype_gate || q.next_gate) fail(`${id} is the card's ${q.next_gate ? 'closing' : 'prototype'} question, which is the owner's; question publish ${key} passes it on`);
   const at = new Date().toISOString();
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...(owner.items || []), { ...q, asked_at: at, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at }] });
@@ -1801,42 +1802,52 @@ async function publishQuestions(site, owner, items, questions, lines) {
   return { file: ownerFile(site), lines: [...lines, ...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
 }
 
-// docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
-// prototype_gate: true marks a card's "Prototype round first?" question: options yes and no, on the card's own topic.
-// field names the flag. → the flag
+// docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md,
+// docs/adr/2026-11-12-1400-a-grill-ends-asking-to-implement-prototype-or-discuss.md
+// A gate flag set true goes on a card's own topic with exactly its gate's options, in order. field names the flag.
+// → whether the flag is set
 function checkGate(flag, q, field) {
-  bool(flag, field);
-  if (!flag) return false;
+  bool(q[flag], field);
+  if (!q[flag]) return false;
   if (!q.topic.startsWith('item:') || q.topic.startsWith('item:ask:')) fail(`${field} goes on a card's topic, item:<file>/<id>`);
-  if (q.options?.map((o) => o.id).join() !== 'yes,no') fail(`${field} takes exactly the options yes and no, in that order`);
+  const options = Object.keys(GATES[flag].keeps);
+  if (q.options?.map((o) => o.id).join() !== options.join()) fail(`${field} takes exactly the options ${options.join(', ')}, in that order`);
   return true;
 }
 // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md
-// A gate question's flag and the fact on the card it decides, gates.<kind>: the owner's yes or no, kept so no later
-// grill asks it again. A prototype yes becomes ran once the board moves the card to prototyping on it (moveOnAnswered).
-const GATES = { prototype_gate: 'prototype' };
+// A gate question's flag, the fact on the card it decides, gates.<kind>, and what each of its options keeps in gates:
+// the owner's answer, kept so no later grill asks it again. A prototype yes becomes ran once the board moves the card to
+// prototyping on it (moveOnAnswered). next_gate marks a grill's closing "What next, given these answers?": Implement
+// keeps prototype no and Prototype first keeps yes, as the older prototype_gate's no and yes do; Keep discussing keeps
+// gates.next discuss instead, spent once the board returns the card to discussing on it, so the next grill asks again.
+const GATES = {
+  prototype_gate: { kind: 'prototype', keeps: { yes: { prototype: 'yes' }, no: { prototype: 'no' } } },
+  next_gate: { kind: 'prototype', keeps: { implement: { prototype: 'no' }, prototype: { prototype: 'yes' }, discuss: { next: 'discuss' } } },
+};
 // A gate question asks only while its fact is unset.
 async function checkGateFact(site, q, flag, name) {
   const key = q.topic.slice(5);
   const { item } = await loadItem(site, key);
-  const kind = GATES[flag];
+  const { kind } = GATES[flag];
   if (item.gates?.[kind]) fail(`${name}.${flag}: ${key} already has its ${kind} answer, ${item.gates[kind]}`);
 }
-// Card key keeps value as its gate flag's fact, and its other questions of that gate resolve with note (resolveGate).
-async function keepGate(site, key, flag, value, note) {
+// Card key keeps what its gate flag's choice keeps (GATES), and its other questions of that gate's kind resolve with
+// note (resolveGate).
+async function keepGate(site, key, flag, choice, note) {
   const { source, itemFile, item } = await loadItem(site, key);
-  item.gates = { ...item.gates, [GATES[flag]]: value };
+  item.gates = { ...item.gates, ...GATES[flag].keeps[choice] };
   await writeJSON(source.file, itemFile);
-  await resolveGate(site, key, flag, note);
+  await resolveGate(site, key, GATES[flag].kind, note);
 }
-// A gate whose fact is set has no question: a published one resolves with note, as one the orchestrator closes does,
-// and a staged one is dropped. → whether a published one resolved.
-async function resolveGate(site, key, flag, note) {
+// A gate whose fact is set has no question: a published question of its kind resolves with note, as one the
+// orchestrator closes does, and a staged one is dropped. → whether a published one resolved.
+async function resolveGate(site, key, kind, note) {
+  const ofKind = (q) => Object.keys(GATES).some((f) => q[f] && GATES[f].kind === kind);
   const staged = await readJSON(stagedFile(site), {});
-  const left = (staged[key] || []).filter((q) => !q[flag]);
+  const left = (staged[key] || []).filter((q) => !ofKind(q));
   if (left.length !== (staged[key] || []).length) await writeJSON(stagedFile(site), left.length ? { ...staged, [key]: left } : withoutKey(staged, key));
   const { owner, asked } = await cardQuestions(site, key);
-  const open = asked.filter((q) => q[flag] && q.state === 'open').map((q) => q.id);
+  const open = asked.filter((q) => ofKind(q) && q.state === 'open').map((q) => q.id);
   if (open.length) await markResolved(site, owner, open, note);
   return open.length > 0;
 }
@@ -1853,14 +1864,15 @@ export async function settleAnswers(site, answers) {
   for (const a of answers) {
     const q = asked.get(String(a.id));
     const flag = Object.keys(GATES).find((f) => q?.[f]);
-    if (!flag || !['yes', 'no'].includes(a.choice)) continue;
-    const said = `Prototype round: ${a.choice}. The board moves the card on once every question is answered.`;
+    if (!flag || !(a.choice in GATES[flag].keeps)) continue;
+    const chose = flag === 'next_gate' ? `Next: ${q.options.find((o) => o.id === a.choice).label}` : `Prototype round: ${a.choice}`;
+    const said = `${chose}. The board moves the card on once every question is answered.`;
     await markResolved(site, await readJSON(ownerFile(site), { topics: [], items: [] }), [q.id], said);
     const key = q.topic.slice(5);
     const card = await loadItem(site, key).catch(() => null);
     if (!card) continue;
     await keepGate(site, key, flag, a.choice, said);
-    if (flag === 'prototype_gate' && a.choice === 'yes' && card.item.phase === 'grilling' && await hasOpenQuestion(site, key)) {
+    if (GATES[flag].keeps[a.choice].prototype === 'yes' && card.item.phase === 'grilling' && await hasOpenQuestion(site, key)) {
       await appendStatus(site, key, 'prototype-after');
     }
   }
@@ -1886,7 +1898,9 @@ export async function settleAnswers(site, answers) {
 
 // docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
 // A card moves on once none of its questions is open: a grilling card whose gates.prototype is yes to prototyping, with
-// a thread line, the yes then spent as ran (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md); a
+// a thread line, the yes then spent as ran (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md); a grilling
+// card whose gates.next is discuss back to discussing, the discuss spent
+// (docs/adr/2026-11-12-1400-a-grill-ends-asking-to-implement-prototype-or-discuss.md); a
 // prototyping or discussing card back to the conversation, discussing (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md);
 // any other stageable card to staging. The move to prototyping owes the orchestrator's prototype brief.
 // → 'prototyping', 'discussing', 'staging' or null when the card stays.
@@ -1903,6 +1917,13 @@ async function moveOnAnswered(site, key) {
     await appendStatus(site, key, 'prototype-round');
     return 'prototyping';
   }
+  if (item.phase === 'grilling' && item.gates?.next === 'discuss') {
+    const { source, itemFile, item: kept } = await loadItem(site, key);
+    spendNext(kept);
+    await writeJSON(source.file, itemFile);
+    await discuss(site, key);
+    return 'discussing';
+  }
   if (!(await stageable(site, key))) return null;
   if (['prototyping', 'discussing'].includes(item.phase)) {
     await discuss(site, key);
@@ -1910,6 +1931,15 @@ async function moveOnAnswered(site, key) {
   }
   await stage(site, key);
   return 'staging';
+}
+
+// Drops item's gates.next, the owner's Keep discussing, once a move has acted on it or overridden it; gates goes with
+// it when nothing else is kept.
+function spendNext(item) {
+  if (!item.gates?.next) return;
+  const { next, ...gates } = item.gates;
+  if (Object.keys(gates).length) item.gates = gates;
+  else delete item.gates;
 }
 
 // docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md
@@ -2066,13 +2096,15 @@ async function stageable(site, key) {
   if ((await readJSON(stagedFile(site), {}))[key]) return false;
   return !(await unpickedPrototype(site, key));
 }
-// Stages the card, keeping the time of a stage it is already in, with a "Marked as staging" status line when it newly stages.
+// Stages the card, keeping the time of a stage it is already in, with a "Marked as staging" status line when it newly
+// stages. A Keep discussing the stage overrides is spent (spendNext).
 async function stage(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
   if (item.phase === 'staging') return;
   Object.assign(item, { phase: 'staging', staged_at: new Date().toISOString() });
   delete item.unfiled;
   delete item.filed_held;
+  spendNext(item);
   await writeJSON(source.file, itemFile);
   await appendCommand(site, key, { command: 'staged' });
 }
@@ -2661,7 +2693,7 @@ async function checkNextDeps(site, key, item, next) {
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 // Ready means a builder can start from the card alone: it has a size, a notes file, and that file names the id of every
-// question on the card the owner answered, bar a prototype_gate answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+// question on the card the owner answered, bar a gate question (prototype_gate, next_gate) answered with no note (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
 const NOTES_COMMAND = (key) => `item notes ${key} --heading "<heading>" --file <draft.md>`;
 function checkSizeAndNotes(key, item) {
   const starts = 'a builder starts from it, so pass';
@@ -2671,7 +2703,7 @@ function checkSizeAndNotes(key, item) {
 async function checkNotesComplete(site, key, dir, item) {
   checkSizeAndNotes(key, item);
   const notes = await fs.readFile(await planPath(dir, item.plan), 'utf8');
-  const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id) && !(q.prototype_gate && !q.answers.at(-1).note)).map((q) => q.id);
+  const left = (await cardQuestions(site, key)).asked.filter((q) => q.answers.length && !notes.includes(q.id) && !((q.prototype_gate || q.next_gate) && !q.answers.at(-1).note)).map((q) => q.id);
   if (left.length) fail(`${key}'s notes leave out the answered question${left.length === 1 ? '' : 's'} ${left.join(', ')}; record each answer in its notes, naming its id, with ${NOTES_COMMAND(key)} before it is ready`);
 }
 
@@ -3563,9 +3595,10 @@ export const migrateStatuses = (site) => ticketWrite(site, async () => {
 });
 
 // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md
-// Each card not in Done with no gates takes them from its gate questions the owner answered yes or no, the newest
-// answer of each gate deciding; a prototype yes reads ran once its card is past grilling or its thread has the
-// prototype-round line after it. Run by the board server as it starts. → one line per item file changed.
+// Each card not in Done with no gates takes gates.prototype from its prototype_gate questions the owner answered yes
+// or no, the newest answer deciding; a yes reads ran once its card is past grilling or its thread has the
+// prototype-round line after it. A next_gate answer is always kept as it is given (keepGate), so it needs no backfill.
+// Run by the board server as it starts. → one line per item file changed.
 export const migrateGates = (site) => ticketWrite(site, async () => {
   const { asked } = await topicQuestionsAll(site);
   const lines = [];
@@ -3575,17 +3608,12 @@ export const migrateGates = (site) => ticketWrite(site, async () => {
     for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) {
       if (it.gates || it.lane === 'done') continue;
       const key = `${entry.slug}/${it.id}`;
-      const gates = {};
-      for (const [flag, kind] of Object.entries(GATES)) {
-        const last = asked.filter((q) => q.topic === `item:${key}` && q[flag]).flatMap((q) => q.answers).filter((a) => ['yes', 'no'].includes(a.choice))
-          .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
-        if (!last) continue;
-        const ran = kind === 'prototype' && last.choice === 'yes' && (it.phase !== 'grilling'
-          || (await readLines(threadFile(site, key))).some((l) => l.line === 'prototype-round' && String(l.ts) > String(last.ts)));
-        gates[kind] = ran ? 'ran' : last.choice;
-      }
-      if (!Object.keys(gates).length) continue;
-      it.gates = gates;
+      const last = asked.filter((q) => q.topic === `item:${key}` && q.prototype_gate).flatMap((q) => q.answers).filter((a) => ['yes', 'no'].includes(a.choice))
+        .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+      if (!last) continue;
+      const ran = last.choice === 'yes' && (it.phase !== 'grilling'
+        || (await readLines(threadFile(site, key))).some((l) => l.line === 'prototype-round' && String(l.ts) > String(last.ts)));
+      it.gates = { prototype: ran ? 'ran' : last.choice };
       changed++;
     }
     if (!changed) continue;
