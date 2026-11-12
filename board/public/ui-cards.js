@@ -378,6 +378,8 @@
         <div class="send-actions"><button type="button" data-edit-cancel>Cancel</button>${sendButton('Save', 0)}</div></form>`;
   const cardHref = (key) => `#selectedCard=${encodeURIComponent(key)}`;
   const readsAt = (e) => `data-dismiss-new="${esc(e.key)}" data-at="${esc(e.at)}"`;
+  // A New entry's footer opens with its time, as a thread message's does (ui-threads.js msgFooter), then the state words.
+  const newTime = (iso) => `<span class="new-time">${esc(globalThis.BoardUI.time(iso))}</span>`;
   function newEntry(e, edit) {
     const done = e.made || e.into;
     const actions = done ? `<button type="button" class="ghost icon new-dismiss" ${readsAt(e)} aria-label="Dismiss" title="Dismiss">${globalThis.BoardUI.DISMISS}</button>`
@@ -386,7 +388,7 @@
       : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b></a>`
       : askLine(e.ask);
     const body = edit ? editForm(e.id, edit.text) : `<div class="new-msg">${esc(e.text)}</div>${globalThis.BoardUI.attachments(e.files)}`;
-    return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${line}</div></div>`;
+    return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${[newTime(e.sent), line].filter(Boolean).join(' · ')}</div></div>`;
   }
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
   // A hub Routed row (hub/router.mjs routedRows), drawn as a New entry with no actions: a blue link to the card it
@@ -399,8 +401,8 @@
     const line = r.waiting ? PICKUP_WAIT
       : `<a class="new-link" href="${esc(to.href)}">${words} <b>/${esc(to.route)}${to.ref ? ` ${esc(to.ref)}` : ''}</b>${to.title ? ` · ${esc(to.title)}` : ''}</a>`;
     const why = r.waiting ? '' : r.moved ? ` — was routed to /${r.to.route}: ${r.reason}` : ` — ${r.reason}`;
-    return `<div class="new-entry" data-new="${esc(r.id)}"><div class="new-msg">${esc(r.text)}</div><div class="new-line sub${r.waiting ? '' : ' new-done'}">${line}</div>`
-      + `<div class="new-line sub new-why">${esc([r.by, VIA[r.via] || r.via, cardTime(r.at)].filter(Boolean).join(' · '))}${esc(why)}</div></div>`;
+    return `<div class="new-entry" data-new="${esc(r.id)}"><div class="new-msg">${esc(r.text)}</div><div class="new-line sub${r.waiting ? '' : ' new-done'}">${newTime(r.at)} · ${line}</div>`
+      + `<div class="new-line sub new-why">${esc([r.by, VIA[r.via] || r.via].filter(Boolean).join(' · '))}${esc(why)}</div></div>`;
   }
   // entries: newEntries, or {id, routed} for the hub's Routed rows; edits: app-asks.js's state.edits, by ask id. label
   // heads it, New on a board; empty is what an empty strip says, which a board's never draws.

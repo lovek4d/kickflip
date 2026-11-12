@@ -1560,8 +1560,10 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   // orchestrator picks the task up, then the orange "processing...".
   assert.match(strip([ask({ state: 'waiting' })]), /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div>/);
   assert.match(strip([ask({ state: 'waiting' })]), /<span class="pickup-wait"><span class="working-dot" aria-hidden="true"><\/span>waiting…<\/span>/);
-  assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub">Edited · <span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing...<\/span><\/div>/);
+  assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing...<\/span><\/div>/);
   assert.match(entryText(strip([ask({ state: 'waiting', from: 'Orch' })])), /Moved from Orch · waiting…$/);
+  // docs/adr/2026-11-13-0000-a-new-strip-entry-shows-its-time-first.md: the footer starts with the ask's time, as a thread reply's does.
+  assert.ok(entryText(strip([ask({ state: 'waiting' })])).endsWith(`${ui.time(sent)} · waiting…`));
   assert.deepEqual([...strip([ask({ state: 'waiting' })]).matchAll(/data-(card-bump|edit|withdraw|dismiss-new)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['edit', 'a1'], ['withdraw', 'a1']]);
   // Ingested: a line to the card it became or was added to, and Dismiss, which carries the card's key and the ingest's time.
   const made = { kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', title: 'fix: <header>', fromAsk: 'a1', created: sent, ingested: { at: ago(0.5), text: 'Fix it' } };
@@ -1595,7 +1597,10 @@ test("the hub's Routed section is the New strip under its own head: each row lin
     ['/shop/#selectedCard=items%2FT-5', 'Added to /shop T-5 · Checkout 500s'],
   ]);
   const whys = [...html.matchAll(/<div class="new-line sub new-why">(.*?)<\/div>/g)].map((m) => text(m[1]));
-  assert.deepEqual(whys.map((w) => w.replace(ui.cardTime(at), 'TIME')), ['Quinn · Slack · TIME', 'Maya · Slack · TIME — checkout is the shop', 'Sam · Slack · TIME — was routed to /shop: nearest board', 'Sam · Slack · TIME — same work']);
+  assert.deepEqual(whys, ['Quinn · Slack', 'Maya · Slack — checkout is the shop', 'Sam · Slack — was routed to /shop: nearest board', 'Sam · Slack — same work']);
+  const firsts = [...html.matchAll(/<div class="new-line sub[^"]*">(<span class="new-time">.*?)<\/div>/g)].map((m) => text(m[1]));
+  assert.equal(firsts.length, 4, 'every row opens its first line with its time');
+  assert.ok(firsts.every((f) => f.startsWith(`${ui.time(at)} · `)));
   assert.match(html, /pickup-wait/, 'a queued request reads waiting…');
   assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw|new-dismiss/);
   assert.match(ui.newStrip([], new Map(), { label: 'Routed', empty: 'Nothing routed yet.' }), /<span class="count">0<\/span>[^]*<div class="new-entry new-empty">Nothing routed yet\.<\/div>/);
