@@ -328,7 +328,7 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { BUILD_REFUSED, PAUSE_CLEARS, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
-import { startTitleFault } from './commit-message.mjs';
+import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
@@ -1544,8 +1544,9 @@ async function runAuto() {
   for (const key of retitle) {
     const card = items.find((i) => i.key === key);
     const why = startTitleFault(key, card.title);
-    if (card.refusal === hubText(BUILD_REFUSED, { why })) continue;
-    await appendStatus(here, key, BUILD_REFUSED, { why });
+    const refusal = { why, brief: startTitleBrief(card.title) };
+    if (card.refusal === hubText(BUILD_REFUSED, refusal)) continue;
+    await appendStatus(here, key, BUILD_REFUSED, refusal);
     logCall({ call: 'pull', key, result: 'refused', reason: why, inputs: { title: card.title } });
     dataVersion++;
   }

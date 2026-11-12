@@ -48,6 +48,20 @@ test("builder start refuses a build of a card whose title isn't a Conventional s
   assert.equal(items()[0].lane, 'progress');
 });
 
+// A title builder start would refuse is caught when the orchestrator readies the card, not when the pull fails.
+test("item set --phase ready refuses a card whose title builder start would refuse, and takes a --title that fixes it in the same call", () => {
+  write(at('waves', 'w', 'a1.md'), '# A1\n');
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', plan: 'a1.md', size: 'small', phase: 'ready' }, { id: 'A2', title: 'ask(board): why?', plan: 'a1.md', size: 'small', phase: 'ready' }] });
+  const ready = (key, ...more) => board('item', 'set', key, '--site', 'orch', '--phase', 'ready', ...more);
+  assert.deepEqual(ready('w/A1'), { code: 1, out: '',
+    err: `w/A1's title "One" ${shape}; retitle it with item set w/A1 --title "<type>(<scope>): <summary>" before it goes into In Progress\n` });
+  assert.match(ready('w/A2').err, /^w\/A2's title "ask\(board\): why\?" is an ask, which is answered, not built; retitle it/);
+  assert.deepEqual(items().map((i) => i.title), ['One', 'ask(board): why?']);
+  const r = ready('w/A1', '--title', 'feat(board): one');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(items()[0].title, 'feat(board): one');
+});
+
 test("the pull leaves a ready card whose title isn't a Conventional subject, listing it to retitle", () => {
   const built = (title) => buildBoard({ fromWaves: false, events: [], files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title, phase: 'ready' }] } }] });
   assert.deepEqual(['pullable', 'pulls', 'retitle'].map((f) => pullOf(built('Fix the header').items)[f]), [[], [], ['w/T-1']]);

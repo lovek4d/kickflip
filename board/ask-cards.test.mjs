@@ -172,7 +172,7 @@ test('a Quick build ask\'s New card goes ready from new on item set --phase read
   const notes = path.join(home, 'n.md');
   fs.writeFileSync(notes, 'Pin the header.');
   assert.equal(board('item', 'notes', 'audit/T-1', '--heading', 'Scope', '--file', notes, '--site', 'audit').code, 0);
-  const r = board('item', 'set', 'audit/T-1', '--phase', 'ready', '--size', 'small', '--site', 'audit');
+  const r = board('item', 'set', 'audit/T-1', '--phase', 'ready', '--size', 'small', '--title', 'fix(board): pin the header', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'ready');
   // item add --from-ask on an ask that already has its card points at the card.
@@ -187,7 +187,7 @@ test('every sorting command refuses an ask edited after its working mark, printi
   const commands = [
     ['reply on its card', (key) => ['reply', key, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
     ['reply on its ask', (key, id) => ['reply', id, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
-    ['item set --phase ready', (key) => ['item', 'set', key, '--phase', 'ready', '--size', 'small'], (item) => item.phase === 'ready'],
+    ['item set --phase ready', (key) => ['item', 'set', key, '--phase', 'ready', '--size', 'small', '--title', 'fix(board): asks wait for done'], (item) => item.phase === 'ready'],
     ['item set --phase grilling', (key) => ['item', 'set', key, '--phase', 'grilling'], (item) => item.phase === 'grilling'],
     ['item set --phase prototyping', (key) => ['item', 'set', key, '--phase', 'prototyping'], (item) => item.phase === 'prototyping'],
     ['item set --title', (key) => ['item', 'set', key, '--title', 'fix(board): header jumps'], (item) => item.title === 'fix(board): header jumps'],

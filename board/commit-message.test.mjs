@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cardTitleFault, releaseMessage, releaseVersion, squashBody, squashMessage, standardWords, startTitleFault, subjectFault, TYPES } from './commit-message.mjs';
+import { cardTitleFault, releaseMessage, releaseVersion, squashBody, squashMessage, standardWords, startTitleBrief, startTitleFault, subjectFault, TYPES } from './commit-message.mjs';
 
 test('the brief tells a builder to put Refs on the line directly above Co-Authored-By, no blank line between', () => {
   assert.match(standardWords('#7'), /"Refs: #7" on the line directly above Co-Authored-By, no blank line between$/);
@@ -52,6 +52,11 @@ test("a card goes into In Progress only with a Conventional subject for a title,
   assert.equal(startTitleFault('w/A1', 'feat(board): one'), null);
   assert.equal(startTitleFault('w/A1', 'One'), 'w/A1\'s title "One" isn\'t "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; retitle it with item set w/A1 --title "<type>(<scope>): <summary>" before it goes into In Progress');
   assert.match(startTitleFault('w/A1', 'ask(board): why?'), /^w\/A1's title "ask\(board\): why\?" is an ask, which is answered, not built; retitle it with item set w\/A1 --title/);
+  // The same refusal in a status line: its reason, with no title quoted.
+  assert.equal(startTitleBrief('feat(board): one'), null);
+  assert.equal(startTitleBrief('One'), "its title isn't <type>(<scope>): <summary>; retitle it");
+  assert.equal(startTitleBrief('ask(board): why?'), 'its title is an ask, which is answered, not built; retitle it');
+  assert.equal(startTitleBrief(`feat: ${'x'.repeat(95)}`), 'its title is 101 characters, over 100; retitle it');
 });
 
 // docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md

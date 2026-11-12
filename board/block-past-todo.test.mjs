@@ -81,7 +81,7 @@ test('a finishing dep unblocks a card In Review, waking the orchestrator', () =>
 // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md
 test('a finishing dep makes a ready Todo card wait on the orchestrator to re-check its notes, and --phase ready --text releases it', () => {
   write(at('waves', 'w', 'a1-notes.md'), 'Build it.\n');
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', phase: 'ready', size: 'small', plan: 'a1-notes.md', deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', plan: 'a1-notes.md', deps: ['ENG-1'] }, { id: 'ENG-1', title: 'Later', lane: 'progress' }] });
   assert.equal(onOrch('item', 'set', 'w/ENG-1', '--done', '--text', 'Done.').code, 0);
   assert.ok(events().some((e) => e.kind === 'card-unblocked' && e.data.key === 'w/A1'));
   assert.ok(itemOf().recheck_at, 'it waits for the re-check');
@@ -97,7 +97,7 @@ test('a finishing dep makes a ready Todo card wait on the orchestrator to re-che
 
 test("the re-check answers a stale question again with question settle, only on a card waiting on it", () => {
   write(at('waves', 'w', 'a1-notes.md'), 'Build it.\n');
-  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', phase: 'ready', size: 'small', plan: 'a1-notes.md', recheck_at: now() }, { id: 'ENG-1', title: 'Later', lane: 'done' }] });
+  write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', plan: 'a1-notes.md', recheck_at: now() }, { id: 'ENG-1', title: 'Later', lane: 'done' }] });
   const asked = { id: 'q1', topic: 'item:w/A1', question: 'Which API?', asked_at: '2026-11-08T10:00:00Z', resolved: "Recorded in the card's notes", resolved_at: '2026-11-08T11:00:00Z' };
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [asked, { ...asked, id: 'q2', topic: 'item:w/ENG-1' }] });
   const settled = onOrch('question', 'settle', 'q1', '--note', 'ENG-1 landed the v2 API: use it.');

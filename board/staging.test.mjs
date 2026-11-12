@@ -54,6 +54,19 @@ test("staging to ready needs the orchestrator's judgment as --text, which goes i
   assert.match(board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'x', '--text', 'y').err, /--text goes with --from-ask, --done, or --phase ready on a staging card/);
 });
 
+// The readied line is "Marked as ready · <--text>", a status line: a --text too long for it is refused, never cut.
+test('staging to ready refuses a --text the readied line can\'t hold whole, naming the limit and the length, and changes nothing', () => {
+  write(at('waves', 'w', 'a1.md'), '# A1\n');
+  setState({ plan: 'a1.md', phase: 'staging', staged_at: '2026-11-06T10:00:00.000Z', size: 'small' });
+  const set = (said) => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--text', said);
+  const room = 100 - 'Marked as ready · '.length;
+  assert.deepEqual(set('x'.repeat(room + 1)), { code: 1, out: '', err: `--text runs to ${room + 1} characters, past ${room}: it is the status line "Marked as ready · <text>", which holds 100; rewrite it to fit\n` });
+  assert.deepEqual(set('Checked.\nAnd more.'), { code: 1, out: '', err: '--text is the status line "Marked as ready · <text>", one line; rewrite it as one\n' });
+  assert.deepEqual([item().phase, fs.readFileSync(at('waves', 'w', 'a1.md'), 'utf8')], ['staging', '# A1\n']);
+  assert.equal(set('x'.repeat(room)).code, 0);
+  assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, `Marked as ready · ${'x'.repeat(room)}`);
+});
+
 test('item add without --from-ask files a card grilling or prototyping, never ready', () => {
   const r = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--phase', 'ready', '--size', 'small');
   assert.deepEqual(r, { code: 1, out: '', err: "item add files a card discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
@@ -97,7 +110,7 @@ test('item set --from-ask files a Quick build ask ready, from any phase, with it
     { id: 'ei', ts: '2026-11-06T10:02:00Z', kind: 'item-message', data: { key: 'ask:eb', text: '', intent: 'build' } },
     { id: 'ep', ts: '2026-11-06T10:03:00Z', kind: 'ask', data: { text: 'Fix the sidebar' } });
   const file = (id, ask, phase) => board('item', 'set', `w/${id}`, '--site', 'orch', '--from-ask', ask, '--text', 'Filed.', '--phase', phase, '--size', 'small');
-  write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'Quick', plan: 'a1.md' }, { id: 'A2', title: 'Implement on New', plan: 'a1.md', phase: 'grilling' }, { id: 'A3', title: 'Plain', plan: 'a1.md' }] });
+  write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'fix: quick', plan: 'a1.md' }, { id: 'A2', title: 'fix: implement on new', plan: 'a1.md', phase: 'grilling' }, { id: 'A3', title: 'Plain', plan: 'a1.md' }] });
   assert.deepEqual(file('A1', 'eq', 'staging'), { code: 1, out: '', err: '--phase staging is set by the board, on an owner action; pass ready, discussing, grilling or prototyping\n' });
   const quick = file('A1', 'eq', 'ready');
   assert.equal(quick.code, 0, quick.err);

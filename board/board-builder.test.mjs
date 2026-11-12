@@ -440,10 +440,10 @@ test('builder progress and start --progress refuse a missing or unknown phase an
   const long = 'x'.repeat(81);
   for (const [args, err] of [
     [['builder', 'progress', 'w/A1', 'the plan', '--phase', 'waiting', '--site', 'orch'], /^--phase takes reading, building, testing, checking or landing, not "waiting"$/],
-    [['builder', 'progress', 'w/A1', long, '--phase', 'testing', '--site', 'orch'], /^builder progress is 81 characters; the cap is 80\. Say it shorter\.$/],
+    [['builder', 'progress', 'w/A1', long, '--phase', 'testing', '--site', 'orch'], /^builder progress runs to 81 characters, past 80\. Say it shorter\.$/],
     [['builder', 'start', 'w/A1', '--site', 'orch', '--progress', 'the plan'], /^--progress needs --phase reading, building, testing, checking or landing$/],
     [['builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading'], /^--phase goes with --progress "<detail>"$/],
-    [['builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading', '--progress', long], /^--progress is 81 characters; the cap is 80\. Say it shorter\.$/],
+    [['builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading', '--progress', long], /^--progress runs to 81 characters, past 80\. Say it shorter\.$/],
   ]) {
     const r = board(...args);
     assert.equal(r.code, 1, args.join(' '));

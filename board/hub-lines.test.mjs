@@ -4,20 +4,48 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HUB_LINES, BRIEF_LINE_LIMIT, MESSAGE_LIMIT, hubText, detailOf, fit } from './hub-lines.mjs';
+import { HUB_LINES, BRIEF_LINE_LIMIT, MESSAGE_LIMIT, hubText, detailOf, fit, lineFault } from './hub-lines.mjs';
+import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 
-// Every input a kind doesn't bound in its longest is as long as an error, a path or a title can be.
+// Every input a kind doesn't bound in its longest is as long as an error, a path or a title can be. unbounded, when
+// given, collects the inputs a kind read that its longest leaves unbounded.
 const UNBOUNDED = 'x'.repeat(5000);
-const longestInputs = (kind) => new Proxy(kind.longest || {}, { get: (t, k) => (k in t ? t[k] : UNBOUNDED), has: () => true });
+const longestInputs = (kind, unbounded = new Set()) => new Proxy(kind.longest || {}, { get: (t, k) => (k in t ? t[k] : (unbounded.add(k), UNBOUNDED)), has: () => true });
 
 test('every status line kind fits BRIEF_LINE_LIMIT at its longest inputs, so a long outcome is caught here and never at a write', () => {
   for (const [name, kind] of Object.entries(HUB_LINES)) {
-    const words = kind.text(longestInputs(kind));
-    assert.ok(words.length <= BRIEF_LINE_LIMIT, `${name} runs to ${words.length}: ${words}`);
+    const unbounded = new Set();
+    const words = kind.text(longestInputs(kind, unbounded));
+    assert.equal(lineFault(words), null, `${name}: ${words}`);
     assert.ok(words.length > 0, name);
     assert.equal(typeof kind.mark, 'string', name);
+    // Worded to fit: a kind whose inputs are all bounded reads whole, and only an unbounded one (an error, a path) is shortened.
+    if (!unbounded.size) assert.ok(!words.includes('…'), `${name} cuts its own words: ${words}`);
   }
   assert.equal(BRIEF_LINE_LIMIT, 100);
+});
+
+test('lineFault is the one length rule of a status line: words fit their room, BRIEF_LINE_LIMIT unless a lead takes part of it, else it names their length and the room', () => {
+  assert.equal(lineFault('x'.repeat(100)), null);
+  assert.equal(lineFault('x'.repeat(101)), 'runs to 101 characters, past 100');
+  assert.equal(lineFault('x'.repeat(80), 80), null);
+  assert.equal(lineFault('x'.repeat(81), 80), 'runs to 81 characters, past 80');
+});
+
+test('a build refused for its title reads the reason first and whole at any title, and its detail keeps the title and the retitle', () => {
+  const long = 'x'.repeat(5000);
+  for (const title of [long, `feat: ${long}`, `ask(board): ${long}?`, 'One']) {
+    const inputs = { why: startTitleFault('w/A1', title), brief: startTitleBrief(title) };
+    const words = hubText('build-refused', inputs);
+    assert.ok(!words.includes('…'), words);
+    assert.match(words, /^Couldn't start implementing: its title .+; retitle it$/);
+    assert.match(detailOf('build-refused', inputs), /; retitle it with item set w\/A1 --title "<type>\(<scope>\): <summary>" before it goes into In Progress$/);
+  }
+  const one = { why: startTitleFault('w/A1', 'One'), brief: startTitleBrief('One') };
+  assert.equal(hubText('build-refused', one), "Couldn't start implementing: its title isn't <type>(<scope>): <summary>; retitle it");
+  assert.equal(detailOf('build-refused', one), one.why);
+  // A refusal with no brief reads its reason, shortened only past the room.
+  assert.equal(hubText('build-refused', { why: "it's held" }), "Couldn't start implementing: it's held");
 });
 
 test('every mark a status line kind names has an icon in ui.js MARK_ICONS', () => {

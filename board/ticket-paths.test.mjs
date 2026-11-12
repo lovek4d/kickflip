@@ -346,7 +346,7 @@ test('a card going ready with no ticket gets one, with the board-made line; one 
   const ready = async (route, tickets, fields = {}) => {
     const b = board(route);
     write(path.join(b.site, 'data', 'T-1-notes.md'), '# Bump the pins\n\nLands code in package.json.\n');
-    write(path.join(b.site, 'data', 'items.json'), { title: route, repo: `o/${route}`, items: [{ id: 'T-1', title: 'Bump the pins', lane: 'todo', phase: 'staging', size: 'small', plan: 'T-1-notes.md', ...fields }] });
+    write(path.join(b.site, 'data', 'items.json'), { title: route, repo: `o/${route}`, items: [{ id: 'T-1', title: 'build: bump the pins', lane: 'todo', phase: 'staging', size: 'small', plan: 'T-1-notes.md', ...fields }] });
     if (tickets) await saveBoardSettings(b.site, { tickets });
     return b;
   };

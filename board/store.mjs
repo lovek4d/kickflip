@@ -8,7 +8,7 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
-import { cardTitleFault, cardTitleWords, squashBody, startTitleFault, subjectFault } from './commit-message.mjs';
+import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, waveItems, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
@@ -22,7 +22,7 @@ import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { merge3 } from './merge3.mjs';
-import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText, detailOf } from './hub-lines.mjs';
+import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText, detailOf, lineFault } from './hub-lines.mjs';
 import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
@@ -35,8 +35,15 @@ import { parseCheck, checkText } from '../shared/owner-check.mjs';
 import { RuleError, rulesOf, addRule, editRule, removeRule, applyRules, readHubRules, writeHubRules } from '../hub/rules.mjs';
 import { shareEntries, validLogin } from '../hub/share.mjs';
 
-export class BoardError extends Error {}
-const fail = (msg) => { throw new BoardError(msg); };
+// brief, when a refusal has one, is its reason in a status line's room, for the line a refusal the board meets writes
+// (hub-lines.mjs build-refused); the message is whole.
+export class BoardError extends Error {
+  constructor(message, brief) {
+    super(message);
+    this.brief = brief;
+  }
+}
+const fail = (msg, brief) => { throw new BoardError(msg, brief); };
 
 export const sitesDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'sites');
 export const wavesDir = () => path.join(os.homedir(), '.claude', 'waves');
@@ -1660,7 +1667,8 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
     else if (q.topic.startsWith('file:')) await triagedFile(site, q.topic.slice(5));
     else if (!topics.has(q.topic)) fail(`topic "${q.topic}" is not declared; add it with: topic add ${q.topic} --title <t>`);
     text(q.question, `${name}.question`);
-    if (q.question.length > BRIEF_LINE_LIMIT) fail(`${name}.question runs to ${q.question.length} characters, past ${BRIEF_LINE_LIMIT}; keep the question to one line and move the detail into context or the option details, which take markdown`);
+    const long = lineFault(q.question);
+    if (long) fail(`${name}.question ${long}; keep the question to one line and move the detail into context or the option details, which take markdown`);
     for (const k of ['source', 'context']) optional(q[k], (v) => text(v, `${name}.${k}`));
     optional(q.url, (v) => pageUrl(v, `${name}.url`));
     optional(q.urgent, (v) => bool(v, `${name}.urgent`));
@@ -2164,11 +2172,16 @@ async function markWaiting(site, key, on) {
   item.waits_on_owner = { on, at: new Date().toISOString() };
   await writeJSON(source.file, itemFile);
 }
-// The readied line's words: "Marked as ready" and the orchestrator's check, cut to one line.
-const READIED_CHECK_MAX = 100;
+// The readied line's words: "Marked as ready · " and the orchestrator's check whole, which item set refuses when the
+// line can't hold it (lineFault), for the orchestrator to rewrite; it is never cut.
+const READIED_LEAD = `${COMMANDS.readied} · `;
 function readiedText(said) {
-  const line = String(said).trim().split('\n')[0].trim();
-  return `${COMMANDS.readied} · ${line.length > READIED_CHECK_MAX ? `${line.slice(0, READIED_CHECK_MAX - 1).trimEnd()}…` : line}`;
+  const words = said.trim();
+  const shape = `the status line "${READIED_LEAD}<text>"`;
+  if (words.includes('\n')) fail(`--text is ${shape}, one line; rewrite it as one`);
+  const long = lineFault(words, BRIEF_LINE_LIMIT - READIED_LEAD.length);
+  if (long) fail(`--text ${long}: it is ${shape}, which holds ${BRIEF_LINE_LIMIT}; rewrite it to fit`);
+  return READIED_LEAD + words;
 }
 // A Reply on a ready Todo card: its words go into the notes, and it is staged again.
 export async function stageReply(site, key, message) {
@@ -2948,6 +2961,9 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
     const open = (await cardQuestions(site, key)).asked.filter((q) => q.state === 'open').map((q) => q.id);
     if (open.length) fail(`${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')}; it is ready once the owner has answered ${open.length === 1 ? 'it' : 'them'}`);
     await checkNotesComplete(site, key, source.dir, item);
+    // A title builder start would refuse is caught here, when the orchestrator readies the card, not at the pull.
+    const untitled = startTitleFault(key, item.title);
+    if (untitled) fail(untitled);
   }
   // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md: a staging card goes ready on
   // the orchestrator's judgment against the whole board, which --text records in its notes.
@@ -2959,6 +2975,8 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (rechecked && said === undefined) fail(`${key}'s block ended, so it builds once you re-check its notes against what landed: pass --text "<what you re-checked>", which goes into its notes`);
   if (phase === 'ready' && !judged && !rechecked && said !== undefined && fromAsk === undefined && !done) fail(`${key} reads ${item.phase || 'no phase'}, not staging, so there is no judgment for --text to record`);
   const readied = phase === 'ready' && item.phase !== 'ready';
+  // The orchestrator's check is the readied line's words; --from-ask's --text is a message of its own.
+  const readiedLine = judged ? readiedText(said) : undefined;
   if (phase !== undefined) {
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: sent from discussing, staging or
     // ready to a grill or prototype, the card owes the orchestrator's brief for its round, which the board launches the
@@ -3002,7 +3020,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (rechecked) await appendNotes(site, key, `Re-checked (orchestrator, ${noteStamp()})`, said);
-  if (readied) await appendCommand(site, key, { command: 'readied', ...(said === undefined ? {} : { text: readiedText(said) }) });
+  if (readied) await appendCommand(site, key, { command: 'readied', ...(readiedLine === undefined ? {} : { text: readiedLine }) });
   if (blocked) {
     const pausing = site && !(await isLanding(site, key)) && await requestPause(site, key, { cause: 'blocked', words: `blocked ${blocked}` });
     await appendStatus(site, key, pausing ? 'blocked-pausing' : 'blocked-stays', { blocked });
@@ -4096,11 +4114,12 @@ async function builderFile(site, key, dir, agent = 'main') {
 }
 const isoTime = (v, name) => (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v) && !Number.isNaN(Date.parse(v)) ? new Date(v).toISOString() : fail(`${name} takes an ISO time such as 2026-10-23T16:30:00-07:00`));
 
-// A progress line is a phase and a detail of at most DETAIL_CAP characters; a longer one is refused, never cut
+// A progress line is a phase and a detail of at most DETAIL_CAP characters, the room a status line leaves once its head
+// ("Codex checking: ") takes its part; a longer one is refused by lineFault, never cut
 // (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md). The phases are In Progress's
 // (domain.mjs PHASES).
 const BUILD_PHASES = PHASES.progress;
-const DETAIL_CAP = 80;
+const DETAIL_CAP = BRIEF_LINE_LIMIT - 20;
 const PHASE_LIST = 'reading, building, testing, checking or landing';
 // A planner's line takes no phase: it reads its kind's word, and a --phase passed for one is dropped
 // (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
@@ -4108,7 +4127,8 @@ function progressLine(site, phase, detail, name) {
   if (!site) fail(`${name} needs --site, since the line goes to the item's thread`);
   if (phase !== undefined && !BUILD_PHASES.includes(phase)) fail(`--phase takes ${PHASE_LIST}, not "${phase}"`);
   const words = text(detail, name);
-  if (words.length > DETAIL_CAP) fail(`${name} is ${words.length} characters; the cap is ${DETAIL_CAP}. Say it shorter.`);
+  const long = lineFault(words, DETAIL_CAP);
+  if (long) fail(`${name} ${long}. Say it shorter.`);
   return { phase, detail: words };
 }
 const forAgent = (line, planner, name) => {
@@ -4182,7 +4202,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
   const marking = build && !dir && !closed(was) && was.lane !== 'progress';
   // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a card goes into In Progress titled as its PR will be.
   const untitled = marking && startTitleFault(key, was.title);
-  if (untitled) fail(untitled);
+  if (untitled) fail(untitled, startTitleBrief(was.title));
   // A record with unverified judgment calls is a build not yet checked: a start on it resumes that build, a
   // dispatched one included (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
   const resumed = before && unverifiedCalls(before).length ? before : null;
@@ -4285,7 +4305,7 @@ export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
     }
   } catch (e) {
     if (!(e instanceof BoardError)) throw e;
-    await appendStatus(site, key, BUILD_REFUSED, { why: e.message });
+    await appendStatus(site, key, BUILD_REFUSED, { why: e.message, brief: e.brief });
     return null;
   }
 }

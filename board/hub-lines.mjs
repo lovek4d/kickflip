@@ -4,14 +4,21 @@
 // appendStatus writes them, and appendMessage the orchestrator's own words. A fault line is red, counts as unread and
 // freshens the queued push; every other one is quiet.
 //
-// A status line, like a question's text, holds at most BRIEF_LINE_LIMIT characters and a message at most MESSAGE_LIMIT; the store refuses longer
-// ones. Each kind's longest names the most its bounded inputs can hold (a planner kind, a card's ref); any other input,
-// such as an error or a title, is unbounded, so the words fit it into the line's room (fit). hub-lines.test.mjs runs
-// every kind at those lengths.
+// docs/adr/2026-11-12-2350-a-status-line-too-long-is-refused-at-write-through-one-length-rule.md
+// A status line, like a question's text, holds at most BRIEF_LINE_LIMIT characters and a message at most MESSAGE_LIMIT.
+// Every status line's words meet the one length rule, lineFault: words an author writes (item set --phase ready --text,
+// builder progress) are refused past it, never cut, and the words of each kind here are worded to fit it. Each kind's
+// longest names the most its bounded inputs can hold (a planner kind, a card's ref), and a kind with only bounded
+// inputs reads whole; any other input, such as an error or a path, is unbounded, so the words lead with the reason and
+// fit the input into the room the rest leaves (fit). hub-lines.test.mjs runs every kind at those lengths.
 import os from 'node:os';
 
 export const BRIEF_LINE_LIMIT = 100;
 export const MESSAGE_LIMIT = 2000;
+
+// The one length rule of a status line's words: → why words run past room, the part of BRIEF_LINE_LIMIT a line's fixed
+// lead leaves them ("Marked as ready · <text>"), naming their length and the room, or null when they fit.
+export const lineFault = (words, room = BRIEF_LINE_LIMIT) => (words.length > room ? `runs to ${words.length} characters, past ${room}` : null);
 
 // prefix, then as much of free as fits in the room suffix leaves. free's paths read from ~ in place of the home folder,
 // and when it is too long, by their last part alone (…/name); if it is still too long, it is cut with an ellipsis, which
@@ -82,7 +89,8 @@ export const HUB_LINES = {
   'lander-handoff': { mark: BUILD, text: ({ why }) => fit('Not merged yet: ', why, '. Its builder resumes to fix it and land it.') },
   'builder-resumed-to-land': { mark: BUILD, text: ({ session }) => fit('Builder resumed to land, session ', session) },
   // Faults.
-  'build-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why }) => fit("Couldn't start implementing: ", why) },
+  // brief, when the refusal has one, is its reason in a line's room (commit-message.mjs startTitleBrief); why is whole.
+  'build-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why, brief }) => fit("Couldn't start implementing: ", brief ?? why) },
   'planner-unasked': { mark: FAULT, fault: true, detail: ({ kind }) => kind, text: ({ kind }) => `Its ${kind} planner ended without posting a question, so it waits on the orchestrator.`, longest: { kind: 'prototype' } },
   'planner-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ kind, error }) => fit(`Couldn't start the ${kind}: `, error), longest: { kind: 'visual agent' } },
   'helper-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ name, error }) => fit(`Couldn't start helper ${name}: `, error), longest: { name: 'a-helper-name-of-24-char' } },
@@ -103,12 +111,13 @@ export const HUB_LINES = {
   'check-broken': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("The owner step's check can't run, so it stopped: ", error) },
   'run-failed': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ kind, code }) => `${kind} failed (exit ${code})`, longest: { kind: 'Serve', code: 255 } },
 };
-// A kind's words from its inputs, refused when the kind is unknown or the words run past BRIEF_LINE_LIMIT.
+// A kind's words from its inputs, refused when the kind is unknown or the words are empty or break lineFault.
 export function hubText(line, inputs = {}) {
   const kind = HUB_LINES[line];
   if (!kind) throw new Error(`no status line kind "${line}"`);
   const words = kind.text(inputs);
-  if (!words || words.length > BRIEF_LINE_LIMIT) throw new Error(`the "${line}" status line runs to ${words.length} characters, past ${BRIEF_LINE_LIMIT}: ${words}`);
+  const fault = words ? lineFault(words) : 'is empty';
+  if (fault) throw new Error(`the "${line}" status line ${fault}: ${words}`);
   return words;
 }
 // The whole error behind a fault line's short words, kept past BRIEF_LINE_LIMIT up to MESSAGE_LIMIT (its end, where a

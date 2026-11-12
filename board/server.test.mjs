@@ -239,7 +239,8 @@ test("a prototype request on a question keeps its note and pick on the event and
   const plain = { id: 'where', topic: 'item:t/R1', question: 'Where does search sit?', options: [{ id: 'A', label: 'Above' }, { id: 'B', label: 'Icon' }] };
   fs.writeFileSync(ownerFile, JSON.stringify({ items: [plain] }));
   const send = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const last = () => JSON.parse(fs.readFileSync(eventsFile, 'utf8').trim().split('\n').at(-1));
+  // The server's own orchestrator-waits pass appends meanwhile; the request's line is what this reads.
+  const last = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind !== 'orchestrator-waits').at(-1);
   try {
     const untouched = fs.readFileSync(ownerFile, 'utf8');
     await ok200(send({ kind: 'prototype-request', key: 't/R1' }));
@@ -588,7 +589,8 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
       assert.deepEqual([tapped.lane, tapped.storedLane, tapped.staging], ['todo', 'todo', true], id);
       assert.deepEqual([wave().items.find((i) => i.id === id).phase, 'unfiled' in wave().items.find((i) => i.id === id)], ['staging', false], id);
       assert.equal(fs.existsSync(path.join(site, 'data', 'agents', `${id}.json`)), false, id);
-      assert.deepEqual(thread(id).map((m) => [m.who, m.command, m.text]), [['claude', 'staged', 'Marked as staging']], id);
+      // B11's title keeps the pull off it, which posts its refusal once; the tap's own line is what this reads.
+      assert.deepEqual(thread(id).filter((m) => m.line !== 'build-refused').map((m) => [m.who, m.command, m.text]), [['claude', 'staged', 'Marked as staging']], id);
     }
     assert.deepEqual(log().slice(events).map((e) => e.kind).filter((k) => k !== 'orchestrator-waits'), []);
   } finally {

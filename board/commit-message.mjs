@@ -36,9 +36,17 @@ export const cardTitleWords = `"<type>(<scope>): <summary>" of at most ${SUBJECT
 
 // Why the card key titled title can't go into In Progress, naming the fix, or null when it can: its title is the
 // subject its PR takes, and an ask is answered, not built.
+const startFault = (title) => (isAsk(title) ? 'is an ask, which is answered, not built' : subjectFault(title));
 export function startTitleFault(key, title) {
-  const fault = isAsk(title) ? 'is an ask, which is answered, not built' : subjectFault(title);
+  const fault = startFault(title);
   return fault && `${key}'s title "${title}" ${fault}; retitle it with item set ${key} --title "<type>(<scope>): <summary>" before it goes into In Progress`;
+}
+// The same refusal in a status line's room (hub-lines.mjs build-refused): its reason first, with no title quoted and
+// the type list and the command left to startTitleFault, so the reason is never what gets cut. null when title builds.
+export function startTitleBrief(title) {
+  const fault = startFault(title);
+  if (!fault) return null;
+  return `its title ${isAsk(title) || SHAPE.test(title) ? fault : 'isn\'t <type>(<scope>): <summary>'}; retitle it`;
 }
 
 // A release commit's message: "chore(release): <version>", then the subjects landed since the last tag, oldest first,

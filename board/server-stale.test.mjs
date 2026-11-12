@@ -300,7 +300,7 @@ test('with auto implement on the board starts and launches the build of the top 
   // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a ready card whose title its PR can't take is refused
   // once, naming the retitle, and stays in Todo.
   assert.equal(thread('A8').length, 1);
-  assert.match(thread('A8')[0], /^Couldn't start implementing: t\/A8's title "An old sentence title" isn't "<type>/);
+  assert.equal(thread('A8')[0], "Couldn't start implementing: its title isn't <type>(<scope>): <summary>; retitle it");
   const [refusal] = fs.readFileSync(path.join(dataDir, 'threads', 't__A8.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.match(refusal.detail, /; retitle it with item set t\/A8 --title "<type>\(<scope>\): <summary>" before it goes into In Progress$/);
   assert.deepEqual(logged.filter((e) => e.key === 't/A8').map((e) => [e.call, e.result]), [['pull', 'refused']]);
