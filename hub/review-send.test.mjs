@@ -36,7 +36,9 @@ beforeEach(() => {
 });
 
 const label = (n) => `<https://github.com/o/r/pull/${n}|r#${n}>`;
-const pairs = (list) => list.map((m) => [m.channel, m.text, m.thread_ts ?? null]);
+const SIGN_OFF = '\n- :claude_kickflip:';
+// Each post's words, with its sign-off line taken off.
+const pairs = (list) => list.map((m) => [m.channel, m.text.endsWith(SIGN_OFF) ? m.text.slice(0, -SIGN_OFF.length) : m.text, m.thread_ts ?? null]);
 
 test("review posts go into one thread per board in each reviewer's DM each day, opened by a header line: only each PR's link, never a bump", async () => {
   const world = { ...slackWorld(), dms: { U1: 'D1', U2: 'D9' } };
@@ -190,7 +192,7 @@ test('the digest is owed to each reviewer until its header and every reply are p
   const first = await poll(monday, flaky);
   assert.ok(first.failed.includes('orch: digest to Ann: Slack: user_not_found'), first.failed.join('\n'));
   assert.ok(first.failed.includes('orch: digest to Bob: Slack: ratelimited'), first.failed.join('\n'));
-  assert.deepEqual(world.messages.filter((m) => m.text.includes('digest')).map((m) => [m.channel, m.text]), [['D2', 'Orch digest: 2 PRs pending your review']]);
+  assert.deepEqual(world.messages.filter((m) => m.text.includes('digest')).map((m) => [m.channel, m.text]), [['D2', 'Orch digest: 2 PRs pending your review\n- :claude_kickflip:']]);
 
   failReplies = false;
   world.dms.U1 = 'D1';

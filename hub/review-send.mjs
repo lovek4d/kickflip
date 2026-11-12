@@ -10,9 +10,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendEvent, listBoards } from './boards.mjs';
-import { savedSlack, slackStatus, refusalUnpushed, markRefusalPushed, missingScope, setHearing, hearingUnpushed, markHearingPushed, slackUserId } from './slack.mjs';
+import { savedSlack, slackStatus, refusalUnpushed, markRefusalPushed, missingScope, setHearing, hearingUnpushed, markHearingPushed, slackUserId, isSignedOff } from './slack.mjs';
 import { deliver } from './push.mjs';
-import { reviewDue, postLink, recordReaction, postDigest, openDayThread, heardThreads, markHeard, boardPosts, ANSWER_MARK } from '../board/store.mjs';
+import { reviewDue, postLink, recordReaction, postDigest, openDayThread, heardThreads, markHeard, boardPosts } from '../board/store.mjs';
 
 const refusedToken = (e) => e.status === 400 && e.message === 'Slack refused the token.';
 
@@ -75,7 +75,7 @@ async function pushRefusal(boards, now) {
 // Each new message in a day thread the hub still hears wakes its board with a slack-question event {reviewer, channel,
 // thread_ts, ts, from, answer}, holding where the message is and none of its words. Boards share one DM per reviewer,
 // so one history read per DM finds the threads with replies past what was heard, and only those are read. The board's
-// own posts and the orchestrator's 🤖 answers wake nobody; the owner's message expects an answer only when it names
+// own posts and the orchestrator's signed-off answers wake nobody; the owner's message expects an answer only when it names
 // @kickflip. → {sent, failed}
 async function hearBoards(boards, slack, now) {
   const sent = [];
@@ -107,7 +107,7 @@ async function hearBoards(boards, slack, now) {
           const ours = await boardPosts(board.dir);
           // Each message is marked heard once its event is in, so a failure part way wakes no message twice.
           for (const m of fresh) {
-            if (!m.subtype && !m.bot_id && !ours.has(m.ts) && !(m.user === owner && m.text?.startsWith(ANSWER_MARK))) {
+            if (!m.subtype && !m.bot_id && !ours.has(m.ts) && !(m.user === owner && isSignedOff(m.text))) {
               const from = m.user === owner ? 'owner' : 'reviewer';
               await appendEvent(board, 'slack-question', { reviewer: thread.reviewer, channel, thread_ts: thread.ts, ts: m.ts, from, answer: from === 'reviewer' || /@kickflip\b/i.test(m.text || '') });
               sent.push(`${board.route}: slack-question from ${from === 'owner' ? 'the owner' : thread.reviewer}`);

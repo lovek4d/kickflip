@@ -31,7 +31,7 @@ test('the client checks the token, opens a DM, posts and threads, and reacts onc
   assert.equal(await client.openDM('U2'), 'D2');
   const ts = await client.post({ channel: 'D2', text: 'https://github.com/o/r/pull/1' });
   await client.post({ channel: 'D2', text: 'reply', thread_ts: ts });
-  assert.deepEqual(world.messages.map((m) => [m.channel, m.text, m.thread_ts ?? null]), [['D2', 'https://github.com/o/r/pull/1', null], ['D2', 'reply', ts]]);
+  assert.deepEqual(world.messages.map((m) => [m.channel, m.text, m.thread_ts ?? null]), [['D2', 'https://github.com/o/r/pull/1\n- :claude_kickflip:', null], ['D2', 'reply\n- :claude_kickflip:', ts]]);
   for (let i = 0; i < 2; i++) await client.react({ channel: 'D2', ts, name: 'git_merged' });
   assert.deepEqual(world.reactions, [{ channel: 'D2', timestamp: ts, name: 'git_merged' }]);
   await assert.rejects(client.openDM('U404'), { message: 'Slack: user_not_found', status: 502 });
@@ -109,4 +109,16 @@ test('the hub saves the Slack token from its settings form and serves only the w
   assert.equal(fs.statSync(path.join(web, 'secrets.json')).mode & 0o777, 0o600);
   assert.equal((await form('remove=1')).status, 200);
   assert.equal(read(path.join(web, 'secrets.json')).slack, undefined);
+});
+
+test('every post ends with a “- :claude_kickflip:” line, or “- :robot_face:” when the workspace lacks the emoji or the token lacks emoji:read, and the emoji is looked up once per client', async () => {
+  for (const [name, change, line] of [['has it', {}, '- :claude_kickflip:'], ['no emoji', { noEmoji: true }, '- :robot_face:'], ['no scope', { emojiMissingScope: true }, '- :robot_face:']]) {
+    const world = Object.assign(slackWorld(), change);
+    const slack = fakeSlack(world);
+    const client = slackClient(world.token, { fetch: slack.fetch });
+    await client.post({ channel: 'D2', text: 'one' });
+    await client.post({ channel: 'D2', text: 'two\nlines' });
+    assert.deepEqual(world.messages.map((m) => m.text), [`one\n${line}`, `two\nlines\n${line}`], name);
+    assert.equal(slack.calls.filter((c) => c.method === 'emoji.list').length, 1, name);
+  }
 });

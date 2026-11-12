@@ -50,7 +50,7 @@ async function opened() {
 
 test("each new message in an open day thread wakes its board once with a slack-question event: a reviewer's always expects an answer, the owner's only when it names @kickflip, and the board's own posts wake nobody", async () => {
   const { world, slack, poll, day } = await opened();
-  assert.deepEqual(world.messages.map((m) => m.text), ['Orch reviews', `<@U1> <https://github.com/o/r/pull/1|r#1> ready for review: Fix limiter (+84/-12, 5 files)`]);
+  assert.deepEqual(world.messages.map((m) => m.text), ['Orch reviews\n- :claude_kickflip:', `<@U1> <https://github.com/o/r/pull/1|r#1> ready for review: Fix limiter (+84/-12, 5 files)\n- :claude_kickflip:`]);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
   assert.deepEqual(questions(), []);
 
@@ -67,7 +67,7 @@ test("each new message in an open day thread wakes its board once with a slack-q
   ]);
 
   // An answer the orchestrator posted, and a quiet poll, wake nobody; a quiet poll reads only the DM's history.
-  slack.say({ channel: 'D1', user: 'U0', text: '🤖 It keeps one noisy key from starving the rest.', thread_ts: day });
+  slack.say({ channel: 'D1', user: 'U0', text: 'It keeps one noisy key from starving the rest.\n- :claude_kickflip:', thread_ts: day });
   await poll();
   slack.calls.length = 0;
   await poll();
@@ -103,7 +103,7 @@ test("until the token can read DMs (im:history), sends go on, the owner is pushe
   assert.equal(readinessRows({ slack: slackStatus() })[0].note, undefined);
 });
 
-test('slack thread reads the thread, slack answer posts “🤖 ” and the answer in it, and slack task files the request grilling with the message in its thread', async () => {
+test('slack thread reads the thread, slack answer posts the answer signed off in it, and slack task files the request grilling with the message in its thread', async () => {
   const { world, slack, poll, day } = await opened();
   const asked = slack.say({ channel: 'D1', user: 'U1', text: 'Could the digest skip drafts?\nThey clutter it.', thread_ts: day });
   slack.say({ channel: 'D1', user: 'U0', text: 'fyi', thread_ts: day });
@@ -113,14 +113,16 @@ test('slack thread reads the thread, slack answer posts “🤖 ” and the answ
 
   assert.deepEqual((await slackThread(site, question.id, client)).lines, [
     'board: Orch reviews',
+    '    - :claude_kickflip:',
     'board: <@U1> <https://github.com/o/r/pull/1|r#1> ready for review: Fix limiter (+84/-12, 5 files)',
+    '    - :claude_kickflip:',
     '→ Ann: Could the digest skip drafts?',
     '    They clutter it.',
     'you: fyi',
   ]);
 
   await slackAnswer(site, question.id, 'Drafts never reach it; filed a task for the owner.', client);
-  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: '🤖 Drafts never reach it; filed a task for the owner.', thread_ts: day, ts: world.messages.at(-1).ts });
+  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: 'Drafts never reach it; filed a task for the owner.\n- :claude_kickflip:', thread_ts: day, ts: world.messages.at(-1).ts });
   await assert.rejects(slackAnswer(site, quiet.id, 'ok', client), /names no @kickflip, so it expects no reply/);
   await slackAnswer(site, question.id, 'x'.repeat(250), client);
   await assert.rejects(slackAnswer(site, question.id, 'x'.repeat(251), client), /runs to 251 characters, past the orchestrator's 250/);
@@ -135,11 +137,11 @@ test('slack thread reads the thread, slack answer posts “🤖 ” and the answ
   assert.deepEqual([said.who, said.text, said.link], ['Ann', 'Could the digest skip drafts?\nThey clutter it.', `https://acme.slack.com/archives/D1/p${asked.replace('.', '')}?thread_ts=${day}&cid=D1`]);
 });
 
-test("slack say posts “🤖 ” and the words in the reviewer's day thread, opening today's when none is open, and the hub hears past it", async () => {
+test("slack say posts the words signed off in the reviewer's day thread, opening today's when none is open, and the hub hears past it", async () => {
   const { world, slack, poll, day } = await opened();
   const client = slackClient(world.token, { fetch: slack.fetch });
   assert.deepEqual((await slackSay(site, 'ann', 'r#1 is ready for another look.', { now: sunday }, client)).lines, ["said in Ann's day thread"]);
-  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: '🤖 r#1 is ready for another look.', thread_ts: day, ts: world.messages.at(-1).ts });
+  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: 'r#1 is ready for another look.\n- :claude_kickflip:', thread_ts: day, ts: world.messages.at(-1).ts });
   await poll();
   assert.deepEqual(questions(), []);
 
@@ -147,8 +149,8 @@ test("slack say posts “🤖 ” and the words in the reviewer's day thread, op
   world.messages.length = 0;
   await slackSay(site, 'Ann', 'Merged.', { now: days(1) }, client);
   const [header, said] = world.messages;
-  assert.deepEqual([header.channel, header.text, header.thread_ts], ['D1', 'Orch reviews', undefined]);
-  assert.deepEqual([said.text, said.thread_ts], ['🤖 Merged.', header.ts]);
+  assert.deepEqual([header.channel, header.text, header.thread_ts], ['D1', 'Orch reviews\n- :claude_kickflip:', undefined]);
+  assert.deepEqual([said.text, said.thread_ts], ['Merged.\n- :claude_kickflip:', header.ts]);
   await poll(days(1));
   assert.deepEqual(questions(), []);
 
@@ -176,10 +178,10 @@ test('board.mjs slack thread, slack answer, slack say and slack task run through
     assert.match(thread.out, /→ Ann: Can it batch\?/);
     const answered = await cli('slack', 'answer', question.id, '--text', 'Not yet; filed for the owner.');
     assert.equal(answered.code, 0, answered.err);
-    assert.equal(world.messages.at(-1).text, '🤖 Not yet; filed for the owner.');
+    assert.equal(world.messages.at(-1).text, 'Not yet; filed for the owner.\n- :claude_kickflip:');
     const said = await cli('slack', 'say', 'Ann', '--text', 'Batching is filed.');
     assert.equal(said.code, 0, said.err);
-    assert.equal(world.messages.at(-1).text, '🤖 Batching is filed.');
+    assert.equal(world.messages.at(-1).text, 'Batching is filed.\n- :claude_kickflip:');
     const filed = await cli('slack', 'task', question.id, 'w', '--title', 'Batch sends', '--notes', 'Ann asks for batching.');
     assert.equal(filed.code, 0, filed.err);
     assert.match(filed.out, /w\/T-1/);

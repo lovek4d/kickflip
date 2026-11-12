@@ -27,7 +27,7 @@ import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLA
 import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
-import { SlackError, SLACK_NEEDS_TOKEN, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
+import { SlackError, SLACK_NEEDS_TOKEN, isSignedOff, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { readPermissions } from './permissions.mjs';
 import { validBuildTarget } from './build-script.mjs';
@@ -1050,14 +1050,12 @@ export async function boardPosts(site) {
   out.delete(undefined);
   return out;
 }
-// The orchestrator's answers in a day thread open with this; they post as the owner, so the hub hears past them.
-export const ANSWER_MARK = '🤖 ';
-// What the orchestrator posts in a day thread, “🤖 ” and its words: the words, at most WORDS_LIMIT characters.
+// What the orchestrator posts in a day thread: its words, at most WORDS_LIMIT characters; the Slack client signs them off.
 const WORDS_LIMIT = 250;
 function orchestratorWords(words) {
   const body = text(words, '--text');
   if (body.length > WORDS_LIMIT) fail(`--text runs to ${body.length} characters, past the orchestrator's ${WORDS_LIMIT}: keep it brief`);
-  return `${ANSWER_MARK}${body}`;
+  return body;
 }
 
 // A slack-question event's data: {reviewer, channel, thread_ts, ts, from: reviewer|owner, answer}.
@@ -1077,14 +1075,14 @@ export async function slackThread(site, eventId, slack = savedSlack()) {
   const owner = slackUserId();
   const messages = await slackCall(throughSlack(slack).replies({ channel: q.channel, ts: q.thread_ts }));
   const lines = messages.flatMap((m) => {
-    const who = ours.has(m.ts) || (m.user === owner && m.text?.startsWith(ANSWER_MARK)) ? 'board' : m.user === owner ? 'you' : q.reviewer;
+    const who = ours.has(m.ts) || (m.user === owner && isSignedOff(m.text)) ? 'board' : m.user === owner ? 'you' : q.reviewer;
     const [first, ...rest] = String(m.text || '').split('\n');
     return [`${m.ts === q.ts ? '→ ' : ''}${who}: ${first}`, ...rest.map((l) => `    ${l}`)];
   });
   return { lines };
 }
 
-// `slack answer`: “🤖 ” and the answer, posted as a reply in the event's day thread. Refuses an owner's message that
+// `slack answer`: the answer, signed off, posted as a reply in the event's day thread. Refuses an owner's message that
 // names no @kickflip, which expects no reply, and words past WORDS_LIMIT.
 export async function slackAnswer(site, eventId, words, slack = savedSlack()) {
   const q = await slackQuestion(site, eventId);
@@ -1094,7 +1092,7 @@ export async function slackAnswer(site, eventId, words, slack = savedSlack()) {
   return { lines: [`answered in ${q.reviewer}'s day thread`] };
 }
 
-// `slack say`: “🤖 ” and the words, posted in the reviewer's day thread for now's Slack day, opened with the board's
+// `slack say`: the words, signed off, posted in the reviewer's day thread for now's Slack day, opened with the board's
 // “<title> reviews” header when none is open, as the hub opens one. The owner's explicit ask is its only use
 // (SKILL.md); a message in a thread is answered with slack answer. Refuses words past WORDS_LIMIT.
 export async function slackSay(site, name, words, { now = new Date() } = {}, slack = savedSlack()) {

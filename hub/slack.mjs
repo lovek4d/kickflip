@@ -60,6 +60,12 @@ export class SlackError extends Error {
 const api = () => process.env.KICKFLIP_SLACK_URL || 'https://slack.com/api';
 const REFUSED = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired', 'account_inactive'];
 
+// The last line of every message the hub or the orchestrator posts: the kickflip emoji, or 🤖 while the workspace lacks it.
+const SIGN_OFF = '- :claude_kickflip:';
+const SIGN_OFF_FALLBACK = '- :robot_face:';
+// Whether text is one of ours, by its last line; our posts go out as the owner, so the hub hears past them by this.
+export const isSignedOff = (text) => [SIGN_OFF, SIGN_OFF_FALLBACK].includes(String(text || '').split('\n').at(-1));
+
 // checked(works) follows each answer: false when Slack refused the token, true when it answered ok.
 export function slackClient(token, { fetch = globalThis.fetch, checked = () => {} } = {}) {
   async function call(method, body = {}) {
@@ -77,6 +83,12 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     if (!out.ok) throw new SlackError(`Slack: ${out.error}`);
     return out;
   }
+  // Whether the workspace has :claude_kickflip:, asked once per client; no emoji:read scope or any failure reads as no.
+  let signOff;
+  const signedOff = (text) => {
+    signOff ??= call('emoji.list').then((out) => (out.emoji?.claude_kickflip ? SIGN_OFF : SIGN_OFF_FALLBACK), () => SIGN_OFF_FALLBACK);
+    return signOff.then((line) => `${text}\n${line}`);
+  };
   return {
     async who() {
       const { team, team_id, user, user_id } = await call('auth.test');
@@ -95,8 +107,8 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     },
     // The owner's DM with a user → its channel id
     openDM: async (user) => (await call('conversations.open', { users: user })).channel.id,
-    // → the message ts
-    post: async ({ channel, text, thread_ts }) => (await call('chat.postMessage', { channel, text, unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
+    // Every message ends with the sign-off line. → the message ts
+    post: async ({ channel, text, thread_ts }) => (await call('chat.postMessage', { channel, text: await signedOff(text), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
     // A reaction already there counts as added.
     async react({ channel, ts, name }) {
       try { await call('reactions.add', { channel, timestamp: ts, name }); } catch (e) { if (e.message !== 'Slack: already_reacted') throw e; }

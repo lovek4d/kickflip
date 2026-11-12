@@ -205,6 +205,10 @@ export function fakeSlack(world) {
       if (world.missingScope) return { ok: false, error: 'missing_scope' };
       return { ok: true, members: world.people || [], response_metadata: { next_cursor: '' } };
     }
+    if (method === 'emoji.list') {
+      if (world.emojiMissingScope) return { ok: false, error: 'missing_scope' };
+      return { ok: true, emoji: world.noEmoji ? {} : { claude_kickflip: 'https://emoji.example/kickflip.png' } };
+    }
     if (method === 'conversations.open') {
       const channel = world.dms[body.users];
       return channel ? { ok: true, channel: { id: channel } } : { ok: false, error: 'user_not_found' };
