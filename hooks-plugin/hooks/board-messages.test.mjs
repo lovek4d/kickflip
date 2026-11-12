@@ -45,7 +45,7 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   assert.equal(shown.hookEventName, 'PostToolUse');
   const lines = shown.additionalContext.split('\n');
   assert.match(lines[0], /^The owner wrote on \/orch while you worked\. Read it now: their words come before what you were doing\. Your watcher prints each again on its next wake, tagged already shown\.$/);
-  assert.match(lines[1], /^sent \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z, 3 min ago: message received from A1's thread: reply in its thread; ask open points with question add, not in prose$/);
+  assert.match(lines[1], /^sent \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z, 3 min ago: message received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose$/);
   assert.match(lines[2], /^event data\/events\.jsonl \{"id":"e1","kind":"item-message".*"text":"Use the blue"/);
   assert.match(lines[3], /^sent \S+, just now: new task e3 received as task e3: /);
   assert.match(lines[5], /^sent \S+, just now: task e3 edited: use the new text, and say what changed if you had started$/);
@@ -57,7 +57,7 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
 
   assert.equal(run(), null);
   fs.appendFileSync(events, line('e5', 'item-message', ago(0), { key: 'w/A1', text: 'And bigger' }) + '\n');
-  assert.match(run().additionalContext, /^The owner wrote[^\n]*\nsent \S+, just now: message received from A1's thread: reply in its thread; ask open points with question add, not in prose\nevent data\/events\.jsonl \{"id":"e5"[^\n]*$/);
+  assert.match(run().additionalContext, /^The owner wrote[^\n]*\nsent \S+, just now: message received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose\nevent data\/events\.jsonl \{"id":"e5"[^\n]*$/);
 
   // Once the watcher wakes past them, they drop out of the shown list.
   write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 6 });

@@ -39,6 +39,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          noting "Acted on: replied". A
                                                          reply to overnight-triage ends that triage
          [--title <t>]                                   retitles the New or discussing card the ask became
+         [--questions <json>]                            the questions to ask with the message (thread takes it too),
+                                                         in question add's shape: checked first, then the message is
+                                                         posted and the questions asked after it, so the thread reads
+                                                         message then questions. Refused beside --implement or --close
   reply <file>/<id> (--text <md> | --file <path>)        answers the New or discussing card an ask became: the
          [--title <t>]                                   answer goes in its thread and the card reads
                                                          discussing in Todo, --title as its title. Refuses a
@@ -810,6 +814,20 @@ function checkInputs(allowed, opts) {
 }
 
 const readInput = (file) => fs.readFileSync(file === '-' ? 0 : file, 'utf8');
+const renderCheck = () => (process.env.KICKFLIP_RENDER_CHECK === 'off' ? undefined : checkTakesRender);
+
+// docs/adr/2026-11-12-2330-a-reply-posts-its-questions-after-it-in-one-command.md: with --questions <json>, post()
+// writes the message and the file's questions are added after it, so the thread reads message then questions. The
+// file is checked before the message posts.
+async function withQuestions(site, f, post) {
+  if (f.questions === undefined) return post();
+  if (f.implement || f.close) throw new store.BoardError('--questions asks open questions, so it takes no --implement or --close: the card is not waiting on that');
+  const input = readJSONInput(f.questions);
+  await store.checkQuestions(site, input, renderCheck());
+  const posted = await post();
+  const added = await store.addQuestions(site, input, renderCheck());
+  return { ...posted, lines: [...(posted?.lines || []), ...(added.lines || [])], asked: [input].flat(), staged: added.staged };
+}
 function readJSONInput(file) {
   if (!file) throw new UsageError('--file <path> is required');
   try { return JSON.parse(readInput(file)); } catch (e) { throw new store.BoardError(`${file}: ${e.message}`); }
@@ -863,21 +881,21 @@ const COMMANDS = {
     if (f.body === undefined) throw new UsageError('pr reply needs --body "<what Claude says>"');
     return store.postPR(site, pr, { replyTo, body: f.body });
   }],
-  reply: [['eventId'], ['text', 'file', 'title', 'implement', 'close'], async (site, [id], f) => {
+  reply: [['eventId'], ['text', 'file', 'title', 'implement', 'close', 'questions'], async (site, [id], f) => {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('reply takes --text or --file');
     if ((f.implement || f.close) && !id.includes('/')) throw new UsageError('reply --implement and --close mark a card: name it <file>/<id>');
     if (f.implement && f.close) throw new UsageError('reply takes --implement or --close, not both');
     const md = f.text ?? readInput(f.file);
     await store.refuseUnreadEdit(site, id);
-    return id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title);
+    return withQuestions(site, f, () => (id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title)));
   }],
-  thread: [['file/id'], ['text', 'link', 'who', 'via', 'close', 'implement'], (site, [key], f) => store.appendMessage(site, key, f)],
+  thread: [['file/id'], ['text', 'link', 'who', 'via', 'close', 'implement', 'questions'], (site, [key], f) => withQuestions(site, f, () => store.appendMessage(site, key, f))],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
   'item brief': [['file/id'], ['kind', 'file'], (site, [key], f) => store.writeBrief(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);
-    return { ...(await store.addQuestions(site, input, process.env.KICKFLIP_RENDER_CHECK === 'off' ? undefined : checkTakesRender)), asked: [input].flat() };
+    return { ...(await store.addQuestions(site, input, renderCheck())), asked: [input].flat() };
   }],
   'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
   'question settle': [['id'], ['note'], (site, [id], f) => store.settleQuestion(site, id, f.note)],
@@ -1062,6 +1080,7 @@ function needSite(site, name) {
 
 const card = (site, key) => store.cardName(site, key);
 const plural = (list, word) => `${word}${list.length === 1 ? '' : 's'} ${list.join(', ')}`;
+const askedAfter = (asked) => `${plural(asked.map((q) => q.id), 'question')} asked after it`;
 const builderOf = (f) => (f.agent === undefined || f.agent === 'main' ? 'builder' : `builder ${f.agent}`);
 
 function itemChanges(f) {
@@ -1087,8 +1106,8 @@ function itemChanges(f) {
  * name: (site, args, flags, result) → line
  */
 const SAID = {
-  reply: async (site, [id]) => (id.includes('/') ? `answered ${await card(site, id)}: it reads discussing, the owner's turn; ask any open point with question add, not in prose` : `reply written to ${await store.eventCard(site, id)}`),
-  thread: async (site, [key]) => `thread line on ${await card(site, key)}`,
+  reply: async (site, [id], f, { asked }) => (id.includes('/') ? `answered ${await card(site, id)}: it reads discussing, the owner's turn; ${asked ? askedAfter(asked) : 'ask any open point with reply --questions <json>, not in prose'}` : `reply written to ${await store.eventCard(site, id)}${asked ? `; ${askedAfter(asked)}` : ''}`),
+  thread: async (site, [key], f, { asked }) => `thread line on ${await card(site, key)}${asked ? `; ${askedAfter(asked)}` : ''}`,
   'topic add': (site, [id]) => `topic ${id} added`,
   'question add': async (site, _, f, { asked, staged }) => {
     const topics = [...new Set(asked.map((q) => q.topic))];

@@ -1618,6 +1618,24 @@ async function checkPrototype(site, q, name) {
 // then runs for each recorded prototype the questions link, and throws to refuse them
 // (docs/adr/2026-11-07-0900-a-prototype-question-publishes-only-when-every-take-renders.md).
 export async function addQuestions(site, input, renderCheck = async () => {}) {
+  const { questions, owner, items, staged } = await checkQuestions(site, input, renderCheck);
+  const lines = [];
+  const held = [];
+  for (const q of questions) {
+    const card = q.topic.startsWith('item:') && !q.topic.startsWith('item:ask:') ? q.topic.slice(5) : null;
+    const planner = card && await runningPlanner(site, card);
+    if (!planner) continue;
+    (staged[card] ||= []).push(q);
+    held.push(q);
+    lines.push(`staged: ${q.id} waits for ${card}'s ${planner} to finish; the card's staged questions then publish together`);
+  }
+  if (held.length) await writeJSON(stagedFile(site), staged);
+  if (held.length === questions.length) return { file: stagedFile(site), lines, staged: held.length };
+  return publishQuestions(site, owner, items, questions.filter((q) => !held.includes(q)), lines);
+}
+
+// Refuses a question file addQuestions would refuse, and writes nothing. → what addQuestions then reads.
+export async function checkQuestions(site, input, renderCheck = async () => {}) {
   needSite(site);
   const questions = Array.isArray(input) ? input : [input];
   if (!questions.length) fail('the question file is empty');
@@ -1666,19 +1684,7 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
     });
   }
   for (const topic of new Set(questions.map((q) => pageTopic(q.url)).filter(Boolean))) await renderCheck(site, topic);
-  const lines = [];
-  const held = [];
-  for (const q of questions) {
-    const card = q.topic.startsWith('item:') && !q.topic.startsWith('item:ask:') ? q.topic.slice(5) : null;
-    const planner = card && await runningPlanner(site, card);
-    if (!planner) continue;
-    (staged[card] ||= []).push(q);
-    held.push(q);
-    lines.push(`staged: ${q.id} waits for ${card}'s ${planner} to finish; the card's staged questions then publish together`);
-  }
-  if (held.length) await writeJSON(stagedFile(site), staged);
-  if (held.length === questions.length) return { file: stagedFile(site), lines, staged: held.length };
-  return publishQuestions(site, owner, items, questions.filter((q) => !held.includes(q)), lines);
+  return { questions, owner, items, staged };
 }
 
 // The kind of the card's open planner record (grill or prototype), or null while none runs. A visual agent posts no

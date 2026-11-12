@@ -48,7 +48,7 @@ export const PLAIN = {
 export const ON_CARD = {
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
   'item-message': (c, e) => (String(e.data?.key).startsWith('ask:') && e.data?.intent === 'build' ? `Implement asked on ${c}: file it with item add --from-ask --phase ready, with its --size and notes`
-    : e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping` : `message received from ${c}'s thread: reply in its thread; ask open points with question add, not in prose`),
+    : e.data?.intent === 'build' ? `Implement asked on ${c}: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping` : `message received from ${c}'s thread: reply in its thread; ask open points with reply --questions <json>, not in prose`),
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
   'card-bump': (c) => `${c} bumped: handle its waits lines first; with none, leave it`,
   'ask-edited': (c) => `${c} edited: use the new text, and say what changed if you had started`,
