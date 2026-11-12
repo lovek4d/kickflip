@@ -397,9 +397,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          settings appear when set: {"auto_merge": false,
                                                          "auto_build": false, "auto_pull": false,
                                                          "max_implementers": 10, "max_planners": 3,
-                                                         "auto_triage": false, "auto_review": false,
-                                                         "idle_notification": false, "skip_draft": false,
-                                                         "prs": true, "github_login": "owner"}
+                                                         "max_serves": 10, "auto_triage": false,
+                                                         "auto_review": false, "idle_notification": false,
+                                                         "skip_draft": false, "prs": true,
+                                                         "github_login": "owner"}
   settings set auto-merge on|off                         on: the hub's tick merges an approved PR once CI is green and
                                                          the merge state is CLEAN. off (the default): the card
                                                          shows the owner a Merge button, and the board server merges

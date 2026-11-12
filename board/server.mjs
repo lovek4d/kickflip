@@ -6,7 +6,7 @@
 //   reply, thread, topic add, question add|resolve, prototype add|rm, item add|set|relate-ask,
 //   wave create|add|remove|set|finish,
 //   builder start|progress|done (bin/agent.mjs is an alias for builder), main set.
-// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
+// <site dir>/board.json: {title, items, slug, reviewers, share, rules, auto_merge, auto_build, auto_pull, max_implementers, max_planners, max_serves, auto_triage, auto_review, idle_notification, skip_draft, prs, github_login, build_target}. auto_build asks the hub to
 // run each card's build script after each push, and hides the cards' Serve / Build; main always builds after a merge.
 // build_target names the script, .kickflip/build-<target>, else .kickflip/build.
 // auto_merge (false when absent) lets the session merge
@@ -237,13 +237,13 @@
 //   POST /api/rules              {rules: [{id?, text}], base: [id]} → board.json's rules (store.mjs saveBoardRules), and
 //                                when anything changed a `rules {scope: "board", added, edited, removed}` event, which
 //                                wakes Claude. → {rules, id}; a bad list → 400 {error}
-//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, max_planners, auto_triage, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings),
+//   GET  /api/settings           {settings: the board's settings, {auto_merge, auto_build, auto_pull, max_implementers, max_planners, max_serves, auto_triage, auto_review, idle_notification, skip_draft, prs, build_target?} (store.mjs readBoardSettings),
 //                                paused_until: Pause board's end (an ISO time or forever) or null, pause_choices: holdChoices}
 //   GET  /api/build-targets      {targets}: each executable .kickflip/build-<target> at the board's main tip (build-script.mjs listBuildTargets)
 //   POST /api/pause              {pause: <usage-gate.mjs pauseEnd choice | off>} → Pause board, board.json's paused_until
 //                                (store.mjs setBoardPause; docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md),
 //                                then an Auto check. → {paused_until}; a bad choice → 400 {error}
-//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
+//   POST /api/settings           {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, max_serves?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, build_target?: target | null} → board.json, keeping its other keys, and when a value other
 //                                than idle_notification moved a `settings {<changed setting>: value}` event, which wakes Claude, then, when auto_merge turned on,
 //                                `check-github {reason: "auto-merge"}` for one GitHub tick. → {settings, id}; a bad body → 400 {error}
 //   POST /api/share              {add: login} | {remove: login} | {login, level: view | full} → board.json's share, the
@@ -256,7 +256,9 @@
 //                                permissions, read from its folder's .claude/settings.local.json (permissions.mjs); 404 off the manifest
 //   POST /api/permissions        {id, on} → that rule written or removed, and the same answer; 400 {error} for a bad
 //                                body or settings file
-//   POST /api/try                {key}: forwards a card build, main retry or the prototype site's start (key prototypes) to the hub's loopback /_hub/build
+//   POST /api/try                {key, anyway?}: forwards a card build, main retry or the prototype site's start (key prototypes) to the hub's loopback /_hub/build;
+//                                anyway: true starts a card's serve on a busy host
+//   POST /api/try/kill           {key}: a card's Kill, forwarded to the hub's loopback /_hub/kill
 //   POST /api/try/main/pull      {}: Main's refresh icon, forwarded to the hub's loopback /_hub/pull → {commits, error?}
 //   GET  /api/log?file=<name>.log {text, truncated, size}: the last 256 KiB of that file in ~/.claude/kickflip/logs, by name
 //                                only; log.html and the reader sheet's raw toggle (app-reader.js) show it and re-read it while it grows
@@ -1352,16 +1354,18 @@ const server = http.createServer(async (req, res) => {
         return json(res, response.status, await response.json());
       } catch (e) { return json(res, 502, { error: `Could not pull: ${e.message}` }); }
     }
-    if (p === '/api/try' && req.method === 'POST') {
+    if ((p === '/api/try' || p === '/api/try/kill') && req.method === 'POST') {
       const body = await readBody(req);
-      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'key') || typeof body.key !== 'string') return json(res, 400, { error: 'Send only the card key.' });
+      const kill = p === '/api/try/kill';
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'key' && (kill || k !== 'anyway')) || typeof body.key !== 'string'
+        || (kill && ['main', 'prototypes'].includes(body.key)) || !['undefined', 'boolean'].includes(typeof body.anyway)) return json(res, 400, { error: kill ? 'Send only the card key.' : 'Send only the card key and anyway.' });
       try {
-        const response = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/build`, {
+        const response = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/${kill ? 'kill' : 'build'}`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ route: prefix.slice(1) || path.basename(here), key: body.key }), signal: AbortSignal.timeout(10_000),
+          body: JSON.stringify({ route: prefix.slice(1) || path.basename(here), key: body.key, ...(body.anyway ? { anyway: true } : {}) }), signal: AbortSignal.timeout(10_000),
         });
         return json(res, response.status, await response.json());
-      } catch (e) { return json(res, 502, { error: `Could not start the build: ${e.message}` }); }
+      } catch (e) { return json(res, 502, { error: `Could not ${kill ? 'kill the serve' : 'start the build'}: ${e.message}` }); }
     }
     if (p === '/api/share' && req.method === 'POST') {
       try { return json(res, 200, await saveBoardShare(here, await readBody(req))); } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }

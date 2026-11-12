@@ -125,9 +125,14 @@
     return `<${tag} class="install tone-${s.tone}"${attrs}>${s.html}</${tag}>`;
   }
   // A card's Serve / Build, only while the board's Auto-build is off and its branch has changes
-  // (docs/adr/2026-11-02-1806-only-the-owner-or-auto-build-starts-a-card-run.md).
+  // (docs/adr/2026-11-02-1806-only-the-owner-or-auto-build-starts-a-card-run.md). A website card's serve that is running
+  // or up has Kill in its place, Auto serve on or off
+  // (docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md).
   function tryButton(it) {
     const t = tryOf(it);
+    if (it.kind === 'work' && t?.kind === 'web' && ['running', 'ready'].includes(t.state)) {
+      return `<button type="button" data-try-kill="${esc(it.key)}"${BoardUI.pending.has(`${it.key}:try`) ? BoardUI.BUSY : ''}>Kill</button>`;
+    }
     if (it.kind !== 'work' || !t?.script || t.autoBuild || !t.changes) return '';
     const words = tryWords(t.kind);
     const reason = t.state === 'running' ? words.busy : t.state === 'ready' && !t.stale ? words.current : '';

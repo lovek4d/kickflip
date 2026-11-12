@@ -827,6 +827,37 @@ test('Board Settings shows Maximum parallel implementers beside Auto implement, 
   view.unmount();
 });
 
+// docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
+test('Board Settings shows Maximum parallel serves under the planners and saves it on change', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const root = new page.El();
+  let saved = { max_implementers: 10, max_planners: 3, max_serves: 10 };
+  const posts = [];
+  page.win.fetch = async (url, opts = {}) => {
+    let body = {};
+    if (url.endsWith('/api/settings')) {
+      if (opts.method === 'POST') { posts.push(JSON.parse(opts.body)); saved = { ...saved, ...JSON.parse(opts.body) }; }
+      body = { settings: saved };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
+  };
+  const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
+  assert.match(html, /Maximum parallel serves<\/span>\s*<span class="muted small sub">Each open card worktree keeps one serve up\. Installs aren’t counted\. A busy host asks before it starts another\.<\/span>/);
+  const view = page.win.AppViews.settings.create(root, '/orch', {});
+  view.mount();
+  await tick();
+  const input = root.querySelector('#maxServes');
+  assert.deepEqual([input.disabled, input.value], [false, '10']);
+  input.value = '4';
+  page.fire(input, 'change');
+  await tick();
+  assert.deepEqual([posts.at(-1), input.value, root.querySelector('#maxServesStatus').textContent], [{ max_serves: 4 }, '4', 'Saved. Up to 4 serves stay up at once.']);
+  input.value = '1';
+  page.fire(input, 'change');
+  await tick();
+  assert.equal(root.querySelector('#maxServesStatus').textContent, 'Saved. Up to 1 serve stays up at once.');
+});
+
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
 test('Board Settings shows Maximum parallel planners under the implementers, saves 1 to 99 on change and restores the saved one on refusal', async () => {
   const page = fakePage(memoryStorage().localStorage);
@@ -2772,6 +2803,8 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
   const confirms = [];
   const confirmLabels = [];
   page.win.BoardDialogs.confirm = async (text, labels) => { confirms.push(text); confirmLabels.push(labels?.ok ? { ok: labels.ok, cancel: labels.cancel } : undefined); return confirm; };
+  const notices = [];
+  page.win.BoardDialogs.notice = async (text) => { notices.push(text); };
   if (realDialogs) vm.runInContext(fs.readFileSync(new URL('./public/dialogs.js', import.meta.url), 'utf8'), page.win);
   const site = page.win.ClaudeSite.site;
   // The events POST answers with the board, as board/server.mjs does; send(kind, data, server) answers in its place.
@@ -2801,7 +2834,7 @@ function boardOnDom({ open = [], seen = {}, stored = [], board, threads, confirm
   view.mount();
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const change = async (next) => { Object.assign(server, next); signalled(); await settle(); };
-  return { page, root, view, settle, change, sent, confirms, confirmLabels, posts, gets, downloads, patched, server, storage, doc: page.win.document };
+  return { page, root, view, settle, change, sent, confirms, confirmLabels, notices, posts, gets, downloads, patched, server, storage, doc: page.win.document };
 }
 // The work card an ask became (from_ask; docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
 const askCard = (id, lane) => ({ key: `w/${id}`, id, kind: 'work', lane, title: `Task ${id}`, ref: `T-${id}`, fromAsk: id, deps: [], manualSteps: [], othersAt: [] });
@@ -3131,11 +3164,49 @@ test('a card try button confirms, posts through the site URL and reloads; disabl
   assert.deepEqual(b.confirms, ['Serve INT-41? The hub runs its build script.']);
   assert.deepEqual(posts, [['https://mac.ts.net/board-a/api/try', { key: 'w/R1' }]]);
   assert.match(b.root.textContent, /Already running/);
-  await b.change({ board: boardOf([{ ...card, try: { ...card.try, state: 'ready' } }]) });
+  await b.change({ board: boardOf([{ ...card, try: { ...card.try, kind: 'app', state: 'ready' } }]) });
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-try]') });
   await b.settle();
-  assert.match(b.root.textContent, /Nothing new to serve: Visit already shows this card’s latest push./);
+  assert.match(b.root.textContent, /Nothing new to serve: Install already has this card’s latest push./);
   assert.equal(posts.length, 1);
+});
+
+// docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
+test('a web card’s Serve asks the busy host’s question and sends anyway, a cap refusal is a dialog, and Kill confirms and posts the kill', async () => {
+  const card = workCard('R1', { ref: 'INT-41', lane: 'progress', holdable: true, try: { kind: 'web', script: true, changes: true, hostBusy: true } });
+  const b = boardOnDom({ open: ['w/R1'], board: boardOf([card]), threads: {}, confirm: true });
+  await b.settle();
+  const original = b.page.win.fetch;
+  const posts = [];
+  let answer = { ok: false, json: async () => ({ error: 'This board is at its cap of 2 parallel serves. Kill another serve, or raise Maximum parallel serves in Board settings.', ask: 'cap' }) };
+  b.page.win.fetch = async (url, opts = {}) => {
+    if (/\/api\/try(\/kill)?$/.test(url)) { posts.push([url, JSON.parse(opts.body)]); return answer; }
+    return original(url, opts);
+  };
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-try]') });
+  await b.settle();
+  assert.deepEqual(b.confirms, ['The host is busy, start this serve anyway?']);
+  assert.deepEqual(posts, [['https://mac.ts.net/board-a/api/try', { key: 'w/R1', anyway: true }]]);
+  assert.deepEqual(b.notices, ['This board is at its cap of 2 parallel serves. Kill another serve, or raise Maximum parallel serves in Board settings.']);
+  // A busy host the board didn't show yet: the hub's refusal asks the same question, and the tap sends again with anyway.
+  await b.change({ board: boardOf([{ ...card, try: { ...card.try, hostBusy: false } }]) });
+  let refusals = 1;
+  answer = { ok: false, json: async () => (refusals-- > 0 ? { error: 'The host is busy, start this serve anyway?', ask: 'busy' } : { status: 'started' }) };
+  b.page.win.fetch = async (url, opts = {}) => {
+    if (/\/api\/try(\/kill)?$/.test(url)) { posts.push([url, JSON.parse(opts.body)]); const out = await answer.json(); return { ok: !out.ask, json: async () => out }; }
+    return original(url, opts);
+  };
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-try]') });
+  await b.settle();
+  assert.deepEqual(b.confirms.slice(1), ['Serve INT-41? The hub runs its build script.', 'The host is busy, start this serve anyway?']);
+  assert.deepEqual(posts.slice(1), [['https://mac.ts.net/board-a/api/try', { key: 'w/R1' }], ['https://mac.ts.net/board-a/api/try', { key: 'w/R1', anyway: true }]]);
+  await b.change({ board: boardOf([{ ...card, try: { ...card.try, state: 'ready', port: 8500 } }]) });
+  const kill = b.root.querySelector('[data-try-kill]');
+  assert.equal(kill.textContent, 'Kill');
+  b.page.fire(b.root, 'click', { target: kill });
+  await b.settle();
+  assert.equal(b.confirms.at(-1), 'Kill INT-41’s serve? Its server stops until you tap Serve.');
+  assert.deepEqual(posts.at(-1), ['https://mac.ts.net/board-a/api/try/kill', { key: 'w/R1' }]);
 });
 
 test('main paints above the lanes, card failures scroll to their thread and main failures open a log and retry sheet', async () => {
@@ -5182,7 +5253,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['maxPlanners', 'Maximum parallel planners'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
+    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['maxPlanners', 'Maximum parallel planners'], ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
     ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

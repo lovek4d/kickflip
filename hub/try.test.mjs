@@ -69,6 +69,7 @@ const state = () => read(path.join(site, 'data', 'try.json'));
 const thread = () => { try { return fs.readFileSync(path.join(site, 'data', 'threads', 'w__A1.jsonl'), 'utf8').trim().split('\n').map(JSON.parse); } catch { return []; } };
 const start = (input = {}) => manager.start({ route: 'orch', key: 'w/A1', ...input }, { manifest });
 const tick = () => manager.tick({ manifest });
+const kill = (key = 'w/A1') => manager.kill({ route: 'orch', key }, { manifest });
 const until = (fn) => waitUntil(fn, 'timed out waiting for try state');
 const config = (extra = {}) => write(path.join(site, 'board.json'), { items: 'data/items.json', slug: 'w', ...extra });
 function commit(dir, name = 'change') { git(dir, 'add', '.'); git(dir, 'commit', '--quiet', '-m', name); return git(dir, 'rev-parse', 'HEAD'); }
@@ -223,9 +224,8 @@ test('a second concurrent start returns 409', async () => {
   await assert.rejects(start(), { status: 409 });
 });
 
-test('a web run waits for its port, uses the relay to reset idle, and removes its public port on idle', async (t) => {
-  const relays = fakeRelays(t);
-  const peer = () => new Duplex({ read() {}, write(_chunk, _encoding, done) { done(); } });
+test('a web run waits for its port and stays up with no visits while its card is open', async (t) => {
+  fakeRelays(t);
   let answering = false;
   manager = createTryManager({ now: () => clock, answers: async () => answering, log() {} });
   setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
@@ -237,29 +237,161 @@ test('a web run waits for its port, uses the relay to reset idle, and removes it
   answering = true;
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(state().kind, 'web');
-  clock += 29 * 60_000;
-  assert.deepEqual(manager.lookup('orch', 'a1', { manifest }), { key: 'w/A1', port: state().cards['w/A1'].port });
   assert.equal(state().cards['w/A1'].https, 8500);
-  const socket = peer();
-  relays[0].emit('connection', socket);
-  clock += 29 * 60_000;
-  await tick();
+  for (let hour = 0; hour < 5; hour++) {
+    clock += 60 * 60_000;
+    await tick();
+  }
   assert.equal(state().cards['w/A1'].state, 'ready');
-  socket.push('still here');
-  await new Promise(setImmediate);
-  clock += 29 * 60_000;
-  await tick();
-  assert.equal(state().cards['w/A1'].state, 'ready');
-  const closed = new Promise((resolve) => socket.once('close', resolve));
-  clock += 2 * 60_000;
-  await tick();
-  assert.equal(manager.lookup('orch', 'A1', { manifest }), null);
-  assert.equal(state().cards['w/A1']?.state, undefined);
-  assert.equal(state().cards['w/A1']?.sha, undefined);
-  assert.ok(calls().includes('serve --https=8500 off'));
-  await closed;
-  assert.ok(relays[0].closed);
+  assert.deepEqual(manager.lookup('orch', 'a1', { manifest }), { key: 'w/A1', port: state().cards['w/A1'].port });
+  assert.equal(calls().includes('serve --https=8500 off'), false);
   assert.deepEqual(thread(), []);
+});
+
+test('a card serve stops and drops its entry once its card is Done, its PR merged, its card gone or its worktree removed', async (t) => {
+  fakeRelays(t);
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  const serve = async () => {
+    await start();
+    await until(() => state().cards['w/A1']?.state === 'ready');
+  };
+  const stopped = async () => {
+    await tick();
+    assert.equal(manager.lookup('orch', 'A1', { manifest }), null);
+    assert.equal(state().cards['w/A1'], undefined);
+  };
+  await serve();
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1', lane: 'done' }, { id: 'A2' }] });
+  await stopped();
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1', prs: [{ repo: 'example/project', number: 7 }] }, { id: 'A2' }] });
+  write(path.join(home, '.claude/kickflip/github-state.json'), { prs: { 'example/project#7': { state: 'MERGED' } } });
+  await serve();
+  await stopped();
+  fs.rmSync(path.join(home, '.claude/kickflip/github-state.json'));
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1' }, { id: 'A2' }] });
+  await serve();
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A2' }] });
+  await stopped();
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1' }, { id: 'A2' }] });
+  await serve();
+  git(repo, 'worktree', 'remove', '--force', worktree);
+  await stopped();
+});
+
+test('a serve that exits after it was up starts again up to 3 times in 10 minutes on its port, then reads Serve failed', async (t) => {
+  fakeRelays(t);
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  const runsFile = path.join(home, 'runs');
+  const exits = path.join(home, 'exits');
+  write(exits, '2');
+  setScript(`const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(runsFile)}, 'run\\n');
+const runs = fs.readFileSync(${JSON.stringify(runsFile)}, 'utf8').trim().split('\\n').length;
+console.log('port 32123');
+setInterval(() => {}, 1000);
+if (runs <= Number(fs.readFileSync(${JSON.stringify(exits)}, 'utf8'))) setTimeout(() => process.exit(0), 300);`);
+  const launches = () => fs.existsSync(runsFile) ? fs.readFileSync(runsFile, 'utf8').trim().split('\n').length : 0;
+  await start();
+  await until(() => launches() === 3 && state().cards['w/A1']?.state === 'ready');
+  assert.equal(state().cards['w/A1'].https, 8500);
+  assert.match(fs.readFileSync(path.join(site, 'data/try/A1.log'), 'utf8'), /^The serve exited on its own; serving it again \(2 of 3 in 10 minutes\)\./);
+  assert.deepEqual(thread(), []);
+  // Ten minutes on, the earlier restarts no longer count: three more exits restart it, and a fourth reads failed.
+  clock += 11 * 60_000;
+  fs.rmSync(runsFile);
+  write(exits, '99');
+  await start();
+  await until(() => thread().length === 1);
+  assert.equal(launches(), 4);
+  assert.equal(state().cards['w/A1'].state, 'failed');
+  assert.match(thread()[0].detail, /The serve exited on its own 4 times within 10 minutes/);
+});
+
+test('a serve past the board’s Maximum parallel serves is refused, a busy host asks first, and Auto serve waits for room', async (t) => {
+  fakeRelays(t);
+  let busy = false;
+  manager = createTryManager({ now: () => clock, answers: async () => true, busy: () => busy, log() {} });
+  write(path.join(site, 'data/items.json'), { items: [{ id: 'A1' }, { id: 'A2' }, { id: 'A3' }] });
+  for (const id of ['A2', 'A3']) write(path.join(site, `data/agents/${id}.json`), { worktree: { path: worktree, repo } });
+  config({ max_serves: 2 });
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  commit(worktree);
+  await start();
+  await start({ key: 'w/A2' });
+  await until(() => state().cards['w/A1']?.state === 'ready' && state().cards['w/A2']?.state === 'ready');
+  await assert.rejects(start({ key: 'w/A3' }), (e) => e.status === 409 && e.ask === 'cap' && /cap of 2 parallel serves/.test(e.message));
+  // Serving a card again takes no new slot.
+  assert.deepEqual(await start(), { status: 'started' });
+  await until(() => state().cards['w/A1']?.state === 'ready');
+  await kill('w/A2');
+  busy = true;
+  await assert.rejects(start({ key: 'w/A3' }), (e) => e.status === 409 && e.ask === 'busy' && e.message === 'The host is busy, start this serve anyway?');
+  assert.deepEqual(await start({ key: 'w/A3', anyway: true }), { status: 'started' });
+  await until(() => state().cards['w/A3']?.state === 'ready');
+  await kill('w/A3');
+  // Auto serve starts nothing new on a busy host or at the cap, and serves once there is room.
+  config({ auto_build: true, max_serves: 1 });
+  write(path.join(worktree, 'next'), 'next');
+  commit(worktree, 'next');
+  await kill();
+  busy = true;
+  await tick();
+  assert.equal(Object.values(state().cards).some((card) => card.state), false);
+  busy = false;
+  await tick();
+  await until(() => Object.values(state().cards).filter((card) => card.state === 'ready').length === 1);
+  await tick();
+  assert.equal(Object.values(state().cards).filter((card) => card.state).length, 1);
+});
+
+test('Kill stops a running or ready serve, frees its port, and Auto serve leaves it until its head moves, across a hub restart', async (t) => {
+  fakeRelays(t);
+  let answering = false;
+  manager = createTryManager({ now: () => clock, answers: async () => answering, log() {} });
+  setScript("console.log('port 32123'); setInterval(() => {}, 1000);");
+  commit(worktree);
+  config({ auto_build: true });
+  await tick();
+  await until(() => fs.readFileSync(path.join(site, 'data/try/A1.log'), 'utf8').includes('port'));
+  assert.equal(state().cards['w/A1'].state, 'running');
+  assert.deepEqual(await kill(), { status: 'stopped' });
+  assert.equal(state().cards['w/A1'].state, undefined);
+  await tick();
+  assert.equal(state().cards['w/A1'].state, undefined);
+  answering = true;
+  await start();
+  await until(() => state().cards['w/A1'].state === 'ready');
+  await kill();
+  assert.equal(manager.lookup('orch', 'A1', { manifest }), null);
+  assert.ok(calls().includes('serve --https=8500 off'));
+  await assert.rejects(kill(), (e) => e.status === 409);
+  await manager.stop();
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  await tick();
+  assert.equal(state().cards['w/A1'].state, undefined);
+  assert.deepEqual(thread(), []);
+  write(path.join(worktree, 'moved'), 'moved');
+  commit(worktree, 'moved');
+  await tick();
+  await until(() => state().cards['w/A1'].state === 'ready');
+  assert.equal(state().cards['w/A1'].killed, undefined);
+});
+
+test('a hub restart serves each card that was up again, with Auto serve off', async (t) => {
+  fakeRelays(t);
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  setScript("require('node:fs').appendFileSync('runs', 'run\\n'); console.log('port 32123'); setInterval(() => {}, 1000);");
+  commit(worktree);
+  await start();
+  await until(() => state().cards['w/A1']?.state === 'ready');
+  await manager.stop();
+  manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
+  await manager.initialize(manifest);
+  assert.equal(state().cards['w/A1'].state, 'running');
+  await tick();
+  await until(() => state().cards['w/A1']?.state === 'ready');
+  assert.equal(fs.readFileSync(path.join(worktree, 'runs'), 'utf8'), 'run\nrun\n');
 });
 
 test('a port announcement followed by exit before readiness fails, even with exit 0', async () => {
@@ -398,10 +530,10 @@ test('a board’s build target runs .kickflip/build-<target> for its cards and m
   assert.equal(state().main.target, undefined);
 });
 
-test('a restart clears dead web cards and stops main so the next tick serves it again', async () => {
-  write(path.join(site, 'data/try.json'), { kind: 'web', cards: { 'w/A1': { state: 'ready', port: 1 } }, main: { state: 'running', sha: 'old', script: true, serving: { sha: 'older', https: 8500 } } });
+test('a restart serves ready web cards again, keeps killed ones, clears the rest and stops main so the next tick serves it again', async () => {
+  write(path.join(site, 'data/try.json'), { kind: 'web', cards: { 'w/A1': { state: 'ready', port: 1, https: 8500, sha: 'a' }, 'w/A2': { killed: true, sha: 'b', head: 'b' }, 'w/A3': { state: 'failed' } }, main: { state: 'running', sha: 'old', script: true, serving: { sha: 'older', https: 8500 } } });
   await manager.initialize(manifest);
-  assert.deepEqual(state(), { kind: 'web', cards: {}, main: { sha: 'old', script: true } });
+  assert.deepEqual(state(), { kind: 'web', cards: { 'w/A1': { state: 'running', sha: 'a' }, 'w/A2': { killed: true, sha: 'b', head: 'b' } }, main: { sha: 'old', script: true } });
 });
 
 test('builds waiting on each other when the hub restarts run after it, and one that can no longer start fails in its thread', async () => {
@@ -1107,6 +1239,17 @@ test('the hub build route enforces loopback and fixed inputs', async () => {
     assert.equal(await post({ ...input, key: 'main' }), 409);
     assert.equal(await post(input), 202);
     await until(() => state().cards['w/A1']?.state === 'ready');
+    const kill = (body, headers = {}) => new Promise((resolve, reject) => {
+      const request = http.request({ host: '127.0.0.1', port, path: '/_hub/kill', method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (response) => {
+        response.resume(); response.on('end', () => resolve(response.statusCode));
+      });
+      request.on('error', reject); request.end(JSON.stringify(body));
+    });
+    for (const headers of [{ origin: 'https://mac.ts.net' }, { 'x-forwarded-for': '100.64.0.1' }, { host: 'mac.ts.net' }]) assert.equal(await kill(input, headers), 403);
+    assert.equal(await kill({ ...input, anyway: true }), 400);
+    assert.equal(await kill(input), 200);
+    assert.equal(state().cards['w/A1'].state, undefined);
+    assert.equal(await kill(input), 409);
     const pull = (body, headers = {}) => new Promise((resolve, reject) => {
       const request = http.request({ host: '127.0.0.1', port, path: '/_hub/pull', method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (response) => {
         response.resume(); response.on('end', () => resolve(response.statusCode));
@@ -1190,7 +1333,7 @@ test('startup removes only unowned in-range ports and parses stdout despite a ve
   assert.deepEqual(calls(), ['serve status --json', 'serve --https=8500 off', 'serve --https=8599 off']);
 });
 
-test('a failed Tailscale registration fails the run with stderr and removes the port', async (t) => {
+test('a failed Tailscale registration fails the run with stderr and removes the port, and a served card whose server dies serves again', async (t) => {
   const relays = fakeRelays(t);
   manager = createTryManager({ answers: async () => true, log() {} });
   write(path.join(home, 'tailscale.fail'), 'yes');
@@ -1207,13 +1350,16 @@ test('a failed Tailscale registration fails the run with stderr and removes the 
   await start();
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(state().cards['w/A1'].https, 8500);
+  // A served card whose server is stopped outside the hub serves again on its port, with no thread line.
   process.kill(Number(fs.readFileSync(path.join(worktree, 'server.pid'), 'utf8')), 'SIGTERM');
-  await until(() => thread().length === 2);
+  await until(() => relays.length === 3 && state().cards['w/A1'].state === 'ready');
+  assert.equal(state().cards['w/A1'].https, 8500);
   assert.equal(calls().filter((call) => call === 'serve --https=8500 off').length, 2);
-  assert.ok(relays.every((relay) => relay.closed));
+  assert.ok(relays.slice(0, 2).every((relay) => relay.closed));
+  assert.equal(thread().length, 1);
 });
 
-test('card ports skip every board’s fixed main port, including closed boards, and release on idle', async (t) => {
+test('card ports skip every board’s fixed main port, including closed boards, and release on Kill', async (t) => {
   fakeRelays(t);
   manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
   const other = path.join(home, 'other');
@@ -1224,8 +1370,7 @@ test('card ports skip every board’s fixed main port, including closed boards, 
   await start();
   await until(() => state().cards['w/A1'].state === 'ready');
   assert.equal(state().cards['w/A1'].https, 8502);
-  clock += 31 * 60_000;
-  await tick();
+  await kill();
   assert.ok(calls().includes('serve --https=8502 off'));
   assert.equal(state().main_port, 8501);
   write(path.join(site, 'data/agents/A2.json'), { worktree: { path: worktree, repo } });

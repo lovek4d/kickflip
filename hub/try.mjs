@@ -11,15 +11,17 @@ import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
 import { tailscaleBin } from '../shared/tailscale.mjs';
 import { buildScriptError, buildScriptOf } from '../board/build-script.mjs';
-import { appendStatus, recordedWorktree, servedRoundsOpen, setItem } from '../board/store.mjs';
+import { appendStatus, recordedWorktree, servedRoundsOpen, setItem, settingsOf } from '../board/store.mjs';
+import { readMachineState } from '../shared/machine-gate.mjs';
 import { BASE_KEY, baseWorktreeOf } from '../board/prototype-base.mjs';
 import { cardPRs, hasPR, prKeyOf } from '../shared/card-prs.mjs';
 import { hubGate } from '../board/on-host.mjs';
 import { pipeUpgrade, refuse, refuseUpgrade } from './front-door.mjs';
 import { shareOf } from './share.mjs';
 
+// ask: 'busy' or 'cap' when the refusal is a serve the board holds back, which the card's Serve tap words as a dialog.
 export class BuildError extends Error {
-  constructor(message, status = 400) { super(message); this.status = status; }
+  constructor(message, status = 400, ask) { super(message); this.status = status; if (ask) this.ask = ask; }
 }
 
 const execFileAsync = promisify(execFile);
@@ -27,7 +29,11 @@ const git = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...a
 const KEYCHAIN = /errSecInternalComponent|keychain[^\n]*\blocked\b|\blocked\b[^\n]*keychain/i;
 export const TRY_PORTS = { first: 8500, last: 8599 };
 export const isTryPort = (port) => /^\d+$/.test(String(port)) && Number(port) >= TRY_PORTS.first && Number(port) <= TRY_PORTS.last;
-const IDLE_MS = 30 * 60_000;
+// A card's serve that exits on its own after it was up starts again, up to RESTARTS times in RESTART_WINDOW_MS, and then
+// reads Serve failed (docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md).
+const RESTARTS = 3;
+const RESTART_WINDOW_MS = 10 * 60_000;
+export const BUSY_ASK = 'The host is busy, start this serve anyway?';
 // What tailscale serve adds to say who a request is from; the try relay drops them before the app.
 const IDENTITY_HEADERS = ['tailscale-user-login', 'tailscale-user-name', 'tailscale-user-profile-pic', 'x-forwarded-for'];
 // What stops a page from being framed by the board, which is another origin on the same host.
@@ -41,7 +47,7 @@ const withoutFraming = (headers) => {
   return kept;
 };
 // Main and the board's base prototype worktree (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md)
-// are no card: each keeps its own entry in try.json, posts no thread line and never idles out.
+// are no card: each keeps its own entry in try.json, posts no thread line and takes no serve slot.
 const OWN_ENTRY = { main: 'main', [BASE_KEY]: 'prototypes' };
 const isCard = (key) => !Object.hasOwn(OWN_ENTRY, key);
 const scriptAt = (dir, target) => path.join(dir, buildScriptOf(target));
@@ -139,7 +145,7 @@ export async function installWorktree(board, key, manifest) {
   } catch { return ''; }
 }
 
-export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate } = {}) {
+export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy' } = {}) {
   const boards = new Map();
   const runs = new Map();
   // Main's old run, still serving its port while its successor builds: board.dir → run
@@ -153,6 +159,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   const cardPorts = new Map();
   const mainPorts = new Map();
   const lastHeads = new Map();
+  // When each card's serve last started again after an exit: runKey → [ms]
+  const restarts = new Map();
   const pulls = new Map();
   let stopping = false;
   let ticking = null;
@@ -168,10 +176,18 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const record = { state, file, written: JSON.stringify(saved) };
     boards.set(board.dir, record);
     if (state.main_port) mainPorts.set(board.dir, state.main_port);
+    // A web card's serve that was up when the hub stopped serves again, as a build the stop interrupted, and a killed
+    // one stays killed (docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md).
+    if (state.kind === 'web') for (const card of Object.values(state.cards)) {
+      if (card.state !== 'ready') continue;
+      card.state = 'running';
+      delete card.port;
+      delete card.https;
+    }
     const unfinished = Object.entries(state.cards).filter(([, card]) => card.state === 'running');
     for (const [key] of unfinished) interrupted.add(runKey(board, key));
     if (state.kind === 'web') {
-      state.cards = Object.fromEntries(unfinished);
+      state.cards = Object.fromEntries(Object.entries(state.cards).filter(([, card]) => card.state === 'running' || card.killed));
       if (state.main && state.main.state !== 'failed') { delete state.main.state; delete state.main.port; delete state.main.https; }
     } else if (state.main?.state === 'running') { delete state.main.state; delete state.main.sha; }
     // A hub stops every server it started, so no old Main server outlives it.
@@ -290,10 +306,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   async function openPort(run) {
     run.https = publicPort(run);
     const sockets = run.sockets = new Set();
-    const visit = () => { run.visited = now(); };
     const track = (socket) => {
       sockets.add(socket);
-      socket.on('data', visit);
       socket.on('close', () => sockets.delete(socket));
     };
     // tailscale serve proxies the port as HTTP, so the relay reads each request's login and lets only the owner and the
@@ -314,7 +328,6 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       const up = http.request({ host: '127.0.0.1', port: run.port, method: req.method, path: req.url, headers }, (answer) => {
         // The prototype serve is framed by the board's own page, so its answers lose the headers that refuse a frame.
         res.writeHead(answer.statusCode, run.key === BASE_KEY ? withoutFraming(answer.headers) : answer.headers);
-        answer.on('data', visit);
         answer.pipe(res);
         answer.on('close', () => { if (!answer.complete) res.destroy(); });
       });
@@ -322,7 +335,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       up.on('error', () => { if (res.headersSent) res.destroy(); else res.writeHead(502).end(); });
       req.pipe(up);
     });
-    run.relay.on('connection', (socket) => { visit(); track(socket); });
+    run.relay.on('connection', track);
     run.relay.on('upgrade', async (req, socket, head) => {
       const verdict = await relayVerdict(req, run.board);
       if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict); return; }
@@ -415,6 +428,21 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     await terminate(run);
     await run.done;
   }
+  function restartsLeft(id) {
+    const recent = (restarts.get(id) || []).filter((at) => now() - at < RESTART_WINDOW_MS);
+    restarts.set(id, recent);
+    return recent.length < RESTARTS;
+  }
+  // Why a new serve of a card can't start now: {ask: 'cap', cap} once the board's card serves reach its Maximum parallel
+  // serves, {ask: 'busy'} while the host is busy, else null. A card already serving takes no new slot, and an app
+  // board's builds, which keep no server up, none at all.
+  function servesHeld(board, id) {
+    if (runs.has(id) || stateOf(board).state.kind === 'app') return null;
+    const cap = settingsOf(readJSON(path.join(board.dir, 'board.json'), {}), board).max_serves;
+    const serving = [...runs.values()].filter((run) => run.board.dir === board.dir && isCard(run.key) && !run.stopped && !run.finished).length;
+    if (serving >= cap) return { ask: 'cap', cap };
+    return busy() ? { ask: 'busy' } : null;
+  }
   async function stopRun(run, keepPort = false) {
     await halt(run, keepPort);
     update(run.board, run.key, { state: undefined, port: undefined, https: undefined, ...(!run.ready ? { sha: undefined } : {}) });
@@ -434,6 +462,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const entry = { ...(isCard(key) ? previous : {}), ...metadata, sha, script: true, state: 'running', ...(isCard(key) ? { at: stamp(), head: sha } : {}), ...(key === BASE_KEY ? { since: stamp() } : {}) };
     delete entry.port;
     delete entry.https;
+    delete entry.killed;
     const logFile = logFileOf(board, key);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'w', 0o600);
@@ -443,7 +472,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       env: { ...process.env, KICKFLIP_BOARD: board.route, HOST: '127.0.0.1' } });
     setEntry(state, key, entry);
     const id = runKey(board, key);
-    const run = { child, board, key, worktree, sha, at: metadata.at, metadata, logFile, visited: now(), stopped: false, port: null, ready: false };
+    const run = { child, board, key, worktree, sha, at: metadata.at, metadata, logFile, stopped: false, port: null, ready: false };
     recordGroup(run);
     runs.set(id, run);
     lastHeads.set(id, sha);
@@ -475,7 +504,6 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
             await run.opening;
             if (run.stopped || failed || child.exitCode !== null || child.signalCode !== null) return;
             run.ready = true;
-            run.visited = now();
             state.kind = 'web';
             update(board, key, { state: 'ready', port, https: run.https });
             clearInterval(run.poll);
@@ -503,6 +531,9 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       fs.closeSync(fd);
       (async () => {
         await terminate(run);
+        // A card's serve that was up and exits on its own starts again on the same port while its budget lasts.
+        const again = isCard(key) && run.ready && !run.stopped && !stopping && restartsLeft(id);
+        if (again) run.keepPort = true;
         await closePort(run);
         forgetGroup(run);
         if (!stopping) await checkQuiet(board, key, run.port);
@@ -515,6 +546,20 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
         }
         if (key === 'main' && !run.ready && refusedByOld(board, run) && !stopping) {
           await handOverFailed(run);
+          return;
+        }
+        if (again) {
+          if (!exists(worktree)) { dropEntry(state, key); persist(board); return; }
+          const times = [...restarts.get(id) || [], now()];
+          restarts.set(id, times);
+          log(`build /${board.route} ${key}: the serve exited on its own (${signal || `code ${code}`}); serving it again (${times.length} of ${RESTARTS})`);
+          await launch(board, key, worktree, {}, `The serve exited on its own; serving it again (${times.length} of ${RESTARTS} in ${RESTART_WINDOW_MS / 60_000} minutes).\n`)
+            .catch((e) => failure({ board, key, logFile: failureLog(board, key, e) }, 1));
+          return;
+        }
+        if (isCard(key) && run.ready && !run.stopped && !stopping) {
+          restarts.delete(id);
+          await failure(run, code ?? 1, signal, new Error(`The serve exited on its own ${RESTARTS + 1} times within ${RESTART_WINDOW_MS / 60_000} minutes.`));
           return;
         }
         // The prototype site is a web page, so a script that ends without serving one failed.
@@ -622,12 +667,13 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       throw e;
     } finally { starting.delete(id); }
   }
-  async function start(input, { manifest = readManifest() } = {}) {
+  // auto: the tick's own start, which has checked the board's room for it.
+  async function start(input, { manifest = readManifest(), auto = false } = {}) {
     await initialize(manifest);
     reserveMains(manifest);
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
-    if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key'].includes(k))
-      || typeof input.route !== 'string' || typeof input.key !== 'string') throw new BuildError('Send only the board route and card key.');
+    if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key', 'anyway'].includes(k))
+      || typeof input.route !== 'string' || typeof input.key !== 'string' || !['undefined', 'boolean'].includes(typeof input.anyway)) throw new BuildError('Send only the board route, card key and anyway.');
     const { route, key } = input;
     if (isCard(key) && (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..'))) throw new BuildError('Card key must be <file>/<id>.');
     const board = listBoards(manifest).find((b) => b.route === route);
@@ -645,6 +691,10 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       const { sha, branch, slug, at, script } = entry;
       return launchMain(board, boardRepo(route, manifest).repo, { sha, branch, slug, at, script, ...(board.build_target ? { target: board.build_target } : {}) });
     }
+    // The tick checks its own serves before it starts one; an owner's Serve is refused here, a busy host's unless anyway.
+    const held = isCard(key) && !auto && !interrupted.has(id) ? servesHeld(board, id) : null;
+    if (held?.ask === 'cap') throw new BuildError(`This board is at its cap of ${held.cap} parallel serves. Kill another serve, or raise Maximum parallel serves in Board settings.`, 409, 'cap');
+    if (held?.ask === 'busy' && !input.anyway) throw new BuildError(BUSY_ASK, 409, 'busy');
     starting.add(id);
     const resuming = interrupted.delete(id);
     try {
@@ -657,6 +707,25 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       throw e;
     }
     finally { starting.delete(id); }
+  }
+  // A card's Kill: stops its serve, running or up, and frees its port and slot. The entry keeps the killed run's commit
+  // and killed, so Auto serve leaves the card until its head moves, a hub restart included.
+  async function kill(input, { manifest = readManifest() } = {}) {
+    await initialize(manifest);
+    if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
+    if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key'].includes(k))
+      || typeof input.route !== 'string' || typeof input.key !== 'string' || !isCard(input.key)) throw new BuildError('Send only the board route and card key.');
+    const board = listBoards(manifest).find((b) => b.route === input.route);
+    if (!board) throw new BuildError(`/${input.route} is not a board.`, 404);
+    const id = runKey(board, input.key);
+    const run = runs.get(id);
+    if (!run || run.stopped || run.finished) throw new BuildError('This card has no serve running.', 409);
+    await stopRun(run);
+    restarts.delete(id);
+    lastHeads.set(id, run.sha);
+    update(board, input.key, { sha: run.sha, killed: true });
+    log(`build /${board.route} ${input.key}: killed`);
+    return { status: 'stopped' };
   }
   // The board's base prototype worktree, when it exists; launch refuses ''.
   const baseWorktree = (board) => {
@@ -722,7 +791,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       const prs = readJSON(GITHUB_STATE, {}).prs || {};
       for (const [dir, old] of [...serving]) if (!listed.some((b) => b.dir === dir)) { serving.delete(dir); await halt(old); }
       for (const run of [...runs.values()]) {
-        if (!listed.some((b) => b.dir === run.board.dir) || (isCard(run.key) && run.ready && now() - run.visited >= IDLE_MS)) {
+        if (!listed.some((b) => b.dir === run.board.dir)) {
           await stopRun(run);
           const { state } = stateOf(run.board);
           dropEntry(state, run.key);
@@ -736,6 +805,8 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
         const source = boardRepo(board.route, manifest);
         const branch = source.branch || 'main';
         const ref = mainRefOf(source);
+        // A card's serve lasts while its card is open and its worktree is there: the keys of those cards.
+        const open = new Set();
         for (const { slug, itemFile } of board.files) for (const item of itemFile.items) {
           const key = `${slug}/${item.id}`;
           const states = cardPRs(item, board.github || itemFile.repo).map((p) => prs[prKeyOf(p)]);
@@ -744,17 +815,20 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
             const id = runKey(board, key);
             const worktree = await installWorktree(board, key, manifest);
             if (worktree) {
+              open.add(key);
               const head = await git(worktree, 'rev-parse', 'HEAD');
               let ahead = 0;
               try { ahead = Number(await git(worktree, 'rev-list', '--count', `${ref}..HEAD`)); } catch {}
               Object.assign(state.cards[key] ||= {}, { head, ahead, script: exists(scriptAt(worktree, board.build_target)) });
               persist(board);
-            } else if (!interrupted.has(id)) continue;
+            } else continue;
             const entry = state.cards[key];
-            const wanted = interrupted.has(id)
+            const resume = interrupted.has(id);
+            const wanted = resume
               || (board.auto_build && entry.script && entry.ahead > 0 && (entry.sha || lastHeads.get(id)) !== entry.head && entry.state !== 'running');
-            if (wanted && !starting.has(id)) {
-              try { await start({ route: board.route, key }, { manifest }); }
+            // Auto serve starts a new serve only while the board has room and the host isn't busy; a later tick starts it.
+            if (wanted && !starting.has(id) && (resume || !servesHeld(board, id))) {
+              try { await start({ route: board.route, key }, { manifest, auto: true }); }
               catch (e) {
                 if ([409, 503].includes(e.status)) continue;
                 update(board, key, { sha: entry.head });
@@ -764,6 +838,13 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
             }
           } catch (e) { log(`try /${board.route} ${key}: ${e.message}`); }
         }
+        for (const run of [...runs.values()]) {
+          if (run.board.dir !== board.dir || !isCard(run.key) || open.has(run.key) || starting.has(runKey(board, run.key))) continue;
+          await stopRun(run);
+          dropEntry(state, run.key);
+        }
+        for (const key of Object.keys(state.cards)) if (!open.has(key) && interrupted.delete(runKey(board, key))) dropEntry(state, key);
+        persist(board);
         await serveBase(board, manifest).catch((e) => log(`try /${board.route} prototypes: ${e.message}`));
         try {
           if (!source.repo || await waiting()) continue;
@@ -851,11 +932,12 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   }
   async function stop() {
     stopping = true;
-    // A build still going keeps `running`, so the next hub starts it again (docs/adr/2026-11-02-1731-a-build-the-hub-stops-starts-again-after-it-restarts.md).
-    const stopped = Promise.all([...runs.values()].map((run) => run.ready ? stopRun(run) : halt(run)).concat([...serving.values()].map((old) => halt(old))));
+    // A build still going keeps `running`, so the next hub starts it again (docs/adr/2026-11-02-1731-a-build-the-hub-stops-starts-again-after-it-restarts.md),
+    // and a card's serve that is up keeps `ready`, which the next hub serves again the same way.
+    const stopped = Promise.all([...runs.values()].map((run) => run.ready && !isCard(run.key) ? stopRun(run) : halt(run)).concat([...serving.values()].map((old) => halt(old))));
     await Promise.all([stopped, ticking, ...pulls.values()]);
   }
-  return { start, tick, stop, lookup, initialize, pull, pullMains, endUnshared };
+  return { start, kill, tick, stop, lookup, initialize, pull, pullMains, endUnshared };
 }
 
 // Git that reaches a board repo's origin, GitHub or a remote board's: git's own credential with its prompts off
@@ -970,6 +1052,7 @@ async function settlePushed(board, repo, branch, log) {
 }
 const manager = createTryManager({ waiting: () => readiness.waiting('tailscale') });
 export const startBuild = (...args) => manager.start(...args);
+export const killBuild = (...args) => manager.kill(...args);
 export const tryTick = (...args) => manager.tick(...args);
 export const pullNow = (...args) => manager.pull(...args);
 export const pullMains = (...args) => manager.pullMains(...args);

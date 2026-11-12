@@ -417,28 +417,51 @@ BoardView.part((B) => {
     }
     const off = ev.target.closest('a[data-tip]');
     if (off) { ev.preventDefault(); toast(off.dataset.tip); return; }
-    const button = ev.target.closest('button[data-try]');
+    const kill = ev.target.closest('button[data-try-kill]');
+    const button = kill || ev.target.closest('button[data-try]');
     if (!button) return;
     ev.preventDefault();
     if (button.dataset.tip) { toast(button.dataset.tip); return; }
-    const key = button.dataset.try;
+    const key = kill ? kill.dataset.tryKill : button.dataset.try;
     const it = state.board.items.find((i) => i.key === key);
-    if (!it || !(await B.confirm(`${tryWords(it.try?.kind).go} ${it.ref}? The hub runs its build script.`)) || !B.alive()) return;
-    // Serve / Build spins until a board shows the card's build changed: running, or already done
+    if (!it) return;
+    // A web card's Serve asks the busy host's question in place of its usual confirm, and the hub's own refusal for a
+    // busy host or the board's serve cap is a dialog too
+    // (docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md).
+    const busyAsk = 'The host is busy, start this serve anyway?';
+    const web = it.try?.kind === 'web';
+    let anyway = !kill && web && it.try?.hostBusy === true;
+    const asked = kill ? `Kill ${it.ref}’s serve? Its server stops until you tap Serve.` : anyway ? busyAsk : `${tryWords(it.try?.kind).go} ${it.ref}? The hub runs its build script.`;
+    if (!(await B.confirm(asked)) || !B.alive()) return;
+    // Serve / Build and Kill spin until a board shows the card's build changed: running, done or stopped
     // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
     const before = JSON.stringify(it.try);
     const id = `${key}:try`;
     BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.try) !== before, B.stillWaiting);
     B.render();
+    const send = async () => {
+      const r = await fetch(B.site.url(kill ? 'api/try/kill' : 'api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, ...(anyway ? { anyway } : {}) }) });
+      return { ok: r.ok, out: await r.json() };
+    };
     try {
-      const r = await fetch(B.site.url('api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
-      const out = await r.json();
-      if (!r.ok) throw new Error(out.error || 'The hub refused the build.');
+      let { ok, out } = await send();
+      if (!ok && out.ask === 'busy' && !anyway) {
+        if (!(await B.confirm(busyAsk)) || !B.alive()) { BoardUI.pending.drop(id); B.render(); return; }
+        anyway = true;
+        ({ ok, out } = await send());
+      }
+      if (!ok && out.ask === 'cap') {
+        BoardUI.pending.drop(id);
+        B.render();
+        await B.notice(out.error);
+        return;
+      }
+      if (!ok) throw new Error(out.error || (kill ? 'The hub refused the Kill.' : 'The hub refused the build.'));
       BoardUI.pending.answered(id);
     } catch (error) {
       BoardUI.pending.drop(id);
       B.render();
-      toast(error.message || 'Could not start. Is the host awake?');
+      toast(error.message || (kill ? 'Could not kill it. Is the host awake?' : 'Could not start. Is the host awake?'));
     }
     B.reload();
   });

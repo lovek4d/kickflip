@@ -1116,7 +1116,7 @@ export function buildBoard(snapshot) {
     const state = it.builder?.kind === BUILDER_KIND.install ? 'running' : run.state || (kind === 'app' && it.install ? 'ready' : null);
     it.try = { kind, state, stale: Boolean(sha && head && !String(head).toLowerCase().startsWith(String(sha).toLowerCase())),
       url: kind === 'web' ? null : it.install?.url || null, port: kind === 'web' && state === 'ready' ? run.https || null : null,
-      sha: sha || null, changes: run.ahead > 0, script: run.script === true, autoBuild };
+      sha: sha || null, changes: run.ahead > 0, script: run.script === true, autoBuild, hostBusy: Boolean(snapshot.hostBusy) };
   }
   const run = tries.main;
   const main = run?.script && run.sha ? { slug: run.slug, branch: run.branch || 'main', sha: run.sha.slice(0, 7), at: run.at,
@@ -1506,6 +1506,9 @@ export function rebasesDue(items, sent, base) {
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
 // How many grills and prototypes a board runs at once, unless its max_planners setting says otherwise.
 export const MAX_PLANNERS = 3;
+// docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
+// How many card serves a board keeps up at once, unless its max_serves setting says otherwise.
+export const MAX_SERVES = 10;
 // For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
 // card in Todo nothing has picked up: buildable, neither ready nor staging, filed (not New), not held or worked on by a session, with
 // no planner record ever, no grill or prototype requested and no question topic. However it was filed (an ask, item add,

@@ -410,7 +410,7 @@
   const copyNote = (what, savedAt) => `<p class="note copy-note">Copy of ${esc(what)} as of ${since(savedAt)}. Read only.</p>`;
   // The buttons that send, which a board out of reach holds (style.css .offline): every one greyed and stopped, keeping its
   // label and size. Reading controls, folds, links, Edit and drafts stay live.
-  const SENDS = `form button[type="submit"], .actions button, button[data-confirm], button[data-deck-pick], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick], button[data-card-bump], button[data-bump], button[data-withdraw], button[data-grill], button[data-proto], button[data-visual], button[data-plan], button[data-main-pull], button[data-arch-run], button[data-try], button[data-reopen]`;
+  const SENDS = `form button[type="submit"], .actions button, button[data-confirm], button[data-deck-pick], button[data-review-answer], button[data-prompt-send], button[data-prompt-choice], button[data-quick], button[data-card-bump], button[data-bump], button[data-withdraw], button[data-grill], button[data-proto], button[data-visual], button[data-plan], button[data-main-pull], button[data-arch-run], button[data-try], button[data-try-kill], button[data-reopen]`;
   // While held(), a tap on one of root's sending buttons, and any form's submit there, Enter's included, goes nowhere, and onHeld
   // tells the tap it is waiting. on is the view's B.on.
   function holdSends(on, root, held, onHeld) {

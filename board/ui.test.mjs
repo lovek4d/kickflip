@@ -1732,22 +1732,35 @@ test('try badges share ready, stale, running, failed and absent states for both 
   }
 });
 
-test('try buttons show only while Auto-build is off on a branch with changes, explain running and current runs, and offer Retry after failure only on scripted work cards', () => {
+test('try buttons show only while Auto-build is off on a branch with changes, explain an app’s running and current runs, and offer Retry after failure only on scripted work cards', () => {
   for (const kind of ['web', 'app']) {
     const card = { ...workCard, kind: 'work', try: { kind, script: true, changes: true, autoBuild: false } };
     assert.equal(text(ui.tryButton(card)), 'Serve');
     assert.equal(ui.tryButton({ ...card, try: { ...card.try, changes: false } }), '');
-    for (const state of [undefined, 'failed', 'ready']) assert.equal(ui.tryButton({ ...card, try: { ...card.try, state, stale: true, autoBuild: true } }), '');
-    for (const [change, reason] of [[{ state: 'running' }, 'Serving now.'], [{ state: 'ready' }, 'Nothing new to']]) {
+    for (const state of [undefined, 'failed', ...kind === 'app' ? ['ready'] : []]) assert.equal(ui.tryButton({ ...card, try: { ...card.try, state, stale: true, autoBuild: true } }), '');
+    for (const [change, reason] of kind === 'app' ? [[{ state: 'running' }, 'Serving now.'], [{ state: 'ready' }, 'Nothing new to']] : []) {
       const html = ui.tryButton({ ...card, try: { ...card.try, ...change } });
       assert.match(html, /aria-disabled="true"/);
       assert.ok(html.includes(reason));
     }
     assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'failed' } })), 'Retry');
-    assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'ready', stale: true } })), 'Serve');
+    assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'ready', stale: true } })), kind === 'app' ? 'Serve' : 'Kill');
     assert.equal(ui.tryButton({ ...card, kind: 'ask' }), '');
     assert.equal(ui.tryButton({ ...card, try: { ...card.try, script: false } }), '');
   }
+});
+
+test('a web card whose serve is running or up shows Kill in place of Serve, whatever Auto serve and its changes say', () => {
+  const card = { ...workCard, kind: 'work', try: { kind: 'web', script: true, changes: true, autoBuild: false } };
+  for (const change of [{ state: 'running' }, { state: 'ready' }, { state: 'ready', stale: true }, { state: 'ready', autoBuild: true, changes: false }]) {
+    const html = ui.tryButton({ ...card, try: { ...card.try, ...change } });
+    assert.equal(text(html), 'Kill');
+    assert.match(html, new RegExp(`data-try-kill="${card.key}"`));
+    assert.doesNotMatch(html, /aria-disabled/);
+  }
+  assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, state: 'failed' } })), 'Retry');
+  assert.equal(text(ui.tryButton({ ...card, try: { ...card.try, kind: 'app', state: 'ready', stale: true } })), 'Serve');
+  assert.equal(ui.tryButton({ ...card, try: { ...card.try, state: 'failed', autoBuild: true } }), '');
 });
 
 test('main is a slim branch bar with a ready link, running status or failed log button', () => {

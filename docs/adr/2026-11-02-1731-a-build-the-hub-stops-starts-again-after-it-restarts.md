@@ -9,3 +9,5 @@ Considered:
 - A thread line at shutdown asking the owner to build again: the hub accepted the request and only its own restart stopped it, so the owner should not have to ask twice.
 - Letting a build outlive the hub: its output pipes and process group belong to the hub that started it, so the next hub could neither log nor end it.
 - A request queue in the hub: no request was refused; each was accepted and running when the restart ended it.
+
+Since #510 shutdown keeps a ready card's serve too, and the next hub serves it again ([a card's serve stays up while its worktree does](2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md)).

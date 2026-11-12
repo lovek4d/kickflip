@@ -102,9 +102,13 @@
 //                     removed}` event (boards.mjs sendToBoards). → {rules, events, failed}; a bad list → 400 {error}
 //   /_hub/poll        POST runs one poll now, or joins the running one, and returns its result as JSON;
 //                     {"flush": false} skips sending the queue (`kickflip poll-now`)
-//   /_hub/build       POST {route, key}, key <file>/<id> or main (retry failed tip), loopback only:
+//   /_hub/build       POST {route, key, anyway?}, key <file>/<id> or main (retry failed tip), loopback only:
 //                     runs <worktree>/.kickflip/build[-<board's build target>] <key> <worktree>
-//                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs)
+//                     asynchronously; data/try.json and data/try/<id>.log carry its state (try.mjs). A card's new
+//                     serve at the board's max_serves → 409 {error, ask: 'cap'}; on a busy host without anyway: true
+//                     → 409 {error, ask: 'busy'}
+//   /_hub/kill        POST {route, key}, loopback only: a card's Kill, stopping its serve → {status: 'stopped'}, or
+//                     409 when none runs (try.mjs kill)
 //   /_hub/pull        POST {route}, loopback only: Main's refresh icon on a local board. Fast-forwards the board's
 //                     branch from origin now and rebuilds Main when that brought commits → {commits, error?} (try.mjs)
 //   /_hub/prompts     POST a PermissionRequest hook's input (permission-hook.mjs) → {id, deadline}: a pending prompt in
@@ -129,7 +133,7 @@
 // docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // Every non-GET/HEAD request passes ../starter/cross-site.mjs before routing or proxying (403 plain text).
 // Routes that parse JSON require application/json; settings forms and raw uploads keep their own types.
-// /_hub/build and /_hub/pull also require loopback and refuse Origin and forwarded headers.
+// /_hub/build, /_hub/kill and /_hub/pull also require loopback and refuse Origin and forwarded headers.
 // It also runs every site: it starts each manifest entry's `cmd`, restarts it
 // when it exits, restarts it when its entry changes, and stops every one before it exits itself. A site with a port and
 // no `cmd` runs its own server: the hub only probes it, and it reads Down while nothing answers
@@ -203,7 +207,7 @@ import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing, setHubPause, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { checkMachine } from '../shared/machine-gate.mjs';
 import { readiness, readCodex } from './readiness.mjs';
-import { BuildError, startBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
+import { BuildError, startBuild, killBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
 import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
@@ -999,20 +1003,21 @@ async function hubRoute(req, res, url, viewer = null) {
       return sendJSON(200, result);
     } catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
   }
-  if ((p === '/_hub/build' || p === '/_hub/pull') && req.method === 'POST') {
+  if ((p === '/_hub/build' || p === '/_hub/pull' || p === '/_hub/kill') && req.method === 'POST') {
     if (shuttingDown) return sendJSON(503, { error: 'The hub is stopping. Try again after it restarts.' });
     const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
     const host = (req.headers.host || '').replace(/:\d+$/, '');
     if (!local.includes(req.socket.remoteAddress) || !['127.0.0.1', 'localhost', '[::1]'].includes(host)
       || req.headers.origin || Object.keys(req.headers).some((h) => h === 'forwarded' || h.startsWith('x-forwarded-'))) {
-      return sendJSON(403, { error: `${p === '/_hub/pull' ? 'Pulls' : 'Builds'} can only be started from the host over loopback.` });
+      return sendJSON(403, { error: `${p === '/_hub/pull' ? 'Pulls' : p === '/_hub/kill' ? 'Serves' : 'Builds'} can only be ${p === '/_hub/kill' ? 'killed' : 'started'} from the host over loopback.` });
     }
     let input;
     try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: p === '/_hub/pull' ? 'Send the board route as JSON.' : 'Send the board route and card key as JSON.' }); }
     try {
       if (p === '/_hub/pull') return sendJSON(200, await pullNow(input, { manifest: loadManifest() }));
+      if (p === '/_hub/kill') return sendJSON(200, await killBuild(input, { manifest: loadManifest() }));
       return sendJSON(202, await startBuild(input, { manifest: loadManifest(), log }));
-    } catch (e) { if (e instanceof BuildError) return sendJSON(e.status, { error: e.message }); throw e; }
+    } catch (e) { if (e instanceof BuildError) return sendJSON(e.status, { error: e.message, ...(e.ask ? { ask: e.ask } : {}) }); throw e; }
   }
   if (p === '/sw.js') return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(HUB_DIR, 'sw.js')), { 'service-worker-allowed': '/' });
   if (p === '/manifest.webmanifest') return send(200, 'application/manifest+json', manifestJson());

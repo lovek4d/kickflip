@@ -15,3 +15,5 @@ Considered:
 - pointing Tailscale straight at the script’s port: hides requests from the hub and loses the idle limit.
 
 Since #410 a stopping hub leaves its try ports mapped, and each tick re-serves a missing mapping ([try ports stay served across a hub restart](2026-11-06-1531-try-ports-stay-served-across-a-hub-restart-and-the-relay-hides-who-asked.md)).
+
+Since #510 a card's serve no longer idles out; it stays up while its worktree does ([a card's serve stays up while its worktree does](2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md)).
