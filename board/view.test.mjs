@@ -3506,7 +3506,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
   b.view.unmount();
 });
 
-test("Main's refresh icon pulls now and spins only itself until the server answers; a tap pulls again after a failure on any device, and a failed pull opens its reason", async () => {
+test("Main's refresh icon pulls now and spins only itself until a board shows Main moved, or the answer says nothing was pulled; a tap pulls again after a failure on any device, and a failed pull opens its reason", async () => {
   const main = { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500, pull: { running: false, error: null } };
   const data = { ...boardOf([]), main };
   const b = boardOnDom({ board: data, threads: {} });
@@ -3525,26 +3525,22 @@ test("Main's refresh icon pulls now and spins only itself until the server answe
   b.page.fire(b.root, 'click', { target: icon() });
   await b.settle();
   assert.deepEqual(posts, [['https://mac.ts.net/board-a/api/try/main/pull', '{}']]);
-  assert.equal(icon().getAttribute('aria-disabled'), 'true');
-  assert.match(icon().getAttribute('class'), /spinning/);
+  assert.deepEqual(waitState(icon()), WAITING);
   assert.match(b.root.querySelector('#tryMain').textContent, /Visit/);
-  b.page.fire(b.root, 'click', { target: icon() });
-  await b.settle();
-  assert.equal(posts.length, 1);
   answer({ commits: 0 });
   await b.settle();
-  assert.equal(icon().getAttribute('aria-disabled'), null, 'a pull that brought no commits changes nothing a board shows, so its answer ends the spinner');
+  assert.deepEqual(waitState(icon()), IDLE, 'a pull that brought no commits changes nothing a board shows, so its answer ends the spinner');
 
   // A pull that brought commits keeps the spinner past its answer, through a board that still shows nothing, until Main moves.
   b.page.fire(b.root, 'click', { target: icon() });
   await b.settle();
   answer({ commits: 2 });
   await b.settle();
-  assert.equal(icon().getAttribute('aria-disabled'), 'true');
+  assert.deepEqual(waitState(icon()), WAITING);
   await b.change({ board: data });
-  assert.equal(icon().getAttribute('aria-disabled'), 'true');
+  assert.deepEqual(waitState(icon()), WAITING);
   await b.change({ board: { ...data, main: { ...main, sha: '1234567', state: 'running' } } });
-  assert.equal(icon().getAttribute('aria-disabled'), null);
+  assert.deepEqual(waitState(icon()), IDLE);
   await b.change({ board: data });
   posts.length = 1;
 
@@ -5808,6 +5804,83 @@ test('Implement with text spins until the thread shows the message, a refusal re
   assert.deepEqual([f.querySelector('button[data-intent="build"]').disabled, refused.root.querySelector('.toast').textContent], [false, 'w/A1 is not open.']);
   assert.match(refused.root.querySelector('[data-thread="w/A1"] .msg[data-send] .msg-foot').textContent, /not sent/);
   refused.view.unmount();
+});
+
+// docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md
+test("Prototype, Grill and Visual spin until the thread shows a new line, while their POST is still out, and a send that fails afterwards still toasts its reason", async () => {
+  const sends = heldSends();
+  const before = { ts: '2026-10-30T09:00:00.000Z', who: 'claude', text: 'Created ticket A1' };
+  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [before] }, send: sends.send });
+  await b.settle();
+  const button = (sel) => b.root.querySelector(`form[data-reply="w/A1"] ${sel}`);
+  let n = 0;
+  const line = () => ({ ts: `2026-10-30T10:00:0${n++}.000Z`, who: 'claude', command: 'prototype', text: 'Prototype requested' });
+  for (const sel of ['button[data-proto]', 'button[data-grill]', 'button[data-visual]']) {
+    b.page.fire(b.root, 'click', { target: button(sel) });
+    await b.settle();
+    assert.deepEqual(waitState(button(sel)), WAITING, sel);
+    await b.change({ board: { ...b.server.board, title: `A ${n}` } });
+    assert.deepEqual(waitState(button(sel)), WAITING, `${sel}: a load with the thread as it was keeps the spinner`);
+    await b.change({ threads: { 'w/A1': [...b.server.threads['w/A1'], line()] } });
+    assert.deepEqual(waitState(button(sel)), IDLE, `${sel}: the line shows, though the POST is still out`);
+    sends.answer();
+    await b.settle();
+  }
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['prototype-request', 'grill-more', 'visual-request']);
+
+  b.page.fire(b.root, 'click', { target: button('button[data-proto]') });
+  await b.settle();
+  await b.change({ threads: { 'w/A1': [...b.server.threads['w/A1'], line()] } });
+  assert.deepEqual(waitState(button('button[data-proto]')), IDLE);
+  sends.answer(false, REFUSED);
+  await b.settle();
+  assert.equal(b.root.querySelector('.toast').textContent, REFUSED, 'the refusal after the spinner rested still says why');
+  b.view.unmount();
+});
+
+test("Hold, Unhold, Done and a bump spin until a board shows their change, while their POST is still out", async () => {
+  const holdChoices = [{ value: '1h', label: '1h', ms: 3_600_000 }];
+  const T1 = workCard('T1', { holdable: true });
+  const H1 = workCard('H1', { held: true, holdable: true });
+  const F1 = workCard('F1', { finishable: true });
+  const B1 = workCard('B1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['w/T1', 'w/H1', 'w/F1'], board: { ...boardOf([T1, H1, F1, B1]), holdChoices }, threads: {}, send: sends.send, confirm: true });
+  await b.settle();
+  const button = (key, act) => b.root.querySelector(`details.item[data-key="${key}"] [data-confirm="${act}"]`);
+  const bump = () => b.root.querySelector('details.item[data-key="w/B1"] button[data-card-bump]');
+  const show = (cards) => b.change({ board: { ...boardOf(cards), holdChoices } });
+
+  b.page.fire(b.root, 'click', { target: button('w/H1', 'resume') });
+  await b.settle();
+  assert.deepEqual(waitState(button('w/H1', 'resume')), WAITING);
+  await show([T1, H1, F1, B1]);
+  assert.deepEqual(waitState(button('w/H1', 'resume')), WAITING, 'a board without the change keeps the spinner');
+  await show([T1, { ...H1, held: false }, F1, B1]);
+  assert.deepEqual(waitState(button('w/H1', 'hold')), IDLE, 'Unhold rests once a board shows the card unheld');
+
+  b.page.fire(b.root, 'click', { target: button('w/T1', 'hold') });
+  b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
+  assert.deepEqual(waitState(button('w/T1', 'hold')), WAITING);
+  await show([{ ...T1, held: true, heldUntil: '2026-10-30T11:00:00.000Z' }, { ...H1, held: false }, F1, B1]);
+  assert.deepEqual(waitState(button('w/T1', 'resume')), IDLE, 'Hold rests once a board shows the hold');
+
+  b.page.fire(b.root, 'click', { target: bump() });
+  await b.settle();
+  assert.equal(bump().getAttribute('aria-busy'), 'true');
+  await show([{ ...T1, held: true, heldUntil: '2026-10-30T11:00:00.000Z' }, { ...H1, held: false }, F1, { ...B1, bumpedAt: '2026-10-30T10:00:01.000Z' }]);
+  assert.equal(bump().getAttribute('aria-busy'), null, 'the bump rests once a board shows it');
+
+  b.page.fire(b.root, 'click', { target: button('w/F1', 'finish') });
+  await b.settle();
+  assert.deepEqual(waitState(button('w/F1', 'finish')), WAITING);
+  await show([{ ...T1, held: true, heldUntil: '2026-10-30T11:00:00.000Z' }, { ...H1, held: false }, { ...F1, lane: 'done', storedLane: 'done' }, { ...B1, bumpedAt: '2026-10-30T10:00:01.000Z' }]);
+  assert.equal(b.root.querySelector('details.item[data-key="w/F1"] .tap-waiting'), null, 'Done rests once a board shows the card done');
+
+  assert.equal(sends.waiting.length, 4, 'every POST is still out');
+  while (sends.waiting.length) sends.answer();
+  await b.settle();
+  b.view.unmount();
 });
 
 test("a tap whose POST board cannot land because a reload won the race keeps its spinner until a board made after the tap is drawn", async () => {

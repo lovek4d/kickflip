@@ -248,14 +248,13 @@ BoardView.part((B) => {
     const pb = ev.target.closest('button[data-plan]');
     if (pb) {
       if (!(await B.confirm('Claude triages these Todo cards into one or more waves and asks you about them in Waiting on you. Nothing is implemented until you answer. Start?'))) return;
-      // Spins until a board shows a grill running on one of the cards (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+      // Spins until a board shows a grill running on one of the cards that wasn't when tapped
+      // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
       const keys = pb.dataset.plan.split(' ');
-      BoardUI.pending.start('todo:plan', (board) => board.items.some((i) => keys.includes(i.key) && i.grilling), B.stillWaiting);
-      try {
-        const out = await waitOn(pb, B.send('plan-waves', { keys }));
-        BoardUI.pending.answered('todo:plan', out.board.generatedAt);
-        B.render();
-      } catch { BoardUI.pending.drop('todo:plan'); B.render(); B.notice('Could not send. Is the host awake?'); }
+      const grilling = () => state.board.items.filter((i) => keys.includes(i.key) && i.grilling).map((i) => i.key);
+      const before = new Set(grilling());
+      try { await B.spinUntil(pb, { send: () => B.send('plan-waves', { keys }), shows: () => grilling().some((key) => !before.has(key)) }); }
+      catch { B.notice('Could not send. Is the host awake?'); }
       return;
     }
   });

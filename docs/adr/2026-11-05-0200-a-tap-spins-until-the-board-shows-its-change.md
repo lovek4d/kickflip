@@ -6,13 +6,27 @@ status: superseded in part by 2026-11-12-2030-a-thread-message-shows-at-once-and
 
 Superseded in part by [a thread message shows at once, and the browser keeps it until it is sent](2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md): thread Reply and quick replies no longer wait; the message shows at once as sending…, and only Implement with text waits, on its own message.
 
-A button that waited on its request alone went back to idle when the request returned, then showed the change a board later: a flash of the plain button between. The Merge button had the cure ([a merge tap waits its turn to land](2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md)): `BoardUI.pending`, keyed `<card>:<action>`, drawn busy by the markup through any repaint, ended by `settle(board)` in `render`. Nudge, Serve/Build, Main's pull icon and Plan waves use it too, and the rest of the audit's gaps wait on the same 60 second rule.
+A button that waited on its request alone went back to idle when the request returned, then showed the change a board later: a flash of the plain button between. And a request that outlived its change kept spinning well after the change showed: the server writes a Prototype request's status line, then keeps the request open while it moves the card and rebuilds the board, so the thread showed the line long before the spinner stopped (card #606).
 
-- **Each ends on the change it caused.** Nudge: the card's builder line moved. Serve / Build: the card's `try` differs from the tap's. Plan waves: a grill runs on one of the cards. Main pull: a pull that brought no commits ends on its answer (`{commits: 0}`, a pull no board shows); one that brought commits ends on a board where Main's pull, sha, state or time moved.
-- **A bare fetch ends the request, not the spinner.** `pending.answered(id)` with no time lets any board settle it, so each `until` compares with what the tap saw, never with a fixed state.
-- **A refusal drops it**, back to idle with the reason in a toast, as before.
-- **Sixty seconds without the change** drops it, reloads once and toasts "Still waiting on the board" (`PENDING_LATE_MS`, the `onLate` argument of `pending.start`).
-- **Taps whose change a page load draws wait on that load.** `BoardUI.pending.within(work, onLate)` is the 60 second rule for `waitOn`: thread Send and quick replies wait through `loadThread`'s render; the Questions page's Send, Prototype and Re-ask wait through the page moving on (its re-ask also through the resolved questions' reload, which keeps the old cards drawn meanwhile); the permission switches wait through drawing the answer; a board's Restart on the Hub page waits through the hub data load. A refusal rests each, with its reason where the surface already showed it: a toast on the board, the status line on the Questions page and under a switch, the flash on the Hub page.
-- **A POST board that cannot land no longer ends a tap.** `send` (app.js) waits for a board made after the tap when a reload won the race (shared race R1), so Hold, bumps, Merge and the rest keep their spinner until the tap is drawn.
+**One helper, `B.spinUntil(button, {send, shows})` (app.js).** Every board tap that moves a card or asks for an agent goes through it. It runs `send()` and spins the button (`BoardUI.waitOn`, through any repaint) until `shows()` holds or `send()` fails, whichever comes first.
 
-Audited and left: Hold, Unhold, Done, Implement, bumps, Review answer, Lineup move, Triage, new task and ask buttons end on `B.send`'s own board, drawn in the task the request resolves in, so they show no idle frame once R1 is closed. Thread Send, the Questions page's Send / Prototype / Re-ask, the permission switches and a board's Restart on the Hub page now wait as above.
+- **`shows()` compares with what the tap saw**, never with a fixed state, so a board or thread from before the tap never ends it. It is asked after every board render, every thread load and once `send()` resolves.
+- **A refusal rests it**, with the reason in a toast, as before; a refusal that comes after the change showed still toasts.
+- **Sixty seconds without either** rests it, reloads once and toasts "Still waiting on the board" (`BoardUI.pending.within`, `PENDING_LATE_MS`).
+
+Each tap ends on the change it caused:
+
+- **Prototype, Grill and Visual requests:** a line the card's thread didn't have when tapped.
+- **Hold and Unhold:** the card's hold or its time changed. **Done and Reopen:** the card in another lane. **Bump and Unbump:** the card bumped or not.
+- **Merge:** the card merging, which its markup then draws busy until it lands ([a merge tap waits its turn to land](2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md)), or gone from In Review.
+- **Serve / Build and Kill:** the card's `try` changed; the busy host's question declined, or the serve cap's refusal, ends it with nothing to show.
+- **Main's pull:** Main's pull, sha, state or time moved; a pull that brought no commits ends on its answer (`{commits: 0}`, a pull no board shows).
+- **Plan waves:** a grill runs on one of the cards that wasn't grilling when tapped.
+
+`BoardUI.pending`'s keyed entries (`start`, `answered`, `settle`), drawn busy by the markup, are gone: `waitOn` already finds a repainted button again by its id and data attributes, so one mechanism serves every tap. `pending.within(work, onLate)` stays as the sixty second rule.
+
+**Out of scope.** Thread messages, quick replies and Implement are T-234's (#603), as above. Off the board, taps whose change a page load draws wait on that load through `pending.within`: the Questions page's Send, Prototype and Re-ask wait through the page moving on, which needs the POST's board; the permission switches wait through drawing the answer; a board's Restart on the Hub page waits through the hub data load.
+
+**A POST board that cannot land no longer ends a tap.** `send` (app.js) waits for a board made after the tap when a reload won the race (shared race R1).
+
+Audited and left on `waitOn`: Review answer, Lineup move, Triage, new task and ask buttons end on `B.send`'s own board, drawn in the task the request resolves in.

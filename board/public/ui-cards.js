@@ -139,12 +139,12 @@
   function tryButton(it) {
     const t = tryOf(it);
     if (it.kind === 'work' && t?.kind === 'web' && ['running', 'ready'].includes(t.state)) {
-      return `<button type="button" data-try-kill="${esc(it.key)}"${BoardUI.pending.has(`${it.key}:try`) ? BoardUI.BUSY : ''}>Kill</button>`;
+      return `<button type="button" data-try-kill="${esc(it.key)}">Kill</button>`;
     }
     if (it.kind !== 'work' || !t?.script || t.autoBuild || !t.changes) return '';
     const words = tryWords(t.kind);
     const reason = t.state === 'running' ? words.busy : t.state === 'ready' && !t.stale ? words.current : '';
-    const attrs = BoardUI.pending.has(`${it.key}:try`) ? BoardUI.BUSY : reason ? ` aria-disabled="true" title="${esc(reason)}" data-tip="${esc(reason)}"` : '';
+    const attrs = reason ? ` aria-disabled="true" title="${esc(reason)}" data-tip="${esc(reason)}"` : '';
     return `<button type="button" data-try="${esc(it.key)}"${attrs}>${t.state === 'failed' && !reason ? 'Retry' : words.go}</button>`;
   }
   const BRANCH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7"/><path d="M18 10.5c0 4-6 3-11 6"/></svg>';
@@ -154,7 +154,7 @@
   // (`open`). Visit is left alone: it changes only once Main rebuilds.
   function mainPull(pull, { open = false } = {}) {
     if (!pull) return '';
-    const busy = pull.running || BoardUI.pending.has('main:pull');
+    const busy = pull.running;
     const failed = !busy && pull.error;
     const label = busy ? 'Pulling main' : failed ? pull.error : 'Pull main now';
     const why = failed ? `<span class="main-pull-why${open ? ' open' : ''}" role="tooltip">${esc(pull.error)}</span>` : '';
@@ -184,9 +184,8 @@
   function mergeButton(it) {
     if (it?.mergeBlocked) return `<button class="primary" disabled title="${esc(it.mergeBlocked)}">Merge</button>`;
     if (it?.action?.kind !== ACTION_KIND.merge && !it?.merging) return '';
-    const busy = it.merging || BoardUI.pending.has(`${it.key}:merge`);
-    // A merging card has no Action needed left, so resolvedBy is null by then: merging keeps the colour resolvedBy gave it.
-    return `<button class="${it.merging || it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${busy ? BoardUI.BUSY : ''}>Merge</button>`;
+        // A merging card has no Action needed left, so resolvedBy is null by then: merging keeps the colour resolvedBy gave it.
+    return `<button class="${it.merging || it.resolvedBy === BUTTON.merge ? 'resolves' : 'primary'}" data-confirm="merge" data-key="${esc(it.key)}"${it.merging ? BoardUI.BUSY : ''}>Merge</button>`;
   }
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on, and
   // ends with how long ago that line was set. One whose process is gone leads with stopped; one whose live process
@@ -433,7 +432,7 @@
   }
   function planButton(items) {
     const keys = items.filter((i) => i.kind === 'work' && !i.held && !i.blocked).map((i) => i.key);
-    return keys.length > 1 ? `<button type="button" class="thread-more" data-plan="${esc(keys.join(' '))}"${BoardUI.pending.has('todo:plan') ? BoardUI.BUSY : ''}>Plan waves</button>` : '';
+    return keys.length > 1 ? `<button type="button" class="thread-more" data-plan="${esc(keys.join(' '))}">Plan waves</button>` : '';
   }
 
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

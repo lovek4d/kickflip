@@ -116,23 +116,24 @@ BoardView.part((B) => {
     }
     ev.preventDefault();
     const pull = state.board?.main?.pull;
-    if (!pull || pull.running || BoardUI.pending.has('main:pull')) return;
+    if (!pull || pull.running) return;
     state.mainPull = { open: false };
     // Spins until a board shows the pull running or changed (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
     // A pull that brought no commits changes nothing a board shows, so its answer ends the spinner; one that did waits
     // for Main to rebuild.
     const mainFace = (main) => JSON.stringify([main?.pull, main?.sha, main?.state, main?.at]);
     const before = mainFace(state.board.main);
-    BoardUI.pending.start('main:pull', (board) => mainFace(board.main) !== before, B.stillWaiting);
-    paintMain();
-    try {
+    let nothingPulled = false;
+    const send = async () => {
       const response = await fetch(B.site.url('api/try/main/pull'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
       const out = await response.json();
       if (!response.ok) throw new Error(out.error || 'The hub refused the pull.');
       if (out.error) state.mainPull.open = true;
-      if (out.commits) BoardUI.pending.answered('main:pull'); else BoardUI.pending.drop('main:pull');
-    } catch (error) {
-      BoardUI.pending.drop('main:pull');
+      nothingPulled = !out.commits;
+    };
+    const pulling = B.spinUntil(button, { send, shows: () => nothingPulled || mainFace(state.board.main) !== before });
+    paintMain();
+    try { await pulling; } catch (error) {
       if (B.alive()) toast(error.message || 'Could not pull. Is the host awake?');
     }
     if (B.alive()) { paintMain(); B.reload(); }
@@ -170,7 +171,9 @@ BoardView.part((B) => {
   async function hold(key, choice) {
     closeHold();
     const button = $(`button[data-confirm="hold"][data-key="${CSS.escape(key)}"]`);
-    try { await waitOn(button, B.sentHere(key, () => B.send('card-hold', { key, hold: true, for: choice }))); }
+    const holdFace = () => { const it = cardOf(key); return JSON.stringify([it?.held, it?.heldUntil]); };
+    const before = holdFace();
+    try { await B.spinUntil(button, { send: () => B.sentHere(key, () => B.send('card-hold', { key, hold: true, for: choice })), shows: () => holdFace() !== before }); }
     catch (e) { B.failed(e); }
   }
   B.on($('#holdClose'), 'click', closeHold);
@@ -438,33 +441,30 @@ BoardView.part((B) => {
     const asked = kill ? `Kill ${it.ref}’s serve? Its server stops until you tap Serve.` : anyway ? busyAsk : `${tryWords(it.try?.kind).go} ${it.ref}? The hub runs its build script.`;
     if (!(await B.confirm(asked)) || !B.alive()) return;
     // Serve / Build and Kill spin until a board shows the card's build changed: running, done or stopped
-    // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
-    const before = JSON.stringify(it.try);
-    const id = `${key}:try`;
-    BoardUI.pending.start(id, (board) => JSON.stringify(board.items.find((i) => i.key === key)?.try) !== before, B.stillWaiting);
-    B.render();
-    const send = async () => {
+    // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md). A busy host's question declined, or the
+    // serve cap's refusal, ends the tap with nothing for a board to show.
+    const tryFace = () => JSON.stringify(cardOf(key)?.try);
+    const before = tryFace();
+    const post = async () => {
       const r = await fetch(B.site.url(kill ? 'api/try/kill' : 'api/try'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, ...(anyway ? { anyway } : {}) }) });
       return { ok: r.ok, out: await r.json() };
     };
-    try {
-      let { ok, out } = await send();
+    let ended = null;
+    const send = async () => {
+      let { ok, out } = await post();
       if (!ok && out.ask === 'busy' && !anyway) {
-        if (!(await B.confirm(busyAsk)) || !B.alive()) { BoardUI.pending.drop(id); B.render(); return; }
+        if (!(await B.confirm(busyAsk)) || !B.alive()) { ended = { declined: true }; return; }
         anyway = true;
-        ({ ok, out } = await send());
+        ({ ok, out } = await post());
       }
-      if (!ok && out.ask === 'cap') {
-        BoardUI.pending.drop(id);
-        B.render();
-        await B.notice(out.error);
-        return;
-      }
+      if (!ok && out.ask === 'cap') { ended = { cap: out.error }; return; }
       if (!ok) throw new Error(out.error || (kill ? 'The hub refused the Kill.' : 'The hub refused the build.'));
-      BoardUI.pending.answered(id);
+    };
+    try {
+      await B.spinUntil(button, { send, shows: () => ended !== null || tryFace() !== before });
+      if (ended?.declined) return;
+      if (ended?.cap) { await B.notice(ended.cap); return; }
     } catch (error) {
-      BoardUI.pending.drop(id);
-      B.render();
       toast(error.message || (kill ? 'Could not kill it. Is the host awake?' : 'Could not start. Is the host awake?'));
     }
     B.reload();
@@ -479,8 +479,13 @@ BoardView.part((B) => {
     ev.preventDefault();
     const key = b.dataset.cardBump;
     const unbump = b.hasAttribute('data-bumped');
-    try { await waitOn(b, B.sentHere(key, () => B.send(unbump ? 'card-unbump' : 'card-bump', { key }))); toast(unbump ? 'Unbumped' : 'Moved to the top'); }
-    catch (e) { B.failed(e); }
+    // Spins until a board shows the card bumped or unbumped (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    const bumped = () => Boolean(cardOf(key)?.bumpedAt);
+    const before = bumped();
+    try {
+      await B.spinUntil(b, { send: () => B.sentHere(key, () => B.send(unbump ? 'card-unbump' : 'card-bump', { key })), shows: () => bumped() !== before });
+      toast(unbump ? 'Unbumped' : 'Moved to the top');
+    } catch (e) { B.failed(e); }
   });
 
   B.on(B.root, 'click', (ev) => {
@@ -508,19 +513,17 @@ BoardView.part((B) => {
       state.openItems.delete(key);
       store.set('openItems', [...state.openItems]);
     } : null;
-    // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: Merge spins until a board shows the card left
-    // In Review, or no longer merging there, which is its refusal.
-    const pend = act === 'merge' ? `${key}:merge` : null;
-    if (pend) BoardUI.pending.start(pend, (board) => { const c = board.items.find((i) => i.key === key); return !c || c.lane !== 'review' || !c.merging; });
-    try {
-      const out = await waitOn(b, B.sentHere(key, () => B.send(...sent, close)));
-      if (pend) { BoardUI.pending.answered(pend, out.board.generatedAt); B.render(); }
-    } catch (e) {
-      if (pend) { BoardUI.pending.drop(pend); B.render(); }
-      B.failed(e);
-    }
+    // Each spins until a board shows its change (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md):
+    // Unhold the card unheld; Done and Reopen the card in another lane; Merge the card merging, which its markup draws
+    // busy (docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md), or gone from In Review. Implement is T-234's.
+    const shows = { resume: (c) => !c?.held, finish: (c) => c?.lane !== it.lane, reopen: (c) => c?.lane !== it.lane,
+      merge: (c) => !c || c.lane !== 'review' || c.merging }[act];
+    const send = () => B.sentHere(key, () => B.send(...sent, close));
+    try { await (shows ? B.spinUntil(b, { send, shows: () => shows(cardOf(key)) }) : waitOn(b, send())); } catch (e) { B.failed(e); }
     if (act === 'finish' || act === 'reopen') B.syncSends(key);
   }
+
+  function cardOf(key) { return state.board.items.find((i) => i.key === key); }
 
   Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap });
 });

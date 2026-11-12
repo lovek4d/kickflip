@@ -178,10 +178,11 @@ window.BoardView = (function () {
     const { $, $$, store, state, steady, markSeen } = B;
     const { setHTML, preloadKeys } = BoardUI;
 
+    // The spinUntil taps waiting for their change to show.
+    const showing = new Set();
     // Renders open threads from state.threadCache; loadBoard and opening a card load them.
     function render(load = null) {
       const d = state.board;
-      BoardUI.pending.settle(d);
       const title = $(':scope > .top h1');
       if (d.title && title && title.textContent !== d.title) title.textContent = d.title;
       if (d.title && document.title !== d.title) document.title = d.title;
@@ -204,6 +205,7 @@ window.BoardView = (function () {
       });
       B.flashChanged();
       B.signCards(load);
+      checkShown();
     }
 
     // #review=<PR number> opens that review in the Auto Review lane (app-lanes.js openReview), as a held review's push does.
@@ -453,7 +455,23 @@ window.BoardView = (function () {
       signalled();
       render();
     }
-    Object.assign(B, { render, focusOnBoard, loadBoard, send, failed, stillWaiting, reload: signalled });
+    // A tap that moves a card or asks for an agent (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md):
+    // spinUntil(button, {send, shows}) runs send() and spins button (BoardUI.waitOn) until shows()
+    // holds or send() fails, whichever comes first. shows() is asked after every board render and thread load, and once
+    // send() resolves; it compares with what the tap saw, so a board from before the tap never ends the spinner. Sixty
+    // seconds without either runs stillWaiting. → send()'s promise, so the caller still hears its answer or refusal.
+    function spinUntil(button, { send, shows }) {
+      let rest;
+      const shown = new Promise((resolve) => { rest = resolve; });
+      const check = () => { if (shows()) rest(); };
+      showing.add(check);
+      const sent = send();
+      sent.then(check, rest);
+      BoardUI.waitOn(button, BoardUI.pending.within(shown, stillWaiting).finally(() => showing.delete(check)));
+      return sent;
+    }
+    function checkShown() { for (const check of [...showing]) check(); }
+    Object.assign(B, { render, focusOnBoard, loadBoard, send, failed, stillWaiting, spinUntil, checkShown, reload: signalled });
     B.headerWired();
     const sent = BoardUI.sentNotice.take(B.route);
     if (sent) B.toast(sent);

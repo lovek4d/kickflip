@@ -351,35 +351,16 @@
     return promise;
   }
 
-  // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
-  // A tap whose change shows only in a later board: its button draws BUSY while pending.has(id), id being
-  // "<card key>:<action>", whatever repaints it, until settle(board) finds a board made after the tap's answer for which
-  // until(board) holds. start(id, until) on the tap; answered(id, generatedAt) with the generatedAt of the POST's board;
-  // drop(id) when the POST is refused. Boards made before the POST answered never end it, so a reload that races the POST
-  // keeps the spinner.
-  // A tap whose answer carries no board (a bare fetch) calls answered(id) with no time: any board then ends it, so its
-  // until() must hold only for a change the tap caused. start(id, until, onLate): if no board ends it within
-  // PENDING_LATE_MS the entry drops and onLate() runs (the page reloads once and says so).
+  // docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md
+  // pending.within(work, onLate): resolves when work settles, or after PENDING_LATE_MS calls onLate() and resolves, so
+  // waitOn's spinner rests either way. The board's taps wait through it in app.js spinUntil; the Questions page, the
+  // permission switches and the Hub page's Restart wait through their own page loads.
   const PENDING_LATE_MS = 60000;
-  const pendings = new Map();
   const pending = {
-    start(id, until, onLate = null) {
-      pending.drop(id);
-      const late = onLate && setTimeout(() => { pendings.delete(id); onLate(); }, PENDING_LATE_MS);
-      pendings.set(id, { until, after: null, late });
-    },
-    answered(id, after = '') { const p = pendings.get(id); if (p) p.after = after; },
-    drop(id) { clearTimeout(pendings.get(id)?.late); pendings.delete(id); },
-    has: (id) => pendings.has(id),
-    // A tap whose change is drawn by the page's own load, not by a board (a thread, a page's redraw): resolves when work
-    // settles, or after PENDING_LATE_MS calls onLate() and resolves, so waitOn's spinner rests either way.
     within(work, onLate) {
       let timer;
       const late = new Promise((resolve) => { timer = setTimeout(() => { onLate(); resolve(); }, PENDING_LATE_MS); });
       return Promise.race([work, late]).finally(() => clearTimeout(timer));
-    },
-    settle(board) {
-      for (const [id, p] of pendings) if (p.after !== null && board.generatedAt >= p.after && p.until(board)) pending.drop(id);
     },
   };
 

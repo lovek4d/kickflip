@@ -136,6 +136,7 @@ BoardView.part((B) => {
         loadedAt.set(key, Date.now());
         state.threadCache.set(key, msgs);
         renderThread(key, msgs);
+        B.checkShown();
         B.saveCopySoon?.();
       })
       .catch(() => {})
@@ -221,6 +222,11 @@ BoardView.part((B) => {
     if (!b) return;
     enqueue(b.closest('form').dataset.reply, b.dataset.quick, []);
   });
+  // A spinUntil shows for a tap that writes to key's thread: a line the thread didn't have when tapped.
+  function newLine(key) {
+    const had = new Set((state.threadCache.get(key) || []).map((m) => m.ts));
+    return () => (state.threadCache.get(key) || []).some((m) => !had.has(m.ts));
+  }
   // Sends the composer's draft: a request, when flag names one, spins its button until the thread has it; a message
   // goes through the outbox, and only Implement's button waits, until the thread shows the message and the card's
   // staging after it.
@@ -243,14 +249,16 @@ BoardView.part((B) => {
       return;
     }
     const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(intent ? { intent } : {}) };
-    // Spins until the thread shows the request (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
-    const sending = (async () => {
+    // An empty Implement spins until the thread shows its line; a request until the thread shows a new line, though
+    // its POST is still out (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
+    const sending = async () => {
       await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
         () => B.sentHere(key, () => B.send(REQUEST_EVENT[flag] || 'item-message', data)));
       BoardAttach.clear(id, B.site.root);
       await loadThread(key, { force: true });
-    })();
-    try { await waitOn(button, BoardUI.pending.within(sending, B.stillWaiting)); } catch (e) { B.failed(e); }
+    };
+    if (flag) { try { await B.spinUntil(button, { send: sending, shows: newLine(key) }); } catch (e) { B.failed(e); } return; }
+    try { await waitOn(button, BoardUI.pending.within(sending(), B.stillWaiting)); } catch (e) { B.failed(e); }
   }
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill], form[data-reply] button[data-visual]');

@@ -1282,9 +1282,6 @@ test("the Merge button keeps its colour from idle through the tap and the merge"
   const cls = (it) => /class="([^"]*)"/.exec(ui.mergeButton(it))[1];
   const idle = { key: 'w/A1', action: { kind: 'merge', url: '#selectedCard=w%2FA1', label: 'Merge' }, resolvedBy: 'merge', merging: false };
   assert.equal(cls(idle), 'resolves');
-  ui.pending.start('w/A1:merge', () => false);
-  assert.equal(cls(idle), 'resolves');
-  ui.pending.drop('w/A1:merge');
   assert.equal(cls({ key: 'w/A1', action: null, resolvedBy: null, merging: true }), 'resolves');
 });
 
@@ -1887,13 +1884,9 @@ test("a local board's Main has a refresh icon right of its timestamp that spins 
   assert.match(idle, /<\/code> <span class="muted">[^<]+<\/span><span class="main-pull"><button class="ghost gh-refresh" type="button" data-main-pull aria-label="Pull main now"><svg/);
   assert.doesNotMatch(idle, /role="tooltip"/);
   assert.equal(text(idle).includes('Visit'), true);
-  ui.pending.start('main:pull', () => false);
-  const tapped = ui.mainBar({ ...main, pull: { running: false, error: null } });
-  ui.pending.drop('main:pull');
-  for (const html of [ui.mainBar({ ...main, pull: { running: true, error: null } }), tapped]) {
-    assert.match(html, /class="ghost gh-refresh spinning" type="button" data-main-pull aria-label="Pulling main" aria-disabled="true"/);
-    assert.equal(text(html).includes('Visit'), true);
-  }
+  const running = ui.mainBar({ ...main, pull: { running: true, error: null } });
+  assert.match(running, /class="ghost gh-refresh spinning" type="button" data-main-pull aria-label="Pulling main" aria-disabled="true"/);
+  assert.equal(text(running).includes('Visit'), true);
   const failed = ui.mainBar({ ...main, pull: { running: false, error: 'can’t pull: local changes' } });
   assert.match(failed, /class="ghost gh-refresh failed" type="button" data-main-pull aria-label="can’t pull: local changes"/);
   assert.match(failed, /<span class="main-pull-why" role="tooltip">can’t pull: local changes<\/span>/);
@@ -2631,57 +2624,17 @@ test("a card waiting on its owner step reads its code check under the Next, or t
 });
 
 // docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md
-test('a pending tap keeps its button busy through any repaint until a board made after the answer shows its change, a refusal drops it, and 60 seconds without one runs its late callback', () => {
+test('pending.within resolves with its work, or after 60 seconds runs its late callback and resolves, so a spinner rests either way', async () => {
   const timers = [];
   context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
   context.clearTimeout = (id) => { if (timers[id - 1]) timers[id - 1].fn = null; };
-  const card = (extra) => ({ key: 'w/A1', kind: 'work', lane: 'todo', ...extra });
-  const busy = (html) => / disabled aria-busy="true"/.test(html);
-  const grills = (board) => board.items.some((i) => i.grilling);
-  const planButton = () => ui.planButton([card(), { ...card(), key: 'w/A2' }]);
-  assert.equal(busy(planButton()), false);
-
   let late = 0;
-  ui.pending.start('todo:plan', grills, () => { late += 1; });
-  assert.equal(timers.at(-1).ms, 60000);
-  assert.equal(busy(planButton()), true);
-  // Nothing ends it before the POST is answered, whatever the board says.
-  ui.pending.settle({ generatedAt: 5, items: [card({ grilling: true })] });
-  assert.equal(busy(planButton()), true);
-  ui.pending.answered('todo:plan', 10);
-  ui.pending.settle({ generatedAt: 9, items: [card({ grilling: true })] });
-  ui.pending.settle({ generatedAt: 11, items: [card()] });
-  assert.equal(busy(planButton()), true, 'a board without the change leaves it busy');
-  ui.pending.settle({ generatedAt: 12, items: [card({ grilling: true })] });
-  assert.equal(busy(planButton()), false, 'the board that shows the change ends it');
-  assert.equal(timers.at(-1).fn, null, 'and cancels its timeout');
-  assert.equal(late, 0);
-
-  // A tap whose answer carries no board: any board then settles it.
-  ui.pending.start('w/A1:try', (board) => board.items[0].try === 'running');
-  ui.pending.answered('w/A1:try');
-  ui.pending.settle({ generatedAt: 1, items: [{ try: 'ready' }] });
-  assert.equal(ui.pending.has('w/A1:try'), true);
-  ui.pending.settle({ generatedAt: 2, items: [{ try: 'running' }] });
-  assert.equal(ui.pending.has('w/A1:try'), false);
-
-  // A refusal drops it; the other card's entry stays.
-  ui.pending.start('w/A1:merge', () => false);
-  ui.pending.start('w/A2:merge', () => false);
-  ui.pending.drop('w/A1:merge');
-  assert.deepEqual([ui.pending.has('w/A1:merge'), ui.pending.has('w/A2:merge')], [false, true]);
-  ui.pending.drop('w/A2:merge');
-
-  // 60 seconds on, it drops by itself and says so once.
-  ui.pending.start('todo:plan', grills, () => { late += 1; });
+  assert.equal(await ui.pending.within(Promise.resolve('done'), () => { late += 1; }), 'done');
+  assert.deepEqual([timers.at(-1).ms, timers.at(-1).fn, late], [60000, null, 0], 'the work settled first, so the timer is cancelled');
+  const waiting = ui.pending.within(new Promise(() => {}), () => { late += 1; });
   timers.at(-1).fn();
-  assert.deepEqual([ui.pending.has('todo:plan'), late], [false, 1]);
-
-  // Try draws busy from the entry, through any repaint.
-  ui.pending.start('w/A1:try', () => false);
-  assert.equal(busy(ui.tryButton({ key: 'w/A1', kind: 'work', lane: 'todo', try: { script: true, changes: true, kind: 'web', state: 'ready' } })), true);
-  ui.pending.drop('w/A1:try');
-  assert.equal(busy(ui.tryButton({ key: 'w/A1', kind: 'work', lane: 'todo', try: { script: true, changes: true, kind: 'web', state: 'ready' } })), false);
+  assert.equal(await waiting, undefined);
+  assert.equal(late, 1);
   Object.assign(context, { setTimeout, clearTimeout });
 });
 
