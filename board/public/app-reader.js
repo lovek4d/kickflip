@@ -1,7 +1,7 @@
 // The reader sheet (docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md): a thread's "View transcript"
 // (ui-threads.js) and a card's or a wave's Notes (app-cards.js, app-lanes.js) open over the board in one sheet in
 // place of log.html and notes.html, which still open on their own. It closes on its ✕, Escape, a tap on the dim area
-// and Back, through a history entry of its own that carries the board's URL, so the router's pop keeps the board.
+// and Back (from 900px it is not modal: no dim area, and the left pane stays live), through a history entry of its own that carries the board's URL, so the router's pop keeps the board.
 // A link in it closes it first, then opens through the shell.
 // A log written as a stream (headless.mjs: one stream-json event per line) reads as the run's transcript, the whole of
 // it as GET /api/transcript's rows: what Claude says, and each tool call as one line whose output opens on a tap, with a
@@ -17,6 +17,7 @@ BoardView.part((B) => {
   const more = sheet.querySelector('.reader-new');
   let opened = 0;
   let pushed = false;
+  let modal = true;
   let pending = null;
   let log = null;
   let stopReading = null;
@@ -109,7 +110,8 @@ BoardView.part((B) => {
     tools.innerHTML = '';
     more.hidden = true;
     body.innerHTML = '<p class="muted">Loading…</p>';
-    sheet.showModal();
+    modal = !matchMedia('(min-width: 900px)').matches;
+    if (modal) sheet.showModal(); else sheet.show();
     history.pushState({ ...history.state, idx: history.state.idx + 1, reader: true }, '', location.href);
     pushed = true;
     return opened;
@@ -169,6 +171,8 @@ BoardView.part((B) => {
     pending = new URL(a.getAttribute('href'), location.href).href;
     close();
   });
+  // A non-modal sheet (from 900px) gets no cancel event from Escape, so the page's own key closes it.
+  B.on(document, 'keydown', (ev) => { if (ev.key === 'Escape' && sheet.open && !modal) close(); });
   B.on(sheet, 'cancel', (ev) => { ev.preventDefault(); close(); });
   B.on(body, 'scroll', () => {
     if (!log?.stream) return;

@@ -991,7 +991,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
   .split > .col-handle { right: calc(var(--pane-w, 50%) - 4px); }
   .split:has(.needs-pane.widened) > .col-handle { display: none; }
   /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
-  .sheet.reader-sheet { inset: 56px 0 0 auto; margin: 0; width: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); max-width: none;
+  .sheet.reader-sheet { position: fixed; z-index: 30; inset: 56px 0 0 auto; margin: 0; width: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); max-width: none;
     height: auto; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
   .sheet.reader-sheet[open] { animation: reader-in .22s ease-out; }
   .sheet.reader-sheet.closing { animation: reader-out .18s ease-in forwards; }

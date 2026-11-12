@@ -67,7 +67,8 @@ function fakePage(localStorage) {
     matches() { return false; }
     focus() {}
     blur() {}
-    showModal() { this.open = true; }
+    showModal() { this.open = true; this.modal = true; }
+    show() { this.open = true; this.modal = false; }
     close() { this.open = false; }
   }
   let ids = 0;
@@ -5294,6 +5295,28 @@ function readerOnDom(logText) {
   const sheet = () => b.root.querySelector('#readerSheet');
   return { ...b, log, moves, tap, sheet, inSheet: (sel) => sheet().querySelector(sel) };
 }
+test('on desktop the reader sheet opens non-modal over the right pane: a click on the left pane leaves it open, and its ✕ and Escape close it; a phone keeps the modal sheet', async () => {
+  const r = readerOnDom('plain log text');
+  await r.settle();
+  const link = r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]');
+  r.page.win.innerWidth = 1200;
+  r.tap(link);
+  await r.settle();
+  assert.deepEqual([r.sheet().open, r.sheet().modal], [true, false], 'wide: dialog.show(), no backdrop');
+  r.page.fire(r.page.win, 'click', { target: r.root });
+  assert.equal(r.sheet().open, true, 'a click outside the sheet does not close it');
+  r.page.fire(r.page.win.document, 'keydown', { key: 'Escape' });
+  assert.equal(r.sheet().open, false, 'Escape closes it');
+  r.tap(link);
+  await r.settle();
+  r.page.fire(r.sheet(), 'click', { target: r.inSheet('[data-reader="close"]') });
+  assert.equal(r.sheet().open, false, 'its ✕ closes it');
+  r.page.win.innerWidth = 600;
+  r.tap(link);
+  await r.settle();
+  assert.deepEqual([r.sheet().open, r.sheet().modal], [true, true], 'narrow: modal as before');
+});
+
 const streamLine = (e) => `${JSON.stringify(e)}\n`;
 const said = (text) => streamLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
 const called = (name, input, id = 't1') => streamLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });

@@ -204,7 +204,8 @@ export function miniDom(Target, document) {
     cloneNode() { return fragment(this.outerHTML).firstChild; }
     animate() { return { finished: Promise.resolve(), cancel() {} }; }
     getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
-    showModal() { this.open = true; }
+    showModal() { this.open = true; this.modal = true; }
+    show() { this.open = true; this.modal = false; }
     close() { this.open = false; }
     get innerHTML() { return this.childNodes.map(serialize).join(''); }
     set innerHTML(html) { this.replaceChildren(); parseInto(this, String(html)); }
