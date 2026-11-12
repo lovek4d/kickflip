@@ -1,3 +1,7 @@
+---
+status: superseded in part by 2026-11-12-0500-a-new-task-is-a-conversation (a Discuss task is answered, not grilled); its request, planner-word and Implement parts stand
+---
+
 # Every new task is grilled or prototyped at once, unless the owner chooses Quick build
 
 Before this, a fresh card went to grilling unless the session judged it trivial, and some unplanned cards waited for the idle pull's `card-plan`. The owner (#172, #127): every new task, once filed and titled, starts a grill, or a prototype when it's a UI ask. "Simple" is about how easy a task is to align on, not to build, so the session can't judge it; the owner opts out per task instead.

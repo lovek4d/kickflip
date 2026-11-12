@@ -106,6 +106,7 @@
     'ask-link': mini('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'),
     move: mini('<path d="M3 7h14"/><path d="m13 3 4 4-4 4"/><path d="M21 17H7"/><path d="m11 13-4 4 4 4"/>'),
     'Implementation requested': mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
+    'Marked as discussing': mini('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
     'Marked as staging': mini('<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/>'),
     'Marked as ready': mini('<path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/>'),
     Held: mini('<path d="M9 5v14"/><path d="M15 5v14"/>'),

@@ -11,7 +11,7 @@
   // In Progress's are the five build steps its progress bar draws; a review's "reviewers" and "merge" read "pending review"
   // and "pending merge" on the card (ui-cards.js PHASE_LOOK).
   const PHASES = Object.freeze({
-    todo: Object.freeze(['new', 'grilling', 'prototyping', 'staging', 'ready']),
+    todo: Object.freeze(['new', 'discussing', 'grilling', 'prototyping', 'staging', 'ready']),
     progress: Object.freeze(['reading', 'building', 'testing', 'checking', 'landing']),
     review: Object.freeze(['draft', 'reviewers', 'merge', 'stale']),
     done: Object.freeze(['merged', 'closed']),

@@ -13,7 +13,7 @@ const setState = (fields, id = 'A1') => {
 };
 
 test('only the board stages a card: item set and item add refuse --phase staging', () => {
-  const refused = '--phase staging is set by the board, on an owner action; pass ready, grilling or prototyping\n';
+  const refused = '--phase staging is set by the board, on an owner action; pass ready, discussing, grilling or prototyping\n';
   assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'staging'), { code: 1, out: '', err: refused });
   assert.deepEqual(board('item', 'add', 'w/B1', '--site', 'orch', '--title', 'B', '--phase', 'staging'), { code: 1, out: '', err: refused });
   assert.equal(item().phase, undefined);
@@ -56,7 +56,7 @@ test("staging to ready needs the orchestrator's judgment as --text, which goes i
 
 test('item add without --from-ask files a card grilling or prototyping, never ready', () => {
   const r = board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--phase', 'ready', '--size', 'small');
-  assert.deepEqual(r, { code: 1, out: '', err: "item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
+  assert.deepEqual(r, { code: 1, out: '', err: "item add files a card discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
   assert.equal(item('Q1'), undefined);
   assert.equal(board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'Quick', '--phase', 'grilling').code, 0);
 });
@@ -98,7 +98,7 @@ test('item set --from-ask files a Quick build ask ready, from any phase, with it
     { id: 'ep', ts: '2026-11-06T10:03:00Z', kind: 'ask', data: { text: 'Fix the sidebar' } });
   const file = (id, ask, phase) => board('item', 'set', `w/${id}`, '--site', 'orch', '--from-ask', ask, '--text', 'Filed.', '--phase', phase, '--size', 'small');
   write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'Quick', plan: 'a1.md' }, { id: 'A2', title: 'Implement on New', plan: 'a1.md', phase: 'grilling' }, { id: 'A3', title: 'Plain', plan: 'a1.md' }] });
-  assert.deepEqual(file('A1', 'eq', 'staging'), { code: 1, out: '', err: '--phase staging is set by the board, on an owner action; pass ready, grilling or prototyping\n' });
+  assert.deepEqual(file('A1', 'eq', 'staging'), { code: 1, out: '', err: '--phase staging is set by the board, on an owner action; pass ready, discussing, grilling or prototyping\n' });
   const quick = file('A1', 'eq', 'ready');
   assert.equal(quick.code, 0, quick.err);
   assert.deepEqual([item('A1').phase, item('A1').staged_at], ['ready', undefined]);

@@ -113,7 +113,7 @@ test('item set --phase sets ready, grilling or prototyping, with --from-ask too,
   assert.match(r.out, /grilling/);
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'prototyping').code, 0);
   assert.equal(state(), 'prototyping');
-  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'done'), { code: 1, out: '', err: '--phase takes ready, grilling or prototyping\n' });
+  assert.deepEqual(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'done'), { code: 1, out: '', err: '--phase takes ready, discussing, grilling or prototyping\n' });
   write(path.join(home, 'card.json'), question('q1', { topic: 'item:w/A1' }));
   assert.equal(board('question', 'add', '--site', 'orch', '--file', path.join(home, 'card.json')).code, 0);
   stage();
@@ -439,7 +439,7 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
   const events = () => (fs.existsSync(site('audit', 'data', 'events.jsonl')) ? fs.readFileSync(site('audit', 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((e) => e.kind === 'card-added');
   const before = events().length;
   const stateless = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'Follow it up', '--parent', 'A1');
-  assert.deepEqual([stateless.code, stateless.err, item('F1')], [1, 'item add files a card on a board: pass --phase grilling or prototyping, or --held to file it for later\n', undefined]);
+  assert.deepEqual([stateless.code, stateless.err, item('F1')], [1, 'item add files a card on a board: pass --phase discussing, grilling or prototyping, or --held to file it for later\n', undefined]);
   const filed = board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'Follow it up', '--parent', 'A1', '--phase', 'grilling', '--relate', 'A1');
   assert.deepEqual([filed.code, filed.err], [0, '']);
   assert.deepEqual([item('F1').phase, 'unfiled' in item('F1'), item('F1').related], ['grilling', false, ['audit/A1']]);
@@ -454,7 +454,7 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
   assert.equal(board('item', 'set', 'audit/F4', '--site', 'audit', '--phase', 'grilling').code, 0);
   assert.deepEqual([item('F4').phase, item('F4').filed_held], ['grilling', undefined]);
   const bad = board('item', 'add', 'audit/F3', '--site', 'audit', '--title', 'X', '--phase', 'done');
-  assert.deepEqual([bad.code, /^--phase takes ready, grilling or prototyping/.test(bad.err), item('F3')], [1, true, undefined]);
+  assert.deepEqual([bad.code, /^--phase takes ready, discussing, grilling or prototyping/.test(bad.err), item('F3')], [1, true, undefined]);
 });
 
 test('--parent works when an ancestor of the new Parent no longer exists', () => {
@@ -768,7 +768,7 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   assert.match(board('ask', 'unfold', 'e1', '--site', 'orch').err, /ask "e1" is not folded into a card/);
   board('item', 'relate-ask', 'e1', 'w/A1', '--summary', 'Back in', '--site', 'orch');
   const stateless = board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Building it.');
-  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask, or --held to file it for later\n']);
+  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a card, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, undefined);
   assert.equal(board('item', 'set', 'w/A1', '--from-ask', 'e1', '--phase', 'grilling', '--site', 'orch', '--text', 'Building it.').code, 0);
   assert.deepEqual([read(site('orch', 'data', 'ask-links.json')), read(at('waves', 'w', 'wave.json')).items[0].from_ask], [{ links: {} }, 'e1']);

@@ -1622,7 +1622,7 @@ test('a staging card stays in Todo waiting on the orchestrator, and is neither p
   const b = buildBoard({ fromWaves: false, now: Date.parse(at(30)), files: [{ slug: 'w', itemFile: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
   assert.deepEqual([card('S1').lane, card('S1').staging, card('S1').ready, card('S1').next, card('S1').stagedAt], ['todo', true, false, null, at(1)]);
-  assert.deepEqual(card('S1').orchestrator, { kind: 'staging', since: at(1), picked: null, next: 'Judge the staged card against the whole board: item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead' });
+  assert.deepEqual(card('S1').orchestrator, { kind: 'staging', since: at(1), picked: null, next: 'Judge the staged card against the whole board: for a discussed card first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead' });
   assert.deepEqual([card('R1').staging, card('R1').ready, card('R1').orchestrator], [false, true, null]);
   assert.deepEqual(pullOf(b.items).pullable, ['w/R1']);
   assert.equal('starts' in pullOf(b.items), false);
@@ -2011,7 +2011,7 @@ test("a thread-file line a button wrote is a request line carrying its command k
   const cards = new Map([['w/A2', { ref: '#12', title: 'Renamed' }]]);
   const linked = threadOf('w/A1', { lines: [{ ts: '2026-11-06T10:00:00Z', who: 'claude', text: 'Related to', command: 'related', card: 'w/A2' }], cards });
   assert.deepEqual(linked.map((m) => [m.text, m.link, m.card, m.mark]), [['Related to #12: Renamed', '#selectedCard=w%2FA2', 'w/A2', 'Related to']]);
-  assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of']);
+  assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of']);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
@@ -2337,7 +2337,10 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
   const asked = (id, extra = {}) => ({ id: `T-${id.slice(1)}`, title: `Task ${id}`, from_ask: id, ...extra });
   const built = (events, { waveItems = items, working = {} } = {}) => buildBoard({ now: Date.parse(at(59)), events, working, files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: waveItems } }] });
   const waits = (events, options) => orchestratorWaits(built(events, options)).map(({ key, kind, since, picked, next }) => [key, kind, since, picked, next]);
-  const sort = (id) => `Sort the new task: item notes, then item set w/T-${id.slice(1)} --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask ${id} <card> --summary; or answer it with reply w/T-${id.slice(1)}`;
+  const sort = (id) => {
+    const key = `w/T-${id.slice(1)}`;
+    return `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a card with item relate-ask ${id} <card> --summary`;
+  };
   const cards = [asked('e1'), asked('e2')];
 
   // An ask with no card yet waits on no one: it is unfiled, for the board server to file.

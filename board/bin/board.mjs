@@ -38,11 +38,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          questions; one to wave-triage resolves its wave's,
                                                          noting "Acted on: replied". A
                                                          reply to overnight-triage ends that triage
-         [--title <t>]                                   retitles the New or answered card the ask became
-  reply <file>/<id> (--text <md> | --file <path>)        answers the New card an ask became: the answer goes in
-         [--title <t>]                                   its thread and the card waits in In Review for the
-                                                         owner's Done, --title as its title. Refuses a card
-                                                         that is sorted or isn't one an ask became
+         [--title <t>]                                   retitles the New or discussing card the ask became
+  reply <file>/<id> (--text <md> | --file <path>)        answers the New or discussing card an ask became: the
+         [--title <t>]                                   answer goes in its thread and the card reads
+                                                         discussing in Todo, --title as its title. Refuses a
+                                                         card sorted another way or that isn't one an ask became
   thread <file>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--who claude|love|<name>] [--via github|slack] of <file>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
@@ -51,6 +51,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   visual add <file>/<id> --file <page.html> --title <t>  a visual agent's page: copied to public/visuals/<id>/<slug>.html
                                                          (a new name each time), linked by a visual line in the
                                                          item's thread; prints the page's link
+  item visual <file>/<id> --text <t>                    asks the board for a visual on the card, as the thread's
+                                                         image does: a visual agent draws what --text says
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
@@ -165,9 +167,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          from another ask (use item relate-ask), an ask that is
                                                          already a card, naming it (sort that card instead), and
                                                          one with no phase when --phase is missing
-         [--phase ready|grilling|prototyping]            a Todo card's phase: what it does next; it reads New
+         [--phase ready|discussing|grilling|prototyping] a Todo card's phase: what it does next; it reads New
                                                          until set, which sorts a New card an ask became (an
-                                                         answered one leaves In Review for Todo). Refused on a card in another lane, whose phase
+                                                         answered one leaves In Review for Todo). discussing is
+                                                         a conversation in its thread, which reply on a New card
+                                                         also sets. Refused on a card in another lane, whose phase
                                                          the board sets, and as --state, its old name.
                                                          Staging is the board's: it stages a card on the owner's
                                                          Send, Implement or Reply on a ready card, and refuses
@@ -177,8 +181,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          a card without --size, a notes file, or the id of each
                                                          answered question in that file, since a builder starts
                                                          from it; it resolves those answered questions.
-                                                         grilling or prototyping on a staging or ready card sends
-                                                         it back, and the board starts that round's planner.
+                                                         grilling or prototyping on a discussing, staging or
+                                                         ready card has the board start that round's planner.
                                                          A ready card whose block ended waits on your re-check:
                                                          ready again with --text "<what you re-checked>", which
                                                          goes into its notes, releases it to the pull
@@ -268,7 +272,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          --parent does, and copies its gates, the owner's prototype
                                                          (and ticket) answers, so its grill never asks them again.
                                                          Refuses --parent beside it
-         [--phase grilling|prototyping|ready]            files it at once, as item set's --phase; the session's
+         [--phase discussing|grilling|prototyping|ready] files it at once, as item set's --phase; the session's
          [--relate <id>,<file>/<id>]                     own form, linking it with --relate in the same call.
                                                          ready is for a Quick build ask (--from-ask), with --size
                                                          and --notes or --notes-from, since a builder starts from it
@@ -355,7 +359,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          "<board> reviews" header when none is open; only on the
                                                          owner's explicit ask
   slack task <eventId> <file> --title <t>               a request for work in that thread: a new card in item file
-         (--notes <md> | --notes-from <draft.md>)       <file>, filed grilling for the owner's review, never ready;
+         (--notes <md> | --notes-from <draft.md>)       <file>, filed discussing for the owner's review, never ready;
                                                          the Slack message is its first thread line, by its writer
   integrations                                          readiness rows as one JSON line
   review due                                            one JSON line of the Slack sends the hub owes, from local state
@@ -835,6 +839,7 @@ const COMMANDS = {
   }],
   thread: [['file/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendMessage(site, key, f)],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
+  'item visual': [['file/id'], ['text'], (site, [key], f) => store.requestVisual(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);
@@ -1044,7 +1049,7 @@ function itemChanges(f) {
  * name: (site, args, flags, result) → line
  */
 const SAID = {
-  reply: async (site, [id]) => (id.includes('/') ? `answered ${await card(site, id)}: it waits in In Review for the owner's Done` : `reply written to ${await store.eventCard(site, id)}`),
+  reply: async (site, [id]) => (id.includes('/') ? `answered ${await card(site, id)}: it reads discussing, the owner's turn` : `reply written to ${await store.eventCard(site, id)}`),
   thread: async (site, [key]) => `thread line on ${await card(site, key)}`,
   'topic add': (site, [id]) => `topic ${id} added`,
   'question add': async (site, _, f, { asked, staged }) => {

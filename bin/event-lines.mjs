@@ -68,7 +68,7 @@ export const ON_CARD = {
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md,
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: c is the New card the board filed
   // for the ask; its waits line carries its key.
-  ask: (c, e) => `new task ${e.id} received as ${c}: sort that New card: item notes, then item set <its key> --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask ${e.id} <card> --summary; or answer it with reply <its key>`,
+  ask: (c, e) => `new task ${e.id} received as ${c}: sort that New card: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a card with item relate-ask ${e.id} <card> --summary`,
 };
 
 // One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a

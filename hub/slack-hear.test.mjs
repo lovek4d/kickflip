@@ -103,7 +103,7 @@ test("until the token can read DMs (im:history), sends go on, the owner is pushe
   assert.equal(readinessRows({ slack: slackStatus() })[0].note, undefined);
 });
 
-test('slack thread reads the thread, slack answer posts the answer signed off in it, and slack task files the request grilling with the message in its thread', async () => {
+test('slack thread reads the thread, slack answer posts the answer signed off in it, and slack task files the request discussing with the message in its thread', async () => {
   const { world, slack, poll, day } = await opened();
   const asked = slack.say({ channel: 'D1', user: 'U1', text: 'Could the digest skip drafts?\nThey clutter it.', thread_ts: day });
   slack.say({ channel: 'D1', user: 'U0', text: 'fyi', thread_ts: day });
@@ -131,7 +131,7 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
   const filed = await slackTask(site, question.id, 'w', { title: 'Digest skips drafts', notes: 'Ann asks the digest to skip drafts.' }, client);
   assert.equal(filed.key, 'w/T-1');
   const card = read(waveFile).items.find((i) => i.id === 'T-1');
-  assert.equal(card.phase, 'grilling');
+  assert.equal(card.phase, 'discussing');
   const thread = lines(path.join(site, 'data', 'threads', 'w__T-1.jsonl'));
   const said = thread.find((l) => l.via === 'slack');
   assert.deepEqual([said.who, said.text, said.link], ['Ann', 'Could the digest skip drafts?\nThey clutter it.', `https://acme.slack.com/archives/D1/p${asked.replace('.', '')}?thread_ts=${day}&cid=D1`]);
@@ -185,9 +185,9 @@ test('board.mjs slack thread, slack answer, slack say and slack task run through
     const filed = await cli('slack', 'task', question.id, 'w', '--title', 'Batch sends', '--notes', 'Ann asks for batching.');
     assert.equal(filed.code, 0, filed.err);
     assert.match(filed.out, /w\/T-1/);
-    // A reviewer's request is filed grilling, for the owner's review: the command takes no phase or size.
+    // A reviewer's request is filed discussing, for the owner's review: the command takes no phase or size.
     const refused = await cli('slack', 'task', question.id, 'w', '--title', 'Batch sends', '--notes', 'x', '--phase', 'ready');
     assert.notEqual(refused.code, 0);
-    assert.equal(read(waveFile).items.find((i) => i.id === 'T-1').phase, 'grilling');
+    assert.equal(read(waveFile).items.find((i) => i.id === 'T-1').phase, 'discussing');
   } finally { await server.close(); }
 });

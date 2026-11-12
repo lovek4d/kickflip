@@ -600,16 +600,18 @@ export const dropAskCard = (site, eventId) => ticketWrite(site, async () => {
 });
 
 // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md
-// The orchestrator answers the card an ask became, before sorting it (reply <file>/<id>, or reply <ask event id>):
-// md is a message in its thread unless the reply file holds it, title retitles the card, and answered_at holds it in
-// In Review for the owner's Done (domain.mjs workItem). A card answered already, and not closed since, answers again.
-const answerable = (item) => !item.phase && !item.closed_at && !hasPR(item) && (!leftTodo(item) || Boolean(item.answered_at));
+// docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: the orchestrator answers the card an ask became
+// (reply <file>/<id>, or reply <ask event id>), which starts its discussion: md is a message in its thread unless the
+// reply file holds it, title retitles the card, and the card reads discussing in Todo. A discussing card answers again.
+const answerable = (item) => [undefined, 'discussing'].includes(item.phase) && !leftTodo(item) && !hasPR(item);
 async function markAnswered(site, card, title) {
   const { item, key } = card;
   if (!item.from_ask) fail(`${key} is not a card an ask became; write in its thread with thread ${key} --text`);
   if (!answerable(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so it is work: write in its thread with thread ${key} --text`);
   if (title !== undefined) item.title = text(title, '--title');
-  item.answered_at ||= new Date().toISOString();
+  item.phase = 'discussing';
+  delete item.unfiled;
+  delete item.filed_held;
   await writeJSON(card.source.file, card.itemFile);
 }
 // Refuses filing ask eventId onto a card other than key when the board already filed it as its own.
@@ -688,7 +690,7 @@ async function askNotNew(site, eventId, events) {
     const itemFile = await readJSON(s.file, null);
     for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) if (it.from_ask === eventId) items.push({ key: `${s.slug}/${it.id}`, it });
   }
-  const started = items.find(({ it }) => hasPR(it) || leftTodo(it) || it.answered_at);
+  const started = items.find(({ it }) => hasPR(it) || leftTodo(it) || it.answered_at || it.phase === 'discussing');
   if (started) return { why: `${named} became ${started.key}, which has started or been answered` };
   return items.length ? { items: items.map((i) => i.key) } : null;
 }
@@ -1115,18 +1117,19 @@ export async function slackSay(site, name, words, { now = new Date() } = {}, sla
   return { lines: [`said in ${reviewer.name}'s day thread`] };
 }
 
-// `slack task`: a request for work in a day thread, filed as a new card in item file `file`, grilling, for the owner
-// to review; never ready, so never a Quick build. The Slack message, read whole, is the card's first thread line,
-// under its writer's name and linking to it when the Slack identity has the workspace's domain.
+// `slack task`: a request for work in a day thread, filed as a new card in item file `file`, discussing, for the owner
+// to review (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md); never ready, so never a Quick build. The Slack
+// message, read whole, is the card's first thread line, under its writer's name and linking to it when the Slack
+// identity has the workspace's domain.
 export async function slackTask(site, eventId, file, { title, notes, notesFrom }, slack = savedSlack()) {
   const q = await slackQuestion(site, eventId);
   const messages = await slackCall(throughSlack(slack).replies({ channel: q.channel, ts: q.thread_ts }));
   const message = messages.find((m) => m.ts === q.ts) || fail('that Slack message is gone from its thread');
-  const filed = await addItem(site, file, { title, notes, notesFrom, phase: 'grilling', intake: true });
+  const filed = await addItem(site, file, { title, notes, notesFrom, phase: 'discussing', intake: true });
   const domain = readSlack().slack_domain;
   const link = domain ? `https://${domain}.slack.com/archives/${q.channel}/p${q.ts.replace('.', '')}?thread_ts=${q.thread_ts}&cid=${q.channel}` : undefined;
   await appendMessage(site, filed.key, { text: message.text, who: q.from === 'owner' ? 'love' : q.reviewer, via: 'slack', link });
-  return { ...filed, lines: [`filed ${filed.key} grilling, for the owner's review`] };
+  return { ...filed, lines: [`filed ${filed.key} discussing, for the owner's review`] };
 }
 
 // The reviewer's thread for date, opened with the header line unless the digest or an earlier post opened it.
@@ -1857,10 +1860,11 @@ export async function settleAnswers(site, answers, options) {
 
 // docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md
 // A card moves on once none of its questions is open: a grilling card whose gates.prototype is yes to prototyping, with
-// a thread line, the yes then spent as ran (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md); any other
-// stageable card to staging. round_at, which moveOnAnswered sets when asked, has the board server start the prototype
-// planner (domain.mjs roundsDue), for a move made outside the server.
-// → 'prototyping', 'staging' or null when the card stays.
+// a thread line, the yes then spent as ran (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md); a
+// prototyping or discussing card back to the conversation, discussing (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md);
+// any other stageable card to staging. round_at, which moveOnAnswered sets when asked, has the board server start the
+// prototype planner (domain.mjs roundsDue), for a move made outside the server.
+// → 'prototyping', 'discussing', 'staging' or null when the card stays.
 async function moveOnAnswered(site, key, { roundAt = false } = {}) {
   const { item } = await loadItem(site, key);
   const { asked } = await cardQuestions(site, key);
@@ -1875,6 +1879,10 @@ async function moveOnAnswered(site, key, { roundAt = false } = {}) {
     return 'prototyping';
   }
   if (!(await stageable(site, key))) return null;
+  if (['prototyping', 'discussing'].includes(item.phase)) {
+    await discuss(site, key);
+    return 'discussing';
+  }
   await stage(site, key);
   return 'staging';
 }
@@ -2043,6 +2051,14 @@ async function stage(site, key) {
   await writeJSON(source.file, itemFile);
   await appendCommand(site, key, { command: 'staged' });
 }
+// Returns the card to its conversation, with a "Marked as discussing" status line when it newly moves there.
+async function discuss(site, key) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  if (item.phase === 'discussing') return;
+  item.phase = 'discussing';
+  await writeJSON(source.file, itemFile);
+  await appendCommand(site, key, { command: 'discussing' });
+}
 // The owner's words from a thread message, text then any attached files, as one notes body, or '' when it carried none.
 const messageWords = ({ text: said, files }) => [String(said || '').trim(), ...(Array.isArray(files) ? files : []).map((f) => `Attached: ${f?.path || f?.name || f}`)].filter(Boolean).join('\n');
 
@@ -2064,11 +2080,11 @@ export async function stageReply(site, key, message) {
   if (words) await appendNotes(site, key, `Reply (owner, ${noteStamp()}), verbatim`, words);
   await stage(site, key);
 }
-// The owner's Grill or Prototype tap (kind grill or prototype) on a ready or staging card takes it out of that phase,
-// to grilling or prototyping; the tap launches the planner itself.
+// The owner's Grill or Prototype tap (kind grill or prototype) on a discussing, ready or staging card takes it out of
+// that phase, to grilling or prototyping; the tap launches the planner itself.
 export async function planAgain(site, key, kind) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (!['ready', 'staging'].includes(item.phase) || leftTodo(item)) return;
+  if (!['discussing', 'ready', 'staging'].includes(item.phase) || leftTodo(item)) return;
   item.phase = kind === 'prototype' ? 'prototyping' : 'grilling';
   delete item.staged_at;
   await writeJSON(source.file, itemFile);
@@ -2367,13 +2383,17 @@ const closed = (item) => item?.lane === 'done' || Boolean(item?.reopened_at);
 const leftTodo = (item) => Boolean(item?.lane) && item.lane !== 'todo';
 export const isFinished = async (site, key) => closed((await loadItem(site, key)).item);
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-07-0700-staging-then-ready.md,
-// docs/adr/2026-11-11-1200-every-lane-has-phases.md: a Todo card's phase. Staging is the board's alone, set on an owner
-// action; --phase takes the rest. --state was its name before every lane had phases.
-const AGENT_PHASES = ['ready', 'grilling', 'prototyping'];
+// docs/adr/2026-11-11-1200-every-lane-has-phases.md, docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a Todo
+// card's phase. Staging is the board's alone, set on an owner action; --phase takes the rest. --state was its name
+// before every lane had phases.
+const AGENT_PHASES = ['ready', 'discussing', 'grilling', 'prototyping'];
+const AGENT_PHASE_LIST = 'ready, discussing, grilling or prototyping';
+// The phases a planner works the card in.
+const PLANNED = ['grilling', 'prototyping'];
 function checkPhase(phase, state) {
-  if (state !== undefined) fail(`--state is now --phase: pass --phase ${AGENT_PHASES.includes(state) ? state : 'ready, grilling or prototyping'}`);
-  if (phase === 'staging') fail('--phase staging is set by the board, on an owner action; pass ready, grilling or prototyping');
-  if (phase !== undefined && !AGENT_PHASES.includes(phase)) fail('--phase takes ready, grilling or prototyping');
+  if (state !== undefined) fail(`--state is now --phase: pass --phase ${AGENT_PHASES.includes(state) ? state : AGENT_PHASE_LIST}`);
+  if (phase === 'staging') fail(`--phase staging is set by the board, on an owner action; pass ${AGENT_PHASE_LIST}`);
+  if (phase !== undefined && !AGENT_PHASES.includes(phase)) fail(`--phase takes ${AGENT_PHASE_LIST}`);
 }
 const NOT_STAGED = "a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
 // Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. The
@@ -2658,7 +2678,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
   if (ask && hold && phase !== undefined && !item.phase) fail('a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
-  if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
+  if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
   const wasFinished = closed(item);
   if (split && wasFinished) fail(`${key} is already Done, so the cards waiting on it were unblocked then; move them with item set <key> --deps`);
   if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
@@ -2762,8 +2782,9 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (phase === 'ready' && !judged && !rechecked && said !== undefined && fromAsk === undefined && !done) fail(`${key} reads ${item.phase || 'no phase'}, not staging, so there is no judgment for --text to record`);
   const readied = phase === 'ready' && item.phase !== 'ready';
   if (phase !== undefined) {
-    // docs/adr/2026-11-07-0700-staging-then-ready.md: sent back from staging or ready, the card gets its round from the board (domain.mjs roundsDue).
-    if (phase !== 'ready' && ['staging', 'ready'].includes(item.phase)) item.round_at = new Date().toISOString();
+    // docs/adr/2026-11-07-0700-staging-then-ready.md: sent from discussing, staging or ready to a grill or prototype,
+    // the card gets its round from the board (domain.mjs roundsDue).
+    if (PLANNED.includes(phase) && ['discussing', 'staging', 'ready'].includes(item.phase)) item.round_at = new Date().toISOString();
     item.phase = phase;
     delete item.recheck_at;
     delete item.staged_at;
@@ -3269,13 +3290,13 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md: a card filed held takes no phase; it reads New until the unhold starts its grill.
   const hold = holdOf({ held, pickUpAt });
   if (hold && phase !== undefined) fail('a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
-  if (ask && phase === undefined && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
-  if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it grilling or prototyping` : 'item add files a card grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
+  if (ask && phase === undefined && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
+  if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it discussing, grilling or prototyping` : 'item add files a card discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
   if (phase === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --phase ready`);
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a new card has no questions yet, so its notes
   // are complete once they hold more than its title.
   if (phase === 'ready' && !(notes ?? '').trim() && notesFrom === undefined) fail('a new ready card has no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready');
-  if (intake && site && phase === undefined && !hold) fail('item add files a card on a board: pass --phase grilling or prototyping, or --held to file it for later');
+  if (intake && site && phase === undefined && !hold) fail('item add files a card on a board: pass --phase discussing, grilling or prototyping, or --held to file it for later');
   const { source, itemFile } = await loadItemFile(site, slug);
   if (id !== undefined && itemFile.items.some((it) => it.id === id)) fail(`item file "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
@@ -4464,6 +4485,17 @@ export async function isHelper(site, key, agent = 'main') {
 export async function isPlanner(site, key, agent = 'main') {
   const record = await readJSON(await builderFile(site, key, undefined, agent), null);
   return Boolean(record?.started && !record.done && plans(record));
+}
+
+// docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md
+// `item visual <file/id> --text <t>`: the orchestrator asks for a visual on the card, a visual-request event of its own
+// (who: claude) that the board server launches a visual agent on, as it does the owner's (domain.mjs visualsDue).
+export async function requestVisual(site, key, { text: said }) {
+  needSite(site);
+  if (said === undefined) fail('item visual needs --text "<what the visual should show>"');
+  await loadItem(site, key);
+  await appendEvent({ dir: site }, 'visual-request', { key, text: text(said, '--text'), who: 'claude' });
+  return { lines: [`visual asked on ${await cardName(site, key)}: the board launches its visual agent`] };
 }
 
 // `visual add <file/id> --file <html> --title <t>`: the visual agent's page, copied to the site's

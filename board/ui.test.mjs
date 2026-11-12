@@ -1674,6 +1674,17 @@ test('a paused build reads "pausing · <cause>" in orange, then "paused · <caus
   assert.match(css, /^\.card-pausing \{ color: var\(--color-notice\); \}$/m);
 });
 
+// docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md
+test("a discussing card's time line says whose turn it is: blue for the owner's, orange for Claude's", () => {
+  const sortAt = ago(24 * 2);
+  const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, phase: 'discussing' };
+  const yours = ui.workLines({ ...card, turn: 'owner' }, { unread: 1 });
+  assert.equal(lines(yours).at(-1), `${ui.cardTime(sortAt)} · discussing · your turn · 1 new message`);
+  assert.match(yours, /<span class="card-phase ph-info">discussing · your turn<\/span>/);
+  assert.match(ui.workLines({ ...card, turn: 'claude' }), /<span class="card-phase ph-notice">discussing · Claude's turn<\/span>/);
+  assert.equal(ui.statusWord(card), 'discussing');
+});
+
 // docs/adr/2026-11-07-0700-staging-then-ready.md
 test("a staging card's time line reads staging in orange where ready reads, and its Status row says staging", () => {
   const sortAt = ago(24 * 2);

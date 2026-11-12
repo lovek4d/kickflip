@@ -126,11 +126,22 @@ test('a gate asked alone, answered no, stages the card; yes leaves a card no lon
   assert.equal(moved.card(), 'prototyping');
 });
 
-test('a Send that leaves an unstarted card with nothing open stages it, a note-only answer included; no take picked, a running planner or a started card leaves it', async () => {
-  const noted = world('prototyping');
+test('a Send that leaves an unstarted card with nothing open stages it, a note-only answer included, and returns a prototyping card to discussing; no take picked, a running planner or a started card leaves it', async () => {
+  const noted = world();
   await addQuestions(noted.site, other);
   await settleAnswers(noted.site, [noted.answer('q-other', null, 'Neither, follow quiet hours')]);
   assert.equal(noted.card(), 'staging', 'the orchestrator judges a note-only answer from staging');
+
+  // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a prototype round's answer goes back to the conversation.
+  const talked = world('prototyping');
+  await addQuestions(talked.site, other);
+  assert.deepEqual(await settleAnswers(talked.site, [talked.answer('q-other', 'a')]), { prototype: [], staged: [] });
+  assert.equal(talked.card(), 'discussing');
+  assert.equal(talked.thread().at(-1).text, 'Marked as discussing');
+  const discussing = world('discussing');
+  await addQuestions(discussing.site, other);
+  await settleAnswers(discussing.site, [discussing.answer('q-other', 'a')]);
+  assert.equal(discussing.card(), 'discussing', "a discussion's own question keeps it discussing");
 
   const take = { id: 'q-take', topic: 'item:t/A1', question: 'Which take?', url: 'prototype-look.html?q=q-take', options: [{ id: 'A', label: 'Badge' }, { id: 'B', label: 'Dot' }] };
   const none = world('prototyping');
@@ -139,7 +150,7 @@ test('a Send that leaves an unstarted card with nothing open stages it, a note-o
   assert.equal(none.card(), 'prototyping', 'no take picked, so it prototypes again');
   none.put({ ...take, id: 'q-take-2', url: 'prototype-look.html?q=q-take-2' });
   await settleAnswers(none.site, [none.answer('q-take-2', 'B')]);
-  assert.equal(none.card(), 'staging');
+  assert.equal(none.card(), 'discussing', 'a picked take goes back to the conversation');
 
   const running = world();
   await addQuestions(running.site, other);

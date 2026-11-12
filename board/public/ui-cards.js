@@ -283,13 +283,16 @@
   // phase only as its progress bar, and a card In Review for an owner wait other than the merge has none. Ready reads
   // only on a card that can start (domain.mjs ready), so a blocked one shows what blocks it instead.
   const PHASE_LOOK = {
-    new: ['new', 'quiet'], grilling: ['grilling', 'info'], prototyping: ['prototyping', 'info'], staging: ['staging', 'notice'], ready: ['ready', 'success'],
+    new: ['new', 'quiet'], discussing: ['discussing', 'info'], grilling: ['grilling', 'info'], prototyping: ['prototyping', 'info'], staging: ['staging', 'notice'], ready: ['ready', 'success'],
     draft: ['draft', 'quiet'], reviewers: ['pending review', 'notice'], merge: ['pending merge', 'notice'], stale: ['stale', 'quiet'],
     merged: ['merged', 'merged'], closed: ['closed', 'quiet'],
   };
+  // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a discussing card says whose turn it is, blue for the
+  // owner's, orange while the orchestrator owes the reply.
+  const TURN_LOOK = { owner: ['discussing · your turn', 'info'], claude: ["discussing · Claude's turn", 'notice'] };
   function phaseWord(it) {
     if (it.kind !== 'work' || it.lane === 'progress' || !it.phase || (it.phase === 'ready' && !it.ready)) return '';
-    const [word, tone] = PHASE_LOOK[it.phase];
+    const [word, tone] = it.phase === 'discussing' ? TURN_LOOK[it.turn] : PHASE_LOOK[it.phase];
     return `<span class="card-phase ph-${tone}">${word}</span>`;
   }
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md

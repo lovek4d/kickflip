@@ -13,7 +13,7 @@ const moveLines = (id) => auditThread(id).filter((m) => m.kind === 'move').map((
 
 test("each lane's phases, in order: Todo's, the five build steps, In Review's and Done's", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(PHASES)), {
-    todo: ['new', 'grilling', 'prototyping', 'staging', 'ready'],
+    todo: ['new', 'discussing', 'grilling', 'prototyping', 'staging', 'ready'],
     progress: ['reading', 'building', 'testing', 'checking', 'landing'],
     review: ['draft', 'reviewers', 'merge', 'stale'],
     done: ['merged', 'closed'],

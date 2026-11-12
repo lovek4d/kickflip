@@ -120,7 +120,7 @@
 //                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits).
 //                                Either one on a card launches a headless planner on it (startPlanner) unless an
 //                                agent already works on it, so the session acts only on prototype-overdue; on a
-//                                ready or staging card it first moves the card to grilling or prototyping (store.mjs planAgain).
+//                                discussing, ready or staging card it first moves the card to grilling or prototyping (store.mjs planAgain).
 //                                visual-request {key, text?, files?} asks for a visual: the server launches a
 //                                visual agent on the card beside any other agent, once no other visual runs there
 //                                (launchVisuals; docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md)

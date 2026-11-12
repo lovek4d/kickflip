@@ -88,28 +88,34 @@ test('the board files a New ask as a T-<n> card once, titled by its first line w
   assert.equal(await s.dropAskCard(audit(), 'a2'), null);
 });
 
-test('reply on a New card answers it: a message in its thread and the answered mark; on a sorted card it is refused, and --phase takes an answered card back to Todo', async () => {
+// docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md
+test('reply on a New card starts its discussion: a message in its thread, the card discussing; on a card sorted otherwise it is refused, and --phase takes an answered card back to Todo', async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
   const r = board('reply', 'audit/T-1', '--text', 'It jumps because of the sticky bar.', '--title', 'Header jumps on scroll', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   const t1 = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
-  assert.deepEqual([Boolean(t1.answered_at), t1.title], [true, 'Header jumps on scroll']);
+  assert.deepEqual([t1.answered_at, t1.phase, t1.title], [undefined, 'discussing', 'Header jumps on scroll']);
   assert.deepEqual(lines(audit('data', 'threads', 'audit__T-1.jsonl')).map((m) => m.text), ['It jumps because of the sticky bar.']);
   assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit').code, 0);
-  const regrilled = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
-  assert.deepEqual([regrilled.answered_at, regrilled.phase, regrilled.lane], [undefined, 'grilling', 'todo']);
   assert.match(board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit').err, /sorted/);
   assert.match(board('reply', 'audit/A1', '--text', 'x', '--site', 'audit').err, /not a card an ask became/);
+  // A card answered before discussing existed waits In Review; a phase takes it back to Todo.
+  const items = read(audit('data', 'items.json'));
+  Object.assign(items.items.find((i) => i.id === 'T-1'), { phase: undefined, answered_at: '2026-11-09T10:05:00Z', lane: 'review' });
+  write(audit('data', 'items.json'), items);
+  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit').code, 0);
+  const back = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
+  assert.deepEqual([back.answered_at, back.phase, back.lane], [undefined, 'discussing', 'todo']);
 });
 
-test('reply to an ask whose card is New writes the reply and marks the card answered', async () => {
+test('reply to an ask whose card is New writes the reply and starts its discussion', async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
   assert.equal(board('reply', 'a1', '--text', 'Yes.', '--site', 'audit').code, 0);
-  assert.equal(Boolean(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').answered_at), true);
+  assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'discussing');
 });
 
 test('item relate-ask on an ask whose card is New merges it: the card goes, its thread lines move to the ask\'s thread, and a card-merged line names the card it went into', async () => {

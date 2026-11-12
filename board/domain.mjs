@@ -323,6 +323,9 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: planningOf('grill', events, agents, askedAt), prototyping: planningOf('prototype', events, agents, askedAt),
     storedPhase: it.phase || null, phase: null, recheckAt: it.recheck_at || null,
+    // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: whose turn a discussing card is, the orchestrator's
+    // while an owner message or answer on it is unanswered, otherwise the owner's.
+    turn: lane === 'todo' && it.phase === 'discussing' ? (said.some((m) => m.state === 'waiting' || m.state === 'working') ? 'claude' : 'owner') : undefined,
     updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
     waitFacts: waitFactsOf(it, { agents, thread, events, refusedAt: refusal ? newest.ts : null, replyAt: idle ? replyAt : null }),
@@ -806,7 +809,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 export const COMMANDS = {
   implement: 'Implementation requested', prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
   reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done',
-  staged: 'Marked as staging', readied: 'Marked as ready',
+  discussing: 'Marked as discussing', staged: 'Marked as staging', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
 };
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'reask-request': 'reask' };
@@ -850,8 +853,9 @@ const requestOf = (e, asked) => {
   if (!REQUESTS.includes(e.kind)) return e.kind === 'reask-request' ? command : {};
   return (e.data.question ? asked.has(e.data.question) : String(e.data.text || '').trim() || e.data.files?.length) ? { status: ACTION_LABELS[e.kind] } : command;
 };
-// A Claude line answers the owner's messages before it; an agent's lines and the orchestrator's answer to a builder don't.
-const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', 'command', MOVE, BUILDER_ASK.answer].includes(m.kind)).map((m) => m.ts),
+// A Claude line answers the owner's messages before it; an agent's lines, the orchestrator's answer to a builder and its
+// visual request don't.
+const claudeAtOf = (msgs) => [...msgs.filter((m) => m.who === 'claude' && !['status', 'agent', 'command', MOVE, BUILDER_ASK.answer, 'visual-request'].includes(m.kind)).map((m) => m.ts),
   ...msgs.filter((m) => m.kind === 'ask').map((m) => m.reply?.at)].filter(Boolean).map(String).sort().pop() || '';
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
 // The event log and owner questions grouped once per build, so each card's thread picks its own instead of scanning
@@ -928,7 +932,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
-      .map((e) => ({ ts: e.ts, who: 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies,
+      // A visual the orchestrator asked for (item visual) is Claude's line; every other event is the owner's.
+      .map((e) => ({ ts: e.ts, who: e.data.who === 'claude' ? 'claude' : 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies,
         ...requestOf(e, asked), ...byOf(e) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
@@ -1510,7 +1515,7 @@ export const MAX_PLANNERS = 3;
 // How many card serves a board keeps up at once, unless its max_serves setting says otherwise.
 export const MAX_SERVES = 10;
 // For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
-// card in Todo nothing has picked up: buildable, neither ready nor staging, filed (not New), not held or worked on by a session, with
+// card in Todo nothing has picked up: buildable, not discussing, ready nor staging, filed (not New), not held or worked on by a session, with
 // no planner record ever, no grill or prototype requested and no question topic. However it was filed (an ask, item add,
 // the +, an import) it counts the same, and a blocked card arrives too: a block only keeps a card from In Progress
 // (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). The cap, less the planners running, takes
@@ -1518,7 +1523,7 @@ export const MAX_SERVES = 10;
 export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
-  const fresh = open.filter((i) => i.buildable && !['ready', 'staging'].includes(i.phase) && !i.unsorted && !i.held && !i.working && !i.grilling && !i.prototyping
+  const fresh = open.filter((i) => i.buildable && !['discussing', 'ready', 'staging'].includes(i.phase) && !i.unsorted && !i.held && !i.working && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL));
   const arrived = [...fresh.filter((i) => !i.blocked), ...fresh.filter((i) => i.blocked)];
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped arrival gets its grill past the cap.
@@ -1567,7 +1572,7 @@ function unsorted(items, e, key) {
   return e.kind === 'ask' ? Boolean(it.isNew) : it.unfiled;
 }
 const INTAKE_NEXT = {
-  ask: (key, e) => `Sort the new task: item notes, then item set ${key} --phase grilling or prototyping (ready, with --size, for a Quick build); merge it into a card with item relate-ask ${e.id} <card> --summary; or answer it with reply ${key}`,
+  ask: (key, e) => `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a card with item relate-ask ${e.id} <card> --summary`,
   'card-added': () => 'Link and file the card an agent added: item notes, then item set --relate and --phase',
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
@@ -1726,7 +1731,7 @@ const STALL_NEXT = "item stall it with the reason when it can't go on";
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
 // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a staged card whose split was answered Split is filed as its split, not set ready.
-const STAGING_NEXT = 'Judge the staged card against the whole board: item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead';
+const STAGING_NEXT = 'Judge the staged card against the whole board: for a discussed card first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead';
 const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions against what landed; answer a stale one again with question settle <id> --note, or send the card back with item set --phase grilling when the change is too big; then item set --phase ready --text "<what you re-checked>"';
 function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
