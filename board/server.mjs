@@ -98,8 +98,8 @@
 //                                ?board=0, as the hub posts, answers with no board, so the answer builds nothing after the line is written
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
-//                                Implement with no text or files on a Todo or ready card writes its "Implementation
-//                                requested" line and stages the card for the orchestrator's review, with no event
+//                                Implement with no text or files on a Todo or ready card writes no line of its own
+//                                and stages the card for the orchestrator's review, with no event
 //                                (store.mjs implementAsIs). One with text or files on a Todo card stages it
 //                                there, its open questions skipped and its words in its notes (store.mjs stageImplement),
 //                                and appends the message. Any other message on a ready Todo card stages it again with its
@@ -1178,7 +1178,7 @@ const server = http.createServer(async (req, res) => {
         // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement readies the
         // card as it is and starts its build, with no event.
         if (bare && (card?.ready || card?.lane === 'todo')) {
-          await implementAsIs(here, key, shared ? shared.by.name || shared.by.login : undefined);
+          await implementAsIs(here, key);
           dataVersion++;
           return json(res, 200, { id: null, board: await answerBoard(req, since) });
         }

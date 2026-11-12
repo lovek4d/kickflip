@@ -2085,6 +2085,12 @@ async function markWaiting(site, key, on) {
   item.waits_on_owner = { on, at: new Date().toISOString() };
   await writeJSON(source.file, itemFile);
 }
+// The readied line's words: "Marked as ready" and the orchestrator's check, cut to one line.
+const READIED_CHECK_MAX = 100;
+function readiedText(said) {
+  const line = String(said).trim().split('\n')[0].trim();
+  return `${COMMANDS.readied} · ${line.length > READIED_CHECK_MAX ? `${line.slice(0, READIED_CHECK_MAX - 1).trimEnd()}…` : line}`;
+}
 // A Reply on a ready Todo card: its words go into the notes, and it is staged again.
 export async function stageReply(site, key, message) {
   const words = messageWords(message);
@@ -2909,7 +2915,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (moveLine) await appendLine(threadFile(site, key), { ts: item.lane_at, who: 'claude', kind: MOVE, text: moveLine });
   if (judged) await appendNotes(site, key, `Ready (orchestrator, ${noteStamp()})`, said);
   if (rechecked) await appendNotes(site, key, `Re-checked (orchestrator, ${noteStamp()})`, said);
-  if (readied) await appendCommand(site, key, { command: 'readied' });
+  if (readied) await appendCommand(site, key, { command: 'readied', ...(said === undefined ? {} : { text: readiedText(said) }) });
   if (blocked) {
     const pausing = site && !(await isLanding(site, key)) && await requestPause(site, key, { cause: 'blocked', words: `blocked ${blocked}` });
     await appendStatus(site, key, pausing ? 'blocked-pausing' : 'blocked-stays', { blocked });
@@ -4254,11 +4260,10 @@ async function tapRefusals(site, key) {
 }
 
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
-// A bare Implement, in the board server with no event: the owner's "Implementation requested" line, then the card
-// staged as an Implement with text stages it (stageImplement), for the orchestrator's review before it goes ready. by
-// names a Full person.
-export async function implementAsIs(site, key, by) {
-  await appendCommand(site, key, { who: 'love', by, command: 'implement' });
+// A bare Implement, in the board server with no event: the card staged as an Implement with text stages it
+// (stageImplement), for the orchestrator's review before it goes ready. "Marked as staging" is the thread's whole
+// answer to the tap (docs/adr/2026-11-12-1100-an-implement-tap-reads-only-marked-as-staging.md).
+export async function implementAsIs(site, key) {
   await stageImplement(site, key, {});
 }
 

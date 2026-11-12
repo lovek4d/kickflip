@@ -35,7 +35,7 @@ test('ready comes only from staging, or a card already ready; staging to ready c
   assert.deepEqual([item().phase, item().staged_at], ['ready', undefined]);
   assert.equal(ready().code, 0, 'a ready card can be set ready again');
   // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md: only the move to ready writes the line.
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => [m.who, m.command, m.text]), [['claude', 'readied', 'Marked as ready']]);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => [m.who, m.command, m.text]), [['claude', 'readied', 'Marked as ready · No other card covers it.']]);
 });
 
 // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
