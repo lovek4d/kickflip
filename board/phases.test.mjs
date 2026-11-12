@@ -180,6 +180,12 @@ test('a stale review reads one stale; a blocked ready card shows its block and n
   assert.doesNotMatch(grilling, /phase-bars/);
 });
 
+test('new messages on a Done-lane card read blue; other lanes keep the alert orange', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.card-alert \{ color: var\(--color-notice\)/);
+  assert.match(css, /\.lane\[data-lane="done"\] \.card-alert \.card-unread \{ color: var\(--color-info\); \}/);
+});
+
 test('each phase tone takes its colour from shared/colors.css', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   for (const [tone, colour] of [['quiet', 'quiet'], ['info', 'info'], ['notice', 'notice'], ['success', 'success'], ['merged', 'merged']]) {
