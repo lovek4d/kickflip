@@ -28,7 +28,7 @@ The owner's answers on #517:
 
 **The squash merge is the PR's title over its body and trailers.** `board.mjs merge` and the Merge tap run `gh pr merge --squash --subject <PR title> --body <squashBody>`. The body is the PR's body, which is the builder's checked text, then `Refs: <card ref>` and each Co-Authored-By trailer the PR's commits carry, once each, matched without regard to case. GitHub's " (#N)" suffix goes because `--subject` replaces its default. The merge reads them with one `gh pr view --json title,body,commits` per PR just before its `gh pr merge`. They stay out of `PR_VIEW_FIELDS`, whose view also feeds PR reports, where `commits` already means the GraphQL query's recent commits.
 
-**Releases go through `scripts/release.mjs <x.y.z>`.** It lists the subjects since the last `v*` tag, oldest first and skipping merges, and runs `npm version <x.y.z> -m` with `releaseMessage`. npm makes the commit and the tag as before, and the push stays a separate step.
+**Releases go through `scripts/release.mjs <x.y.z> --ref <ref>`.** It lists the subjects since the last `v*` tag, oldest first and skipping merges, and commits the version bump with `releaseMessage`, which ends in the card's `Refs:` trailer. Land makes and pushes the tag ([land tags a release commit and pushes the tag](2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md)).
 
 ## Consequences
 

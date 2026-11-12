@@ -660,6 +660,68 @@ test("a finish on a local board pushes its branch to origin once it lands when t
   assert.match(threadOf('A3').at(-1).text, /^Landed, but main didn't reach origin: /);
 });
 
+// docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md
+test("a land tags a release commit as it landed, after the rebase, and pushes the tag after main when Push release tags is on; it refuses a release whose package.json disagrees or whose tag is on another commit", () => {
+  const repo = scratchRepo();
+  const ids = ['A1', 'A2', 'A3', 'A4', 'A5'];
+  write(at('waves', 'w', 'wave.json'), { title: 'W', items: ids.map((id) => ({ id, title: `chore(release): ${id}` })) });
+  const origin = path.join(home, 'origin.git');
+  git(home, 'init', '--quiet', '--bare', origin);
+  git(repo, 'remote', 'add', 'origin', origin);
+  commit(repo, 'package.json', JSON.stringify({ name: 'x', version: '0.1.0' }) + '\n', 'chore(release): 0.1.0');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  const manifest = read(at('kickflip', 'manifest.json'));
+  manifest.sites.orch.owner = { repo };
+  write(at('kickflip', 'manifest.json'), manifest);
+  const allow = (...rules) => write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: rules } });
+  write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
+  allow('Bash(git push origin main)', 'Bash(git push origin v*)');
+  const release = (id, version, subject = `chore(release): ${version}`) => {
+    assert.equal(onOrch('builder', 'start', `w/${id}`, '--kind', 'build').code, 0);
+    commit(at('kickflip', 'worktrees', id), 'package.json', JSON.stringify({ name: 'x', version }) + '\n', `${subject}\n\n- feat: work\n\nRefs: ${id}`);
+    return onOrch('builder', 'done', `w/${id}`, '--text', 'Checked it.');
+  };
+  const tagged = (where, tag) => git(where, 'tag', '--list', tag) && git(where, 'rev-parse', `${tag}^{commit}`);
+
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
+  commit(at('kickflip', 'worktrees', 'A1'), 'package.json', JSON.stringify({ name: 'x', version: '0.2.0' }) + '\n', 'chore(release): 0.2.0\n\nRefs: A1');
+  commit(repo, 'other.txt', 'moved\n', 'feat: main moved\n\nRefs: A0');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  const landed = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
+  assert.equal(landed.code, 0, landed.err);
+  assert.ok(landed.out.includes('\npushed main to origin\npushed v0.2.0 to origin\n'), landed.out);
+  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0');
+  assert.equal(tagged(repo, 'v0.2.0'), git(repo, 'rev-parse', 'main'), 'the tag is on the landed commit, after the rebase');
+  assert.equal(tagged(origin, 'v0.2.0'), git(repo, 'rev-parse', 'main'));
+
+  const mismatch = release('A2', '0.2.5', 'chore(release): 0.3.0');
+  assert.equal(mismatch.code, 1);
+  assert.match(mismatch.err, /^land: "chore\(release\): 0\.3\.0" is a release, but package\.json's version there is 0\.2\.5; bump it to 0\.3\.0 with node scripts\/release\.mjs and land again/);
+  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0', 'nothing landed');
+
+  git(repo, 'tag', 'v0.4.0', 'main~1');
+  const taken = release('A3', '0.4.0');
+  assert.equal(taken.code, 1);
+  assert.match(taken.err, new RegExp(`^land: tag v0\\.4\\.0 is already on ${git(repo, 'rev-parse', '--short', 'main~1')}, not this release; release another version, or delete the tag if it was never pushed \\(git -C .+ tag -d v0\\.4\\.0\\), and land again`));
+  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'chore(release): 0.2.0', 'nothing landed');
+
+  allow('Bash(git push origin main)');
+  const local = release('A4', '0.5.0');
+  assert.equal(local.code, 0, local.err);
+  assert.match(local.out, /\npushed main to origin\nv0\.5\.0 stays local while Push release tags is off; push it with git -C .+ push origin v0\.5\.0\n/);
+  assert.equal(tagged(repo, 'v0.5.0'), git(repo, 'rev-parse', 'main'));
+  assert.equal(tagged(origin, 'v0.5.0'), '');
+
+  allow('Bash(git push origin main)', 'Bash(git push origin v*)');
+  write(path.join(origin, 'hooks', 'pre-receive'), '#!/bin/sh\nwhile read old new ref; do case "$ref" in refs/tags/*) echo "no tags here" >&2; exit 1;; esac; done\n');
+  fs.chmodSync(path.join(origin, 'hooks', 'pre-receive'), 0o755);
+  const refused = release('A5', '0.6.0');
+  assert.equal(refused.code, 0, refused.err);
+  assert.match(refused.out, /\npushed main to origin\nlanded, but v0\.6\.0 didn't reach origin: [\s\S]+; push it with git -C .+ push origin v0\.6\.0\n/);
+  assert.equal(itemOf('A5').lane, 'done');
+  assert.match(threadOf('A5').at(-1).text, /^Landed, but v0\.6\.0 didn't reach origin: /);
+});
+
 test('builder verified on a handed-back build finishes the card in the same step, its note the closing line', () => {
   const repo = scratchRepo();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);

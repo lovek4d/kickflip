@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cardTitleFault, releaseMessage, squashBody, squashMessage, standardWords, startTitleFault, subjectFault, TYPES } from './commit-message.mjs';
+import { cardTitleFault, releaseMessage, releaseVersion, squashBody, squashMessage, standardWords, startTitleFault, subjectFault, TYPES } from './commit-message.mjs';
 
 test('the brief tells a builder to put Refs on the line directly above Co-Authored-By, no blank line between', () => {
   assert.match(standardWords('#7'), /"Refs: #7" on the line directly above Co-Authored-By, no blank line between$/);
@@ -18,9 +18,16 @@ test('a subject is Conventional: one of the Angular types, an optional lowercase
   assert.equal(subjectFault(`feat: ${'x'.repeat(95)}`), 'is 101 characters, over 100');
 });
 
-test('a release message is "chore(release): X.Y.Z" with the subjects landed since the last tag as a list, oldest first', () => {
-  assert.equal(releaseMessage('0.9.0', ['feat(board): one', 'fix: two']), 'chore(release): 0.9.0\n\n- feat(board): one\n- fix: two');
-  assert.equal(subjectFault(releaseMessage('0.9.0', []).split('\n')[0]), null);
+test('a release message is "chore(release): X.Y.Z" with the subjects landed since the last tag as a list, oldest first, then its card\'s Refs trailer', () => {
+  assert.equal(releaseMessage('0.9.0', ['feat(board): one', 'fix: two'], '#7'), 'chore(release): 0.9.0\n\n- feat(board): one\n- fix: two\n\nRefs: #7');
+  assert.equal(releaseMessage('0.9.0', [], '#7'), 'chore(release): 0.9.0\n\nRefs: #7');
+  assert.equal(subjectFault(releaseMessage('0.9.0', [], '#7').split('\n')[0]), null);
+});
+
+test('a release subject names its version; any other subject names none', () => {
+  assert.equal(releaseVersion('chore(release): 0.9.0'), '0.9.0');
+  assert.equal(releaseVersion('chore(release): next'), 'next');
+  for (const other of ['chore: 0.9.0', 'chore(release)!: 0.9.0', 'feat(release): 0.9.0', 'chore(release): ']) assert.equal(releaseVersion(other), null, other);
 });
 
 test("a squash body is the PR's body, then Refs: <ref> and each Co-Authored-By its commits carry, once", () => {

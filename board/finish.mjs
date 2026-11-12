@@ -16,6 +16,7 @@ import { ghSync, limitWords } from '../shared/gh.mjs';
 import * as store from './store.mjs';
 import { builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
+import { pushRelease } from './release-tag.mjs';
 import { landByBuilder } from './headless.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
@@ -62,7 +63,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   // and base is brought up to origin's again under it.
   // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bumped card's land goes ahead in the queue.
   const queue = { site, key, first: await store.landFirst(site, key) };
-  await landInTurn({ ...tree, ref }, { hold: !go, onWait, queue, sync: () => remote && syncBase(tree.repo, base) });
+  const landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, queue, sync: () => remote && syncBase(tree.repo, base) });
   if (!go) {
     const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
     await store.appendMessage(site, key, { text });
@@ -71,7 +72,7 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   const closed = await store.setItem(site, key, { done: true, landed: true, ...(closing ? { closing } : { text }), ownerStep, check });
   return {
     said: ownerStep === undefined ? 'landed and done' : `landed; waits on the owner step "${ownerStep.trim()}"`,
-    lines: [...closed.lines, ...await pushBase(site, key, repo, base)],
+    lines: [...closed.lines, ...await pushBase(site, key, repo, base, landed.tag)],
   };
 }
 
@@ -101,13 +102,21 @@ export async function landHeld(site, key, { launch = landByBuilder } = {}) {
 }
 
 // The card has already landed, so a push that fails is said, on the card's thread too, and leaves the land standing.
-async function pushBase(site, key, repo, base) {
-  if (!(await readPermissions(repo)).pushMain) return [];
+// tag, the release tag the land made (release-tag.mjs), follows base to origin
+// (docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md).
+async function pushBase(site, key, repo, base, tag) {
+  const permissions = await readPermissions(repo);
+  if (!permissions.pushMain) return [];
   const pushed = git(repo, 'push', '--quiet', 'origin', base);
-  if (pushed.ok) return [`pushed ${base} to origin`];
-  const why = `${base} didn't reach origin: ${pushed.err}; push it with git -C ${repo} push origin ${base}`;
-  await store.appendStatus(site, key, 'push-failed', { base, error: pushed.err });
-  return [`landed, but ${why}`];
+  if (!pushed.ok) {
+    const why = `${base} didn't reach origin: ${pushed.err}; push it with git -C ${repo} push origin ${[base, tag].filter(Boolean).join(' ')}`;
+    await store.appendStatus(site, key, 'push-failed', { base, error: pushed.err });
+    return [`landed, but ${why}`];
+  }
+  if (!tag) return [`pushed ${base} to origin`];
+  const release = pushRelease(repo, tag, permissions.pushTags);
+  if (release.failed) await store.appendStatus(site, key, 'push-failed', { base: tag, error: release.failed });
+  return [`pushed ${base} to origin`, release.line];
 }
 
 async function sendForReview(site, key, { path: dir, branch, base, title: given, text }) {

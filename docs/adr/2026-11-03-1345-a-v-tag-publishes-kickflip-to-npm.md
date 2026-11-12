@@ -2,7 +2,7 @@
 
 Pushing a `v*` tag to lovek4d/kickflip runs `.github/workflows/release.yml`, which publishes `dist/` as `@lovek4d/kickflip` ([kickflip ships as a minified npm package](2026-11-01-2247-kickflip-ships-as-a-minified-npm-package.md)). Nothing else publishes; there is no GitHub release, since the tag and npm are enough.
 
-**The session bumps the version.** When the owner asks for a release, the session runs `npm version <x.y.z>` in the clone, which commits the bump and makes the `v<x.y.z>` tag, then pushes main and the tag (`git push origin main v<x.y.z>`).
+**A release card's land makes the tag.** Its builder bumps the version, and land tags the landed commit and pushes the tag after main ([land tags a release commit and pushes the tag](2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md), which replaced the session's `npm version` and `git push origin main v<x.y.z>`).
 
 **The workflow gates publishing.** On ubuntu-latest with Node 22 it runs, in order: the full suite (`node --test`), `npm run build`, a check that the tag is `v` plus `dist/package.json`'s version, failing otherwise, and a smoke install: `npm pack ./dist`, a global install of that tarball into a temporary prefix, and a bare `kickflip`, which must print its usage text. Then `npm publish ./dist --access public`.
 

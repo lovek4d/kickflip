@@ -41,8 +41,11 @@ export function startTitleFault(key, title) {
   return fault && `${key}'s title "${title}" ${fault}; retitle it with item set ${key} --title "<type>(<scope>): <summary>" before it goes into In Progress`;
 }
 
-// A release commit's message: "chore(release): <version>", then the subjects landed since the last tag, oldest first.
-export const releaseMessage = (version, subjects) => [`chore(release): ${version}`, '', ...subjects.map((s) => `- ${s}`)].join('\n');
+// A release commit's message: "chore(release): <version>", then the subjects landed since the last tag, oldest first,
+// then "Refs: <ref>", the release card's.
+export const releaseMessage = (version, subjects, ref) => [`chore(release): ${version}`, withTrailers(subjects.map((s) => `- ${s}`).join('\n'), [ref], [])].join('\n\n');
+// The version a release commit's subject names, or null when subject isn't one.
+export const releaseVersion = (subject) => /^chore\(release\): (\S+)$/.exec(subject)?.[1] ?? null;
 
 // A squash merge's body, below the PR title as its subject: the PR's body as the detail, then the trailers, "Refs: <ref>"
 // and each Co-Authored-By the PR's commits carry, once whatever its case. commits are gh's ({messageBody}).
