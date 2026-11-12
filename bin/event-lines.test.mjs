@@ -101,3 +101,8 @@ test("a slack-question wakes the session to read the thread, then answer or file
   assert.match(PLAIN['slack-question'](event('slack-question', { ...where, from: 'reviewer', answer: true })), /^Ann wrote to the board .*slack thread e1, then, only if it asks something, answer about this board alone with slack answer e1 --text \(250 characters at most\), or file a request for work with slack task e1 <file>; a thanks gets no reply$/);
   assert.equal(PLAIN['slack-question'](event('slack-question', { ...where, from: 'owner', answer: false })), "the owner wrote in Ann's Slack review thread without @kickflip: slack thread e1 for context; no reply");
 });
+
+test('an answer that picks no take on a prototype tells the session the board starts the next round, any other answer to act on it', () => {
+  assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1', prototype_again: true })), /the board starts the next prototype round itself/);
+  assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1' })), /act on it on its card/);
+});

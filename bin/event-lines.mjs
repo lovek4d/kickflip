@@ -23,7 +23,7 @@ export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 
 // The kinds whose line reads from the event alone.
 export const PLAIN = {
-  'owner-answer': (e) => `answer received to question ${e.data?.id}: act on it on its card`,
+  'owner-answer': (e) => `answer received to question ${e.data?.id}: ${e.data?.prototype_again ? 'it picks no take, so the board starts the next prototype round itself; nothing to do' : 'act on it on its card'}`,
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
   'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${e.data?.cards?.length} cards wait on open questions; run the triage, then board.mjs reply ${e.id}`,

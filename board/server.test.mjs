@@ -214,6 +214,9 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     assert.deepEqual([last().kind, last().data.prototype_again], ['owner-answer', true]);
     const card = (await r.json()).board.items.find((i) => i.key === 't/P1');
     assert.deepEqual([card.phase, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
+    // The board starts the next round itself, with the note as its guidance, even when the note reads as a question.
+    const record = path.join(site, 'data', 'agents', 'P1.json');
+    await until(() => fs.existsSync(record) && JSON.parse(fs.readFileSync(record, 'utf8')).kind === 'prototype', 'the board launches the prototype planner');
     await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'question-reopen', question: 'moon' }) });
     await ok200(answer('moon', 'B', ''));
     assert.equal(last().data.prototype_again, undefined);

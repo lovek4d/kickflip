@@ -107,7 +107,7 @@
 //                                An owner-answer with a note and no take resolves its question (store.mjs
 //                                resolveNoteAnswers). One to a card's prototype question that picks no take is
 //                                recorded with prototype_again: true: the card reads prototyping with Next "Prototype
-//                                again", and the session draws the next round (domain.mjs picksNoTake).
+//                                again", and the board launches the next round's planner itself (domain.mjs picksNoTake).
 //                                owner-answers {answers: [owner-answer data]} is Waiting on you's Send: one owner-answer
 //                                line per answer, appended in one write with each answer's side effects → {ids, board};
 //                                an answer naming no question in owner.json, or none at all, → 400 {error} and nothing
@@ -464,8 +464,10 @@ async function appendEvents(list) {
 }
 
 // Owner answers [{id, ...}] → their event ids, appended in one write. An answer to a card's prototype question that
-// picks no take carries prototype_again: true, which asks the session for the next round
-// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md). A note with no take resolves its
+// picks no take carries prototype_again: true and the board launches that card's next prototype round itself, with the
+// answer's note as its guidance, one launch per card whatever its note reads as
+// (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md,
+// docs/adr/2026-11-12-0100-a-no-pick-prototype-answer-starts-the-next-round-itself.md). A note with no take resolves its
 // question, and the Send is acted on in code: gates settled, answers in the notes, cards left with nothing open staged.
 // An answer to a question that already has one recorded, and wasn't reopened since, is skipped
 // (docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md).
@@ -473,13 +475,15 @@ async function recordAnswers(sent) {
   const answers = await unrecorded(here, sent);
   const asked = new Map(((await readJSON(path.join(data, 'owner.json'), { items: [] })).items || []).map((q) => [q.id, q]));
   if (!answers.length) return [];
-  const again = (a) => asked.has(String(a.id)) && picksNoTake(asked.get(String(a.id)), a.choice);
-  const ids = await appendEvents(answers.map((a) => ['owner-answer', again(a) ? { ...a, prototype_again: true } : a]));
+  const isAgain = (a) => asked.has(String(a.id)) && picksNoTake(asked.get(String(a.id)), a.choice);
+  const ids = await appendEvents(answers.map((a) => ['owner-answer', isAgain(a) ? { ...a, prototype_again: true } : a]));
   await resolveNoteAnswers(here, answers);
   // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md, docs/adr/2026-11-07-0700-staging-then-ready.md
   const { prototype } = await settleAnswers(here, answers);
   dataVersion++;
-  for (const key of prototype) await launchPlanner(key, 'prototype');
+  const again = new Map();
+  for (const a of answers.filter(isAgain)) again.set(asked.get(String(a.id)).topic.slice(5), { question: String(a.id), note: a.note ? String(a.note) : undefined });
+  for (const key of new Set([...prototype, ...again.keys()])) await launchPlanner(key, 'prototype', again.get(key));
   return ids;
 }
 // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md
