@@ -619,6 +619,7 @@ async function markAnswered(site, card, title) {
   if (!answerable(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so it is work: write in its thread with thread ${key} --text`);
   if (title !== undefined) item.title = cardTitle(title);
   item.phase = 'discussing';
+  dropOwed(item);
   delete item.unfiled;
   delete item.filed_held;
   await writeJSON(card.source.file, card.itemFile);
@@ -2104,6 +2105,12 @@ function owe(item, kind, ask = {}, at = new Date().toISOString()) {
   const asked = Object.keys(ask).length ? { ask } : {};
   item.briefs = owed ? briefs.map((b) => (b === owed ? { ...b, ...asked } : b)) : [...briefs, { kind, at, ...asked }];
 }
+// A card sent back to its conversation owes nothing: its unwritten briefs go, the written ones stay for their launch.
+function dropOwed(item) {
+  if (!item.briefs) return;
+  item.briefs = item.briefs.filter((b) => b.brief);
+  if (!item.briefs.length) delete item.briefs;
+}
 // The owner's Grill or Prototype tap (kind grill or prototype) on a Todo card: the card owes the orchestrator's brief for
 // it, and a discussing, ready or staging card moves to grilling or prototyping. A Visual tap (kind visual) owes a
 // visual's brief on any open card and moves no phase.
@@ -2142,6 +2149,7 @@ export async function writeBrief(site, key, { kind, file }) {
   await appendNotes(site, key, heading, body);
   const { source, itemFile, item: briefed } = await loadItem(site, key);
   const at = new Date().toISOString();
+  const tapped = (briefed.briefs || []).some((b) => b.kind === kind && !b.brief && b.ask);
   if (!(briefed.briefs || []).some((b) => b.kind === kind && !b.brief)) owe(briefed, kind, {}, at);
   briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at } } : b));
   if (kind !== VISUAL && briefed.phase !== PLANNER_PHASE[kind]) {
@@ -2149,6 +2157,10 @@ export async function writeBrief(site, key, { kind, file }) {
     delete briefed.staged_at;
   }
   await writeJSON(source.file, itemFile);
+  // The owner's tap wrote its own "<Kind> requested" line; a brief nobody tapped for gets it here. The event wakes the
+  // board's auto pass, which launches the agent.
+  if (!tapped) await appendCommand(site, key, { command: kind });
+  await appendEvent({ dir: site }, 'brief-written', { key, kind });
   return { heading, lines: [`${name}: "${heading}" added to its notes; the board launches its ${kind === VISUAL ? 'visual agent' : `${kind} planner`} from it`] };
 }
 // The card's oldest written brief of kind taken off the card, once the agent's record holds it (startPlanner, startVisual).
@@ -2861,6 +2873,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
     // planner from. A new card filed grilling waits for its arrival (domain.mjs arrivalsOf), under the planner cap.
     if (PLANNED.includes(phase) && ['discussing', 'staging', 'ready'].includes(item.phase)) owe(item, phase === 'grilling' ? 'grill' : 'prototype');
     item.phase = phase;
+    if (phase === 'discussing') dropOwed(item);
     delete item.recheck_at;
     delete item.staged_at;
     delete item.unfiled;

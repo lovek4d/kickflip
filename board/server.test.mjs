@@ -223,7 +223,7 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     fs.writeFileSync(draft, 'Neither take landed; try a darker moon.');
     writeBrief(site, 't/P1', { kind: 'prototype', file: draft });
     const record = path.join(site, 'data', 'agents', 'P1.json');
-    await until(() => fs.existsSync(record) && JSON.parse(fs.readFileSync(record, 'utf8')).kind === 'prototype', 'the board launches the prototype planner from its brief');
+    await until(() => fs.existsSync(record) && JSON.parse(fs.readFileSync(record, 'utf8')).brief, 'the board launches the prototype planner from its brief');
     assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')).brief.ask, { question: 'moon', note: 'Neither: try a darker moon' });
     await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'question-reopen', question: 'moon' }) });
     await ok200(answer('moon', 'B', ''));

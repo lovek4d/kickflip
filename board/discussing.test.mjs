@@ -208,3 +208,38 @@ test("the owner's Grill or Prototype tap on a discussing card moves it to that p
   assert.equal(t1().phase, 'staging');
   assert.match(fs.readFileSync(path.join(audit('data'), t1().plan), 'utf8'), /Go with the sidebar\./);
 });
+
+// docs/adr/2026-11-12-0800-a-written-brief-wakes-the-board-and-going-discussing-drops-owed-briefs.md
+test('item brief appends a brief-written event and posts "<Kind> requested" for a brief nobody tapped for; one answering a tap posts no line', async () => {
+  auditEvents(ask);
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  const draft = path.join(home, 'brief.md');
+  fs.writeFileSync(draft, 'Settled: a phone layout.');
+  const thread = () => lines(audit('data', 'threads', 'audit__T-1.jsonl')).filter((l) => l.command);
+  const events = () => lines(audit('data', 'events.jsonl')).filter((e) => e.kind === 'brief-written');
+  assert.equal(board('item', 'brief', 'audit/T-1', '--kind', 'prototype', '--file', draft, '--site', 'audit').code, 0);
+  assert.deepEqual(events().map((e) => e.data), [{ key: 'audit/T-1', kind: 'prototype' }]);
+  assert.deepEqual(thread().filter((l) => l.command === 'prototype').map((l) => [l.who, l.text]), [['claude', 'Prototype requested']]);
+  await s.planAgain(audit(), 'audit/T-1', 'grill', { text: 'Ask about mobile' });
+  assert.equal(board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--file', draft, '--site', 'audit').code, 0);
+  assert.equal(events().length, 2);
+  assert.equal(thread().filter((l) => l.command === 'grill').length, 0, "the owner's tap wrote that line");
+});
+
+test('a card set to discussing, by item set or a reply, drops its unwritten briefs and keeps the written ones', async () => {
+  auditEvents(ask);
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  await s.oweBrief(audit(), 'audit/T-1', 'grill');
+  assert.equal(t1().briefs.length, 1);
+  assert.equal(board('reply', 'audit/T-1', '--text', 'Talk first.', '--site', 'audit').code, 0);
+  assert.deepEqual([t1().phase, t1().briefs], ['discussing', undefined]);
+  await s.oweBrief(audit(), 'audit/T-1', 'grill');
+  const draft = path.join(home, 'brief.md');
+  fs.writeFileSync(draft, 'Settled.');
+  assert.equal(board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--file', draft, '--site', 'audit').code, 0);
+  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit').code, 0);
+  assert.deepEqual(t1().briefs.map((b) => b.kind), ['visual'], 'the unwritten grill goes, the written visual stays');
+});

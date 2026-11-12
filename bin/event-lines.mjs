@@ -17,7 +17,7 @@ export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${sess
 // itself (Hold, Resume, Done, Unbump, a bare or worded Grill, Prototype or Visual) and an unblock wake nobody. A lifted
 // pause (usage-resumed) wakes nobody either: the watcher reads the gate itself, and the work it held wakes the session.
 export const RECORD_ONLY = ['main-pulled', 'settings', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
-  'card-hold', 'card-done', 'card-unbump', 'card-unblocked', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed'];
+  'card-hold', 'card-done', 'card-unbump', 'card-unblocked', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed'];
 const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
 export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 

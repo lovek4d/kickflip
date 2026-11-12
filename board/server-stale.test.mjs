@@ -611,7 +611,7 @@ test('with auto-pull on, each card arriving in Todo owes a grill brief up to the
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
   assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
   assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
-  assert.deepEqual(thread('B3'), [], 'the arrival posts no thread line of its own');
+  assert.deepEqual(thread('B3'), ['Grill requested'], "the board posts no line of its own: the orchestrator's brief does");
   const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
   assert.deepEqual([record.kind, record.dispatched], ['grill', 'hub']);
   await stop();
@@ -631,7 +631,7 @@ test('with auto-pull on, each card arriving in Todo owes a grill brief up to the
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
   assert.deepEqual(launched('prototype'), ['t/B2']);
   assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);
-  assert.deepEqual(thread('B2'), [], 'the arrival posts no thread line of its own');
+  assert.deepEqual(thread('B2'), ['Prototype requested'], "the board posts no line of its own: the orchestrator's brief does");
   // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
   const arrivals = fs.readFileSync(path.join(dataDir, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.call === 'arrival-planner');
   assert.deepEqual(arrivals.map((e) => [e.key, e.result, e.reason, e.inputs.phase]).sort(), [
