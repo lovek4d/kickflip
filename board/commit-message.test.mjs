@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cardTitleFault, releaseMessage, squashBody, squashMessage, startTitleFault, subjectFault, TYPES } from './commit-message.mjs';
+import { cardTitleFault, releaseMessage, squashBody, squashMessage, standardWords, startTitleFault, subjectFault, TYPES } from './commit-message.mjs';
+
+test('the brief tells a builder to put Refs on the line directly above Co-Authored-By, no blank line between', () => {
+  assert.match(standardWords('#7'), /"Refs: #7" on the line directly above Co-Authored-By, no blank line between$/);
+});
 
 test('a subject is Conventional: one of the Angular types, an optional lowercase scope, an optional "!", a summary, 72 characters at most', () => {
   for (const type of TYPES) assert.equal(subjectFault(`${type}: something`), null, type);
