@@ -20,13 +20,13 @@ BoardView.part((B) => {
   // card the orchestrator stalled (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
   const replyTone = (item) => (item?.resolvedBy === BUTTON.reply ? 'resolves' : undefined);
   const sendsOf = (item) => [item?.lane === 'todo' ? (item.ready ? 'todo-ready' : 'todo')
-    : item?.lane === 'review' ? ['review', doneTone(item)].filter(Boolean).join(' ') : 'one', replyTone(item) && 'reply-resolves'].filter(Boolean).join(' ');
+    : item?.lane === 'review' ? ['review', doneTone(item)].filter(Boolean).join(' ') : 'one', item?.resolvedBy === BUTTON.implement && 'implement-resolves', replyTone(item) && 'reply-resolves'].filter(Boolean).join(' ');
   const pair = (kind, html) => `<span class="send-actions" data-sends="${kind}">${html}</span>`;
   const sends = (kind, item) => {
     const reply = (label, attrs = '') => sendButton(label, 0, attrs, replyTone(item));
     return kind.startsWith('one') ? `<span data-sends="${kind}">${reply('Send')}</span>`
       : kind.startsWith('review') ? pair(kind, `${doneButton(item)}${reply('Reply', ' data-intent="reply"')}`)
-      : pair(kind, `${sendButton('Implement', 1, ` class="build${kind === 'todo-ready' ? ' ready' : ''}" data-intent="build"`)}${reply('Reply', ' data-intent="reply"')}`);
+      : pair(kind, `${sendButton('Implement', 1, ` class="build${kind.startsWith('todo-ready') ? ' ready' : ''}${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"`)}${reply('Reply', ' data-intent="reply"')}`);
   };
   // The board, not the thread, decides the send buttons, so they follow each board load even when the thread is unchanged.
   function syncSends(el, key) {

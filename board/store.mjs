@@ -619,12 +619,13 @@ async function refuseFiled(site, eventId, key) {
   const card = await askCardOf(site, eventId);
   if (card && card.key !== key) fail(`ask "${eventId}" is already card ${card.key}: sort it with item set ${card.key} --phase, or merge it with item relate-ask ${eventId} <card>`);
 }
-export async function answerCard(site, key, md, title) {
+export async function answerCard(site, key, md, title, { implement = false } = {}) {
   needSite(site);
   const { source, itemFile, item } = await loadItem(site, key);
   const card = { source, itemFile, item, key };
   messageText(md);
   if (title !== undefined) text(title, '--title');
+  if (implement) item.implement_ready = { at: new Date().toISOString() };
   await markAnswered(site, card, title);
   return appendMessage(site, key, { text: md });
 }
@@ -2050,6 +2051,7 @@ const messageWords = ({ text: said, files }) => [String(said || '').trim(), ...(
 // An Implement message on a Todo card, in the board server before its event: a held card is resumed, as the Build tap
 // does; its open questions resolve as skipped; its words go into the notes; and it is staged in Todo.
 export async function stageImplement(site, key, message) {
+  await clearImplementReady(site, key);
   const { item } = await loadItem(site, key);
   if (item.held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
   const { owner, asked } = await cardQuestions(site, key);
@@ -2058,6 +2060,14 @@ export async function stageImplement(site, key, message) {
   const words = messageWords(message);
   if (words) await appendNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
   await stage(site, key);
+}
+// docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md
+// An owner's Implement tap or message on a card ends the orchestrator's "tap Implement" mark (answerCard's implement).
+export async function clearImplementReady(site, key) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  if (!item.implement_ready) return;
+  delete item.implement_ready;
+  await writeJSON(source.file, itemFile);
 }
 // A Reply on a ready Todo card: its words go into the notes, and it is staged again.
 export async function stageReply(site, key, message) {

@@ -43,6 +43,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--title <t>]                                   answer goes in its thread and the card reads
                                                          discussing in Todo, --title as its title. Refuses a
                                                          card sorted another way or that isn't one an ask became
+         [--implement]                                   for a reply that ends at "tap Implement": marks the card
+                                                         ready to implement, so its Implement goes orange and it
+                                                         reads Action needed until the owner taps Implement or
+                                                         writes in its thread
   thread <file>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
          [--who claude|love|<name>] [--via github|slack] of <file>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
@@ -729,7 +733,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          KICKFLIP_PUSH_CMD='["<cmd>","<arg>"]' replaces \`node ../../bin/kickflip.mjs push\`; the flags follow it`;
 
 class UsageError extends Error {}
-const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes']);
+const BOOLEAN = new Set(['new-ticket', 'done', 'clear-status', 'clear-next', 'urgent', 'now', 'clear-eta', 'held', 'unheld', 'idle', 'wait', 'hub', 'clear-install', 'force', 'worktree', 'dispatch', 'writes', 'implement']);
 // → {flags: {<name>: [value, …] | true}, rest}; main keeps a list only for a flag its command repeats.
 function parse(argv) {
   const flags = Object.create(null);
@@ -837,10 +841,11 @@ const COMMANDS = {
     if (f.body === undefined) throw new UsageError('pr reply needs --body "<what Claude says>"');
     return store.postPR(site, pr, { replyTo, body: f.body });
   }],
-  reply: [['eventId'], ['text', 'file', 'title'], (site, [id], f) => {
+  reply: [['eventId'], ['text', 'file', 'title', 'implement'], (site, [id], f) => {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('reply takes --text or --file');
+    if (f.implement && !id.includes('/')) throw new UsageError('reply --implement marks a card: name it <file>/<id>');
     const md = f.text ?? readInput(f.file);
-    return id.includes('/') ? store.answerCard(site, id, md, f.title) : store.writeReply(site, id, md, f.title);
+    return id.includes('/') ? store.answerCard(site, id, md, f.title, { implement: f.implement }) : store.writeReply(site, id, md, f.title);
   }],
   thread: [['file/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendMessage(site, key, f)],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
