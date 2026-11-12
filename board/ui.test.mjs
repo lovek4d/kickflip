@@ -2182,7 +2182,7 @@ test("a bare #n opens the card it is the ticket of from any thread, else links o
   const hub = [...boardItems, { key: 'hub/INT-269', file: 'hub', kind: 'work', id: 'INT-269', ref: '#27', internal: true, linear: [], repo: null }];
   const ticketed = [{ ts: ago(1), who: 'claude', text: '#27 was INT-269; #2988 is a PR' }];
   for (const key of ['ask:e9', 'elig/A1']) {
-    assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, key))).slice(0, 2), [['#selectedCard=hub%2FINT-269', '#27', false], ['#selectedCard=hub%2FINT-269', 'INT-269', false]]);
+    assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, key))).slice(0, 2), [['#selectedCard=hub%2FINT-269', '#27', false], ['#selectedCard=hub%2FINT-269', '#27', false]]);
   }
   assert.deepEqual(anchors(ui.threadMessages(ticketed, ui.linkContext(hub, 'elig/A1'))).at(-1), ['https://github.com/o/r/pull/2988', '#2988', true]);
 });
@@ -2860,6 +2860,14 @@ test("a link to a card on the board ends with that card's lane ring; an id with 
   assert.match(html, /<a href="#selectedCard=w%2FA1">#186<span class="status link-lane review"><\/span><\/a>/);
   assert.match(html, /<a href="#selectedCard=w%2FA2">INT-5<span class="status link-lane progress"><\/span><\/a>/);
   assert.doesNotMatch(html, /(#999|ENG-1)<span class="status link-lane/);
+});
+
+test('a link to a card shows its current ref, with the id as written as the hover title', () => {
+  const items = [{ key: 'w/A1', file: 'w', id: 'T-57', ref: 'PAD-123', lane: 'review' }];
+  const html = ui.linkText('see T-57 and PAD-123', ui.linkContext(items, 'w/A1'));
+  assert.match(html, /<a href="#selectedCard=w%2FA1" title="was T-57">PAD-123<span/);
+  assert.match(html, /<a href="#selectedCard=w%2FA1">PAD-123<span/);
+  assert.doesNotMatch(html, />T-57</);
 });
 
 // docs/adr/2026-11-12-1000-the-logo-dot-carries-the-hub-state.md

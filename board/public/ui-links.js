@@ -31,7 +31,11 @@
       if (pick) refs[ref] = pick.key;
     }
     const lanes = Object.create(null);
-    for (const i of items) lanes[i.key] = i.lane;
+    const current = Object.create(null);
+    for (const i of items) {
+      lanes[i.key] = i.lane;
+      current[i.key] = i.ref || i.id;
+    }
     const teams = Object.create(null);
     const repos = Object.create(null);
     for (const i of items) {
@@ -43,7 +47,7 @@
         if (team && prefix && !teams[team]) teams[team] = prefix;
       }
     }
-    return { refs, lanes, teams, repos, repo: items.find((i) => i.key === key)?.repo || null, base };
+    return { refs, lanes, current, teams, repos, repo: items.find((i) => i.key === key)?.repo || null, base };
   }
 
   const TOKEN = new RegExp([
@@ -73,7 +77,9 @@
   const laneRing = (lane) => (lane ? `<span class="status link-lane ${esc(lane)}"></span>` : '');
   const cardLink = (ref, ctx) => {
     const key = record(ctx.refs, ref);
-    return `<a href="${esc(`${ctx.base || ''}#selectedCard=${encodeURIComponent(key)}`)}">${esc(ref)}${laneRing(record(ctx.lanes || {}, key))}</a>`;
+    const shown = record(ctx.current || {}, key) || ref;
+    const was = shown === ref ? '' : ` title="${esc(`was ${ref}`)}"`;
+    return `<a href="${esc(`${ctx.base || ''}#selectedCard=${encodeURIComponent(key)}`)}"${was}>${esc(shown)}${laneRing(record(ctx.lanes || {}, key))}</a>`;
   };
 
   // The longest hyphen-prefix of a word that is a known ref or a Linear id, then the rest as text.
