@@ -434,9 +434,9 @@ test("the hub page lists Boards and Pages apart with each site's health and link
   assert.deepEqual(held(t(12, 0, 17), notify(DEFAULTS, { weekends_off: true })), { text: 'Notifications held for the weekend until 8:00am Mon Oct 19', end: false });
   assert.deepEqual(held(t(23), DEFAULTS), { text: 'Notifications held overnight until 8:00am tomorrow', end: false });
   assert.equal(held(t(10), notify(DEFAULTS, { on: false, snoozed_until: t(15).toISOString() })), null);
-  assert.deepEqual([v.rules, v.sites, v.host, v.total, v.empty], ['2 rules', '5 sites', 'mac.ts.net', 3, false]);
+  assert.deepEqual([v.rules, v.host, v.total, v.empty], ['2 rules','mac.ts.net', 3, false]);
   const none = hubView({ now, st: status(now, DEFAULTS), sidebar: { ...sidebar, sites: [] }, rows: [] });
-  assert.deepEqual([none.groups, none.empty, none.rules, none.sites], [[], true, 'None yet', '0 sites']);
+  assert.deepEqual([none.groups, none.empty, none.rules], [[], true, 'None yet']);
   assert.deepEqual(plain(siteHealth({ state: 'stopped' })), { tone: 'wait', word: 'stopped', lines: [] });
   assert.deepEqual(plain(siteHealth({ state: 'up' }, [ok('github'), { ...ok('events'), listen: 'asleep' }])), { tone: 'ok', word: 'up · asleep · every link passes', lines: [] });
   const fetchFails = { link: 'repo-fetch', ok: false, state: 'broken', detail: "git can't reach origin" };

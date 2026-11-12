@@ -92,7 +92,7 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting)}${d.remembe
   }
 
   // The version is a button: a tap checks npm now (POST /_hub/check-update) and the answer shows beside it (updateNote).
-  const footer = (d, note = '') => `<footer>${esc(d.sites)}. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">${esc(d.host)}</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / <button type="button" class="version" data-check-update>v${esc(d.version)}</button>${note ? ` <span class="update-note" role="status">${esc(note)}</span>` : ''}</span></footer>`;
+  const footer = (d, note = '') => `<footer><span class="host">${esc(d.host)}</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / <button type="button" class="version" data-check-update>v${esc(d.version)}</button>${note ? ` <span class="update-note" role="status">${esc(note)}</span>` : ''}</span></footer>`;
   // What the hub's answer to a version tap says (hub/upgrade.mjs check()).
   const updateNote = (out) => ({
     clone: `${out.commit} · pulls with main`,

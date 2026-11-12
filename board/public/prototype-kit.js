@@ -115,7 +115,7 @@
 <div class="group">${d.sites.map(site).join('')}</div>
 <p class="note">The hub runs every site and restarts one that stops. A board's links are what the hub owes it: GitHub polling, events (its session and a watcher run, or the hub can wake it), daily wakes, pushes and reviewer links. One that just broke reads settling first.</p></div>
 <section class="hub-settings"><h2 class="label">Hub settings</h2>${settings}</section>
-<div class="hub-foot"><footer>${d.sites.length} sites. Each belongs to one Claude session, which adds it with <code>/kickflip &lt;route&gt;</code>. This page refreshes every 30 seconds.<br><span class="host">mac.example.ts.net</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / v0.4.2</span></footer></div></main></div>`;
+<div class="hub-foot"><footer><span class="host">mac.example.ts.net</span><br><span class="brand"><a href="https://kickflip.sh">kickflip.sh</a> / v0.4.2</span></footer></div></main></div>`;
   }
 
   const LANES = [['review', 'In Review'], ['progress', 'In Progress'], ['todo', 'Todo'], ['done', 'Done']];
