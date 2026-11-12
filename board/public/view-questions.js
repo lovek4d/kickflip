@@ -390,7 +390,8 @@
         const first = topics.find((t) => t.id === topicId)?.questions[0];
         if (first) setHash(first);
         ctx.onTopic?.(topicId);
-        render(); scroll(0);
+        const y = scrollY;
+        render(); scroll(y);
         if (ctx.embedded) openOnBoard(topicId);
       }
     });
