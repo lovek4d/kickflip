@@ -779,23 +779,30 @@ test("agent wait marks its spawner waiting while the helper is open, and refuses
   assert.equal('waits' in record(), false);
 });
 
-test("builder done takes --text on a planner run and writes it as the run's closing thread line", () => {
+// docs/adr/2026-11-12-1300-builder-done-posts-no-line-to-the-thread.md
+test("builder done on a planner run takes no --text and posts no thread line; a helper's hand-back stays on its record only", () => {
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'grill').code, 0);
-  const done = board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Asked which badge stays');
+  const thread = () => lines(site('orch', 'data', 'threads', 'w__A1.jsonl'));
+  assert.equal(board('builder', 'progress', 'w/A1', '--site', 'orch', '--phase', 'reading', 'Reading the card').code, 0);
+  assert.match(board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Asked which badge stays').err, /takes no --text/);
+  const before = thread().length;
+  const done = board('builder', 'done', 'w/A1', '--site', 'orch');
   assert.equal(done.code, 0, done.err);
   assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ text, planner }) => [text, planner]).at(-1), ['Grilling: Asked which badge stays', true]);
+  assert.equal(thread().filter((l) => l.kind === 'status').length, thread().slice(0, before).filter((l) => l.kind === 'status').length);
+  assert.equal(thread().some((l) => /Asked which badge stays/.test(l.text || '')), false);
   assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--label', 'Builder').code, 0);
   assert.match(board('builder', 'done', 'w/A1', '--site', 'orch', '--next', 'Review', '--text', 'x').err, /--text goes on/);
 });
 
 // docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md
 test("a grill or prototype planner's builder done leaves a fault line when the card is still in its phase with no question open, staged or screening, and prints it", () => {
+  const thread = () => (fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')) ? lines(site('orch', 'data', 'threads', 'w__A1.jsonl')) : []);
   for (const [kind, phase] of [['grill', 'grilling'], ['prototype', 'prototyping']]) {
     write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase }] });
     fs.rmSync(site('orch', 'data', 'threads', 'w__A1.jsonl'), { force: true });
     assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', kind).code, 0);
-    const done = board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Ended');
+    const done = board('builder', 'done', 'w/A1', '--site', 'orch');
     assert.equal(done.code, 0, done.err);
     assert.match(done.out, new RegExp(`Its ${kind} planner ended without posting a question, so it waits on the orchestrator\\.`));
     const fault = lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).find((l) => l.line === 'planner-unasked');
@@ -804,14 +811,14 @@ test("a grill or prototype planner's builder done leaves a fault line when the c
     fs.rmSync(site('orch', 'data', 'threads', 'w__A1.jsonl'), { force: true });
     write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase: 'ready' }] });
     assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', kind).code, 0);
-    assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Ended').code, 0);
-    assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).some((l) => l.line === 'planner-unasked'), false);
+    assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch').code, 0);
+    assert.equal(thread().some((l) => l.line === 'planner-unasked'), false);
     write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'todo', phase }] });
     if (kind !== 'grill') continue; // a prototype planner's questions publish at once, so only a grill's stay staged
     write(site('orch', 'data', 'staged-questions.json'), { 'w/A1': [{ id: 'q1' }] });
     assert.equal(board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', kind).code, 0);
-    assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Asked').code, 0);
-    assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).some((l) => l.line === 'planner-unasked'), false);
+    assert.equal(board('builder', 'done', 'w/A1', '--site', 'orch').code, 0);
+    assert.equal(thread().some((l) => l.line === 'planner-unasked'), false);
     fs.rmSync(site('orch', 'data', 'staged-questions.json'), { force: true });
   }
 });

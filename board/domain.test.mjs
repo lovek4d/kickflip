@@ -2874,3 +2874,13 @@ test("an In Progress card the owner held reads held, so its paused build stays p
   const usage = of({}, { cause: 'usage', words: 'usage limit', at: '2026-11-09T11:50:00Z', paused: '2026-11-09T11:55:00Z' });
   assert.equal(usage.items[0].held, false);
 });
+
+// docs/adr/2026-11-12-1300-builder-done-posts-no-line-to-the-thread.md
+test("a card's builder line is its still-running runs' newest line: a finished helper's last line no longer stands while main runs", () => {
+  const status = (ts, text, run) => ({ ts, who: 'claude', kind: 'status', run, text });
+  const main = { kind: 'claude', started: '2026-10-23T10:00:00Z' };
+  const helper = { kind: 'helper', started: '2026-10-23T10:10:00Z', done: '2026-10-23T10:20:00Z' };
+  const lines = [status('2026-10-23T10:05:00Z', 'Building: the page', main.started), status('2026-10-23T10:15:00Z', 'Lint testing: running', helper.started)];
+  const card = board({ now: Date.parse('2026-10-23T10:30:00Z'), agents: { A1: { main, lint: helper } }, threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1');
+  assert.equal(card.builder.progress, 'Building: the page');
+});

@@ -101,7 +101,7 @@ test("a headless planner's brief names its card and its notes so far, spells its
   // docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: what a planner leaves open is a question, not a notes line.
   for (const brief of [grill, proto]) assert.ok(brief.includes('Anything you leave open becomes a question with question add, never only a line in the notes'));
   for (const brief of [grill, proto]) assert.ok(brief.includes("A question's text is one line of at most 100 characters") && brief.includes('which take markdown'));
-  assert.ok(grill.includes(`${b} builder done w/A1 --text "<what you asked>"`));
+  assert.ok(grill.includes(`${b} builder done w/A1`) && !grill.includes(`builder done w/A1 --text`));
   // docs/adr/2026-11-09-1300-a-prototype-round-is-take-files-unless-a-board-rule-asks-for-in-situ.md: take files by default.
   for (const want of ['Invoke the prototype skill with the Skill tool and build the round as take files', `${b} prototype add <topic> --card w/A1 --take <K>:<label>`, "repo's existing components", "Build in situ only where one of the board's rules asks for it"]) {
     assert.ok(proto.includes(want), `the prototype's brief has ${want}`);

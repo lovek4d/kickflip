@@ -178,7 +178,7 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
     '',
     ...linkLines(links),
     ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, restart the hub or a board server, or do the orchestrator's work, it isn't yours; you never push or restart:"),
-    `To finish, run \`${b} builder done ${key} --text "<what you asked>"\`.`,
+    `To finish, run \`${b} builder done ${key}\`.`,
     '',
     'Never push.',
   ].join('\n');

@@ -562,7 +562,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          refused while another agent's record is open names it.
                                                          A helper's done takes --text, its hand-back, which agent
                                                          wait prints. A grill's or prototype's done takes
-                                                         --text, what it asked, as the run's closing thread line.
+                                                         no --text. No done posts a line to the thread.
                                                          --next stops a build without finishing it. Closing the
                                                          last record of a card left In Progress with no Next is
                                                          refused without --next, which sets it
@@ -845,8 +845,11 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ti
     if (text === undefined) throw new UsageError(`a helper hands back its result: pass --text "<what you did or found>"`);
     return store.stopBuilder(site, key, { ...f, note: text });
   }
-  if (onBoard && text !== undefined && await store.isPlanner(site, key, f.agent)) return store.stopPlanner(site, key, { ...f, note: text, requireNext: true });
-  if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card, the main build with a worktree and no --next, or on a helper\'s or a planner\'s');
+  if (onBoard && await store.isPlanner(site, key, f.agent)) {
+    if (text !== undefined) throw new UsageError('a grill\'s or prototype\'s done takes no --text: what it asked is its posted questions and its notes section');
+    return store.stopPlanner(site, key, { ...f, requireNext: true });
+  }
+  if (text !== undefined) throw new UsageError('--text goes on a builder done that finishes the card, the main build with a worktree and no --next, or on a helper\'s');
   return store.stopBuilder(site, key, { ...f, requireNext: true });
 }
 

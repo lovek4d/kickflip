@@ -4070,8 +4070,7 @@ const forAgent = (line, planner, name) => {
 
 // A status line lives only in the item's thread, as {kind: 'status'} (domain.mjs builderOf reads it). A progress line
 // keeps its phase and reads "Testing: <detail>", or "Codex testing: <detail>" for an agent other than main, named by
-// its kind, or by its name for a helper ("Tests testing: <detail>"); a line with no phase (builder done's note) reads
-// "<detail>" or "Codex: <detail>". A line that repeats the thread's last status line is skipped.
+// its kind, or by its name for a helper ("Tests testing: <detail>"). A line that repeats the thread's last status line is skipped.
 // A planner's line is marked planner and led by its kind's word, whichever agent it runs as ("Prototyping: …")
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
@@ -5086,7 +5085,6 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
   }
   await writeJSON(file, stopped);
   await publishStaged(site, key, { screen: record.kind === 'grill' });
-  if (note) await statusToThread(site, key, agent, record, { detail: note }, done);
   if (next !== undefined) await writeJSON(source.file, itemFile);
   return file;
 }

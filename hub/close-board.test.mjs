@@ -67,7 +67,7 @@ test('close and reopen retain the folder and complete manifest entry, stop the s
     assert.equal(read(path.join(data, 'agents', 'S2.json')).done, '2026-10-30T00:00:00Z');
     assert.equal(read(path.join(data, waves ? 'wave.json' : 'cards.json')).items[0].pr, 42);
     assert.equal(fs.readFileSync(path.join(dir, 'data', 'notes.md'), 'utf8'), 'Kept notes');
-    assert.match(fs.readFileSync(path.join(dir, 'data', 'threads', 'shop__S1.jsonl'), 'utf8'), /Kept thread[\s\S]*Board closed/);
+    assert.doesNotMatch(fs.readFileSync(path.join(dir, 'data', 'threads', 'shop__S1.jsonl'), 'utf8'), /Board closed/);
     let wakes = 0;
     await checkSessions({ live, resume: async () => { wakes++; } });
     assert.equal(wakes, 0);

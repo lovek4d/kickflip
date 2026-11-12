@@ -630,7 +630,10 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
   const running = planner ? open : open.filter(builds);
   const since = running.map((a) => String(a.started || '')).sort()[0];
   if (since === undefined) return null;
-  const line = lines.filter((m) => m.kind === 'status' && String(m.ts) >= since && (planner || !m.planner)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
+  // Only a still-running run's lines (a line from before lines kept their run counts by its time): a finished run
+  // posts no closing line, and its last progress line no longer stands.
+  const runs = new Set(running.map((a) => a.started));
+  const line = lines.filter((m) => m.kind === 'status' && (m.run === undefined ? String(m.ts) >= since : runs.has(m.run)) && (planner || !m.planner)).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop();
   // A helper runs on Claude, and the card's own run names its kind while one runs.
   const own = running.filter((a) => a.kind !== HELPER).at(-1);
   const kind = running.some((a) => a.kind === BUILDER_KIND.install) ? BUILDER_KIND.install : own ? providerOf(own.kind) : 'claude';
