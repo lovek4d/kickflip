@@ -181,7 +181,7 @@
     if (ev.target.tagName !== 'DETAILS') return;
     if (ev.target.open) openDetails.add(detailsKey(ev.target)); else openDetails.delete(detailsKey(ev.target));
   }, true);
-  const KEYS = ['id', 'data-thread', 'data-event', 'data-edit-form', 'data-lane', 'data-fold'];
+  const KEYS = ['id', 'data-thread', 'data-event', 'data-edit-form', 'data-lane', 'data-fold', 'data-new'];
   function keyOf(n) {
     if (n.nodeType !== 1) return null;
     if (n.tagName === 'DETAILS' && n.hasAttribute('data-key')) return `DETAILS|${n.getAttribute('data-key')}`;

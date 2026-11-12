@@ -14,12 +14,12 @@ BoardView.part((B) => {
     BoardUI.setHTML(el, entries.length ? BoardUI.newStrip(entries, state.edits) : '');
   }
   // Dismiss, or following the entry's link to its card, marks the card read at the ingest, on every device, so the
-  // entry leaves.
+  // entry leaves. The strip repaints after the click, so the browser follows the link as it was drawn.
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('[data-dismiss-new]');
     if (!b) return;
     markRead([[b.dataset.dismissNew, b.dataset.at]]);
-    renderNew(state.board);
+    B.later(0, () => renderNew(state.board));
   });
 
   // ⌘↵ and ⌥↵ press a thread reply's or an edit's send buttons from its box (ui.js keyedSend); the ask's own are new-task.js's.

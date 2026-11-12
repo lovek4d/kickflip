@@ -3760,6 +3760,7 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   const b = boardOnDom({ board: { ...boardOf([waiting, working, made, readAlready, into]), merges }, seen, threads: {}, width: 1280 });
   await b.settle();
   const strip = () => b.root.querySelector('#newStrip');
+  const afterClick = async () => { b.page.runTimers(0); await b.settle(); };
   const entries = () => strip().querySelectorAll('.new-entry');
   const entry = (id) => strip().querySelector(`.new-entry[data-new="${id}"]`);
   // Above the lanes, titled New with its count; its entries are the asks, oldest sent first.
@@ -3781,13 +3782,33 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   // Dismiss asks nothing and marks the card read at the ingest, on every device.
   b.page.fire(b.root, 'click', { target: entry('a3').querySelector('button[data-dismiss-new]') });
   b.page.fire(b.root, 'click', { target: entry('a4').querySelector('button[data-dismiss-new]') });
-  await b.settle();
+  await afterClick();
   assert.deepEqual(b.confirms, []);
   assert.deepEqual(b.posts.filter(([p]) => p.endsWith('/api/read')).map(([, body]) => body), [{ marks: { 'w/T-7': '2026-10-30T09:20:00.000Z' } }, { marks: { 'w/T-2': '2026-10-30T09:30:00.000Z' } }]);
   assert.deepEqual(entries().map((el) => el.dataset.new), ['a1', 'a2']);
   // With nothing in it, the strip hides.
   await b.change({ board: { ...boardOf([made, into]), merges } });
   assert.equal(strip().hidden, true);
+  b.view.unmount();
+});
+
+test("a New strip link still names its ticket when the browser follows it: the strip repaints after the click, and the clicked entry is removed, not reused for the next", async () => {
+  const mk = (n, ask, at) => ({ ...askCard(ask, 'todo'), id: `T-${n}`, key: `w/T-${n}`, ref: `T-${n}`, title: `feat: ticket ${n}`, phase: 'discussing', turn: 'owner', created: '2026-10-30T08:00:00.000Z', ingested: { at, text: `Ask ${n}` } });
+  const b = boardOnDom({ board: boardOf([mk(7, 'a3', '2026-10-30T09:20:00.000Z'), mk(8, 'a5', '2026-10-30T09:25:00.000Z')]), seen: {}, threads: {}, width: 1280 });
+  await b.settle();
+  const links = () => b.root.querySelectorAll('#newStrip a.new-link');
+  const [first, second] = links();
+  assert.deepEqual([first.getAttribute('href'), second.getAttribute('href')], ['#selectedCard=w%2FT-7', '#selectedCard=w%2FT-8']);
+  b.page.fire(b.root, 'click', { target: first });
+  assert.equal(first.getAttribute('href'), '#selectedCard=w%2FT-7', 'the link the browser follows is unchanged by the click');
+  b.page.runTimers(0);
+  await b.settle();
+  assert.deepEqual(links().map((a) => a.getAttribute('href')), ['#selectedCard=w%2FT-8']);
+  assert.equal(links()[0], second, 'the second entry keeps its own node');
+  b.page.fire(b.root, 'click', { target: second });
+  assert.equal(second.getAttribute('href'), '#selectedCard=w%2FT-8', 'a lone entry keeps its link through its click');
+  b.page.runTimers(0);
+  await b.settle();
   b.view.unmount();
 });
 
