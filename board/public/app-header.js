@@ -19,11 +19,34 @@ BoardView.part((B) => {
   // The status line, and the moon right of the title while the owner reads away (hub/presence.mjs ownerTracker).
   const renderStatus = () => {
     $('#status').innerHTML = statusLine(state.fresh?.at, { link: state.link, watcher: state.board?.checks?.watcher, pause: B.pause?.(), waking: state.waking });
+    renderPause(B.pause?.());
     const moon = $('.away-moon');
     const away = Boolean(B.away?.());
     moon.classList.toggle('on', away);
     moon.setAttribute('aria-hidden', String(!away));
   };
+  // The hub's pause banner (HubUI.pauseBanner) at the top of the board while the gate pauses or nears its line, its forms
+  // posting to the hub. Pause board's own pause has no hub form, so the header's title alone says it.
+  const renderPause = (pause) => {
+    const el = $('#pauseBanner');
+    const html = pause?.manual === 'board' ? '' : HubUI.pauseBanner(pause);
+    el.hidden = !html;
+    BoardUI.setHTML(el, html);
+  };
+  B.on($('#pauseBanner'), 'submit', async (ev) => {
+    const form = ev.target;
+    const action = form.getAttribute('action') || '';
+    if (!action.startsWith('/_hub/')) return;
+    ev.preventDefault();
+    const body = new URLSearchParams(new FormData(form));
+    if (ev.submitter?.name) body.append(ev.submitter.name, ev.submitter.value);
+    try {
+      const r = await fetch(action, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
+      if (!r.ok) throw new Error(String(r.status));
+      const out = await r.json().catch(() => null);
+      if (out?.pause) renderPause(out.pause);
+    } catch { toast('Could not reach the hub. Is the host awake?'); }
+  });
   // A board load and its open threads landed; via is ui-header.js nextFresh's.
   function landed(via) {
     state.fresh = nextFresh(state.fresh, { via, at: new Date().toISOString(), sig: freshSig(state.board, state.threadCache, state.openItems) });

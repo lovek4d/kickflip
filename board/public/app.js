@@ -457,6 +457,7 @@ window.BoardView = (function () {
 <div class="split">
 <main>
 ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
+  <section id="pauseBanner" class="hub-view" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
   <section id="needsDeck" class="needs-deck" aria-label="Needs you" hidden></section>
   <div id="tryMain"></div>

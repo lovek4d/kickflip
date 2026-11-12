@@ -186,7 +186,7 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped' })), 'fresh down');
   assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /title="Claude not listening\. Updated /);
   assert.equal(cls(ui.statusLine(fresh, { link: 'offline' })), 'fresh down');
-  assert.equal(cls(ui.statusLine(fresh, { pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh hold');
+  assert.equal(cls(ui.statusLine(fresh, { pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh');
   assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped', pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh down');
   assert.equal(cls(ui.statusLine(fresh, { link: 'reconnecting' })), 'fresh');
   assert.match(ui.statusLine(fresh, { link: 'reconnecting' }), /title="Reconnecting…\. Updated /);
@@ -2348,7 +2348,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   const degradedPaused = ui.sidebar({ pause, sites: [], hub: { tone: 'wait', word: 'degraded', detail: 'x' } });
   assert.match(degradedPaused, /class="word t-wait">degraded/);
   assert.doesNotMatch(degradedPaused, /class="word t-paused">paused/);
-  assert.match(ui.statusLine(ago(0), { pause }), new RegExp(`^<span class="fresh hold" title="Paused until ${until}\\. Updated [^"]*">now</span>$`));
+  assert.match(ui.statusLine(ago(0), { pause }), new RegExp(`^<span class="fresh" title="Paused until ${until}\\. Updated [^"]*">now</span>$`));
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });
 
@@ -2369,7 +2369,7 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
   assert.equal([...boardPaused.matchAll(/class="word t-paused">paused/g)].length, 1, 'only the paused board');
   assert.equal([...boardPaused.matchAll(/>working</g)].length, 1);
   assert.match(text(boardPaused), /healthy/);
-  assert.equal(ui.statusLine(null, { pause: manual('board') }), `<span class="fresh hold" title="Paused until ${until}"></span>`);
+  assert.equal(ui.statusLine(null, { pause: manual('board') }), `<span class="fresh" title="Paused until ${until}"></span>`);
 });
 
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
@@ -2406,7 +2406,7 @@ test('a Forever Pause hub or Pause board reads until you resume on the banner, t
   const forever = (scope) => ({ pause_at: 90, state: 'paused', manual: scope, window: null, used: null, resets_at: 'forever' });
   assert.equal(text(context.HubUI.pauseBanner(forever('hub'))), 'Work paused: you paused the hub until you resume. Resume');
   assert.match(text(ui.sidebar({ pause: forever('hub'), sites: [], hub: { tone: 'ok', word: 'healthy', detail: 'up' } })), /paused until you resume/);
-  assert.equal(ui.statusLine(null, { pause: forever('board') }), '<span class="fresh hold" title="Paused until you resume"></span>');
+  assert.equal(ui.statusLine(null, { pause: forever('board') }), '<span class="fresh" title="Paused until you resume"></span>');
 });
 
 // docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md
@@ -2769,4 +2769,11 @@ test('a fault line with an error draws as a closed section: its title shows, the
   assert.ok(html.includes('&lt;denied&gt;') && html.includes('client version &quot;1.104.5&quot;'));
   assert.doesNotMatch(html, /<details[^>]* open/);
   assert.doesNotMatch(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'exited-twice', mark: 'Fault', fault: true, text: 'x' }]), /<details/);
+});
+
+test('the header time stays plain while usage is paused, and the hub pause banner with Keep going is the one the board shows', () => {
+  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const pause = { pause_at: 90, state: 'paused', manual: null, window: 'weekly', used: 95, resets_at, near: null };
+  assert.equal(/class="fresh"/.test(ui.statusLine(null, { pause })), true);
+  assert.match(context.HubUI.pauseBanner(pause), /action="\/_hub\/settings\/keep-going"><button class="btn quiet" name="value" value="on">Keep going/);
 });

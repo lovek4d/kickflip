@@ -4,7 +4,7 @@
   // The header's short time beside refresh: `at` is when the page last got fresh data (nextFresh). It reads that age;
   // the board's other states only move the span's colour (the arrow follows it, style.css) and its title. watcher is
   // /api/board's checks.watcher (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md): stopped
-  // (nothing will wake it) and an offline link turn it red, paused usage turns it orange. A busy host doesn't change it
+  // (nothing will wake it) and an offline link turn it red, paused usage leaves it as it is (the board's pause banner says it). A busy host doesn't change it
   // at all (docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md).
   // link is 'online', 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it, and the icon spins).
   const statusLine = (at, { link = 'online', watcher, pause, waking = false } = {}) => {
@@ -18,7 +18,7 @@
       : watcher === 'asleep' ? 'Asleep: its session idled out. Refresh, or any tap on the page, wakes it' : '';
     if (!at && !reason) return '';
     const title = [reason, at && `Updated ${since(at)}: the last change from the host, or your last refresh`].filter(Boolean).join('. ');
-    return `<span class="fresh${down ? ' down' : paused ? ' hold' : ''}" title="${esc(title)}">${at ? shortSince(at) : ''}</span>`;
+    return `<span class="fresh${down ? ' down' : ''}" title="${esc(title)}">${at ? shortSince(at) : ''}</span>`;
   };
   // What the page shows, for telling whether a change signal brought anything new; generatedAt changes on every load.
   const freshSig = (board, threads, openKeys) => JSON.stringify([{ ...board, generatedAt: null }, [...openKeys].sort().map((k) => [k, threads.get(k) ?? null])]);
