@@ -156,7 +156,7 @@ const phaseWord = (html) => [...html.matchAll(/<span class="card-phase ph-(\w+)"
 
 test("Todo, In Review and Done end a card's last line with its phase word, toned by who acts next; In Progress shows only its bar", () => {
   const words = [
-    ['todo', 'new', 'new', 'quiet'], ['todo', 'grilling', 'grilling', 'info'], ['todo', 'prototyping', 'prototyping', 'info'],
+    ['todo', 'grilling', 'grilling', 'info'], ['todo', 'prototyping', 'prototyping', 'info'],
     ['todo', 'staging', 'staging', 'notice'], ['todo', 'ready', 'ready', 'success'],
     ['review', 'draft', 'draft', 'quiet'], ['review', 'reviewers', 'pending review', 'notice'], ['review', 'merge', 'pending merge', 'notice'], ['review', 'stale', 'stale', 'quiet'],
     ['done', 'merged', 'merged', 'merged'], ['done', 'closed', 'closed', 'quiet'],
@@ -167,6 +167,7 @@ test("Todo, In Review and Done end a card's last line with its phase word, toned
     assert.doesNotMatch(html, /phase-bars/, `${lane} ${phase}`);
   }
   const progress = card({ lane: 'progress', phase: 'building', builder: { phase: 'building', progress: 'Writing it', at: '2020-01-01T10:00:00.000Z', alive: true } });
+  assert.deepEqual(phaseWord(card({ lane: 'todo', phase: 'new' })), [], 'a New card draws no phase pill');
   assert.deepEqual(phaseWord(progress), []);
   assert.match(progress, /phase-bars/);
 });

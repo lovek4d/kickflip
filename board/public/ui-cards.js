@@ -280,7 +280,7 @@
   // docs/adr/2026-11-11-1200-every-lane-has-phases.md
   // A Todo, In Review or Done card's phase as a word, toned by who acts next: grey while a machine waits, blue while
   // Claude works, orange while it waits on the owner, green once it can go and purple once merged. In Progress shows its
-  // phase only as its progress bar, and a card In Review for an owner wait other than the merge has none. Ready reads
+  // phase only as its progress bar, a New card has none (its footer line says it), and a card In Review for an owner wait other than the merge has none. Ready reads
   // only on a card that can start (domain.mjs ready), so a blocked one shows what blocks it instead.
   const PHASE_LOOK = {
     new: ['new', 'quiet'], discussing: ['discussing', 'info'], grilling: ['grilling', 'info'], prototyping: ['prototyping', 'info'], staging: ['staging', 'notice'], ready: ['ready', 'success'],
@@ -291,7 +291,7 @@
   // owner's, orange while the orchestrator owes the reply.
   const TURN_LOOK = { owner: ['discussing · your turn', 'info'], claude: ["discussing · Claude's turn", 'notice'] };
   function phaseWord(it) {
-    if (it.kind !== 'work' || it.lane === 'progress' || !it.phase || (it.phase === 'ready' && !it.ready)) return '';
+    if (it.kind !== 'work' || it.lane === 'progress' || !it.phase || it.phase === 'new' || (it.phase === 'ready' && !it.ready)) return '';
     const [word, tone] = it.phase === 'discussing' ? TURN_LOOK[it.turn] : PHASE_LOOK[it.phase];
     return `<span class="card-phase ph-${tone}">${word}</span>`;
   }
