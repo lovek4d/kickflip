@@ -4072,11 +4072,12 @@ test("a closed card ends its time line with its count of unread messages, and op
   const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
   const chips = (key) => card(key).querySelector('summary .line2')?.children.map((c) => c.textContent) ?? null;
   const last = (key) => card(key).querySelector('summary .card-time')?.textContent ?? null;
+  const alert = (key) => card(key).querySelector('summary .card-alert')?.textContent ?? null;
   const time = b.page.win.BoardUI.cardTime(at(6));
-  assert.deepEqual([chips('w/A1'), last('w/A1'), chips('w/A2'), last('w/A2')], [null, '2 new messages', null, `${time} · held · 1 new message`]);
+  assert.deepEqual([chips('w/A1'), alert('w/A1'), chips('w/A2'), last('w/A2'), alert('w/A2')], [null, '2 new messages', null, `${time} · held`, '1 new message']);
   for (const key of ['w/A1', 'w/A2']) { card(key).open = true; b.page.fire(b.root, 'toggle', { target: card(key) }); }
   await b.settle();
-  assert.deepEqual([last('w/A1'), last('w/A2')], [null, `${time} · held`]);
+  assert.deepEqual([alert('w/A1'), alert('w/A2'), last('w/A2')], [null, null, `${time} · held`]);
 });
 
 // docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md
@@ -4119,7 +4120,7 @@ test("a mark made on another device reaches the page with the board, taking away
   const board = { ...boardOf([workCard('A1', { othersAt: [at(5)] })]), answers: [{ key: 'w/A1', id: 'A1', text: 'Work A1', at: at(5) }] };
   const b = boardOnDom({ seen: { 'w/A1': at(2) }, stored: [['site:board-a:seenThreads', JSON.stringify({ 'w/A1': at(9) })], ['site:board-a:dismissedAnswers', '{}'], ['seenThreads', '{}']], board, threads: {} });
   await b.settle();
-  const last = () => b.root.querySelector('details.item[data-key="w/A1"] summary .card-time')?.textContent ?? null;
+  const last = () => b.root.querySelector('details.item[data-key="w/A1"] summary .card-alert')?.textContent ?? null;
   assert.deepEqual([last(), b.root.querySelector('#answers').hidden], ['1 new message', false], 'the board\'s mark counts, not the browser\'s');
   assert.deepEqual([...b.storage.keys()].filter((k) => /seenThreads|dismissedAnswers/.test(k)), []);
   await b.change({ board: { ...board, items: [{ ...board.items[0], readAt: at(5) }], version: 'v2' } });
@@ -4136,12 +4137,14 @@ test("opening a building card takes away its unread count and keeps the phase ba
   const row = () => card.querySelector('summary .card-time');
   const time = b.page.win.BoardUI.cardTime(at(6));
   const lastChild = () => row().children[row().children.length - 1];
-  assert.equal(row().textContent, `${time} ·  · 1 new message`);
+  const alert = () => card.querySelector('summary .card-alert');
+  assert.equal(row().textContent, `${time} · `);
+  assert.equal(alert().textContent, '1 new message');
   assert.equal(row().querySelector('.phase-bars').getAttribute('aria-label'), 'Testing, step 3 of 5');
-  assert.equal(lastChild().getAttribute('class'), 'card-unread');
   card.open = true; b.page.fire(b.root, 'toggle', { target: card });
   await b.settle();
   assert.equal(row().textContent, `${time} · `);
+  assert.equal(alert(), null);
   assert.equal(lastChild().getAttribute('class'), 'phase-bars');
 });
 

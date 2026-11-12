@@ -300,26 +300,29 @@
   // orange while its builder runs on to its stopping point, then "paused · blocked by #61" in grey.
   const pauseOf = (it) => (it.lane === 'progress' ? it.builder?.pause ?? null : null);
   const pauseWords = (pause) => pause && `<span class="card-${pause.paused ? 'paused' : 'pausing'}">${pause.paused ? 'paused' : 'pausing'} · ${esc(pause.words)}</span>`;
-  // A card's last line: the time its lane sorts by (domain.mjs sortAt), then its hold, what blocks it, then Action needed,
-  // held while host recovers on a bumped ready card a busy host holds, in grey
-  // (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), stalled in red or a build's stale
-  // in grey (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md), a stale review reading it
-  // once, as its phase, then the phase word (phaseWord), then a paused build's words (pauseWords), then an In Progress card's phase bars, then its unread messages, new questions counting as one, which app-cards.js
-  // takes away when the card opens (docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
-  // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
+  // A card's last two rows. The footer: the time its lane sorts by (domain.mjs sortAt), then its hold and what blocks it,
+  // or its phase word (phaseWord) when neither shows, then a build's stale in grey, held while host recovers on a bumped
+  // ready card a busy host holds, in grey (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md),
+  // a paused build's words (pauseWords), then an In Progress card's phase bars
+  // (docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md). The row under it, drawn only when it has
+  // something: Action needed and the unread messages in bold orange, new questions counting as one (app-cards.js takes
+  // the count away when the card opens), then stalled in red, rightmost
+  // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md,
+  // docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
+  // docs/adr/2026-11-12-0600-action-needed-and-new-messages-get-their-own-row.md).
   const SEP = '<span class="sep"> · </span>';
   const newWords = (n, word) => n && `${n} new ${word}${n === 1 ? '' : 's'}`;
   function timeLine(it, unread, bars) {
     const iso = it.sortAt;
     const pause = pauseOf(it);
-    const parts = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, pause?.cause !== 'held' && holdWords(it), pause?.cause !== 'blocked' && blockedWords(it), actionWords(it),
+    const holdBlock = [pause?.cause !== 'held' && holdWords(it), pause?.cause !== 'blocked' && blockedWords(it)].filter(Boolean);
+    const footer = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, ...(holdBlock.length ? holdBlock : [phaseWord(it)]),
       it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
-      it.stalled ? '<span class="card-stalled">stalled</span>' : it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', phaseWord(it), pauseWords(pause)].filter(Boolean);
+      !it.stalled && it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', pauseWords(pause), bars].filter(Boolean);
     const news = newWords(unread, 'message');
-    const count = news ? `<span class="card-unread">${parts.length || bars ? SEP : ''}${news}</span>` : '';
-    const tail = bars ? `${parts.length ? SEP : ''}${bars}` : '';
-    if (!parts.length && !count && !tail) return '';
-    return `<div class="line6 sub card-time">${parts.join(SEP)}${tail}${count}</div>`;
+    const alert = [actionWords(it), news && `<span class="card-unread">${news}</span>`, it.stalled && '<span class="card-stalled">stalled</span>'].filter(Boolean);
+    return [footer.length && `<div class="line6 sub card-time">${footer.join(SEP)}</div>`,
+      alert.length && `<div class="line6 sub card-alert">${alert.join(SEP)}</div>`].filter(Boolean).join('');
   }
   // The Hold sheet's picker (app-cards.js): /api/board's holdChoices, the chips hub/duration.mjs shares with Snooze and
   // Pause hub, then Custom. Its .hub-view root takes hub.css's duration picker rules, which view-hub-settings.js

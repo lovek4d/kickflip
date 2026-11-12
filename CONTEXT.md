@@ -311,7 +311,7 @@ A card the board reads as having had no updates for a while, on the signals it a
 _Avoid_: stalled (only the orchestrator's flag), old, overdue
 
 **Footer status**:
-The words after the time on a card's last line: held, blocked by, Action needed, a grey "held while host recovers", an orange "pausing · <cause>" or a grey "paused · <cause>" in place of held or blocked by ([a card pause stops its builder at its next stopping point](docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md)), a red "stalled" or a grey "stale", then the card's **phase** word (every lane but In Progress) or an In Progress card's phase bars, and its unread count (owner, gh327-pause; [every lane has phases](docs/adr/2026-11-11-1200-every-lane-has-phases.md)).
+The words after the time on a card's last line: held, then blocked by, or the card's **phase** word (every lane but In Progress) when neither is there, then a grey "stale", a grey "held while host recovers", an orange "pausing · <cause>" or a grey "paused · <cause>" in place of held or blocked by ([a card pause stops its builder at its next stopping point](docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md)), then an In Progress card's phase bars (owner, gh327-pause; [every lane has phases](docs/adr/2026-11-11-1200-every-lane-has-phases.md)). Action needed, the unread count and a red "stalled", rightmost, go on a row of their own under it, drawn only when it has one ([Action needed and new messages get their own row](docs/adr/2026-11-12-0630-action-needed-and-new-messages-get-their-own-row.md)).
 _Avoid_: time line, status line (the line under the title)
 
 **Next step**:
@@ -477,7 +477,7 @@ An owner message Claude hasn't answered yet ends with **waiting…**, or **think
 _Avoid_: comments, chat
 
 **Unread message**:
-A message in a card's thread from Claude (replies included) or GitHub, newer than the card's **read mark**. The owner's own lines, their copied-in answers included, other people's Slack lines, and builder, status and ask-link lines are never unread. The card's last line ends with their count in the accent colour, after any hold, as "3:00 PM · held until Wed 9:00 am · 3 new messages", until it is opened.
+A message in a card's thread from Claude (replies included) or GitHub, newer than the card's **read mark**. The owner's own lines, their copied-in answers included, other people's Slack lines, and builder, status and ask-link lines are never unread. Their count reads in bold orange as "3 new messages" on the row under the card's footer, after any Action needed, until the card is opened.
 _Avoid_: inbox, notification. "New" names it only in that count's "N new messages"; a New card is an unsorted ask.
 
 **Read mark**:

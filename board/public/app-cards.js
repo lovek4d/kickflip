@@ -396,6 +396,8 @@ BoardView.part((B) => {
       B.renderBanner(state.board);
       const unread = el.querySelector('summary .card-unread');
       const line = unread?.parentNode;
+      const dot = unread && [unread.nextElementSibling, unread.previousElementSibling].find((n) => n?.matches('.sep'));
+      dot?.remove();
       unread?.remove();
       if (line && !line.children.length) line.remove();
       if (it && !el.querySelector('.detail')) { el.insertAdjacentHTML('beforeend', detail(it)); }

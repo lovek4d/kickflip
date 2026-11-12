@@ -1323,10 +1323,10 @@ test('a stale builder has no badge and no nudge: its status line goes grey with 
   assert.doesNotMatch(css, /nudg|button\.sub/);
 });
 
-test('the footer status reads red stalled on a card the orchestrator stalled, in place of stale, after the time and beside its Action needed', () => {
+test('a card the orchestrator stalled reads red stalled rightmost on the row under its footer, after its Action needed, in place of stale', () => {
   const action = { kind: 'stalled', url: '#selectedCard=w%2FB5', label: 'stalled: Crashed twice' };
   const html = ui.workLines({ ...workCard, lane: 'progress', sortAt: ago(5), stale: true, stalled: 'Crashed twice', action });
-  assert.match(html, /<time [^>]*>[^<]*<\/time><span class="sep"> · <\/span><a class="card-action" href="#selectedCard=w%2FB5" title="stalled: Crashed twice"[^>]*>Action needed<\/a><span class="sep"> · <\/span><span class="card-stalled">stalled<\/span>/);
+  assert.match(html, /<div class="line6 sub card-alert"><a class="card-action" href="#selectedCard=w%2FB5" title="stalled: Crashed twice"[^>]*>Action needed<\/a><span class="sep"> · <\/span><span class="card-stalled">stalled<\/span><\/div>$/);
   assert.doesNotMatch(html, /card-stale"/);
   const review = ui.workLines({ ...workCard, lane: 'review', sortAt: ago(60 * 24 * 8), stale: true });
   assert.match(review, /<\/time><span class="sep"> · <\/span><span class="card-stale">stale<\/span>/);
@@ -1423,7 +1423,7 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
   for (const off of [{ lane: 'todo', builder: testing }, { lane: 'done', reopened: false }, { lane: 'review' }, { builder: { ...testing, planner: true } }]) {
     assert.doesNotMatch(ui.workLines({ ...card, ...off }), /phase-bars/, JSON.stringify(off));
   }
-  assert.match(ui.workLines(card, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><span class="card-unread"><span class="sep"> · <\/span>1 new message<\/span><\/div>/);
+  assert.match(ui.workLines(card, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><\/div><div class="line6 sub card-alert"><span class="card-unread">1 new message<\/span><\/div>/);
   const building = ui.workLines({ ...card, builder: testing }, { unread: 2 });
   assert.match(building, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Testing · the limiter<\/div>/);
   assert.equal(building.match(/phase-bars/g).length, 1);
@@ -1522,7 +1522,7 @@ test("a New card reads New and its first line, then whether it was moved or edit
   assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
   assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['New Fix <it>', 'Moved from Orch · waiting…', at]);
   const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
-  assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', `${at} · Action needed`]);
+  assert.deepEqual(lines(asked), ['New Fix <it>', 'Next: Answer 1 question', at, 'Action needed']);
 });
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
@@ -1578,7 +1578,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   const sortAt = ago(2);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), held: true, sortAt,
     action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', `${ui.cardTime(sortAt)} · held · blocked by INT-2 · Action needed · 1 new message`]);
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', `${ui.cardTime(sortAt)} · held · blocked by INT-2`, 'Action needed · 1 new message']);
   assert.match(ui.workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
   assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
@@ -1600,19 +1600,19 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
   const last = (html) => lines(html).at(-1);
   assert.deepEqual(lines(ui.workLines(card)), ['ENG-1 Five', ui.cardTime(sortAt)]);
   assert.match(ui.workLines(card), new RegExp(`<div class="line6 sub card-time"><time datetime="${sortAt}">`));
-  assert.equal(last(ui.workLines(card, { unread: 3 })), `${ui.cardTime(sortAt)} · 3 new messages`);
-  assert.match(ui.workLines(card, { unread: 3 }), /<span class="card-unread"><span class="sep"> · <\/span>3 new messages<\/span><\/div>/);
+  assert.deepEqual(lines(ui.workLines(card, { unread: 3 })).slice(-2), [ui.cardTime(sortAt), '3 new messages']);
+  assert.match(ui.workLines(card, { unread: 3 }), /<div class="line6 sub card-alert"><span class="card-unread">3 new messages<\/span><\/div>$/);
   assert.doesNotMatch(text(ui.workLines(card)), /days? ago/);
 
   const held = { ...card, held: true };
   assert.deepEqual(lines(ui.workLines(held)), ['ENG-1 Five', `${ui.cardTime(sortAt)} · held`]);
   assert.match(ui.workLines(held), /<span class="card-hold"[^>]*>held<\/span>/);
-  assert.deepEqual(lines(ui.workLines({ ...held, sortAt: null }, { unread: 1 })), ['ENG-1 Five', 'held · 1 new message']);
+  assert.deepEqual(lines(ui.workLines({ ...held, sortAt: null }, { unread: 1 })), ['ENG-1 Five', 'held', '1 new message']);
   const now = new Date();
   const at = (days, h, m) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, h, m);
   const clock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (_, x) => ` ${x.toLowerCase()}`);
   const until = (d) => ({ ...held, heldUntil: d.toISOString() });
-  assert.equal(last(ui.workLines(until(at(2, 9, 0)), { unread: 2 })), `${ui.cardTime(sortAt)} · held until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))} · 2 new messages`);
+  assert.deepEqual(lines(ui.workLines(until(at(2, 9, 0)), { unread: 2 })).slice(-2), [`${ui.cardTime(sortAt)} · held until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))}`, '2 new messages']);
   assert.equal(last(ui.workLines(until(at(0, 23, 59)))), `${ui.cardTime(sortAt)} · held until ${clock(at(0, 23, 59))}`);
   assert.equal(last(ui.workLines(until(at(6, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(6, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(6, 9, 0))}`);
   assert.equal(last(ui.workLines(until(at(7, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(7, 9, 0).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(at(7, 9, 0))}`);
@@ -1624,8 +1624,10 @@ test("a ready card's time line reads ready in green after its hold and before it
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt };
   const html = ui.workLines({ ...card, held: true, ready: true, phase: 'ready' }, { unread: 2 });
-  assert.equal(lines(html).at(-1), `${ui.cardTime(sortAt)} · held · ready · 2 new messages`);
-  assert.match(html, /<span class="card-phase ph-success">ready<\/span><span class="card-unread">/);
+  assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · held`, '2 new messages']);
+  const open = ui.workLines({ ...card, ready: true, phase: 'ready' }, { unread: 2 });
+  assert.deepEqual(lines(open).slice(-2), [`${ui.cardTime(sortAt)} · ready`, '2 new messages']);
+  assert.match(open, /<span class="card-phase ph-success">ready<\/span><\/div><div class="line6 sub card-alert"><span class="card-unread">/);
   assert.doesNotMatch(ui.workLines(card), /card-phase/);
   assert.deepEqual(lines(ui.workLines({ ...card, unsorted: true }))[0], 'ENG-1 Five');
   assert.doesNotMatch(ui.workLines({ ...card, unsorted: true }), />New</);
@@ -1642,7 +1644,7 @@ test('a bumped ready card the host holds reads held while host recovers, in grey
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, ready: true, phase: 'ready' };
   const held = ui.workLines({ ...card, bumpedAt: ago(1), hostHeld: true });
-  assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · held while host recovers · ready`);
+  assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · ready · held while host recovers`);
   assert.match(held, /<span class="card-host-held">held while host recovers<\/span>/);
   assert.doesNotMatch(ui.workLines(card), /host/);
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
@@ -1679,7 +1681,7 @@ test("a discussing card's time line says whose turn it is: blue for the owner's,
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, phase: 'discussing' };
   const yours = ui.workLines({ ...card, turn: 'owner' }, { unread: 1 });
-  assert.equal(lines(yours).at(-1), `${ui.cardTime(sortAt)} · discussing · 1 new message`);
+  assert.deepEqual(lines(yours).slice(-2), [`${ui.cardTime(sortAt)} · discussing`, '1 new message']);
   assert.match(yours, /<span class="card-phase ph-info">discussing<\/span>/);
   assert.match(ui.workLines({ ...card, turn: 'claude' }), /<span class="card-phase ph-quiet">discussing<\/span>/);
   assert.equal(ui.statusWord(card), 'discussing');
@@ -1689,9 +1691,10 @@ test("a discussing card's time line says whose turn it is: blue for the owner's,
 test("a staging card's time line reads staging in orange where ready reads, and its Status row says staging", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, staging: true, phase: 'staging' };
-  const html = ui.workLines({ ...card, held: true }, { unread: 1 });
-  assert.equal(lines(html).at(-1), `${ui.cardTime(sortAt)} · held · staging · 1 new message`);
-  assert.match(html, /<span class="card-phase ph-notice">staging<\/span><span class="card-unread">/);
+  const html = ui.workLines(card, { unread: 1 });
+  assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · staging`, '1 new message']);
+  assert.match(html, /<span class="card-phase ph-notice">staging<\/span><\/div>/);
+  assert.doesNotMatch(ui.workLines({ ...card, held: true }), /card-phase/);
   assert.doesNotMatch(html, /ph-success/);
   assert.equal(ui.statusWord(card), 'staging');
   assert.equal(ui.statusWord({ ...card, staging: false, ready: true, phase: 'ready' }), 'ready');
