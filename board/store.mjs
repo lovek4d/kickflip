@@ -423,16 +423,17 @@ export async function appendStatus(site, key, kind, inputs = {}, { link } = {}) 
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // A message holds at most MESSAGE_LIMIT characters; a longer one is refused for the orchestrator to rewrite shorter or
 // move into a page it links. A comment brought in from GitHub or Slack is kept whole.
-export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by, close }) {
+export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by, close, implement }) {
   needSite(site);
-  if (close && (who !== 'claude' || via !== undefined)) fail('thread --close is the orchestrator marking a card: it takes no --who or --via');
+  if (close && implement) fail('thread takes --implement or --close, not both');
+  if ((close || implement) && (who !== 'claude' || via !== undefined)) fail(`thread --${close ? 'close' : 'implement'} is the orchestrator marking a card: it takes no --who or --via`);
   await checkThreadKey(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
   const words = via === undefined ? messageText(body) : text(body, '--text');
   const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: optional(link, (v) => pageUrl(v, '--link')), log, via, by };
   const file = threadFile(site, key);
-  if (close) await markWaiting(site, key, 'close');
+  if (close || implement) await markWaiting(site, key, close ? 'close' : 'implement');
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
 }
@@ -2107,7 +2108,7 @@ export async function clearOwnerWait(site, key) {
   delete item.waits_on_owner;
   await writeJSON(source.file, itemFile);
 }
-// thread <card> --close: marks a work card waiting only for the owner to close it (docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md).
+// thread <card> --implement or --close: marks a card waiting on the owner's Implement, or (a work card) only on their Done (docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md).
 async function markWaiting(site, key, on) {
   const { source, itemFile, item } = await loadItem(site, key);
   item.waits_on_owner = { on, at: new Date().toISOString() };

@@ -57,6 +57,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          reads Action needed until the owner taps Implement or
                                                          writes in its thread
   thread <file>/<id> --text <t> [--link <url>]           one line in the item's thread; ask:<eventId> in place
+         [--implement | --close]                         marks the card waiting on the owner's Implement or Done,
+                                                         as reply --implement or --close does, for any ticket
          [--who claude|love|<name>] [--via github|slack] of <file>/<id> writes in that ask's thread
          A Claude thread line, or a reply to an ask or item-message, rewrites the body of the thread's
          queued push (tag ask-<eventId> or item-<file>/<id>) to the message's first line, keeping
@@ -871,7 +873,7 @@ const COMMANDS = {
     await store.refuseUnreadEdit(site, id);
     return id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title);
   }],
-  thread: [['file/id'], ['text', 'link', 'who', 'via', 'close'], (site, [key], f) => store.appendMessage(site, key, f)],
+  thread: [['file/id'], ['text', 'link', 'who', 'via', 'close', 'implement'], (site, [key], f) => store.appendMessage(site, key, f)],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
   'item brief': [['file/id'], ['kind', 'file'], (site, [key], f) => store.writeBrief(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],

@@ -1,6 +1,6 @@
 // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md,
 // docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md: the orchestrator's `reply <card> --implement`
-// or `--close` (also `thread <card> --close`) marks a card waiting on the owner (waits_on_owner: implement | close).
+// or `--close` (also `thread <card> --implement` or `--close`) marks a card waiting on the owner (waits_on_owner: implement | close).
 // The card reads Action needed, its thread's Implement or Done goes orange, and the owner's tap or any message of theirs clears it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -78,6 +78,23 @@ test('--implement and --close are refused on a reply to an event, which has no c
   const both = board('reply', 'audit/T-1', '--text', 'x', '--implement', '--close', '--site', 'audit');
   assert.notEqual(both.code, 0);
   assert.match(both.err, /not both/);
+});
+
+test('thread --implement marks any ticket ready to implement, and is refused with --close or for a message that is not the orchestrator\'s', async () => {
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  const t = board('thread', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
+  assert.deepEqual([t.code, t.err], [0, '']);
+  assert.equal(t1().waits_on_owner.on, 'implement');
+  await s.clearOwnerWait(audit(), 'audit/T-1');
+  const both = board('thread', 'audit/T-1', '--text', 'x', '--implement', '--close', '--site', 'audit');
+  assert.notEqual(both.code, 0);
+  assert.match(both.err, /not both/);
+  const love = board('thread', 'audit/T-1', '--text', 'x', '--implement', '--who', 'love', '--site', 'audit');
+  assert.notEqual(love.code, 0);
+  assert.match(love.err, /--implement/);
+  assert.equal(t1().waits_on_owner, undefined);
 });
 
 test('thread --close is refused for a message that is not the orchestrator\'s', () => {
