@@ -744,7 +744,7 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   assert.deepEqual([taken.label, taken.task, taken.writes, taken.model, taken.worktree.path, 'dispatched' in taken], ['tests', 'Write the scroll tests', true, 'sonnet', tree, false]);
   assert.equal(onOrch('builder', 'progress', 'w/A1', '--agent', 'tests', '--phase', 'building', 'the first test').code, 0);
   assert.equal(threadOf().filter((m) => m.kind === 'status').at(-1).text, 'Tests building: the first test', 'its lines carry its name');
-  commit(tree, 'scroll.test.mjs', 'test', '#1: scroll tests');
+  commit(tree, 'scroll.test.mjs', 'test', 'feat: scroll tests\n\nRefs: #1');
   assert.equal(onOrch('builder', 'done', 'w/A1', '--agent', 'tests').code, 2, 'a helper hands back with --text');
   assert.equal(onOrch('builder', 'done', 'w/A1', '--agent', 'tests', '--text', 'Added the scroll tests').code, 0);
   assert.equal(typeof read(helperFile).done, 'string');
@@ -754,9 +754,12 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out, `helper tests done: Added the scroll tests\nbranch A1-tests in ${tree}: merge it with agent merge w/A1 --name tests\n`);
   assert.equal('waits' in read(at('waves', 'w', 'agents', 'A1.json')), false, 'the wait clears its mark');
+  commit(worktree(), 'card.txt', 'card', 'feat: the card\n\nRefs: A1');
   const merged = onOrch('agent', 'merge', 'w/A1', '--name', 'tests');
   assert.equal(merged.code, 0, merged.err);
   assert.equal(merged.out, `merged A1-tests into A1\nworktree removed: ${tree}\nbranch deleted: A1-tests\n`);
+  // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
+  assert.equal(git(worktree(), 'log', '-1', '--format=%B'), 'chore: merge the A1-tests helper branch\n\nRefs: A1');
   assert.equal(fs.readFileSync(path.join(worktree(), 'scroll.test.mjs'), 'utf8'), 'test');
   assert.deepEqual(branches(repo), ['A1', 'main']);
 });

@@ -14,6 +14,7 @@ import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
+import { subjectFault } from './commit-message.mjs';
 
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
 export const skillRepo = cloneRoot;
@@ -21,7 +22,8 @@ export const worktreesDir = () => path.join(os.homedir(), '.claude', 'kickflip',
 const fail = (msg) => { throw new BoardError(msg); };
 
 export function git(cwd, ...args) {
-  // core.commentChar=';' keeps a "#N: ..." subject: git's default cleanup strips lines starting with # when it rewrites a message.
+  // core.commentChar=';' keeps a message line starting with # (an older "#N: ..." subject, or a ref wrapped to a line's
+  // start): git's default cleanup strips such lines when it rewrites a message.
   const r = spawnSync('git', ['-C', cwd, '-c', 'core.commentChar=;', ...args], { encoding: 'utf8' });
   return { ok: r.status === 0, out: (r.stdout || '').trim(), err: (r.stderr || r.error?.message || '').trim().split('\n')[0] };
 }
@@ -98,13 +100,14 @@ export const helperWorktree = (id, name, { repo, base, busy }) => makeWorktree(`
 
 // `agent merge`: brings a helper's branch (helper {path, branch}) into the card's worktree (card {path}), then removes
 // the helper's worktree and branch. A branch already in the card's history skips the merge, so a run after a conflict
-// the builder resolved and committed only cleans up. A conflict is left for the builder, naming its files.
+// the builder resolved and committed only cleans up. A conflict is left for the builder, naming its files. A merge
+// commit follows the commit standard, naming the card's ref.
 // → {lines}
-export function mergeHelper(card, helper) {
+export function mergeHelper(card, helper, ref) {
   const lines = [];
   if (git(card.path, 'merge-base', '--is-ancestor', helper.branch, 'HEAD').ok) lines.push(`${helper.branch} is already merged`);
   else {
-    const merged = git(card.path, 'merge', '--no-edit', helper.branch);
+    const merged = git(card.path, 'merge', '--no-edit', '-m', `chore: merge the ${helper.branch} helper branch\n\nRefs: ${ref}`, helper.branch);
     if (!merged.ok) {
       const files = git(card.path, 'diff', '--name-only', '--diff-filter=U').out.split('\n').filter(Boolean);
       fail(files.length
@@ -438,14 +441,19 @@ function refuseNumberedAdr(repo, base, branch) {
   if (numbered) fail(`land: ${numbered} is named with a number; name it docs/adr/YYYY-MM-DD-HHMM-${path.basename(numbered).replace(/^\d{4}-/, '')}, the time you wrote it, and land again`);
 }
 
-// Every commit the branch adds starts its subject with the card's ref and a colon ("#114: ..."), and none still holds
-// the "# Conflicts:" note a `rebase --continue` under core.commentChar=';' keeps as message text.
+// docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
+// Every commit a card's branch adds has a Conventional subject of at most 72 characters and a "Refs: <ref>" trailer
+// naming the card, and none still holds the "# Conflicts:" note a `rebase --continue` under core.commentChar=';' keeps
+// as message text. A land with no card (land without --site) checks only the note.
 function refuseBadMessages(repo, base, branch, ref) {
   const commits = git(repo, 'log', '--format=%h', `${base}..${branch}`).out.split('\n').filter(Boolean);
   for (const c of commits) {
     const subject = git(repo, 'log', '-1', '--format=%s', c).out;
-    if (ref && !subject.startsWith(`${ref}: `)) fail(`land: commit ${c} "${subject}" doesn't start with "${ref}: "; reword it and land again`);
     if (/^# Conflicts:/m.test(git(repo, 'log', '-1', '--format=%B', c).out)) fail(`land: commit ${c} "${subject}" still holds a "# Conflicts:" note in its message; amend it out and land again`);
+    const fault = ref && subjectFault(subject);
+    if (fault) fail(`land: commit ${c} "${subject}" ${fault}; reword it to the commit standard and land again`);
+    const refs = git(repo, 'log', '-1', '--format=%(trailers:key=Refs,valueonly,separator=%x00)', c).out.split('\0');
+    if (ref && !refs.includes(ref)) fail(`land: commit ${c} "${subject}" has no "Refs: ${ref}" trailer; add it above Co-Authored-By and land again`);
   }
 }
 

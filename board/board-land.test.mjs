@@ -43,7 +43,7 @@ test("merge squashes a card's PR once GitHub would merge it, with no commit afte
   const done = merge('w/A1', '--after-approval', 'Only a rebase onto main.', '--confirmed', 'the backfill ran on prod');
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out.trim().split('\n').at(-1), 'A1: merged');
-  assert.deepEqual(merges().at(-1), ['pr', 'merge', '7', '--repo', 'o/r', '--squash']);
+  assert.deepEqual(merges().at(-1), ['pr', 'merge', '7', '--repo', 'o/r', '--squash', '--subject', 'feat: the work', '--body', 'Checked it.\n\nRefs: A1\nCo-Authored-By: Claude <noreply@anthropic.com>']);
   const merged = read(at('waves', 'w', 'wave.json')).items[0];
   assert.deepEqual([merged.lane, merged.prs.map((p) => [p.number, typeof p.merged_at])], ['done', [[7, 'string']]]);
   // The board's merged line, then the orchestrator's words on the merge as its message.
@@ -154,31 +154,39 @@ test('land refuses a new ADR named with a number instead of a timestamp, naming 
   assert.deepEqual(fs.readdirSync(path.join(repo, 'docs', 'adr')).sort(), ['0007-old.md', '2026-11-03-1111-fine.md', '2026-11-03-1112-numbered-again.md']);
 });
 
-test("land --site refuses a commit whose subject doesn't start with the card's ref and a colon, and one whose message still holds a \"# Conflicts:\" note, naming the commit, and changes nothing", () => {
+// docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
+test("land --site refuses a commit whose subject isn't Conventional or runs past 72 characters, one with no \"Refs: <ref>\" trailer naming the card, and one still holding a \"# Conflicts:\" note, naming the commit, and changes nothing", () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   const landOn = () => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
   const say = (message) => { write(path.join(worktree(), 'card.txt'), message); git(worktree(), 'add', '-A'); git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '-m', message); return git(worktree(), 'rev-parse', '--short', 'HEAD'); };
+  const refused = (message) => {
+    const c = say(message);
+    const r = landOn();
+    git(worktree(), 'reset', '--quiet', '--hard', 'main');
+    return [r.code, r.err.replace(c, '<c>')];
+  };
   const main = git(repo, 'rev-parse', 'main');
 
-  const bare = say('no ref here');
-  assert.deepEqual([landOn().code, landOn().err], [1, `land: commit ${bare} "no ref here" doesn't start with "A1: "; reword it and land again\n`]);
-  git(worktree(), 'reset', '--quiet', '--hard', 'main');
+  const shape = (subject) => [1, `land: commit <c> "${subject}" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; reword it to the commit standard and land again\n`];
+  assert.deepEqual(refused('A1: the old form\n\nRefs: A1'), shape('A1: the old form'));
+  assert.deepEqual(refused('feature(board): x\n\nRefs: A1'), shape('feature(board): x'));
+  const long = `feat(board): ${'x'.repeat(60)}`;
+  assert.deepEqual(refused(`${long}\n\nRefs: A1`), [1, `land: commit <c> "${long}" is 73 characters, over 72; reword it to the commit standard and land again\n`]);
+  assert.deepEqual(refused('feat: no trailer\n\nCo-Authored-By: X'), [1, 'land: commit <c> "feat: no trailer" has no "Refs: A1" trailer; add it above Co-Authored-By and land again\n']);
+  assert.deepEqual(refused('feat: another card\n\nRefs: A2\nCo-Authored-By: X'), [1, 'land: commit <c> "feat: another card" has no "Refs: A1" trailer; add it above Co-Authored-By and land again\n']);
+  assert.deepEqual(refused('feat: in the body\n\nRefs: A1\n\nMore words.'), [1, 'land: commit <c> "feat: in the body" has no "Refs: A1" trailer; add it above Co-Authored-By and land again\n']);
 
-  const noSpace = say('A1:no space');
-  assert.match(landOn().err, new RegExp(`^land: commit ${noSpace} "A1:no space" doesn't start with`));
-  git(worktree(), 'reset', '--quiet', '--hard', 'main');
-
-  const noted = say('A1: fine\n\nCo-Authored-By: X\n\n# Conflicts:\n#\tshared/notes.md');
+  const noted = say('fix: fine\n\nRefs: A1\nCo-Authored-By: X\n\n# Conflicts:\n#\tshared/notes.md');
   const r = landOn();
-  assert.deepEqual([r.code, r.out, r.err], [1, '', `land: commit ${noted} "A1: fine" still holds a "# Conflicts:" note in its message; amend it out and land again\n`]);
+  assert.deepEqual([r.code, r.out, r.err], [1, '', `land: commit ${noted} "fix: fine" still holds a "# Conflicts:" note in its message; amend it out and land again\n`]);
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.ok(fs.existsSync(worktree()));
 
-  git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '--amend', '-m', 'A1: fine\n\nCo-Authored-By: X');
+  git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '--amend', '-m', 'fix(board)!: fine\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: X');
   const landed = landOn();
   assert.equal(landed.code, 0, landed.err);
-  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'A1: fine');
+  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'fix(board)!: fine');
 });
 
 test('land refuses a worktree with uncommitted changes, with no commit beyond main, or whose suite fails, leaving main and the worktree as they were', () => {
@@ -260,7 +268,7 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
   setOrch({ owner: { repo: project } });
   fs.rmSync(at('waves', 'w', 'agents'), { recursive: true });
   git(project, 'worktree', 'add', '--quiet', '-b', 'A1', worktree(), 'main');
-  commit(worktree(), 'card.txt', 'card', 'A1: card');
+  commit(worktree(), 'card.txt', 'card', 'feat: card\n\nRefs: A1');
   const landed = run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
   assert.equal(landed.code, 0, landed.err);
   assert.match(landed.out, new RegExp(`main fast-forwarded to \\w+ in ${project}`));
@@ -281,7 +289,7 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   const started = board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
   assert.equal(started.code, 0, started.err);
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'trunk'));
-  commit(worktree(), 'card.txt', 'card', 'A1: card');
+  commit(worktree(), 'card.txt', 'card', 'feat: card\n\nRefs: A1');
 
   git(project, 'switch', '--quiet', '-c', 'feature');
   const landTrunk = () => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
@@ -299,17 +307,17 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   assert.equal(git(project, 'rev-parse', 'trunk~1'), git(project, 'rev-parse', moved));
 });
 
-test('land keeps a "#N: subject" commit through its rebase', () => {
+test('land keeps a message line starting with "#" through its rebase', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   write(path.join(worktree(), 'board', 'server.mjs'), '2\n');
   git(worktree(), 'add', '-A');
-  git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '-m', '#7: subject');
+  git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '-m', 'feat: subject\n\n#7 starts this line.\n\nRefs: #7');
   commit(repo, 'shared/notes.md', 'b\n');
   const before = git(repo, 'rev-parse', 'main');
   const r = land();
   assert.equal(r.code, 0, r.err);
-  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), '#7: subject');
+  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main'), 'feat: subject\n\n#7 starts this line.\n\nRefs: #7');
   assert.equal(git(repo, 'rev-parse', 'main~1'), before);
 });
 
@@ -381,7 +389,7 @@ test("land into the running kickflip clone restarts only the code that changed: 
 test('land on --site needs --text, refuses before landing what closing would refuse, and closes the card as done once it lands', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'shared/notes.md', 'b\n', 'A1: notes');
+  commit(worktree(), 'shared/notes.md', 'b\n', 'feat: notes\n\nRefs: A1');
   const landOn = (...more) => run('board.mjs', ['land', 'w/A1', '--site', 'orch', ...more], undefined, {
     KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']),
   });
@@ -405,7 +413,7 @@ test('land on --site needs --text, refuses before landing what closing would ref
 test('land --owner-step lands the code and leaves the card open on its owner step and its check; a blank step or a bad check is refused before landing', () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'shared/notes.md', 'b\n', 'A1: notes');
+  commit(worktree(), 'shared/notes.md', 'b\n', 'feat: notes\n\nRefs: A1');
   const landOn = (...more) => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked on the phone.', ...more], undefined, {
     KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']),
   });
@@ -540,7 +548,7 @@ test('land refuses a rebase that conflicts, naming the files, and leaves the bra
 test('builder done on a build that keeps a worktree finishes the card: it needs --text, lands it and closes the card and its record; a failed finish refuses with the reason and keeps the builder on', () => {
   const repo = scratchRepo();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'broken.test.mjs', "import test from 'node:test';\ntest('broken', () => { throw new Error('nope'); });\n", 'A1: work');
+  commit(worktree(), 'broken.test.mjs', "import test from 'node:test';\ntest('broken', () => { throw new Error('nope'); });\n", 'feat: work\n\nRefs: A1');
   const main = git(repo, 'rev-parse', 'main');
   const bare = onOrch('builder', 'done', 'w/A1');
   assert.deepEqual([bare.code, bare.err], [1, 'builder done finishes w/A1: pass --text "<what you checked>", or --next "<what happens next>" to stop without finishing\n']);
@@ -550,7 +558,7 @@ test('builder done on a build that keeps a worktree finishes the card: it needs 
   assert.deepEqual([git(repo, 'rev-parse', 'main'), record().done, itemOf().lane], [main, undefined, undefined]);
 
   fs.rmSync(path.join(worktree(), 'broken.test.mjs'));
-  git(worktree(), 'commit', '--quiet', '-am', 'A1: fixed');
+  git(worktree(), 'commit', '--quiet', '-am', 'feat: fixed\n\nRefs: A1');
   const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
@@ -565,7 +573,7 @@ test("builder done --next on a build stops it without finishing, an --agent help
   const repo = scratchRepo();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   assert.equal(onOrch('builder', 'start', 'w/A1', '--agent', 'lint').code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const main = git(repo, 'rev-parse', 'main');
   const busy = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.deepEqual([busy.code, busy.err], [1, 'builder done would finish w/A1 while agent lint is still open; run builder done w/A1 --agent lint first\n']);
@@ -587,7 +595,7 @@ test("a finish on a local board pushes its branch to origin once it lands when t
   write(at('kickflip', 'manifest.json'), manifest);
   const finish = (id) => {
     assert.equal(onOrch('builder', 'start', `w/${id}`, '--kind', 'build').code, 0);
-    commit(at('kickflip', 'worktrees', id), `${id}.txt`, 'built\n', `${id}: work`);
+    commit(at('kickflip', 'worktrees', id), `${id}.txt`, 'built\n', `feat: work\n\nRefs: ${id}`);
     const r = onOrch('builder', 'done', `w/${id}`, '--text', 'Checked it.');
     assert.equal(r.code, 0, r.err);
     return r;
@@ -611,7 +619,7 @@ test("a finish on a local board pushes its branch to origin once it lands when t
 test('builder verified on a handed-back build finishes the card in the same step, its note the closing line', () => {
   const repo = scratchRepo();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old name').code, 0);
   const main = git(repo, 'rev-parse', 'main');
   assert.equal(onOrch('builder', 'done', 'w/A1').code, 0);
@@ -627,7 +635,7 @@ test('builder verified on a handed-back build finishes the card in the same step
 test("builder verified leaves a card handed back while one of its questions is open, and a finish that fails keeps the stamp and says why", () => {
   const repo = scratchRepo();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'shared/notes.md', 'branch\n', 'A1: work');
+  commit(worktree(), 'shared/notes.md', 'branch\n', 'feat: work\n\nRefs: A1');
   assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old name').code, 0);
   assert.equal(onOrch('builder', 'done', 'w/A1').code, 0);
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [question('q1', { topic: 'item:w/A1' })] });
@@ -654,13 +662,18 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
   assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const main = git(origin, 'rev-parse', 'main');
-  const r = b('builder', 'done', 'w/A1', '--text', 'Checked it on the phone.');
+  // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: the builder titles the
+  // PR with a Conventional subject, checked before anything is pushed.
+  const bad = b('builder', 'done', 'w/A1', '--text', 'Checked it on the phone.', '--title', 'A1: One');
+  assert.deepEqual([bad.code, bad.err], [1, `--title "A1: One" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; pass --title "<type>(<scope>): <summary>", at most 72 characters\n`]);
+  assert.equal(git(origin, 'branch', '--list', 'A1'), '');
+  const r = b('builder', 'done', 'w/A1', '--text', 'Checked it on the phone.', '--title', 'feat(board): the work, as one PR');
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: draft PR #100 opened\n'), r.out);
   assert.deepEqual([git(origin, 'rev-parse', 'A1'), git(origin, 'rev-parse', 'main')], [git(worktree(), 'rev-parse', 'HEAD'), main]);
-  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr'), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', 'A1', '--title', 'A1: One', '--body', 'Checked it on the phone.']);
+  assert.deepEqual(calls(ghDir).find((a) => a[0] === 'pr'), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', 'A1', '--title', 'feat(board): the work, as one PR', '--body', 'Checked it on the phone.']);
   assert.deepEqual([itemOf().prs, itemOf().lane, typeof record().done], [[{ number: 100 }], 'review', 'string']);
   assert.equal(threadOf().at(-1).text, 'Checked it on the phone.');
   assert.equal(fs.existsSync(worktree()), true);
@@ -673,7 +686,8 @@ test("while GitHub's limit holds, builder done pushes the branch but opens no PR
   const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
   assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'fix: the first commit\n\nRefs: A1');
+  commit(worktree(), 'more.txt', 'more\n', 'test: the second\n\nRefs: A1');
   const reset = new Date(Math.floor(Date.now() / 1000 + 3600) * 1000);
   writeLimit(ghDir, { graphql: reset.toISOString() });
   const words = `GitHub rate limited, resets at ${clock(reset)}`;
@@ -687,6 +701,8 @@ test("while GitHub's limit holds, builder done pushes the branch but opens no PR
   const again = b('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(again.code, 0, again.err);
   assert.ok(again.out.includes('\nA1: draft PR #101 opened\n'), again.out);
+  // With no --title, the PR takes the branch's first commit subject.
+  assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr' && a[1] === 'create').at(-1).slice(9, 11), ['--title', 'fix: the first commit']);
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
@@ -696,7 +712,7 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
   const env = { ...finishEnv, PATH: `${fakeGh(ghDir)}:${process.env.PATH}` };
   const b = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
   assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   assert.equal(b('builder', 'done', 'w/A1', '--text', 'Checked it.').code, 0);
   const before = git(origin, 'rev-parse', 'A1');
 
@@ -741,7 +757,7 @@ test("on a GitHub board, builder done on a card whose PR is open force-pushes th
 test('on a plain git remote, builder done pushes the branch and the card waits on the merge', () => {
   const origin = remoteBoard((dir) => ({ remote: dir }));
   assert.equal(onOrch('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: pushed A1 for its merge\n'), r.out);
@@ -764,7 +780,7 @@ test("with Auto-merge off, builder done on a local board verifies the build and 
   write(path.join(repo, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)'] } });
   write(path.join(repo, '.git', 'info', 'exclude'), '.claude\n');
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const main = git(repo, 'rev-parse', 'main');
   const held = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(held.code, 0, held.err);
@@ -794,7 +810,7 @@ test('a Merge tap on a held build whose tested commit is still on top of main la
   const repo = scratchRepo();
   heldBoard();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const held = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.ok(held.out.includes('tests passed: 1'), held.out);
   tapMerge();
@@ -807,7 +823,7 @@ test('a Merge tap on a held build whose tested commit is still on top of main la
 
   assert.equal(onOrch('builder', 'start', 'w/ENG-1', '--worktree', '--repo', repo).code, 0);
   const second = at('kickflip', 'worktrees', 'ENG-1');
-  commit(second, 'more.txt', 'more\n', 'ENG-1: work');
+  commit(second, 'more.txt', 'more\n', 'feat: work\n\nRefs: ENG-1');
   assert.equal(onOrch('builder', 'done', 'w/ENG-1', '--text', 'Checked it.').code, 0);
   commit(repo, 'later.txt', 'main moved\n');
   tapMerge('ENG-1');
@@ -830,7 +846,7 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   manifest.sites.orch.owner = { repo };
   write(at('kickflip', 'manifest.json'), manifest);
   assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
-  commit(worktree(), 'shared/notes.md', 'branch\n', 'A1: work');
+  commit(worktree(), 'shared/notes.md', 'branch\n', 'feat: work\n\nRefs: A1');
   assert.equal(b('builder', 'done', 'w/A1', '--text', 'Checked it.').code, 0);
   commit(repo, 'shared/notes.md', 'main\n');
   const main = git(repo, 'rev-parse', 'main');
@@ -848,7 +864,7 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
   // The lander resolves the conflict and finishes; the tap was the go.
   assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Lander').code, 0);
   git(worktree(), 'reset', '--quiet', '--hard', 'main');
-  commit(worktree(), 'work.txt', 'built on main\n', 'A1: work, kept main');
+  commit(worktree(), 'work.txt', 'built on main\n', 'feat: work, kept main\n\nRefs: A1');
   const landed = b('builder', 'done', 'w/A1', '--text', 'Resolved it.');
   assert.equal(landed.code, 0, landed.err);
   assert.ok(landed.out.includes('\nA1: landed and done\n'), landed.out);
@@ -869,7 +885,7 @@ test("a tapped Merge whose rebase conflicts resumes the card's builder session, 
   manifest.sites.orch.owner = { repo };
   write(at('kickflip', 'manifest.json'), manifest);
   assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
-  commit(worktree(), 'shared/notes.md', 'branch\n', 'A1: work');
+  commit(worktree(), 'shared/notes.md', 'branch\n', 'feat: work\n\nRefs: A1');
   assert.equal(b('builder', 'done', 'w/A1', '--text', 'Checked it.').code, 0);
   const file = at('waves', 'w', 'agents', 'A1.json');
   write(file, { ...read(file), session: { id: 'sess-1', pid: 1, log: 'builder.log', at: new Date().toISOString() } });
@@ -889,7 +905,7 @@ test("a tapped Merge refused for a reason no lander fixes says why in the thread
   const repo = scratchRepo();
   heldBoard();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   assert.equal(onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.').code, 0);
   git(repo, 'switch', '--quiet', '-c', 'elsewhere');
   tapMerge();
@@ -946,7 +962,7 @@ test('on Merge, a hub card branches from its folder\'s main and lands there, ope
   const main = git(origin, 'rev-parse', 'main');
   assert.equal(b('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
   assert.equal(fs.existsSync(path.join(worktree(), 'local.txt')), true);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   const r = b('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
@@ -968,13 +984,13 @@ test("on Draft PR or Ready PR, a hub card branches from origin's main, and its f
     const tree = at('kickflip', 'worktrees', id);
     assert.equal(b('builder', 'start', `w/${id}`, '--kind', 'build').code, 0);
     assert.equal(fs.existsSync(path.join(tree, 'local.txt')), false);
-    commit(tree, `${id}.txt`, 'built\n', `${id}: work`);
+    commit(tree, `${id}.txt`, 'built\n', `feat: work\n\nRefs: ${id}`);
     const r = b('builder', 'done', `w/${id}`, '--text', `Checked ${id}.`);
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, new RegExp(`\\n${id}: draft PR #\\d+ opened\\n`));
     assert.equal(git(origin, 'rev-parse', id), git(tree, 'rev-parse', 'HEAD'));
     assert.equal(git(origin, 'rev-list', '--count', `main..${id}`), '1');
-    assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr').at(-1), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', id, '--title', `${id}: ${itemOf(id).title}`, '--body', `Checked ${id}.`]);
+    assert.deepEqual(calls(ghDir).filter((a) => a[0] === 'pr').at(-1), ['pr', 'create', '--draft', '--repo', 'owner/project', '--base', 'main', '--head', id, '--title', 'feat: work', '--body', `Checked ${id}.`]);
     assert.deepEqual([itemOf(id).lane, itemOf(id).prs?.length], ['review', 1]);
   };
   assert.deepEqual(b('settings', 'set', 'prs', 'on'), { code: 0, out: 'prs on\n', err: '' });
@@ -995,7 +1011,7 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
   write(path.join(clone, '.git', 'info', 'exclude'), '.claude\n');
   assert.deepEqual(onOrch('settings', 'set', 'prs', 'off'), { code: 0, out: 'prs off\n', err: '' });
   assert.equal(onOrch('builder', 'start', 'w/A1', '--kind', 'build').code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   commit(origin, 'later.txt', 'origin moved\n');
   const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(r.code, 0, r.err);
@@ -1009,7 +1025,7 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
 test("a finished helper that started after the main build never stands for the card: builder verified lands the main worktree, and one that can't land says why", () => {
   const repo = scratchRepo();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   assert.equal(onOrch('builder', 'call', 'w/A1', 'Kept the old name').code, 0);
   const helper = at('waves', 'w', 'agents', 'A1@page-tests.json');
   write(helper, { started: new Date(Date.now() + 60_000).toISOString(), done: new Date(Date.now() + 120_000).toISOString(), kind: 'helper', label: 'page-tests', worktree: { path: path.join(home, 'gone', 'A1-page-tests'), branch: 'A1-page-tests', repo } });

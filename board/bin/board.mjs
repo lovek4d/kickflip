@@ -494,7 +494,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          A build (--kind build, claude or codex) on a card not done
                                                          and not In Progress moves it to In Progress first,
                                                          refusing what item set's build start refuses;
-                                                         Prints "ref: <ref>", the card's label, which commit subjects start with.
+                                                         Prints "ref: <ref>", the card's label, which commits name in a "Refs: <ref>" trailer.
                                                          Resolves the card's answered questions, noting "Acted on:
                                                          builder started"
          [--worktree [--repo <dir>]]                     --worktree: a git worktree for the builder at
@@ -558,6 +558,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          changed>” for each reviewer, as review updated does;
                                                          none sends nothing, for a change only to comments, names,
                                                          docs or tests
+         [--title "<type>(<scope>): <summary>"]          the draft PR's title on a GitHub board, a Conventional
+                                                         subject of at most 72 characters (else the branch's first
+                                                         commit subject); refused in any other shape before
+                                                         anything is pushed. builder verified takes it too
          builder takes --dir <dir> for an item file in <dir>; its records go in <dir>/agents
   builder stop <file>/<id>                               the orchestrator's stop of the card's run the board launched,
                                                          its headless builder, lander or rebase run, with every process
@@ -647,7 +651,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          the orchestrator"; --wait blocks until none is waiting, and
                                                          after --timeout (9) minutes says so and fails: run it again
   builder verified <file>/<id> [--agent <name>]          the session's mark that it checked the record's calls; land
-         [--note <t>]                                    refuses while any record on the card has a call after it.
+         [--note <t>] [--title <t>]                      refuses while any record on the card has a call after it.
                                                          On a handed-back build (not done, no builder open, every
                                                          call verified) it finishes the card in the same step, as
                                                          builder done does, --note its closing line (else "Judgment
@@ -795,7 +799,7 @@ function noteOf(f) {
 }
 
 // name: [positional args, allowed flags (...<flag> may repeat, and run gets its values as a list), run(site, args, flags) → message]
-async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ...f }) {
+async function builderDone(site, key, { 'owner-step': ownerStep, check, text, title, ...f }) {
   if (ownerStep !== undefined && (!site || f.dir)) throw new UsageError('--owner-step goes on a board card: pass --site, not --dir');
   if (check !== undefined && ownerStep === undefined) throw new UsageError('--check goes with --owner-step: it is the code check that closes the card once the step is done');
   if (ownerStep !== undefined) await store.setItem(site, key, { ownerStep, check });
@@ -804,7 +808,7 @@ async function builderDone(site, key, { 'owner-step': ownerStep, check, text, ..
   if (handed) return handed;
   if (onBoard && f.next === undefined && await store.finishesCard(site, key, f)) {
     if (text === undefined) throw new store.BoardError(`builder done finishes ${key}: pass --text "<what you checked>", or --next "<what happens next>" to stop without finishing`);
-    return finishCard(site, key, { text, ownerStep });
+    return finishCard(site, key, { text, ownerStep, title });
   }
   // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md: a helper hands back its
   // result as its record's closing note, which agent wait prints.
@@ -938,7 +942,7 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'updated'], async (site, [key], { updated, ...f }) => {
+  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'updated', 'title'], async (site, [key], { updated, ...f }) => {
     // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md: the Updated decision is made
     // before anything runs, and its reply queued only once done has gone through.
     const onBoard = site && !f.dir;
@@ -955,7 +959,7 @@ const COMMANDS = {
     if (!record.done) throw new store.BoardError(`helper ${f.name} is still open; run agent wait ${key} --name ${f.name} first`);
     if (!record.writes || !record.worktree) throw new store.BoardError(`helper ${f.name} writes no code, so there is nothing to merge`);
     if (!tree) throw new store.BoardError(`${key} has no worktree to merge helper ${f.name} into`);
-    return mergeHelper(tree, record.worktree);
+    return mergeHelper(tree, record.worktree, await store.cardName(site, key));
   }],
   audit: [['...file/id?'], [], (site, [key, ...more]) => {
     if (more.length) throw new UsageError('audit takes one <file/id> at most');
@@ -967,13 +971,13 @@ const COMMANDS = {
   'builder answer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text)],
   'builder defer': [['file/id', 'ask'], ['text'], (site, [key, id], f) => store.answerBuilder(site, key, id, f.text, { deferred: true })],
   'builder asks': [['file/id'], ['wait', 'timeout'], (site, [key], f) => store.listAsks(site, key, f)],
-  'builder verified': [['file/id'], ['dir', 'agent', 'note'], async (site, [key], f) => {
+  'builder verified': [['file/id'], ['dir', 'agent', 'note', 'title'], async (site, [key], f) => {
     await store.verifyCalls(site, key, f);
     const next = site && !f.dir ? await store.verifiedFinish(site, key) : null;
     if (!next) return {};
     if (next.held) return { said: `${await store.cardName(site, key)} didn't land: ${next.held}` };
     if (next.waits.length) return { lines: [`${await store.cardName(site, key)} finishes once the owner answers ${next.waits.join(', ')}`] };
-    try { return await finishCard(site, key, { text: f.note ?? 'Judgment calls verified.' }); } catch (e) {
+    try { return await finishCard(site, key, { text: f.note ?? 'Judgment calls verified.', title: f.title }); } catch (e) {
       if (!(e instanceof store.BoardError)) throw e;
       throw Object.assign(new store.BoardError(`judgment calls verified, but ${await store.cardName(site, key)} didn't finish: ${e.message}`), { exitCode: e.exitCode });
     }

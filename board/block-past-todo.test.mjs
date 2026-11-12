@@ -42,7 +42,7 @@ test('a blocked card In Review stays there, and merge refuses it naming what blo
 test('land refuses a blocked card with Auto-merge on, leaving main as it was', () => {
   const repo = scratchRepo();
   assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
-  commit(worktree(), 'work.txt', 'built\n', 'A1: work');
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nRefs: A1');
   setA1({ deps: ['ENG-1'] });
   const main = git(repo, 'rev-parse', 'main');
   const landed = onOrch('land', 'w/A1', '--text', 'Checked.');

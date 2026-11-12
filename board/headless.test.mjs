@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, readArchive, threadFile } from './store.mjs';
+import { standardWords } from './commit-message.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
 // server and outlives it.
@@ -940,6 +941,18 @@ test("a helper's brief gives it the task as its own agent, in its worktree when 
   assert.ok(!reading.includes('commit your work'));
   const build = builderBrief(card);
   for (const want of [`${b} agent launch w/A1 --name`, '--writes', `${b} agent wait w/A1 --name`, `${b} agent merge w/A1 --name`]) assert.ok(build.includes(want), `the builder brief has ${want}`);
+});
+
+// docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
+test("a builder's, a lander's and a writing helper's brief give the commit standard, the card's ref in a Refs trailer and never in the subject, and the builder titles a PR with --title", () => {
+  const build = builderBrief(card);
+  const helper = helperBrief({ ...card, agent: 'tests', task: 'x', writes: true, cwd: '/wt/A1-tests' });
+  for (const brief of [build, helper, landerBrief(card)]) {
+    assert.ok(brief.includes(standardWords('ENG-1')), brief);
+    assert.ok(brief.includes('"Refs: ENG-1"'));
+    assert.ok(!brief.includes('"ENG-1: <'), 'no subject starts with the ref');
+  }
+  assert.ok(build.includes(`--title "<type>(<scope>): <what the PR does>"`), build);
 });
 
 test('a writing helper waits while the board has no implementer slot free, launches once its spawner waits on it, in its own worktree off the card branch', async () => {

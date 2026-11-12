@@ -15,6 +15,7 @@ import { processStarts, ps } from '../hub/live.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
+import { standardWords } from './commit-message.mjs';
 import { appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
 import { HELPER, plans, VISUAL } from './domain.mjs';
 
@@ -37,7 +38,7 @@ const threadLine = (thread) => `The card's thread, which holds the owner's messa
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md: builder done finishes the card.
 const finishSteps = ({ route, key, worktree, base }) => [
-  `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the full test suite, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead; with Auto-merge off it stops before the fast-forward, and the card waits for the owner's Merge).`,
+  `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the full test suite, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead, titled by \`--title "<type>(<scope>): <what the PR does>"\`, a Conventional subject of at most 72 characters written from the whole diff, else the branch's first commit subject; with Auto-merge off it stops before the fast-forward, and the card waits for the owner's Merge).`,
   `- On a conflict it undoes its rebase and names the files: run \`${rebase(base)}\` in ${worktree}, resolve each conflict keeping both sides' intent, continue with \`git -c core.commentChar=';' rebase --continue\`, rerun the tests, and run done again.`,
   '- On failing tests, fix them, commit, and run done again.',
   '- While another card is landing, done waits its turn and then lands; leave it running.',
@@ -75,7 +76,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     ...linkLines(links),
     ...ruleLines(rules),
     "Write tests first, and run the full suite once, in the foreground, at the end. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.",
-    `Commit with \`git -c core.commentChar=';' commit -F <file>\`, the subject "${ref}: <what the card now does>".`,
+    `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape.`,
     '',
     `To finish, run ${finishCommand({ route, key })}.`,
     "- If you recorded a judgment call, it hands the card back for the orchestrator to verify your calls; stop there: the orchestrator's verification finishes the card.",
@@ -102,6 +103,7 @@ export function landerBrief({ route, key, ref, title, thread, worktree, base, an
     ] : []),
     '',
     threadLine(thread),
+    `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape, so reword a commit the build left in another.`,
     '',
     `To finish, run ${finishCommand({ route, key })}.`,
     ...finishSteps({ route, key, worktree, base }),
@@ -207,7 +209,7 @@ export function helperBrief({ route, key, ref, title, notes, thread, agent, task
   return [
     `You are the headless helper ${agent} on card ${ref} (${key}, "${title}") on the kickflip board /${route}. Another agent working on the card asked the board for you to do one task beside it, and waits on your hand-back. Nobody watches this session, so never wait on a person. Never restart the hub or a board server, and never push.`,
     writes
-      ? `Work only in ${cwd}, your own worktree, branched from the card's: commit your work there with \`git -c core.commentChar=';' commit -F <file>\`, the subject "${ref}: <what it does>". The card's builder merges your branch, so leave nothing uncommitted.`
+      ? `Work only in ${cwd}, your own worktree, branched from the card's: commit your work there with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. The card's builder merges your branch, so leave nothing uncommitted.`
       : `Read and run in ${cwd}; change no files there and commit nothing.`,
     '',
     'The task:',

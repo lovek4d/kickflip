@@ -14,6 +14,8 @@ export const writeReviewComments = (dir, n, value) => write(dir, 'review-comment
 export const writeReviews = (dir, n, value) => write(dir, 'reviews', n, value);
 // {error}: gh pr merge <n> fails, printing error.
 export const writeMerge = (dir, n, value) => write(dir, 'merge', n, value);
+// What gh pr view <n> --json title,body,commits answers, for a merge's squash message.
+export const SQUASH_SOURCE = { title: 'feat: the work', body: 'Checked it.', commits: [{ messageBody: 'Refs: A1\nCo-Authored-By: Claude <noreply@anthropic.com>' }] };
 // {error}: gh pr ready <n> fails, printing error.
 export const writeReady = (dir, n, value) => write(dir, 'ready', n, value);
 // [{number, headRefName, isCrossRepository}]: the open PRs the GraphQL query lists for repo (owner/name).
@@ -97,7 +99,7 @@ if (args[0] === 'issue' && args.includes('--repo')) {
   else if (args[1] !== 'close') fail();
   process.exit(0);
 }
-if (args.length === 6 && args[0] === 'pr' && args[1] === 'merge' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--squash') {
+if (args.length >= 6 && args[0] === 'pr' && args[1] === 'merge' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--squash') {
   let refused = null;
   try { refused = JSON.parse(fs.readFileSync(fixture('merge', args[4], args[2]), 'utf8')).error; } catch {}
   if (refused) { console.error(refused); process.exit(1); }
@@ -155,6 +157,10 @@ if (args.length === 4 && args[0] === 'api' && args[1] === 'graphql' && args[2] =
 if (args[0] === 'pr' && args[1] === 'create' && args.includes('--repo')) {
   const n = fs.readFileSync(path.join(dir, 'calls.jsonl'), 'utf8').split('\\n').filter((l) => l.startsWith('["pr","create"')).length;
   console.log('https://github.com/' + args[args.indexOf('--repo') + 1] + '/pull/' + (99 + n));
+  process.exit(0);
+}
+if (args.length === 7 && args[0] === 'pr' && args[1] === 'view' && /^\\d+$/.test(args[2]) && args[3] === '--repo' && args[5] === '--json' && args[6] === 'title,body,commits') {
+  console.log(${JSON.stringify(JSON.stringify(SQUASH_SOURCE))});
   process.exit(0);
 }
 let file;

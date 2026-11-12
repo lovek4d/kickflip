@@ -19,6 +19,7 @@ import { readPermissions } from './permissions.mjs';
 import { landByBuilder } from './headless.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { boardRepo } from '../hub/board-repo.mjs';
+import { subjectFault } from './commit-message.mjs';
 
 const fail = (msg) => { throw new store.BoardError(msg); };
 const said = (text) => (typeof text === 'string' && text.trim() ? text.trim() : fail('--text must be non-empty text'));
@@ -26,7 +27,7 @@ const said = (text) => (typeof text === 'string' && text.trim() ? text.trim() : 
 // text is the card's closing line ("<what was checked>"), the builder's message, unless closing ([kind, inputs]) names
 // the board's status line instead; ownerStep land's and builder done's --owner-step, check its --check, repo --repo,
 // merge whether the land is the one a held card's Merge tap started. → {said: what became of the card, lines}
-export async function finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge = false }) {
+export async function finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge = false, title }) {
   store.messageText(text);
   const id = key.split('/')[1];
   const recorded = await store.recordedWorktree(site, key);
@@ -35,13 +36,13 @@ export async function finishCard(site, key, { text, closing, ownerStep, check, r
   const ref = await store.cardName(site, key);
   const settings = await store.readBoardSettings(site);
   const github = remote ? boardRepo(boardAt(site).route).github : null;
-  if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, ref, text: said(text) });
+  if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, title, text: said(text) });
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a finish asked for a card already landing joins
   // that land, then finishes what it left, if anything.
   const ran = await joiningLand(ref, () => landCard(site, key, { tree, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }), { merge });
   if (!ran.joined) return ran;
   if (await store.isFinished(site, key)) return { said: 'landed and done', lines: [] };
-  return finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge });
+  return finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge, title });
 }
 
 async function landCard(site, key, { tree, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }) {
@@ -109,14 +110,19 @@ async function pushBase(site, key, repo, base) {
   return [`landed, but ${why}`];
 }
 
-async function sendForReview(site, key, { path: dir, branch, base, ref, text }) {
+async function sendForReview(site, key, { path: dir, branch, base, title: given, text }) {
   await store.checkCallsVerified(site, key);
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
   if (Number(git(dir, 'rev-list', '--count', `refs/remotes/origin/${base}..HEAD`).out) === 0) fail(`${branch} has no commits beyond ${base}; nothing to send for review`);
-  await passTests(dir, { outcome: 'nothing was pushed' });
   const { github } = boardRepo(boardAt(site).route);
   const open = github ? await store.cardPR(site, key) : null;
+  // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: a new PR's title is a
+  // Conventional subject, the builder's --title, else the branch's first commit subject.
+  const title = given ?? git(dir, 'log', '--reverse', '--format=%s', `refs/remotes/origin/${base}..HEAD`).out.split('\n')[0];
+  const fault = github && !open && subjectFault(title);
+  if (fault) fail(`--title "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 72 characters`);
+  await passTests(dir, { outcome: 'nothing was pushed' });
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
   // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is.
   const from = open ? git(dir, 'rev-parse', `refs/remotes/origin/${branch}`).out : null;
@@ -136,8 +142,7 @@ async function sendForReview(site, key, { path: dir, branch, base, ref, text }) 
     await store.appendMessage(site, key, { text });
     return { said: `pushed ${branch} for its merge`, lines: set.lines };
   }
-  const { title } = await store.briefFacts(site, key);
-  const created = ghSync(['pr', 'create', '--draft', '--repo', github, '--base', base, '--head', branch, '--title', `${ref}: ${title}`, '--body', text], { cwd: dir });
+  const created = ghSync(['pr', 'create', '--draft', '--repo', github, '--base', base, '--head', branch, '--title', title, '--body', text], { cwd: dir });
   // A PR an earlier finish opened for the branch is the one the card moves to.
   const out = `${created.stdout || ''}\n${created.stderr || ''}`;
   const number = (created.status === 0 || /already exists/.test(out)) && /\/pull\/(\d+)/.exec(out)?.[1];

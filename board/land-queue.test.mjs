@@ -69,7 +69,7 @@ function scratch(dir) {
   commit(repo, 'a.txt', 'a\n', 'base');
   const tree = { path: path.join(dir, 'wt'), branch: 'A1', repo, base: 'main', ref: 'A1' };
   git(repo, 'worktree', 'add', '--quiet', '-b', 'A1', tree.path, 'main');
-  commit(tree.path, 'b.txt', 'b\n', 'A1: work');
+  commit(tree.path, 'b.txt', 'b\n', 'feat: work\n\nRefs: A1');
   return tree;
 }
 const quiet = { say: () => {}, restart: () => null, boards: () => [], clone: os.tmpdir() };
@@ -109,7 +109,7 @@ test('a held land whose tested commit is still on top of main lands without test
 
   git(tree.repo, 'worktree', 'add', '--quiet', '-b', 'A2', path.join(dir, 'wt2'), 'main');
   const second = { ...tree, path: path.join(dir, 'wt2'), branch: 'A2', ref: 'A2' };
-  commit(second.path, 'd.txt', 'd\n', 'A2: work');
+  commit(second.path, 'd.txt', 'd\n', 'feat: work\n\nRefs: A2');
   await landInTurn(second, { ...opts, hold: true });
   commit(tree.repo, 'e.txt', 'e\n', 'moved');
   await landInTurn(second, opts);

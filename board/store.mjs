@@ -8,6 +8,7 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
+import { squashBody } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, builds, waveItems, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { GITHUB_STATE, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
@@ -3210,7 +3211,14 @@ export async function mergeCard(site, key, { afterApproval, confirmed, tapped } 
   }
   const done = [];
   for (const p of open) {
-    const merged = await gh(['pr', 'merge', String(p.number), '--repo', p.repo, '--squash'], { timeout: 120_000 });
+    // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: the squash commit is the
+    // PR's title, with no " (#N)", over its body and the card's trailers.
+    const viewed = await gh(['pr', 'view', String(p.number), '--repo', p.repo, '--json', 'title,body,commits']);
+    if (viewed.limited) await limited(viewed.limited);
+    if (viewed.status !== 0) fail(`gh pr view ${prNames([p], repo)} failed: ${viewed.stderr.trim().split('\n')[0] || `gh exited ${viewed.status}`}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
+    const { title, body, commits } = JSON.parse(viewed.stdout);
+    const message = ['--subject', title, '--body', squashBody(await cardName(site, key), body, commits)];
+    const merged = await gh(['pr', 'merge', String(p.number), '--repo', p.repo, '--squash', ...message], { timeout: 120_000 });
     if (merged.limited) await limited(merged.limited);
     if (merged.status !== 0) fail(`gh pr merge ${prNames([p], repo)} failed: ${merged.stderr.trim().split('\n')[0] || `gh exited ${merged.status}`}${done.length ? ` (merged ${prNames(done, repo)} before it)` : ''}`);
     done.push(p);
