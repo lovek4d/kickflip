@@ -1,4 +1,4 @@
-// Every new card is a task: no ticket, keyed T-<n>, until its grill's ticket question, the orchestrator's --new-ticket or
+// Every new card is a task: no ticket, keyed T-<n>, until it goes ready, the orchestrator's --new-ticket or
 // --ticket <id> gives it one, and that ticket comes from the board's source at that moment
 // (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md). GitHub and Linear are faked: an injected gh
 // runner and fakeLinear in process, fake-gh.mjs for the board server.
@@ -338,4 +338,30 @@ test('every write that adds to an items list is a known one, and a ticket comes 
   const create = bodyOf(fs.readFileSync(path.join(root, 'board/store.mjs'), 'utf8'), 'createItem');
   assert.ok(create.indexOf('assignTicket(') >= 0 && create.indexOf('assignTicket(') < create.indexOf('itemFile.items.push('), 'createItem links or makes the ticket before it adds the card');
   assert.ok(create.indexOf('nextTaskId(') >= 0 && create.indexOf('nextTaskId(') < create.indexOf('itemFile.items.push('), 'createItem keys a task before it adds the card');
+});
+
+// docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md
+test('a card going ready with no ticket gets one, with the board-made line; one that has a ticket is left alone, as is a board with no source', async (t) => {
+  quiet(t);
+  const ready = async (route, tickets, fields = {}) => {
+    const b = board(route);
+    write(path.join(b.site, 'data', 'T-1-notes.md'), '# Bump the pins\n\nLands code in package.json.\n');
+    write(path.join(b.site, 'data', 'items.json'), { title: route, repo: `o/${route}`, items: [{ id: 'T-1', title: 'Bump the pins', lane: 'todo', phase: 'staging', size: 'small', plan: 'T-1-notes.md', ...fields }] });
+    if (tickets) await saveBoardSettings(b.site, { tickets });
+    return b;
+  };
+  const made = await ready('made', LINEAR);
+  assert.equal(await cli('made', 'item', 'set', 'made/T-1', '--phase', 'ready', '--text', 'checked'), 0);
+  const card = made.item('T-1');
+  assert.match(card.ticket, /^ENG-\d+$/);
+  assert.deepEqual([card.id, card.phase, card.ticket_created], ['T-1', 'ready', true]);
+  assert.match(world.issues[card.ticket].input.description, /Lands code in package\.json/);
+  const thread = fs.readFileSync(path.join(made.site, 'data', 'threads', 'made__T-1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(thread.some((l) => l.text === `The board made ${card.ticket}.`));
+  const had = await ready('had', LINEAR, { ticket: 'ENG-9' });
+  assert.equal(await cli('had', 'item', 'set', 'had/T-1', '--phase', 'ready', '--text', 'checked'), 0);
+  assert.equal(had.item('T-1').ticket, 'ENG-9');
+  const none = await ready('none-ready', null);
+  assert.equal(await cli('none-ready', 'item', 'set', 'none-ready/T-1', '--phase', 'ready', '--text', 'checked'), 0);
+  assert.deepEqual([none.item('T-1').ticket, none.item('T-1').phase], [undefined, 'ready']);
 });

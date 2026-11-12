@@ -47,7 +47,7 @@ export function hasBuildScript(repo, ref) {
 }
 
 // Writes the onboarding cards' notes files beside itemFile. → the items for that new item file, each a task keyed
-// T-<n> with no ticket, so nothing is opened on GitHub or Linear until its grill's ticket question says so
+// T-<n> with no ticket, so nothing is opened on GitHub or Linear until the card goes ready
 // (docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md); the build card is left out when main already
 // has a build script.
 export function onboardingItems(itemFile, { hasBuild, now = new Date() }) {

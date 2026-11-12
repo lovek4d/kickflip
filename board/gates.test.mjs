@@ -1,5 +1,5 @@
-// docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: the owner's answer to a card's prototype (or older
-// ticket) question is a fact the card keeps in `gates`, so a regrill or a split child never asks it again.
+// docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: the owner's answer to a card's prototype question is a
+// fact the card keeps in `gates`, so a regrill or a split child never asks it again.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -89,23 +89,21 @@ test("a grill that ends asking nothing on a card whose prototype answer is kept 
 });
 
 test('item add --split-of sets the Parent and copies its gates; it refuses --parent beside it', async () => {
-  const w = world({ gates: { prototype: 'no', ticket: 'yes' } }, [{ id: 'B1', title: 'Bare', lane: 'todo', phase: 'grilling' }]);
+  const w = world({ gates: { prototype: 'no' } }, [{ id: 'B1', title: 'Bare', lane: 'todo', phase: 'grilling' }]);
   const { key } = await addItem(w.site, 't/C1', { title: 'Slice one', splitOf: 't/A1', phase: 'grilling', intake: true });
   assert.equal(key, 't/C1');
-  assert.deepEqual([w.read('C1').parent, w.read('C1').gates], ['t/A1', { prototype: 'no', ticket: 'yes' }]);
+  assert.deepEqual([w.read('C1').parent, w.read('C1').gates], ['t/A1', { prototype: 'no' }]);
   await addItem(w.site, 't/C2', { title: 'Slice of a bare card', splitOf: 't/B1', phase: 'grilling', intake: true });
   assert.deepEqual([w.read('C2').parent, 'gates' in w.read('C2')], ['t/B1', false]);
   await assert.rejects(addItem(w.site, 't/C3', { title: 'Both', splitOf: 't/A1', parent: 't/A1', phase: 'grilling', intake: true }), /--split-of sets the Parent; drop --parent/);
   await assert.rejects(addItem(w.site, 't/C4', { title: 'Gone', splitOf: 't/Z9', phase: 'grilling', intake: true }), /Z9/);
 });
 
-test('a ticket question answered becomes gates.ticket, and question add refuses another', async () => {
-  const w = world({ ticket: undefined });
-  fs.writeFileSync(path.join(w.data, 'owner.json'), JSON.stringify({ topics: [], items: [{ ...gate('q-ticket'), prototype_gate: undefined, ticket_gate: true, question: 'Create a ticket for this task?' }] }));
-  await settleAnswers(w.site, [w.answer('q-ticket', 'no')]);
-  assert.deepEqual(w.read().gates, { ticket: 'no' });
-  const again = { ...gate('q-ticket-2'), prototype_gate: undefined, ticket_gate: true, question: 'Create a ticket for this task?' };
-  await assert.rejects(addQuestions(w.site, again), /ticket_gate: t\/A1 already has its ticket answer, no/);
+// docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a card's ticket is made at ready, so no question asks for one.
+test('question add refuses a ticket_gate key as an unknown field', async () => {
+  const w = world();
+  const ticket = { ...gate('q-ticket'), prototype_gate: undefined, ticket_gate: true, question: 'Create a ticket for this task?' };
+  await assert.rejects(addQuestions(w.site, ticket), /question q-ticket has unknown field "ticket_gate"/);
 });
 
 test("the start-up backfill sets each live card's gates from its last answered gate questions, a yes whose round ran as ran, once", async () => {
@@ -115,10 +113,9 @@ test("the start-up backfill sets each live card's gates from its last answered g
     { id: 'A4', title: 'Kept', lane: 'todo', phase: 'grilling', gates: { prototype: 'no' } },
     { id: 'A5', title: 'Unasked', lane: 'todo', phase: 'grilling' },
   ]);
-  const q = (id, key, flag = 'prototype_gate') => ({ ...gate(id), topic: `item:t/${key}`, prototype_gate: undefined, [flag]: true });
-  fs.writeFileSync(path.join(w.data, 'owner.json'), JSON.stringify({ topics: [], items: [q('a1-s', 'A1'), q('a1-r', 'A1'), q('a1-t', 'A1', 'ticket_gate'), q('a2', 'A2'), q('a3', 'A3'), q('a4', 'A4'), q('a5', 'A5')] }));
+  const q = (id, key) => ({ ...gate(id), topic: `item:t/${key}` });
+  fs.writeFileSync(path.join(w.data, 'owner.json'), JSON.stringify({ topics: [], items: [q('a1-s', 'A1'), q('a1-r', 'A1'), q('a2', 'A2'), q('a3', 'A3'), q('a4', 'A4'), q('a5', 'A5')] }));
   w.answer('a1-s', 'yes');
-  w.answer('a1-t', 'no');
   w.answer('a2', 'yes');
   w.answer('a3', 'yes');
   w.answer('a4', 'yes');
@@ -126,6 +123,6 @@ test("the start-up backfill sets each live card's gates from its last answered g
   fs.mkdirSync(path.join(w.data, 'threads'));
   fs.writeFileSync(path.join(w.data, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: new Date(Date.now() + 1000).toISOString(), who: 'claude', kind: 'hub', line: 'prototype-round', text: 'moved' }) + '\n');
   assert.deepEqual(await migrateGates(w.site), ['t: 3 cards keep their gate answers']);
-  assert.deepEqual(['A1', 'A2', 'A3', 'A4', 'A5'].map((id) => w.read(id).gates ?? null), [{ prototype: 'ran', ticket: 'no' }, { prototype: 'yes' }, { prototype: 'ran' }, { prototype: 'no' }, null]);
+  assert.deepEqual(['A1', 'A2', 'A3', 'A4', 'A5'].map((id) => w.read(id).gates ?? null), [{ prototype: 'ran' }, { prototype: 'yes' }, { prototype: 'ran' }, { prototype: 'no' }, null]);
   assert.deepEqual(await migrateGates(w.site), []);
 });

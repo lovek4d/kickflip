@@ -22,8 +22,8 @@ Writes a kickflip board's data files. --site <route> picks ~/.claude/kickflip/si
 board.json says where the board's item files live. Without --site, they come from ~/.claude/waves.
 Paths resolve under $HOME, so HOME=<dir> points every command at a copy.
 A --file argument of - reads stdin.
-Every new card is a task, keyed T-<n>, with no ticket, until its grill's ticket question (answered yes, the board makes
-it), item add or item set --new-ticket (the orchestrator, for a Quick task), or --ticket <id> gives it one. A ticket comes
+Every new card is a task, keyed T-<n>, with no ticket, until it goes ready (the board makes one, on a board with a
+source), item add or item set --new-ticket (the orchestrator, for a Quick task), or --ticket <id> gives it one. A ticket comes
 from the board's source, GitHub or Linear, made from the card's title and notes, Linear in the board's team and project
 through Hub's Linear key; a linked one must exist there. A board whose source is none has no tickets.
 A card moves its ticket one way: a build's start → In Progress, --pr, --pushed or a verified merge-ready build → In
@@ -85,7 +85,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          topic): the owner's yes moves the card to prototyping and starts its prototype planner, a no stages it
          once no question on it is left open, the board doing both with no orchestrator step. The answer stays
          on the card as its gates.prototype, so a regrill or a split child never asks it again: question add
-         refuses a prototype_gate (or ticket_gate) whose answer the card keeps, and a yes is spent once the card
+         refuses a prototype_gate whose answer the card keeps, and a yes is spent once the card
          moves to prototyping on it.
          reask_of names a resolved question on the same topic that the owner asked to ask again
          (reask-request): it resolves that one again, noting "Asked again as <new id>", printed as "resolved: <old id>".
@@ -270,7 +270,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          from the + or New task has none
          [--split-of <file>/<id>]                        a card split from that one: sets it as the Parent, as
                                                          --parent does, and copies its gates, the owner's prototype
-                                                         (and ticket) answers, so its grill never asks them again.
+                                                         answer, so its grill never asks it again.
                                                          Refuses --parent beside it
          [--phase discussing|grilling|prototyping|ready] files it at once, as item set's --phase; the session's
          [--relate <id>,<file>/<id>]                     own form, linking it with --relate in the same call.
