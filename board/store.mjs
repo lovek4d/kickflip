@@ -2856,12 +2856,12 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (spec) item.owner_check = { check: spec, since: item.owner_check?.check === spec ? item.owner_check.since : new Date().toISOString() };
   if (spec === '' || !item.owner_step) delete item.owner_check;
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
-  // docs/adr/2026-11-12-1200-a-finished-ask-waits-in-in-review-for-the-owners-done.md: the orchestrator's --done on a
-  // card an ask became that no build ran on (no builder record, no branch) leaves it In Review waiting on the owner's
-  // Done, whose tap alone closes it; every other close is today's.
-  const awaiting = Boolean(finishAsk && done && item.from_ask) && !merged && !landed && !ownerDone && !closing && !split && !wasFinished
-    && !records.some(Boolean) && !item.branch && !hasPR(item) && !item.pushed && !item.merge_ready;
-  if (awaiting) done = false;
+  // docs/adr/2026-11-12-2300-a-finished-ask-waits-in-todo-with-an-orange-close.md: nothing landed for an ask no build
+  // ran on, so the orchestrator's --done on it is refused; it waits in Todo for the owner's Close (reply --close).
+  if (finishAsk && done && item.from_ask && !merged && !landed && !ownerDone && !closing && !split && !wasFinished
+    && !records.some(Boolean) && !item.branch && !hasPR(item) && !item.pushed && !item.merge_ready) {
+    fail(`${key} is an ask no build ran on, so nothing landed to mark Done; post the answer with reply ${key} --text "<answer>" --close (or thread ${key} --close) and it waits in Todo for the owner's Close`);
+  }
   const owedBefore = owesNext(item, records);
   if (title !== undefined) item.title = cardTitle(title);
   setBuildChoice(item, { size, model });
@@ -2895,7 +2895,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   }
   const handover = pr !== undefined || pushed !== undefined || mergeReady !== undefined;
   // A card that leaves Todo is never still held, nor waiting on a re-check.
-  if (start || done || awaiting || handBack || handover) {
+  if (start || done || handBack || handover) {
     clearHold(item);
     delete item.recheck_at;
   }
@@ -2907,7 +2907,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   const unpicked = start && site ? await unpickedPrototype(site, key) : null;
   if (unpicked) fail(`${key} has no take picked: the owner's answer to ${unpicked.id} picks none${unpicked.note ? ` ("${clip(unpicked.note)}")` : ''}, so it prototypes again: draw the next round from that note, or grill when the note asks a question, and build once a take is picked`);
   const resolve = done ? await closeQuestions(site, key, '--done', force) : async () => [];
-  const lastLine = done || awaiting ? closingLine(site, key, merged, said, boardRepoOf(site, itemFile), closing) : null;
+  const lastLine = done ?closingLine(site, key, merged, said, boardRepoOf(site, itemFile), closing) : null;
   if (merged) markMerged(item, merged, boardRepoOf(site, itemFile));
   if (next !== undefined) {
     setNext(item, next, await hasOpenQuestion(site, key));
@@ -2972,7 +2972,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (built) item.install = built;
   if (built === null) delete item.install;
   // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md: a build's start goes with its record.
-  if (!owedBefore && !start && !awaiting && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
+  if (!owedBefore && !start && owesNext(item, records)) fail(`that leaves ${key} In Progress with nothing building and no Next; pass --next "<what happens next>"`);
   // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md: a block on a card In
   // Progress keeps it there, and asks its running build, the board's or a session's, to pause at its next stopping
   // point (requestPause); one already landing lands, since land refuses a blocked card.
@@ -2983,10 +2983,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   let moveLine = null;
   const moveTo = (to, why) => { if (item.lane !== to && placeIn(item, to, undefined, movedPhase(item, to, landed)) !== undefined && why) moveLine = `Moved to ${LANES[to]}: ${why}`; };
   if (done) moveTo('done', null);
-  else if (awaiting) {
-    if (item.lane !== 'review') placeIn(item, 'review', undefined, null);
-    item.waits_on_owner = { on: 'close', at: new Date().toISOString() };
-  } else if (handover && item.lane !== 'done') {
+  else if (handover && item.lane !== 'done') {
     moveTo('review', pr !== undefined ? `PR ${prNames([].concat(pr).map(parsePRRef), repo)} opened` : pushed !== undefined ? `${pushed} pushed for its merge` : 'verified, it waits for your Merge');
   } else if (start && !closed(item)) moveTo('progress', 'a build started');
   // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: a card going ready with no ticket gets one, on a board with a source.
