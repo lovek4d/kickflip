@@ -676,7 +676,7 @@ export async function answerCard(site, key, md, title, { waitsOn } = {}) {
   return appendMessage(site, key, { text: md });
 }
 
-export async function relateAsk(site, eventId, key, summary, title) {
+export async function relateAsk(site, eventId, key, summary) {
   needSite(site);
   domId(eventId, 'the event id');
   const known = (await readLines(path.join(site, 'data', 'events.jsonl'))).some((e) => e.id === eventId && e.kind === 'ask');
@@ -684,7 +684,6 @@ export async function relateAsk(site, eventId, key, summary, title) {
   await refuseMoved(site, eventId);
   await loadItem(site, key);
   text(summary, '--summary');
-  if (title !== undefined) text(title, '--title');
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a New card the ask became merges
   // into key: it goes, its thread lines move to the ask's thread, which key's thread shows, and a card-merged line there
   // names key. A card already sorted is work of its own.
@@ -695,9 +694,9 @@ export async function relateAsk(site, eventId, key, summary, title) {
     const moved = await ticketWrite(site, () => dropCard(site, card));
     const askThread = threadFile(site, `ask:${eventId}`);
     for (const line of moved) await appendLine(askThread, line);
-    // --title names the merge in the top banner (domain.mjs merges).
+    // The New strip shows the merged card's title (domain.mjs merges).
     await appendLine(askThread, { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: 'card-merged', text: hubText('card-merged', { card: await cardName(site, key) }),
-      into: key, title: title ?? card.item.title, link: `#selectedCard=${encodeURIComponent(key)}` });
+      into: key, title: card.item.title, link: `#selectedCard=${encodeURIComponent(key)}` });
   }
   const links = await readAskLinks(site);
   await writeJSON(askLinksFile(site), { links: { ...links, [eventId]: key } });

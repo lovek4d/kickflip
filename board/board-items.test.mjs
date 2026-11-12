@@ -777,7 +777,7 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
 });
 
 // docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md
-test('reply --title titles only the New or answered card an ask became, and item relate-ask --title names the merge', () => {
+test('reply --title titles only the New or answered card an ask became, and item relate-ask takes no --title', () => {
   const w = wave();
   w.items.push({ id: 'T-1', title: 'Header', lane: 'todo', from_ask: 'e1' }, { id: 'T-2', title: 'and the footer', lane: 'todo', from_ask: 'e2' });
   write(at('waves', 'w', 'wave.json'), w);
@@ -788,9 +788,10 @@ test('reply --title titles only the New or answered card an ask became, and item
   assert.equal(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'T-1').title, 'fix: header keeps its spacing');
   assert.deepEqual(board('reply', 'm2', '--site', 'orch', '--text', 'x', '--title', 'feat: x'),
     { code: 1, out: '', err: 'reply --title titles the New or answered card an ask became; "m2" is not one\n' });
-  const merged = board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--title', 'Footer spacing', '--site', 'orch');
+  assert.match(board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--title', 'Footer spacing', '--site', 'orch').err, /--title/);
+  const merged = board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--site', 'orch');
   assert.equal(merged.code, 0, merged.err);
-  assert.equal(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl')).at(-1).title, 'Footer spacing');
+  assert.equal(lines(site('orch', 'data', 'threads', 'ask__e2.jsonl')).at(-1).title, 'and the footer');
   assert.equal(fs.existsSync(site('orch', 'data', 'ask-titles.json')), false);
 });
 

@@ -904,9 +904,9 @@ const COMMANDS = {
     if ((f.file === undefined) === (f.from === undefined)) throw new UsageError('item notes takes --file <draft.md> or --from <file>/<id>');
     return store.addNotes(site, key, f);
   }],
-  'item relate-ask': [['eventId', 'file/id'], ['summary', 'title'], async (site, [id, key], f) => {
+  'item relate-ask': [['eventId', 'file/id'], ['summary'], async (site, [id, key], f) => {
     await store.refuseUnreadEdit(site, id);
-    return store.relateAsk(site, id, key, f.summary, f.title);
+    return store.relateAsk(site, id, key, f.summary);
   }],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
