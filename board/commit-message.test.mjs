@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cardTitleFault, releaseMessage, squashBody, startTitleFault, subjectFault, TYPES } from './commit-message.mjs';
+import { cardTitleFault, releaseMessage, squashBody, squashMessage, startTitleFault, subjectFault, TYPES } from './commit-message.mjs';
 
 test('a subject is Conventional: one of the Angular types, an optional lowercase scope, an optional "!", a summary, 72 characters at most', () => {
   for (const type of TYPES) assert.equal(subjectFault(`${type}: something`), null, type);
@@ -41,4 +41,24 @@ test("a card goes into In Progress only with a Conventional subject for a title,
   assert.equal(startTitleFault('w/A1', 'feat(board): one'), null);
   assert.equal(startTitleFault('w/A1', 'One'), 'w/A1\'s title "One" isn\'t "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; retitle it with item set w/A1 --title "<type>(<scope>): <summary>" before it goes into In Progress');
   assert.match(startTitleFault('w/A1', 'ask(board): why?'), /^w\/A1's title "ask\(board\): why\?" is an ask, which is answered, not built; retitle it with item set w\/A1 --title/);
+});
+
+// docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
+test("a land's squash message is --title else the first commit's subject, the first commit's detail, then one trailer block: Refs: <ref> and each Co-Authored-By the commits carry, once", () => {
+  const claude = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>';
+  const messages = [
+    `feat(board): land squashes\n\nThe detail,\nwrapped.\n\n#7 starts this line.\n\nRefs: #7\n\n${claude}`,
+    'review fixes\n\nDropped.\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\nCo-Authored-By: Ann <ann@x>',
+    'chore: merge the tests helper branch',
+  ];
+  const block = 'Refs: #7\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\nCo-Authored-By: Ann <ann@x>';
+  assert.equal(squashMessage(messages, { ref: '#7' }), `feat(board): land squashes\n\nThe detail,\nwrapped.\n\n#7 starts this line.\n\n${block}`);
+  assert.equal(squashMessage(messages, { ref: '#7', title: 'fix: the title' }), `fix: the title\n\nThe detail,\nwrapped.\n\n#7 starts this line.\n\n${block}`);
+  assert.equal(squashMessage(['feat: x\n\nRefs: #8'], { ref: '#7' }), 'feat: x\n\nRefs: #7');
+  // With no card, the Refs the commits carry stay, each once.
+  assert.equal(squashMessage(['feat: x\n\nRefs: #8', 'fix: y\n\nRefs: #8\nRefs: #9'], {}), 'feat: x\n\nRefs: #8\nRefs: #9');
+  assert.equal(squashMessage(['feat: x', 'fix: y'], {}), 'feat: x');
+  // A message already in its final shape comes back as it is.
+  const final = `feat: x\n\nDetail.\n\nRefs: #7\n${claude}`;
+  assert.equal(squashMessage([final], { ref: '#7' }), final);
 });

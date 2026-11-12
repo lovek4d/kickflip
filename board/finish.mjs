@@ -39,7 +39,7 @@ export async function finishCard(site, key, { text, closing, ownerStep, check, r
   if (remote && (!github || settings.prs)) return sendForReview(site, key, { ...tree, title, text: said(text) });
   // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md: a finish asked for a card already landing joins
   // that land, then finishes what it left, if anything.
-  const ran = await joiningLand(ref, () => landCard(site, key, { tree, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }), { merge });
+  const ran = await joiningLand(ref, () => landCard(site, key, { tree: { ...tree, title }, ref, base, remote, repo, settings, text, closing, ownerStep, check, onWait }), { merge });
   if (!ran.joined) return ran;
   if (await store.isFinished(site, key)) return { said: 'landed and done', lines: [] };
   return finishCard(site, key, { text, closing, ownerStep, check, repo: given, onWait, merge, title });

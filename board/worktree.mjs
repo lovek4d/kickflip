@@ -14,7 +14,7 @@ import { boardRepo } from '../hub/board-repo.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { nodeBin, storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
-import { subjectFault } from './commit-message.mjs';
+import { squashMessage, subjectFault } from './commit-message.mjs';
 
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
 export const skillRepo = cloneRoot;
@@ -267,8 +267,9 @@ export function restartRunner(what, route) {
 
 // Brings a checked worktree's branch into the live repo's base branch (builderRepo's base), saying each step: refuses
 // unless the repo has base checked out, naming it, or while the worktree has uncommitted changes or the branch adds
-// nothing; rebases it onto base when base moved, refusing on a conflict with the rebase undone; runs the worktree's
-// full suite unless that commit passed it already (prepareLand); fast-forwards base (landPrepared); when repo is the running kickflip clone,
+// nothing; squashes it into one commit and rebases that onto base when base moved, refusing on a conflict with the
+// rebase undone; runs the worktree's full suite unless that commit passed it already (prepareLand); fast-forwards base
+// (landPrepared); when repo is the running kickflip clone,
 // restarts the hub when its code changed, else the board servers when board/ changed (a hub restart restarts every
 // site), test files aside; removes the worktree and branch.
 // Never pushes. A restart that fails is reported after the rest is done.
@@ -436,24 +437,40 @@ export function clearStoppedLand(card, pids) {
 // An ADR is named by the minute it was written, docs/adr/YYYY-MM-DD-HHMM-<slug>.md, so parallel builds never take the same name.
 // A branch adding one named with a number instead (0181-<slug>.md) is refused.
 function refuseNumberedAdr(repo, base, branch) {
-  const added = git(repo, 'diff', '--name-only', '--no-renames', '--diff-filter=A', base, branch, '--', 'docs/adr').out.split('\n');
+  const added = git(repo, 'diff', '--name-only', '--no-renames', '--diff-filter=A', `${base}...${branch}`, '--', 'docs/adr').out.split('\n');
   const numbered = added.find((f) => /^docs\/adr\/\d{4}-(?!\d{2}-\d{2}-\d{4}-)/.test(f));
   if (numbered) fail(`land: ${numbered} is named with a number; name it docs/adr/YYYY-MM-DD-HHMM-${path.basename(numbered).replace(/^\d{4}-/, '')}, the time you wrote it, and land again`);
 }
 
-// docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
-// Every commit a card's branch adds has a Conventional subject of at most 72 characters and a "Refs: <ref>" trailer
-// naming the card, and none still holds the "# Conflicts:" note a `rebase --continue` under core.commentChar=';' keeps
-// as message text. A land with no card (land without --site) checks only the note.
-function refuseBadMessages(repo, base, branch, ref) {
-  const commits = git(repo, 'log', '--format=%h', `${base}..${branch}`).out.split('\n').filter(Boolean);
-  for (const c of commits) {
-    const subject = git(repo, 'log', '-1', '--format=%s', c).out;
-    if (/^# Conflicts:/m.test(git(repo, 'log', '-1', '--format=%B', c).out)) fail(`land: commit ${c} "${subject}" still holds a "# Conflicts:" note in its message; amend it out and land again`);
-    const fault = ref && subjectFault(subject);
-    if (fault) fail(`land: commit ${c} "${subject}" ${fault}; reword it to the commit standard and land again`);
-    const refs = git(repo, 'log', '-1', '--format=%(trailers:key=Refs,valueonly,separator=%x00)', c).out.split('\0');
-    if (ref && !refs.includes(ref)) fail(`land: commit ${c} "${subject}" has no "Refs: ${ref}" trailer; add it above Co-Authored-By and land again`);
+// docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
+// The commits branch adds since it left base made one commit in the worktree dir, its message squashMessage's (ref the
+// card's, title the builder's --title), its author and date the branch's first commit's. Refuses, changing nothing, a
+// message with an empty subject, one still holding the "# Conflicts:" note a `rebase --continue` under
+// core.commentChar=';' keeps as message text, or on a card a subject off the commit standard
+// (docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md), naming the first commit,
+// where the subject and detail come from. A branch already one commit with that message is left as it is.
+function squash(dir, repo, base, branch, { ref, title }) {
+  const from = git(repo, 'merge-base', base, branch).out;
+  const first = git(repo, 'rev-list', '--first-parent', '--reverse', `${from}..${branch}`).out.split('\n')[0];
+  const commits = git(repo, 'rev-list', '--reverse', `${from}..${branch}`).out.split('\n');
+  const messageOf = (c) => git(repo, 'log', '-1', '--format=%B', c).out;
+  const message = squashMessage([first, ...commits.filter((c) => c !== first)].map(messageOf), { ref, title });
+  const subject = message.split('\n')[0];
+  const named = `commit ${short(repo, first)} "${subject}"`;
+  if (!subject) fail(`${branch} has a commit with an empty subject (${short(repo, first)}); reword it in ${dir} and land again`);
+  if (/^# Conflicts:/m.test(message)) fail(`land: ${named} still holds a "# Conflicts:" note in its message; amend it out and land again`);
+  const fault = ref && subjectFault(subject);
+  if (fault) fail(`land: ${named} ${fault}; reword it to the commit standard and land again`);
+  if (commits.length === 1 && messageOf(first) === message) return;
+  if (git(repo, 'diff', '--quiet', from, branch).ok) fail(`${branch}'s commits change nothing beyond ${base}; nothing to land`);
+
+  const [author, date] = git(repo, 'log', '-1', '--format=%an <%ae>%x00%aI', first).out.split('\0');
+  const head = git(repo, 'rev-parse', branch).out;
+  git(dir, 'reset', '--quiet', '--soft', from);
+  const made = git(dir, 'commit', '--quiet', '--no-verify', '--cleanup=verbatim', `--author=${author}`, `--date=${date}`, '-m', message);
+  if (!made.ok) {
+    git(dir, 'reset', '--quiet', '--soft', head);
+    fail(`squashing ${branch} into one commit failed: ${made.err}`);
   }
 }
 
@@ -482,14 +499,19 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
 }
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
-// The part of a land that runs outside the land lock: the checks, the rebase onto base when base moved, and the suite.
-// → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is still it, with base
-// not moved past it, is not tested again.
-export async function prepareLand({ path: dir, branch, repo, base, ref }, { say = console.log, runTests = nodeTests } = {}) {
+// The part of a land that runs outside the land lock: the checks, the squash of the branch into one commit (squash),
+// the rebase of that commit onto base when base moved, and the suite. title is the builder's --title, the squash
+// commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
+// still it, with base not moved past it, is not tested again.
+export async function prepareLand({ path: dir, branch, repo, base, ref, title }, { say = console.log, runTests = nodeTests } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
   if (Number(git(repo, 'rev-list', '--count', `${base}..${branch}`).out) === 0) fail(`${branch} has no commits beyond ${base}; nothing to land`);
+  const fault = title !== undefined && subjectFault(title);
+  if (fault) fail(`--title "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 72 characters`);
+  refuseNumberedAdr(repo, base, branch);
+  squash(dir, repo, base, branch, { ref, title });
 
   if (!git(repo, 'merge-base', '--is-ancestor', base, branch).ok) {
     const rebased = git(dir, 'rebase', '--quiet', base);
@@ -501,12 +523,6 @@ export async function prepareLand({ path: dir, branch, repo, base, ref }, { say 
     }
     say(`rebased ${branch} onto ${base} (${short(repo, base)})`);
   }
-
-  const blank = git(repo, 'log', '--format=%h %s', `${base}..${branch}`).out.split('\n').filter((l) => l && !l.includes(' '));
-  if (blank.length) fail(`${branch} has a commit with an empty subject (${blank[0]}); reword it in ${dir} and land again`);
-
-  refuseNumberedAdr(repo, base, branch);
-  refuseBadMessages(repo, base, branch, ref);
 
   const head = git(repo, 'rev-parse', branch).out;
   if (git(repo, 'rev-parse', '--verify', '--quiet', testedRef(branch)).out === head) {

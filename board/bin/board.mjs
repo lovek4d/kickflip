@@ -572,10 +572,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          arguments are refused. Three runs in a row that can't run
                                                          mark it broken and append owner-check-broken {key, check,
                                                          error}; fix it with item set --check. land takes it too
-         [--title "<type>(<scope>): <summary>"]          the draft PR's title on a GitHub board, a Conventional
-                                                         subject of at most 72 characters (else the branch's first
-                                                         commit subject); refused in any other shape before
-                                                         anything is pushed. builder verified takes it too
+         [--title "<type>(<scope>): <summary>"]          the draft PR's title on a GitHub board, else the subject
+                                                         of the one commit land squashes the branch into, a
+                                                         Conventional subject of at most 72 characters (else the
+                                                         branch's first commit subject); refused in any other
+                                                         shape before anything is pushed or squashed. builder
+                                                         verified takes it too
          builder takes --dir <dir> for an item file in <dir>; its records go in <dir>/agents
   builder stop <file>/<id>                               the orchestrator's stop of the card's run the board launched,
                                                          its headless builder, lander or rebase run, with every process
@@ -678,9 +680,14 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          branch (the one its builders branch from, else main), one
                                                          line per step: refuses unless the repo has that branch
                                                          checked out, naming it, or while the worktree has uncommitted
-                                                         changes or adds no commit; rebases onto the branch when it
+                                                         changes or adds no commit; refuses a new ADR named with a
+                                                         number instead of a timestamp; squashes the branch into one
+                                                         commit, the first commit's subject (builder done's --title
+                                                         in its place) and detail over Refs: <ref> and each
+                                                         Co-Authored-By once, refusing a subject off the commit
+                                                         standard or a "# Conflicts:" note, or commits that change
+                                                         nothing; rebases that commit onto the branch when it
                                                          moved, refusing on a conflict with the rebase undone; refuses
-                                                         a new ADR named with a number instead of a timestamp; refuses
                                                          unless its full node --test suite passes, naming each failing
                                                          test and saving the TAP output under ~/.claude/kickflip/logs;
                                                          fast-forwards the branch in the repo;

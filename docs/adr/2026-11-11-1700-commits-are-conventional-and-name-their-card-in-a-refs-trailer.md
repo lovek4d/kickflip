@@ -1,6 +1,6 @@
 # Commits are Conventional and name their card in a Refs trailer
 
-Status: accepted (#517, 11/11).
+Status: accepted (#517, 11/11). Land's check of every commit is superseded by [every land squashes the branch into one commit](2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md): land checks the squash message only and writes the Refs trailer itself.
 
 ## Context
 

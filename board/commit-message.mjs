@@ -1,7 +1,7 @@
 // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
 // The commit message standard: a Conventional subject of at most 72 characters with no card ref in it, and the card's
-// ref in a `Refs: <ref>` trailer. Land checks a card's commits by it, finish checks a PR title by it, and the briefs
-// and the release script write to it.
+// ref in a `Refs: <ref>` trailer. Land writes its squash commit to it and checks the subject, finish checks a PR title
+// by it, and the briefs and the release script write to it.
 
 export const TYPES = ['feat', 'fix', 'refactor', 'docs', 'test', 'chore', 'perf', 'build', 'ci', 'style', 'revert'];
 export const SUBJECT_MAX = 72;
@@ -46,8 +46,26 @@ export const releaseMessage = (version, subjects) => [`chore(release): ${version
 
 // A squash merge's body, below the PR title as its subject: the PR's body as the detail, then the trailers, "Refs: <ref>"
 // and each Co-Authored-By the PR's commits carry, once whatever its case. commits are gh's ({messageBody}).
-export function squashBody(ref, detail, commits) {
-  const lines = commits.flatMap((c) => c.messageBody.split('\n').filter((l) => /^Co-Authored-By: /i.test(l)));
-  const coauthors = [...new Map(lines.map((l) => [l.toLowerCase(), l])).values()];
-  return [detail.trim(), [`Refs: ${ref}`, ...coauthors].join('\n')].filter(Boolean).join('\n\n');
+export const squashBody = (ref, detail, commits) => withTrailers(detail, [ref], commits.map((c) => c.messageBody));
+
+const REFS = /^Refs: /i;
+const COAUTHOR = /^Co-Authored-By: /i;
+const once = (lines) => [...new Map(lines.map((l) => [l.toLowerCase(), l])).values()];
+
+// detail, then one trailer block with no blank line in it: "Refs: <ref>" for each of refs, then each Co-Authored-By
+// line in messages, once whatever its case.
+function withTrailers(detail, refs, messages) {
+  const coauthors = once(messages.flatMap((m) => m.split('\n').filter((l) => COAUTHOR.test(l))));
+  return [detail.trim(), [...refs.map((r) => `Refs: ${r}`), ...coauthors].join('\n')].filter(Boolean).join('\n\n');
+}
+
+// docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
+// A land's squash commit message from messages, the branch's commit messages, its first commit's first: title, else
+// that first subject; the first commit's detail, its Refs and Co-Authored-By lines left out; then the trailer block,
+// "Refs: <ref>" (with no ref, each Refs the messages carry, once) and each Co-Authored-By they carry, once.
+export function squashMessage(messages, { ref, title } = {}) {
+  const [subject, ...body] = messages[0].split('\n');
+  const detail = body.filter((l) => !REFS.test(l) && !COAUTHOR.test(l)).join('\n').replace(/\n{3,}/g, '\n\n');
+  const refs = ref ? [ref] : once(messages.flatMap((m) => m.split('\n').filter((l) => REFS.test(l)).map((l) => l.replace(REFS, '').trim())));
+  return [title ?? subject, withTrailers(detail, refs, messages)].filter(Boolean).join('\n\n');
 }

@@ -155,7 +155,8 @@ test('land refuses a new ADR named with a number instead of a timestamp, naming 
 });
 
 // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
-test("land --site refuses a commit whose subject isn't Conventional or runs past 72 characters, one with no \"Refs: <ref>\" trailer naming the card, and one still holding a \"# Conflicts:\" note, naming the commit, and changes nothing", () => {
+// docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
+test("land --site refuses a squash message whose subject isn't Conventional or runs past 72 characters, or that still holds a \"# Conflicts:\" note, naming the commit it comes from, and changes nothing; one with no Refs trailer gets the card's", () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   const landOn = () => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
@@ -173,9 +174,6 @@ test("land --site refuses a commit whose subject isn't Conventional or runs past
   assert.deepEqual(refused('feature(board): x\n\nRefs: A1'), shape('feature(board): x'));
   const long = `feat(board): ${'x'.repeat(60)}`;
   assert.deepEqual(refused(`${long}\n\nRefs: A1`), [1, `land: commit <c> "${long}" is 73 characters, over 72; reword it to the commit standard and land again\n`]);
-  assert.deepEqual(refused('feat: no trailer\n\nCo-Authored-By: X'), [1, 'land: commit <c> "feat: no trailer" has no "Refs: A1" trailer; add it above Co-Authored-By and land again\n']);
-  assert.deepEqual(refused('feat: another card\n\nRefs: A2\nCo-Authored-By: X'), [1, 'land: commit <c> "feat: another card" has no "Refs: A1" trailer; add it above Co-Authored-By and land again\n']);
-  assert.deepEqual(refused('feat: in the body\n\nRefs: A1\n\nMore words.'), [1, 'land: commit <c> "feat: in the body" has no "Refs: A1" trailer; add it above Co-Authored-By and land again\n']);
 
   const noted = say('fix: fine\n\nRefs: A1\nCo-Authored-By: X\n\n# Conflicts:\n#\tshared/notes.md');
   const r = landOn();
@@ -183,10 +181,51 @@ test("land --site refuses a commit whose subject isn't Conventional or runs past
   assert.equal(git(repo, 'rev-parse', 'main'), main);
   assert.ok(fs.existsSync(worktree()));
 
-  git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '--amend', '-m', 'fix(board)!: fine\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: X');
+  assert.equal(git(worktree(), 'rev-parse', '--short', 'HEAD'), noted);
+
+  // Land writes the trailer block: the card's Refs, then each Co-Authored-By, with no blank line between.
+  git(worktree(), '-c', 'core.commentChar=;', 'commit', '--quiet', '--amend', '-m', 'fix(board)!: fine\n\nThe detail.\n\nRefs: A2\n\nCo-Authored-By: X');
   const landed = landOn();
   assert.equal(landed.code, 0, landed.err);
-  assert.equal(git(repo, 'log', '-1', '--format=%s', 'main'), 'fix(board)!: fine');
+  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'fix(board)!: fine\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: X');
+});
+
+// docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
+test("every land squashes the card's branch into one commit on main: --title else the first commit's subject, the first commit's detail, the card's Refs over each Co-Authored-By once; a fix-up's and a helper merge's messages are dropped", () => {
+  const repo = scratchRepo();
+  assert.equal(onOrch('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  const main = git(repo, 'rev-parse', 'main');
+  commit(worktree(), 'work.txt', 'built\n', 'feat(board): work\n\nThe detail.\n\nRefs: A1\n\nCo-Authored-By: Claude <c@x>');
+  git(worktree(), 'switch', '--quiet', '-c', 'helper');
+  commit(worktree(), 'helper.txt', 'helped\n', 'test: helper tests\n\nCo-Authored-By: Ann <ann@x>');
+  git(worktree(), 'switch', '--quiet', 'A1');
+  commit(worktree(), 'fix.txt', 'fixed\n', 'review fixes\n\nCo-Authored-By: Claude <c@x>');
+  git(worktree(), 'merge', '--quiet', '--no-ff', '-m', 'chore: merge the tests helper branch', 'helper');
+  git(worktree(), 'branch', '--quiet', '-D', 'helper');
+  const head = git(worktree(), 'rev-parse', 'HEAD');
+  const tree = git(worktree(), 'rev-parse', 'HEAD^{tree}');
+
+  const badTitle = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.', '--title', 'Work');
+  assert.equal(badTitle.code, 1);
+  assert.match(badTitle.err, /^--title "Work" isn't "<type>\(<scope>\): <summary>".*; pass --title "<type>\(<scope>\): <summary>", at most 72 characters\n$/);
+  assert.deepEqual([git(repo, 'rev-parse', 'main'), git(worktree(), 'rev-parse', 'HEAD')], [main, head]);
+
+  const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.', '--title', 'feat(board): the title');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(git(repo, 'rev-parse', 'main~1'), main);
+  assert.equal(git(repo, 'rev-parse', 'main^{tree}'), tree);
+  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'feat(board): the title\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: Claude <c@x>\nCo-Authored-By: Ann <ann@x>');
+  assert.equal(itemOf().lane, 'done');
+});
+
+test('a branch already one commit with the squash message lands as that commit, unrewritten', () => {
+  const repo = scratchRepo();
+  assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
+  commit(worktree(), 'work.txt', 'built\n', 'feat: work\n\nThe detail.\n\nRefs: A1\nCo-Authored-By: X');
+  const head = git(worktree(), 'rev-parse', 'HEAD');
+  const r = run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, finishEnv);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(git(repo, 'rev-parse', 'main'), head);
 });
 
 test('land refuses a worktree with uncommitted changes, with no commit beyond main, or whose suite fails, leaving main and the worktree as they were', () => {
@@ -200,6 +239,13 @@ test('land refuses a worktree with uncommitted changes, with no commit beyond ma
   assert.deepEqual([none.code, none.err], [1, 'A1 has no commits beyond main; nothing to land\n']);
   assert.equal(read(lock).card, 'B2');
   fs.rmSync(lock);
+  commit(worktree(), 'gone.txt', 'gone\n');
+  git(worktree(), 'rm', '--quiet', 'gone.txt');
+  git(worktree(), 'commit', '--quiet', '-m', 'drop it');
+  const head = git(worktree(), 'rev-parse', 'HEAD');
+  const nothing = land();
+  assert.deepEqual([nothing.code, nothing.err, git(worktree(), 'rev-parse', 'HEAD')], [1, "A1's commits change nothing beyond main; nothing to land\n", head]);
+  git(worktree(), 'reset', '--quiet', '--hard', 'main');
   write(path.join(worktree(), 'board', 'server.mjs'), '2\n');
   const dirty = land();
   assert.deepEqual([dirty.code, dirty.err], [1, `${worktree()} has uncommitted changes; commit them there first\n`]);
@@ -349,7 +395,8 @@ test('land rebases onto a moved main, fast-forwards main, and removes the worktr
     `rebased A1 onto main (${moved})`, 'tests passed: 1', `main fast-forwarded to ${main} in ${repo}`,
     `worktree removed: ${worktree()}`, 'branch deleted: A1',
   ]);
-  assert.equal(git(repo, 'rev-parse', 'main~2'), git(repo, 'rev-parse', moved));
+  assert.equal(git(repo, 'rev-parse', 'main~1'), git(repo, 'rev-parse', moved));
+  assert.equal(git(repo, 'log', '-1', '--format=%B', 'main').trim(), 'change board/server.mjs');
   assert.equal(fs.readFileSync(path.join(repo, 'board', 'server.mjs'), 'utf8'), '2\n');
   assert.deepEqual(restarts(), []);
   assert.equal(fs.existsSync(worktree()), false);
@@ -554,8 +601,8 @@ test('builder done on a build that keeps a worktree finishes the card: it needs 
   assert.match(failed.err, /^tests failed in .* \(1 failing\); nothing landed/);
   assert.deepEqual([git(repo, 'rev-parse', 'main'), record().done, itemOf().lane], [main, undefined, undefined]);
 
-  fs.rmSync(path.join(worktree(), 'broken.test.mjs'));
-  git(worktree(), 'commit', '--quiet', '-am', 'feat: fixed\n\nRefs: A1');
+  write(path.join(worktree(), 'broken.test.mjs'), "import test from 'node:test';\ntest('fixed', () => {});\n");
+  git(worktree(), 'commit', '--quiet', '-am', 'fix: fixed\n\nRefs: A1');
   const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.');
   assert.equal(r.code, 0, r.err);
   assert.ok(r.out.includes('\nA1: landed and done\n'), r.out);
