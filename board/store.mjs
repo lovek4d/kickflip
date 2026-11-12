@@ -2105,10 +2105,10 @@ export async function stageReply(site, key, message) {
 // and takes the newer ask.
 const BRIEF_KINDS = ['grill', 'prototype', VISUAL];
 const PLANNER_PHASE = { grill: 'grilling', prototype: 'prototyping' };
-function owe(item, kind, ask = {}, at = new Date().toISOString()) {
+function owe(item, kind, ask = {}, at = new Date().toISOString(), tap = false) {
   const briefs = item.briefs || [];
   const owed = briefs.find((b) => b.kind === kind && !b.brief);
-  const asked = Object.keys(ask).length ? { ask } : {};
+  const asked = { ...(Object.keys(ask).length ? { ask } : {}), ...(tap ? { tap } : {}) };
   item.briefs = owed ? briefs.map((b) => (b === owed ? { ...b, ...asked } : b)) : [...briefs, { kind, at, ...asked }];
 }
 // A card sent back to its conversation owes nothing: its unwritten briefs go, the written ones stay for their launch.
@@ -2127,7 +2127,7 @@ export async function planAgain(site, key, kind, ask = {}) {
     item.phase = PLANNER_PHASE[kind];
     delete item.staged_at;
   }
-  owe(item, kind, ask);
+  owe(item, kind, ask, undefined, true);
   await writeJSON(source.file, itemFile);
 }
 // The board's own call for a planner, a card arriving in Todo with no planner yet: it owes the brief, its phase as it is.
@@ -2155,7 +2155,7 @@ export async function writeBrief(site, key, { kind, file }) {
   await appendNotes(site, key, heading, body);
   const { source, itemFile, item: briefed } = await loadItem(site, key);
   const at = new Date().toISOString();
-  const tapped = (briefed.briefs || []).some((b) => b.kind === kind && !b.brief && b.ask);
+  const tapped = (briefed.briefs || []).some((b) => b.kind === kind && !b.brief && b.tap);
   if (!(briefed.briefs || []).some((b) => b.kind === kind && !b.brief)) owe(briefed, kind, {}, at);
   briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at } } : b));
   if (kind !== VISUAL && briefed.phase !== PLANNER_PHASE[kind]) {
