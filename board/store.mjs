@@ -3245,15 +3245,16 @@ async function linksOf(site, key) {
 }
 
 // A keyed line in each thread (domain.mjs COMMANDS) for every link key gained or lost between before and after
-// (linksOf): Related to or Unrelated from, and Follow-up in the Parent's thread with Follow-up of in the child's.
-async function postLinkLines(site, key, before, after) {
+// (linksOf): Related to or Unrelated from, and Follow-up in the Parent's thread with Follow-up of in the child's. A card
+// spun out (item add --from) reads Created ticket in its Parent's thread and Created from in its own.
+async function postLinkLines(site, key, before, after, spunOut = false) {
   const both = async (command, other, mine = command, theirs = command) => {
     await appendCommand(site, key, { command: mine, card: other });
     await appendCommand(site, other, { command: theirs, card: key });
   };
   for (const other of after.related) if (!before.related.has(other)) await both('related', other);
   for (const other of before.related) if (!after.related.has(other)) await both('unrelated', other);
-  if (after.parent && after.parent !== before.parent) await both('followup-of', after.parent, 'followup-of', 'followup');
+  if (after.parent && after.parent !== before.parent) await (spunOut ? both('created-from', after.parent, 'created-from', 'created') : both('followup-of', after.parent, 'followup-of', 'followup'));
 }
 
 // --related for card key: the list replaces the cards it is related to; "" is none. Each card the list leaves out
@@ -3464,7 +3465,7 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
 // is required, so no card an agent adds reads New; once filed it arrives in Todo and gets its grill
 // (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is held or ready.
-async function createItem(site, key, { title, notes, notesFrom, deps, ticket, newTicket, pickUpAt, held, parent, splitOf, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
+async function createItem(site, key, { title, notes, notesFrom, deps, ticket, newTicket, pickUpAt, held, parent, from, splitOf, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
   checkPhase(phase, state);
@@ -3491,9 +3492,11 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   const created = new Date().toISOString();
   // An agent's card is titled Conventionally; the board's own (an architecture review's) waits for a retitle before its build.
   const item = { id, title: intake ? cardTitle(title) : text(title, '--title'), created, lane: 'todo', lane_at: created };
+  if (from !== undefined && parent !== undefined) fail('--from sets the Parent; drop --parent');
+  if (from !== undefined) item.parent = await parentKey(site, slug, null, from) || fail('--from takes a card, such as <file>/<id>');
   if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a card, such as <file>/<id>');
   // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
-  if (splitOf !== undefined && parent !== undefined) fail('--split-of sets the Parent; drop --parent');
+  if (splitOf !== undefined && (parent !== undefined || from !== undefined)) fail('--split-of sets the Parent; drop --parent and --from');
   if (splitOf !== undefined) {
     item.parent = await parentKey(site, slug, null, splitOf) || fail('--split-of takes a card, such as <file>/<id>');
     const { gates } = (await loadItem(site, item.parent)).item;
@@ -3536,7 +3539,7 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
     if (routeRecord(links, ask) !== undefined) { delete links[ask]; await writeJSON(askLinksFile(site), { links }); }
   }
   if (madeAtReady && site) await appendStatus(site, added, 'ticket-made', { ticket: item.ticket });
-  if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added));
+  if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), from !== undefined);
   return { file: source.file, key: added, lines: [] };
 }
 

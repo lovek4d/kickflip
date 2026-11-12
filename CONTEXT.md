@@ -279,7 +279,7 @@ A work item with a **Parent**: work spun out of another card. It is an ordinary 
 _Avoid_: backlog item, todo, follow-up tag
 
 **Parent**:
-The one card a work item was spun out of, or none: set when a card is created from another card's conversation (its thread, a grill or an answer) with `item add --parent`, none for a card from the + or New task. The Parent lists it among its **Children**. The open card shows both as rows of card labels, with **Related to**, Blocked by and Waits on it, the mirror of Blocked by ([a follow-up is a work card with a Parent](docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md)).
+The one card a work item was spun out of, or none: set when a card is created from another card's conversation (its thread, a grill or an answer) with `item add --from` (its threads read a blue Created ticket and Created from line, [a spun-out ticket is a child](docs/adr/2026-11-12-2000-a-spun-out-ticket-is-a-child-with-a-blue-created-line.md)), none for a card from the + or New task. The Parent lists it among its **Children**. The open card shows both as rows of card labels, with **Related to**, Blocked by and Waits on it, the mirror of Blocked by ([a follow-up is a work card with a Parent](docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md)).
 _Avoid_: filed from, origin, epic
 
 **Related to**:

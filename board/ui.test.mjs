@@ -2714,12 +2714,25 @@ test("a bare visual request is a request line led by the image mark, and the age
 });
 
 // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md
-test('a "Marked as staging" line is a bare gray status line and a "Marked as ready" line is the same in green', () => {
+test('a "Marked as staging" line is a bare orange status line and a "Marked as ready" line is the same in green', () => {
   const line = (command, text) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: text, text });
   const html = ui.threadMessages([line('staged', 'Marked as staging'), line('readied', 'Marked as ready')]);
-  assert.ok(html.includes(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">`));
+  assert.ok(html.includes(`<div class="msg status-line request staged"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">`));
   assert.ok(html.includes(`<div class="msg status-line request readied"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as ready']}</span>Marked as ready <span class="muted">`));
-  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.msg\.request\.readied \{ color: var\(--color-success\); \}/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.msg\.request\.readied \{ color: var\(--color-success\); \}/);
+  assert.match(css, /\.msg\.request\.staged \{ color: var\(--color-notice\); \}/);
+});
+
+// Every Created line is blue (--accent); Related to and Unrelated from stay gray.
+test('a Created ticket, a Created from and a ticket-made line are blue; a Related to line is gray', () => {
+  const link = (command, words) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: words, text: `${words} #12: Tidy`, link: '#selectedCard=w%2FA2', card: 'w/A2' });
+  const html = ui.threadMessages([link('created', 'Created ticket'), link('created-from', 'Created from'), link('related', 'Related to')]);
+  assert.equal(html.match(/msg status-line request created/g).length, 2);
+  assert.equal(html.match(/<div class="msg status-line request">/g).length, 1);
+  const made = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'move', text: 'Created ticket #5', fault: false }]);
+  assert.match(made, /class="msg status-line request hub created"/);
+  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.msg\.request\.created \{ color: var\(--accent\); \}/);
 });
 
 // docs/adr/2026-11-07-0600-every-thread-status-line-carries-an-icon.md

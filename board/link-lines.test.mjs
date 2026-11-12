@@ -6,7 +6,7 @@ import { site, lines, board } from './board-fixture.mjs';
 const thread = (id) => lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)).map(({ ts, ...m }) => m);
 const set = (id, ...args) => assert.equal(board('item', 'set', `audit/${id}`, '--site', 'audit', ...args).code, 0, args.join(' '));
 const add = (id, ...args) => assert.equal(board('item', 'add', `audit/${id}`, '--site', 'audit', '--title', `feat: ${id.toLowerCase()}`, '--phase', 'grilling', ...args).code, 0, args.join(' '));
-const line = (command, card) => ({ who: 'claude', text: { related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of' }[command], command, card });
+const line = (command, card) => ({ who: 'claude', text: { related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of', created: 'Created ticket', 'created-from': 'Created from' }[command], command, card });
 
 test('a new link posts a keyed line naming the other card in both threads, once; an unlink posts an Unrelated line in both', () => {
   add('L1');
@@ -37,4 +37,15 @@ test('a Parent link posts Follow-up in the parent and Follow-up of in the child,
   set('P2', '--parent', 'P1');
   assert.equal(thread('P1').length, 1);
   assert.equal(thread('P2').length, 1);
+});
+
+test('item add --from sets the Parent and posts Created ticket in the source and Created from in the new card, once; --from beside --parent is refused', () => {
+  add('S1');
+  add('S2', '--from', 'S1');
+  assert.deepEqual(thread('S1'), [line('created', 'audit/S2')]);
+  assert.deepEqual(thread('S2'), [line('created-from', 'audit/S1')]);
+  set('S2', '--parent', 'S1');
+  assert.equal(thread('S1').length, 1);
+  assert.equal(thread('S2').length, 1);
+  assert.notEqual(board('item', 'add', 'audit/S3', '--site', 'audit', '--title', 'feat: s3', '--phase', 'grilling', '--from', 'S1', '--parent', 'S1').code, 0);
 });

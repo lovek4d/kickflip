@@ -853,6 +853,7 @@ export const COMMANDS = {
   reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done', reopened: 'Reopened',
   discussing: 'Marked as discussing', staged: 'Marked as staging', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
+  created: 'Created ticket', 'created-from': 'Created from',
 };
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'reask-request': 'reask' };
 export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };

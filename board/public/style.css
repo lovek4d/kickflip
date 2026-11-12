@@ -389,6 +389,8 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 .msg.builder-status .working-dot { animation: none; }
 .msg.request { color: var(--muted); }
 .msg.request.readied { color: var(--color-success); }
+.msg.request.staged { color: var(--color-notice); }
+.msg.request.created { color: var(--accent); }
 .msg.request.hub.fault { color: var(--color-danger); }
 .msg.agent { font-weight: 600; }
 .msg.agent.started { color: var(--color-notice); } .msg.agent.finished { color: var(--color-success); }

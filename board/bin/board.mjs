@@ -293,7 +293,11 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          another card's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A card
                                                          from the + or New task has none
-         [--split-of <file>/<id>]                        a card split from that one: sets it as the Parent, as
+         [--from <file>/<id>]                            spins it out of that card: sets it as the Parent, as
+                                                         --parent does, but the threads read Created ticket and
+                                                         Created from, blue, in place of Follow-up. Refuses
+                                                         --parent beside it
+         [--split-of <file>/<id>]                      a card split from that one: sets it as the Parent, as
                                                          --parent does, and copies its gates, the owner's prototype
                                                          answer, so its grill never asks it again.
                                                          Refuses --parent beside it
@@ -890,10 +894,10 @@ const COMMANDS = {
     return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'held', 'parent', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'held', 'parent', 'from', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, splitOf: f['split-of'], size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, from: f.from, splitOf: f['split-of'], size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
   }],
   'item notes': [['file/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');
