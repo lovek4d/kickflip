@@ -544,7 +544,7 @@ async function listEvents(kind, limit) {
 // badges to dim (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md).
 const prViewOf = (s, limited) => (s ? { title: s.title, url: s.url, state: s.state, isDraft: s.isDraft, reviewDecision: s.reviewDecision, mergeStateStatus: s.mergeStateStatus,
   mergeable: s.mergeable, checks: s.checks, mergedAt: s.mergedAt, headRefName: s.headRefName, headRefOid: s.headRefOid, updatedAt: s.updatedAt,
-  reviews: s.reviews, codexOpen: s.codexOpen, limited } : null);
+  reviews: s.reviews, limited } : null);
 
 const config = () => boardConfig(here);
 

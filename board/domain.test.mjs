@@ -306,6 +306,14 @@ test('a review gone stale waits on the orchestrator from the day it crossed seve
   assert.deepEqual([wait.daily, waits(8, said)[0].daily], [true, true]);
 });
 
+test("a card reads each reviewer's latest review, commented too, and every other GitHub login that approved, asked for changes or commented", () => {
+  const reviews = { ann: 'COMMENTED', 'chatgpt-codex-connector': 'COMMENTED', bea: 'APPROVED', cy: 'CHANGES_REQUESTED', dee: 'DISMISSED', eve: 'PENDING' };
+  const card = board({ pr: { ...greenDraft, isDraft: false, reviews } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual(card.review, { Ann: { state: 'commented', since: null, github: 'ann' } });
+  assert.deepEqual(card.otherReviews, [{ github: 'chatgpt-codex-connector', state: 'commented' }, { github: 'bea', state: 'approved' }, { github: 'cy', state: 'changes' }]);
+  assert.deepEqual(board({ pr: { ...greenDraft, reviews: { ann: 'APPROVED' } } }).items.find((i) => i.key === 'w/A1').otherReviews, []);
+});
+
 test('a review waits with its age, and reads stale in In Review after a week', () => {
   const ready = { ...greenDraft, isDraft: false };
   const sent = { 'w/A1': { review_link_ts: { Ann: '1792800000.000100' } } };

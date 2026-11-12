@@ -124,13 +124,22 @@ export function handedBackAt(agents) {
 const newestBuild = (agents) => agents.filter((a) => a?.started && builds(a) && a.kind !== BUILDER_KIND.install && a.kind !== HELPER)
   .sort((a, b) => String(a.started).localeCompare(String(b.started))).at(-1);
 
+// docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md
+// A GitHub latest review's state as a review chip reads it; a dismissed or pending one is none.
+const REVIEW_STATE = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes', COMMENTED: 'commented' };
 // Each reviewer's state, and since when the link has waited on them.
 function reviewOf(reviewers, pr, sentAt) {
   return Object.fromEntries(reviewers.map((r) => {
-    const verdict = routeRecord(pr?.reviews, r.github);
-    const state = verdict === 'APPROVED' ? 'approved' : verdict === 'CHANGES_REQUESTED' ? 'changes' : Object.hasOwn(sentAt, r.name) ? 'sent' : 'unsent';
+    const state = REVIEW_STATE[routeRecord(pr?.reviews, r.github)] || (Object.hasOwn(sentAt, r.name) ? 'sent' : 'unsent');
     return [r.name, { state, since: state === 'sent' ? routeRecord(sentAt, r.name) : null, github: r.github || null }];
   }));
+}
+// Each GitHub login beyond the card's reviewers whose latest review approved, asked for changes or commented, Codex's
+// bot among them: [{github, state}].
+function otherReviewsOf(reviewers, pr) {
+  const board = new Set(reviewers.map((r) => r.github));
+  return Object.entries(pr?.reviews || {}).filter(([login, verdict]) => REVIEW_STATE[verdict] && !board.has(login))
+    .map(([login, verdict]) => ({ github: login, state: REVIEW_STATE[verdict] }));
 }
 
 // What the card waits on: the owning session's check of finished work, the builder, the owner's merge of a pushed
@@ -329,7 +338,8 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     ticketSource: tickets?.source || null,
     linear: (it.linear || []).map((id) => tickets?.source === 'linear' ? ticketBadge(tickets, id, { repo }) || linearRef(id, tickets) : linearRef(id, tickets)),
     pr: views[least] || null, prs: views,
-    reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr || prs[least]?.kept, sentAt), inReviewSince,
+    reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr || prs[least]?.kept, sentAt),
+    otherReviews: otherReviewsOf(reviewers, pr || prs[least]?.kept), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: planningOf('grill', events, agents, askedAt), prototyping: planningOf('prototype', events, agents, askedAt),
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the card's briefs, owed or

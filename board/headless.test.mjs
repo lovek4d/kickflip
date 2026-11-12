@@ -354,7 +354,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
     { id: 'R3', title: 'Clean', pr: 7 },
   ] }));
   // The hub's check of each PR, which the board reads (server.mjs prViewOf).
-  const view = (n, over) => ({ state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', checks: { total: 0, fail: 0, pending: 0, state: 'none' }, reviews: {}, codexOpen: 0, headRefName: n === 6 ? 'by-hand' : `R${n - 4}`, ...over });
+  const view = (n, over) => ({ state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', checks: { total: 0, fail: 0, pending: 0, state: 'none' }, reviews: {}, headRefName: n === 6 ? 'by-hand' : `R${n - 4}`, ...over });
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'github-state.json'), JSON.stringify({ prs: {
     'owner/project#5': view(5, { isDraft: true, mergeable: 'CONFLICTING', headRefOid: 'a'.repeat(40) }),
     'owner/project#6': view(6, { mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }),

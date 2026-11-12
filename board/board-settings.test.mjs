@@ -655,6 +655,29 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
   assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], reactions: [], digest: null });
 });
 
+test("review due reacts git_approved once GitHub's review decision is APPROVED, or on any approval where the branch asks for no review", () => {
+  const due = () => {
+    const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
+      process.exitCode = await main(['--site', 'orch', 'review', 'due'], {now: new Date('2026-11-02T17:00:00Z')});`;
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  slackToken();
+  assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
+  write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer], items: [1, 2, 3, 4].map((pr) => ({ id: `A${pr}`, title: `PR ${pr}`, pr })) });
+  write(site('orch', 'data', 'pr-slack.json'), Object.fromEntries([1, 2, 3, 4].map((pr) => [`o/r#${pr}`, { head: `h${pr}`, links: { Ann: { channel: 'D1', ts: `${pr}.1`, reactions: [] } }, replies: [] }])));
+  const open = { state: 'OPEN', isDraft: false };
+  write(at('kickflip', 'github-state.json'), { prs: {
+    'o/r#1': { ...open, reviewDecision: 'APPROVED', approved: true },
+    // Someone approved, but not a code owner the branch's protection asks for.
+    'o/r#2': { ...open, reviewDecision: 'REVIEW_REQUIRED', approved: true },
+    'o/r#3': { ...open, reviewDecision: null, approved: true },
+    'o/r#4': { ...open, reviewDecision: null, approved: false },
+  } });
+  assert.deepEqual(due().reactions.map((r) => [r.pr, r.emoji]), [['o/r#1', 'git_approved'], ['o/r#3', 'git_approved']]);
+});
+
 test('review digest waits without changing the record while Slack is not ready', () => {
   const now = '2026-11-02T17:00:00Z';
   board('slack', 'set', '--timezone', 'America/Los_Angeles');

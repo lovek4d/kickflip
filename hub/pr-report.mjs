@@ -118,13 +118,6 @@ async function graphql(query) {
 // REST's login for a GraphQL author: a bot's ends in [bot], as reportOf reads it.
 const user = (a) => (a?.login ? { login: a.__typename === 'Bot' ? `${a.login}[bot]` : a.login } : null);
 
-// Codex findings are top-level review comments by its bot; one is answered once any comment replies to it.
-// comments: REST-shaped review comments. → how many are still open
-function codexOpen(comments) {
-  const answered = new Set(comments.map((c) => c.in_reply_to_id).filter(Boolean));
-  return comments.filter((c) => !c.in_reply_to_id && /codex/i.test(c.user?.login || '') && !answered.has(c.id)).length;
-}
-
 // A PR's CI for the board's badges, from a status check rollup: {total, fail, pending, state: fail | pending | pass | none}.
 export function checksOf(rollup) {
   let fail = 0, pending = 0;
@@ -167,8 +160,7 @@ export async function fetchPRs(prs, repos = []) {
         title: p.title ?? null, additions: p.additions ?? null, deletions: p.deletions ?? null, changedFiles: p.changedFiles ?? null,
         approved: (p.latestReviews?.nodes ?? []).some((r) => r.state === 'APPROVED'),
         url: p.url ?? null, mergedAt: p.mergedAt ?? null, headRefName: p.headRefName ?? null, updatedAt: p.updatedAt ?? null,
-        reviews: Object.fromEntries((p.latestReviews?.nodes ?? []).filter((r) => r.author?.login).map((r) => [r.author.login, r.state])),
-        codexOpen: codexOpen(reviewComments) },
+        reviews: Object.fromEntries((p.latestReviews?.nodes ?? []).filter((r) => r.author?.login).map((r) => [r.author.login, r.state])) },
       issueComments: (p.comments?.nodes ?? []).map(comment),
       reviewComments,
       reviews: (p.reviews?.nodes ?? []).map((r) => ({ id: r.databaseId ?? null, user: user(r.author), submitted_at: r.submittedAt ?? null, body: r.body ?? null, state: r.state ?? null, html_url: r.url ?? null })),
@@ -197,7 +189,7 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
     approved: Boolean(view.approved),
     // The board's badges (fetchPRs; a REST fetchPR view has none but the CI and the full head).
     url: view.url ?? null, mergedAt: view.mergedAt ?? null, headRefName: view.headRefName ?? null, headRefOid: view.headRefOid ?? null,
-    updatedAt: view.updatedAt ?? null, checks: checksOf(checks), reviews: view.reviews ?? {}, codexOpen: view.codexOpen ?? 0,
+    updatedAt: view.updatedAt ?? null, checks: checksOf(checks), reviews: view.reviews ?? {},
   };
 }
 

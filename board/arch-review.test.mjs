@@ -78,7 +78,7 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   const done = readJSON(path.join(b.site, 'data', 'items.json'));
   Object.assign(done.items.find((it) => it.id === 'T-1'), { lane: 'done', closed_at: new Date().toISOString() });
   // INT-10 never landed: its one PR closed unmerged, so it isn't built.
-  b.checked({ 'owner/app-repo#10': { state: 'CLOSED', isDraft: false, checks: { total: 0, fail: 0, pending: 0, state: 'none' }, reviews: {}, codexOpen: 0 } });
+  b.checked({ 'owner/app-repo#10': { state: 'CLOSED', isDraft: false, checks: { total: 0, fail: 0, pending: 0, state: 'none' }, reviews: {} } });
   done.items.push({ id: 'INT-9', title: 'Split the store', lane: 'done', closed_at: new Date().toISOString() }, { id: 'INT-10', title: 'Merge the readers', lane: 'done', closed_at: new Date().toISOString(), prs: [{ number: 10 }] });
   done.waves[0].items.push('INT-9', 'INT-10');
   await putWave(path.join(b.site, 'data', 'items.json'), JSON.stringify(done));

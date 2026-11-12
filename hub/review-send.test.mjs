@@ -74,14 +74,14 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
   assert.equal('replies' in await reviewDue(site, { now: sunday }), false);
   assert.deepEqual(await poll(), { sent: [], failed: [] });
 
-  // Anyone's approval reacts git_approved on every link to that PR, then git_merged on merge, or x on a close;
+  // GitHub's APPROVED review decision reacts git_approved on every link to that PR, then git_merged on merge, or x on a close;
   // the day's header names no PR and gets none.
-  setPRs({ 'o/r#1': pr({ head: 'ccc0000000', approved: true }), 'o/r#2': pr({ title: 'Docs', state: 'CLOSED' }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
+  setPRs({ 'o/r#1': pr({ head: 'ccc0000000', approved: true, reviewDecision: 'APPROVED' }), 'o/r#2': pr({ title: 'Docs', state: 'CLOSED' }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
   await poll();
   const reacted = () => world.reactions.map((r) => `${r.timestamp} ${r.name}`).sort();
   const on = (list, name) => list.map((ts) => `${ts} ${name}`);
   assert.deepEqual(reacted(), [...on([ann1, bob1], 'git_approved'), ...on([ann2, bob2], 'x')].sort());
-  setPRs({ 'o/r#1': pr({ head: 'ccc0000000', approved: true, state: 'MERGED' }), 'o/r#2': pr({ title: 'Docs', state: 'CLOSED' }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
+  setPRs({ 'o/r#1': pr({ head: 'ccc0000000', approved: true, reviewDecision: 'APPROVED', state: 'MERGED' }), 'o/r#2': pr({ title: 'Docs', state: 'CLOSED' }), 'o/r#3': pr({ isDraft: true, title: 'Tests' }) });
   await poll();
   assert.deepEqual(reacted(), [...on([ann1, bob1], 'git_approved'), ...on([ann1, bob1], 'git_merged'), ...on([ann2, bob2], 'x')].sort());
   assert.ok(world.reactions.every((r) => r.channel === ([bob1, bob2].includes(r.timestamp) ? 'D9' : 'D1')));
@@ -114,7 +114,7 @@ test('a link posted top-level before the day threads, and a bump sent before bum
   const slack = fakeSlack(world);
   saveToken(world);
   write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Old', pr: 1 }] });
-  setPRs({ 'o/r#1': pr({ approved: true }) });
+  setPRs({ 'o/r#1': pr({ approved: true, reviewDecision: 'APPROVED' }) });
   write(path.join(site, 'data', 'pr-slack.json'), { 'o/r#1': { head: 'aaa0000000', links: { Ann: { channel: 'D1', ts: '1792700000.000100', reactions: [] } }, replies: [{ id: 'push-1', text: '1 new commit', to: { Ann: { ts: '1792700000.000200', reactions: [] } } }] } });
   await sendReviews({ boards, fetch: slack.fetch, now: sunday });
   assert.deepEqual(world.messages, []);

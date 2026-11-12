@@ -100,16 +100,16 @@ test("an archived card keeps each PR's last CI, reviews and Codex count, and dra
     const wave = read('items.json');
     wave.items.find((it) => it.id === 'D102').prs = [{ number: 7, merged_at: at(102) }, { repo: 'o/site', number: 1 }];
     fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify(wave));
-    const view = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'MERGED', status: 'merged', checks: { state: 'fail', fail: 1 }, reviews: { 'jamie-gh': 'APPROVED' }, codexOpen: 2, title: 'T' };
+    const view = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'MERGED', status: 'merged', checks: { state: 'fail', fail: 1 }, reviews: { 'jamie-gh': 'APPROVED', ben: 'COMMENTED' }, title: 'T' };
     await archiveCards(site, [{ key: 't/D102', closed_at: at(102), prs: [view, { repo: 'o/site', number: 1, status: null }] }]);
     const [entry] = await readArchive(site);
     assert.deepEqual(entry.item.prs, [
-      { number: 7, merged_at: at(102), kept: { checks: { state: 'fail', fail: 1 }, reviews: { 'jamie-gh': 'APPROVED' }, codexOpen: 2 } },
+      { number: 7, merged_at: at(102), kept: { checks: { state: 'fail', fail: 1 }, reviews: { 'jamie-gh': 'APPROVED', ben: 'COMMENTED' } } },
       { repo: 'o/site', number: 1 },
     ], 'a PR GitHub was never read for keeps nothing');
     const card = buildBoard({ files: [{ slug: 't', itemFile: { items: [entry.item] }, agents: {} }], owner: { items: [] }, threads: {}, events: [], github: 'o/repo',
       reviewers: [{ name: 'Jamie', github: 'jamie-gh' }] }).items[0];
-    assert.deepEqual([card.lane, card.pr.status, card.pr.checks.state, card.pr.codexOpen, card.review.Jamie.state], ['done', 'merged', 'fail', 2, 'approved']);
+    assert.deepEqual([card.lane, card.pr.status, card.pr.checks.state, card.review.Jamie.state, card.otherReviews], ['done', 'merged', 'fail', 'approved', [{ github: 'ben', state: 'commented' }]]);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 

@@ -47,7 +47,7 @@ export function summarize(out) {
     // What a board's badges draw, which boards read from here (board/server.mjs snapshot,
     // docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md)
     url: out.url ?? null, mergedAt: out.mergedAt ?? null, headRefName: out.headRefName ?? null, headRefOid: out.headRefOid ?? null,
-    updatedAt: out.updatedAt ?? null, checks: out.checks ?? null, reviews: out.reviews ?? {}, codexOpen: Number(out.codexOpen) || 0,
+    updatedAt: out.updatedAt ?? null, checks: out.checks ?? null, reviews: out.reviews ?? {},
   };
 }
 

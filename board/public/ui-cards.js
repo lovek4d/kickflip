@@ -11,8 +11,8 @@
     [PR_STATE.merged]: { tone: 'merged', mark: ' ✓', label: 'Merged' },
     [PR_STATE.closed]: { tone: 'danger', mark: ' ✗', label: 'Closed' },
   };
-  // docs/adr/2026-11-06-1547-a-cards-pr-badges-stay-once-added.md: a PR no longer open keeps its CI, Codex and reviewer
-  // chips at their last state, gray.
+  // docs/adr/2026-11-06-1547-a-cards-pr-badges-stay-once-added.md: a PR no longer open keeps its CI and reviewer chips
+  // at their last state, gray.
   const keeps = (pr) => pr?.status === PR_STATE.merged || pr?.status === PR_STATE.closed;
   // An open PR reads green only while it waits on a reviewer alone: CI passed and no reviewer asked for changes.
   const waitsOnReviewer = (pr) => pr.checks?.state === 'pass' && pr.reviewDecision !== 'CHANGES_REQUESTED';
@@ -29,35 +29,43 @@
     const note = pr.limited ? ` · GitHub rate limited, resets at ${clock(new Date(pr.limited))}` : '';
     const dim = pr.limited ? { 'data-limited': '' } : {};
     const ci = pr.checks ? badge(live ? CI.tone : 'quiet', `CI ${CI.mark}`, { title: `CI ${pr.checks.state}${note}`, attrs: dim }) : '';
-    const codex = pr.codexOpen ? badge(live ? 'notice' : 'quiet', `codex ${esc(pr.codexOpen)}`, { title: `${pr.codexOpen} Codex finding${pr.codexOpen === 1 ? '' : 's'} not answered yet${note}`, attrs: dim }) : '';
     const name = prName(pr);
     const label = look.label ? { title: `${look.label}${note}`, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${look.label}`, ...dim } } : { title: note.slice(3) || undefined, attrs: { ...EXTERNAL, ...dim } };
-    return `${badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label })}${ci}${codex}`;
+    return `${badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label })}${ci}`;
   }
   const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
   const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: EXTERNAL });
   // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a card with no ticket is a task, its T-<n>
   // only in the badge's title.
   const taskChip = (it) => badge('quiet', 'Task', { title: `${it.ref} · a task, no ticket` });
+  // docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: gray ● pending,
+  // orange ● commented, red ✗ changes, green ✓ approved.
   const REVIEW = {
     approved: { tone: 'ready', mark: '✓', label: 'approved' },
     changes: { tone: 'danger', mark: '✗', label: 'asked for changes' },
-    sent: { tone: 'notice', mark: '●', label: 'sent, not approved yet' },
-    unsent: { tone: 'quiet', mark: '✗', label: 'not sent yet' },
+    commented: { tone: 'notice', mark: '●', label: 'commented' },
+    sent: { tone: 'quiet', mark: '●', label: 'sent, not reviewed yet' },
+    unsent: { tone: 'quiet', mark: '●', label: 'not sent yet' },
   };
   const reviewAge = (rv) => {
     const days = rv?.since ? Math.floor((Date.now() - new Date(rv.since).getTime()) / 86400000) : 0;
     return days >= 1 ? ` ${days}d` : '';
   };
+  // A chip per person on the PR: the card's reviewers, then each other GitHub login that reviewed it, Codex's bot among them.
   function reviewChips(it) {
     const live = it.pr?.state === 'OPEN';
     if (!live && !keeps(it.pr)) return '';
-    return (it.reviewers || []).map((r) => {
+    const mine = (it.reviewers || []).map((r) => {
       const rv = globalThis.BoardUI.record(it.review, r);
       const s = REVIEW[rv?.state || 'unsent'];
       const age = live ? reviewAge(rv).trim() : '';
       return badge(live ? s.tone : 'quiet', `${esc(rv?.github || r)}${age ? ` (${age})` : ''} ${s.mark}`, { title: `${r}${rv?.github ? ` (${rv.github})` : ''}: ${s.label}` });
-    }).join('');
+    });
+    const others = (it.otherReviews || []).map(({ github, state }) => {
+      const s = REVIEW[state];
+      return badge(live ? s.tone : 'quiet', `${esc(github)} ${s.mark}`, { title: `${github} (not a board reviewer): ${s.label}` });
+    });
+    return [...mine, ...others].join('');
   }
   const pendingQuestions = (it) => (it.questions && it.questions.state !== 'resolved' ? it.questions.open + it.questions.answered + it.questions.replied : 0);
   // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md

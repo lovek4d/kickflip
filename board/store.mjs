@@ -965,11 +965,15 @@ function linkText(gh, item) {
   return `ready for review: ${gh.title || item.title}${size}`;
 }
 const approved = (gh) => Boolean(gh?.approved) || gh?.reviewDecision === 'APPROVED';
+// docs/adr/2026-11-12-1400-a-chip-per-pr-reviewer-and-git-approved-waits-for-githubs-decision.md: a PR's Slack
+// messages react git_approved on GitHub's review decision, which counts a code owner's approval when the branch asks
+// for one; on a branch that asks for no review (no decision) any approval does.
+const reviewApproved = (gh) => (gh?.reviewDecision ? gh.reviewDecision === 'APPROVED' : Boolean(gh?.approved));
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `review due`: each Slack send still owed, from local state with no GitHub call; the hub sends them each poll.
 // date: the Slack day, whose thread a link goes in. links: a fresh link to each reviewer of a card's PR that the hub
-// last read open and out of draft, once per PR. reactions: git_approved once anyone approved, then git_merged on merge
+// last read open and out of draft, once per PR. reactions: git_approved once reviewApproved, then git_merged on merge
 // or x on a close, on each posted link and reply. digest: review digest's answer while one is due, else null. While
 // Slack isn't ready → waiting and nothing owed.
 export async function reviewDue(site, options) {
@@ -999,7 +1003,7 @@ export async function reviewDue(site, options) {
   const reactions = [];
   for (const [pr, rec] of Object.entries(record)) {
     const gh = routeRecord(cache.prs, pr);
-    const wanted = [approved(gh) && 'git_approved', gh?.state === 'MERGED' ? 'git_merged' : gh?.state === 'CLOSED' && 'x'].filter(Boolean);
+    const wanted = [reviewApproved(gh) && 'git_approved', gh?.state === 'MERGED' ? 'git_merged' : gh?.state === 'CLOSED' && 'x'].filter(Boolean);
     const react = (name, message, reply) => {
       if (!message.ts) return;
       for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply ? { reply } : {}), channel: message.channel || rec.links[name].channel, ts: message.ts, emoji });
@@ -3749,13 +3753,13 @@ export const archiveCards = (site, picks) => archiveWrite(site, async () => {
 });
 
 // docs/adr/2026-11-06-1547-a-cards-pr-badges-stay-once-added.md
-// item with each stored PR that a view in views [{repo, number, state, checks, reviews, codexOpen}] read from GitHub
-// marked kept: {checks, reviews, codexOpen}, the last state its badges draw once the board no longer reads the hub's check for it.
+// item with each stored PR that a view in views [{repo, number, state, checks, reviews}] read from GitHub
+// marked kept: {checks, reviews}, the last state its badges draw once the board no longer reads the hub's check for it.
 function keptPRs(item, views) {
   if (!hasPR(item)) return item;
   const prs = storedPRs(item).map((p) => {
     const v = views.find((w) => w.state && w.number === p.number && (!p.repo || p.repo === w.repo));
-    return v ? { ...p, kept: { checks: v.checks, reviews: v.reviews, codexOpen: v.codexOpen } } : p;
+    return v ? { ...p, kept: { checks: v.checks, reviews: v.reviews } } : p;
   });
   const { pr, ...rest } = item;
   return { ...rest, prs };

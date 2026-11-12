@@ -104,8 +104,24 @@ test('a review chip shows the reviewer\'s GitHub login, its age once it has wait
   const chips = (since) => text(ui.reviewChips({ pr: openPR, reviewers: ['Jamie'], review: { Jamie: { state: 'sent', since, github: 'jamie-gh' } } }));
   assert.equal(chips(ago(3)), 'jamie-gh ●');
   assert.equal(chips(ago(50)), 'jamie-gh (2d) ●');
-  assert.match(ui.reviewChips({ pr: openPR, reviewers: ['Jamie'], review: { Jamie: { state: 'sent', since: ago(50), github: 'jamie-gh' } } }), /title="Jamie \(jamie-gh\): sent, not approved yet"/);
+  assert.match(ui.reviewChips({ pr: openPR, reviewers: ['Jamie'], review: { Jamie: { state: 'sent', since: ago(50), github: 'jamie-gh' } } }), /title="Jamie \(jamie-gh\): sent, not reviewed yet"/);
   assert.equal(text(ui.reviewChips({ pr: openPR, reviewers: ['Jamie'], review: { Jamie: { state: 'approved', since: null, github: null } } })), 'Jamie ✓');
+});
+
+// A chip per person who reviewed: gray ● pending, orange ● commented, red ✗ changes, green ✓ approved.
+test("an open PR's review chips mark each state, the board's reviewers first, then each other GitHub login that reviewed", () => {
+  const review = { Ann: { state: 'unsent', since: null, github: 'ann' }, Bo: { state: 'sent', since: ago(3), github: 'bo' }, Cy: { state: 'commented', since: null, github: 'cy' } };
+  const otherReviews = [{ github: 'chatgpt-codex-connector', state: 'commented' }, { github: 'dee', state: 'changes' }, { github: 'eli', state: 'approved' }];
+  const chips = ui.reviewChips({ pr: openPR, reviewers: ['Ann', 'Bo', 'Cy'], review, otherReviews });
+  assert.equal(text(chips), 'ann ● bo ● cy ● chatgpt-codex-connector ● dee ✗ eli ✓');
+  assert.deepEqual([...chips.matchAll(/class="chip (tone-\w+)"/g)].map((m) => m[1]), ['tone-quiet', 'tone-quiet', 'tone-notice', 'tone-notice', 'tone-danger', 'tone-ready']);
+  assert.match(chips, /title="Ann \(ann\): not sent yet"/);
+  assert.match(chips, /title="Cy \(cy\): commented"/);
+  assert.match(chips, /title="chatgpt-codex-connector \(not a board reviewer\): commented"/);
+  assert.match(chips, /title="dee \(not a board reviewer\): asked for changes"/);
+  const merged = ui.reviewChips({ pr: { ...openPR, state: 'MERGED', status: 'merged' }, reviewers: [], review: {}, otherReviews });
+  assert.equal(text(merged), 'chatgpt-codex-connector ● dee ✗ eli ✓');
+  assert.deepEqual([...merged.matchAll(/class="chip (tone-\w+)"/g)].map((m) => m[1]), ['tone-quiet', 'tone-quiet', 'tone-quiet']);
 });
 
 test('a merged or closed PR keeps its review chips at their last state, gray; a PR GitHub has not been read for shows none', () => {
@@ -119,18 +135,18 @@ test('a merged or closed PR keeps its review chips at their last state, gray; a 
   assert.equal(ui.reviewChips({ pr: { ...openPR, state: undefined, checks: undefined, status: null }, reviewers: ['Jamie'], review }), '');
 });
 
-test('a merged PR keeps its CI and Codex chips at their last state, gray, beside its Merged badge', () => {
-  const chips = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', checks: { state: 'fail' }, codexOpen: 2 }] });
-  assert.equal(text(chips), 'repo#7 ✓ CI ✗ codex 2');
-  assert.deepEqual([...chips.matchAll(/class="chip (tone-\w+)"/g)].map((m) => m[1]), ['tone-merged', 'tone-quiet', 'tone-quiet']);
+test('a merged PR keeps its CI chip at its last state, gray, beside its Merged badge', () => {
+  const chips = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', checks: { state: 'fail' } }] });
+  assert.equal(text(chips), 'repo#7 ✓ CI ✗');
+  assert.deepEqual([...chips.matchAll(/class="chip (tone-\w+)"/g)].map((m) => m[1]), ['tone-merged', 'tone-quiet']);
   assert.match(chips, /title="CI fail"/);
   // An archived card read only from what it kept, with no GitHub state, draws the same.
   assert.equal(text(ui.prChips({ prs: [{ ...openPR, state: undefined, status: 'merged', checks: { state: 'pass' } }] })), 'repo#7 ✓ CI ✓');
 });
 
-test('PR chips show the repo with an orange dot for a draft or a green check once ready, then CI and unanswered Codex findings', () => {
-  const draft = ui.prChips({ prs: [{ ...openPR, isDraft: true, status: 'draft', codexOpen: 2 }] });
-  assert.equal(text(draft), 'repo#7 ● CI ✓ codex 2');
+test('PR chips show the repo with an orange dot for a draft or a green check once ready, then CI', () => {
+  const draft = ui.prChips({ prs: [{ ...openPR, isDraft: true, status: 'draft' }] });
+  assert.equal(text(draft), 'repo#7 ● CI ✓');
   assert.match(draft, /^<a class="chip tone-notice" [^>]*title="Draft" [^>]*aria-label="repo#7: Draft">/);
   const ready = ui.prChips({ prs: [openPR] });
   assert.equal(text(ready), 'repo#7 ✓ CI ✓');
@@ -143,13 +159,13 @@ test('PR chips show the repo with an orange dot for a draft or a green check onc
 });
 
 // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md
-test("while GitHub's limit holds the hub's check, a PR's badge, CI and Codex chips dim and say when it resets", () => {
+test("while GitHub's limit holds the hub's check, a PR's badge and CI chip dim and say when it resets", () => {
   const reset = new Date(2026, 10, 9, 15, 12).toISOString();
-  const chips = ui.prChips({ prs: [{ ...openPR, codexOpen: 1, limited: reset }] });
-  assert.equal(text(chips), 'repo#7 ✓ CI ✓ codex 1');
-  assert.equal([...chips.matchAll(/<(?:a|span) class="chip tone-\w+"[^>]* data-limited="">/g)].length, 3);
-  assert.equal([...chips.matchAll(/title="[^"]*· GitHub rate limited, resets at 3:12 pm"/g)].length, 3);
-  assert.doesNotMatch(ui.prChips({ prs: [{ ...openPR, codexOpen: 1, limited: null }] }), /data-limited|rate limited/);
+  const chips = ui.prChips({ prs: [{ ...openPR, limited: reset }] });
+  assert.equal(text(chips), 'repo#7 ✓ CI ✓');
+  assert.equal([...chips.matchAll(/<(?:a|span) class="chip tone-\w+"[^>]* data-limited="">/g)].length, 2);
+  assert.equal([...chips.matchAll(/title="[^"]*· GitHub rate limited, resets at 3:12 pm"/g)].length, 2);
+  assert.doesNotMatch(ui.prChips({ prs: [{ ...openPR, limited: null }] }), /data-limited|rate limited/);
 });
 
 test("a card with several PRs shows a badge for each, in its order, with that PR's state, CI and link", () => {
@@ -1541,17 +1557,17 @@ test('ticket badges use the board source, link out, and give a New card its tick
 });
 
 test('a work card reads its title, then its next step or builder, its chips, and last its time line with what blocks it, Action needed and its unread messages', () => {
-  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', '2 new messages']);
+  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, prs: [], reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
   const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
-  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ Jamie ✗ risky', 'held']);
+  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ Jamie ● risky', 'held']);
   const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, prs: [], linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', 'Action needed']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', 'Action needed']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } }, { unread: 3 })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', 'Action needed · 3 new messages']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', 'Action needed · 3 new messages']);
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
   assert.match(ui.workLines(blocked), /<div class="line6 sub card-time"><a class="card-blocked" href="#selectedCard=site%2FS2">blocked by INT-2<\/a><\/div>/);
@@ -1572,7 +1588,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   const sortAt = ago(2);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), held: true, sortAt,
     action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ✗', `${ui.cardTime(sortAt)} · held · blocked by INT-2`, 'Action needed · 1 new message']);
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', `${ui.cardTime(sortAt)} · held · blocked by INT-2`, 'Action needed · 1 new message']);
   assert.match(ui.workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
   assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
@@ -1707,7 +1723,7 @@ test('an app install badge opens in place and uses the agreed current and stale 
   const url = 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist';
   const install = { url, sha: 'abc1234', older: false };
   const html = ui.workLines({ ...workCard, install });
-  assert.equal(lines(html)[2], 'repo#7 ● CI ✓ Jamie ✗ Install');
+  assert.equal(lines(html)[2], 'repo#7 ● CI ✓ Jamie ● Install');
   assert.match(html, /href="itms-services:/);
   assert.doesNotMatch(ui.installButton({ ...workCard, install }), /target=/);
   assert.equal(text(ui.installChip({ ...workCard, install: { ...install, older: true } })), 'Install (stale)');
