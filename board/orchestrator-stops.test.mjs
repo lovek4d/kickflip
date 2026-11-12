@@ -11,7 +11,6 @@ import { stopRuns, reviveBuilders } from './headless.mjs';
 import { holdingLandLock, moveQueuedLand, landQueue } from './worktree.mjs';
 import { buildBoard, stoppedWords } from './domain.mjs';
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const kick = (...p) => at('kickflip', ...p);
 
@@ -80,9 +79,10 @@ test('stopRuns refuses, stopping nothing, when ps gives no answer twice', async 
 });
 
 test('stopRuns kills what ignores the stop once the grace period ends', async (t) => {
-  const stubborn = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { detached: true, stdio: 'ignore' });
+  const stubborn = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); console.log('ignoring'); setInterval(() => {}, 1000)"], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
   t.after(() => { try { process.kill(stubborn.pid, 'SIGKILL'); } catch {} });
-  await sleep(200);
+  // The stop comes once the process says it ignores SIGTERM, not after a fixed delay a loaded host can outlast.
+  await new Promise((resolve) => stubborn.stdout.once('data', resolve));
   const gone = new Promise((resolve) => stubborn.once('exit', (code, signal) => resolve(signal)));
   await stopRuns([stubborn.pid], { grace: 300 });
   assert.equal(await gone, 'SIGKILL');
@@ -188,18 +188,20 @@ test('a bump orders the land queue: a bumped land goes ahead of the ones asked b
   process.env.HOME = home;
   t.after(() => { process.env.HOME = old; });
   const order = [];
-  const hold = holdingLandLock('#1', () => sleep(400).then(() => order.push('#1')));
-  await sleep(50);
+  // #1 holds the lock until the bump is made, however long a loaded host takes to queue the rest.
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const hold = holdingLandLock('#1', () => held.then(() => order.push('#1')));
   const queued = [];
   for (const [card, first] of [['#2', null], ['#3', '2026-11-05T10:00:00.000Z'], ['#4', null], ['#5', '2026-11-05T11:00:00.000Z']]) {
     queued.push(holdingLandLock(card, async () => { order.push(card); }, { site: '/s', key: `w/${card.slice(1)}`, first }));
-    await sleep(20);
   }
   await until(() => landQueue().length === 5, 'every land is queued');
   assert.deepEqual(landQueue().map((q) => [q.card, q.running, Boolean(q.first)]), [['#1', true, false], ['#5', false, true], ['#3', false, true], ['#2', false, false], ['#4', false, false]]);
   // The orchestrator's bump of a land already waiting moves it first; #1 keeps running.
   assert.equal(moveQueuedLand('/s', 'w/4', '2026-11-05T12:00:00.000Z'), 1);
   assert.equal(moveQueuedLand('/s', 'w/9', '2026-11-05T12:00:00.000Z'), 0);
+  release();
   await Promise.all([hold, ...queued]);
   assert.deepEqual(order, ['#1', '#4', '#5', '#3', '#2']);
 });

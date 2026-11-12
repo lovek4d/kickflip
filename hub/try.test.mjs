@@ -280,28 +280,40 @@ test('a card serve stops and drops its entry once its card is Done, its PR merge
 });
 
 test('a serve that exits after it was up starts again up to 3 times in 10 minutes on its port, then reads Serve failed', async (t) => {
-  fakeRelays(t);
+  const relays = fakeRelays(t);
   manager = createTryManager({ now: () => clock, answers: async () => true, log() {} });
   const runsFile = path.join(home, 'runs');
   const exits = path.join(home, 'exits');
+  // Run n of a round exits once the test writes go/n, after the hub has it up: an exit before then is a build that
+  // failed, not a serve to restart, and a fixed delay on a loaded host can come before it.
+  const go = path.join(home, 'go');
   write(exits, '2');
   setScript(`const fs = require('node:fs');
 fs.appendFileSync(${JSON.stringify(runsFile)}, 'run\\n');
 const runs = fs.readFileSync(${JSON.stringify(runsFile)}, 'utf8').trim().split('\\n').length;
 console.log('port 32123');
 setInterval(() => {}, 1000);
-if (runs <= Number(fs.readFileSync(${JSON.stringify(exits)}, 'utf8'))) setTimeout(() => process.exit(0), 300);`);
+if (runs <= Number(fs.readFileSync(${JSON.stringify(exits)}, 'utf8'))) setInterval(() => { if (fs.existsSync(${JSON.stringify(go)} + '/' + runs)) process.exit(0); }, 20);`);
   const launches = () => fs.existsSync(runsFile) ? fs.readFileSync(runsFile, 'utf8').trim().split('\n').length : 0;
+  // Each run opens a relay once its port line has written running, so run n of a round is up when the relays opened
+  // before the round plus n are open and the state reads ready.
+  const exitOnceUp = async (before, n) => {
+    await until(() => relays.length === before + n && state().cards['w/A1']?.state === 'ready');
+    write(path.join(go, String(n)), '');
+  };
   await start();
-  await until(() => launches() === 3 && state().cards['w/A1']?.state === 'ready');
+  for (const n of [1, 2]) await exitOnceUp(0, n);
+  await until(() => launches() === 3 && relays.length === 3 && state().cards['w/A1']?.state === 'ready');
   assert.equal(state().cards['w/A1'].https, 8500);
   assert.match(fs.readFileSync(path.join(site, 'data/try/A1.log'), 'utf8'), /^The serve exited on its own; serving it again \(2 of 3 in 10 minutes\)\./);
   assert.deepEqual(thread(), []);
   // Ten minutes on, the earlier restarts no longer count: three more exits restart it, and a fourth reads failed.
   clock += 11 * 60_000;
   fs.rmSync(runsFile);
+  fs.rmSync(go, { recursive: true });
   write(exits, '99');
   await start();
+  for (const n of [1, 2, 3, 4]) await exitOnceUp(3, n);
   await until(() => thread().length === 1);
   assert.equal(launches(), 4);
   assert.equal(state().cards['w/A1'].state, 'failed');

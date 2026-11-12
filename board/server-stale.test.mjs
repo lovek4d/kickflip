@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { until, boardListening } from '../shared/test-helpers.mjs';
+import { until, boardListening, untilTestEnds, stallingPs } from '../shared/test-helpers.mjs';
 import { writeBrief } from './store.mjs';
 
 // Writes a file the running server may be reading the way the board does (write aside, then rename), so the server
@@ -13,11 +13,13 @@ import { writeBrief } from './store.mjs';
 const put = (file, text) => { fs.writeFileSync(file + '.tmp', text); fs.renameSync(file + '.tmp', file); };
 
 // The board at siteDir as the hub's manifest under dir records it, building from a git repo of its own, and a fake
-// claude that logs the card and kind of each agent the server launches
+// claude that logs the card and kind of each agent the server launches and names its session at once, as claude's init
+// event does, so no launch waits out the adapter's wait for a session (board/agents.mjs)
 // (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md). → {claude, launched(kinds)}: the cards
 // launched with any of kinds, each once, first launch first.
-// stays keeps each launched agent running 20 s, as a planner does until its own done: the board closes the record of a
-// planner whose process is gone (docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md).
+// stays keeps each launched agent running until the test ends, as a planner does until its own done: the board closes the
+// record of a planner whose process is gone (docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md),
+// so one that ended after a fixed time would free its slot partway through a test on a loaded host.
 function launchingBoard(dir, siteDir, { stays = false } = {}) {
   const repo = path.join(dir, 'repo');
   fs.mkdirSync(repo, { recursive: true });
@@ -29,7 +31,7 @@ function launchingBoard(dir, siteDir, { stays = false } = {}) {
   fs.writeFileSync(manifest, JSON.stringify({ sites: { t: { dir: siteDir, port: 1, cmd: ['node', '/x/board/server.mjs'], branch: 'main', owner: { repo } } } }));
   const log = path.join(dir, 'launches.log');
   const claude = path.join(dir, 'claude');
-  fs.writeFileSync(claude, `#!/usr/bin/env node\nconst m = process.argv[3].match(/builder start (\\S+) --kind (\\w+)/);\nrequire('fs').appendFileSync(${JSON.stringify(log)}, m[1] + ' ' + m[2] + '\\n');\n${stays ? 'setTimeout(() => {}, 20000);\n' : ''}`);
+  fs.writeFileSync(claude, `#!/usr/bin/env node\nconst m = process.argv[3].match(/builder start (\\S+) --kind (\\w+)/);\nrequire('fs').appendFileSync(${JSON.stringify(log)}, m[1] + ' ' + m[2] + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\n${stays ? `${untilTestEnds()};\n` : ''}`);
   fs.chmodSync(claude, 0o755);
   const launched = (...kinds) => [...new Set((fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '').split('\n').filter(Boolean).map((l) => l.split(' ')).filter(([, k]) => kinds.includes(k)).map(([key]) => key))];
   return { claude, launched };
@@ -572,9 +574,13 @@ test('each card arriving in Todo owes a grill brief up to the planner cap and gr
   const logged = (kind) => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === kind).map((e) => e.data.key);
   const thread = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).text) : []);
   const { claude, launched } = launchingBoard(dir, siteDir, { stays: true });
+  // The server records a planner's launch on its frozen clock, and reads a planner gone unless its process started in the
+  // minute before; this ps says each running process started a second before that clock, so a planner reads gone only
+  // once its process has.
+  const ps = stallingPs(dir, { lstart: 'Tue Nov  3 15:59:59 2026', ppid: 1 });
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
-      env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
+      env: { ...process.env, PATH: `${ps.bin}:${process.env.PATH}`, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },
     });
     await boardListening(worker);
   };

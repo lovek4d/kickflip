@@ -41,12 +41,17 @@ export function boardListening(child) {
   });
 }
 
-export async function until(predicate, message, timeout = 30000) {
-  const deadline = Date.now() + timeout;
+// docs/adr/2026-11-12-1110-a-test-waits-on-state-and-fails-only-at-5x-its-budget.md
+// Polls predicate every 20 ms until it holds. budget is how long the wait should take: past it the wait warns and goes
+// on, since a loaded host is slow, not wrong, and only past 5× the budget does it fail with message.
+export async function until(predicate, message, budget = 30000) {
+  const started = Date.now();
   while (!await predicate()) {
-    assert.ok(Date.now() < deadline, message);
+    assert.ok(Date.now() - started < 5 * budget, message);
     await setTimeout(20);
   }
+  const took = Date.now() - started;
+  if (took > budget) console.warn(`${message}: took ${took} ms, past its ${budget} ms budget`);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md: a board server sees a write made outside it once
