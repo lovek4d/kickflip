@@ -10,7 +10,7 @@
   --color-merged: var(--purple);
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #111114; --panel: #18181c; --line: #2a2a31; --text: #ececf1; --muted: #9a9aa6;
-    --accent: #6fa8e8; --accent-soft: #1b2533; --on-accent: #0b0b0e; --ok: #3ccf7f; --warn: #e3a33a; --bad: #f0687f; --purple: #ab7df8;
-    --chip: #24242b; --band: #202026; --claude: #2d2416; }
+  :root { --bg: #0b0c0d; --panel: #111214; --line: #212226; --text: #e8e9ec; --muted: #8a8f98;
+    --accent: #6fa8e8; --accent-soft: #141b26; --on-accent: #0b0b0e; --ok: #3ccf7f; --warn: #e3a33a; --bad: #f0687f; --purple: #ab7df8;
+    --chip: #1a1b1e; --band: #141517; --claude: #1f1a12; }
 }

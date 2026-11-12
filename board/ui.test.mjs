@@ -38,13 +38,21 @@ test('one human blue: --accent is the planner blue in both modes, and every labe
   const [light, dark] = colorsCss.split('@media (prefers-color-scheme: dark)');
   const value = (src, name) => new RegExp(`${name}:\\s*([^;]+);`).exec(src)?.[1].trim();
   assert.deepEqual([value(light, '--accent'), value(light, '--accent-soft'), value(light, '--on-accent')], ['#2b6cb0', '#eef6ff', '#ffffff']);
-  assert.deepEqual([value(dark, '--accent'), value(dark, '--accent-soft'), value(dark, '--on-accent')], ['#6fa8e8', '#1b2533', '#0b0b0e']);
+  assert.deepEqual([value(dark, '--accent'), value(dark, '--accent-soft'), value(dark, '--on-accent')], ['#6fa8e8', '#141b26', '#0b0b0e']);
   assert.deepEqual([...definedIn(colorsCss)].filter((v) => /love|blue/.test(v)), []);
   for (const f of ['style.css', 'sidebar.css', 'hub.css']) {
     const css = fs.readFileSync(new URL(`./public/${f}`, import.meta.url), 'utf8');
     const filled = css.split('}').filter((r) => /background:\s*var\(--accent\)/.test(r) && /[^-]color:/.test(r));
     for (const r of filled) assert.match(r, /[^-]color:\s*var\(--on-accent\)/, `${f}: ${r.trim()}`);
   }
+});
+
+test("dark mode's ground is near-black like Linear's, and the semantic colours stay as they were", () => {
+  const dark = colorsCss.split('@media (prefers-color-scheme: dark)')[1];
+  const value = (name) => new RegExp(`${name}:\\s*([^;]+);`).exec(dark)?.[1].trim();
+  assert.deepEqual(['--bg', '--panel', '--line', '--text', '--muted', '--chip', '--band', '--claude'].map(value),
+    ['#0b0c0d', '#111214', '#212226', '#e8e9ec', '#8a8f98', '#1a1b1e', '#141517', '#1f1a12']);
+  assert.deepEqual(['--ok', '--warn', '--bad', '--purple'].map(value), ['#3ccf7f', '#e3a33a', '#f0687f', '#ab7df8']);
 });
 
 test("every hub.css selector is under .hub-view, so the hub's short class names never reach a board's elements", () => {
