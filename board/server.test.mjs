@@ -636,6 +636,26 @@ test("an Implement message stages a Todo card where it is, its words in the note
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+// docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md
+test("a Prototype, Grill or Visual tap ends the orchestrator's Implement or Close mark on a card", async () => {
+  await putWave(JSON.stringify({ items: [{ id: 'OW1', title: 'One' }, { id: 'OW2', title: 'Two' }, { id: 'OW3', title: 'Three' }] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const itemsFile = path.join(site, 'data', 'items.json');
+  const marked = (id) => JSON.parse(fs.readFileSync(itemsFile, 'utf8')).items.find((i) => i.id === id).waits_on_owner;
+  const mark = (id, on) => {
+    const f = JSON.parse(fs.readFileSync(itemsFile, 'utf8'));
+    f.items.find((i) => i.id === id).waits_on_owner = { on, at: '2026-11-12T20:00:00Z' };
+    fs.writeFileSync(itemsFile, JSON.stringify(f));
+  };
+  for (const [id, kind, on] of [['OW1', 'prototype-request', 'implement'], ['OW2', 'grill-more', 'close'], ['OW3', 'visual-request', 'implement']]) {
+    mark(id, on);
+    assert.equal(marked(id).on, on);
+    const r = await post({ kind, key: `t/${id}` });
+    assert.equal(marked(id), undefined, kind);
+    assert.equal(r.board.items.find((i) => i.id === id).action, null, kind);
+  }
+});
+
 // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
 test("a thread message sent again with the same send id records once: the resend answers with the first event's id, and an Implement resent stages and notes once", async () => {
   await putWave(JSON.stringify({ items: [{ id: 'SID1', title: 'Resent' }] }));

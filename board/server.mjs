@@ -1287,6 +1287,8 @@ const server = http.createServer(async (req, res) => {
       // brief; the agent launches from the brief.
       const tapped = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual' }[kind];
       if (tapped && body.key) {
+        // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md: the tap ends an Implement or Close mark.
+        await clearOwnerWait(here, String(body.key));
         await planAgain(here, String(body.key), tapped, {
           ...(body.text ? { text: String(body.text) } : {}),
           ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}),

@@ -2151,7 +2151,7 @@ export async function stageImplement(site, key, message) {
   await stage(site, key);
 }
 // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md
-// An owner's Implement or Done tap, or message, on a card ends the orchestrator's waits_on_owner mark (implement or close).
+// An owner's Implement, Done, Prototype, Grill or Visual tap, or message, on a card ends the orchestrator's waits_on_owner mark (implement or close).
 export async function clearOwnerWait(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
   if (!item.waits_on_owner) return;
