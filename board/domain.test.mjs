@@ -573,6 +573,22 @@ test('a message marked working shows on its thread and card until Claude replies
   assert.deepEqual(threadOf('w/A1', { events: [msg('m2', '2026-10-23T10:05:00Z')], agents }).map(({ kind, state }) => [kind, state]), [['item-message', 'waiting'], ['agent', undefined], ['agent', undefined]]);
 });
 
+// docs/adr/2026-11-12-0200-sorting-a-card-answers-its-own-ask.md
+test("a card's own ask reads answered once the card has a phase, so a readied Quick build pulls; the owner's other messages stay working", () => {
+  const ask = { id: 'a1', ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Hi' }, reply: null };
+  const msg = { id: 'm1', ts: '2026-10-23T08:30:00Z', kind: 'item-message', data: { key: 'w/T-1', text: 'more' }, reply: null };
+  const working = { a1: '2026-10-23T08:01:00Z', m1: '2026-10-23T08:31:00Z' };
+  const built = (events, phase) => buildBoard({ fromWaves: false, events, working, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'Hi', from_ask: 'a1', ...(phase ? { phase } : {}) }] } }] });
+  const card = (b) => b.items.find((i) => i.key === 'w/T-1');
+  const unsorted = built([ask]);
+  assert.equal(card(unsorted).working, true, 'a New card keeps working');
+  const ready = built([ask], 'ready');
+  assert.deepEqual([card(ready).working, pullOf(ready.items).pullable.includes('w/T-1')], [false, true]);
+  assert.equal(card(built([ask], 'grilling')).working, false);
+  const both = built([ask, msg], 'ready');
+  assert.deepEqual([card(both).working, pullOf(both.items).pullable.includes('w/T-1')], [true, false], 'a later message still works');
+});
+
 test("a builder's judgment calls follow its lines in the thread, as one entry with its verification, and an agent with none adds nothing", () => {
   const calls = [{ at: '2026-10-23T10:08:00Z', text: 'Question: every agent?' }, { at: '2026-10-23T10:09:00Z', text: 'Kept the old name' }];
   const agents = {

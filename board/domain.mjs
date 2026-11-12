@@ -903,7 +903,7 @@ function sectionOf(agentList, a) {
   if (a.label !== LANDER) return a.started;
   return agentList.filter((x) => builds(x) && x.label !== LANDER && x.started && String(x.started) < String(a.started)).pop()?.started ?? a.started;
 }
-export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
+export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
   const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
@@ -948,7 +948,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     if ((m.kind === 'ask' || m.kind === 'item-message') && typeof edits.get(m.eventId) === 'string') {
       Object.assign(m, { text: edits.get(m.eventId), edited: true, files: [...m.files, ...(editFiles.get(m.eventId) || [])] });
     }
-    const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved));
+    const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved) || (sorted && m.eventId === fromAsk));
     m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || lastClaude > String(m.ts) ? 'answered' : routeRecord(working, m.eventId) ? 'working' : 'waiting';
     m.canDelete = m.kind === 'item-message' && (m.state === 'working' || m.state === 'waiting');
     m.canEdit = m.canDelete;
@@ -1076,7 +1076,7 @@ export function buildBoard(snapshot) {
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(itemFile, it, tickets), became: true }]);
-      const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, moved: folded, cards, index });
+      const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index });
       for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
       claudeAt.set(key, claudeAtOf(msgs));
       items.push(workItem({
