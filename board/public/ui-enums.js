@@ -16,5 +16,11 @@
     review: Object.freeze(['draft', 'reviewers', 'merge', 'stale']),
     done: Object.freeze(['merged', 'closed']),
   });
-  Object.assign(globalThis.BoardUI ||= {}, { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES });
+  // A message is a line someone wrote: the owner's text, Claude's or a builder's prose, a GitHub comment. A status, agent,
+  // calls, ask-link, questions, visual, move or hub line, a command line and a bare request or tap line carry no words of
+  // their own, so they are not messages. The thread's window, its "N previous messages" and the unread count (domain.mjs
+  // othersAt) all count by this.
+  const SYSTEM_LINE_KINDS = new Set(['status', 'agent', 'calls', 'ask-link', 'questions', 'visual', 'command', 'move', 'hub']);
+  const isMessage = (m) => !SYSTEM_LINE_KINDS.has(m.kind) && !m.request && !m.command && !m.line;
+  Object.assign(globalThis.BoardUI ||= {}, { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, isMessage });
 })();

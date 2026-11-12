@@ -2852,3 +2852,21 @@ test('the logo dot is the highest of red, orange, blue, grey: not listening or o
   assert.equal(ui.hubDot(paused), 'paused');
   assert.equal(ui.hubDot(null), '');
 });
+
+test("only written messages count toward a thread's newest 3: command lines and bare request lines are neither shown as hidden messages nor unread", () => {
+  const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
+  const msgs = [
+    { ts: at(0), who: 'claude', text: 'One' },
+    { ts: at(1), who: 'claude', text: 'Two' },
+    { ts: at(2), who: 'claude', text: 'Three' },
+    { ts: at(3), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging' },
+    { ts: at(4), who: 'claude', kind: 'command', command: 'readied', request: true, mark: 'Marked as ready', text: 'Marked as ready' },
+    { ts: at(5), who: 'claude', kind: 'command', command: 'related', request: true, card: 'hub/T-1', link: '#selectedCard=hub%2FT-1', text: 'Related to hub/T-1' },
+    { ts: at(6), who: 'love', via: 'site', kind: 'visual-request', request: true, command: 'visual', mark: 'Visual requested', text: 'Visual requested' },
+  ];
+  const html = ui.threadMessages(msgs, {}, new Map(), { seenAt: at(59), more: 0 });
+  for (const w of ['One', 'Two', 'Three']) assert.match(html, new RegExp(`>${w}`));
+  assert.doesNotMatch(html, /thread-more/);
+  assert.equal(ui.isMessage({ ts: at(6), request: true, kind: 'visual-request' }), false);
+  assert.equal(ui.isMessage({ ts: at(6), who: 'love', kind: 'visual-request', text: 'Show it' }), true);
+});

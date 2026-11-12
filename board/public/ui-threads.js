@@ -90,11 +90,10 @@
   const UNREAD_CAP = 10;
   // Every kind of system line; each leads with a mark, and a test renders each, so a new kind needs an entry in ui.js MARK_ICONS.
   const SYSTEM_KINDS = ['status', 'agent', 'calls', 'ask-link', 'questions', 'visual', 'command', 'move', 'hub'];
-  const NOT_MESSAGE = new Set(['status', 'agent', 'calls', 'ask-link', 'questions', 'move', 'hub']);
-  const isMessage = (m) => !NOT_MESSAGE.has(m.kind);
+  const { isMessage } = globalThis.BoardUI;
   // Only Claude's and GitHub's messages and the board's fault lines are unread, as on the badge (domain.mjs othersAt,
   // ui-cards.js unreadCount); the orchestrator's answer to a builder's ask never is.
-  const unread = (m, seenAt) => Boolean(seenAt) && (m.fault || (isMessage(m) && m.kind !== 'command' && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github'))) && String(m.ts) > seenAt;
+  const unread = (m, seenAt) => Boolean(seenAt) && (m.fault || (isMessage(m) && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github'))) && String(m.ts) > seenAt;
   // The window opens from the oldest unread message, at most UNREAD_CAP messages back; a message being edited always shows.
   function threadWindow(lines, { seenAt = null, more = 0, upto = null, from = null }, edits) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));

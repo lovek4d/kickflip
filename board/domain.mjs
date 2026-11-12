@@ -29,7 +29,7 @@ const MERGED_LINE = 'card-merged';
 const enums = vm.createContext({});
 for (const file of ['ui-enums.js', 'ui-order.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), enums);
 export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES } = enums.BoardUI;
-const { laneOrder } = enums.BoardUI;
+const { laneOrder, isMessage } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'visual-request', 'reask-request'];
 // The owner's tap on a sent question's Resolved badge, {key?, question}: the question opens again (ownerQuestion), and
@@ -172,7 +172,7 @@ const TAP_DONE = 'Tap Done';
 // docs/adr/2026-11-04-0247-a-builder-asks-the-orchestrator-mid-build.md,
 // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md).
 const QUIET_KINDS = ['status', 'agent', 'ask-link', 'command', MOVE, BUILDER_ASK.answer];
-const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && !QUIET_KINDS.includes(m.kind) && (m.kind !== HUB || hubLineOf(m).fault);
+const countsUnread = (m) => (m.who === 'claude' || m.via === 'github') && (m.kind === HUB ? hubLineOf(m).fault : isMessage(m) && !QUIET_KINDS.includes(m.kind));
 
 // said is the owner's messages and answers in the card's thread (threadOf), and askedAt the asked_at of its questions.
 // prs is the card's PRs, [{repo, number, gh}], gh being GitHub's state or null before it is read; the least-ready one
