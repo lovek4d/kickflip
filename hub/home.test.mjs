@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { siteStatus, laneChips, readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds, statusLine } from './home.mjs';
 
 test('a failed needs read keeps the last good answer, still counted, and marks it stale only once it is 15 seconds old', () => {
@@ -140,4 +141,10 @@ test('the hub running older code than its files reads degraded, under any site d
   assert.deepEqual(hubHealth(sites, new Map(), { ...stale, ok: true }), { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' });
   const down = hubHealth([...sites, { route: 'c', state: 'down' }], new Map(), stale);
   assert.deepEqual([down.tone, down.word, down.detail], ['down', '1 site down', '2 of 3 sites up · runs older code than its files; restart it']);
+});
+
+test('a stale row lays out like a fresh one: its held wrapper drops out of the flex line so the chips stay first', () => {
+  const css = fs.readFileSync(new URL('../board/public/sidebar.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sidebar \.held \{[^}]*display: contents/);
+  assert.match(css, /\.sidebar \.lcs \{[^}]*order: -1/);
 });
