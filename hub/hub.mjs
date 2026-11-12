@@ -769,14 +769,16 @@ async function shellPage(here, viewer = null) {
 }
 
 // A newer kickflip on npm, checked as the hub starts and every 15 wall-clock minutes on the hub's 15-second tick, and pulled
-// at once without a restart, logging to logs/kickflip-update.log
+// once the owner has been away 15 minutes (a version tap pulls at once), without a restart, logging to logs/kickflip-update.log
 // (docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md,
-// docs/adr/2026-11-12-0110-the-npm-check-rides-the-hubs-tick-every-15-wall-clock-minutes.md).
+// docs/adr/2026-11-12-0110-the-npm-check-rides-the-hubs-tick-every-15-wall-clock-minutes.md,
+// docs/adr/2026-11-12-0300-an-npm-hub-pulls-only-once-the-owner-has-been-away-15-minutes.md).
 const upgrade = upgrader({
   root: cloneRoot(),
   run: runUpdate,
   log,
   pulled: () => selfRestart.restartNow(),
+  awayFor: () => { const { awaySince } = owner.state(); return awaySince === null ? 0 : Date.now() - awaySince; },
 });
 // signal aborts a pull that hangs: the update and npm under it, its own process group, are killed.
 function runUpdate({ signal }) {

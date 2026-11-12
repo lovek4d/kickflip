@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CHECK_MS, LATEST_URL, PULL_MS, newer, upgrader } from './upgrade.mjs';
+import { AWAY_MS, CHECK_MS, LATEST_URL, PULL_MS, newer, upgrader } from './upgrade.mjs';
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'upgrade-unit-'));
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
@@ -173,4 +173,45 @@ test('a pull that has not finished in 10 minutes is aborted, logged and retried 
   await up.check();
   assert.equal(signals.length, 2);
   assert.equal(PULL_MS, 10 * 60_000);
+});
+
+// docs/adr/2026-11-12-0300-an-npm-hub-pulls-only-once-the-owner-has-been-away-15-minutes.md
+test('a tick that finds a newer version holds the pull until the owner has been away 15 minutes, and a tap pulls at once', async () => {
+  const root = install({ version: '0.7.1' });
+  let clock = 0;
+  let awayFor = 0;
+  let runs = 0;
+  const up = upgrader({ root, fetch: registry('0.7.2').fetch, run: async () => { runs++; return { ok: true }; }, now: () => clock, awayFor: () => awayFor });
+  await up.tick();
+  assert.equal(runs, 0);
+  clock += 5_000;
+  awayFor = AWAY_MS - 1;
+  await up.tick();
+  assert.equal(runs, 0);
+  awayFor = AWAY_MS;
+  await up.tick();
+  assert.equal(runs, 1);
+  assert.equal(AWAY_MS, 15 * 60_000);
+
+  const tapped = upgrader({ root, fetch: registry('0.7.2').fetch, run: async () => { runs++; return { ok: true }; }, awayFor: () => 0 });
+  assert.deepEqual(await tapped.check(), { state: 'pulling', latest: '0.7.2' });
+  assert.equal(runs, 2);
+});
+
+test('a tick that finds a newer version while the owner has been away 15 minutes pulls at once, and a held pull is dropped once the install is current', async () => {
+  const root = install({ version: '0.7.1' });
+  let awayFor = AWAY_MS;
+  let runs = 0;
+  const up = upgrader({ root, fetch: registry('0.7.2').fetch, run: async () => { runs++; return { ok: true }; }, awayFor: () => awayFor });
+  await up.tick();
+  assert.equal(runs, 1);
+
+  const held = install({ version: '0.7.1' });
+  awayFor = 0;
+  const waiting = upgrader({ root: held, fetch: registry('0.7.2').fetch, run: async () => { runs++; return { ok: true }; }, awayFor: () => awayFor });
+  await waiting.tick();
+  fs.writeFileSync(path.join(held, 'package.json'), JSON.stringify({ version: '0.7.2' }));
+  awayFor = AWAY_MS;
+  await waiting.tick();
+  assert.equal(runs, 1);
 });

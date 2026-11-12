@@ -23,10 +23,10 @@ test('the owner is present while at the Mac or within 3 minutes of a page beat, 
   let now = 1_000_000;
   let atMac = false;
   const owner = ownerTracker({ read: async () => ({ atMac }), clock: () => now });
-  assert.deepEqual(owner.state(), { present: false, backAt: null });
+  assert.deepEqual(owner.state(), { present: false, backAt: null, awaySince: now });
   assert.deepEqual(await owner.check(), { present: false, changed: false, back: false });
   assert.deepEqual(owner.beat(), { present: true, changed: true, back: true });
-  assert.deepEqual(owner.state(), { present: true, backAt: now });
+  assert.deepEqual(owner.state(), { present: true, backAt: now, awaySince: null });
   now += 60_000;
   assert.deepEqual(owner.beat(), { present: true, changed: false, back: false });
   now += IDLE_LIMIT_MS - 1;
@@ -38,4 +38,26 @@ test('the owner is present while at the Mac or within 3 minutes of a page beat, 
   assert.deepEqual(await owner.check(), { present: true, changed: true, back: true });
   assert.equal(owner.state().backAt, now);
   assert.deepEqual(owner.beat(), { present: true, changed: false, back: false });
+});
+
+// docs/adr/2026-11-12-0300-an-npm-hub-pulls-only-once-the-owner-has-been-away-15-minutes.md
+test('awaySince is when the owner went away: the tracker\'s start until they are present, then each time they leave', async () => {
+  let now = 1_000_000;
+  let atMac = false;
+  const owner = ownerTracker({ read: async () => ({ atMac }), clock: () => now });
+  assert.deepEqual(owner.state(), { present: false, backAt: null, awaySince: now });
+  now += 10_000;
+  await owner.check();
+  assert.equal(owner.state().awaySince, 1_000_000);
+  atMac = true;
+  await owner.check();
+  assert.deepEqual(owner.state(), { present: true, backAt: now, awaySince: null });
+  atMac = false;
+  owner.beat();
+  now += IDLE_LIMIT_MS - 1;
+  await owner.check();
+  assert.equal(owner.state().awaySince, null);
+  now += 1;
+  await owner.check();
+  assert.equal(owner.state().awaySince, now);
 });

@@ -29,22 +29,26 @@ export async function readPresence(run = ioreg) {
 // present while at the Mac (read, a readPresence) or within IDLE_LIMIT_MS of a beat, a tap, key or scroll on a board or Hub
 // page on any device. It starts away until a check or beat says otherwise. check() reads the Mac and beat() records a
 // beat; each → {present, changed, back}, back when the owner just came back from away. state() → {present, backAt},
-// backAt being when the owner last came back.
+// backAt being when the owner last came back and awaySince when they went away (the tracker's start, until a reading
+// says present), null while present (docs/adr/2026-11-12-0300-an-npm-hub-pulls-only-once-the-owner-has-been-away-15-minutes.md).
 export function ownerTracker({ read = readPresence, clock = Date.now } = {}) {
   let beatAt = -Infinity;
   let present = false;
   let backAt = null;
+  let awaySince = clock();
   const update = (atMac) => {
     const now = clock();
     const next = atMac || now - beatAt < IDLE_LIMIT_MS;
     const out = { present: next, changed: next !== present, back: next && !present };
     if (out.back) backAt = now;
+    if (!next) awaySince ??= now;
+    else awaySince = null;
     present = next;
     return out;
   };
   return {
     async check() { return update((await read()).atMac); },
     beat() { beatAt = clock(); return update(true); },
-    state: () => ({ present, backAt }),
+    state: () => ({ present, backAt, awaySince }),
   };
 }
