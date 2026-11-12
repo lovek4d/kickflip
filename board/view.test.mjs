@@ -3950,7 +3950,8 @@ test("every owner action kind the board derives makes exactly one of the open ca
       { id: 'P', title: 'Pick' }, { id: 'Q', title: 'Questions' }, { id: 'R', title: 'Ready', pr: 1 },
       { id: 'S', title: 'Steps', pr: 2, manual_steps: ['Run the backfill'] }, { id: 'M', title: 'Merge', pr: 3 }, { id: 'G', title: 'Grill' },
       { id: 'X', title: 'Stalled', lane: 'progress', stalled: { reason: 'Crashed twice', at: '2026-10-30T09:00:00Z' } },
-      { id: 'I', title: 'Implement', phase: 'discussing', implement_ready: { at: '2026-10-30T09:00:00Z' } },
+      { id: 'I', title: 'Implement', phase: 'discussing', waits_on_owner: { on: 'implement', at: '2026-10-30T09:00:00Z' } },
+      { id: 'C', title: 'Close', waits_on_owner: { on: 'close', at: '2026-10-30T09:00:00Z' } },
     ] } }],
   });
   assert.deepEqual(built.items.filter((i) => i.action).map((i) => i.action.kind).sort(), Object.values(ACTION_KIND).sort());

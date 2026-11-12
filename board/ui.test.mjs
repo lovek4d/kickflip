@@ -1023,6 +1023,7 @@ test("a thread's Done is the box's second send button, on ⌥↵, never disabled
   assert.match(text(ui.doneButton({ key: 'w/T-3', kind: 'work' })), /^Done/);
   assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true, awaitsDone: true }), /^<button type="submit" data-nth="1" class="closes"/);
   assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true }), /^<button type="submit" data-nth="1" data-confirm/);
+  assert.match(ui.doneButton({ key: 'w/A1', kind: 'work', finishable: true, resolvedBy: ui.BUTTON.done }), /^<button type="submit" data-nth="1" class="closes"/);
 });
 
 test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a ready card's Implement is filled orange", () => {

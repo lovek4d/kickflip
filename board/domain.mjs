@@ -312,7 +312,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // stopped reads so until the next tap.
     // Stale is the board's own reading of no updates: a run silent or gone, or a review past seven days. Stalled is the
     // orchestrator's flag (item stall), its reason, until a message on the card.
-    stale: lane !== 'done' && (staleReview || Boolean(builder?.stale)), stalled: it.stalled?.reason || null, implementReady: Boolean(it.implement_ready),
+    stale: lane !== 'done' && (staleReview || Boolean(builder?.stale)), stalled: it.stalled?.reason || null, ownerWait: it.waits_on_owner?.on || null,
     landStopped: lane === 'review' && mergeReady && it.merge_ready.stopped && String(it.merge_ready.stopped) > String(it.merge_ready.tapped || '')
       ? { words: stoppedWords('land'), at: it.merge_ready.stopped } : null,
     ticket: tickets?.source === 'linear' && !it.ticket && it.linear?.length ? null
@@ -400,7 +400,9 @@ function actionOf(it, questionById, autoMerge) {
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: ACTION_KIND.pick, url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
     return { kind: ACTION_KIND.questions, url: `questions.html#${it.questions.first}`, label: `Answer ${plural(it.questions.open, 'question')}` };
   }
-  if (it.implementReady && it.lane === 'todo') return { kind: ACTION_KIND.implement, url: `${thread}&reply`, label: 'Tap Implement' };
+  if (it.ownerWait === 'implement' && it.lane === 'todo') return { kind: ACTION_KIND.implement, url: `${thread}&reply`, label: 'Tap Implement' };
+  // docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md
+  if (it.ownerWait === 'close') return { kind: ACTION_KIND.close, url: `${thread}&reply`, label: TAP_DONE };
   if (it.waitsOn === 'ready') return { kind: ACTION_KIND.ready, url: it.pr.url, label: `Review draft PR #${it.pr.number}` };
   if (it.waitsOn === 'merge' && it.manualSteps.length && !it.mergeReady) return { kind: ACTION_KIND.steps, url: thread, label: 'Run the manual steps, then merge' };
   // docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md
@@ -449,7 +451,7 @@ export const PROTOTYPE_AGAIN = 'Prototype again';
 // PR's Review on GitHub, or Merge.
 const RESOLVED_BY = Object.freeze({
   [ACTION_KIND.pick]: BUTTON.openQuestions, [ACTION_KIND.questions]: BUTTON.openQuestions, [ACTION_KIND.ready]: BUTTON.github,
-  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.stalled]: BUTTON.reply, [ACTION_KIND.implement]: BUTTON.implement,
+  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.stalled]: BUTTON.reply, [ACTION_KIND.implement]: BUTTON.implement, [ACTION_KIND.close]: BUTTON.done,
 });
 
 // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md
@@ -481,7 +483,7 @@ function placeOwnerWait(it, questionById, autoMerge) {
   const ownerOnly = it.lane === 'todo' || it.waitsOn === 'ready' || (it.lane === 'progress' && it.waitsOn === 'owner');
   // A stalled card stays in the lane it stalled in.
   if (!it.action || !ownerOnly || it.stalled) return;
-  const lane = it.lane === 'todo' && (ASKING.has(it.action.kind) || it.action.kind === ACTION_KIND.implement) ? 'todo' : 'review';
+  const lane = it.lane === 'todo' && (ASKING.has(it.action.kind) || it.action.kind === ACTION_KIND.implement || it.action.kind === ACTION_KIND.close) ? 'todo' : 'review';
   Object.assign(it, { lane, waitsOn: it.waitsOn === 'ready' ? 'ready' : 'owner', next: it.action.label });
 }
 

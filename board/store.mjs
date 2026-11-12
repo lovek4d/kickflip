@@ -388,14 +388,16 @@ export async function appendStatus(site, key, kind, inputs = {}, { link } = {}) 
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // A message holds at most MESSAGE_LIMIT characters; a longer one is refused for the orchestrator to rewrite shorter or
 // move into a page it links. A comment brought in from GitHub or Slack is kept whole.
-export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by }) {
+export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by, close }) {
   needSite(site);
+  if (close && (who !== 'claude' || via !== undefined)) fail('thread --close is the orchestrator marking a card: it takes no --who or --via');
   await checkThreadKey(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
   const words = via === undefined ? messageText(body) : text(body, '--text');
   const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: optional(link, (v) => pageUrl(v, '--link')), log, via, by };
   const file = threadFile(site, key);
+  if (close) await markWaiting(site, key, 'close');
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
 }
@@ -619,13 +621,13 @@ async function refuseFiled(site, eventId, key) {
   const card = await askCardOf(site, eventId);
   if (card && card.key !== key) fail(`ask "${eventId}" is already card ${card.key}: sort it with item set ${card.key} --phase, or merge it with item relate-ask ${eventId} <card>`);
 }
-export async function answerCard(site, key, md, title, { implement = false } = {}) {
+export async function answerCard(site, key, md, title, { waitsOn } = {}) {
   needSite(site);
   const { source, itemFile, item } = await loadItem(site, key);
   const card = { source, itemFile, item, key };
   messageText(md);
   if (title !== undefined) text(title, '--title');
-  if (implement) item.implement_ready = { at: new Date().toISOString() };
+  if (waitsOn) item.waits_on_owner = { on: waitsOn, at: new Date().toISOString() };
   await markAnswered(site, card, title);
   return appendMessage(site, key, { text: md });
 }
@@ -2051,7 +2053,7 @@ const messageWords = ({ text: said, files }) => [String(said || '').trim(), ...(
 // An Implement message on a Todo card, in the board server before its event: a held card is resumed, as the Build tap
 // does; its open questions resolve as skipped; its words go into the notes; and it is staged in Todo.
 export async function stageImplement(site, key, message) {
-  await clearImplementReady(site, key);
+  await clearOwnerWait(site, key);
   const { item } = await loadItem(site, key);
   if (item.held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
   const { owner, asked } = await cardQuestions(site, key);
@@ -2062,11 +2064,17 @@ export async function stageImplement(site, key, message) {
   await stage(site, key);
 }
 // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md
-// An owner's Implement tap or message on a card ends the orchestrator's "tap Implement" mark (answerCard's implement).
-export async function clearImplementReady(site, key) {
+// An owner's Implement or Done tap, or message, on a card ends the orchestrator's waits_on_owner mark (implement or close).
+export async function clearOwnerWait(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (!item.implement_ready) return;
-  delete item.implement_ready;
+  if (!item.waits_on_owner) return;
+  delete item.waits_on_owner;
+  await writeJSON(source.file, itemFile);
+}
+// thread <card> --close: marks a work card waiting only for the owner to close it (docs/adr/2026-11-12-0800-reply-close-marks-a-card-waiting-to-be-closed.md).
+async function markWaiting(site, key, on) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  item.waits_on_owner = { on, at: new Date().toISOString() };
   await writeJSON(source.file, itemFile);
 }
 // A Reply on a ready Todo card: its words go into the notes, and it is staged again.

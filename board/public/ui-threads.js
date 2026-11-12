@@ -136,7 +136,7 @@
   // (app-cards.js); the board applies it before the session follows up
   // (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
   // Primary while a card waits only on it (docs/adr/2026-11-03-0137-a-card-waiting-only-to-be-closed-has-no-action-needed.md).
-  const doneTone = (it) => (it.awaitsDone ? 'closes' : '');
+  const doneTone = (it) => (it.awaitsDone || it.resolvedBy === globalThis.BoardUI.BUTTON.done ? 'closes' : '');
   function doneButton(it) {
     const tone = doneTone(it);
     return sendButton('Done', 1, `${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}"`);
