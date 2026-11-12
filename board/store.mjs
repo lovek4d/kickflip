@@ -2078,7 +2078,7 @@ export async function stageReply(site, key, message) {
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
 // A card's briefs, item.briefs [{kind, at, ask?, brief?: {heading, text, at}}], kind grill, prototype or visual. An entry
 // with no brief is owed: the orchestrator writes it (item brief, writeBrief). One with a brief waits for the board server
-// to launch its agent (domain.mjs briefsDue), which takes the entry off the card onto the agent's record (takeBrief). ask
+// to launch its agent (domain.mjs briefsDue), which takes the entry off the card onto the agent's record (startPlanner, startVisual). ask
 // is the owner's request it answers, {text?, files?, question?, note?, choice?}. A kind owed again keeps its first time
 // and takes the newer ask.
 const BRIEF_KINDS = ['grill', 'prototype', VISUAL];
@@ -2136,15 +2136,14 @@ export async function writeBrief(site, key, { kind, file }) {
   await writeJSON(source.file, itemFile);
   return { heading, lines: [`${name}: "${heading}" added to its notes; the board launches its ${kind === VISUAL ? 'visual agent' : `${kind} planner`} from it`] };
 }
-// The card's oldest written brief of kind, taken off the card for the agent the board server is starting, or null.
-async function takeBrief(site, key, kind) {
+// The card's oldest written brief of kind taken off the card, once the agent's record holds it (startPlanner, startVisual).
+async function dropBrief(site, key, kind) {
   const { source, itemFile, item } = await loadItem(site, key);
   const entry = (item.briefs || []).find((b) => b.kind === kind && b.brief);
-  if (!entry) return null;
+  if (!entry) return;
   item.briefs = item.briefs.filter((b) => b !== entry);
   if (!item.briefs.length) delete item.briefs;
   await writeJSON(source.file, itemFile);
-  return entry;
 }
 // The oldest written brief of kind on the card, left on it, or null.
 const briefOn = async (site, key, kind) => ((await loadItem(site, key)).item.briefs || []).find((b) => b.kind === kind && b.brief) ?? null;
@@ -4026,7 +4025,7 @@ const PLANNER_MODEL = { prototype: 'sonnet', grill: 'opus', [VISUAL]: 'sonnet' }
 // the pick's, which reads the card's size and model (docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md).
 // → {file, lines, kind, model, reason, worktree}: model is the Claude model or null, reason the pick's, worktree the path or null;
 // {file, alreadyOpen: true, lines: []} for a session's dispatch on a record the tap opened.
-export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, ownWorktree, dispatch }) {
+export async function startBuilder(site, key, { label, phase, progress, dir, agent = 'main', kind, model, eta, worktree, ownWorktree, dispatch, brief }) {
   if (phase !== undefined && progress === undefined) fail('--phase goes with --progress "<detail>"');
   const asLine = optional(progress, (v) => progressLine(site, phase, v, '--progress'));
   const file = await builderFile(site, key, dir, agent);
@@ -4068,7 +4067,7 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     ...(resumed ? { calls: resumed.calls, ...(resumed.verified ? { verified: resumed.verified } : {}) } : {}),
     ...(launchedSession(before) ? { session: before.session } : {}),
     // A planner's or visual agent's record keeps the brief the board launched it from (startPlanner, startVisual).
-    ...(takeUp?.brief && plans({ kind: k }) ? { brief: takeUp.brief } : {}),
+    ...((brief ?? takeUp?.brief) && plans({ kind: k }) ? { brief: brief ?? takeUp.brief } : {}),
     // A helper's record keeps what agent launch asked of it.
     ...(k === HELPER && before?.kind === HELPER ? { label: before.label, task: before.task, writes: before.writes, requested: before.requested } : {}),
   };
@@ -4406,7 +4405,7 @@ const launchedSession = (record) => Boolean(record?.session) && record.session.a
 
 // The board server's start of a planner, kind grill or prototype, on a card: the main record opens, dispatched: 'hub',
 // as builder start --kind <kind> does, from the card's oldest written brief of that kind, which moves onto the record
-// (brief, the card's briefs entry), or from kept, the entry a run the Hold stopped had. A card with neither is refused
+// (brief, the card's briefs entry: the record is written once with it, then the card drops it), or from kept, the entry a run the Hold stopped had. A card with neither is refused
 // (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
 // → {key, kind, model, brief, ...its ask}, or null while an agent already works on the card's main record.
 export async function startPlanner(site, key, kind, kept = null) {
@@ -4414,9 +4413,9 @@ export async function startPlanner(site, key, kind, kept = null) {
   const open = await readJSON(file, null);
   if (open && !open.done) return null;
   if (!kept && !(await briefOn(site, key, kind))) await noBrief(site, key, kind);
-  const started = await startBuilder(site, key, { kind, dispatch: 'hub' });
-  const entry = kept ?? await takeBrief(site, key, kind);
-  await writeJSON(file, { ...(await readJSON(file, null)), brief: entry });
+  const entry = kept ?? await briefOn(site, key, kind);
+  const started = await startBuilder(site, key, { kind, dispatch: 'hub', brief: entry });
+  if (!kept) await dropBrief(site, key, kind);
   return { key, kind, model: started.model, brief: entry.brief, ...entry.ask };
 }
 
@@ -4431,9 +4430,9 @@ export async function startVisual(site, key) {
   if (records.some((r) => r?.kind === VISUAL && r.started && !r.done)) return null;
   const waiting = await briefOn(site, key, VISUAL) ?? await noBrief(site, key, VISUAL);
   const agent = visualAgent(waiting.brief);
-  const started = await startBuilder(site, key, { kind: VISUAL, agent, dispatch: 'hub' });
-  const entry = await takeBrief(site, key, VISUAL);
-  await writeJSON(started.file, { ...(await readJSON(started.file, null)), brief: entry });
+  const started = await startBuilder(site, key, { kind: VISUAL, agent, dispatch: 'hub', brief: waiting });
+  await dropBrief(site, key, VISUAL);
+  const entry = waiting;
   return { key, kind: VISUAL, model: started.model, agent, brief: entry.brief, ...entry.ask };
 }
 

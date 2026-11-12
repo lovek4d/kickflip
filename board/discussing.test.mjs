@@ -164,6 +164,38 @@ test("the board's start of a planner or visual agent takes the oldest written br
   assert.equal(read(audit('data', 'agents', `T-1@${visual.agent}.json`)).brief.brief.heading, 'Brief for visual round 1');
 });
 
+test("a planner's or visual agent's record is written once, so no read of it shows a kind without its brief", async () => {
+  auditEvents(ask);
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  const draft = path.join(home, 'brief.md');
+  fs.writeFileSync(draft, 'Cover the phone layout.');
+  const agents = audit('data', 'agents');
+  // Reads every record under agents/ as often as the event loop allows while start runs; true per read that has a kind.
+  const watch = async (start) => {
+    const reads = [];
+    let running = true;
+    const poll = (async () => {
+      while (running) {
+        for (const f of fs.existsSync(agents) ? fs.readdirSync(agents) : []) {
+          try { const r = JSON.parse(fs.readFileSync(path.join(agents, f), 'utf8')); if (r.kind) reads.push(Boolean(r.brief)); } catch { /* a file mid-write */ }
+        }
+        await new Promise((r) => setImmediate(r));
+      }
+    })();
+    try { await start(); } finally { running = false; await poll; }
+    return reads;
+  };
+  await s.planAgain(audit(), 'audit/T-1', 'grill', { text: 'Ask about mobile' });
+  board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--file', draft, '--site', 'audit');
+  const grill = await watch(() => s.startPlanner(audit(), 'audit/T-1', 'grill'));
+  assert.ok(grill.length && grill.every(Boolean), 'the planner record always has its brief');
+  board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--file', draft, '--site', 'audit');
+  const visual = await watch(() => s.startVisual(audit(), 'audit/T-1'));
+  assert.ok(visual.every(Boolean), 'the visual record always has its brief');
+});
+
 test("the owner's Grill or Prototype tap on a discussing card moves it to that planner's phase; an Implement stages it", async () => {
   auditEvents(ask);
   const s = await store();
