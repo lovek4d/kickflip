@@ -96,7 +96,7 @@ export const STALE_CODE = 'runs older code than its files; restart it';
 
 // The hub's health from the sites' process states, each board's linksOf states (a Map by route) and the hub's own
 // boards.mjs hubLink (docs/adr/2026-11-03-0501-the-hub-reads-healthy-degraded-or-a-site-down.md): red only while a site is down,
-// amber degraded while a board link reads broken or the hub runs older code than its files, else healthy. A link
+// amber degraded while a board link reads broken or the hub runs older code than its files, else healthy, which reads alone. A link
 // still settling doesn't count (docs/adr/2026-10-29-1639-hub-links-turn-red-only-after-a-grace-period.md). The stale code says
 // why in the detail, here and nowhere else (docs/adr/2026-10-30-1654-every-builder-works-in-a-worktree.md).
 export function hubHealth(sites, linksByRoute = new Map(), hub = null) {
@@ -107,6 +107,6 @@ export function hubHealth(sites, linksByRoute = new Map(), hub = null) {
   return {
     tone: down ? 'down' : failing || stale ? 'wait' : 'ok',
     word: down ? `${down} site${down === 1 ? '' : 's'} down` : failing || stale ? 'degraded' : 'healthy',
-    detail: `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up${failing ? ` · ${failing} link${failing === 1 ? '' : 's'} failing` : ''}${stale ? ` · ${STALE_CODE}` : ''}`,
+    detail: down || failing || stale ? `${up} of ${sites.length} site${sites.length === 1 ? '' : 's'} up${failing ? ` · ${failing} link${failing === 1 ? '' : 's'} failing` : ''}${stale ? ` · ${STALE_CODE}` : ''}` : '',
   };
 }

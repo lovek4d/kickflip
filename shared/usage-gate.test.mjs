@@ -141,8 +141,8 @@ test('a busy host holds every kind of new work, with no override, and words it a
   assert.match(pauseReasonFor(gate({ claude: reading(20), codex: reading(20, 92), machine: busy }), 'codex'), /^Codex is paused/);
   const f = fixture(t);
   assert.deepEqual(readUsageGate({ home: f.home, now }).machine, { state: 'normal', reason: null });
-  f.write('machine-state.json', { state: 'busy', reason: 'load high', at: new Date(now).toISOString() });
-  assert.deepEqual(readUsageGate({ home: f.home, now }).machine, { state: 'busy', reason: 'load high' });
+  f.write('machine-state.json', { state: 'busy', reason: 'load high', since: new Date(now).toISOString(), at: new Date(now).toISOString() });
+  assert.deepEqual(readUsageGate({ home: f.home, now }).machine, { state: 'busy', reason: 'load high', since: new Date(now).toISOString() });
 });
 
 test('a Forever manual pause lasts until it is lifted and says so', () => {

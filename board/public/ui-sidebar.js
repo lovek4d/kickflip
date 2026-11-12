@@ -204,8 +204,10 @@
   // update: null | 'ready' | 'reloading'.
   // now: the time a starting board's seconds count to. A shared person's data (data.shared; hub/share.mjs sharedSidebar)
   // draws their boards alone: no Hub row, update or notification rows, and no New board.
-  // Whether the Hub row reads busy: the host is busy and no usage pause reads first.
-  const hubBusy = (data) => data?.pause?.machine?.state === 'busy' && data?.pause?.state !== 'paused';
+  // Whole minutes the host has been busy (machine.since is when it turned busy), 0 while it isn't.
+  const busyMinutes = (data, now = Date.now()) => (data?.pause?.machine?.state === 'busy' ? Math.floor((now - Date.parse(data.pause.machine.since)) / 60_000) : 0);
+  // Whether the Hub row reads busy: the host has been busy for a minute and no usage pause reads first.
+  const hubBusy = (data, now = Date.now()) => busyMinutes(data, now) >= 1 && data?.pause?.state !== 'paused';
   // The logo's one dot, the highest that applies (AGENTS.md colour order): 'down' (red) for a broken hub, Claude not listening on a
   // board, or this page unable to reach the host (offline, which only the page knows); 'busy' (orange); 'update' (blue, the page's
   // update is ready); 'paused' (grey); else ''
@@ -224,7 +226,7 @@
     const paused = data?.pause?.state === 'paused';
     // A busy host holds every board's new work but shows only on the Hub row and the logo's dot, never on a board, and a pause reads before it
     // (docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md).
-    const busy = hubBusy(data);
+    const busy = hubBusy(data, now);
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     // A red fault on a board row keeps its word, and a down or degraded hub keeps the Hub row: red and orange beat the grey pause (AGENTS.md).
     const holdWord = (s) => (paused || s.pause?.state === 'paused') && !/class="word t-down"/.test(s.sub || '') ? word('paused', 'paused') : '';
@@ -245,7 +247,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage, data?.pause?.pause_at);
-    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: 'the host is busy' } : data?.hub;
+    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: `${busyMinutes(data, now)}m` } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')
@@ -254,7 +256,7 @@
     const held = esc(`Notifications ${lower(n.text)}`);
     const moon = n.state === 'held' ? `<span class="sb-moon" role="img" aria-label="${held}" title="${held}">${svg(ICONS.moon, 13)}</span>` : '';
     const subs = {
-      '/_hub/': (hub ? `<span class="sb-status">${word(hub.tone, hub.word)}<span>${esc(hub.detail)}</span></span>` : '')
+      '/_hub/': (hub ? `<span class="sb-status">${word(hub.tone, hub.word)}${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
         + (notify ? `<span class="sb-status">${notify}</span>` : ''),
     };
     const selected = here.startsWith('_hub') ? '/_hub' : `/${here.replace(/\/$/, '')}`;

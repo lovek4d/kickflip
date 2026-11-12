@@ -125,7 +125,7 @@ test('a sidebar site row carries its board listen state, for the logo dot', () =
 
 test('the hub reads red only while a site is down, amber degraded while a board link stays broken, and not while one settles', () => {
   const sites = [{ route: 'a', state: 'up' }, { route: 'b', state: 'up' }, { route: 'c', state: 'starting' }];
-  assert.deepEqual(hubHealth(sites, new Map([['a', [{ link: 'events', state: 'settling' }]]])), { tone: 'ok', word: 'healthy', detail: '2 of 3 sites up' });
+  assert.deepEqual(hubHealth(sites, new Map([['a', [{ link: 'events', state: 'settling' }]]])), { tone: 'ok', word: 'healthy', detail: '' });
   const failing = new Map([['b', [{ link: 'github', state: 'ok' }, { link: 'events', state: 'broken' }]]]);
   assert.deepEqual(hubHealth(sites, failing), { tone: 'wait', word: 'degraded', detail: '2 of 3 sites up · 1 link failing' });
   failing.set('a', [{ link: 'wakes', state: 'broken' }]);
@@ -138,7 +138,7 @@ test('the hub running older code than its files reads degraded, under any site d
   const sites = [{ route: 'a', state: 'up' }, { route: 'b', state: 'up' }];
   const stale = { link: 'hub', ok: false, detail: 'The hub runs older code than its files' };
   assert.deepEqual(hubHealth(sites, new Map(), stale), { tone: 'wait', word: 'degraded', detail: '2 of 2 sites up · runs older code than its files; restart it' });
-  assert.deepEqual(hubHealth(sites, new Map(), { ...stale, ok: true }), { tone: 'ok', word: 'healthy', detail: '2 of 2 sites up' });
+  assert.deepEqual(hubHealth(sites, new Map(), { ...stale, ok: true }), { tone: 'ok', word: 'healthy', detail: '' });
   const down = hubHealth([...sites, { route: 'c', state: 'down' }], new Map(), stale);
   assert.deepEqual([down.tone, down.word, down.detail], ['down', '1 site down', '2 of 3 sites up · runs older code than its files; restart it']);
 });

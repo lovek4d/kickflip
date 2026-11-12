@@ -43,9 +43,9 @@ test('the hub tick keeps the state file and audits each change and a reading eve
   checkMachine({ home, reading: reading(16), now: at(1) });
   assert.deepEqual(readMachineState(home), { state: 'normal', reason: null });
   checkMachine({ home, reading: reading(41.2, 'critical'), now: at(2) });
-  assert.deepEqual(readMachineState(home), { state: 'busy', reason: 'memory pressure critical' });
+  assert.deepEqual(readMachineState(home), { state: 'busy', reason: 'memory pressure critical', since: at(2).toISOString() });
   checkMachine({ home, reading: reading(35, 'warn'), now: at(3) });
-  assert.deepEqual(readMachineState(home), { state: 'busy', reason: 'load high' });
+  assert.deepEqual(readMachineState(home), { state: 'busy', reason: 'load high', since: at(2).toISOString() }, 'since stays while it stays busy');
   checkMachine({ home, reading: reading(35, 'warn'), now: at(13) });
   checkMachine({ home, reading: reading(20, 'warn'), now: at(14) });
   assert.deepEqual(readMachineState(home), { state: 'normal', reason: null });

@@ -34,10 +34,10 @@ export function machineState(was, { load, cores, pressure }) {
 export const machineFile = (home = os.homedir()) => path.join(home, '.claude', 'kickflip', 'machine-state.json');
 const readFile = (home) => { try { return JSON.parse(fs.readFileSync(machineFile(home), 'utf8')); } catch { return null; } };
 
-// The state the hub's tick last kept: {state: busy, reason} or MACHINE_NORMAL, also without a file.
+// The state the hub's tick last kept: {state: busy, reason, since: when it turned busy} or MACHINE_NORMAL, also without a file.
 export function readMachineState(home = os.homedir()) {
   const kept = readFile(home);
-  return kept?.state === 'busy' ? { state: 'busy', reason: kept.reason } : MACHINE_NORMAL;
+  return kept?.state === 'busy' ? { state: 'busy', reason: kept.reason, since: kept.since } : MACHINE_NORMAL;
 }
 
 // The hub's tick: reads the Mac, keeps the state file, and puts each change and one reading every 10 minutes in the
@@ -59,7 +59,8 @@ export function checkMachine({ home = os.homedir(), reading = readMachine(), now
   } else if (due) {
     audit(hubAudit(home), { call: 'machine-reading', result: state, reason: `Memory pressure is ${reading.pressure ?? 'unread'} and ${load} on ${reading.cores} cores.`, inputs }, { now });
   }
-  const next = { state, reason, at: now.toISOString(), reading, logged_at: changed || due ? now.toISOString() : previous.logged_at };
+  const since = state === 'busy' ? (was === 'busy' && previous.since) || now.toISOString() : null;
+  const next = { state, reason, since, at: now.toISOString(), reading, logged_at: changed || due ? now.toISOString() : previous.logged_at };
   const file = machineFile(home);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
