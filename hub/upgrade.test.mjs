@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { LATEST_URL, newer, upgrader } from './upgrade.mjs';
+import { CHECK_MS, LATEST_URL, PULL_MS, newer, upgrader } from './upgrade.mjs';
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'upgrade-unit-'));
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
@@ -85,7 +85,7 @@ test('a pull that finishes OK but leaves the installed version where it was logs
   await new Promise(setImmediate);
   assert.equal(runs, 2);
   assert.equal(pulled, 0);
-  assert.deepEqual(logs, ['update left v0.6.0; npm has 0.6.1', 'update left v0.6.0; npm has 0.6.1']);
+  assert.deepEqual(logs, ['kickflip update check: npm 0.6.1, running 0.6.0', 'kickflip update left v0.6.0; npm has 0.6.1', 'kickflip update left v0.6.0; npm has 0.6.1']);
 });
 
 // docs/adr/2026-11-10-1140-tapping-the-hub-pages-version-checks-npm-now.md
@@ -104,4 +104,73 @@ test('check answers what it found: clone, same, pulling (also while a pull runs)
   assert.deepEqual(await up.check(), { state: 'pulling', latest: '0.5.0' });
   assert.deepEqual(await up.check(), { state: 'pulling', latest: '0.5.0' });
   finish({ ok: false, error: 'down' });
+});
+
+// docs/adr/2026-11-12-0110-the-npm-check-rides-the-hubs-tick-every-15-wall-clock-minutes.md
+test('tick checks when none has run, then again only 15 wall-clock minutes after the last check began, a tap included', async () => {
+  const root = install({ version: '0.4.0' });
+  const { fetch, asked } = registry('0.4.0');
+  let clock = 0;
+  const up = upgrader({ root, fetch, run: async () => ({ ok: true }), now: () => clock });
+  await up.tick();
+  assert.equal(asked.length, 1);
+  clock = CHECK_MS - 1;
+  await up.tick();
+  assert.equal(asked.length, 1);
+  clock = CHECK_MS;
+  await up.tick();
+  assert.equal(asked.length, 2);
+  clock += 10 * 60_000;
+  await up.check();
+  clock += CHECK_MS - 1;
+  await up.tick();
+  assert.equal(asked.length, 3);
+  clock += 1;
+  await up.tick();
+  assert.equal(asked.length, 4);
+  assert.equal(CHECK_MS, 15 * 60_000);
+});
+
+test('each check logs npm and the running version when the answer changes, and otherwise at most once an hour', async () => {
+  const root = install({ version: '0.7.1' });
+  let version = '0.7.1';
+  let clock = 0;
+  const logs = [];
+  const up = upgrader({ root, fetch: async () => ({ ok: true, status: 200, json: async () => ({ version }) }), run: () => new Promise(() => {}), log: (...a) => logs.push(a.join(' ')), now: () => clock });
+  await up.check();
+  clock += 15 * 60_000;
+  await up.check();
+  clock += 30 * 60_000;
+  await up.check();
+  assert.deepEqual(logs, ['kickflip update check: npm 0.7.1, running 0.7.1']);
+  clock += 15 * 60_000;
+  await up.check();
+  assert.equal(logs.length, 2);
+  version = '0.7.2';
+  clock += 1;
+  await up.check();
+  assert.deepEqual(logs.slice(2), ['kickflip update check: npm 0.7.2, running 0.7.1']);
+});
+
+test('a pull that has not finished in 10 minutes is aborted, logged and retried at the next check', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const root = install({ version: '0.7.1' });
+  const logs = [];
+  const signals = [];
+  const up = upgrader({
+    root, fetch: registry('0.7.2').fetch, log: (...a) => logs.push(a.join(' ')),
+    run: ({ signal }) => { signals.push(signal); return new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, error: 'killed' }))); },
+  });
+  await up.check();
+  await up.check();
+  assert.equal(signals.length, 1);
+  t.mock.timers.tick(PULL_MS - 1);
+  assert.equal(signals[0].aborted, false);
+  t.mock.timers.tick(1);
+  assert.equal(signals[0].aborted, true);
+  await new Promise(setImmediate);
+  assert.match(logs.join('\n'), /kickflip update killed after 10 minutes/);
+  await up.check();
+  assert.equal(signals.length, 2);
+  assert.equal(PULL_MS, 10 * 60_000);
 });

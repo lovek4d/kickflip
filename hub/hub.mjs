@@ -205,7 +205,7 @@ import { checkMachine } from '../shared/machine-gate.mjs';
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
-import { upgrader, CHECK_MS } from './upgrade.mjs';
+import { upgrader } from './upgrade.mjs';
 import { restarter } from './self-restart.mjs';
 import { fallBackFromLinear, migrateWaveNames, openBoardBuilders } from '../board/store.mjs';
 import { recordRefusal } from '../board/permissions.mjs';
@@ -583,6 +583,7 @@ setInterval(() => {
   settleStarts({ listening: (board) => isListening(board) && status().some((r) => r.route === board.route && r.state === 'up') }).then((landed) => { if (landed.length) stream.refresh(); }, (e) => log('settling starts failed:', e.message));
   runWakes();
   awake.apply();
+  upgrade.tick();
   prunePrompts().catch((e) => log('prompt expiry failed:', e.message)).finally(runSessionCheck);
 }, 15_000);
 
@@ -763,23 +764,30 @@ async function shellPage(here, viewer = null) {
   return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
 }
 
-// A newer kickflip on npm, checked as the hub starts and hourly and pulled at once without a restart, logging to
-// logs/kickflip-update.log (docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md).
+// A newer kickflip on npm, checked as the hub starts and every 15 wall-clock minutes on the hub's 15-second tick, and pulled
+// at once without a restart, logging to logs/kickflip-update.log
+// (docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md,
+// docs/adr/2026-11-12-0110-the-npm-check-rides-the-hubs-tick-every-15-wall-clock-minutes.md).
 const upgrade = upgrader({
   root: cloneRoot(),
   run: runUpdate,
   log,
   pulled: () => selfRestart.restartNow(),
 });
-function runUpdate() {
+// signal aborts a pull that hangs: the update and npm under it, its own process group, are killed.
+function runUpdate({ signal }) {
   const file = path.join(LOGS, 'kickflip-update.log');
   fs.writeFileSync(file, `${new Date().toISOString()} kickflip update\n`);
   const out = fs.openSync(file, 'a');
-  log('pulling the new kickflip');
+  log('kickflip update: pulling the new kickflip');
   return new Promise((resolve) => {
     const child = spawn(nodeBin(), [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'update', '--no-restart'], { detached: true, stdio: ['ignore', out, out] });
     fs.closeSync(out);
     child.unref();
+    signal.addEventListener('abort', () => {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      resolve({ ok: false, error: 'killed after 10 minutes' });
+    }, { once: true });
     child.on('error', (e) => resolve({ ok: false, error: e.message }));
     child.on('exit', (code) => {
       const last = fs.readFileSync(file, 'utf8').trim().split('\n').at(-1);
@@ -788,8 +796,7 @@ function runUpdate() {
     });
   });
 }
-upgrade.check();
-setInterval(() => upgrade.check(), CHECK_MS);
+upgrade.tick();
 
 const stream = hubStream({
   targets: () => Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
@@ -925,7 +932,7 @@ async function hubRoute(req, res, url, viewer = null) {
       return sendJSON(200, { restarting: true, command: hubService().restartCommand });
     } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
   }
-  // The hub page's version tap: check npm now, like the hourly check (hub/upgrade.mjs). A clone answers with its commit.
+  // The hub page's version tap: check npm now, like the 15-minute check (hub/upgrade.mjs). A clone answers with its commit.
   if (p === '/_hub/check-update' && req.method === 'POST') {
     try {
       await readJSONBody(req);
