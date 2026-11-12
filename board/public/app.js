@@ -360,6 +360,26 @@ window.BoardView = (function () {
       $('#downLanding').hidden = false;
       B.root.classList.add('down');
     }
+    // A board that loaded but threw while drawing shows the landing in its place with the error; the link stays online, and
+    // the next board that draws clean clears it (land).
+    function drawFailed(err) {
+      console.error(err);
+      state.down = { state: 'draw', error: err };
+      $('#downLanding').innerHTML = BoardUI.drawLanding(err);
+      $('#downLanding').hidden = false;
+      B.root.classList.add('down');
+    }
+    B.on(B.root, 'click', (ev) => {
+      const what = state.down?.error && ev.target.closest?.('button[data-draw]')?.dataset.draw;
+      if (what === 'reload') location.reload();
+      else if (what === 'copy') {
+        navigator.clipboard?.writeText(state.down.error.stack || String(state.down.error)).then(() => B.toast('Copied'), () => B.toast('Couldn’t copy'));
+      } else if (what === 'more') {
+        const pre = $('#downLanding .down-landing-stack');
+        pre.hidden = !pre.hidden;
+        ev.target.textContent = pre.hidden ? 'Show details' : 'Hide details';
+      }
+    });
     B.every(5000, () => { if (state.down?.retries && !document.hidden) loadBoard(); });
 
     // A board from the server, a load's or an events POST's, or a patch from the board on screen (ui-patch.js). One built
@@ -380,7 +400,7 @@ window.BoardView = (function () {
       B.setView('fresh');
       if (!hashRead || (first && focusKey)) { readHash(); hashRead = true; }
       B.linkUp();
-      render(load);
+      try { render(load); } catch (e) { drawFailed(e); return true; }
       scrollToFocus();
       returnToPlace();
       B.site.syncBadge();
@@ -439,7 +459,7 @@ window.BoardView = (function () {
       if (document.hidden) return;
       if (signalMissed) { signalMissed = false; signalled(); } else loadBoard();
     });
-    B.readCopy().then(paintCopy).then(() => { if (B.alive()) loadBoard(); });
+    B.readCopy().then(paintCopy).catch((e) => console.error(e)).then(() => { if (B.alive()) loadBoard(); });
     B.signal?.(signalled);
     B.every(30000, () => { if (!document.hidden) { loadBoard(); } });
   }

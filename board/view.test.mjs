@@ -1337,6 +1337,44 @@ test("with no copy to show, a board out of reach shows the landing for its state
   view.unmount();
 });
 
+// docs/adr/2026-11-12-0400-a-board-that-throws-while-drawing-shows-a-landing-with-the-error.md
+test('a board that throws while drawing shows the landing with the error and an online header, reports it to the console, and the next clean draw clears it', async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  page.win.indexedDB = memoryIndexedDB();
+  const good = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], files: [], needs: [], answers: [], owner: [], ownerTopics: [] };
+  const bad = { ...good, version: 8, generatedAt: '2026-10-29T10:01:00.000Z', items: [{ ...good.items[0], prs: 'not a list' }] };
+  let answer = bad;
+  page.win.fetch = async () => ({ ok: true, status: 200, json: async () => answer });
+  let reloads = 0;
+  page.win.location.reload = () => { reloads++; };
+  const logged = [];
+  page.win.console = { error: (...args) => logged.push(args), log() {}, warn() {} };
+  const root = new page.El();
+  const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a');
+  try {
+    view.mount();
+    const landing = root.querySelector('#downLanding');
+    await until(() => root.classList.contains('down'), 'the landing shows');
+    assert.equal(landing.hidden, false);
+    assert.match(landing.innerHTML, /data-down="draw"/);
+    assert.match(landing.innerHTML, /This board couldn&#39;t draw|This board couldn’t draw|This board couldn't draw/);
+    assert.match(landing.innerHTML, /The board loaded, but it threw while drawing\. Your data is fine\./);
+    assert.match(landing.innerHTML, /TypeError/);
+    assert.doesNotMatch(landing.innerHTML, /Reported/);
+    assert.deepEqual([view.B.state.link, root.classList.contains('offline')], ['online', false], 'the header stays online');
+    assert.equal(logged.length > 0, true, 'console.error got the throw');
+    assert.match(landing.innerHTML, /<button type="button" data-draw="reload">Reload<\/button> <button type="button" data-draw="copy">Copy error<\/button>/);
+    page.fire(root, 'click', { target: { closest: (sel) => (sel.includes('data-draw') ? { dataset: { draw: 'reload' } } : null) } });
+    assert.equal(reloads, 1);
+
+    answer = { ...good, version: 9, generatedAt: '2026-10-29T10:02:00.000Z' };
+    await view.B.loadBoard();
+    assert.deepEqual([landing.hidden, root.classList.contains('down')], [true, false], 'a clean draw clears the landing');
+  } finally {
+    view.unmount();
+  }
+});
+
 test("out of reach with nothing on screen, the board paints the copy another build saved and asks for the whole board once it answers; a copy whose paint throws leaves the landing", async () => {
   const site = 'https://mac.ts.net/board-a';
   const board = { title: 'A', version: 7, generatedAt: '2026-10-29T10:00:00.000Z', items: [{ key: 'w/A', lane: 'todo', title: 'Kept', changed: 7 }], files: [], needs: [], answers: [], owner: [], ownerTopics: [] };

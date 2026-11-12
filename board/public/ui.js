@@ -406,6 +406,13 @@
   // A view's place when it has no copy to show: the kickflip mark and down's two lines, as the no-access page has them.
   const downLanding = (down) => `<div class="down-landing" data-down="${down.state}"><img class="down-landing-mark" src="/_hub/kickflip.png" width="70" height="60" alt="">
 <p class="down-landing-line">${esc(down.line)}</p><p class="down-landing-hint">${esc(down.hint)}</p></div>`;
+  // The landing for a board that loaded but threw while drawing (docs/adr/2026-11-12-0400-a-board-that-throws-while-drawing-shows-a-landing-with-the-error.md):
+  // the error's message, its stack behind Show details, Reload and Copy error (app.js wires them).
+  const drawLanding = (err) => `<div class="down-landing" data-down="draw"><img class="down-landing-mark" src="/_hub/kickflip.png" width="70" height="60" alt="">
+<p class="down-landing-line">This board couldn't draw</p><p class="down-landing-hint">The board loaded, but it threw while drawing. Your data is fine.</p>
+<p class="down-landing-hint"><b>${esc(err?.name || 'Error')}:</b> ${esc(err?.message ?? String(err))}</p>
+<div class="down-landing-buttons"><button type="button" data-draw="reload">Reload</button> <button type="button" data-draw="copy">Copy error</button> <button type="button" data-draw="more">Show details</button></div>
+<pre class="down-landing-stack" hidden>${esc(err?.stack || '')}</pre></div>`;
   // The line over a side page painted from its copy while the board can't be reached.
   const copyNote = (what, savedAt) => `<p class="note copy-note">Copy of ${esc(what)} as of ${since(savedAt)}. Read only.</p>`;
   // The buttons that send, which a board out of reach holds (style.css .offline): every one greyed and stopped, keeping its
@@ -464,7 +471,7 @@
 
   globalThis.BoardUI = {
     LINK_ARROW, escText, onBackdrop,
-    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, copyNote, SENDS, holdSends,
+    esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
     attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, isPaused, PAUSED, BADGE_TONES, badge,
   };
 })();
