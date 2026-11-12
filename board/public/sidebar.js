@@ -71,7 +71,16 @@
       const logo = [...document.querySelectorAll('.top a.hub')].find(pageLogo);
       if (!logo) return;
       const n = othersWaiting(data, here);
-      logo.setAttribute('aria-label', `Boards${update ? ', new version ready' : ''}${n ? `, ${n} waiting on other boards` : ''}`);
+      const why = dotWhy();
+      logo.setAttribute('aria-label', `Boards${why ? `, ${why}` : ''}${n ? `, ${n} waiting on other boards` : ''}`);
+      logo.title = why && why[0].toUpperCase() + why.slice(1);
+    }
+    const offline = () => document.documentElement.classList.contains('link-offline');
+    // What the logo's dot says, by hover and screen reader: the same dot hubDot picks.
+    function dotWhy() {
+      const dot = globalThis.BoardUI?.hubDot?.(data, { offline: offline(), update });
+      if (dot === 'down') return offline() ? "can't reach the host" : (data?.sites || []).some((s) => s.board && (s.listen === 'deaf' || s.listen === 'full')) ? 'Claude not listening on a board' : 'a site is down';
+      return { busy: 'the host is busy', update: 'new version ready', paused: 'paused' }[dot] || '';
     }
     // switching: {opened, started, timer} while switch mode shows, opened when it opened the drawer, started on performance.now().
     let switching = null;
@@ -99,12 +108,17 @@
       if (running && !ticker) ticker = setInterval(tickSteps, 1000);
       if (!running && ticker) { clearInterval(ticker); ticker = null; }
     }
+    // The logo's one dot (ui-sidebar.js hubDot) as a class on <html>, which sidebar.css draws; a board page toggles
+    // link-offline on <html> and calls BoardUI.repaintLogoDot when it can't reach the host.
+    function paintDot() {
+      const dot = globalThis.BoardUI?.hubDot?.(data, { offline: offline(), update });
+      html.classList.toggle('sb-update', Boolean(update));
+      for (const d of ['update', 'busy', 'down', 'paused']) html.classList.toggle(`sb-dot-${d}`, dot === d);
+    }
+    globalThis.BoardUI.repaintLogoDot = () => { paintDot(); logoCount(); };
     // A repaint keeps the drawer's scroll, so a new copy doesn't move the list under a finger.
     function paint() {
-      html.classList.toggle('sb-update', Boolean(update));
-      const dot = globalThis.BoardUI?.hubDot?.(data);
-      html.classList.toggle('sb-hub-busy', dot === 'busy');
-      html.classList.toggle('sb-hub-down', dot === 'down');
+      paintDot();
       if (!data) return;
       const scroll = aside.querySelector('.sb-scroll');
       const top = painted ? scroll?.scrollTop : undefined;

@@ -374,7 +374,7 @@ test('offline, the board stays readable with no toast: the header time turns red
   B.loadBoard = async () => { retries++; };
   B.linkDown();
   assert.deepEqual([b.root.querySelectorAll('.toast').length, b.root.classList.contains('offline'), B.state.link], [0, true, 'offline']);
-  assert.match(b.root.querySelector('#status').innerHTML, /class="fresh down"/);
+  assert.match(b.root.querySelector('#status').innerHTML, /class="fresh" title="Offline: can't reach the host/);
   assert.equal(b.root.querySelector('#settingsLink').getAttribute('aria-disabled'), null);
   const bump = b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]');
   assert.equal(b.page.fire(b.root, 'click', { target: bump }).defaultPrevented, true);
@@ -2947,7 +2947,7 @@ test('a tap anywhere on an asleep board, refresh included, asks the hub to wake 
   await b.change({ board: { ...b.view.B.state.board, checks: checks('stopped') } });
   assert.equal(status(), 'now');
   assert.match(title(), /^Claude not listening/);
-  assert.match(b.root.querySelector('#status .fresh').getAttribute('class'), /\bdown\b/);
+  assert.equal(b.root.querySelector('#status .fresh').getAttribute('class'), 'fresh', 'never coloured');
   b.view.unmount();
 });
 

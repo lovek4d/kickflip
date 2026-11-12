@@ -129,6 +129,8 @@ BoardView.part((B) => {
     state.link = link;
     if (link !== 'reconnecting') controls.boardSettled = true;
     B.root.classList.toggle('offline', link !== 'online');
+    document.documentElement.classList.toggle('link-offline', link === 'offline');
+    BoardUI.repaintLogoDot?.();
     applyControls();
     renderStatus();
   }

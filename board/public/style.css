@@ -187,8 +187,6 @@ button.link { background: none; border: 0; color: var(--accent); padding: 8px 12
 .refresh #refresh { padding: 4px; margin-left: -4px; flex: none; }
 .refresh #status { font-size: 12px; min-width: 0; }
 .refresh .late { color: var(--color-notice); font-weight: 600; }
-/* The header's time keeps its text; a stopped or offline board turns it and the refresh arrow red. */
-.refresh .down, .refresh:has(.down) #refresh { color: var(--color-danger); }
 .refresh .hold, .refresh:has(.hold) #refresh { color: var(--color-notice); }
 .lane-github { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted); text-align: right; }
 .lane-github .late { color: var(--color-notice); }

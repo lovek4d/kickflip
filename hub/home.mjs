@@ -78,9 +78,10 @@ export function sidebarSites(rows, waiting, boards, listens = new Map(), context
     const needs = waiting.get(r.route) ?? null;
     const listen = boards.has(r.route) ? listens.get(r.route) ?? 'listening' : undefined;
     const ctx = contexts.get(r.route) ?? null;
+    const heard = contextFull(listen, ctx) ? 'full' : listen;
     return {
       route: r.route, title: r.title, board: boards.has(r.route), state: r.state, count: needs?.count || 0,
-      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, contextFull(listen, ctx) ? 'full' : listen), ctx,
+      changedAt: r.changedAt || 0, created: r.created || null, icon: siteIcon(r.route, r), sub: statusLine(r.state, needs, heard), listen: heard, ctx,
     };
   });
 }

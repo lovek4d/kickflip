@@ -206,8 +206,17 @@
   // draws their boards alone: no Hub row, update or notification rows, and no New board.
   // Whether the Hub row reads busy: the host is busy and no usage pause reads first.
   const hubBusy = (data) => data?.pause?.machine?.state === 'busy' && data?.pause?.state !== 'paused';
-  // The logo's dot for the hub's state, like the blue update dot: 'down' (red) for a broken hub, 'busy' (orange), else ''.
-  const hubDot = (data) => (data?.hub?.tone === 'down' ? 'down' : hubBusy(data) ? 'busy' : '');
+  // The logo's one dot, the highest that applies (AGENTS.md colour order): 'down' (red) for a broken hub, Claude not listening on a
+  // board, or this page unable to reach the host (offline, which only the page knows); 'busy' (orange); 'update' (blue, the page's
+  // update is ready); 'paused' (grey); else ''
+  // (docs/adr/2026-11-12-1000-the-logo-dot-carries-the-hub-state.md).
+  const hubDot = (data, { offline = false, update = null } = {}) => {
+    const deaf = (data?.sites || []).some((s) => s.board && (s.listen === 'deaf' || s.listen === 'full'));
+    if (offline || deaf || data?.hub?.tone === 'down') return 'down';
+    if (hubBusy(data)) return 'busy';
+    if (update) return 'update';
+    return data?.pause?.state === 'paused' ? 'paused' : '';
+  };
 
   function sidebar(data, { here = '', device = null, switching = false, update = null, now = Date.now() } = {}) {
     const sites = data?.sites || [];

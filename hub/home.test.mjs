@@ -115,6 +115,13 @@ test('a first visit opens the board with the most waiting, the most recently cha
   assert.equal(startRoute([]), null);
 });
 
+test('a sidebar site row carries its board listen state, for the logo dot', () => {
+  const rows = [{ route: 'a', title: 'A', state: 'up' }, { route: 'p', title: 'P', state: 'up' }];
+  const sites = sidebarSites(rows, new Map(), new Set(['a']), new Map([['a', 'deaf']]));
+  assert.equal(sites[0].listen, 'deaf');
+  assert.equal(sites[1].listen, undefined, 'a page is not a board');
+});
+
 test('the hub reads red only while a site is down, amber degraded while a board link stays broken, and not while one settles', () => {
   const sites = [{ route: 'a', state: 'up' }, { route: 'b', state: 'up' }, { route: 'c', state: 'starting' }];
   assert.deepEqual(hubHealth(sites, new Map([['a', [{ link: 'events', state: 'settling' }]]])), { tone: 'ok', word: 'healthy', detail: '2 of 3 sites up' });

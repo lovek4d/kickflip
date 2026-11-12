@@ -191,11 +191,11 @@ test('the header reads the time since the last change signal or refresh, and the
   for (const opts of [{ watcher: 'stopped' }, { link: 'offline' }, { link: 'reconnecting' }, { watcher: 'asleep' }, { watcher: 'asleep', waking: true }, { watcher: 'waking' }, { pause: { state: 'paused', resets_at: ago(-1) } }, { watcher: 'stopped', waking: true }]) {
     assert.equal(text(ui.statusLine(fresh, opts)), '1 min', JSON.stringify(opts));
   }
-  assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped' })), 'fresh down');
+  assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped' })), 'fresh', 'never coloured: the logo dot says it');
   assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /title="Claude not listening\. Updated /);
-  assert.equal(cls(ui.statusLine(fresh, { link: 'offline' })), 'fresh down');
+  assert.equal(cls(ui.statusLine(fresh, { link: 'offline' })), 'fresh');
   assert.equal(cls(ui.statusLine(fresh, { pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh');
-  assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped', pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh down');
+  assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped', pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh');
   assert.equal(cls(ui.statusLine(fresh, { link: 'reconnecting' })), 'fresh');
   assert.match(ui.statusLine(fresh, { link: 'reconnecting' }), /title="Reconnecting…\. Updated /);
   assert.match(ui.statusLine(fresh, { watcher: 'asleep' }), /title="Asleep: [^"]*wakes it\. Updated /);
@@ -2429,7 +2429,7 @@ test('a busy host reads busy on the Hub row and the logo dot, not on a board or 
   assert.match(text(busy), /working 3 todo/, 'a board keeps its own status');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'ok' } }), 'busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'down' } }), 'down', 'a broken hub reads red before busy');
-  assert.equal(ui.hubDot({ pause: { state: 'paused', machine }, hub: { tone: 'ok' } }), '', 'a pause reads first');
+  assert.equal(ui.hubDot({ pause: { state: 'paused', machine }, hub: { tone: 'ok' } }), 'paused', 'a pause shows grey, not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: { state: 'normal' } }, hub: { tone: 'ok' } }), '');
   const both = ui.sidebar({ pause: { state: 'paused', resets_at: new Date(Date.now() + 3600_000).toISOString(), machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.doesNotMatch(both, />busy</, 'a pause reads first');
@@ -2833,4 +2833,22 @@ test("a link to a card on the board starts with that card's lane ring; an id wit
   assert.match(html, /<a href="#selectedCard=w%2FA1"><span class="status link-lane review"><\/span>#186<\/a>/);
   assert.match(html, /<a href="#selectedCard=w%2FA2"><span class="status link-lane progress"><\/span>INT-5<\/a>/);
   assert.doesNotMatch(html, /link-lane[^>]*><\/span>(#999|ENG-1)/);
+});
+
+// docs/adr/2026-11-12-1000-the-logo-dot-carries-the-hub-state.md
+test('the logo dot is the highest of red, orange, blue, grey: not listening or offline, busy, an update, paused', () => {
+  const ok = { pause: { state: 'normal' }, hub: { tone: 'ok' }, sites: [{ route: 'a', board: true, listen: 'listening' }] };
+  assert.equal(ui.hubDot(ok), '');
+  assert.equal(ui.hubDot({ ...ok, sites: [{ route: 'a', board: true, listen: 'listening' }, { route: 'b', board: true, listen: 'deaf' }] }), 'down', 'not listening on any board');
+  assert.equal(ui.hubDot({ ...ok, sites: [{ route: 'b', board: true, listen: 'full' }] }), 'down');
+  assert.equal(ui.hubDot({ ...ok, sites: [{ route: 'b', board: true, listen: 'asleep' }] }), '', 'asleep is not a fault');
+  assert.equal(ui.hubDot(ok, { offline: true }), 'down', 'a page that cannot reach the host');
+  const busy = { ...ok, pause: { state: 'normal', machine: { state: 'busy' } } };
+  assert.equal(ui.hubDot({ ...busy, sites: [{ route: 'b', board: true, listen: 'deaf' }] }), 'down', 'red beats orange');
+  assert.equal(ui.hubDot(busy, { update: 'ready' }), 'busy', 'orange beats blue');
+  assert.equal(ui.hubDot(ok, { update: 'ready' }), 'update');
+  const paused = { ...ok, pause: { state: 'paused' } };
+  assert.equal(ui.hubDot(paused, { update: 'ready' }), 'update', 'blue beats grey');
+  assert.equal(ui.hubDot(paused), 'paused');
+  assert.equal(ui.hubDot(null), '');
 });
