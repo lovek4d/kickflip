@@ -1171,7 +1171,7 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     [{ lane: 'done' }, 'done'],
   ]) assert.deepEqual(rows({ ...bare, ...extra }), [['Wave', 'W'], ['Status', want]], JSON.stringify(extra));
   assert.doesNotMatch(B.detail(card), /data-confirm="build"|Filed from|Waits on</);
-  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 2), ['Task Five', 'blocked by #80']);
+  assert.deepEqual(lines(app.BoardUI.workLines({ ...card, linear: [], ticket: null })).slice(0, 3), ['Task Five', 'Wave: W', 'blocked by #80']);
   assert.doesNotMatch(app.BoardUI.workLines(card), /follow-up/);
 });
 
@@ -1633,6 +1633,21 @@ test('ticket badges use the board source and link out', () => {
   const foreign = ui.workLines({ ...workCard, ticket: { id: 'INT-4', url: null, source: null } });
   assert.match(foreign, /<span class="chip tone-quiet"[^>]*>INT-4<\/span>/);
   assert.doesNotMatch(foreign, /ENG-1|#4/);
+});
+
+test('a card in a wave names it under its status line in every lane, and a card in no wave shows none', () => {
+  for (const lane of ['todo', 'progress', 'review', 'done']) {
+    const html = ui.workLines({ ...workCard, lane, wave: { slug: 'w', title: 'Search' } });
+    assert.match(html, /<div class="line3 sub wave">Wave: Search<\/div>/);
+    assert.ok(html.indexOf('Next: ') < html.indexOf('Wave: Search'));
+    assert.doesNotMatch(ui.workLines({ ...workCard, lane, wave: null }), /Wave: /);
+  }
+});
+
+test('a card in no wave names its item file when it has a file label, and a declared wave wins', () => {
+  assert.match(ui.workLines({ ...workCard, wave: null, fileLabel: 'Search' }), /Wave: Search<\/div>/);
+  assert.match(ui.workLines({ ...workCard, wave: { slug: 'w', title: 'Own' }, fileLabel: 'Search' }), /Wave: Own<\/div>/);
+  assert.doesNotMatch(ui.workLines({ ...workCard, wave: null, fileLabel: null }), /Wave: /);
 });
 
 test('a work card reads its title, then its next step or builder, its chips, and last its time line with what blocks it, Action needed and its unread messages', () => {

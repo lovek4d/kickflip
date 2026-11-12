@@ -233,7 +233,6 @@ window.BoardView = (function () {
       state.restored.delete(focusKey);
       const it = state.board?.items.find((i) => i.key === focusKey);
       if (it) { const s = store.get('lanes', {}); s[it.lane] = true; store.set('lanes', s); B.openBand({ key: focusKey }); }
-      if (it?.fold) store.set(B.FOLDS[it.fold].store, true);
     }
     // The owner's own moves rewrite the fragment in place, with no history entry and no hashchange.
     B.saveFragment = (changes) => {

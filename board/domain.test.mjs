@@ -1384,14 +1384,12 @@ test('Done holds every closed work card, however old, with no Older fold, and ca
     { id: 'a3', ts: at(3), kind: 'ask', data: { text: 's' }, reply: { html: 'ok', at: at(2.5) } },
   ];
   const b = buildBoard({ now, fromWaves: false, prs, events, files: [{ slug: 'w', itemFile: { repo: 'o/r', items } }] });
-  assert.deepEqual(b.items.filter((i) => i.lane === 'done').map((i) => [i.key, i.fold]), [
-    ['w/T-2', null], ['w/T-1', null], ['w/ENG-2', null], ['w/A1', null], ['w/T-3', null], ['w/A2', null], ['w/ENG-1', null], ['w/A3', null],
-  ]);
+  assert.deepEqual(b.items.filter((i) => i.lane === 'done').map((i) => i.key), ['w/T-2', 'w/T-1', 'w/ENG-2', 'w/A1', 'w/T-3', 'w/A2', 'w/ENG-1', 'w/A3']);
   assert.deepEqual(b.items.filter((i) => i.fromAsk).map((i) => [i.lane, i.sortAt]), [['done', at(0.2)], ['done', at(0.5)], ['done', at(2.5)]]);
   assert.deepEqual(b.items.map((i) => i.lane).slice(-8), Array(8).fill('done'));
 });
 
-test('an item file whose every work item is in Done, landed or not, is finished, and its Done cards fold under one row, newest first, until an open card reopens it', () => {
+test('an item file whose every work item is in Done, landed or not, is finished, until an open card reopens it, and its Done cards stay in the one newest-first Done list with no fold', () => {
   const now = Date.parse('2026-11-20T12:00:00Z');
   const at = (d) => new Date(now - d * 86400000).toISOString();
   const prs = { 'o/r#1': { state: 'MERGED', mergedAt: at(1) }, 'o/r#2': { state: 'CLOSED', updatedAt: at(3) }, 'o/r#3': { state: 'MERGED', mergedAt: at(20) } };
@@ -1404,16 +1402,17 @@ test('an item file whose every work item is in Done, landed or not, is finished,
   ];
   const b = buildBoard({ now, fromWaves: false, prs, files: files(false) });
   assert.deepEqual(b.itemFiles.map((w) => [w.slug, w.finished]), [['x', true], ['site', true], ['open', false], ['empty', false]]);
-  assert.deepEqual(b.items.map((i) => [i.key, i.lane, i.fold]), [
-    ['open/O2', 'progress', null],
-    ['x/X1', 'done', 'file:x'], ['x/ENG-2', 'done', 'file:x'], ['x/ENG-1', 'done', 'file:x'], ['x/X2', 'done', 'file:x'], ['x/X4', 'done', 'file:x'],
-    ['x/X3', 'done', 'file:x'], ['open/O1', 'done', null], ['site/S1', 'done', 'file:site'],
+  assert.deepEqual(b.items.map((i) => [i.key, i.lane]), [
+    ['open/O2', 'progress'],
+    ['x/X1', 'done'], ['x/ENG-2', 'done'], ['x/ENG-1', 'done'], ['x/X2', 'done'], ['x/X4', 'done'],
+    ['x/X3', 'done'], ['open/O1', 'done'], ['site/S1', 'done'],
   ]);
+  assert.ok(b.items.every((i) => !('fold' in i)));
   const reopened = buildBoard({ now, fromWaves: false, prs, files: files(true) });
   assert.deepEqual(reopened.itemFiles.map((w) => [w.slug, w.finished]), [['x', false], ['site', true], ['open', false], ['empty', false]]);
-  assert.deepEqual(reopened.items.filter((i) => i.file === 'x').map((i) => [i.key, i.lane, i.fold]), [
-    ['x/ENG-2', 'todo', null],
-    ['x/X1', 'done', null], ['x/ENG-1', 'done', null], ['x/X2', 'done', null], ['x/X4', 'done', null], ['x/X3', 'done', null],
+  assert.deepEqual(reopened.items.filter((i) => i.file === 'x').map((i) => [i.key, i.lane]), [
+    ['x/ENG-2', 'todo'],
+    ['x/X1', 'done'], ['x/ENG-1', 'done'], ['x/X2', 'done'], ['x/X4', 'done'], ['x/X3', 'done'],
   ]);
 });
 
@@ -2909,4 +2908,12 @@ test('on a tie a message sorts above the status line it causes', () => {
   const lines = [{ ts, who: 'claude', command: 'staged', text: 'Marked as staging' }, { ts, who: 'claude', kind: 'move', text: 'Moved to In Progress' }];
   const thread = threadOf('w/A1', { lines, events: [msg] });
   assert.deepEqual(thread.map((m) => m.text), ['Go build it', 'Marked as staging', 'Moved to In Progress']);
+});
+
+test('a card in no wave carries its item file title on a board with more than one item file, and none on a one-file board', () => {
+  const file = (slug, title) => ({ slug, itemFile: { title, items: [{ id: `${slug}1`, title: 'a' }] } });
+  const two = buildBoard({ now: Date.now(), fromWaves: false, files: [file('x', 'Search'), file('y', 'Billing')] });
+  assert.deepEqual(two.items.map((i) => i.fileLabel), ['Search', 'Billing']);
+  const one = buildBoard({ now: Date.now(), fromWaves: false, files: [file('x', 'Search')] });
+  assert.deepEqual(one.items.map((i) => i.fileLabel), [null]);
 });

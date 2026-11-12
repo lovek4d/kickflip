@@ -424,12 +424,14 @@
       : it.landStopped ? `<div class="line3 sub">${escText(`${it.landStopped.words} · ${lasted(it.landStopped.at)}`)}</div>`
       : it.working ? `<div class="line3 sub agent">${thinkingLine()}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${escText(it.next)}</div>` : '';
+    const waveName = it.wave?.title || it.fileLabel;
+    const wave = waveName ? `<div class="line3 sub wave">Wave: ${escText(waveName)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${escText(etaLine(it.eta))}</div>` : '';
     // The owner step's code check, which closes the card when it passes (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
     const check = !it.ownerCheck ? '' : it.ownerCheck.broken ? `<div class="line3 sub refused">${escText(`Check can't run: ${it.ownerCheck.broken}`)}</div>`
       : `<div class="line3 sub check">${escText(`Checks: ${it.ownerCheck.words}`)}</div>`;
     return `${cardActions(it)}<div class="line1 title">${ids ? `${ids} ` : ''}${escText(it.title)}</div>
-      ${status}${check}${eta}
+      ${status}${wave}${check}${eta}
       ${chips ? `<div class="line2 meta">${chips}</div>` : ''}
       ${timeLine(it, unread, progressBar(phaseStrip(it)))}`;
   }

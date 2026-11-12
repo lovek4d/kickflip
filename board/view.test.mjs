@@ -5408,6 +5408,16 @@ test('answered asks sit in the one Done list among the work cards by time, 10 sh
   assert.deepEqual([keys('done'), more('done')], [all.map((c) => c.key), null]);
 });
 
+test("a finished wave's cards sit in Done's one newest-first list, and Done draws no fold", async () => {
+  const cards = [['A', 'w', 3], ['B', 'w', 1], ['C', 'v', 2]].map(([id, file, n]) => workCard(id, { key: `${file}/${id}`, file, lane: 'done', sortAt: `2026-10-0${n}T08:00:00.000Z` }));
+  const b = boardOnDom({ board: boardOf(cards), threads: {} });
+  await b.settle();
+  const done = b.root.querySelector('#lanes details.lane[data-lane="done"]');
+  assert.equal(done.querySelector('details.fold'), null);
+  assert.equal(done.querySelector('summary .count').textContent, '3');
+  assert.deepEqual(done.querySelectorAll('details.item').map((el) => el.dataset.key), ['w/A', 'v/C', 'w/B']);
+});
+
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
 test('past the 100 Done cards the board carries, Show more fetches the next 100 from the archive, 10 shown per tap, and an archived card opens', async () => {
   const day = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();

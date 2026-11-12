@@ -55,7 +55,6 @@ const DAY = 86400000;
 // Done holds closed work cards and answered asks (docs/adr/2026-11-09-1430-answered-asks-fold-into-the-one-done-list.md).
 const closedLane = (i) => i.lane === 'done';
 // A finished item file's Done cards fold under a row of their own, which board/public/app-lanes.js reads back by this id.
-export const fileFold = (slug) => `file:${slug}`;
 // A PR in review longer than this reads stale, still In Review (docs/adr/2026-10-29-1639-a-pr-in-review-shows-its-age-and-goes-stale-after-seven-days.md).
 const STALE_AFTER = 7 * DAY;
 
@@ -352,7 +351,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: whose turn a discussing card is, the orchestrator's
     // while an owner message or answer on it is unanswered, otherwise the owner's.
     turn: lane === 'todo' && it.phase === 'discussing' ? (said.some((m) => m.state === 'waiting' || m.state === 'working') ? 'claude' : 'owner') : undefined,
-    updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, fold: null, action: null,
+    updatedAt: pr?.mergedAt || pr?.updatedAt || prs[least]?.merged_at || builder?.at || lastTs || null, ask: null, action: null,
     install: lane === 'done' ? null : installOf(it.install, pr),
     waitFacts: waitFactsOf(it, { agents, thread, events, refusedAt: refusal ? newest.ts : null, replyAt: idle ? replyAt : null }),
   };
@@ -1229,9 +1228,8 @@ export function buildBoard(snapshot) {
   for (const w of itemFiles) {
     const cards = items.filter((i) => i.file === w.slug);
     w.finished = finishedOf(cards);
-    if (w.finished) for (const i of cards) if (i.lane === 'done') i.fold = fileFold(w.slug);
   }
-  for (const i of items) i.wave = null;
+  for (const i of items) { i.wave = null; i.fileLabel = itemFiles.length > 1 ? i.fileTitle : null; }
   const declared = new Set((owner.topics || []).map((t) => t.id));
   const waves = snapshot.files.flatMap(({ slug, itemFile }) => (itemFile.waves || []).map((l) => {
     return { ...l, keys: waveItems(l).map((id) => `${slug}/${id}`) };
@@ -1680,7 +1678,7 @@ export const DONE_KEPT = 100;
 // The fields of a Done card the page draws: the Done lane's card and its open detail (ui-cards.js workLines,
 // app-cards.js), the wave bands' "N done" links (app-lanes.js), unread counts (othersAt), the Notes, Questions and
 // Prototypes buttons, and ui-snapshot.js updateSign. No page file reads `agents`, and the rest are set on a Done card only to be sent.
-export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fileTitle', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
+export const DONE_FIELDS = ['key', 'kind', 'id', 'ref', 'title', 'lane', 'phase', 'file', 'fileTitle', 'fileLabel', 'wave', 'fold', 'internal', 'ticket', 'ticketSource', 'linear', 'pr', 'prs',
   'review', 'reviewers', 'risky', 'sortAt', 'threadCount', 'othersAt', 'hasNotes', 'questions', 'prototypes', 'next', 'ask', 'action', 'actionButton', 'builder', 'working', 'waitsOn',
   'reachedPhase', 'grilling', 'refusal', 'install', 'parent', 'children', 'related', 'waitsOnIt', 'blockedBy', 'ready', 'finishable', 'reopened', 'manualSteps', 'branch', 'worktree'];
 export const slimDone = (it) => Object.fromEntries(DONE_FIELDS.filter((f) => f in it).map((f) => [f, it[f]]));

@@ -51,25 +51,7 @@ BoardView.part((B) => {
   }
 
   // A fold's open state lives in storage, not in setHTML's summary-text match, because its row's count changes.
-  // Fold ids are file:<slug> (board/domain.mjs fileFold), so any id maps to its own storage key.
   const FOLDS = new Proxy({}, { get: (_, id) => ({ store: `foldOpen:${String(id)}` }) });
-  // A fold's header reads like a lane's: its name, then its count.
-  function fold(id, list, name) {
-    if (!list.length) return '';
-    return `<details class="fold" data-fold="${esc(id)}" ${store.get(FOLDS[id].store, false) ? 'open' : ''}>
-        <summary><span class="lane-name">${name}</span><span class="count">${list.length}</span></summary>
-        <div class="fold-list">${list.map((it) => B.card(it)).join('')}</div>
-      </details>`;
-  }
-
-  // One row per finished item file, newest card first, as Done's items arrive sorted.
-  function fileFolds(d, items) {
-    const slugs = [...new Set(items.filter((i) => i.fold === `file:${i.file}`).map((i) => i.file))];
-    return slugs.map((slug) => {
-      const w = d.itemFiles.find((x) => x.slug === slug);
-      return fold(`file:${slug}`, items.filter((i) => i.fold === `file:${slug}`), escText(w.title));
-    }).join('');
-  }
 
   // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: the Auto Review lane leads the lanes. The PRs
   // the owner has open are kept in memory, as cards are.
@@ -119,8 +101,7 @@ BoardView.part((B) => {
       if (lane.id === 'todo') shown = shown.filter((i) => i.lane !== 'todo' || items.includes(i));
       const filter = lane.id === 'todo' ? filterHtml() : null;
       const expanded = laneState[lane.id] ?? lane.open;
-      const open = items.filter((i) => !i.fold);
-      const rows = lane.id === 'todo' ? todoRows(d, shown, open) : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : waveGroups(lane.id, open)) + fileFolds(d, items);
+      const rows = lane.id === 'todo' ? todoRows(d, shown, items) : lane.id === 'done' ? doneRows(d, items) : lane.capped ? cappedRows(lane.id, items) : waveGroups(lane.id, items);
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
         <summary><span class="lane-name">${lane.name}</span><span class="count">${lane.id === 'done' ? doneCount(d, items) : lane.id === 'todo' && items.length < all.length ? `${items.length} of ${all.length}` : items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}${filter ? filter.button : ''}</summary>
         ${filter ? filter.menu : ''}
