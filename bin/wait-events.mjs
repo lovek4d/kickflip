@@ -9,7 +9,8 @@
 //                             what came in, on which card and what to do (plainLine, from ./event-lines.mjs), prefixed `already shown: `
 //                             for one the PostToolUse hook showed mid-task (./event-lines.mjs shownFile,
 //                             docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md); on a board it marks each ask,
-//                             item-message, wave-triage and overnight-triage working in data/working.json and answers a ping for the
+//                             item-message, wave-triage and overnight-triage working in data/working.json, moves the mark of an ask
+//                             whose ask-edited it prints to now (the stamp sorting commands check), and answers a ping for the
 //                             session (board/store.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
 //                             each card idle on the orchestrator, bumped ones first, then lanes top-down, from data/orchestrator-waits.json,
@@ -47,7 +48,7 @@ import { routeRecord } from '../hub/routes.mjs';
 import { readHubRules, rulesOf, ruleLines } from '../hub/rules.mjs';
 import { boardAt, linksOf, hubLink, stopPreviousWatcher } from '../hub/boards.mjs';
 import { parentOf, sessionGone } from '../hub/live.mjs';
-import { ackPing, markWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
+import { ackPing, editedAsks, markWorking, restampWorking, settingsLines, settingsOf, WORKING_KINDS } from '../board/store.mjs';
 import { readUsageGate, heldUsageEvent, pausedLine } from '../shared/usage-gate.mjs';
 import { recordOnly, plainLine, shownFile } from './event-lines.mjs';
 
@@ -161,6 +162,7 @@ for (;;) {
   if (!wakes(waiting, gate)) continue;
   const held = Object.create(null);
   const started = [];
+  const handed = [];
   const heard = new Set(Object.values(base.$quietHeld || {}).flat());
   const pings = [];
   let shown = [];
@@ -174,12 +176,15 @@ for (;;) {
       const e = parsed(line);
       if (plain) console.log(shown.includes(e?.id) ? `already shown: ${plain}` : plain);
       if (e && WORKING_KINDS.includes(e.kind) && typeof e.id === 'string') started.push(e.id);
+      handed.push(e);
     }
   }
   const board = boardOf(s);
   // The session takes each one it is handed, so its page reads "Working on it" from now
   // (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md).
-  if (board) await markWorking(s.dir, started).catch((e) => console.log(`working marks not written (${e.message})`));
+  // An ask edit it prints hands the ask's new text over, so the ask's mark moves to now
+  // (docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md).
+  if (board) await markWorking(s.dir, started).then(() => restampWorking(s.dir, editedAsks(handed))).catch((e) => console.log(`working marks not written (${e.message})`));
   if (board) await ackPings(s.dir, pings);
   if (board) for (const line of waitLines(s.dir)) console.log(line);
   if (board) for (const line of ruleLines(readHubRules(), rulesOf(board))) console.log(`rule ${line}`);

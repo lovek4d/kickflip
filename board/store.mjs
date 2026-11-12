@@ -201,6 +201,34 @@ export async function markWorking(site, eventIds) {
   await writeJSON(workingFile(site), { events: { ...events, ...Object.fromEntries(eventIds.map((id) => [id, routeRecord(events, id) || at])) } });
 }
 
+// The asks whose text the session was just handed again, an edit the watcher or the PostToolUse hook printed or a
+// sorting command's refusal, have their working mark moved to now: that is when the session read their latest text.
+export async function restampWorking(site, askIds) {
+  if (!askIds.length) return;
+  const at = new Date().toISOString();
+  await writeJSON(workingFile(site), { events: { ...await readWorking(site), ...Object.fromEntries(askIds.map((id) => [id, at])) } });
+}
+// The asks the ask-edited events among events edit.
+export const editedAsks = (events) => [...new Set(events.filter((e) => e?.kind === 'ask-edited' && typeof e.data?.id === 'string').map((e) => e.data.id))];
+
+// docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md
+// Refuses a command that sorts the ask ref is or became (an ask's event id, or the card key it became) when the owner
+// edited the ask after its working mark, or it has an edit and no mark: the session hasn't read that text. The refusal
+// prints the new text, which re-stamps the mark, so a rerun goes through. Any other event or card passes.
+export async function refuseUnreadEdit(site, ref) {
+  needSite(site);
+  const id = ref.includes('/') ? (await loadItem(site, ref)).item.from_ask : ref;
+  if (!id) return;
+  const edit = (await readLines(path.join(site, 'data', 'events.jsonl')))
+    .filter((e) => e.kind === 'ask-edited' && e.data?.id === id && typeof e.data?.text === 'string')
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).at(-1);
+  if (!edit) return;
+  const mark = routeRecord(await readWorking(site), id);
+  if (mark && Date.parse(mark) >= Date.parse(edit.ts)) return;
+  await restampWorking(site, [id]);
+  fail(`task ${id} was edited at ${edit.ts}, after you read it. Its text now:\n${edit.data.text}\nRead it, then run this again, or change the command if the edit changes the plan.`);
+}
+
 // Replies ride along on the next push (docs/adr/2026-10-29-1639-replies-ride-along-on-the-next-push.md).
 const pushStateFile = (site) => path.join(site, 'data', 'push-state.json');
 

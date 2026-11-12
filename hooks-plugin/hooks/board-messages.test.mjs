@@ -65,6 +65,17 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   assert.match(run().additionalContext, /"id":"e6"/);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', '.shown-s1.json'), 'utf8')).ids, ['e6']);
 
+  // An ask edit it shows moves the ask's working mark to now
+  // (docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md).
+  const working = path.join(dir, 'data', 'working.json');
+  write(working, { events: { ...JSON.parse(fs.readFileSync(working, 'utf8')).events, e3: '2026-11-12T09:38:03.000Z' } });
+  fs.appendFileSync(events, line('e8', 'ask-edited', ago(0), { id: 'e3', text: 'A new task, edited again' }) + '\n');
+  const before = Date.now();
+  assert.match(run().additionalContext, /task e3 edited: use the new text/);
+  const marks = JSON.parse(fs.readFileSync(working, 'utf8')).events;
+  assert.ok(Date.parse(marks.e3) >= before, marks.e3);
+  assert.equal(marks.e8, undefined);
+
   // No watcher has run for the session yet: nothing to measure against, so nothing shows.
   fs.rmSync(path.join(dir, 'data', '.watch-cursor-s1.json'));
   fs.appendFileSync(events, line('e7', 'item-message', ago(0), { key: 'w/A1', text: 'Unseen' }) + '\n');

@@ -151,3 +151,59 @@ test('a Quick build ask\'s New card goes ready from new on item set --phase read
   // item add --from-ask on an ask that already has its card points at the card.
   assert.match(board('item', 'add', 'audit', '--from-ask', 'a1', '--text', 'x', '--title', 'X', '--phase', 'grilling', '--site', 'audit').err, /already card audit\/T-1/);
 });
+
+// docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md
+test('every sorting command refuses an ask edited after its working mark, printing the new text, and the rerun goes through', async () => {
+  const s = await store();
+  const notes = path.join(home, 'n.md');
+  fs.writeFileSync(notes, 'Pin the header.');
+  const commands = [
+    ['reply on its card', (key) => ['reply', key, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
+    ['reply on its ask', (key, id) => ['reply', id, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
+    ['item set --phase ready', (key) => ['item', 'set', key, '--phase', 'ready', '--size', 'small'], (item) => item.phase === 'ready'],
+    ['item set --phase grilling', (key) => ['item', 'set', key, '--phase', 'grilling'], (item) => item.phase === 'grilling'],
+    ['item set --phase prototyping', (key) => ['item', 'set', key, '--phase', 'prototyping'], (item) => item.phase === 'prototyping'],
+    ['item set --title', (key) => ['item', 'set', key, '--title', 'fix(board): header jumps'], (item) => item.title === 'fix(board): header jumps'],
+    ['item relate-ask', (key, id) => ['item', 'relate-ask', id, 'audit/A1', '--summary', 'Same as the header work'], (item) => item === undefined],
+  ];
+  for (const [n, [name, args, sorted]] of commands.entries()) {
+    const id = `r${n}`;
+    auditEvents({ id, ts: '2026-11-12T09:38:00.000Z', kind: 'ask', data: { text: 'Completed asks go straight to Done', quick: true } });
+    const key = await s.fileAsk(audit(), id);
+    board('item', 'notes', key, '--heading', 'Scope', '--file', notes, '--site', 'audit');
+    write(audit('data', 'working.json'), { events: { ...(fs.existsSync(audit('data', 'working.json')) ? read(audit('data', 'working.json')).events : {}), [id]: '2026-11-12T09:38:03.000Z' } });
+    auditEvents({ id: `x${n}`, ts: '2026-11-12T09:38:14.000Z', kind: 'ask-edited', data: { id, key, text: 'Completed asks wait in In Review for my Done' } });
+    const item = () => read(audit('data', 'items.json')).items.find((i) => i.from_ask === id);
+    const refused = board(...args(key, id), '--site', 'audit');
+    assert.equal(refused.code, 1, name);
+    assert.match(refused.err, new RegExp(`task ${id} was edited at 2026-11-12T09:38:14.000Z, after you read it\\. Its text now:\\nCompleted asks wait in In Review for my Done\\nRead it, then run this again, or change the command if the edit changes the plan\\.`), name);
+    assert.deepEqual([item().phase, item().title], [undefined, 'Completed asks go straight to Done'], name);
+    // The refusal printed the new text, so the ask's mark moves to now and the rerun goes through.
+    assert.ok(Date.parse(read(audit('data', 'working.json')).events[id]) > Date.parse('2026-11-12T09:38:14.000Z'), name);
+    const rerun = board(...args(key, id), '--site', 'audit');
+    assert.deepEqual([rerun.code, rerun.err], [0, ''], name);
+    assert.ok(sorted(item()), name);
+  }
+});
+
+test('an ask edited before its hand-over sorts at once; an edited ask never handed over refuses, as do --ticket and --new-ticket; a later owner message does not', async () => {
+  const s = await store();
+  auditEvents(ask, { id: 'x1', ts: '2026-11-09T10:00:30Z', kind: 'ask-edited', data: { id: 'a1', text: 'Fix the header, edited' } });
+  await s.fileAsk(audit(), 'a1');
+  write(audit('data', 'working.json'), { events: { a1: '2026-11-09T10:01:00Z' } });
+  auditEvents({ id: 'm1', ts: '2026-11-09T10:02:00Z', kind: 'item-message', data: { key: 'audit/T-1', text: 'Also the footer' } });
+  assert.deepEqual(board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit').code, 0);
+
+  auditEvents({ ...ask, id: 'a2' }, { id: 'x2', ts: '2026-11-09T10:00:30Z', kind: 'ask-edited', data: { id: 'a2', text: 'Fix the footer' } });
+  await s.fileAsk(audit(), 'a2');
+  for (const flags of [['--ticket', '41'], ['--new-ticket'], ['--phase', 'discussing']]) {
+    write(audit('data', 'working.json'), { events: { a1: '2026-11-09T10:01:00Z' } });
+    assert.match(board('item', 'set', 'audit/T-2', ...flags, '--site', 'audit').err, /task a2 was edited at 2026-11-09T10:00:30Z, after you read it\. Its text now:\nFix the footer\n/, flags[0]);
+  }
+  // Commands that don't sort it, and asks with no edit, are untouched.
+  write(audit('data', 'working.json'), { events: {} });
+  assert.equal(board('item', 'set', 'audit/T-2', '--next', 'Then this', '--site', 'audit').code, 0);
+  auditEvents({ ...ask, id: 'a3' });
+  await s.fileAsk(audit(), 'a3');
+  assert.equal(board('item', 'set', 'audit/T-3', '--phase', 'grilling', '--site', 'audit').code, 0);
+});

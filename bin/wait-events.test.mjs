@@ -305,3 +305,17 @@ test('a wake prints a message the PostToolUse hook already showed again, its pla
   assert.match(stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nalready shown: message received from A1's thread: reply in its thread; ask open points with question add, not in prose$/m);
   assert.match(stdout, /^event data\/events.jsonl .*"kind":"ask".*\nnew task ask received/m);
 });
+
+// docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md
+test('a wake that prints an ask edit moves the ask\'s working mark to now, so sorting it goes through', { timeout: 30000 }, async (t) => {
+  const { home, dir, watch } = shop(t);
+  ownSession(home, 's1');
+  write(path.join(dir, 'board.json'), { title: 'Shop' });
+  write(path.join(dir, 'data', 'working.json'), { events: { a1: '2026-11-12T09:38:03.000Z', m0: '2026-11-12T09:00:00.000Z' } });
+  fs.appendFileSync(path.join(dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'x1', kind: 'ask-edited', ts: new Date().toISOString(), data: { id: 'a1', text: 'Edited' } }) + '\n');
+  const before = Date.now();
+  assert.equal((await watch().done).code, 0);
+  const marks = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events;
+  assert.ok(Date.parse(marks.a1) >= before, marks.a1);
+  assert.deepEqual([marks.m0, marks.x1], ['2026-11-12T09:00:00.000Z', undefined]);
+});

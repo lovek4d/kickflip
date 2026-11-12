@@ -42,7 +42,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   reply <file>/<id> (--text <md> | --file <path>)        answers the New or discussing card an ask became: the
          [--title <t>]                                   answer goes in its thread and the card reads
                                                          discussing in Todo, --title as its title. Refuses a
-                                                         card sorted another way or that isn't one an ask became
+                                                         card sorted another way or that isn't one an ask became.
+                                                         reply, item set --phase, --title, --ticket and
+                                                         --new-ticket, and item relate-ask refuse an ask (or the
+                                                         card it became) the owner edited after its Working-on-it
+                                                         mark, or edited and never handed over: they print the new
+                                                         text and move the mark to now, so a rerun goes through
          [--close]                                       for a reply that leaves only the owner's Done: marks the
                                                          card waiting to be closed, so its Done goes orange and it
                                                          reads Action needed until the owner taps Done or writes
@@ -184,7 +189,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          until set, which sorts a New card an ask became (an
                                                          answered one leaves In Review for Todo). discussing is
                                                          a conversation in its thread, which reply on a New card
-                                                         also sets. Refused on a card in another lane, whose phase
+                                                         also sets. Like --title, --ticket and --new-ticket, refused
+                                                         on an ask edited after you read it, as reply is.
+                                                         Refused on a card in another lane, whose phase
                                                          the board sets, and as --state, its old name.
                                                          Staging is the board's: it stages a card on the owner's
                                                          Send, Implement or Reply on a ready card, and refuses
@@ -312,7 +319,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          item's thread marked Moved, then the summary line, and the
                                                          owner's banner names the card it merged into. Refuses
                                                          an ask whose card is sorted. Again with another item
-                                                         moves it there
+                                                         moves it there. Refuses an ask edited after you read it,
+                                                         as reply does
          [--title <t>]                                   names the merge in the owner's banner
   ask unfold <eventId>                                   moves a folded ask back out to a card of its own
   ask move <eventId> --to <route>                        sends a New ask to another board in the hub's manifest:
@@ -852,11 +860,12 @@ const COMMANDS = {
     if (f.body === undefined) throw new UsageError('pr reply needs --body "<what Claude says>"');
     return store.postPR(site, pr, { replyTo, body: f.body });
   }],
-  reply: [['eventId'], ['text', 'file', 'title', 'implement', 'close'], (site, [id], f) => {
+  reply: [['eventId'], ['text', 'file', 'title', 'implement', 'close'], async (site, [id], f) => {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('reply takes --text or --file');
     if ((f.implement || f.close) && !id.includes('/')) throw new UsageError('reply --implement and --close mark a card: name it <file>/<id>');
     if (f.implement && f.close) throw new UsageError('reply takes --implement or --close, not both');
     const md = f.text ?? readInput(f.file);
+    await store.refuseUnreadEdit(site, id);
     return id.includes('/') ? store.answerCard(site, id, md, f.title, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined }) : store.writeReply(site, id, md, f.title);
   }],
   thread: [['file/id'], ['text', 'link', 'who', 'via', 'close'], (site, [key], f) => store.appendMessage(site, key, f)],
@@ -878,6 +887,7 @@ const COMMANDS = {
   'item set': [['file/id'], ['done', 'split-into', 'status', 'clear-status', 'next', 'clear-next', '...pr', 'pushed', 'gh-since', 'from-ask', 'phase', 'state', 'held', 'unheld', 'pick-up-at', 'notes-file', 'plan', 'deps', 'blocked-until', 'block-reason', 'parent', 'related', 'relate', 'unrelate', 'install', 'install-sha', 'install-label', 'clear-install', 'title', 'size', 'model', 'force', 'ticket', 'new-ticket', 'text', 'check'], async (site, [key], f, options) => {
     refuseNotesFile(f, `add to its notes with item notes ${key} --heading "<heading>" --file <draft.md>`);
     if (f.done && site) await store.checkNotReopened(site, key);
+    if (site && [f.phase, f.title, f.ticket, f['new-ticket']].some((v) => v !== undefined)) await store.refuseUnreadEdit(site, key);
     return store.setItem(site, key, { done: f.done, finishAsk: true, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
   }],
@@ -891,7 +901,10 @@ const COMMANDS = {
     if ((f.file === undefined) === (f.from === undefined)) throw new UsageError('item notes takes --file <draft.md> or --from <file>/<id>');
     return store.addNotes(site, key, f);
   }],
-  'item relate-ask': [['eventId', 'file/id'], ['summary', 'title'], (site, [id, key], f) => store.relateAsk(site, id, key, f.summary, f.title)],
+  'item relate-ask': [['eventId', 'file/id'], ['summary', 'title'], async (site, [id, key], f) => {
+    await store.refuseUnreadEdit(site, id);
+    return store.relateAsk(site, id, key, f.summary, f.title);
+  }],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
   'wave create': [['slug'], ['title', 'goal', '...card', 'note', 'file'], (site, [slug], f) => store.createWave(site, slug, { title: f.title, goal: f.goal, cards: f.card, note: noteOf(f) })],
