@@ -642,7 +642,7 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = bin ?? path.join(home, 'claude');
   if (!bin) {
-    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n${init ? "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }));\n" : ''}`);
+    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n${init ? "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }));\n" : ''}// Stays running, as a planner does until its own done: the board closes the record of a planner whose process is gone (docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md).\nsetTimeout(() => {}, 20000);\n`);
     fs.chmodSync(fake, 0o755);
   }
   const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);

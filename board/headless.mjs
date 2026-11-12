@@ -6,6 +6,7 @@
 // role in plain steps either agent follows, is built from the card: its notes file, the hub's and board's rules, and
 // the board's CLI. A builder finishes its own work with builder done (finish.mjs), resolving any rebase conflict itself;
 // only judgment calls and deferred asks go to the session.
+import fs from 'node:fs';
 import os from 'node:os';
 import { BRIEF_LINE_LIMIT } from './hub-lines.mjs';
 import path from 'node:path';
@@ -347,6 +348,22 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const launched = await launchAgent({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
   await recordSession(site, key, launched.sessionId, launched.pid, agent, path.basename(launched.log));
   return launched;
+}
+
+// Why a Claude run whose process is gone failed, read from its stream-json log: null when its last result event is a
+// clean one, that event's text when it is an error, and words of its own when the log has no result event (the run was
+// killed or crashed) or can't be read.
+const NO_RESULT = 'its process ended before it finished';
+export function runFailure(file) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return NO_RESULT; }
+  for (const line of text.split('\n').reverse()) {
+    try {
+      const e = JSON.parse(line);
+      if (e.type === 'result') return e.is_error ? String(e.result || e.subtype || NO_RESULT).split('\n')[0].slice(0, 200) : null;
+    } catch {}
+  }
+  return NO_RESULT;
 }
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md

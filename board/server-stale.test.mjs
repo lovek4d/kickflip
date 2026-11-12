@@ -16,7 +16,9 @@ const put = (file, text) => { fs.writeFileSync(file + '.tmp', text); fs.renameSy
 // claude that logs the card and kind of each agent the server launches
 // (docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md). → {claude, launched(kinds)}: the cards
 // launched with any of kinds, each once, first launch first.
-function launchingBoard(dir, siteDir) {
+// stays keeps each launched agent running 20 s, as a planner does until its own done: the board closes the record of a
+// planner whose process is gone (docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md).
+function launchingBoard(dir, siteDir, { stays = false } = {}) {
   const repo = path.join(dir, 'repo');
   fs.mkdirSync(repo, { recursive: true });
   const git = (...args) => execFileSync('git', ['-C', repo, ...args]);
@@ -27,7 +29,7 @@ function launchingBoard(dir, siteDir) {
   fs.writeFileSync(manifest, JSON.stringify({ sites: { t: { dir: siteDir, port: 1, cmd: ['node', '/x/board/server.mjs'], branch: 'main', owner: { repo } } } }));
   const log = path.join(dir, 'launches.log');
   const claude = path.join(dir, 'claude');
-  fs.writeFileSync(claude, `#!/usr/bin/env node\nconst m = process.argv[3].match(/builder start (\\S+) --kind (\\w+)/);\nrequire('fs').appendFileSync(${JSON.stringify(log)}, m[1] + ' ' + m[2] + '\\n');\n`);
+  fs.writeFileSync(claude, `#!/usr/bin/env node\nconst m = process.argv[3].match(/builder start (\\S+) --kind (\\w+)/);\nrequire('fs').appendFileSync(${JSON.stringify(log)}, m[1] + ' ' + m[2] + '\\n');\n${stays ? 'setTimeout(() => {}, 20000);\n' : ''}`);
   fs.chmodSync(claude, 0o755);
   const launched = (...kinds) => [...new Set((fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '').split('\n').filter(Boolean).map((l) => l.split(' ')).filter(([, k]) => kinds.includes(k)).map(([key]) => key))];
   return { claude, launched };
@@ -354,7 +356,7 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   ] }));
   put(path.join(dataDir, 'agents', 'G1.json'), JSON.stringify({ kind: 'grill', started: iso(now - 120000), done: iso(now - 90000) }));
   fs.writeFileSync(setup, "import http from 'node:http'; http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };");
-  const { claude, launched } = launchingBoard(dir, siteDir);
+  const { claude, launched } = launchingBoard(dir, siteDir, { stays: true });
   t.after(async () => {
     if (worker?.exitCode === null && worker.signalCode === null) { const exited = new Promise((resolve) => worker.once('exit', resolve)); worker.kill(); await exited; }
     fs.rmSync(dir, { recursive: true, force: true });
@@ -569,7 +571,7 @@ test('with auto-pull on, each card arriving in Todo owes a grill brief up to the
   `);
   const logged = (kind) => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse).filter((e) => e.kind === kind).map((e) => e.data.key);
   const thread = (id) => (fs.existsSync(path.join(dataDir, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(dataDir, 'threads', `t__${id}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).text) : []);
-  const { claude, launched } = launchingBoard(dir, siteDir);
+  const { claude, launched } = launchingBoard(dir, siteDir, { stays: true });
   const start = async () => {
     worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], {
       env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, BUILDER_TEST_CLOCK: clockFile, KICKFLIP_CLAUDE: claude },

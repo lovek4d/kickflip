@@ -5043,6 +5043,33 @@ export async function stopPlanner(site, key, flags) {
   return { file, lines: [line.text, ...lines] };
 }
 
+// docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md
+// Each open planner record (grill, prototype, visual) of a process the board launched, which alive(record) says is gone,
+// closes now. failure(record) is the words its run failed with, or null for a clean end: a failure closes as
+// planner-failed (abandonPlanner); a clean grill or prototype as `builder done` closes it (stopPlanner, so
+// planner-unasked when no question came); a clean visual quietly. → [{key, kind, failed}]
+export async function closeGonePlanners(site, { alive, failure }) {
+  const closed = [];
+  for (const source of await itemSources(site)) {
+    // The records' file names carry the card ids, so a pass with no planner open reads no item file.
+    const files = (await fs.readdir(path.join(source.dir, 'agents')).catch(() => [])).filter((n) => n.endsWith('.json') && !n.includes('@past-'));
+    for (const name of files) {
+      const [id, ...named] = name.slice(0, -'.json'.length).split('@');
+      const file = path.join(source.dir, 'agents', name);
+      const record = await readJSON(file, null);
+      if (!record?.started || record.done || !plans(record) || !record.session?.pid || alive(record)) continue;
+      const key = `${source.slug}/${id}`;
+      const agent = named.join('@') || 'main';
+      const failed = failure(record);
+      if (failed) await abandonPlanner(site, key, ['planner-failed', { kind: record.kind === VISUAL ? 'visual agent' : record.kind, error: failed }], agent);
+      else if (record.kind === VISUAL) await stopBuilder(site, key, { agent });
+      else await stopPlanner(site, key, { agent });
+      closed.push({ key, kind: record.kind, failed });
+    }
+  }
+  return closed;
+}
+
 export async function openBoardBuilders(site) {
   const builders = [];
   for (const source of await itemSources(site)) {
