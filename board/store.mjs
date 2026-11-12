@@ -1290,7 +1290,7 @@ export function saveBoardShare(site, change) {
 const validGithubLogin = (value) => typeof value === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(value);
 const storedTickets = (value) => { try { return value ? ticketSource(value) : null; } catch { return null; } };
 // A board's settings in board.json (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md): auto_merge,
-// auto_build, auto_pull (Auto implement Todo cards), auto_triage, auto_review and idle_notification, off when absent, max_implementers, a
+// auto_build, auto_triage, auto_review and idle_notification, off when absent, max_implementers, a
 // whole number from 1 to 99 and MAX_IMPLEMENTERS when absent
 // (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md), max_planners, the same and MAX_PLANNERS when
 // absent (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md), max_serves, the same and MAX_SERVES
@@ -1305,7 +1305,7 @@ const validCap = (value) => Number.isInteger(value) && value >= 1 && value <= 99
 const CAPS = ['max_implementers', 'max_planners', 'max_serves'];
 export const settingsOf = (cfg, board) => {
   const tickets = storedTickets(cfg?.tickets);
-  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true, auto_pull: cfg?.auto_pull === true,
+  return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true,
     max_implementers: validCap(cfg?.max_implementers) ? cfg.max_implementers : MAX_IMPLEMENTERS,
     max_planners: validCap(cfg?.max_planners) ? cfg.max_planners : MAX_PLANNERS,
     max_serves: validCap(cfg?.max_serves) ? cfg.max_serves : MAX_SERVES, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
@@ -1332,11 +1332,11 @@ export async function readBoardSettings(site) {
 // listBoards entry or hub/board-repo.mjs boardRepo's answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.local || board.hub === true) && settings.prs;
 
-// changes {auto_merge?: boolean, auto_build?: boolean, auto_pull?: boolean, max_implementers?: 1..99, max_planners?: 1..99, max_serves?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null, build_target?: target | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_planners?: 1..99, max_serves?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null, build_target?: target | null} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
 // then pushes main (permissions.mjs pushMain).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'max_planners', 'max_serves', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login', 'build_target'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_planners', 'max_serves', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login', 'build_target'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -1387,7 +1387,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build', 'auto_pull', 'max_implementers', 'max_planners', 'max_serves', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets', 'build_target'];
+  const names = ['auto_merge', 'auto_build','max_implementers', 'max_planners', 'max_serves', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets', 'build_target'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;

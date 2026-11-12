@@ -648,7 +648,6 @@ test("Board Settings opens with Pause board: the snooze picker's chips, Forever 
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md, docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
 for (const [key, id, on] of [
-  ['auto_pull', 'autoPull', 'Saved. Claude grills each card that lands in Todo and starts ready ones while an implementer slot is free.'],
   ['auto_triage', 'autoTriage', 'Saved. Once a night, when cards wait on your answers, Claude triages them.'],
   ['auto_review', 'autoReview', 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.'],
   ['idle_notification', 'idleNotification', 'Saved. One push once the board has been idle for 15 minutes.'],
@@ -5296,7 +5295,7 @@ test('Board Settings holds every automatic job in one Auto section, short labels
   const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
   const auto = html.slice(html.indexOf('<h2>Auto</h2>'), html.indexOf('<h2>Reviewers</h2>'));
   assert.deepEqual([...auto.matchAll(/<label class="who" for="(\w+)"><span><span>([^<]+)<\/span>/g)].map((m) => [m[1], m[2]]), [
-    ['autoPull', 'Auto implement Todo cards'], ['maxImplementers', 'Maximum parallel implementers'], ['maxPlanners', 'Maximum parallel planners'], ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
+    ['maxImplementers', 'Maximum parallel implementers'], ['maxPlanners', 'Maximum parallel planners'], ['maxServes', 'Maximum parallel serves'], ['autoBuild', 'Auto serve'], ['autoReview', 'Auto review'], ['autoMerge', 'Auto-merge'],
     ['autoTriage', 'Triage overnight'], ['idleNotification', 'Idle notification'],
   ]);
   assert.match(auto, /May use a lot of usage\./);

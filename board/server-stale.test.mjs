@@ -215,7 +215,7 @@ test('with auto implement on the board starts and launches the build of the top 
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', auto_pull: true, max_implementers: 2 }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', max_implementers: 2 }));
   const wave = { items: [
     { id: 'A0', title: 'feat: running', lane: 'progress' },
     { id: 'A1', title: 'feat: held', lane: 'todo', phase: 'ready', held: true },
@@ -390,7 +390,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   let worker;
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', auto_pull: on, auto_triage: on, max_implementers: 1 }));
+  const boardJSON = (on) => put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', auto_triage: on, max_implementers: 1 }));
   boardJSON(false);
   const wave = { items: [
     { id: 'A0', title: 'feat: running', lane: 'progress' },
@@ -525,7 +525,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
 });
 
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-test('with auto-pull on, each card arriving in Todo owes a grill brief up to the planner cap and grills from it, busy board or not, the rest in board order, once each, never while paused', async (t) => {
+test('each card arriving in Todo owes a grill brief up to the planner cap and grills from it, busy board or not, the rest in board order, once each, never while paused', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-plan-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -542,7 +542,7 @@ test('with auto-pull on, each card arriving in Todo owes a grill brief up to the
   fs.mkdirSync(path.dirname(agentFile('B1')), { recursive: true });
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
-  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', auto_pull: true, max_planners: 2 }));
+  put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't', max_planners: 2 }));
   const wave = { items: [
     { id: 'B1', title: 'feat: asking', lane: 'todo', phase: 'grilling' },
     { id: 'B2', title: 'feat: filed prototyping', lane: 'todo', phase: 'prototyping' },
@@ -808,7 +808,7 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   fs.mkdirSync(path.join(dataDir, 'threads'), { recursive: true });
   fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
   const handedAt = new Date(now - 5 * 60000).toISOString();
-  fs.writeFileSync(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two' }] }));
+  fs.writeFileSync(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two', phase: 'discussing' }] }));
   const build = { kind: 'claude', started: new Date(now - 60 * 60000).toISOString(), calls: [{ at: handedAt, text: 'Kept the old name' }] };
   fs.writeFileSync(path.join(dataDir, 'agents', 'A1.json'), JSON.stringify(build));
   fs.writeFileSync(path.join(dataDir, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: new Date(now - 60000).toISOString(), kind: 'status', text: 'Building' }) + '\n');
@@ -855,7 +855,7 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   assert.deepEqual(waits(), [], 'a live builder owns the card');
   // builder done hands it back with its calls: no event of its own, yet the list wakes the session.
   put(path.join(dataDir, 'agents', 'A1.json'), JSON.stringify({ ...build, done: handedAt, handed_back: handedAt }));
-  put(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress', next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two' }] }));
+  put(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress', next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two', phase: 'discussing' }] }));
   await until(() => wakes().length === 1, 'the hand-back wakes the session');
   assert.deepEqual(wakes(), [{ added: ['t/A1'], again: [] }]);
   assert.deepEqual(waits().map((w) => [w.key, w.kind, w.since, w.picked, w.bumped]), [['t/A1', 'calls', handedAt, null, new Date(now).toISOString()]]);

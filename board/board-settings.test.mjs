@@ -296,9 +296,9 @@ test("reviewers set, add and remove keep the board's own reviewers in its board.
 test("settings prints the board's settings as JSON, off when absent, and settings set turns each on|off setting on and off in board.json, keeping its other keys", () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"auto_pull":false,"max_implementers":10,"max_planners":3,"max_serves":10,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
+  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"max_implementers":10,"max_planners":3,"max_serves":10,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
-  for (const name of ['auto-merge', 'auto-build', 'auto-pull', 'auto-triage', 'auto-review', 'skip-draft', 'idle-notification']) {
+  for (const name of ['auto-merge', 'auto-build', 'auto-triage', 'auto-review', 'skip-draft', 'idle-notification']) {
     const before = cfg();
     for (const value of ['on', 'off']) {
       assert.deepEqual(board('settings', 'set', name, value, '--site', 'orch'), { code: 0, out: `${name} ${value}\n`, err: '' });
@@ -488,9 +488,17 @@ test('main set publishes an install with the same URL and sha checks as card ins
   assert.equal(board('main', 'set', '--install', 'https://m/app.apk').code, 1);
 });
 
+// docs/adr/2026-11-12-1400-auto-implement-todo-is-always-on.md
+test('auto_pull is no setting: an old key is ignored and saving it is refused', async () => {
+  const { settingsOf, saveBoardSettings } = await import('./store.mjs');
+  assert.ok(!('auto_pull' in settingsOf({ auto_pull: true })));
+  await assert.rejects(saveBoardSettings(site('orch'), { auto_pull: true }), /auto_pull/);
+  assert.equal(board('settings', '--site', 'orch').out.includes('auto_pull'), false);
+});
+
 test('github-login settings lines and API validation support set and clear', async () => {
   const { settingsOf, settingsLines, saveBoardSettings } = await import('./store.mjs');
-  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting max-serves 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
+  assert.deepEqual(settingsLines(settingsOf({ github_login: 'owner' })), ['setting auto-merge off', 'setting auto-build off', 'setting max-implementers 10', 'setting max-planners 3', 'setting max-serves 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on', 'setting github-login owner']);
   assert.ok(!('github_login' in settingsOf({ github_login: 'bad login' })));
   await saveBoardSettings(site('orch'), { github_login: 'owner' });
   await saveBoardSettings(site('orch'), { github_login: null });

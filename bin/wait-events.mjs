@@ -19,7 +19,7 @@
 //   rule hub <text>           each hub rule (settings.json `rules`), then
 //   rule board <text>         each of the board's own (board.json `rules`): the owner's standing instructions,
 //                             printed with every wake (docs/adr/2026-10-29-1639-rules-live-on-settings-at-hub-and-board-level.md), then
-//   setting <name> <value>    each board setting from board.json: auto-merge, auto-build, auto-pull, auto-triage, auto-review, skip-draft and the rest on|off,
+//   setting <name> <value>    each board setting from board.json: auto-merge, auto-build, auto-triage, auto-review, skip-draft and the rest on|off,
 //                             max-implementers <1..99>, github-login <login> and tickets <json> when set
 //                             (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), then
 //   quiet <text>              the fixed instruction to keep the terminal quiet (QUIET), then

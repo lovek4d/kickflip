@@ -37,10 +37,6 @@
   <p class="muted small" id="landingStatus" role="status"></p>
   </div>
   <h2>Auto</h2>
-  <label class="who" for="autoPull"><span><span>Auto implement Todo cards</span>
-    <span class="muted small sub">Claude grills each card that lands in Todo, and starts a Todo card as soon as it’s ready and nothing blocks or holds it, while an implementer slot is free.</span></span>
-    <input type="checkbox" class="toggle" id="autoPull" disabled></label>
-  <p class="muted small" id="autoPullStatus" role="status"></p>
   <label class="who" for="maxImplementers"><span><span>Maximum parallel implementers</span>
     <span class="muted small sub">Each agent that builds or runs tests counts, a card’s helpers included. Grills, read-only helpers and cards waiting in Orchestrator review or on you don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
@@ -510,8 +506,6 @@
       $('#autoBuild').disabled = false;
       buildTarget = d.settings?.build_target || '';
       showBuildTargets();
-      $('#autoPull').checked = d.settings?.auto_pull === true;
-      $('#autoPull').disabled = false;
       for (const [id, key] of [['maxImplementers', 'max_implementers'], ['maxPlanners', 'max_planners'], ['maxServes', 'max_serves']]) {
         $(`#${id}`).value = savedCaps[key] = String(d.settings?.[key]);
         $(`#${id}`).disabled = false;
@@ -623,7 +617,6 @@
         $(`#${id}Status`).textContent = e.message || 'Could not save. Is the host awake?';
       }
     });
-    autoToggle('autoPull', 'auto_pull', (on) => (on ? 'Saved. Claude grills each card that lands in Todo and starts ready ones while an implementer slot is free.' : 'Saved. Todo cards wait for you.'));
 
     // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md: Maximum parallel implementers,
     // Maximum parallel planners (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) and

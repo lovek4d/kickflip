@@ -1195,13 +1195,13 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
   const checks = async () => (await (await fetch(`${base}/_claude/events?kind=check-github`)).json()).map((e) => e.data);
   const before = (await checks()).length;
   try {
-    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false, auto_pull: false, max_implementers: 10, max_planners: 3, max_serves: 10, auto_triage: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true },
+    assert.deepEqual(await (await fetch(`${base}/api/settings`)).json(), { settings: { auto_merge: false, auto_build: false,max_implementers: 10, max_planners: 3, max_serves: 10, auto_triage: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true },
       paused_until: null, pause_choices: [['1h', '1h', 3600_000], ['3h', '3h', 3 * 3600_000], ['6h', '6h', 6 * 3600_000], ['1d', '1d', 86400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms })) });
     assert.deepEqual((await (await fetch(`${base}/api/settings`)).json()).pause_choices, (await (await fetch(`${base}/api/board`)).json()).holdChoices, "Pause board's chips are the Hold sheet's");
     const on = await save({ auto_merge: true });
     assert.equal(on.status, 200);
     const out = await on.json();
-    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false, auto_pull: false, max_implementers: 10, max_planners: 3, max_serves: 10, auto_triage: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true });
+    assert.deepEqual(out.settings, { auto_merge: true, auto_build: false,max_implementers: 10, max_planners: 3, max_serves: 10, auto_triage: false, auto_review: false, idle_notification: false, skip_draft: false, prs: true });
     assert.match(out.id, /^e/);
     const written = JSON.parse(fs.readFileSync(path.join(site, 'board.json'), 'utf8'));
     assert.deepEqual([written.title, written.rules.length, written.auto_merge], ['T', 1, true]);
@@ -1384,10 +1384,10 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     await until(async () => (await workingOn()).length === 1, 'the board shows the message working');
     assert.deepEqual(await workingOn(), [{ id: asked, kind: 'item-message', card: 'A1' }]);
     assert.match(lines.at(-1), /^quiet .*AskUserQuestion/);
-    assert.deepEqual(lines.slice(-14, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting max-serves 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
+    assert.deepEqual(lines.slice(-13, -1), ['rule hub Screenshots in every PR', 'rule board Ask before touching main', 'setting auto-merge off', 'setting auto-build off', 'setting max-implementers 10', 'setting max-planners 3', 'setting max-serves 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, auto_merge: true }));
     fs.rmSync(path.join(web, 'settings.json'));
-    assert.deepEqual((await watch('rules2')).slice(-12, -1), ['setting auto-merge on', 'setting auto-build off', 'setting auto-pull off', 'setting max-implementers 10', 'setting max-planners 3', 'setting max-serves 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
+    assert.deepEqual((await watch('rules2')).slice(-11, -1), ['setting auto-merge on', 'setting auto-build off', 'setting max-implementers 10', 'setting max-planners 3', 'setting max-serves 10', 'setting auto-triage off', 'setting auto-review off', 'setting idle-notification off', 'setting skip-draft off', 'setting prs on']);
     const ping = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'ping1', ts: new Date().toISOString(), kind: 'ping', data: { title: 'T' } }) + '\n');
     // A ping is record-only: the watcher acks it and keeps running, and its line prints ahead of the next event's lines.
     const pingThenAsk = async () => {
@@ -1669,10 +1669,10 @@ test("a reload naming the number it holds as since gets a patch of the cards cha
   const get = async (q = '') => (await fetch(`${base}/api/board${q}`)).json();
   // The cards earlier tests' asks became stay, so no ask is left without its card for the server to file again.
   const asked = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.filter((i) => i.from_ask);
-  await boardSees(base, () => putWave(JSON.stringify({ items: [...asked, { id: 'F1', title: 'Patched', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }, { id: 'F3', title: 'Gone soon', lane: 'todo' }] })));
+  await boardSees(base, () => putWave(JSON.stringify({ items: [...asked, { id: 'F1', title: 'Patched', lane: 'todo', phase: 'discussing' }, { id: 'F2', title: 'Still', lane: 'todo', phase: 'discussing' }, { id: 'F3', title: 'Gone soon', lane: 'todo', phase: 'discussing' }] })));
   await cardsMarkedRead('t/F');
   const first = await get();
-  await boardSees(base, () => putWave(JSON.stringify({ items: [...asked, { id: 'F1', title: 'Patched again', lane: 'todo' }, { id: 'F2', title: 'Still', lane: 'todo' }] })));
+  await boardSees(base, () => putWave(JSON.stringify({ items: [...asked, { id: 'F1', title: 'Patched again', lane: 'todo', phase: 'discussing' }, { id: 'F2', title: 'Still', lane: 'todo', phase: 'discussing' }] })));
   const patch = await get(`?since=${first.version}`);
   assert.equal(patch.since, first.version);
   assert.deepEqual(patch.lists.items.set.map((c) => [c.key, c.title]), [['t/F1', 'Patched again']]);
@@ -1816,7 +1816,7 @@ test("data/sync.json keeps the change numbers across a restart: the counter carr
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
   fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 's' }));
   fs.writeFileSync(path.join(at, 'data', 'owner.json'), '{"items":[]}');
-  const wave = (titles) => fs.writeFileSync(path.join(at, 'data', 'items.json'), JSON.stringify({ items: titles.map((title, i) => ({ id: `S${i + 1}`, title })) }));
+  const wave = (titles) => fs.writeFileSync(path.join(at, 'data', 'items.json'), JSON.stringify({ items: titles.map((title, i) => ({ id: `S${i + 1}`, title, phase: 'discussing' })) }));
   wave(['One', 'Two']);
   const file = path.join(at, 'data', 'sync.json');
   const start = async () => {

@@ -23,7 +23,7 @@ async function boardServer({ items = 'data/items.json', site: entry = {}, skills
   fs.mkdirSync(path.join(site, 'data'), { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'App', items, slug: 'app' }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
-  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ title: 'App', items: [{ id: 'INT-7', title: 'Older', lane: 'done', closed_at: '2026-11-01T10:00:00Z' }, { id: 'GC', title: 'Lettered' }] }));
+  fs.writeFileSync(path.join(site, 'data', 'items.json'), JSON.stringify({ title: 'App', items: [{ id: 'INT-7', title: 'Older', lane: 'done', closed_at: '2026-11-01T10:00:00Z' }, { id: 'GC', title: 'Lettered', phase: 'discussing' }] }));
   fs.mkdirSync(path.join(home, '.claude', 'kickflip'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), JSON.stringify({ sites: {
     app: { dir: site, cmd: ['node', serverFile], github: 'owner/app-repo', branch: 'main', owner: { session: 's1', repo: path.join(home, 'repos', 'app-repo') }, ...entry },

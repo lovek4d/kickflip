@@ -425,7 +425,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   rules remove <id> [--hub]                              refuses an id the list doesn't have
   settings                                               the board's settings as JSON; flags default off, optional
                                                          settings appear when set: {"auto_merge": false,
-                                                         "auto_build": false, "auto_pull": false,
+                                                         "auto_build": false,
                                                          "max_implementers": 10, "max_planners": 3,
                                                          "max_serves": 10, "auto_triage": false,
                                                          "auto_review": false, "idle_notification": false,
@@ -461,15 +461,6 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   settings set build-target <target>|default            the script the hub runs for each card and main:
                                                          .kickflip/build-<target>, or .kickflip/build with
                                                          default (unset). Board Settings' Build target picks it
-  settings set auto-pull on|off                          Auto implement Todo cards. on: on every board change the
-                                                         board server starts and launches the build of the top
-                                                         ready Todo cards nothing blocks, holds or asks about, one
-                                                         per free implementer slot (see max-implementers), each
-                                                         once, and launches a grill on each card that arrives in
-                                                         Todo, up to max-planners at a time (an arrival: not ready,
-                                                         staging or held, with no planner record and no questions
-                                                         yet). Off by default.
-                                                         Only on the owner's word
   settings set max-implementers <1..99>                  Maximum parallel implementers, 10 by default: the cards
                                                          building or waiting in Orchestrator review the pull fills
                                                          up to. Planners and cards waiting on the owner don't count.

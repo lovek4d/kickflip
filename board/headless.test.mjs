@@ -243,8 +243,8 @@ test("the server launches the builder for a tap and a pull instead of waking the
   fs.writeFileSync(path.join(data, 'agents', 'H3.json'), JSON.stringify(verified));
   fs.writeFileSync(path.join(data, 'agents', 'H4.json'), JSON.stringify({ ...verified, worktree: { ...verified.worktree, path: lander, branch: 'H4' } }));
   fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [
-    { id: 'H1', title: 'feat: tapped', phase: 'ready', size: 'large', plan: 'h1.md' },
-    { id: 'H2', title: 'feat: pulled', phase: 'ready', size: 'large' },
+    { id: 'H1', title: 'feat: tapped', phase: 'staging', size: 'large', plan: 'h1.md' },
+    { id: 'H2', title: 'feat: pulled', phase: 'staging', size: 'large' },
     { id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" },
     { id: 'H4', title: 'Asked', lane: 'progress', next: "Answer the builder's questions" },
   ] }));
@@ -297,8 +297,10 @@ test("the server launches the builder for a tap and a pull instead of waking the
     assert.match(await fetch(`${base}/log.html`).then((r) => r.text()), /api\/log\?file=/);
     assert.deepEqual(log().filter((e) => e.kind === 'card-build'), []);
 
-    // As the owner's switch does, so the settings event wakes the server's Auto check (board.json itself isn't watched).
-    assert.equal((await fetch(`${base}/api/settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto_pull: true }) })).status, 200);
+    // A card readied after the start is pulled with no switch to turn on.
+    const items = JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8'));
+    items.items.find((i) => i.id === 'H2').phase = 'ready';
+    fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify(items));
     await until(() => runs().length === 3, 'the pulled builder launches');
     assert.match(runs()[2].argv[1], /builder start t\/H2 --kind build/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H2.json'), 'utf8')).dispatched, 'hub');
@@ -308,7 +310,7 @@ test("the server launches the builder for a tap and a pull instead of waking the
     fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [{ id: 'h4q', topic: 'item:t/H4', question: 'Which?', options: [{ id: 'A', label: 'This' }], resolved: true, resolved_at: '2026-11-04T04:00:00.000Z' }] }));
     await until(() => runs().length === 4, "H4's lander launches");
     assert.match(runs()[3].argv[1], /builder done t\/H4 --text/);
-    boardJSON({ auto_pull: true, title: 'Shop again' });
+    boardJSON({ title: 'Shop again' });
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(runs().length, 4, 'each verification gets one lander');
   } finally {
@@ -727,7 +729,7 @@ test("the owner's Grill and Prototype taps and a card arriving in Todo launch no
 
     // With Auto implement on, the card that arrived in Todo with no planner yet owes its grill's brief; the planned ones don't.
     for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
-    fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', auto_pull: true }));
+    fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
     await until(() => b.item('Q1').briefs?.length, 'the arrival owes a grill brief');
     assert.deepEqual(b.item('Q1').briefs.map((x) => x.kind), ['grill']);
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -784,7 +786,7 @@ test('a grill briefed during a pause waits on the card and launches when the pau
 
 test('within twice the buffer of the line the board starts one agent, and the next once that one has reported its usage', async () => {
   const b = oneLaunchBoard([{ id: 'A1', title: 'First', phase: 'grilling' }, { id: 'A2', title: 'Second', phase: 'grilling' }], undefined, { init: true });
-  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', auto_pull: true, max_planners: 2 }));
+  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', max_planners: 2 }));
   usageAt(b.home, 85);
   const { child } = await b.start({ fastMinute: true });
   try {
@@ -841,10 +843,9 @@ test("the owner's Hold pauses the card's running builder at its next progress re
   const { child, send } = await b.start();
   let pid, resumed;
   try {
-    await send('card-build', { key: 't/H1' });
-    await until(() => b.record('H1').session?.pid, 'the launch records the agent pid');
+    await until(() => b.record('H1').session?.pid, 'the pull of the ready card records the agent pid');
     ({ pid } = b.record('H1').session);
-    const session = b.record('H1').session.id;
+    const session =b.record('H1').session.id;
     await send('card-hold', { key: 't/H1', hold: true });
     assert.doesNotThrow(() => process.kill(pid, 0), 'the builder runs on to its stopping point');
     assert.deepEqual({ done: b.record('H1').done, pause: b.record('H1').pause?.cause, lane: b.item('H1').lane }, { done: undefined, pause: 'held', lane: 'progress' }, `read the record ${JSON.stringify(b.record('H1'))}`);

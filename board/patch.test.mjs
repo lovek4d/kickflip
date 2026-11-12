@@ -16,7 +16,7 @@ const board = (over = {}) => ({
   items: [card('w/A', 'progress'), card('w/B'), card('ask:e1')],
   owner: [{ id: 'q1', topic: 'item:w/A', state: 'open' }, { id: 'q2', topic: 'plan', state: 'open' }],
   ownerTopics: [{ id: 'item:w/A', card: 'w/A', open: 1 }, { id: 'plan', title: 'Plan', open: 1 }],
-  needs: [], settings: { autoPull: false },
+  needs: [], settings: { autoReview: false },
   ...over,
 });
 const START = 1000;
@@ -64,10 +64,10 @@ test('questions and topics patch by id, and any other part comes whole when it c
   const { sync: next, board: now } = stamp(sync, board({
     owner: [{ id: 'q1', topic: 'item:w/A', state: 'answered' }, { id: 'q2', topic: 'plan', state: 'open' }, { id: 'q3', topic: 'plan', state: 'open' }],
     ownerTopics: [{ id: 'item:w/A', card: 'w/A', open: 0 }, { id: 'plan', title: 'Plan', open: 2 }],
-    settings: { autoPull: true },
+    settings: { autoReview: true },
   }));
   const p = plain(patchSince(next, now, was.version));
-  assert.deepEqual(p.set, { settings: { autoPull: true } });
+  assert.deepEqual(p.set, { settings: { autoReview: true } });
   assert.deepEqual(p.unset, ['setup']);
   assert.deepEqual(p.lists.owner, { set: [plain(now.owner[0]), plain(now.owner[2])], drop: [], order: ['q1', 'q2', 'q3'] });
   assert.deepEqual(p.lists.ownerTopics, { set: plain(now.ownerTopics), drop: [] });
