@@ -3634,42 +3634,87 @@ test("a bump or unbump waits for the server: its icon pulses, disabled, and the 
   b.view.unmount();
 });
 
-test("a New card's bump waits for the server, its icon pulsing, and the card moves only once the POST's board lands; a refusal toasts the reason and a load built before the board on screen doesn't undo a bump", async () => {
-  const ask = (id, at, extra) => ({ ...askCard(id, 'todo'), isNew: true, bumpable: true, sortAt: at, created: at, ask: { eventId: id }, ...extra });
-  const a1 = ask('a1', '2026-10-30T09:00:00.000Z');
-  const a2 = ask('a2', '2026-10-30T09:30:00.000Z');
-  const sends = heldSends();
-  const b = boardOnDom({ board: boardOf([a1, a2]), threads: {}, send: sends.send });
+// docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
+const newAsk = (id, at, state = 'waiting', text = `Task ${id}`) => ({ ...askCard(id, 'todo'), isNew: true, created: at, sortAt: at, ask: { eventId: id, state, text, canEdit: true } });
+test("a sent ask sits in the New strip above the lanes, never in Todo, reading waiting… then processing...; once ingested it links to its ticket or the card it was added to, with Dismiss in place of Edit and Delete, until it is dismissed or that card is read", async () => {
+  const waiting = newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header\nIt jumps on scroll');
+  const working = newAsk('a2', '2026-10-30T09:10:00.000Z', 'working', 'Dark mode');
+  const made = { ...askCard('a3', 'todo'), id: 'T-7', key: 'w/T-7', ref: 'T-7', title: 'feat: rate limits', phase: 'discussing', turn: 'owner', created: '2026-10-30T08:00:00.000Z', ingested: { at: '2026-10-30T09:20:00.000Z', text: 'Rate limits per API key' } };
+  const readAlready = { ...made, id: 'T-8', key: 'w/T-8', ref: 'T-8', fromAsk: 'a5', ingested: { at: '2026-10-30T07:00:00.000Z', text: 'Old' } };
+  const into = workCard('T-2', { title: 'Header polish' });
+  const merges = [{ key: 'w/T-2', ref: 'T-2', text: 'Also the footer', at: '2026-10-30T09:30:00.000Z', id: 'a4', askedAt: '2026-10-30T09:15:00.000Z', message: 'Also the footer\nand the nav' }];
+  const seen = { 'w/T-7': '2026-10-30T09:00:00.000Z', 'w/T-8': '2026-10-30T08:00:00.000Z', 'w/T-2': '2026-10-30T09:00:00.000Z' };
+  const b = boardOnDom({ board: { ...boardOf([waiting, working, made, readAlready, into]), merges }, seen, threads: {}, width: 1280 });
   await b.settle();
-  const order = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
-  const icon = (id) => b.root.querySelector(`details.item[data-key="w/${id}"] button[data-card-bump]`);
-  b.page.fire(b.root, 'click', { target: icon('a2') });
-  assert.deepEqual([order(), waitState(icon('a2'))], [['w/a1', 'w/a2'], WAITING]);
-  sends.answer(false, 'The board server is restarting. Try again in a moment.');
+  const strip = () => b.root.querySelector('#newStrip');
+  const entries = () => strip().querySelectorAll('.new-entry');
+  const entry = (id) => strip().querySelector(`.new-entry[data-new="${id}"]`);
+  // Above the lanes, titled New with its count; its entries are the asks, oldest sent first.
+  assert.equal(strip().hidden, false);
+  const ids = strip().parentNode.childNodes.filter((n) => n.nodeType === 1).map((n) => n.getAttribute('id'));
+  assert.equal(ids.indexOf('newStrip') + 1, ids.indexOf('lanes'), 'the strip sits directly above the lanes');
+  assert.deepEqual([strip().querySelector('.new-head .lane-name').textContent, strip().querySelector('.new-head .count').textContent], ['New', '4']);
+  assert.deepEqual(entries().map((el) => el.dataset.new), ['a3', 'a1', 'a2', 'a4']);
+  assert.deepEqual(entries().map((el) => el.querySelector('.new-msg').textContent), ['Rate limits per API key', 'Fix the header\nIt jumps on scroll', 'Dark mode', 'Also the footer\nand the nav']);
+  assert.deepEqual(entries().map((el) => el.querySelector('.new-line').textContent.trim()), ['Ticket created: T-7 · feat: rate limits', 'waiting…', 'processing...', 'Added to T-2']);
+  assert.equal(b.root.querySelector('#lanes [data-key="w/a1"], #lanes [data-key="w/a2"]'), null);
+  assert.deepEqual(b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/T-7', 'w/T-8', 'w/T-2']);
+  // Waiting and processing entries edit and delete their ask; ingested ones link to the card and dismiss.
+  assert.deepEqual(['a1', 'a2'].map((id) => [entry(id).querySelector('button[data-edit]')?.dataset.edit, entry(id).querySelector('button[data-withdraw]')?.dataset.withdraw, entry(id).querySelector('[data-dismiss-new]')]), [['a1', 'a1', null], ['a2', 'a2', null]]);
+  assert.deepEqual(['a3', 'a4'].map((id) => [entry(id).querySelector('a.new-link').getAttribute('href'), entry(id).querySelector('button[data-edit], button[data-withdraw]'), entry(id).querySelector('button[data-dismiss-new]').textContent]),
+    [['#selectedCard=w%2FT-7', null, 'Dismiss'], ['#selectedCard=w%2FT-2', null, 'Dismiss']]);
+  // The merge is the strip's, not the answer banner's.
+  assert.equal(b.root.querySelector('#answers').hidden, true);
+  // Dismiss asks nothing and marks the card read at the ingest, on every device.
+  b.page.fire(b.root, 'click', { target: entry('a3').querySelector('button[data-dismiss-new]') });
+  b.page.fire(b.root, 'click', { target: entry('a4').querySelector('button[data-dismiss-new]') });
   await b.settle();
-  assert.deepEqual([order(), waitState(icon('a2'))], [['w/a1', 'w/a2'], IDLE]);
-  assert.match(b.root.textContent, /The board server is restarting\. Try again in a moment\./);
-
-  b.page.fire(b.root, 'click', { target: icon('a2') });
-  b.server.board = { ...boardOf([{ ...a2, bumpedAt: '2026-10-30T10:00:01.000Z' }, a1]), generatedAt: '2026-10-30T10:00:02.000Z' };
-  sends.answer();
-  await b.settle();
-  assert.deepEqual(order(), ['w/a2', 'w/a1']);
-  assert.match(b.root.textContent, /Moved to the top/);
-  await b.change({ board: boardOf([a1, a2]) });
-  assert.deepEqual(order(), ['w/a2', 'w/a1']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-bump', { key: 'w/a2' }], ['card-bump', { key: 'w/a2' }]]);
+  assert.deepEqual(b.confirms, []);
+  assert.deepEqual(b.posts.filter(([p]) => p.endsWith('/api/read')).map(([, body]) => body), [{ marks: { 'w/T-7': '2026-10-30T09:20:00.000Z' } }, { marks: { 'w/T-2': '2026-10-30T09:30:00.000Z' } }]);
+  assert.deepEqual(entries().map((el) => el.dataset.new), ['a1', 'a2']);
+  // With nothing in it, the strip hides.
+  await b.change({ board: { ...boardOf([made, into]), merges } });
+  assert.equal(strip().hidden, true);
   b.view.unmount();
 });
 
-test("deleting a New card is one events POST: its trash icon waits, the card stays until the server answers, then leaves with the POST's board; a refusal keeps the card and toasts the reason", async () => {
-  const a1 = { ...askCard('a1', 'todo'), isNew: true, ask: { eventId: 'a1' } };
-  const a2 = { ...askCard('a2', 'todo'), isNew: true, ask: { eventId: 'a2' } };
+test("an ask in the New strip edits in place: its edit box opens in its entry, Save sends the edit and the new text shows once the server answers, and Cancel closes it", async () => {
+  const a1 = newAsk('a1', '2026-10-30T09:00:00.000Z', 'waiting', 'Fix the header');
+  const sends = heldSends();
+  const b = boardOnDom({ board: boardOf([a1]), threads: {}, send: sends.send });
+  await b.settle();
+  const entry = () => b.root.querySelector('#newStrip .new-entry[data-new="a1"]');
+  const form = () => entry().querySelector('form.edit-form[data-edit-form="a1"]');
+  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
+  await b.settle();
+  assert.equal(form().querySelector('textarea').value, 'Fix the header');
+  assert.equal(entry().querySelector('.new-msg'), null);
+  form().querySelector('textarea').value = 'Fix the footer';
+  b.page.fire(b.root, 'submit', { target: form() });
+  assert.equal(waitState(form().querySelector('button[type="submit"]'))[0], true);
+  b.server.board = boardOf([{ ...a1, ask: { ...a1.ask, text: 'Fix the footer', edited: true } }]);
+  sends.answer();
+  await b.settle();
+  assert.equal(form(), null);
+  assert.equal(entry().querySelector('.new-msg').textContent, 'Fix the footer');
+  assert.match(entry().querySelector('.new-line').textContent, /Edited/);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['ask-edited', { id: 'a1', key: 'w/a1', text: 'Fix the footer' }]]);
+  b.page.fire(b.root, 'click', { target: entry().querySelector('button[data-edit]') });
+  await b.settle();
+  b.page.fire(b.root, 'click', { target: form().querySelector('button[data-edit-cancel]') });
+  await b.settle();
+  assert.deepEqual([form(), entry().querySelector('.new-msg').textContent], [null, 'Fix the footer']);
+  b.view.unmount();
+});
+
+test("deleting an ask from the New strip is one events POST: its trash icon waits, the entry stays until the server answers, then leaves with the POST's board; a refusal keeps it and toasts the reason", async () => {
+  const a1 = newAsk('a1', '2026-10-30T09:00:00.000Z');
+  const a2 = newAsk('a2', '2026-10-30T09:10:00.000Z');
   const sends = heldSends();
   const b = boardOnDom({ board: boardOf([a1, a2]), threads: {}, send: sends.send, confirm: true });
   await b.settle();
-  const keys = () => b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key);
-  const trash = (id) => b.root.querySelector(`details.item[data-key="w/${id}"] button[data-withdraw]`);
+  const keys = () => b.root.querySelectorAll('#newStrip .new-entry').map((el) => el.dataset.key);
+  const trash = (id) => b.root.querySelector(`#newStrip .new-entry[data-new="${id}"] button[data-withdraw]`);
   b.page.fire(b.root, 'click', { target: trash('a1') });
   await b.settle();
   assert.deepEqual([keys(), waitState(trash('a1'))], [['w/a1', 'w/a2'], WAITING]);
@@ -3823,35 +3868,30 @@ test("Done lands from the events POST's board in one round trip, with no reload 
   b.view.unmount();
 });
 
-test("an edit's Save waits for the server with the edit box open and the old text on the card; once it answers the new text shows in the thread and on the New card, and a refusal keeps the box with what was typed and toasts the reason", async () => {
+test("an edit's Save waits for the server with the edit box open; once it answers the new text shows in the thread, and a refusal keeps the box with what was typed and toasts the reason", async () => {
   const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'ask', text: 'Fix the header', eventId: 'a1', canEdit: true, canDelete: true, state: 'waiting' };
-  const card = { ...askCard('a1', 'todo'), isNew: true, title: 'Fix the header', ask: { eventId: 'a1', text: 'Fix the header' } };
+  const card = { ...askCard('a1', 'todo'), phase: 'discussing', turn: 'claude', title: 'Fix the header' };
   const sends = heldSends();
   const b = boardOnDom({ open: ['w/a1'], board: boardOf([card]), threads: { 'w/a1': [mine] }, send: sends.send });
   await b.settle();
   const form = () => b.root.querySelector('.msg[data-event="a1"] .edit-form');
   const save = () => form().querySelector('button[type="submit"]');
-  const title = () => b.root.querySelector('details.item[data-key="w/a1"] summary').textContent;
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
   await b.settle();
   form().querySelector('textarea').value = 'Fix the footer';
   b.page.fire(b.root, 'submit', { target: form() });
   assert.deepEqual([waitState(save()), form().querySelector('textarea').value], [WAITING, 'Fix the footer']);
-  assert.match(title(), /Fix the header/);
   sends.answer(false, 'The board server is restarting. Try again in a moment.');
   await b.settle();
   assert.deepEqual([waitState(save()), form().querySelector('textarea').value], [IDLE, 'Fix the footer']);
-  assert.match(title(), /Fix the header/);
   assert.match(b.root.textContent, /The board server is restarting/);
 
   b.page.fire(b.root, 'submit', { target: form() });
-  b.server.board = boardOf([{ ...card, title: 'Fix the footer', ask: { eventId: 'a1', text: 'Fix the footer', edited: true } }]);
   b.server.threads = { 'w/a1': [{ ...mine, text: 'Fix the footer', edited: true }] };
   sends.answer();
   await b.settle();
   assert.equal(form(), null);
   assert.equal(b.root.querySelector('.msg[data-event="a1"] .body').textContent, 'Fix the footer');
-  assert.match(title(), /Fix the footer/);
   b.view.unmount();
 });
 
@@ -3866,7 +3906,7 @@ const EVERY_PART = { composer: true, button: true, files: true, drop: true };
 
 test('every text box on a board the owner sends from, the new task, a thread reply and an edit box, takes attachments the same way', async () => {
   const mine = { ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'ask', text: 'Fix the header', eventId: 'a1', canEdit: true, canDelete: true, state: 'waiting' };
-  const b = boardOnDom({ open: ['w/a1'], board: boardOf([{ ...askCard('a1', 'todo'), isNew: true, ask: { eventId: 'a1', text: 'Fix the header' } }]), threads: { 'w/a1': [mine] } });
+  const b = boardOnDom({ open: ['w/a1'], board: boardOf([{ ...askCard('a1', 'todo'), phase: 'discussing', turn: 'claude' }]), threads: { 'w/a1': [mine] } });
   await b.settle();
   b.page.fire(b.root, 'click', { target: b.root.querySelector('.msg[data-event="a1"] button[data-edit]') });
   await b.settle();
@@ -4246,9 +4286,15 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   await b.change({ board });
   assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2'], 'a work card that joins Todo takes the tint');
   // docs/adr/2026-11-06-0300-a-new-task-lands-at-the-bottom-of-todo-and-flashes-blue.md
-  board.items.push({ ...askCard('n2', 'todo'), isNew: true, ref: 'New', sortAt: '2026-10-30T08:00:00.000Z', ask: { eventId: 'n2', state: 'waiting', askedAt: '2026-10-30T08:00:00.000Z', text: 'Task n2', files: [], canEdit: true } });
+  // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md: a New task lands in the New strip, and its
+  // card takes the tint once ingested into Todo.
+  const n2 = { ...askCard('n2', 'todo'), isNew: true, sortAt: '2026-10-30T08:00:00.000Z', ask: { eventId: 'n2', state: 'waiting', askedAt: '2026-10-30T08:00:00.000Z', text: 'Task n2', files: [], canEdit: true } };
+  board.items.push(n2);
   await b.change({ board });
-  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'a New task that lands in Todo takes the tint');
+  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2']);
+  board.items[board.items.length - 1] = { ...n2, isNew: false, ask: null, title: 'feat: n2', phase: 'discussing', turn: 'owner', ingested: { at: '2026-10-30T09:00:00.000Z', text: 'Task n2' } };
+  await b.change({ board });
+  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'an ingested card joining Todo takes the tint');
 });
 
 function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }) {
@@ -5133,9 +5179,9 @@ test("each lane shows its cards in the order they arrive, with no sort icon in i
   const lane = (id) => b.root.querySelector(`#lanes details.lane[data-lane="${id}"]`);
   const order = (id) => lane(id).querySelectorAll('details.item').map((el) => el.dataset.key);
   const times = (id) => lane(id).querySelectorAll('details.item').map((el) => el.querySelector('summary .card-time time')?.getAttribute('datetime') ?? null);
-  assert.deepEqual(['review', 'progress', 'todo', 'done'].map(order), [['w/R1', 'w/R2'], ['w/P1'], ['w/n1', 'w/T3', 'w/T2'], ['w/D1', 'w/D2']]);
+  assert.deepEqual(['review', 'progress', 'todo', 'done'].map(order), [['w/R1', 'w/R2'], ['w/P1'], ['w/T3', 'w/T2'], ['w/D1', 'w/D2']], 'a New task sits in the New strip, not Todo');
   assert.deepEqual(['review', 'todo', 'done'].map(times), [
-    ['2026-10-29T08:00:00.000Z', '2026-10-28T08:00:00.000Z'], ['2026-10-30T08:00:00.000Z', '2026-10-21T08:00:00.000Z', '2026-10-20T08:00:00.000Z'], ['2026-10-25T08:00:00.000Z', '2026-10-24T08:00:00.000Z'],
+    ['2026-10-29T08:00:00.000Z', '2026-10-28T08:00:00.000Z'], ['2026-10-21T08:00:00.000Z', '2026-10-20T08:00:00.000Z'], ['2026-10-25T08:00:00.000Z', '2026-10-24T08:00:00.000Z'],
   ]);
   assert.equal(b.root.querySelector('.lane-sort, .lane-sort-menu, [data-lane-sort]'), null);
 });

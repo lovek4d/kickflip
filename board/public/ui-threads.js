@@ -34,8 +34,9 @@
     out.sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i || a.part - b.part);
     return out.map(({ m, of, quoted, later }, n) => (of ? { ...m, quote: later || out[n - 1]?.m === of && !(of.answers?.length > 1) ? '' : quoted || '' } : m));
   };
-  // A message being edited shows its edit box in place of its text; app-asks.js handles the form, and attach.js the
-  // files it adds to the message, under composer id edit:<event id>.
+  // A message being edited shows its edit box in place of its text, as does an ask in the New strip (ui-cards.js
+  // newEntry); app-asks.js handles the form, and attach.js the files it adds to the message, under composer id
+  // edit:<event id>.
   const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
         <div class="pending-files" data-files></div>
         <div class="send-actions"><button type="button" data-edit-cancel>Cancel</button>${sendButton('Save', 0)}</div></form>`;
@@ -150,5 +151,5 @@
     return [{ ts: fresh.at(-1), who: 'claude', kind: 'questions', text: `${fresh.length} new question${fresh.length === 1 ? '' : 's'}`, link: `questions.html#${encodeURIComponent(questions.first)}` }];
   }
 
-  Object.assign(globalThis.BoardUI, { threadMessages, threadFrom, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
+  Object.assign(globalThis.BoardUI, { editForm, threadMessages, threadFrom, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
 })();

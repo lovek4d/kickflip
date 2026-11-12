@@ -343,27 +343,58 @@
     return `<div class="hub-view"><div class="dur-chips" role="group" aria-labelledby="holdTitle"><div class="dur-choices">${chips}</div>`
       + `<div class="dur-custom"><span class="btn quiet" aria-hidden="true">Custom</span><input type="datetime-local" data-hold-at="${esc(key)}" required aria-label="Custom hold until a date and time"></div></div></div>`;
   }
-  // A New card's bump, edit and delete: it bumps as a card, and edits and deletes its ask; its line comes from its ask
-  // state (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
-  const askActions = (it) => `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}${editButton(it.ask.eventId)}${withdrawButton(it.ask.eventId)}</div>`;
   // A card waiting on its owner step has the owner's Done where the bump sits: a check icon that confirms, then sends
   // card-done (app-cards.js; docs/adr/2026-11-04-0158-a-card-whose-code-landed-stays-in-review-while-an-owner-step-remains.md).
   const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
   const ownerDoneButton = (it) => `<button type="button" class="ghost icon owner-done" data-confirm="finish" data-key="${esc(it.key)}" aria-label="Done" title="${esc(`Done: ${it.ownerStep}`)}">${CHECK}</button>`;
-  const cardActions = (it) => (it.isNew ? askActions(it) : it.ownerStep ? `<div class="ask-actions">${ownerDoneButton(it)}</div>`
+  const cardActions = (it) => (it.ownerStep ? `<div class="ask-actions">${ownerDoneButton(it)}</div>`
     : it.bumpable ? `<div class="ask-actions">${cardBumpButton(it.key, Boolean(it.bumpedAt))}</div>` : '');
-  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a New card reads a grey "waiting…", its dot
-  // still, until the orchestrator picks it up (the watcher's or the PostToolUse hook's working mark), then "thinking…".
+
+  // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
+  // The New strip above the lanes. Its entries: each ask the orchestrator has yet to ingest (a card still isNew, which
+  // no lane draws), and each one ingested since its card was last read, into a card of its own (the card's ingested) or
+  // added to another card (the board's merges). Oldest sent first. seen is each card's read mark (app-core.js).
+  const unreadSince = (seen, key, at) => String(at) > String(seen[key] || '');
+  function newEntries(d, seen) {
+    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, sent: it.created, ask: it.ask, text: it.ask.text, files: it.ask.files }));
+    const made = d.items.filter((it) => it.ingested && unreadSince(seen, it.key, it.ingested.at))
+      .map((it) => ({ id: it.fromAsk, key: it.key, sent: it.created, at: it.ingested.at, text: it.ingested.text, made: it }));
+    const added = (d.merges || []).filter((m) => unreadSince(seen, m.key, m.at))
+      .map((m) => ({ id: m.id, key: m.key, sent: m.askedAt, at: m.at, text: m.message, into: m }));
+    return [...asks, ...made, ...added].sort((a, b) => String(a.sent).localeCompare(String(b.sent)));
+  }
+  // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: an ask reads a grey "waiting…", its dot still,
+  // until the orchestrator picks it up (the watcher's or the PostToolUse hook's working mark), then an orange
+  // "processing...", the owner's word, while the orchestrator ingests it.
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting…</span>';
-  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? thinkingLine() : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
+  const PROCESSING = `<span class="processing">${DOT}processing...</span>`;
+  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? (isPaused() ? PAUSED : PROCESSING) : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
+  // An entry waiting or processing edits and deletes its ask, its edit box in place of its text (edit, from
+  // app-asks.js's state.edits); an ingested one links to its card, in blue, and dismisses with no confirm. The link and
+  // Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the entry too.
+  const cardHref = (key) => `#selectedCard=${encodeURIComponent(key)}`;
+  const readsAt = (e) => `data-dismiss-new="${esc(e.key)}" data-at="${esc(e.at)}"`;
+  function newEntry(e, edit) {
+    const done = e.made || e.into;
+    const actions = done ? `<button type="button" class="ghost new-dismiss" ${readsAt(e)}>Dismiss</button>`
+      : `${editButton(e.id)}${withdrawButton(e.id)}`;
+    const line = e.made ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Ticket created: <b>${esc(e.made.ref)}</b> · ${esc(e.made.title)}</a>`
+      : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b></a>`
+      : askLine(e.ask);
+    const body = edit ? globalThis.BoardUI.editForm(e.id, edit.text) : `<div class="new-msg">${esc(e.text)}</div>${globalThis.BoardUI.attachments(e.files)}`;
+    return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${line}</div></div>`;
+  }
+  // entries: newEntries; edits: app-asks.js's state.edits, by ask id.
+  const newStrip = (entries, edits) => `<div class="new-head"><span class="lane-name">New</span><span class="count">${entries.length}</span></div>
+    <div class="new-list">${entries.map((e) => newEntry(e, edits.get(e.id))).join('')}</div>`;
+
   function workLines(it, { unread = 0 } = {}) {
     const ids = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
-    // A card shows its ticket, or Task when it has none; the card an ask became shows its ticket from the moment it lands.
+    // A card shows its ticket, or Task when it has none.
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
-    const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
-      // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype
-      // or planning visual while the orchestrator writes the brief, generating visual while a visual agent draws, in blue.
-      : it.planning && !it.builder ? `<div class="line3 sub agent planner">${DOT}${esc(it.planning)}</div>`
+    // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype
+    // or planning visual while the orchestrator writes the brief, generating visual while a visual agent draws, in blue.
+    const status = it.planning && !it.builder ?`<div class="line3 sub agent planner">${DOT}${esc(it.planning)}</div>`
       : it.orchestrator && !it.builder ? `${it.rebaseFailed ? `<div class="line3 sub">${escText(it.rebaseFailed)}</div>` : ''}${orchestratorStatus(it)}`
       : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
       : it.builder ? builderStatus(it)
@@ -423,5 +454,5 @@
       <div class="list">${list}${fold}</div></details>`;
   }
 
-  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, askActions, askLine, planButton, reviewLane });
+  Object.assign(globalThis.BoardUI, { prChips, prName, linearChips, ticketChip, REVIEW, reviewAge, reviewChips, pendingQuestions, actionWords, blockedWords, tryWords, tryButton, mainBar, installChip, installButton, mergeButton, builderLine, statusWord, BUILD_PHASES, phaseStrip, phaseMotion, unreadCount, heldUntilWords, holdPicker, workLines, newEntries, newStrip, askLine, planButton, reviewLane });
 })();

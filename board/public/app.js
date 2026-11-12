@@ -199,6 +199,7 @@ window.BoardView = (function () {
         for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
         B.moveStrips(d.items, strips);
         B.renderBanner(d);
+        B.renderNew(d);
       });
       B.flashChanged();
       B.signCards(load);
@@ -462,6 +463,7 @@ ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="pauseBanner" class="hub-view" hidden></section>
   <section id="answers" class="answer-banner" hidden></section>
   <div id="tryMain"></div>
+  <section id="newStrip" class="new-strip" aria-label="New" hidden></section>
   <div id="lanes"></div>
   <div id="downLanding" hidden></div>
   ${BoardUI.boardFoot()}

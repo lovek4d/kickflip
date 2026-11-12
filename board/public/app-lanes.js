@@ -107,9 +107,11 @@ BoardView.part((B) => {
     return { button: `<button type="button" class="lane-filter${off.length ? ' on' : ''}" aria-label="Filter Todo" aria-expanded="${filterOpen}" title="${off.length ? 'Filtered' : 'Filter'}">${FUNNEL}</button>`, menu };
   };
 
-  // shown is the board's items less pending deletes.
+  // shown is the board's items less pending deletes. A card still New sits in the New strip, not a lane (ui-cards.js
+  // newEntries; docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md).
   function lanesHtml(d, shown) {
     const laneState = store.get('lanes', {});
+    shown = shown.filter((i) => !i.isNew);
     return reviewsHtml(d) + LANES.map((lane) => {
       // Items arrive in each lane's fixed order (domain.mjs laneOrder).
       const all = shown.filter((i) => i.lane === lane.id);

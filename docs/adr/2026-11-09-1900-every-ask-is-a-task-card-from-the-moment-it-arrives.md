@@ -12,3 +12,5 @@ This is the successor to [the + makes a New card, which Claude files, folds or a
 - **Moving.** `ask move` drops the ask's unstarted cards rather than closing them.
 - **Numbers are never reused.** A dropped card's number is kept as the item file's `last_task`, which `nextTaskId` reads.
 - **Older asks.** Amended by [old asks migrate into cards, and the ask-only records retire](2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md): an ask handled before this became a card too, an answered one in Done, and no ask draws as its own row; a waves board with no wave refuses the + rather than keep a New row. Old `ask-moved-closed` thread lines keep their wording.
+
+Amended by [new asks sit in a New strip above the lanes](2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md): a card still New draws in the New strip above the lanes, with edit and delete and no bump, and a merge shows there as "Added to <card>", not in the banner.

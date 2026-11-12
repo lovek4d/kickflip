@@ -50,7 +50,7 @@ test('an answered card waits in In Review for the owner\'s Done with no Action n
   assert.equal(card(built({ item: { answered_at: '2026-11-09T10:05:00Z', lane: 'review', lane_at: '2026-11-09T10:06:00Z' }, threads, events: [done] })).lane, 'done');
 });
 
-test('a card merged into another has no row, its ask opens the other card, and the merge feeds the top banner until that card is read', () => {
+test('a card merged into another has no row, its ask opens the other card, and the merge feeds the New strip with the whole message until that card is read', () => {
   const threads = { 'ask:a1': [{ ts: '2026-11-09T10:07:00Z', who: 'claude', kind: 'hub', line: 'card-merged', text: 'Merged into T-2.', into: 'hub/T-2' }] };
   const b = buildBoard({
     now: Date.parse('2026-11-09T12:00:00Z'), threads, askLinks: { a1: 'hub/T-2' },
@@ -59,7 +59,17 @@ test('a card merged into another has no row, its ask opens the other card, and t
   });
   assert.equal(b.items.some((i) => i.kind === 'ask'), false);
   assert.equal(b.moved['ask:a1'], 'hub/T-2');
-  assert.deepEqual(b.merges, [{ key: 'hub/T-2', ref: 'T-2', text: 'Fix the header', at: '2026-11-09T10:07:00Z' }]);
+  assert.deepEqual(b.merges, [{ key: 'hub/T-2', ref: 'T-2', text: 'Fix the header', at: '2026-11-09T10:07:00Z', id: 'a1', askedAt: '2026-11-09T10:00:00Z', message: 'Fix the header\nIt jumps on scroll' }]);
+});
+
+// docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
+test('a card an ask became carries when it was ingested and the full message it came from; a New card and one sorted before the stamp carry none', () => {
+  const ingested = card(built({ item: { phase: 'discussing', sorted_at: '2026-11-09T10:04:00Z' } }));
+  assert.deepEqual(ingested.ingested, { at: '2026-11-09T10:04:00Z', text: 'Fix the header\nIt jumps on scroll' });
+  const edited = { id: 'x1', ts: '2026-11-09T10:02:00Z', kind: 'ask-edited', data: { id: 'a1', text: 'Fix the footer' } };
+  assert.equal(card(built({ item: { phase: 'ready', sorted_at: '2026-11-09T10:04:00Z' }, events: [edited] })).ingested.text, 'Fix the footer');
+  assert.equal(card(built()).ingested, null);
+  assert.equal(card(built({ item: { phase: 'grilling' } })).ingested, null);
 });
 
 // The CLI and the board server's filing, on the audit board (data/items.json).
@@ -86,6 +96,23 @@ test('the board files a New ask as a T-<n> card once, titled by its first line w
   // A sorted card is not dropped by a withdrawal.
   assert.equal(board('item', 'set', 'audit/T-2', '--phase', 'grilling', '--site', 'audit').code, 0);
   assert.equal(await s.dropAskCard(audit(), 'a2'), null);
+});
+
+// docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
+test('the first phase a New card gets stamps when it was ingested, by item set or by a reply, and a later phase keeps that stamp', async () => {
+  auditEvents(ask, { id: 'a2', ts: '2026-11-09T10:01:00Z', kind: 'ask', data: { text: 'Second' } });
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  await s.fileAsk(audit(), 'a2');
+  const item = (id) => read(audit('data', 'items.json')).items.find((i) => i.id === id);
+  assert.equal(item('T-1').sorted_at, undefined);
+  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit').code, 0);
+  const first = item('T-1').sorted_at;
+  assert.ok(Date.parse(first) > Date.parse('2026-11-09T10:00:00Z'));
+  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit').code, 0);
+  assert.equal(item('T-1').sorted_at, first);
+  assert.equal(board('reply', 'audit/T-2', '--text', 'Yes.', '--site', 'audit').code, 0);
+  assert.ok(item('T-2').sorted_at);
 });
 
 // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md

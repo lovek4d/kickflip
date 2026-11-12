@@ -1514,25 +1514,31 @@ test("a builder line shows the progress and its age, not who is building", () =>
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 
-test("a New card reads its ticket chip and its first line, then whether it was moved or edited and whether Claude has started, with bump, edit and delete and no Action needed, and ends with when it was sent", () => {
+// docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
+test("an ask in the New strip reads the owner's whole message, then whether it was moved or edited and a grey waiting… or an orange processing..., with edit and delete; an ingested one links to its card, in blue, with Dismiss", () => {
   const sent = ago(1);
-  const card = (ask, extra = {}) => ui.workLines({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', internal: true, isNew: true, title: 'Fix <it>', linear: [], pr: null, prs: [], deps: [], blockedBy: [], created: sent, updatedAt: sent, sortAt: sent,
-    bumpedAt: ask.bumpedAt || null, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...ask }, ...extra });
-  const at = ui.cardTime(sent);
+  const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: sent, ask: { eventId: 'a1', askedAt: sent, canEdit: true, text: 'Fix <it>\nand more', files: [], ...extra } });
+  const strip = (items, merges = []) => ui.newStrip(ui.newEntries({ items, merges }, {}), new Map());
+  const entryText = (html) => text(html.split('<div class="new-list">')[1]);
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: grey "waiting…", its dot still, until the
-  // orchestrator picks the task up, then the blue "thinking…".
-  assert.deepEqual(lines(card({ state: 'waiting' })), ['T-3 Fix <it>', 'waiting…', at]);
-  assert.match(card({ state: 'waiting' }), /<span class="pickup-wait"><span class="working-dot" aria-hidden="true"><\/span>waiting…<\/span>/);
-  assert.doesNotMatch(card({ state: 'waiting' }), /class="thinking"/);
-  assert.deepEqual(lines(card({ state: 'working', bumpedAt: ago(0.5), edited: true })), ['T-3 Fix <it>', 'Edited · thinking…', at]);
-  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: it bumps as a card, and edits and deletes its ask.
-  assert.deepEqual([...card({ state: 'waiting' }).matchAll(/data-(card-bump="w\/T-3"|edit="a1"|withdraw="a1")/g)].map((m) => m[1].split('=')[0]), ['card-bump', 'edit', 'withdraw']);
-  assert.match(card({ state: 'waiting', bumpedAt: ago(0.5) }), /class="ghost icon bumped" data-card-bump="w\/T-3" data-bumped aria-pressed="true" aria-label="Unbump"/);
-  assert.doesNotMatch(card({ state: 'waiting' }), /bumped/);
-  assert.doesNotMatch(card({ state: 'waiting' }), /Action needed/);
-  assert.deepEqual(lines(card({ state: 'waiting', from: 'Orch' })), ['T-3 Fix <it>', 'Moved from Orch · waiting…', at]);
-  const asked = card({ state: 'waiting' }, { next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#mv', label: 'Answer 1 question' } });
-  assert.deepEqual(lines(asked), ['T-3 Fix <it>', 'Next: Answer 1 question', at, 'Action needed']);
+  // orchestrator picks the task up, then the orange "processing...".
+  assert.match(strip([ask({ state: 'waiting' })]), /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div>/);
+  assert.match(strip([ask({ state: 'waiting' })]), /<span class="pickup-wait"><span class="working-dot" aria-hidden="true"><\/span>waiting…<\/span>/);
+  assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub">Edited · <span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing...<\/span><\/div>/);
+  assert.match(entryText(strip([ask({ state: 'waiting', from: 'Orch' })])), /Moved from Orch · waiting…$/);
+  assert.deepEqual([...strip([ask({ state: 'waiting' })]).matchAll(/data-(card-bump|edit|withdraw|dismiss-new)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['edit', 'a1'], ['withdraw', 'a1']]);
+  // Ingested: a line to the card it became or was added to, and Dismiss, which carries the card's key and the ingest's time.
+  const made = { kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', title: 'fix: <header>', fromAsk: 'a1', created: sent, ingested: { at: ago(0.5), text: 'Fix it' } };
+  const html = strip([made], [{ key: 'w/T-2', ref: 'T-2', at: ago(0.2), id: 'a2', askedAt: ago(0.8), message: 'Also this' }]);
+  assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)" data-dismiss-new="([^"]+)" data-at="[^"]+">(.*?)<\/a>/g)].map((m) => [m[1], m[2], text(m[3])]),
+    [['#selectedCard=w%2FT-3', 'w/T-3', 'Ticket created: T-3 · fix: <header>'], ['#selectedCard=w%2FT-2', 'w/T-2', 'Added to T-2']], 'following the link reads the card up to the ingest');
+  assert.deepEqual([...html.matchAll(/data-dismiss-new="([^"]+)" data-at="([^"]+)">Dismiss</g)].map((m) => m[1]), ['w/T-3', 'w/T-2']);
+  assert.doesNotMatch(html, /data-edit|data-withdraw/);
+  // A card read since its ingest has no entry.
+  assert.equal(ui.newEntries({ items: [made], merges: [] }, { 'w/T-3': ago(0.1) }).length, 0);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /^\.new-entry \.processing \{ color: var\(--color-notice\);/m);
+  assert.match(css, /^\.new-done, \.new-link \{ color: var\(--color-info\);/m);
 });
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
@@ -1540,7 +1546,7 @@ const workCard = { kind: 'work', key: 'w/B5', id: 'B5', ref: 'B5', title: 'Five'
   linear: [{ id: 'ENG-1', url: 'https://linear.app/x/ENG-1' }], pr: { ...openPR, isDraft: true, status: 'draft' }, prs: [{ ...openPR, isDraft: true, status: 'draft' }], reviewers: ['Jamie'], review: { Jamie: { state: 'unsent' } },
   questions: null, builder: null, working: false, next: 'Waiting for PR reviewers' };
 
-test('ticket badges use the board source, link out, and give a New card its ticket from the moment it lands', () => {
+test('ticket badges use the board source and link out', () => {
   for (const [source, id, url] of [['github', '#9', 'https://github.com/o/r/issues/9'], ['linear', 'ENG-9', 'https://linear.app/another/issue/ENG-9']]) {
     const card = { ...workCard, ticket: { source, id, url } };
     const html = ui.workLines(card);
@@ -1548,7 +1554,6 @@ test('ticket badges use the board source, link out, and give a New card its tick
     assert.ok(html.includes(`href="${url}"`));
     assert.ok(html.indexOf('target="_blank"') >= 0 && html.indexOf('target="_blank"') < html.indexOf('</a>'));
     assert.doesNotMatch(html, /ENG-1/);
-    assert.match(ui.workLines({ ...card, isNew: true, ask: { eventId: 'a1', askedAt: ago(1), state: 'waiting' } }), new RegExp(`>${id}<`));
   }
   assert.match(ui.workLines({ ...workCard, linear: [...workCard.linear, { id: 'ENG-2', url: 'https://linear.app/another/issue/ENG-2' }] }), /ENG-1.*ENG-2/);
   const foreign = ui.workLines({ ...workCard, ticket: { id: 'INT-4', url: null, source: null } });
@@ -1630,7 +1635,7 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
 });
 
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-test("a ready card's time line reads ready in green after its hold and before its unread messages, and an unsorted work card shows its ticket, and the card an ask became shows its ticket chip from the moment it lands", () => {
+test("a ready card's time line reads ready in green after its hold and before its unread messages, and an unsorted work card shows its ticket", () => {
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt };
   const html = ui.workLines({ ...card, held: true, ready: true, phase: 'ready' }, { unread: 2 });
@@ -1642,11 +1647,6 @@ test("a ready card's time line reads ready in green after its hold and before it
   assert.deepEqual(lines(ui.workLines({ ...card, unsorted: true }))[0], 'ENG-1 Five');
   assert.doesNotMatch(ui.workLines({ ...card, unsorted: true }), />New</);
   assert.doesNotMatch(ui.workLines(card), />New</);
-  // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: the card an ask became reads New
-  // with its ask's line until it is sorted, bumps as a card, and edits and deletes its ask.
-  const arrived = { ...card, key: 'w/T-3', id: 'T-3', ref: 'T-3', internal: true, linear: [], unsorted: true, isNew: true, ask: { eventId: 'a7', state: 'waiting', canEdit: true, files: [] } };
-  assert.deepEqual(lines(ui.workLines(arrived)).slice(0, 2), ['T-3 Five', 'waiting…']);
-  assert.deepEqual([...ui.workLines(arrived).matchAll(/data-(card-bump|bump|edit|withdraw)="([^"]+)"/g)].map((m) => [m[1], m[2]]), [['card-bump', 'w/T-3'], ['edit', 'a7'], ['withdraw', 'a7']]);
 });
 
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
@@ -1862,10 +1862,8 @@ test('a thread counts as unread only the messages from others since this browser
   assert.equal(ui.unreadCount(at, '2026-10-23T11:00:00Z'), 0);
 });
 
-test('a pending message offers bump, edit and delete in that order, a thread message edit and delete, and an edited one says so', () => {
+test('a thread message offers edit and delete in that order, and an edited one says so', () => {
   const order = (html) => [...html.matchAll(/data-(card-bump|edit|withdraw)="/g)].map((m) => m[1]);
-  const fresh = { kind: 'work', id: 'T-3', key: 'w/T-3', isNew: true, ask: { eventId: 'a1', state: 'waiting', canEdit: true } };
-  assert.deepEqual(order(ui.askActions(fresh)), ['card-bump', 'edit', 'withdraw']);
   const html = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it well', edited: true, eventId: 'e1', reply: null, state: 'waiting', canDelete: true, canEdit: true }]);
   assert.deepEqual(order(html), ['edit', 'withdraw']);
   assert.match(text(html), /^You · Edited · .* Fix it well waiting…$/);

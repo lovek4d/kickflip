@@ -464,6 +464,23 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .lane[open] > summary { border-bottom: 0; border-radius: 10px 10px 0 0; }
 .lane[open] > .list { border-radius: 0 0 10px 10px; }
 .lane > summary .count { color: var(--muted); font-weight: 400; }
+/* The New strip above the lanes, headed like a lane (docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md):
+   an ask's line grey while it waits, orange while it is processed, and blue once ingested. */
+.new-strip { margin-top: 14px; }
+.new-strip[hidden] { display: none; }
+.new-head { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 5px 12px; background: var(--band);
+  border: 1px solid var(--line); border-bottom: 0; border-radius: 10px 10px 0 0; font-size: 13px; font-weight: 500; color: var(--text); }
+.new-head .count { color: var(--muted); font-weight: 400; }
+.new-list { border: 1px solid var(--line); border-radius: 0 0 10px 10px; background: var(--panel); overflow: hidden; }
+.new-entry { padding: 10px 12px; border-top: 1px solid var(--line); }
+.new-entry:first-child { border-top: 0; }
+.new-msg { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.new-entry .new-line { margin-top: 4px; }
+.new-entry .processing { color: var(--color-notice); font-size: 12px; font-weight: 600; }
+.new-entry .processing .working-dot { background: currentColor; }
+.new-done, .new-link { color: var(--color-info); font-size: 12px; font-weight: 600; text-decoration: none; }
+.new-entry .new-dismiss { padding: 4px 8px; font-size: 12px; color: var(--muted); }
+.new-entry .edit-form { margin-top: 2px; }
 /* Each lane's sort icon and its menu, grey (docs/adr/2026-11-01-1817-colour-says-whos-waiting.md) */
 /* A board shared with someone else (docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md):
    shell.js marks the page .shared-view, which hides Board settings and the architecture review, and, unless the person

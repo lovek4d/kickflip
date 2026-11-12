@@ -1144,6 +1144,9 @@ export function buildBoard(snapshot) {
       // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
       if (asks.has(it.from_ask)) card.created = asks.get(it.from_ask).ts;
       card.askMsg = msgs.find((m) => m.kind === 'ask' && m.eventId === it.from_ask) || null;
+      // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md: when the orchestrator ingested the ask
+      // (store.mjs leaveNew), and the owner's message, for the New strip's line to the card.
+      card.ingested = it.sorted_at && card.askMsg ? { at: it.sorted_at, text: card.askMsg.text } : null;
       storedLinks.set(key, { parent: it.parent ? linkKey(slug, it.parent) : null, related: (it.related || []).map((r) => linkKey(slug, r)) });
       if (card.lane === 'done') closedWork.set(key, card.closedAt || String(card.updatedAt || ''));
     });
@@ -1201,12 +1204,14 @@ export function buildBoard(snapshot) {
     }
     moved.set(key, card);
     // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: an ask whose card merged into
-    // another card (store.mjs relateAsk) shows in the top banner.
+    // another card (store.mjs relateAsk) shows in the New strip, with the owner's whole message
+    // (docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md).
     const merged = lines.filter((m) => m.line === MERGED_LINE).at(-1);
     const into = works.get(card);
     if (merged && into) {
-      const text = merged.title || String(index.edits.get(e.id) ?? e.data?.text ?? '').trim().split('\n')[0] || 'Ask';
-      merges.push({ key: into.key, ref: into.ref, text, at: String(merged.ts) });
+      const message = String(index.edits.get(e.id) ?? e.data?.text ?? '').trim();
+      const text = merged.title || message.split('\n')[0] || 'Ask';
+      merges.push({ key: into.key, ref: into.ref, text, at: String(merged.ts), id: e.id, askedAt: String(e.ts), message });
     }
   }
   for (const w of itemFiles) {

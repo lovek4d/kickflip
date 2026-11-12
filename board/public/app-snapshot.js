@@ -67,9 +67,9 @@ BoardView.part((B) => {
   }
   const endFlash = () => { before = null; };
 
-  // Since the page last drew it, a last visit's board included, a card that changed lanes, a work card that takes
-  // the place of a drawn New task (its fromAsk), a work card or New task that joins Todo at the bottom, or any other
-  // card whose updateSign changed takes the same tint. It does not show for a change the owner sent from this page:
+  // Since the page last drew it, a last visit's board included, a card that changed lanes, a work card that joins Todo
+  // at the bottom, or any other card whose updateSign changed takes the same tint: a card an ask became (its fromAsk)
+  // tints as it is ingested and leaves the New strip for Todo. It does not show for a change the owner sent from this page:
   // sentHere(key, send) holds the card's next change unsigned until the first board load started after send settles.
   let drawn = new Map();
   const ownChanges = new Map();
@@ -85,7 +85,7 @@ BoardView.part((B) => {
     const now = Date.now();
     for (const it of state.board.items) {
       const was = drawn.get(it.key);
-      const arrived = !was && drawn.size > 0 && it.lane === 'todo' && (it.isNew || (it.kind === 'work' && !it.fromAsk));
+      const arrived = !was && drawn.size > 0 && it.lane === 'todo' && it.kind === 'work' && !it.fromAsk;
       const moved = was ? was.lane !== it.lane : arrived;
       const updated = Boolean(was) && was.sign !== updateSign(it);
       const own = ownChanges.get(it.key);

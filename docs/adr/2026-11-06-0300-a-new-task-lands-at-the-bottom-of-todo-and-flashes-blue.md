@@ -6,3 +6,5 @@ This supersedes in part [New Todo cards join the bottom](2026-11-05-2345-new-tod
 
 - **No New-ask band.** `laneOrder` (`board/public/ui-order.js`) lists Todo as bumped cards first, the latest bump on top, a bumped New ask included, then everything else oldest first by `sortAt`. A New ask's `sortAt` is when it was sent, so it lands at the bottom, and the card Claude files from it is made later and also lands at the bottom, so ingestion moves nothing.
 - **Two flashes, one animation.** `signCards` (`board/public/app-snapshot.js`) flashes a New task once when it appears in Todo on a board the page already drew, and the work card that takes its place once more, with the existing `.flash` (`--color-info`).
+
+Superseded in part by [new asks sit in a New strip above the lanes](2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md): a New task lands in the New strip, not Todo, so only the flash as its card is ingested into Todo remains.

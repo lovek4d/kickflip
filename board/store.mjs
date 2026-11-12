@@ -507,6 +507,12 @@ async function askCardOf(site, eventId) {
 }
 // Whether the card an ask became is still New: nothing has sorted, answered or started it.
 const stillNew = (item) => !item.phase && !item.answered_at && !leftTodo(item) && !hasPR(item) && !item.filed_held;
+// docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md: the card an ask became, given its first
+// phase, records when the orchestrator ingested it, which the New strip's line to the card reads (domain.mjs ingested).
+// Call it before the phase is set.
+function leaveNew(item) {
+  if (item.from_ask && !item.phase && !item.sorted_at) item.sorted_at = new Date().toISOString();
+}
 // An ask's title as its card takes it: the first line of its latest text, else its files' names.
 function askTitle(ask, events) {
   const edit = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === ask.id && typeof e.data?.text === 'string')
@@ -647,6 +653,7 @@ async function markAnswered(site, card, title) {
   if (!item.from_ask) fail(`${key} is not a card an ask became; write in its thread with thread ${key} --text`);
   if (!answerable(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so it is work: write in its thread with thread ${key} --text`);
   if (title !== undefined) item.title = cardTitle(title);
+  leaveNew(item);
   item.phase = 'discussing';
   dropOwed(item);
   delete item.unfiled;
@@ -2105,6 +2112,7 @@ async function stageable(site, key) {
 async function stage(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
   if (item.phase === 'staging') return;
+  leaveNew(item);
   Object.assign(item, { phase: 'staging', staged_at: new Date().toISOString() });
   delete item.unfiled;
   delete item.filed_held;
@@ -2116,6 +2124,7 @@ async function stage(site, key) {
 async function discuss(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
   if (item.phase === 'discussing') return;
+  leaveNew(item);
   item.phase = 'discussing';
   await writeJSON(source.file, itemFile);
   await appendCommand(site, key, { command: 'discussing' });
@@ -2224,6 +2233,7 @@ export async function writeBrief(site, key, { kind, file }) {
   if (!(briefed.briefs || []).some((b) => b.kind === kind && !b.brief)) owe(briefed, kind, {}, at);
   briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at } } : b));
   if (kind !== VISUAL && briefed.phase !== PLANNER_PHASE[kind]) {
+    leaveNew(briefed);
     briefed.phase = PLANNER_PHASE[kind];
     delete briefed.staged_at;
   }
@@ -2949,6 +2959,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
     // ready to a grill or prototype, the card owes the orchestrator's brief for its round, which the board launches the
     // planner from. A new card filed grilling waits for its arrival (domain.mjs arrivalsOf), under the planner cap.
     if (PLANNED.includes(phase) && ['discussing', 'staging', 'ready'].includes(item.phase)) owe(item, phase === 'grilling' ? 'grill' : 'prototype');
+    leaveNew(item);
     item.phase = phase;
     if (phase === 'discussing') dropOwed(item);
     delete item.recheck_at;
