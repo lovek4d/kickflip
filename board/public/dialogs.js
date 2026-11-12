@@ -171,12 +171,15 @@
     vv?.addEventListener('resize', fit);
     vv?.addEventListener('scroll', fit);
     window.addEventListener('resize', fit);
+    // A file picker closing returns focus to the window without a resize, so the sheet is measured again.
+    window.addEventListener('focus', fit);
     window.addEventListener('scroll', pin);
     return () => {
       clearTimeout(settle);
       vv?.removeEventListener('resize', fit);
       vv?.removeEventListener('scroll', fit);
       window.removeEventListener('resize', fit);
+      window.removeEventListener('focus', fit);
       window.removeEventListener('scroll', pin);
     };
   }

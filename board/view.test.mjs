@@ -1946,6 +1946,13 @@ test('ask and New board sheets follow the phone keyboard, hold the page still an
       page.fire(vv, 'resize');
       assert.equal(values.get('--kb'), '0px');
       assert.equal(sheet.classList.contains('kb'), false);
+      // The file picker's return sends no viewport resize, so the window's focus measures the sheet again.
+      vv.height = 500;
+      page.fire(global, 'focus');
+      assert.equal(values.get('--kb'), '324px');
+      vv.height = 844;
+      page.fire(global, 'focus');
+      assert.equal(values.get('--kb'), '0px');
       win.scrollY = 469;
       page.fire(global, 'scroll');
       assert.deepEqual(scrolls, [120]);

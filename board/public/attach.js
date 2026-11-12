@@ -76,12 +76,24 @@ window.BoardAttach = (function () {
     paint(id, site);
   }
 
+  // Pressing the button does not take focus from the text box, so the cursor stays where it was while the picker opens
+  // (iOS may still hide the keyboard for its picker), and a pick puts focus back in the box that held it.
+  let focused = null;
+  document.addEventListener('mousedown', (ev) => {
+    const input = ev.target.closest && ev.target.closest('input[data-attach]');
+    if (!input) return;
+    const a = document.activeElement;
+    focused = a && a.tagName === 'TEXTAREA' && input.closest('[data-composer]')?.contains(a) ? a : null;
+    ev.preventDefault();
+  });
   document.addEventListener('change', (ev) => {
     const input = ev.target.closest && ev.target.closest('input[data-attach]');
     const c = input && input.closest('[data-composer]');
     if (!c) return;
     addFiles(c, input.files);
     input.value = '';
+    if (focused) focused.focus({ preventScroll: true });
+    focused = null;
   });
   // A drag of files over a composer marks it .dragging, which outlines its drop zone. dragenter and dragleave fire on
   // each child it crosses, so the composer counts them, and a drop ends the drag.

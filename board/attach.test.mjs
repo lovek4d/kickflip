@@ -132,3 +132,26 @@ test('a failed upload chip retries from the same file on click, and an over-20 M
   assert.equal(p.uploads[1].file.name, 'a.pdf');
   assert.equal(p.win.BoardAttach.busy('ask', '/board-a'), true);
 });
+
+test('pressing the attach button leaves the text box focused, and a pick puts the cursor back in it', () => {
+  const p = attachPage();
+  const input = p.composer.querySelector('input[data-attach]');
+  p.box.focus();
+  const press = p.fire(input, 'mousedown');
+  assert.equal(press.defaultPrevented, true);
+  // iOS drops focus for its picker.
+  p.win.document.activeElement = null;
+  input.files = [];
+  p.fire(input, 'change', { target: input });
+  assert.equal(p.win.document.activeElement, p.box);
+});
+
+test('pressing the attach button with no text box focused leaves focus alone', () => {
+  const p = attachPage();
+  const input = p.composer.querySelector('input[data-attach]');
+  p.win.document.activeElement = null;
+  p.fire(input, 'mousedown');
+  input.files = [];
+  p.fire(input, 'change', { target: input });
+  assert.equal(p.win.document.activeElement, null);
+});
