@@ -866,7 +866,7 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .tb-main-text { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
 .tb-main .meta { justify-content: flex-end; margin-left: auto; }
 /* #60: Main's refresh icon right of its timestamp; a failed pull's reason shows on hover, or on a tap on touch */
-.tb-main .main-pull { position: relative; display: inline-flex; align-items: center; vertical-align: middle; margin-left: 6px; }
+.tb-main .main-pull { position: relative; display: inline-flex; align-items: center; vertical-align: text-bottom; margin: -7px 0 -7px 6px; }
 .tb-main .gh-refresh { display: inline-flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; padding: 2px 4px; color: var(--muted); min-width: 28px; min-height: 28px; }
 .tb-main .gh-refresh[aria-disabled="true"] { opacity: .45; cursor: default; }
 .tb-main .gh-refresh.failed { color: var(--color-danger); }
