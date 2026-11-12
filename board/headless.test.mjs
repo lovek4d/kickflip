@@ -103,6 +103,12 @@ test("a headless planner's brief names its card and its notes so far, spells its
   assert.match(grill, /End every grill with one more question, "Prototype round first\?", whose options are yes and no, with "prototype_gate": true/);
   assert.ok(grill.includes('Recommend yes when the card changes the hub\'s or a board\'s UI, no otherwise') && grill.includes('Ask it even when it is your only question'));
   assert.ok(!proto.includes('prototype_gate'));
+  // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a card that keeps its prototype answer is never asked again.
+  for (const [prototype, moves] of [['yes', 'to prototyping'], ['no', 'to staging'], ['ran', 'to staging']]) {
+    const kept = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', prototype });
+    assert.ok(!kept.includes('prototype_gate') && !kept.includes('End every grill with one more question'), prototype);
+    assert.ok(kept.includes(`The card keeps the owner's answer to its prototype question, ${prototype}, so ask no "Prototype round first?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the card ${moves}.`), prototype);
+  }
   // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: the grill no longer asks about a ticket.
   assert.ok(!grill.includes('ticket_gate') && !grill.includes('Create a ticket') && !proto.includes('ticket_gate'));
   // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a grill proposes a split as one question.

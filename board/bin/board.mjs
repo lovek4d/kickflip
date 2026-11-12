@@ -81,7 +81,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          number, and resolves that one, noting "Followed by prototype round N".
          prototype_gate: true marks a grill's closing "Prototype round first?" question (options yes, no, on a card's
          topic): the owner's yes moves the card to prototyping and starts its prototype planner, a no stages it
-         once no question on it is left open, the board doing both with no orchestrator step.
+         once no question on it is left open, the board doing both with no orchestrator step. The answer stays
+         on the card as its gates.prototype, so a regrill or a split child never asks it again: question add
+         refuses a prototype_gate (or ticket_gate) whose answer the card keeps, and a yes is spent once the card
+         moves to prototyping on it.
          reask_of names a resolved question on the same topic that the owner asked to ask again
          (reask-request): it resolves that one again, noting "Asked again as <new id>", printed as "resolved: <old id>".
          ask names a builder ask the session deferred on the item (builder defer): the question puts it to the
@@ -261,6 +264,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          another card's thread, grill or answer: it reads as a
                                                          follow-up, and its Parent lists it in Children. A card
                                                          from the + or New task has none
+         [--split-of <file>/<id>]                        a card split from that one: sets it as the Parent, as
+                                                         --parent does, and copies its gates, the owner's prototype
+                                                         (and ticket) answers, so its grill never asks them again.
+                                                         Refuses --parent beside it
          [--phase grilling|prototyping|ready]            files it at once, as item set's --phase; the session's
          [--relate <id>,<file>/<id>]                     own form, linking it with --relate in the same call.
                                                          ready is for a Quick build ask (--from-ask), with --size
@@ -837,10 +844,10 @@ const COMMANDS = {
     return store.setItem(site, key, { done: f.done, splitInto: f['split-into'], status: f.status, clearStatus: f['clear-status'], next: f.next, clearNext: f['clear-next'], pr: f.pr, pushed: f.pushed, ghSince: f['gh-since'], fromAsk: f['from-ask'], phase: f.phase, state: f.state, held: f.held, unheld: f.unheld, pickUpAt: f['pick-up-at'], deps: f.deps, blockedUntil: f['blocked-until'], blockReason: f['block-reason'], parent: f.parent, related: f.related, relate: f.relate, unrelate: f.unrelate,
       install: f.install, installSha: f['install-sha'], installLabel: f['install-label'], clearInstall: f['clear-install'], title: f.title, size: f.size, model: f.model, force: f.force, ticket: f.ticket, newTicket: f['new-ticket'], text: f.text, check: f.check }, options);
   }],
-  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'held', 'parent', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
+  'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'held', 'parent', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
-    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
+    return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, splitOf: f['split-of'], size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
   }],
   'item notes': [['file/id'], ['heading', 'file', 'from'], (site, [key], f) => {
     if (f.heading === undefined && f.from === undefined) throw new UsageError('item notes needs --heading "<the section\'s title>"');

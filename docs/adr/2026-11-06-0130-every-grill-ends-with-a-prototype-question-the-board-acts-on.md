@@ -11,3 +11,5 @@ A gate answered with no note needs no mention in the card's notes for ready (che
 From #320, related to #319 (a grill's questions land together).
 
 Amended by [a grill waits for every answer before it changes phase](2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md): yes moves the card only once none of its questions is open.
+
+Amended by [a card's gates are facts it keeps](2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md): the answer stays on the card as gates.prototype, so a later grill never asks it again, and a yes is spent once the card moves to prototyping on it.

@@ -17,3 +17,5 @@ Calls made at build, left open by the grill:
 Renaming a lineup to a wave, waves blocking only on conflicts, and a defined splitting method are #436.
 
 From #431, related to #411 (the orchestrator takes new tasks) and #382 (sublanes).
+
+Amended by [a card's gates are facts it keeps](2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md): each card of a split is filed with `item add --split-of <key>`, which copies the original's gates.
