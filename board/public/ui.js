@@ -130,7 +130,7 @@
   const statusMark = (words) => mark(MARK_ICONS[words] || '');
   const PENCIL = icon('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>');
   const BUMP = icon('<path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/>');
-  // Deletes or edits a pending ask or thread message; app-asks.js handles [data-withdraw] and [data-edit] on one path.
+  // Deletes or edits an ask in the New strip; app-asks.js handles [data-withdraw] and [data-edit].
   const withdrawButton = (id) => `<button class="ghost icon" data-withdraw="${esc(id)}" aria-label="Delete" title="Delete">${TRASH}</button>`;
   const editButton = (id) => `<button class="ghost icon" data-edit="${esc(id)}" aria-label="Edit" title="Edit">${PENCIL}</button>`;
   // A card's bump: app-cards.js sends card-bump {key} with no confirm, and on a bumped card, where it is filled orange,

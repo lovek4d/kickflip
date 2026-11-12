@@ -1,6 +1,8 @@
 ---
-status: superseded in part by 2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping and 2026-11-03-1850-a-tap-waits-for-the-server-to-record-it
+status: superseded in part by 2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping, 2026-11-03-1850-a-tap-waits-for-the-server-to-record-it and 2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent
 ---
+
+Superseded in part by [a thread message shows at once, and the browser keeps it until it is sent](2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md): a thread message has no edit or delete; only an ask in the New strip does.
 
 # A pending ask or thread message can be deleted or edited, and a pending ask bumped
 

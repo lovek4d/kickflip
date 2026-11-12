@@ -767,7 +767,7 @@ test('a thread names who wrote each message and where', () => {
     { ts: ago(2), who: 'Jamie', via: 'github', text: 'Looks good' },
     { ts: ago(1), who: 'love', via: 'site', text: 'Ship it', eventId: 'e1', reply: null },
   ]);
-  assert.match(text(html), /^Jamie · GitHub · .* Looks good You · .* Ship it waiting…$/);
+  assert.match(text(html), /^Jamie · GitHub · .* Looks good You Ship it \S.* · waiting…$/);
   const log = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'done', log: 'b.log' }]);
   assert.match(log, /<a href="log\.html\?file=b\.log">View transcript<\/a>/);
   assert.doesNotMatch(log, /link-arrow|→/);
@@ -1295,16 +1295,34 @@ test("an open card's action row has no Implement, which lives in a Todo card's t
 test('the working line reads thinking, in one shared class on the card and in the thread', () => {
   const ask = { kind: 'ask', key: 'ask:a1', id: 'a1', ref: '10:00', title: 'Fix it', internal: false, linear: [], pr: null, prs: [], deps: [], blockedBy: [], working: true, ask: { askedAt: ago(1) } };
   assert.match(ui.workLines(ask), /<div class="line3 sub agent"><span class="thinking">/);
-  assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true }]), /<div class="reply muted small"><span class="thinking">/);
+  assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working' }]), /<div class="reply muted small msg-foot"><span>[^<]+<\/span><span>·<\/span><span class="thinking">/);
 });
 
-test('a thread message says thinking while Claude works on it, and only a pending message can be deleted', () => {
-  const html = ui.threadMessages([
-    { ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', canDelete: true },
-    { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'Old', eventId: 'e2', reply: null, state: 'answered', canDelete: false },
-  ]);
-  assert.match(text(html), /Fix it thinking… .* Old$/);
-  assert.deepEqual([...html.matchAll(/data-withdraw="(\w+)"/g)].map((m) => m[1]), ['e1']);
+// docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
+test("an owner's message reads its time first in the footer, then sending… or waiting… in grey or thinking… with the working dot; a failed send reads not sent, bold red, with Retry then X; no message has Edit or Delete", () => {
+  const sent = ago(3);
+  const at = ui.esc(ui.time(sent));
+  const foot = (html) => /<div class="reply muted small msg-foot">(.*?)<\/div>/s.exec(html)?.[1];
+  const dot = '<span>·</span>';
+  const mine = (extra) => ({ ts: sent, who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'waiting', ...extra });
+  const queued = (extra) => ({ ts: sent, who: 'love', kind: 'item-message', text: 'Fix it', files: [], sendId: 's1', state: 'sending', ...extra });
+  assert.equal(foot(ui.threadMessages([queued()])), `<span>${at}</span>${dot}<span>sending…</span>`);
+  assert.equal(foot(ui.threadMessages([mine()])), `<span>${at}</span>${dot}<span>waiting…</span>`);
+  assert.equal(foot(ui.threadMessages([mine({ state: 'working' })])), `<span>${at}</span>${dot}${ui.workingLine}`);
+  // A message the orchestrator answered keeps its time in the footer, alone.
+  assert.equal(foot(ui.threadMessages([mine({ state: 'answered' })])), `<span>${at}</span>`);
+  // The time moved to the footer, so the owner's name stands alone.
+  assert.match(ui.threadMessages([mine()]), /<div class="who">You<\/div>/);
+  const failed = ui.threadMessages([queued({ state: 'failed' })]);
+  assert.ok(foot(failed).startsWith(`<span>${at}</span>${dot}<span class="not-sent">not sent</span><span class="send-again">`));
+  assert.deepEqual([...failed.matchAll(/data-(resend|unsend)="(\w+)" aria-label="([^"]+)"/g)].map((m) => [m[1], m[2], m[3]]), [['resend', 's1', 'Retry'], ['unsend', 's1', 'Dismiss']]);
+  assert.match(failed, /<div class="msg love" data-send="s1">/);
+  assert.doesNotMatch(ui.threadMessages([queued()]), /data-resend|data-unsend|data-event/);
+  // Nothing in a thread edits or deletes a message, waiting or working.
+  const pending = ui.threadMessages([mine(), mine({ eventId: 'e2', state: 'working' }), mine({ eventId: 'a1', kind: 'ask', canEdit: true, canDelete: true })]);
+  assert.doesNotMatch(pending, /data-edit|data-withdraw|ask-actions/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.msg-foot \.not-sent \{[^}]*color: var\(--color-danger\);[^}]*font-weight: 600/);
 });
 
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
@@ -1862,13 +1880,11 @@ test('a thread counts as unread only the messages from others since this browser
   assert.equal(ui.unreadCount(at, '2026-10-23T11:00:00Z'), 0);
 });
 
-test('a thread message offers edit and delete in that order, and an edited one says so', () => {
-  const order = (html) => [...html.matchAll(/data-(card-bump|edit|withdraw)="/g)].map((m) => m[1]);
-  const html = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it well', edited: true, eventId: 'e1', reply: null, state: 'waiting', canDelete: true, canEdit: true }]);
-  assert.deepEqual(order(html), ['edit', 'withdraw']);
-  assert.match(text(html), /^You · Edited · .* Fix it well waiting…$/);
+test('a message edited before thread edits went says so beside its author, as a moved one does', () => {
+  const html = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it well', edited: true, eventId: 'e1', reply: null, state: 'waiting' }]);
+  assert.match(text(html), /^You · Edited Fix it well \S.* · waiting…$/);
   const moved = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Swipe the gallery', moved: true, eventId: 'a1', reply: null, state: 'answered' }]);
-  assert.match(text(moved), /^You · Moved · .* Swipe the gallery$/);
+  assert.match(text(moved), /^You · Moved Swipe the gallery \S+/);
 });
 
 test('a builder status line, and an agent starting or finishing, reads as one line with its time and no author or actions, a running agent with its ETA', () => {
@@ -1921,20 +1937,22 @@ test('a builder status line, and an agent starting or finishing, reads as one li
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
 test("a request with text, a question's prototype request and an answer are the owner's message with the tap's status in the footer, waiting… to its right until Claude picks it up; a folded submit of answers carries one footer", () => {
   const msg = (extra) => ({ ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', text: 'Phone width first', eventId: 'p1', state: 'waiting', files: [], status: 'Prototype requested', ...extra });
-  const foot = (html) => /<div class="reply muted small">(.*?)<\/div>/s.exec(html)?.[1];
+  // The footer after its time, each · as |.
+  const foot = (html) => /<div class="reply muted small msg-foot"><span>[^<]+<\/span>(.*?)<\/div>/s.exec(html)?.[1].replaceAll('<span>·</span>', '|');
   const status = (words) => `<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`;
-  assert.equal(foot(ui.threadMessages([msg()])), `${status('Prototype requested')}waiting…`);
+  const waiting = '|<span>waiting…</span>';
+  assert.equal(foot(ui.threadMessages([msg()])), `|${status('Prototype requested')}${waiting}`);
   assert.match(ui.threadMessages([msg()]), /<div class="body">Phone width first<\/div>/);
-  assert.equal(foot(ui.threadMessages([msg({ state: 'answered' })])), status('Prototype requested'));
-  assert.match(foot(ui.threadMessages([msg({ state: 'working' })])), /^<span class="foot-status">.*Prototype requested<\/span><span class="thinking">/);
-  assert.equal(foot(ui.threadMessages([msg({ kind: 'grill-more', status: 'Grill requested' })])), `${status('Grill requested')}waiting…`);
+  assert.equal(foot(ui.threadMessages([msg({ state: 'answered' })])), `|${status('Prototype requested')}`);
+  assert.match(foot(ui.threadMessages([msg({ state: 'working' })])), /^\|<span class="foot-status">.*Prototype requested<\/span>\|<span class="thinking">/);
+  assert.equal(foot(ui.threadMessages([msg({ kind: 'grill-more', status: 'Grill requested' })])), `|${status('Grill requested')}${waiting}`);
   const answer = (id, ts) => ({ ts, who: 'love', via: 'questions', kind: 'owner-answer', text: `${id}?\n→ A`, eventId: id, state: 'waiting', files: [], status: 'answers submitted' });
   const submit = { ...answer('a1', ago(1)), text: 'a1?\n→ A\n\na2?\n→ B', answers: [{ eventId: 'a1', state: 'waiting', text: 'a1?\n→ A' }, { eventId: 'a2', state: 'waiting', text: 'a2?\n→ B' }] };
   const folded = ui.threadMessages([submit]);
   assert.equal(folded.match(/class="msg love"/g).length, 1);
   assert.equal(folded.match(/answers submitted/g).length, 1);
   assert.match(folded, /a1\?\n→ A\n\na2\?\n→ B/);
-  assert.equal(foot(folded), `${status('answers submitted')}waiting…`);
+  assert.equal(foot(folded), `|${status('answers submitted')}${waiting}`);
   // Answers that were submitted apart each draw their own footer.
   assert.equal(ui.threadMessages([answer('a1', ago(2)), answer('a2', ago(1))]).match(/answers submitted/g).length, 2);
   // A member's reply draws under the message, quoting its own answer.
@@ -1942,7 +1960,7 @@ test("a request with text, a question's prototype request and an answer are the 
   assert.match(replied, /<blockquote class="quote">a2\?\n→ B<\/blockquote>/);
   assert.doesNotMatch(replied, /<blockquote class="quote">a1/);
   // An owner message with no tap behind it keeps its plain footer.
-  assert.equal(foot(ui.threadMessages([msg({ kind: 'item-message', status: undefined })])), 'waiting…');
+  assert.equal(foot(ui.threadMessages([msg({ kind: 'item-message', status: undefined })])), waiting);
 });
 
 test("a card's open questions asked since it was last seen are one blue line in its thread, with a plain question mark, linking to the first", () => {
@@ -1989,10 +2007,10 @@ test("a builder's judgment calls show collapsed under its lines, saying whether 
   const checked = text(ui.threadMessages([{ ...open, verified: { at: ago(0.5), note: 'Match the notes.' } }]));
   assert.match(checked, /· 2 · verified .+ Kept <the> old name Question: every agent\? Verified: Match the notes\.$/);
   const msgs = [{ ts: ago(3), who: 'claude', text: 'One' }, { ts: ago(2), who: 'claude', text: 'Two' }, { ts: ago(1.5), who: 'claude', text: 'Three' }, open];
-  assert.doesNotMatch(ui.threadMessages(msgs, {}, new Map(), { seenAt: ago(9), more: 0 }), /thread-more/);
+  assert.doesNotMatch(ui.threadMessages(msgs, {},{ seenAt: ago(9), more: 0 }), /thread-more/);
 });
 
-test("an open card's thread shows its newest 3 messages with the lines between them, from its oldest unread one when more are unread, a message being edited always, and Show more saying how many messages it hides", () => {
+test("an open card's thread shows its newest 3 messages with the lines between them, from its oldest unread one when more are unread, and Show more saying how many messages it hides", () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const msgs = [
     { ts: at(0), who: 'claude', text: 'One' },
@@ -2012,43 +2030,41 @@ test("an open card's thread shows its newest 3 messages with the lines between t
   const more = (html) => (/^<button type="button" class="thread-more" data-thread-more>/.test(html) ? text(html.slice(0, html.indexOf('</button>'))) : null);
   const read = { seenAt: at(59), more: 0 };
 
-  const newest = ui.threadMessages(msgs, {}, new Map(), read);
+  const newest = ui.threadMessages(msgs, {},read);
   assert.deepEqual(shown(newest), ['Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green']);
   assert.equal(more(newest), 'Show more · 4 previous messages');
-  const once = ui.threadMessages(msgs, {}, new Map(), { ...read, more: 1 });
+  const once = ui.threadMessages(msgs, {},{ ...read, more: 1 });
   assert.deepEqual(shown(once), ['Two?', 'Two.', 'Opus builder started', 'Three', 'Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green']);
-  const all = ui.threadMessages(msgs, {}, new Map(), { ...read, more: 2 });
+  const all = ui.threadMessages(msgs, {},{ ...read, more: 2 });
   assert.deepEqual([more(once), more(all), shown(all).length], ['Show more · 1 previous message', null, 12]);
 
-  const unread = ui.threadMessages(msgs, {}, new Map(), { seenAt: at(2), more: 0 });
+  const unread = ui.threadMessages(msgs, {},{ seenAt: at(2), more: 0 });
   assert.deepEqual(shown(unread), ['Two.', 'Opus builder started', 'Three', 'Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green']);
   assert.match(unread, /<blockquote class="quote">Two\?<\/blockquote>/);
   assert.equal(more(unread), 'Show more · 2 previous messages');
 
-  const slack = ui.threadMessages(msgs, {}, new Map(), { seenAt: at(4), more: 0 });
+  const slack = ui.threadMessages(msgs, {},{ seenAt: at(4), more: 0 });
   assert.deepEqual(shown(slack), ['Four', 'Opened #1', 'Five', 'Opus builder finished', 'Six', 'CI green']);
 
-  const waiting = ui.threadMessages(msgs.map((m) => (m.eventId ? { ...m, state: 'waiting', reply: null } : m)), {}, new Map(), read);
+  const waiting = ui.threadMessages(msgs.map((m) => (m.eventId ? { ...m, state: 'waiting', reply: null } : m)), {},read);
   assert.deepEqual(shown(waiting), shown(newest));
   assert.equal(more(waiting), 'Show more · 3 previous messages');
-  const editing = ui.threadMessages(msgs, {}, new Map([['e1', { text: 'Two, edited' }]]), read);
-  assert.deepEqual(shown(editing).slice(0, 2), ['Two?', 'Two.']);
 });
 
-test("withdrawing a pending message keeps the window's top edge, so no older message comes out from behind Show more", () => {
+test("a message leaving the thread keeps the window's top edge, so no older message comes out from behind Show more", () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const msgs = ['One', 'Two', 'Three', 'Four', 'Five', 'Six'].map((text, i) => ({ ts: at(i), who: 'claude', text }));
   msgs[5] = { ts: at(5), who: 'love', kind: 'item-message', text: 'Six', eventId: 'e6', state: 'waiting', reply: null };
   const words = (html) => [...html.matchAll(/>(One|Two|Three|Four|Five|Six)</g)].map((m) => m[1]);
   const more = (html) => html.match(/· (\d+) previous/)?.[1] ?? null;
   const read = { seenAt: at(59), more: 0, upto: at(5) };
-  const first = ui.threadMessages(msgs, {}, new Map(), read);
+  const first = ui.threadMessages(msgs, {},read);
   assert.deepEqual([words(first), more(first)], [['Four', 'Five', 'Six'], '3']);
-  const from = ui.threadFrom(msgs, read, new Map());
+  const from = ui.threadFrom(msgs, read);
   assert.equal(from, at(3));
-  const after = ui.threadMessages(msgs.slice(0, 5), {}, new Map(), { ...read, from });
+  const after = ui.threadMessages(msgs.slice(0, 5), {},{ ...read, from });
   assert.deepEqual([words(after), more(after)], [['Four', 'Five'], '3']);
-  const tapped = ui.threadMessages(msgs.slice(0, 5), {}, new Map(), { ...read, from, more: 1 });
+  const tapped = ui.threadMessages(msgs.slice(0, 5), {},{ ...read, from, more: 1 });
   assert.deepEqual([words(tapped), more(tapped)], [['One', 'Two', 'Three', 'Four', 'Five'], null]);
 });
 
@@ -2060,18 +2076,18 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
   const bodies = (html) => [...html.matchAll(/<div class="body">([^<]*)/g)].map((m) => m[1].replace(/\n.*/, ''));
   const waits = (html) => html.split(/(?=<div class="msg )/).filter((h) => h.includes('waiting…')).map((h) => /Q\d+/.exec(h)[0]);
 
-  const read = ui.threadMessages([grill, ...answers], {}, new Map(), { seenAt: at(59), more: 0 });
+  const read = ui.threadMessages([grill, ...answers], {},{ seenAt: at(59), more: 0 });
   assert.deepEqual(bodies(read), ['Q19?', 'Q20?', 'Q21?']);
   assert.deepEqual(waits(read), ['Q19', 'Q20', 'Q21']);
-  const unread = ui.threadMessages([grill, ...answers], {}, new Map(), { seenAt: at(0), more: 0 });
+  const unread = ui.threadMessages([grill, ...answers], {},{ seenAt: at(0), more: 0 });
   assert.deepEqual(bodies(unread), answers.slice(2).map((a) => a.text.replace(/\n.*/, '')));
   assert.deepEqual(waits(unread), answers.slice(2).map((a) => /Q\d+/.exec(a.text)[0]));
-  const all = ui.threadMessages([grill, ...answers], {}, new Map(), null);
+  const all = ui.threadMessages([grill, ...answers], {},null);
   assert.deepEqual(waits(all), answers.map((a) => /Q\d+/.exec(a.text)[0]));
 
-  const split = ui.threadMessages([answer(10), answer(11), { ts: at(12), who: 'claude', text: 'On it' }, answer(13), { ts: at(14), who: 'claude', kind: 'status', text: 'Testing' }, answer(15)], {}, new Map(), null);
+  const split = ui.threadMessages([answer(10), answer(11), { ts: at(12), who: 'claude', text: 'On it' }, answer(13), { ts: at(14), who: 'claude', kind: 'status', text: 'Testing' }, answer(15)], {},null);
   assert.deepEqual(waits(split), ['Q10', 'Q11', 'Q13', 'Q15']);
-  const acted = ui.threadMessages([answer(10), { ...answer(11), state: 'answered' }], {}, new Map(), null);
+  const acted = ui.threadMessages([answer(10), { ...answer(11), state: 'answered' }], {},null);
   assert.deepEqual(waits(acted), ['Q10']);
 });
 
@@ -2093,7 +2109,7 @@ test("an ask's link line opens the work it became, and a thread line opens a lin
   const moved = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Moved to Audit.', link: '/audit/#selectedCard=ask%3Ab1' }]);
   assert.match(moved, /<a href="\/audit\/#selectedCard=ask%3Ab1">Open the task →<\/a>/);
   const arrived = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Fix the header', from: 'Orch', eventId: 'b1', reply: null, state: 'waiting' }]);
-  assert.match(text(arrived), /^You · Moved from Orch · .* Fix the header waiting…$/);
+  assert.match(text(arrived), /^You · Moved from Orch Fix the header \S.* · waiting…$/);
 });
 
 test("a thread's links to this hub's pages open in place, and only other origins open a new window", () => {
@@ -2821,8 +2837,8 @@ test("the board's line is a status line with its mark, never an Orchestrator mes
   // The window opens from the oldest unread line: a fault reaches past the last three messages, a quiet line doesn't.
   const msg = (h) => ({ ts: ago(h), who: 'love', text: `m${h}` });
   const older = [{ ...fault, ts: ago(9) }, msg(8), msg(7), msg(6), msg(5)];
-  assert.match(ui.threadMessages(older, {}, new Map(), { seenAt: ago(10) }), /relaunch/);
-  assert.doesNotMatch(ui.threadMessages([{ ...quiet, ts: ago(9) }, ...older.slice(1)], {}, new Map(), { seenAt: ago(10) }), /Host is busy/);
+  assert.match(ui.threadMessages(older, {},{ seenAt: ago(10) }), /relaunch/);
+  assert.doesNotMatch(ui.threadMessages([{ ...quiet, ts: ago(9) }, ...older.slice(1)], {},{ seenAt: ago(10) }), /Host is busy/);
 });
 
 test('every status line kind takes the shared status-line class, whose rule alone holds spacing, and only the logo is .hub-flexed', () => {
@@ -2916,7 +2932,7 @@ test("only written messages count toward a thread's newest 3: command lines and 
     { ts: at(5), who: 'claude', kind: 'command', command: 'related', request: true, card: 'hub/T-1', link: '#selectedCard=hub%2FT-1', text: 'Related to hub/T-1' },
     { ts: at(6), who: 'love', via: 'site', kind: 'visual-request', request: true, command: 'visual', mark: 'Visual requested', text: 'Visual requested' },
   ];
-  const html = ui.threadMessages(msgs, {}, new Map(), { seenAt: at(59), more: 0 });
+  const html = ui.threadMessages(msgs, {},{ seenAt: at(59), more: 0 });
   for (const w of ['One', 'Two', 'Three']) assert.match(html, new RegExp(`>${w}`));
   assert.doesNotMatch(html, /thread-more/);
   assert.equal(ui.isMessage({ ts: at(6), request: true, kind: 'visual-request' }), false);

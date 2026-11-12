@@ -562,13 +562,13 @@ test('a message marked working shows on its thread and card until Claude replies
     return { card: b.items.find((i) => i.key === 'w/A1').working, count: b.working, msgs: threadOf('w/A1', { lines: lines['w/A1'] || [], events, working }) };
   };
   const marked = at([ask, msg('m1', '2026-10-23T10:00:00Z'), msg('m2', '2026-10-23T10:05:00Z')]);
-  assert.deepEqual(marked.msgs.map(({ text, state, canDelete }) => [text, state, canDelete]), [['m1', 'working', true], ['m2', 'waiting', true]]);
+  assert.deepEqual(marked.msgs.map(({ text, state }) => [text, state]), [['m1', 'working'], ['m2', 'waiting']]);
   assert.deepEqual([marked.card, marked.count], [true, 2]);
   const status = at([ask, msg('m1', '2026-10-23T10:00:00Z')], { 'w/A1': [{ ts: '2026-10-23T10:03:00Z', who: 'claude', kind: 'status', text: 'Running tests' }] });
   assert.deepEqual(status.msgs.map(({ kind, state }) => [kind, state]), [['item-message', 'working'], ['status', undefined]]);
   assert.equal(status.card, true);
   const later = at([ask, msg('m1', '2026-10-23T10:00:00Z')], { 'w/A1': [{ ts: '2026-10-23T10:03:00Z', who: 'claude', text: 'Done.' }] });
-  assert.deepEqual([later.msgs[0].state, later.msgs[0].canDelete, later.card, later.count], ['answered', false, false, 1]);
+  assert.deepEqual([later.msgs[0].state, later.card, later.count], ['answered', false, 1]);
   const replied = at([{ ...ask, reply: { html: 'Hello' } }, msg('m1', '2026-10-23T10:00:00Z', { reply: { html: 'On it' } })]);
   assert.deepEqual([replied.msgs[0].state, replied.card, replied.count], ['replied', false, 0]);
   const count = (events, extra = {}) => buildBoard({ fromWaves: false, files, events, working: { ...working, g1: '2026-10-23T10:01:00Z', q1: '2026-10-23T10:01:00Z' }, ...extra }).working;
@@ -731,14 +731,14 @@ test("a New card asked whether to move waits on the owner in Todo, then a move d
   assert.equal(threadOf('w/T-1', { events: [arrived], fromAsk: 'b1' })[0].from, 'Orch');
 });
 
-test("the owner's reply on a Done ask's card, sent on the card or the ask's old key, waits, works and takes edit and delete like a work item's thread message, and reopens the card", () => {
+test("the owner's reply on a Done ask's card, sent on the card or the ask's old key, waits and works like a work item's thread message, and reopens the card", () => {
   const ask = askAt('a1', '2026-10-23T09:00:00Z', { reply: { html: 'Yes.' } });
   const working = { m1: '2026-10-23T10:01:00Z' };
   const items = [{ id: 'T-1', title: 'a1 first line', from_ask: 'a1', answered_at: '2026-10-23T09:05:00Z', lane: 'done', closed_at: '2026-10-23T09:30:00Z' }];
   for (const key of ['w/T-1', 'ask:a1']) {
     const msg = { id: 'm1', ts: '2026-10-23T10:00:00Z', kind: 'item-message', data: { key, text: 'One more thing' }, reply: null };
     const msgs = threadOf('w/T-1', { events: [ask, msg], working, fromAsk: 'a1' });
-    assert.deepEqual(msgs.map(({ eventId, state, canEdit, canDelete }) => [eventId, state, canEdit, canDelete]), [['a1', 'replied', false, false], ['m1', 'working', true, true]]);
+    assert.deepEqual(msgs.map(({ eventId, state }) => [eventId, state]), [['a1', 'replied'], ['m1', 'working']]);
     const b = askBoard([ask, msg], { working, items });
     const item = b.items.find((i) => i.key === 'w/T-1');
     assert.deepEqual([item.lane, item.reopened, item.working, item.threadCount, b.working], ['review', true, true, 2, 1]);
@@ -1315,7 +1315,7 @@ test("a checking card sits in In Progress waiting on Claude's check, with no bui
   assert.equal(b.itemFiles[0].finished, false);
 });
 
-test('an edited pending message shows its latest text marked Edited, keeps its files, and a replied one takes no edit', () => {
+test('an edited ask, or a thread message edited before thread edits went, shows its latest text marked Edited and keeps its files', () => {
   const shot = { name: 'shot.png', url: 'uploads/1-shot.png', type: 'image/png' };
   const edit = (id, ts, text, key) => ({ id: 'x' + ts, ts, kind: 'ask-edited', data: { id, text, ...(key ? { key } : {}) }, reply: null });
   const events = [
@@ -1333,12 +1333,9 @@ test('an edited pending message shows its latest text marked Edited, keeps its f
   assert.deepEqual([t1.ask.text, t1.ask.edited, t1.ask.canEdit, t1.ask.files], ['Newest title\nmore', true, true, [shot]]);
   assert.equal(b.items.find((i) => i.key === 'w/T-2').ask, null);
   const [m] = threadOf('w/A1', { events });
-  assert.deepEqual([m.text, m.edited, m.files, m.canEdit], ['Fix it well', true, [shot], true]);
+  assert.deepEqual([m.text, m.edited, m.files], ['Fix it well', true, [shot]]);
   const [ask] = threadOf('ask:a1', { events });
   assert.deepEqual([ask.text, ask.edited, ask.files], ['Newest title\nmore', true, [shot]]);
-  const lines = [{ ts: '2026-10-23T10:05:00Z', who: 'claude', text: 'Done.' }];
-  const [answered] = threadOf('w/A1', { lines, events });
-  assert.deepEqual([answered.canEdit, answered.canDelete], [false, false]);
 });
 
 test("files sent with an edit join the message's files, after the ones it was sent with, on the thread and on the New card", () => {

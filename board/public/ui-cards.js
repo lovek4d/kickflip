@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-progress-bar.js.
 (function () {
-  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, cardBumpButton, editButton, withdrawButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, cardBumpButton, editButton, withdrawButton, dropZone, sendButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
   // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
@@ -372,6 +372,11 @@
   // An entry waiting or processing edits and deletes its ask, its edit box in place of its text (edit, from
   // app-asks.js's state.edits); an ingested one links to its card, in blue, and dismisses with no confirm. The link and
   // Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the entry too.
+  // An ask's edit box, in place of its text; app-asks.js handles the form, and attach.js the files it adds to the ask,
+  // under composer id edit:<ask id>.
+  const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
+        <div class="pending-files" data-files></div>
+        <div class="send-actions"><button type="button" data-edit-cancel>Cancel</button>${sendButton('Save', 0)}</div></form>`;
   const cardHref = (key) => `#selectedCard=${encodeURIComponent(key)}`;
   const readsAt = (e) => `data-dismiss-new="${esc(e.key)}" data-at="${esc(e.at)}"`;
   function newEntry(e, edit) {
@@ -381,7 +386,7 @@
     const line = e.made ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Ticket created: <b>${esc(e.made.ref)}</b> · ${esc(e.made.title)}</a>`
       : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b></a>`
       : askLine(e.ask);
-    const body = edit ? globalThis.BoardUI.editForm(e.id, edit.text) : `<div class="new-msg">${esc(e.text)}</div>${globalThis.BoardUI.attachments(e.files)}`;
+    const body = edit ? editForm(e.id, edit.text) : `<div class="new-msg">${esc(e.text)}</div>${globalThis.BoardUI.attachments(e.files)}`;
     return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${line}</div></div>`;
   }
   // entries: newEntries; edits: app-asks.js's state.edits, by ask id.

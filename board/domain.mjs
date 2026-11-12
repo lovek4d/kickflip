@@ -1002,8 +1002,6 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     }
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved) || (sorted && m.eventId === fromAsk));
     m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || lastClaude > String(m.ts) ? 'answered' : routeRecord(working, m.eventId) ? 'working' : 'waiting';
-    m.canDelete = m.kind === 'item-message' && (m.state === 'working' || m.state === 'waiting');
-    m.canEdit = m.canDelete;
   }
   return foldSubmits(msgs);
 }

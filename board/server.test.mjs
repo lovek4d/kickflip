@@ -636,12 +636,30 @@ test("an Implement message stages a Todo card where it is, its words in the note
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 
+// docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
+test("a thread message sent again with the same send id records once: the resend answers with the first event's id, and an Implement resent stages and notes once", async () => {
+  await putWave(JSON.stringify({ items: [{ id: 'SID1', title: 'Resent' }] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const log = () => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === 'item-message' && e.data.key === 't/SID1');
+  const item = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'SID1');
+  const first = await post({ kind: 'item-message', key: 't/SID1', text: 'Use the blue', intent: 'build', sendId: 's-1' });
+  const again = await post({ kind: 'item-message', key: 't/SID1', text: 'Use the blue', intent: 'build', sendId: 's-1' });
+  assert.ok(first.id);
+  assert.equal(again.id, first.id);
+  assert.ok(again.board);
+  assert.deepEqual(log().map((e) => e.data), [{ key: 't/SID1', text: 'Use the blue', intent: 'build', sendId: 's-1' }]);
+  assert.equal(fs.readFileSync(path.join(site, 'data', item().plan), 'utf8').match(/Use the blue/g).length, 1);
+  const other = await post({ kind: 'item-message', key: 't/SID1', text: 'Use the blue', sendId: 's-2' });
+  assert.notEqual(other.id, first.id);
+  assert.equal(log().length, 2);
+});
+
 test("a hidden thread message leaves the item's thread", async () => {
   await putWave(JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'item-message', key: 't/A1', text: 'Fix it' });
-  const thread = async () => (await (await fetch(`${base}/api/thread?key=t%2FA1`)).json()).map((m) => [m.eventId, m.state, m.canDelete]);
-  assert.deepEqual(await thread(), [[id, 'waiting', true]]);
+  const thread = async () => (await (await fetch(`${base}/api/thread?key=t%2FA1`)).json()).map((m) => [m.eventId, m.state]);
+  assert.deepEqual(await thread(), [[id, 'waiting']]);
   await post('/api/hide', { id, hidden: true });
   assert.deepEqual(await thread(), []);
 });

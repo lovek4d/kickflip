@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), the board's status lines, its builders'
 // asks, the owner's messages and their replies. Needs ui.js, ui-links.js, ui-enums.js and ui-markdown.js.
 (function () {
-  const { esc, escText, time, etaLine, replyBody, attachments, dropZone, sendButton, editButton, withdrawButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark } = globalThis.BoardUI;
+  const { esc, escText, time, etaLine, replyBody, attachments, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // ui-markdown.js loads after this file, so markdown is looked up when a thread draws.
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
@@ -16,15 +16,29 @@
     try { ask = decodeURIComponent(key).startsWith('ask:'); } catch {}
     return `<a href="${esc(link)}">Open the ${ask ? 'task' : 'card'} →</a>`;
   }
-  // A message's state comes from domain.mjs threadOf.
+  // A message's state comes from domain.mjs threadOf, or, for one the page hasn't sent yet, from app-threads.js's outbox
+  // (sending or failed).
   const stateOf = (m) => m.state || (m.reply ? 'replied' : 'waiting');
-  // A message's footer: the tap it came from (m.status, such as "answers submitted"), then, to its right, Claude's
-  // pick-up while it waits (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
-  const PICK_UP = { working: thinkingLine, waiting: () => 'waiting…' };
-  const msgFooter = (m) => {
-    const parts = [m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, PICK_UP[stateOf(m)]?.()].filter(Boolean);
-    return parts.length ? `<div class="reply muted small">${parts.join('')}</div>` : '';
+  const icon = (body) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  const RETRY = icon('<path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/>');
+  const DISMISS = icon('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
+  // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
+  // An owner's message's footer: its time, then the tap it came from (m.status, such as "answers submitted"), then where
+  // it is: sending… until the board has it, waiting… until Claude picks it up, thinking… while Claude works on it
+  // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md). A send that failed reads not sent,
+  // with Retry and X (app-threads.js [data-resend], [data-unsend]).
+  const PICK_UP = {
+    sending: () => '<span>sending…</span>',
+    waiting: () => '<span>waiting…</span>',
+    working: thinkingLine,
+    failed: (m) => `<span class="not-sent">not sent</span><span class="send-again"><button type="button" class="ghost icon" data-resend="${esc(m.sendId)}" aria-label="Retry" title="Retry">${RETRY}</button><button type="button" class="ghost icon" data-unsend="${esc(m.sendId)}" aria-label="Dismiss" title="Dismiss, its text back in the box">${DISMISS}</button></span>`,
   };
+  const msgFooter = (m) => {
+    const parts = [`<span>${esc(time(m.ts))}</span>`, m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, PICK_UP[stateOf(m)]?.(m)].filter(Boolean);
+    return `<div class="reply muted small msg-foot">${parts.join('<span>·</span>')}</div>`;
+  };
+  // The owner's messages, the board's events and the outbox's, carry their time in this footer, not by their name.
+  const footed = (m) => Boolean(m.eventId || m.sendId);
   // Each reply becomes Claude's own message at the time it was written, quoting the owner's message
   // when other messages came between them. A reply with no time follows its message.
   const withReplies = (msgs) => {
@@ -34,17 +48,11 @@
     out.sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i || a.part - b.part);
     return out.map(({ m, of, quoted, later }, n) => (of ? { ...m, quote: later || out[n - 1]?.m === of && !(of.answers?.length > 1) ? '' : quoted || '' } : m));
   };
-  // A message being edited shows its edit box in place of its text, as does an ask in the New strip (ui-cards.js
-  // newEntry); app-asks.js handles the form, and attach.js the files it adds to the message, under composer id
-  // edit:<event id>.
-  const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
-        <div class="pending-files" data-files></div>
-        <div class="send-actions"><button type="button" data-edit-cancel>Cancel</button>${sendButton('Save', 0)}</div></form>`;
   // A request or board line's one tone, by the colour rule (red fault > orange staged > green readied > blue created >
   // gray); style.css colours its icon, words and link from this class alone.
   const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.command === 'readied' ? ' readied'
     : ['created', 'created-from'].includes(m.command) || m.line === 'ticket-made' ? ' created' : '');
-  const line = (m, links, edits) => (m.kind === 'reply'
+  const line = (m, links) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg status-line link">${statusMark('ask-link')}<a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
@@ -59,27 +67,26 @@
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? `<div class="msg status-line request move">${statusMark('move')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg status-line builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.folded ? foldedRun(m, links, edits)
+    : m.folded ? foldedRun(m, links)
     : m.kind === 'status' ? `<div class="msg status-line builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'calls' ? `<details class="msg status-line calls"><summary>${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length} · ${m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet'}</summary><ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}</details>`
-    : m.kind === 'agent' ? `<div class="msg status-line agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}">${mark('<span class="agent-dot"></span>')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : ''}>
-        ${m.canDelete || m.canEdit ? `<div class="ask-actions">${m.canEdit ? editButton(m.eventId) : ''}${m.canDelete ? withdrawButton(m.eventId) : ''}</div>` : ''}
-        <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''} · ${esc(time(m.ts))}</div>
-        <div class="body${drawsMarkdown(m) ? ' md' : ''}"${edits.has(m.eventId) ? ' hidden' : ''}>${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${edits.has(m.eventId) ? editForm(m.eventId, edits.get(m.eventId).text) : ''}${attachments(m.files)}
+    : m.kind === 'agent' ? `<div class="msg status-line agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}">${mark('<span class="agent-dot"></span>')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
+        <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''}${footed(m) ? '' : ` · ${esc(time(m.ts))}`}</div>
+        <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${attachments(m.files)}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
-        ${m.eventId ? msgFooter(m) : ''}
+        ${footed(m) ? msgFooter(m) : ''}
       </div>`);
 
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
   // closed details line at its first line's place: the action, then its status, finished when its newest line is a finished
   // line and running otherwise, and nothing after;
   // expanding it shows the run's lines and, when the run has a log, a View transcript link.
-  function foldedRun(m, links, edits) {
+  function foldedRun(m, links) {
     const tail = m.folded.at(-1).finished ? 'finished' : 'running';
     const log = m.folded.find((f) => f.log)?.log;
     const logLine = log ? `<div class="small fold-log"><a href="log.html?file=${encodeURIComponent(log)}">View transcript</a></div>` : '';
-    return `<details class="msg status-line calls status-fold${m.planner ? ' planner' : ''}"><summary${tail === 'finished' ? ' class="finished"' : ''}>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links, edits)).join('')}${logLine}</details>`;
+    return `<details class="msg status-line calls status-fold${m.planner ? ' planner' : ''}"><summary${tail === 'finished' ? ' class="finished"' : ''}>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links)).join('')}${logLine}</details>`;
   }
   function foldStatus(lines) {
     const runs = new Map();
@@ -99,40 +106,38 @@
   // Only Claude's and GitHub's messages and the board's fault lines are unread, as on the badge (domain.mjs othersAt,
   // ui-cards.js unreadCount); the orchestrator's answer to a builder's ask never is.
   const unread = (m, seenAt) => Boolean(seenAt) && (m.fault || (isMessage(m) && m.kind !== 'builder-answer' && (m.who === 'claude' || m.via === 'github'))) && String(m.ts) > seenAt;
-  // The window opens from the oldest unread message, at most UNREAD_CAP messages back; a message being edited always shows.
-  function threadWindow(lines, { seenAt = null, more = 0, upto = null, from = null }, edits) {
+  // The window opens from the oldest unread message, at most UNREAD_CAP messages back.
+  function threadWindow(lines, { seenAt = null, more = 0, upto = null, from = null }) {
     const counted = lines.flatMap((m, i) => (isMessage(m) && (!upto || String(m.ts) <= upto) ? [i] : []));
     const firstUnread = lines.findIndex((m) => unread(m, seenAt));
     const unreadSpan = firstUnread < 0 ? 0 : counted.filter((i) => i >= firstUnread).length;
     const want = Math.max(STEP, Math.min(UNREAD_CAP, unreadSpan)) + STEP * more;
-    const pinned = lines.findIndex((m) => m.eventId && edits.has(m.eventId));
     // Once drawn, the top edge is `from` and Show more taps move it back, so a deleted message leaves a gap.
     const edge = from ? lines.findIndex((m) => String(m.ts) >= from) : -1;
     const before = counted.filter((i) => i < edge);
     const back = STEP * more;
     const top = edge < 0 ? (counted.length > want ? counted[counted.length - want] : 0) : back && before.length >= back ? before[before.length - back] : back ? 0 : edge;
-    const start = Math.min(top, pinned < 0 ? Infinity : pinned);
-    const hidden = lines.filter((m, i) => i < start && isMessage(m)).length;
-    return { start: hidden ? start : 0, hidden };
+    const hidden = lines.filter((m, i) => i < top && isMessage(m)).length;
+    return { start: hidden ? top : 0, hidden };
   }
   // The ts of the oldest line the window draws, null when it hides none: the open card's `from`.
-  function threadFrom(msgs, view, edits) {
+  function threadFrom(msgs, view) {
     const lines = foldStatus(withReplies(msgs));
-    const { start } = threadWindow(lines, view, edits);
+    const { start } = threadWindow(lines, view);
     return start ? String(lines[start].ts) : null;
   }
   const moreButton = (hidden) => `<button type="button" class="thread-more" data-thread-more>Show more <span class="n">· ${hidden} previous message${hidden === 1 ? '' : 's'}</span></button>`;
 
-  // links: the thread's ui-links.js linkContext. edits: the open edit boxes by event id, {text}. view: {seenAt, more,
+  // links: the thread's ui-links.js linkContext. view: {seenAt, more,
   // upto}, the card's seen mark from before it opened, its Show more taps and its newest line's ts when it first drew,
   // draws the open card's window, so lines after `upto` add below without hiding older ones; null draws every line.
-  function threadMessages(msgs, links = {}, edits = new Map(), view = null) {
+  function threadMessages(msgs, links = {}, view = null) {
     if (!msgs.length) return '<div class="muted small">No messages here yet.</div>';
     const lines = foldStatus(withReplies(msgs));
-    const { start, hidden } = view ? threadWindow(lines, view, edits) : { start: 0, hidden: 0 };
+    const { start, hidden } = view ? threadWindow(lines, view) : { start: 0, hidden: 0 };
     const shown = lines.slice(start);
     if (start && shown[0].kind === 'reply' && !shown[0].quote) shown[0] = { ...shown[0], quote: lines[start - 1].text || '' };
-    return (hidden ? moreButton(hidden) : '') + shown.map((m) => line(m, links, edits)).join('');
+    return (hidden ? moreButton(hidden) : '') + shown.map((m) => line(m, links)).join('');
   }
 
   // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
@@ -155,5 +160,5 @@
     return [{ ts: fresh.at(-1), who: 'claude', kind: 'questions', text: `${fresh.length} new question${fresh.length === 1 ? '' : 's'}`, link: `questions.html#${encodeURIComponent(questions.first)}` }];
   }
 
-  Object.assign(globalThis.BoardUI, { editForm, threadMessages, threadFrom, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
+  Object.assign(globalThis.BoardUI, { threadMessages, threadFrom, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
 })();

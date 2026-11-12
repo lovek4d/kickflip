@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent
+---
+
 # A tap spins until the board shows its change
+
+Superseded in part by [a thread message shows at once, and the browser keeps it until it is sent](2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md): thread Reply and quick replies no longer wait; the message shows at once as sending…, and only Implement with text waits, on its own message.
 
 A button that waited on its request alone went back to idle when the request returned, then showed the change a board later: a flash of the plain button between. The Merge button had the cure ([a merge tap waits its turn to land](2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md)): `BoardUI.pending`, keyed `<card>:<action>`, drawn busy by the markup through any repaint, ended by `settle(board)` in `render`. Nudge, Serve/Build, Main's pull icon and Plan waves use it too, and the rest of the audit's gaps wait on the same 60 second rule.
 

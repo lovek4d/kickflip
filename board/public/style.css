@@ -444,9 +444,15 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 /* New questions' plain question mark is a size up from its siblings. */
 .mark-icon.big { width: 18px; height: 18px; }
 .msg.new-questions a { color: inherit; }
-/* A message's footer: the tap it came from, then Claude's pick-up to its right. */
+/* An owner's message's footer: its time, the tap it came from, then where it is (sending…, waiting…, thinking…, or a
+   failed send's red not sent with Retry and X at the right), each after a ·. */
 .msg .reply { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 2px; }
+.msg .reply.msg-foot { column-gap: 4px; }
 .msg-foot .foot-status { display: inline-flex; align-items: center; }
+.msg-foot .thinking { font-weight: 400; }
+.msg-foot .not-sent { color: var(--color-danger); font-weight: 600; }
+.msg-foot .send-again { margin-left: auto; display: inline-flex; gap: 2px; }
+.msg-foot .send-again .icon { width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; color: var(--color-danger); }
 /* The thread's eye and fire are toggles: pressed reads as chosen, and the hint under the box says what Send posts. */
 button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chip); }
 /* INT-30: card line order */

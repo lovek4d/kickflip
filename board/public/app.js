@@ -122,8 +122,8 @@ window.BoardView = (function () {
     const { B, start: begin, stop } = base(root, siteRoot);
     const { store } = B;
     // board is the last /api/board; githubPending the time of a refresh's unanswered check-github request; fresh the
-    // header's time, ui-header.js nextFresh's {at, sig}; edits each open edit box by its message's event id,
-    // {thread, data, text}, data being what ask-edited sends besides the text.
+    // header's time, ui-header.js nextFresh's {at, sig}; edits each New strip ask's open edit box by its ask's
+    // event id, {key, data, text}, key its card's and data what ask-edited sends besides the text.
     const state = {
       board: null,
       fresh: null,
@@ -385,6 +385,7 @@ window.BoardView = (function () {
       if (!hashRead || (first && focusKey)) { readHash(); hashRead = true; }
       B.linkUp();
       try { render(load); } catch (e) { drawFailed(e); return true; }
+      if (first) B.resendOutbox();
       scrollToFocus();
       returnToPlace();
       B.site.syncBadge();
