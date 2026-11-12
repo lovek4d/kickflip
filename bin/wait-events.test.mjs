@@ -55,7 +55,7 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   add('builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Stay orange?' });
   const out = await first.done;
   assert.deepEqual([out.code, out.stderr], [0, '']);
-  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread: reply in its thread$/m);
+  assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread: reply in its thread; ask open points with question add, not in prose$/m);
   // docs/adr/2026-11-07-0700-staging-then-ready.md
   assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping$/m);
   // A builder's ask wakes the session while usage is paused: the builder is mid-build.
@@ -302,6 +302,6 @@ test('a wake prints a message the PostToolUse hook already showed again, its pla
   write(path.join(dir, 'data', '.shown-s1.json'), { ids: ['m1'] });
   const { code, stdout } = await watch().done;
   assert.equal(code, 0);
-  assert.match(stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nalready shown: message received from A1's thread: reply in its thread$/m);
+  assert.match(stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nalready shown: message received from A1's thread: reply in its thread; ask open points with question add, not in prose$/m);
   assert.match(stdout, /^event data\/events.jsonl .*"kind":"ask".*\nnew task ask received/m);
 });

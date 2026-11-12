@@ -1071,7 +1071,7 @@ function itemChanges(f) {
  * name: (site, args, flags, result) → line
  */
 const SAID = {
-  reply: async (site, [id]) => (id.includes('/') ? `answered ${await card(site, id)}: it reads discussing, the owner's turn` : `reply written to ${await store.eventCard(site, id)}`),
+  reply: async (site, [id]) => (id.includes('/') ? `answered ${await card(site, id)}: it reads discussing, the owner's turn; ask any open point with question add, not in prose` : `reply written to ${await store.eventCard(site, id)}`),
   thread: async (site, [key]) => `thread line on ${await card(site, key)}`,
   'topic add': (site, [id]) => `topic ${id} added`,
   'question add': async (site, _, f, { asked, staged }) => {

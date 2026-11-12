@@ -1353,7 +1353,7 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   try {
     const lines = await watch('rules1');
     assert.match(lines[0], /^event data\/events\.jsonl /);
-    assert.match(lines[1], /^message received from A1's thread: reply in its thread$/);
+    assert.match(lines[1], /^message received from A1's thread: reply in its thread; ask open points with question add, not in prose$/);
     const asked = JSON.parse(lines[0].replace(/^event data\/events\.jsonl /, '')).id;
     assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events[asked]));
     // The watcher marks it working from outside the server, which sees the mark once its file watcher does.
