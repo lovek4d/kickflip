@@ -349,9 +349,8 @@
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting…</span>';
   const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? thinkingLine() : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
   function workLines(it, { unread = 0 } = {}) {
-    const ticket = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
-    // A card shows its ticket, or Task when it has none; the card an ask became shows New there until it is sorted.
-    const ids = it.isNew ? badge('notice', 'New') : ticket;
+    const ids = it.ticket ? ticketChip(it) : it.internal ? badge('quiet', esc(it.ref), { title: 'Work on this site, not a product PR' }) : it.linear?.length ? linearChips(it) : taskChip(it);
+    // A card shows its ticket, or Task when it has none; the card an ask became shows its ticket from the moment it lands.
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
       // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype
