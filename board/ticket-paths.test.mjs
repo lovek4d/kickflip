@@ -357,7 +357,7 @@ test('a card going ready with no ticket gets one, with the board-made line; one 
   assert.deepEqual([card.id, card.phase, card.ticket_created], ['T-1', 'ready', true]);
   assert.match(world.issues[card.ticket].input.description, /Lands code in package\.json/);
   const thread = fs.readFileSync(path.join(made.site, 'data', 'threads', 'made__T-1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.ok(thread.some((l) => l.text === `The board made ${card.ticket}.`));
+  assert.ok(thread.some((l) => l.text === `Created ticket ${card.ticket}`));
   const had = await ready('had', LINEAR, { ticket: 'ENG-9' });
   assert.equal(await cli('had', 'item', 'set', 'had/T-1', '--phase', 'ready', '--text', 'checked'), 0);
   assert.equal(had.item('T-1').ticket, 'ENG-9');
