@@ -950,6 +950,9 @@ function sectionOf(agentList, a) {
   if (a.label !== LANDER) return a.started;
   return agentList.filter((x) => builds(x) && x.label !== LANDER && x.started && String(x.started) < String(a.started)).pop()?.started ?? a.started;
 }
+// On a tie in threadOf a message sorts above the status line it causes (the sort is stable, so an agent start still sorts above
+// the status line `builder start` writes).
+const isStatusLine = (m) => Boolean(m.request) || [MOVE, HUB, 'status', 'ask-link'].includes(m.kind);
 export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
@@ -988,7 +991,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', ...commandLine('implement'), text: COMMANDS.implement }] : []),
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#selectedCard=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
-  ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
   const lastClaude = claudeAtOf(msgs);
   const { edits, editFiles } = index;
   for (const m of msgs) {

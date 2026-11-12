@@ -2892,3 +2892,11 @@ test("a card's builder line is its still-running runs' newest line: a finished h
   const card = board({ now: Date.parse('2026-10-23T10:30:00Z'), agents: { A1: { main, lint: helper } }, threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1');
   assert.equal(card.builder.progress, 'Building: the page');
 });
+
+test('on a tie a message sorts above the status line it causes', () => {
+  const ts = '2026-11-12T19:35:05.149Z';
+  const msg = { id: 'e1', ts, kind: 'item-message', data: { key: 'w/A1', text: 'Go build it', intent: 'build' } };
+  const lines = [{ ts, who: 'claude', command: 'staged', text: 'Marked as staging' }, { ts, who: 'claude', kind: 'move', text: 'Moved to In Progress' }];
+  const thread = threadOf('w/A1', { lines, events: [msg] });
+  assert.deepEqual(thread.map((m) => m.text), ['Go build it', 'Marked as staging', 'Moved to In Progress']);
+});
