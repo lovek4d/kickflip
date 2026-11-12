@@ -285,6 +285,9 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
     border-radius: 15px 15px 0 0; padding-bottom: calc(max(12px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))) + var(--kb, 0px)); }
   .sheet.keyboard-sheet.kb form { padding-bottom: calc(10px + var(--kb, 0px)); }
   #askText { font-size: 16px; }
+  /* The thread box is as tall as the New task box: 4 rows, its 8px top padding and the 40px under the text for the
+     attach row (the borders sit inside the box). It grows past that as it does elsewhere. */
+  form[data-reply] .dz.bare > textarea { font-size: 16px; min-height: calc(4lh + 48px); }
 }
 @keyframes sheet-in { from { transform: translateY(100%); } }
 @keyframes sheet-out { to { transform: translateY(100%); } }
