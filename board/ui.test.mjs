@@ -2730,9 +2730,26 @@ test('a Created ticket, a Created from and a ticket-made line are blue; a Relate
   const html = ui.threadMessages([link('created', 'Created ticket'), link('created-from', 'Created from'), link('related', 'Related to')]);
   assert.equal(html.match(/msg status-line request created/g).length, 2);
   assert.equal(html.match(/<div class="msg status-line request">/g).length, 1);
-  const made = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'move', text: 'Created ticket #5', fault: false }]);
+  const made = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', text: 'Created ticket #5', fault: false }]);
   assert.match(made, /class="msg status-line request hub created"/);
   assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.msg\.request\.created \{ color: var\(--accent\); \}/);
+});
+
+// docs/adr/2026-11-12-2000-a-status-line-has-one-tone-for-its-icon-words-and-link.md
+test('a status line draws icon, words and link in one tone; Created gets its own plus icon', () => {
+  assert.equal(ui.MARK_ICONS['Created ticket'], ui.MARK_ICONS['Created from']);
+  assert.notEqual(ui.MARK_ICONS['Created ticket'], ui.MARK_ICONS['Related to']);
+  assert.match(ui.MARK_ICONS['Created ticket'], /<rect x="3" y="3" width="18" height="18" rx="2"\/>/);
+  const card = (command, mark) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark, text: `${mark} #12: Tidy`, link: '#selectedCard=w%2FA2', card: 'w/A2' });
+  const tone = (html) => html.match(/class="msg status-line ([^"]*)"/)[1];
+  assert.equal(tone(ui.threadMessages([card('created', 'Created ticket')])), 'request created');
+  assert.equal(tone(ui.threadMessages([card('related', 'Related to')])), 'request');
+  const hub = (extra) => ({ ts: ago(1), who: 'claude', kind: 'hub', text: 'x', mark: 'Fault', ...extra });
+  assert.equal(tone(ui.threadMessages([hub({ fault: true, link: '#a' })])), 'request hub fault');
+  assert.equal(tone(ui.threadMessages([hub({ line: 'ticket-made', mark: 'Created ticket' })])), 'request hub created');
+  assert.ok(ui.threadMessages([hub({ line: 'ticket-made', mark: 'Created ticket' })]).includes(ui.MARK_ICONS['Created ticket']));
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.status-line a \{ color: inherit; \}/);
 });
 
 // docs/adr/2026-11-07-0600-every-thread-status-line-carries-an-icon.md

@@ -40,20 +40,22 @@
   const editForm = (id, text) => `<form class="edit-form" data-edit-form="${esc(id)}" data-composer="edit:${esc(id)}">${dropZone(`<textarea rows="3">${esc(text)}</textarea>`)}
         <div class="pending-files" data-files></div>
         <div class="send-actions"><button type="button" data-edit-cancel>Cancel</button>${sendButton('Save', 0)}</div></form>`;
-  // Every Created line is blue; the other link lines are gray.
-  const CREATED = ['created', 'created-from'];
+  // A request or board line's one tone, by the colour rule (red fault > orange staged > green readied > blue created >
+  // gray); style.css colours its icon, words and link from this class alone.
+  const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.command === 'readied' ? ' readied'
+    : ['created', 'created-from'].includes(m.command) || m.line === 'ticket-made' ? ' created' : '');
   const line = (m, links, edits) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div></div>`
     : m.kind === 'ask-link' ? `<div class="msg status-line link">${statusMark('ask-link')}<a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
     : m.kind === 'visual' ? `<div class="msg status-line link visual">${statusMark('visual')}<a href="${esc(m.link)}">${escText(m.text)} →</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
-    : m.request && m.card ? `<div class="msg status-line request${CREATED.includes(m.command) ? ' created' : ''}">${statusMark(m.mark)}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.request ? `<div class="msg status-line request${m.command === 'readied' ? ' readied' : m.command === 'staged' ? ' staged' : ''}">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
+    : m.request && m.card ? `<div class="msg status-line request${tone(m)}">${statusMark(m.mark)}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.request ? `<div class="msg status-line request${tone(m)}">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
     // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
     // own line, its kind's mark and words, red for a fault.
-    : m.kind === 'hub' && m.detail ? `<details class="msg status-line request hub fault-detail${m.fault ? ' fault' : ''}"><summary>${statusMark(m.mark)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></summary><pre class="fault-error">${esc(m.detail)}</pre></details>`
-    : m.kind === 'hub' ? `<div class="msg status-line request hub${m.fault ? ' fault' : m.line === 'ticket-made' ? ' created' : ''}">${statusMark(m.mark)}${m.link ? `<a href="${esc(m.link)}">${escText(m.text)}</a>` : escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'hub' && m.detail ? `<details class="msg status-line request hub fault-detail${tone(m)}"><summary>${statusMark(m.mark)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></summary><pre class="fault-error">${esc(m.detail)}</pre></details>`
+    : m.kind === 'hub' ? `<div class="msg status-line request hub${tone(m)}">${statusMark(m.mark)}${m.link ? `<a href="${esc(m.link)}">${escText(m.text)}</a>` : escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? `<div class="msg status-line request move">${statusMark('move')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
     : m.kind === 'questions' ? `<div class="msg status-line builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`

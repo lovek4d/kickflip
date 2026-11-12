@@ -385,6 +385,7 @@ button.attach:disabled { opacity: .35; }
 div.status-line { padding-left: 33px; text-indent: -23px; }
 .status-line > summary { padding-left: 23px; text-indent: -23px; }
 .status-line > ol { text-indent: 0; }
+.status-line a { color: inherit; }
 .msg.builder-status { color: var(--color-notice); }
 .msg.builder-status .working-dot { animation: none; }
 .msg.request { color: var(--muted); }
