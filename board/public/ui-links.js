@@ -69,11 +69,11 @@
     return anyLink(url, url) + esc(raw.slice(url.length));
   }
 
-  // The card row's lane ring (style.css .status), at the link's text size, ahead of the id.
+  // The card row's lane ring (style.css .status), at the link's text size, after the id.
   const laneRing = (lane) => (lane ? `<span class="status link-lane ${esc(lane)}"></span>` : '');
   const cardLink = (ref, ctx) => {
     const key = record(ctx.refs, ref);
-    return `<a href="${esc(`${ctx.base || ''}#selectedCard=${encodeURIComponent(key)}`)}">${laneRing(record(ctx.lanes || {}, key))}${esc(ref)}</a>`;
+    return `<a href="${esc(`${ctx.base || ''}#selectedCard=${encodeURIComponent(key)}`)}">${esc(ref)}${laneRing(record(ctx.lanes || {}, key))}</a>`;
   };
 
   // The longest hyphen-prefix of a word that is a known ref or a Linear id, then the rest as text.

@@ -241,7 +241,7 @@ BoardView.part((B) => {
     </div>`;
   }
 
-  const cardLink = (l) => `<a class="card-link" href="#selectedCard=${encodeURIComponent(l.key)}">${BoardUI.laneRing(state.board.items.find((i) => i.key === l.key)?.lane)}${esc(l.ref)}</a>`;
+  const cardLink = (l) => `<a class="card-link" href="#selectedCard=${encodeURIComponent(l.key)}">${esc(l.ref)}${BoardUI.laneRing(state.board.items.find((i) => i.key === l.key)?.lane)}</a>`;
   // A card whose branch is pushed to a plain git remote has no PR to link, so its line copies the branch name
   // (docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md).
   const pushedLink = (it) => `<a href="#" data-copy-branch="${esc(it.pushed.branch)}" title="Copy the branch name">${esc(pushedWords(it))}</a>`;

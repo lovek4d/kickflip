@@ -2827,12 +2827,12 @@ test('the header time stays plain while usage is paused, and the hub pause banne
   assert.match(context.HubUI.pauseBanner(pause), /action="\/_hub\/settings\/keep-going"><button class="btn quiet" name="value" value="on">Keep going/);
 });
 
-test("a link to a card on the board starts with that card's lane ring; an id with no card stays plain", () => {
+test("a link to a card on the board ends with that card's lane ring; an id with no card stays plain", () => {
   const items = [{ key: 'w/A1', file: 'w', id: 'A1', ref: '#186', lane: 'review' }, { key: 'w/A2', file: 'w', id: 'A2', ref: 'INT-5', lane: 'progress', internal: true, linear: [] }];
   const html = ui.linkText('#186 and INT-5 and #999 and ENG-1', ui.linkContext(items, 'w/A1'));
-  assert.match(html, /<a href="#selectedCard=w%2FA1"><span class="status link-lane review"><\/span>#186<\/a>/);
-  assert.match(html, /<a href="#selectedCard=w%2FA2"><span class="status link-lane progress"><\/span>INT-5<\/a>/);
-  assert.doesNotMatch(html, /link-lane[^>]*><\/span>(#999|ENG-1)/);
+  assert.match(html, /<a href="#selectedCard=w%2FA1">#186<span class="status link-lane review"><\/span><\/a>/);
+  assert.match(html, /<a href="#selectedCard=w%2FA2">INT-5<span class="status link-lane progress"><\/span><\/a>/);
+  assert.doesNotMatch(html, /(#999|ENG-1)<span class="status link-lane/);
 });
 
 // docs/adr/2026-11-12-1000-the-logo-dot-carries-the-hub-state.md
