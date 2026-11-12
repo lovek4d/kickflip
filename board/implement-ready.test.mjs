@@ -85,3 +85,23 @@ test('thread --close is refused for a message that is not the orchestrator\'s', 
   assert.notEqual(r.code, 0);
   assert.match(r.err, /--close/);
 });
+
+// docs/adr/2026-11-12-1200-a-finished-ask-waits-in-in-review-for-the-owners-done.md
+test('a finished ask card (stored In Review, close mark, no build) reads Action needed in In Review with no phase and no builder', () => {
+  const c = card(built({ lane: 'review', phase: undefined, waits_on_owner: { on: 'close', at: '2026-11-09T11:00:00Z' } }));
+  assert.deepEqual([c.lane, c.waitsOn, c.phase, c.builder, c.resolvedBy, c.next], ['review', 'owner', null, null, 'done', 'Tap Done']);
+  assert.equal(c.action.kind, 'close');
+});
+
+test('item set --done on an ask card no build ran on moves it to In Review with the close mark and its text as the thread line; the owner\'s Done closes it', async () => {
+  fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  const r = board('item', 'set', 'audit/T-1', '--done', '--text', 'Answered: yes.', '--site', 'audit');
+  assert.deepEqual([r.code, r.err], [0, '']);
+  assert.deepEqual([t1().lane, t1().waits_on_owner.on, t1().closed_at], ['review', 'close', undefined]);
+  const thread = fs.readFileSync(audit('data', 'threads', 'audit__T-1.jsonl'), 'utf8');
+  assert.match(thread, /Answered: yes\./);
+  await s.recordOwnerTap(audit(), 'card-done', { key: 'audit/T-1' });
+  assert.deepEqual([t1().lane, t1().waits_on_owner], ['done', undefined]);
+});

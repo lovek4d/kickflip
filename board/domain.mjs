@@ -481,6 +481,12 @@ function placeOwnerWait(it, questionById, autoMerge) {
   it.resolvedBy = RESOLVED_BY[it.action?.kind] || null;
   if (it.action?.kind === ACTION_KIND.merge && !it.mergeReady) it.next = (it.pr?.reviewDecision === 'APPROVED' ? OWNER_MERGE_NEXT : UNREVIEWED_MERGE_NEXT).ready;
   if (it.awaitsDone) Object.assign(it, { lane: 'review', next: it.ownerStep || TAP_DONE, bumpable: false, bumpedAt: null });
+  // docs/adr/2026-11-12-1200-a-finished-ask-waits-in-in-review-for-the-owners-done.md: a card stored In Review with no
+  // build and the close mark is a finished ask: it waits there on the owner's Done, with no phase.
+  if (it.action?.kind === ACTION_KIND.close && it.lane === 'todo' && it.storedLane === 'review' && !it.held) {
+    Object.assign(it, { lane: 'review', waitsOn: 'owner', next: it.action.label });
+    return;
+  }
   const ownerOnly = it.lane === 'todo' || it.waitsOn === 'ready' || (it.lane === 'progress' && it.waitsOn === 'owner');
   // A stalled card stays in the lane it stalled in.
   if (!it.action || !ownerOnly || it.stalled) return;
