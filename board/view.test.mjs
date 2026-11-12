@@ -5554,12 +5554,13 @@ test("Board Settings' Permissions switches sit below Auto, wait for the server w
 });
 
 // docs/adr/2026-11-04-2345-a-builders-log-and-notes-open-in-a-sheet.md
-function readerOnDom(logText) {
+function readerOnDom(logText, { width = 390, topics = null } = {}) {
   const launch = { ts: '2026-10-30T09:00:00.000Z', who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Sonnet implementer', text: 'Claude Sonnet implementer started', finished: false, log: 'builder-A1-1.log' };
-  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1', { lane: 'progress', hasNotes: true })]), threads: { 'w/A1': [launch] } });
+  const card = workCard('A1', { lane: 'progress', hasNotes: true });
+  const b = boardOnDom({ open: ['w/A1'], width, board: topics ? { ...questionsBoard(topics, []), items: [card] } : boardOf([card]), threads: { 'w/A1': [launch] } });
   const log = { text: logText };
   const moves = [];
-  b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, back() { moves.push(['back']); } };
+  b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, replaceState() {}, back() { moves.push(['back']); } };
   const boardFetch = b.page.win.fetch;
   b.page.win.fetch = async (url, opts) => {
     const u = new URL(url, 'https://mac.ts.net/');
@@ -6096,6 +6097,28 @@ test("on a desktop, focusQuestion opens a question's or topic's topic in the pan
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
   assert.equal(narrow.view.B.focusQuestion('q2'), false, 'a phone has no pane');
+});
+
+// docs/adr/2026-11-12-2359-a-topic-in-the-questions-pane-closes-the-overlays-over-it.md
+test('a topic picked in the questions pane, by a pill or a questions URL, closes the reader sheet and the prototype viewer over the pane', async () => {
+  const r = readerOnDom('plain log text', { width: 1280, topics: [openQuestion('q1', 'item:w/T1'), openQuestion('q2', 'item:w/P1')] });
+  await r.settle();
+  const link = r.root.querySelector('a[href="log.html?file=builder-A1-1.log"]');
+  const pill = (id) => r.root.querySelector(`#boardPane button[data-topic="${id}"]`);
+  const pick = async (id) => { r.page.fire(r.root.querySelector('#boardPane .pane-questions'), 'click', { target: pill(id) }); await r.settle(); };
+  r.tap(link);
+  await r.settle();
+  assert.equal(r.sheet().open, true);
+  await pick('item:w/P1');
+  assert.equal(r.sheet().open, false, 'a pill tap closes the reader');
+  r.tap(link);
+  await r.settle();
+  r.view.B.focusQuestion('q1');
+  assert.equal(r.sheet().open, false, 'a questions URL closes the reader');
+  r.view.B.openViewer('prototype-x2.html?q=q2');
+  await pick('item:w/P1');
+  assert.equal(r.root.querySelector('#boardPane .pane-viewer'), null, 'a pill tap closes the prototype viewer');
+  r.view.unmount();
 });
 
 // docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md

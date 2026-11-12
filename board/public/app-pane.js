@@ -22,19 +22,25 @@ BoardView.part((B) => {
     if (id.startsWith('item:')) B.focusOnBoard({ key: id.slice(5) });
     else if (id.startsWith('wave:') || id.startsWith('file:')) B.focusOnBoard({ slug: id.slice(5) });
   }
+  // What can cover the pane: each closes itself. A new overlay over the pane (the thread's questions modal) joins this list.
+  const paneOverlays = [() => B.closeReader?.(), () => closeViewer()];
+  // The pane shows its topic: a pill tap or a questions URL (focusQuestion) both land here.
+  function showTopic(id) {
+    for (const close of paneOverlays) close();
+    B.saveFragment({ openItemsCard: id });
+  }
   function fitPane() {
     if (wide.matches === Boolean(questions)) return;
     if (questions) { closeViewer(); questions.unmount(); questions.slot.remove(); questions = null; return; }
     $('#boardPane').insertAdjacentHTML('beforeend', `<div class="view-questions pane-questions">${AppViews.questions.markup({ embedded: true })}</div>`);
     const slot = $('#boardPane .pane-questions');
-    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, openOnBoard, onTopic: (id) => B.saveFragment({ openItemsCard: id }) }), { slot });
+    questions = Object.assign(AppViews.questions.create(slot, B.site.root, { embedded: true, openOnBoard, onTopic: showTopic }), { slot });
     questions.mount();
   }
   // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question
   // or topic id, or null for none. The pane opens its topic, resolved or not, and focuses its pill → false while there
   // is no pane or it hasn't loaded, so the shell asks again.
   function focusQuestion(id) {
-    closeViewer();
     const topic = (state.board?.ownerTopics || []).find((t) => t.id === id || t.questions.includes(id));
     if (!questions?.B.openTopic(topic?.id ?? id)) return false;
     const pill = questions.slot.querySelector('.topics button[aria-pressed="true"]');

@@ -143,6 +143,8 @@ BoardView.part((B) => {
     if (pushed) { pushed = false; history.back(); }
   }
 
+  B.closeReader = close;
+
   const plainTap = (ev) => !ev.defaultPrevented && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey;
   B.on(B.root, 'click', (ev) => {
     if (!plainTap(ev)) return;
