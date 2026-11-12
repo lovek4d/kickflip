@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
 import { withFileLock } from '../hub/locks.mjs';
@@ -256,4 +257,21 @@ export async function putWave(file, text) {
     fs.writeFileSync(`${file}.test.tmp`, text);
     fs.renameSync(`${file}.test.tmp`, file);
   });
+}
+
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+export const chromeInstalled = fs.existsSync(CHROME);
+
+// Loads a page file at `width`px in headless Chrome and returns the JSON its inline script wrote into <pre id="probe"> as it
+// parsed (no timer, so every dump holds it). Chrome under load can crash before it dumps, or exit non-zero after it has: its
+// output is read on any exit, and a run that returned no probe is run once more. Assertions on the probe are never retried.
+export async function dumpProbe(file, width) {
+  let posted;
+  for (let attempt = 0; attempt < 2 && !posted; attempt++) {
+    const { stdout } = await promisify(execFile)(CHROME, ['--headless=new', '--disable-gpu', '--allow-file-access-from-files', `--window-size=${width},900`,
+      '--dump-dom', `file://${file}`], { encoding: 'utf8', timeout: 60000 }).catch((e) => ({ stdout: e.stdout || '' }));
+    posted = /<pre id="probe">(.*?)<\/pre>/s.exec(stdout)?.[1];
+  }
+  assert.ok(posted, 'the page reported its layout');
+  return JSON.parse(posted.replace(/&quot;/g, '"'));
 }
