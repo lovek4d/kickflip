@@ -69,12 +69,13 @@
   }
   const pendingQuestions = (it) => (it.questions && it.questions.state !== 'resolved' ? it.questions.open + it.questions.answered + it.questions.replied : 0);
   // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md
-  // Action needed, last of the time line's orange words, linking to what the owner acts on
+  // Open items on a card asking questions, else Action needed: last of the time line's orange words, linking to what the owner acts on
   // (docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md).
   function actionWords(it) {
     if (!it.action) return '';
     const external = it.action.kind === ACTION_KIND.ready ? Object.entries(EXTERNAL).map(([k, v]) => ` ${k}="${esc(v)}"`).join('') : '';
-    return `<a class="card-action" href="${esc(it.action.url)}" title="${esc(it.action.label)}" aria-label="${esc(`Action needed: ${it.action.label}`)}"${external}>Action needed</a>`;
+    const word = it.action.kind === ACTION_KIND.pick || it.action.kind === ACTION_KIND.questions ? 'Open items' : 'Action needed';
+    return `<a class="card-action" href="${esc(it.action.url)}" title="${esc(it.action.label)}" aria-label="${esc(`${word}: ${it.action.label}`)}"${external}>${word}</a>`;
   }
   // Each unfinished dep, linking to its card: "blocked by #53, #54", or "waits on #53" on a bumped card not held, which
   // the pull takes once nothing blocks it (docs/adr/2026-11-05-0802-todo-has-no-queue.md); then its condition, "blocked

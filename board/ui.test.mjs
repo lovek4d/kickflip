@@ -734,9 +734,17 @@ test("from 900px, back from a prototype goes to the board, since Waiting on you 
 test('Action needed shows only while the card waits on the owner, as orange words that link to what they act on', () => {
   assert.equal(ui.actionWords({ questions: { open: 2, first: 'q1' }, action: null }), '');
   const pick = ui.actionWords({ action: { kind: 'pick', url: 'https://mac.ts.net/r/prototype-x.html?q=q1', label: 'Prototypes ready: pick a take' } });
-  assert.match(pick, /^<a class="card-action" href="https:\/\/mac\.ts\.net\/r\/prototype-x\.html\?q=q1"[^>]*>Action needed<\/a>$/);
+  assert.match(pick, /^<a class="card-action" href="https:\/\/mac\.ts\.net\/r\/prototype-x\.html\?q=q1"[^>]*>Open items<\/a>$/);
   assert.doesNotMatch(pick, /target=|chip/);
   assert.match(ui.actionWords({ action: { kind: 'ready', url: 'https://github.com/o/r/pull/7', label: 'Tap Ready on GitHub' } }), /href="https:\/\/github\.com\/o\/r\/pull\/7"[^>]*target="_blank"/);
+});
+
+test('a card waiting on your answers reads Open items, and every other kind reads Action needed', () => {
+  const word = (kind) => ui.actionWords({ action: { kind, url: '#u', label: 'L' } }).replace(/<[^>]*>/g, '');
+  for (const kind of ['pick', 'questions']) assert.equal(word(kind), 'Open items');
+  for (const kind of ['implement', 'close', 'merge', 'ready', 'steps', 'stalled']) assert.equal(word(kind), 'Action needed');
+  assert.match(ui.actionWords({ action: { kind: 'questions', url: '#u', label: 'L' } }), /aria-label="Open items: L"/);
+  assert.match(ui.actionWords({ action: { kind: 'merge', url: '#u', label: 'L' } }), /aria-label="Action needed: L"/);
 });
 
 test('a thread message shows its text as written, never as markup', () => {
@@ -1636,9 +1644,9 @@ test('a work card reads its title, then its next step or builder, its chips, and
   const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, prs: [], linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', 'Action needed']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', 'Open items']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } }, { unread: 3 })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', 'Action needed · 3 new messages']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', 'Open items · 3 new messages']);
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
   assert.match(ui.workLines(blocked), /<div class="line6 sub card-time"><a class="card-blocked" href="#selectedCard=site%2FS2">blocked by INT-2<\/a><\/div>/);
@@ -1654,12 +1662,12 @@ test('a work card reads its title, then its next step or builder, its chips, and
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: a bumped blocked card waits for the pull; held, it is blocked as before (below).
   assert.match(ui.workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#selectedCard=site%2FS2">waits on INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
-    ['INT-3 Five', 'Next: Answer 1 question', 'Action needed']);
+    ['INT-3 Five', 'Next: Answer 1 question', 'Open items']);
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.
   const sortAt = ago(2);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), held: true, sortAt,
     action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', `${ui.cardTime(sortAt)} · held · blocked by INT-2`, 'Action needed · 1 new message']);
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', `${ui.cardTime(sortAt)} · held · blocked by INT-2`, 'Open items · 1 new message']);
   assert.match(ui.workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
   assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
