@@ -801,7 +801,7 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
   } finally { await writeManifestFile(original); fs.rmSync(path.join(reposDir(), 'int180-http-test'), { recursive: true, force: true }); }
 });
 
-test("a board session's permission prompt pushes, waits in that board's Needs you and the badge, and Always allow reaches its hook as a rule for the session", async () => {
+test("a board session's permission prompt pushes to the hub page, counts in that board's needs and the badge, and Always allow reaches its hook as a rule for the session", async () => {
   const input = { session_id: 's-orch', cwd: home, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test', description: 'Run tests' } };
   const hook = new Promise((resolve) => {
     const child = spawn(process.execPath, [path.join(HUB_DIR, 'permission-hook.mjs')], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
@@ -822,7 +822,7 @@ test("a board session's permission prompt pushes, waits in that board's Needs yo
   assert.equal(waiting.total, waiting.sites.orch.count + waiting.sites.shop.count);
   assert.ok(waiting.sites.orch.count >= 1);
   await until(() => pushes().some((x) => x.tag === `prompt-${prompt.id}`), 'the permission prompt push arrives');
-  assert.deepEqual(pushes().find((x) => x.tag === `prompt-${prompt.id}`), { title: 'Orch wants to run npm test', url: '/orch/', tag: `prompt-${prompt.id}` });
+  assert.deepEqual(pushes().find((x) => x.tag === `prompt-${prompt.id}`), { title: 'Orch wants to run npm test', url: '/_hub/', tag: `prompt-${prompt.id}` });
 
   const r = await fetch(`${base}/_hub/prompts/${prompt.id}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ choice: 'always' }) });
   assert.equal(r.status, 200);
