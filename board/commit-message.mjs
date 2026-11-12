@@ -1,10 +1,10 @@
 // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
-// The commit message standard: a Conventional subject of at most 72 characters with no card ref in it, and the card's
+// The commit message standard: a Conventional subject of at most 100 characters with no card ref in it, and the card's
 // ref in a `Refs: <ref>` trailer. Land writes its squash commit to it and checks the subject, finish checks a PR title
 // by it, and the briefs and the release script write to it.
 
 export const TYPES = ['feat', 'fix', 'refactor', 'docs', 'test', 'chore', 'perf', 'build', 'ci', 'style', 'revert'];
-export const SUBJECT_MAX = 72;
+export const SUBJECT_MAX = 100;
 const SHAPE = new RegExp(`^(${TYPES.join('|')})(\\([a-z][a-z0-9-]*\\))?!?: \\S`);
 
 // The standard as one sentence, for a brief or a refusal; ref is the card's, else a placeholder.

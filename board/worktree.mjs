@@ -509,7 +509,7 @@ export async function prepareLand({ path: dir, branch, repo, base, ref, title },
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
   if (Number(git(repo, 'rev-list', '--count', `${base}..${branch}`).out) === 0) fail(`${branch} has no commits beyond ${base}; nothing to land`);
   const fault = title !== undefined && subjectFault(title);
-  if (fault) fail(`--title "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 72 characters`);
+  if (fault) fail(`--title "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 100 characters`);
   refuseNumberedAdr(repo, base, branch);
   squash(dir, repo, base, branch, { ref, title });
 

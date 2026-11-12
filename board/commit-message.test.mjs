@@ -6,7 +6,7 @@ test('the brief tells a builder to put Refs on the line directly above Co-Author
   assert.match(standardWords('#7'), /"Refs: #7" on the line directly above Co-Authored-By, no blank line between$/);
 });
 
-test('a subject is Conventional: one of the Angular types, an optional lowercase scope, an optional "!", a summary, 72 characters at most', () => {
+test('a subject is Conventional: one of the Angular types, an optional lowercase scope, an optional "!", a summary, 100 characters at most', () => {
   for (const type of TYPES) assert.equal(subjectFault(`${type}: something`), null, type);
   for (const ok of ['feat(board): land checks the subject', 'fix!: drop the old flag', 'refactor(hub-sync)!: one poll', `feat: ${'x'.repeat(66)}`]) {
     assert.equal(subjectFault(ok), null, ok);
@@ -15,7 +15,7 @@ test('a subject is Conventional: one of the Angular types, an optional lowercase
   for (const bad of ['#517: land checks the subject', 'feature: x', 'Feat: x', 'feat(Board): x', 'feat(): x', 'feat:x', 'feat: ', 'feat(#517): x', 'Version 0.8.0']) {
     assert.match(subjectFault(bad), shape, bad);
   }
-  assert.equal(subjectFault(`feat: ${'x'.repeat(67)}`), 'is 73 characters, over 72');
+  assert.equal(subjectFault(`feat: ${'x'.repeat(95)}`), 'is 101 characters, over 100');
 });
 
 test('a release message is "chore(release): X.Y.Z" with the subjects landed since the last tag as a list, oldest first', () => {
@@ -31,14 +31,14 @@ test("a squash body is the PR's body, then Refs: <ref> and each Co-Authored-By i
 });
 
 // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md
-test('a card title is a Conventional subject, or an ask, "ask(<scope>): <question>?", 72 characters at most', () => {
+test('a card title is a Conventional subject, or an ask, "ask(<scope>): <question>?", 100 characters at most', () => {
   for (const ok of ['feat(board): every card title is Conventional', 'fix: one', 'ask(board): do we still need the staging phase?', 'ask: why?']) assert.equal(cardTitleFault(ok), null, ok);
   for (const bad of ['Every card title is Conventional', 'ask(board): do we still need staging', 'ask(Board): why?', 'ask:why?', 'ask(board)!: why?']) {
     assert.ok(cardTitleFault(bad), bad);
   }
   assert.equal(cardTitleFault('ask(board): do we still need staging'), 'isn\'t "ask(<scope>): <question>?", ending with "?"');
-  assert.equal(cardTitleFault(`ask: ${'x'.repeat(67)}?`), 'is 73 characters, over 72');
-  assert.equal(cardTitleFault(`feat: ${'x'.repeat(67)}`), 'is 73 characters, over 72');
+  assert.equal(cardTitleFault(`ask: ${'x'.repeat(95)}?`), 'is 101 characters, over 100');
+  assert.equal(cardTitleFault(`feat: ${'x'.repeat(95)}`), 'is 101 characters, over 100');
 });
 
 test("a card goes into In Progress only with a Conventional subject for a title, and the refusal names item set --title", () => {

@@ -156,7 +156,7 @@ test('land refuses a new ADR named with a number instead of a timestamp, naming 
 
 // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
 // docs/adr/2026-11-11-2318-every-land-squashes-the-branch-into-one-commit.md
-test("land --site refuses a squash message whose subject isn't Conventional or runs past 72 characters, or that still holds a \"# Conflicts:\" note, naming the commit it comes from, and changes nothing; one with no Refs trailer gets the card's", () => {
+test("land --site refuses a squash message whose subject isn't Conventional or runs past 100 characters, or that still holds a \"# Conflicts:\" note, naming the commit it comes from, and changes nothing; one with no Refs trailer gets the card's", () => {
   const repo = scratchRepo();
   assert.equal(board('builder', 'start', 'w/A1', '--worktree', '--repo', repo).code, 0);
   const landOn = () => run('board.mjs', ['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], undefined, { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
@@ -172,8 +172,8 @@ test("land --site refuses a squash message whose subject isn't Conventional or r
   const shape = (subject) => [1, `land: commit <c> "${subject}" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; reword it to the commit standard and land again\n`];
   assert.deepEqual(refused('A1: the old form\n\nRefs: A1'), shape('A1: the old form'));
   assert.deepEqual(refused('feature(board): x\n\nRefs: A1'), shape('feature(board): x'));
-  const long = `feat(board): ${'x'.repeat(60)}`;
-  assert.deepEqual(refused(`${long}\n\nRefs: A1`), [1, `land: commit <c> "${long}" is 73 characters, over 72; reword it to the commit standard and land again\n`]);
+  const long = `feat(board): ${'x'.repeat(88)}`;
+  assert.deepEqual(refused(`${long}\n\nRefs: A1`), [1, `land: commit <c> "${long}" is 101 characters, over 100; reword it to the commit standard and land again\n`]);
 
   const noted = say('fix: fine\n\nRefs: A1\nCo-Authored-By: X\n\n# Conflicts:\n#\tshared/notes.md');
   const r = landOn();
@@ -207,7 +207,7 @@ test("every land squashes the card's branch into one commit on main: --title els
 
   const badTitle = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.', '--title', 'Work');
   assert.equal(badTitle.code, 1);
-  assert.match(badTitle.err, /^--title "Work" isn't "<type>\(<scope>\): <summary>".*; pass --title "<type>\(<scope>\): <summary>", at most 72 characters\n$/);
+  assert.match(badTitle.err, /^--title "Work" isn't "<type>\(<scope>\): <summary>".*; pass --title "<type>\(<scope>\): <summary>", at most 100 characters\n$/);
   assert.deepEqual([git(repo, 'rev-parse', 'main'), git(worktree(), 'rev-parse', 'HEAD')], [main, head]);
 
   const r = onOrch('builder', 'done', 'w/A1', '--text', 'Checked it.', '--title', 'feat(board): the title');
@@ -711,7 +711,7 @@ test('on a GitHub board, builder done sends the build for review: it pushes the 
   // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md: the builder titles the
   // PR with a Conventional subject, checked before anything is pushed.
   const bad = b('builder', 'done', 'w/A1', '--text', 'Checked it on the phone.', '--title', 'A1: One');
-  assert.deepEqual([bad.code, bad.err], [1, `--title "A1: One" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; pass --title "<type>(<scope>): <summary>", at most 72 characters\n`]);
+  assert.deepEqual([bad.code, bad.err], [1, `--title "A1: One" isn't "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope; pass --title "<type>(<scope>): <summary>", at most 100 characters\n`]);
   assert.equal(git(origin, 'branch', '--list', 'A1'), '');
   const r = b('builder', 'done', 'w/A1', '--text', 'Checked it on the phone.', '--title', 'feat(board): the work, as one PR');
   assert.equal(r.code, 0, r.err);

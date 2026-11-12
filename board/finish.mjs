@@ -123,7 +123,7 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   const opens = github && !open;
   const title = given ?? (opens ? await store.cardTitleOf(site, key) : undefined);
   const fault = opens && subjectFault(title);
-  if (fault) fail(`${given === undefined ? "the card's title" : '--title'} "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 72 characters`);
+  if (fault) fail(`${given === undefined ? "the card's title" : '--title'} "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 100 characters`);
   await passTests(dir, { outcome: 'nothing was pushed' });
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
   // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is.

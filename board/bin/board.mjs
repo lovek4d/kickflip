@@ -587,7 +587,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          error}; fix it with item set --check. land takes it too
          [--title "<type>(<scope>): <summary>"]          the draft PR's title on a GitHub board, else the subject
                                                          of the one commit land squashes the branch into, a
-                                                         Conventional subject of at most 72 characters (else the
+                                                         Conventional subject of at most 100 characters (else the
                                                          branch's first commit subject); refused in any other
                                                          shape before anything is pushed or squashed. builder
                                                          verified takes it too

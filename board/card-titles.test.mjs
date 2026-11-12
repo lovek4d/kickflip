@@ -8,7 +8,7 @@ import { fakeGh, prView, writePR, calls } from '../shared/fake-gh.mjs';
 import { home, at, site, write, read, lines, run, board, wave } from './board-fixture.mjs';
 
 const shape = 'isn\'t "<type>(<scope>): <summary>" with the type one of feat, fix, refactor, docs, test, chore, perf, build, ci, style, revert and a lowercase scope';
-const words = '"<type>(<scope>): <summary>" of at most 72 characters, or "ask(<scope>): <question>?" for a question';
+const words = '"<type>(<scope>): <summary>" of at most 100 characters, or "ask(<scope>): <question>?" for a question';
 const items = () => read(at('waves', 'w', 'wave.json')).items;
 
 test('item add, item set --title and reply --title refuse a title that is neither a Conventional subject nor an ask, and write nothing', async () => {
