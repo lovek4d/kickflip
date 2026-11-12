@@ -4304,6 +4304,24 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [] }
   return { settle, answer, send, shown, decisions, sent, gets, server, root: shell.root, page, idle, unmount: () => questionsView.unmount() };
 }
 
+// docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md: a push tap on a stale page
+test("a link to a question this page has not loaded yet loads the board, then opens that question's topic", async () => {
+  const a = { id: 'item:w/A', title: 'INT-1: A' };
+  const b = { id: 'item:w/B', title: 'INT-2: B' };
+  const mk = (id, topic) => ({ id, topic, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' });
+  const topics = [a];
+  const v = questionsOnDom({ topics, questions: [mk('q1', a.id)], at: 'q1' });
+  await v.settle();
+  assert.deepEqual(v.shown().questions, ['q1']);
+  topics.push(b);
+  v.server.questions.push(mk('q2', b.id));
+  v.page.win.location.hash = '#q2';
+  v.page.fire(vm.runInContext('window', v.page.win), 'hashchange');
+  await v.settle();
+  assert.deepEqual(v.shown().questions, ['q2']);
+  v.unmount();
+});
+
 test('tapping the marked option again clears the pick: the suggestion stays cleared, Send stays off until a note, and Space on it clears it too', async () => {
   const topic = { id: 'item:w/T1', title: 'INT-1: Topic' };
   const question = { id: 'q1', topic: topic.id, source: '', question: 'Q?', context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], suggested: { option: 'A', card: '#1', answer: 'yes' }, state: 'open' };

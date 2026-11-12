@@ -452,9 +452,16 @@
     // Each composer painted raises a bubbling attach-change (attach.js).
     B.on(root, 'attach-change', updateBar);
     // A link to another question here only moves the hash.
-    B.on(window, 'hashchange', () => {
+    // A link to a question this page's board doesn't have yet (a push tap on a page left in the background) loads the
+    // board first, then opens its topic.
+    B.on(window, 'hashchange', async () => {
       if (!loaded) return;
-      pick(hashId());
+      const id = hashId();
+      if (id && !byId(id) && !topicOf(id)) {
+        await load(false);
+        if (!B.alive() || hashId() !== id) return;
+      }
+      pick(id);
       sentLine = '';
       shown = '';
       render();

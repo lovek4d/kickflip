@@ -190,6 +190,9 @@ export function wakesDue(now, s, sent = {}) {
 // The board a push's url opens, `/<route>/…`, or null for a url outside any site.
 const routeOf = (url) => /^\/([^/?#]+)(?:[/?#]|$)/.exec(url || '')?.[1] ?? null;
 
+// A push to the open questions page: one held when its hold ends is left out, since the page and the badge keep it.
+const isQuestionLink = (url) => /^\/[^/?#]+\/questions\.html(?:[?#]|$)/.test(url || '');
+
 // The notifications a queue of {id, title, body, url, tag, kind}, oldest first, goes out as, keeping only the newest
 // push of each tag: a board with one push sends it unchanged; a board with more sends one summary of what waits on it
 // now, from `sites`, the /_hub/needs.json `sites` ({<route>: {count, summary} | null}), and nothing when nothing
@@ -200,7 +203,7 @@ export function notifications(items, sites = {}) {
   const newest = new Map();
   items.forEach((i, k) => { if (i.tag) newest.set(i.tag, k); });
   const groups = new Map();
-  items.filter((i, k) => !i.tag || newest.get(i.tag) === k).forEach((i) => {
+  items.filter((i, k) => !isQuestionLink(i.url) && (!i.tag || newest.get(i.tag) === k)).forEach((i) => {
     const key = routeOf(i.url) ?? Symbol(i.id);
     groups.set(key, [...(groups.get(key) || []), i]);
   });

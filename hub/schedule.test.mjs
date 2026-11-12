@@ -122,6 +122,13 @@ test('notifications sends a board\'s one push as it is, keeping the newest of a 
   assert.deepEqual(notifications([]), []);
 });
 
+test('notifications leaves a held question push out, alone or beside others', () => {
+  const question = { id: 'q', title: 'Needs you', url: '/x/questions.html?from=push#q1', tag: 'a', kind: 'action' };
+  assert.deepEqual(notifications([question]), []);
+  const other = { id: 'o', title: 'Allow Bash?', url: '/x/', kind: 'prompt' };
+  assert.deepEqual(notifications([question, other]).map((n) => n.members), [['o']]);
+});
+
 test('notifications sends a board with several pushes as one summary of what waits on it now, and nothing when nothing waits', () => {
   const queue = [
     { id: '1', title: 'A1 asks: Which layout?', url: '/x/#selectedCard=w%2FA1', tag: 'item-w/A1', kind: 'action' },
