@@ -67,6 +67,20 @@ test('a prototype question is refused, naming each take that throws, logs an err
   assert.equal(fs.existsSync(site('orch', 'data', 'owner.json')) ? read(site('orch', 'data', 'owner.json')).items.length : 0, 0);
 });
 
+// docs/adr/2026-11-12-0300-a-prototype-stage-shows-what-the-board-hides-by-width.md
+// T-90's round 3 drew inside .needs-deck, which style.css hides from 900px, so it was blank on a desktop.
+test('a take whose box is hidden at one width is refused naming its class; the stage shows the Needs you deck and pane at both', { skip }, () => {
+  recordPrototype('site', ['A:Deck', 'B:Pane', 'C:Hidden'], false);
+  write(takePath('site', 'A'), 'export function render(stage) { stage.innerHTML = `<section class="needs-deck"><p>deck</p></section>`; }');
+  write(takePath('site', 'B'), 'export function render(stage) { stage.innerHTML = `<aside class="needs-pane"><p>pane</p></aside>`; }');
+  write(takePath('site', 'C'), 'export function render(stage) { stage.innerHTML = `<style>@media (min-width: 900px) { .gone { display: none; } }</style><p class="gone">x</p><p class="kept">y</p>`; }');
+  const r = add(['A', 'B', 'C']);
+  assert.equal(r.code, 1);
+  assert.ok(r.err.includes('take C: .gone is hidden at 1280px and shown at 390px'), r.err);
+  assert.ok(!/take [AB]/.test(r.err), r.err);
+  assert.ok(!r.err.includes('.kept'), r.err);
+});
+
 // docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md
 // A served round's check runs the base worktree's build script itself and loads the page for each take and state.
 test("a served round's question is refused naming each take or state whose page throws, and publishes once they all draw", { skip }, () => {

@@ -1,6 +1,6 @@
 // docs/adr/2026-11-07-0900-a-prototype-question-publishes-only-when-every-take-renders.md
 // Loads every take of a recorded prototype in headless Chrome, at phone and desktop width, from the page the board
-// serves, and refuses naming each take that throws, logs a console error or leaves its stage empty. A served round
+// serves, and refuses naming each take that throws, logs a console error or leaves its stage empty or hides a box at one of the two widths. A served round
 // (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md) is loaded straight from the
 // board's base prototype worktree, whose build script the check runs itself on a loopback port: every take at the
 // first state, and every state on the first take.
@@ -28,6 +28,8 @@ const LATE_MS = 300;
 const PORT_MS = 120_000;
 // What the page drew: a take file's stage, or a served page's body text.
 const STAGE = `(document.getElementById('stage')?.innerHTML || '').trim()`;
+// Each element of the stage, by position: null where it is shown, else the name a take's author knows it by.
+const HIDDEN = `[...document.querySelectorAll('#stage *')].map((e) => getComputedStyle(e).display !== 'none' ? null : (e.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean).map((c) => '.' + c).join('') || e.localName)`;
 const BODY = `(document.body?.innerText || '').trim()`;
 
 // The board server's static roots, minus the hub's.
@@ -125,6 +127,17 @@ async function checkTake({ cdp, on }, url, width, drawn = STAGE) {
   return [...new Set(problems)];
 }
 
+// → [problem] for each stage element hidden at one of the two widths and shown at the other, by the board's own styles or the take's.
+function hiddenAtOneWidth(hidden) {
+  const [narrow, wide] = hidden;
+  const found = [];
+  for (let i = 0; i < Math.min(narrow.length, wide.length); i++) {
+    if (narrow[i] && !wide[i]) found.push(`${narrow[i]} is hidden at ${WIDTHS[0]}px and shown at ${WIDTHS[1]}px`);
+    if (wide[i] && !narrow[i]) found.push(`${wide[i]} is hidden at ${WIDTHS[1]}px and shown at ${WIDTHS[0]}px`);
+  }
+  return [...new Set(found)];
+}
+
 // Runs the base worktree's build script as the hub does, on a loopback port. → {origin, stop}
 async function serveBase(site) {
   const board = boardAt(site);
@@ -208,9 +221,12 @@ export async function checkTakesRender(site, topic) {
     const failures = await withChrome(async (chrome) => {
       const found = [];
       for (const take of proto.takes) {
+        const hidden = [];
         for (const width of WIDTHS) {
           for (const p of await checkTake(chrome, `${url}?variant=${take.key}`, width)) found.push(`take ${take.key} at ${width}px: ${p}`);
+          hidden.push((await chrome.cdp('Runtime.evaluate', { expression: HIDDEN, returnByValue: true })).result.value || []);
         }
+        for (const p of hiddenAtOneWidth(hidden)) found.push(`take ${take.key}: ${p}`);
       }
       return found;
     });
