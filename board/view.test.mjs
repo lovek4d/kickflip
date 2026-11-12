@@ -3774,8 +3774,8 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   assert.deepEqual(b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/T-7', 'w/T-8', 'w/T-2']);
   // Waiting and processing entries edit and delete their ask; ingested ones link to the card and dismiss.
   assert.deepEqual(['a1', 'a2'].map((id) => [entry(id).querySelector('button[data-edit]')?.dataset.edit, entry(id).querySelector('button[data-withdraw]')?.dataset.withdraw, entry(id).querySelector('[data-dismiss-new]')]), [['a1', 'a1', null], ['a2', 'a2', null]]);
-  assert.deepEqual(['a3', 'a4'].map((id) => [entry(id).querySelector('a.new-link').getAttribute('href'), entry(id).querySelector('button[data-edit], button[data-withdraw]'), entry(id).querySelector('button[data-dismiss-new]').textContent]),
-    [['#selectedCard=w%2FT-7', null, 'Dismiss'], ['#selectedCard=w%2FT-2', null, 'Dismiss']]);
+  assert.deepEqual(['a3', 'a4'].map((id) => [entry(id).querySelector('a.new-link').getAttribute('href'), entry(id).querySelector('button[data-edit], button[data-withdraw]'), entry(id).querySelector('button[data-dismiss-new]').getAttribute('aria-label') + '|' + entry(id).querySelector('button[data-dismiss-new]').textContent]),
+    [['#selectedCard=w%2FT-7', null, 'Dismiss|'], ['#selectedCard=w%2FT-2', null, 'Dismiss|']]);
   // The merge is the strip's, not the answer banner's.
   assert.equal(b.root.querySelector('#answers').hidden, true);
   // Dismiss asks nothing and marks the card read at the ingest, on every device.

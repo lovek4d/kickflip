@@ -1568,7 +1568,7 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   const html = strip([made], [{ key: 'w/T-2', ref: 'T-2', at: ago(0.2), id: 'a2', askedAt: ago(0.8), message: 'Also this' }]);
   assert.deepEqual([...html.matchAll(/class="new-link" href="([^"]+)" data-dismiss-new="([^"]+)" data-at="[^"]+">(.*?)<\/a>/g)].map((m) => [m[1], m[2], text(m[3])]),
     [['#selectedCard=w%2FT-3', 'w/T-3', 'Ticket created: T-3 · fix: <header>'], ['#selectedCard=w%2FT-2', 'w/T-2', 'Added to T-2']], 'following the link reads the card up to the ingest');
-  assert.deepEqual([...html.matchAll(/data-dismiss-new="([^"]+)" data-at="([^"]+)">Dismiss</g)].map((m) => m[1]), ['w/T-3', 'w/T-2']);
+  assert.deepEqual([...html.matchAll(/data-dismiss-new="([^"]+)" data-at="[^"]+" aria-label="Dismiss"/g)].map((m) => m[1]), ['w/T-3', 'w/T-2']);
   assert.doesNotMatch(html, /data-edit|data-withdraw/);
   // A card read since its ingest has no entry.
   assert.equal(ui.newEntries({ items: [made], merges: [] }, { 'w/T-3': ago(0.1) }).length, 0);

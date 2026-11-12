@@ -380,7 +380,7 @@
   const readsAt = (e) => `data-dismiss-new="${esc(e.key)}" data-at="${esc(e.at)}"`;
   function newEntry(e, edit) {
     const done = e.made || e.into;
-    const actions = done ? `<button type="button" class="ghost new-dismiss" ${readsAt(e)}>Dismiss</button>`
+    const actions = done ? `<button type="button" class="ghost icon new-dismiss" ${readsAt(e)} aria-label="Dismiss" title="Dismiss">${globalThis.BoardUI.DISMISS}</button>`
       : `${editButton(e.id)}${withdrawButton(e.id)}`;
     const line = e.made ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Ticket created: <b>${esc(e.made.ref)}</b> · ${esc(e.made.title)}</a>`
       : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b></a>`

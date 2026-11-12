@@ -487,7 +487,6 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .new-entry .processing { color: var(--color-notice); font-size: 12px; font-weight: 600; }
 .new-entry .processing .working-dot { background: currentColor; }
 .new-done, .new-link { color: var(--color-info); font-size: 12px; font-weight: 600; text-decoration: none; }
-.new-entry .new-dismiss { padding: 4px 8px; font-size: 12px; color: var(--muted); }
 .new-entry .edit-form { margin-top: 2px; }
 /* The hub's Routed section on the same strip: a row's muted second line (who, when, the router's reason) and the empty state. */
 .new-why { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }

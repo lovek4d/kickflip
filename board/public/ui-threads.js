@@ -160,5 +160,5 @@
     return [{ ts: fresh.at(-1), who: 'claude', kind: 'questions', text: `${fresh.length} new question${fresh.length === 1 ? '' : 's'}`, link: `questions.html#${encodeURIComponent(questions.first)}` }];
   }
 
-  Object.assign(globalThis.BoardUI, { threadMessages, threadFrom, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
+  Object.assign(globalThis.BoardUI, { DISMISS, threadMessages, threadFrom, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
 })();
