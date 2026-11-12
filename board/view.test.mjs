@@ -4378,6 +4378,24 @@ test("Waiting on you's Send follows the shared next question, leaving an urgent 
   assert.deepEqual(urgent.shown(), { pills: [['item:w/T1', 'true'], ['item:w/T2', 'false']], questions: ['q1'], status: 'sent 1 answer · 2 still open', hash: '#q1' });
 });
 
+test("a Send's move on is skipped when you switched topics while it was recorded: the page stays, with the Sent toast", async () => {
+  const topic = (n) => ({ id: `item:w/T${n}`, title: `INT-${n}: Topic ${n}` });
+  const question = (id, n) => ({ id, topic: `item:w/T${n}`, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
+  let release;
+  const gate = { promise: new Promise((r) => { release = r; }) };
+  const v = questionsOnDom({ topics: [1, 2, 3].map(topic), questions: [question('q1', 1), question('q2', 2), question('q3', 3)], at: 'q1', gate });
+  await v.settle();
+  v.answer('q1');
+  await v.send();
+  const pill = v.root.querySelector('.topics button[data-topic="item:w/T3"]');
+  v.page.fire(v.root, 'click', { target: pill });
+  release();
+  await v.settle();
+  assert.deepEqual([v.shown().pills, v.shown().questions, v.shown().hash],
+    [[['item:w/T1', 'false'], ['item:w/T2', 'false'], ['item:w/T3', 'true']], ['q3'], '#q3']);
+  assert.equal(v.page.win.document.body.querySelector('.toast')?.textContent, 'Sent 1 answer to INT-1.');
+});
+
 test('on a phone, a tap on a pill only picks the topic, the topic title opens its card on the board, and the pill reads the whole title', async () => {
   const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open' });
   const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'item:w/T2', title: '#422: Open-items pills' }],

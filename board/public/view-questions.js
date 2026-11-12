@@ -51,6 +51,8 @@
     let topics = [];
     let topicId = null;
     let soloId = null;
+    // Counts the owner's own topic picks (a pill, or the shell opening a topic), which a Send in flight compares against.
+    let picks = 0;
     let shown = '';
     let sentLine = '';
     // The shown topic's questions this page has drawn unsent, which stay in place once sent or resolved until you leave
@@ -157,15 +159,17 @@
     // The topic a tap on this page acts for, the pills before it and its name, which moveOn reads once it is recorded.
     function leaving() {
       const from = soloId ? topicOf(soloId)?.id : topicId;
-      return { from, pills: topicRow(topics, from).pills, name: toastName(topics.find((t) => t.id === from) || { title: '' }) };
+      return { from, picks, pills: topicRow(topics, from).pills, name: toastName(topics.find((t) => t.id === from) || { title: '' }) };
     }
     // After a recorded tap: a load that started before it went out would read its question as still open.
     // `footer` is a line or, for a Send, a function of the reloaded board giving the whole line.
     // The tap's POST answers with the board as it left it, which lands here in place of a reload.
-    async function moveOnOnceLoaded({ from, pills }, what, out, footer = what) {
+    async function moveOnOnceLoaded({ from, pills, picks: at }, what, out, footer = what) {
       await loading;
       if (!B.alive()) return;
       if (!land(out.board, false)) await load(false);
+      // Tapped to another topic meanwhile: the page stays there and only the toast says what was recorded.
+      if (picks !== at) { B.toast(what); return; }
       moveOn(from, pills, what, typeof footer === 'function' ? footer() : footer, typeof footer !== 'function');
     }
 
@@ -386,7 +390,7 @@
       const b = ev.target.closest && ev.target.closest('[data-topic]');
       if (b) {
         // Embedded in the desktop pane, one click also focuses the topic's card on the board; a phone only picks the topic.
-        soloId = null; setTopic(b.dataset.topic); sentLine = ''; shown = '';
+        picks++; soloId = null; setTopic(b.dataset.topic); sentLine = ''; shown = '';
         const first = topics.find((t) => t.id === topicId)?.questions[0];
         if (first) setHash(first);
         ctx.onTopic?.(topicId);
@@ -468,7 +472,7 @@
     if (ctx.embedded) B.openTopic = (id) => {
       if (!loaded) return false;
       const topic = topics.find((t) => t.id === id);
-      if (topic) { soloId = null; setTopic(topic.id); } else pick(id || '');
+      if (topic) { picks++; soloId = null; setTopic(topic.id); } else pick(id || '');
       ctx.onTopic?.(topicId);
       sentLine = '';
       shown = '';
