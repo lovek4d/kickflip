@@ -85,17 +85,43 @@ BoardView.part((B) => {
     $(`[data-review="${number}"]`)?.scrollIntoView({ block: 'start' });
   }
 
+  // docs/adr/2026-11-12-0600-the-todo-header-has-a-filter.md
+  // The Todo header's filter: one box per property a Todo card can have, all checked until the owner unchecks one. An
+  // unchecked box hides every Todo card with its property and nothing else, so a card that is held and blocked hides
+  // when either box is unchecked. The unchecked boxes are kept on this device (store 'todoFilter'); the menu's open state is in memory.
+  const FILTER_BOXES = [
+    ['ready', 'Ready', (i) => ['ready', 'staging'].includes(i.phase)],
+    ['discussing', 'Discussing', (i) => ['discussing', 'new'].includes(i.phase)],
+    ['planning', 'Planning', (i) => ['grilling', 'prototyping'].includes(i.phase)],
+    ['blocked', 'Blocked', (i) => Boolean(i.blocked)],
+    ['held', 'Held', (i) => Boolean(i.held)],
+  ];
+  const FUNNEL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>';
+  let filterOpen = false;
+  const unchecked = () => store.get('todoFilter', []);
+  const hiddenByFilter = (it) => FILTER_BOXES.some(([id, , has]) => unchecked().includes(id) && has(it));
+  const filterHtml = () => {
+    const off = unchecked();
+    const menu = filterOpen ? `<div class="lane-filter-menu" role="group" aria-label="Show in Todo">${FILTER_BOXES.map(([id, name]) =>
+      `<button type="button" class="lane-filter-box" role="checkbox" aria-checked="${!off.includes(id)}" data-todo-filter="${id}"><span class="box"></span>${name}</button>`).join('')}</div>` : '';
+    return { button: `<button type="button" class="lane-filter${off.length ? ' on' : ''}" aria-label="Filter Todo" aria-expanded="${filterOpen}" title="${off.length ? 'Filtered' : 'Filter'}">${FUNNEL}</button>`, menu };
+  };
+
   // shown is the board's items less pending deletes.
   function lanesHtml(d, shown) {
     const laneState = store.get('lanes', {});
     return reviewsHtml(d) + LANES.map((lane) => {
       // Items arrive in each lane's fixed order (domain.mjs laneOrder).
-      const items = shown.filter((i) => i.lane === lane.id);
+      const all = shown.filter((i) => i.lane === lane.id);
+      const items = lane.id === 'todo' ? all.filter((i) => !hiddenByFilter(i)) : all;
+      if (lane.id === 'todo') shown = shown.filter((i) => i.lane !== 'todo' || items.includes(i));
+      const filter = lane.id === 'todo' ? filterHtml() : null;
       const expanded = laneState[lane.id] ?? lane.open;
       const open = items.filter((i) => !i.fold);
       const rows = lane.id === 'todo' ? todoRows(d, shown, open) : (lane.id === 'done' ? doneRows(d, open) : lane.capped ? cappedRows(lane.id, open) : waveGroups(lane.id, open)) + fileFolds(d, items);
       return `<details class="lane" data-lane="${lane.id}" ${expanded ? 'open' : ''}>
-        <summary><span class="lane-name">${lane.name}</span><span class="count">${lane.id === 'done' ? doneCount(d, items) : items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}</summary>
+        <summary><span class="lane-name">${lane.name}</span><span class="count">${lane.id === 'done' ? doneCount(d, items) : lane.id === 'todo' && items.length < all.length ? `${items.length} of ${all.length}` : items.length}</span>${lane.id === 'review' ? B.githubHeader(d) : ''}${filter ? filter.button : ''}</summary>
+        ${filter ? filter.menu : ''}
         <div class="list">${rows || '<div class="empty">Nothing here.</div>'}
         ${lane.id === 'todo' ? BoardUI.planButton(items) : ''}</div>
       </details>`;
@@ -201,6 +227,15 @@ BoardView.part((B) => {
     }
     const review = ev.target.closest('a[data-review-open]');
     if (review) { ev.preventDefault(); openReview(Number(review.dataset.reviewOpen)); return; }
+    const filterBtn = ev.target.closest('button.lane-filter');
+    if (filterBtn) { ev.preventDefault(); filterOpen = !filterOpen; B.render(); return; }
+    const box = ev.target.closest('[data-todo-filter]');
+    if (box) {
+      const id = box.dataset.todoFilter;
+      store.set('todoFilter', unchecked().includes(id) ? unchecked().filter((x) => x !== id) : [...unchecked(), id]);
+      B.render();
+      return;
+    }
     const more = ev.target.closest('[data-lane-more]');
     if (more) {
       if (more.hasAttribute('data-fetch')) {

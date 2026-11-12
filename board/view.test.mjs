@@ -6315,3 +6315,55 @@ test('a resolved question card has no border or tint of its own; the Resolved ba
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.doesNotMatch(css, /\.q\.resolved\s*\{/, 'no rule styles the resolved card itself');
 });
+
+// docs/adr/2026-11-12-0600-the-todo-header-has-a-filter.md
+test('the Todo header filter lists five boxes, all checked; unchecking one hides only the cards with that property, the icon goes orange and the count reads N of M', async () => {
+  const cards = [
+    workCard('R1', { phase: 'ready', ready: true }), workCard('R2', { phase: 'staging' }), workCard('D1', { phase: 'discussing', turn: 'owner' }), workCard('D2', { phase: 'new' }),
+    workCard('P1', { phase: 'grilling' }), workCard('P2', { phase: 'prototyping' }), workCard('B1', { phase: 'ready', blocked: true }), workCard('H1', { phase: 'grilling', held: true }),
+    workCard('HB', { phase: 'ready', held: true, blocked: true })];
+  const b = boardOnDom({ board: boardOf(cards), threads: {} });
+  await b.settle();
+  const todo = () => b.root.querySelector('details.lane[data-lane="todo"]');
+  const keys = () => todo().querySelectorAll('details.item').map((el) => el.dataset.key.slice(2));
+  const btn = () => todo().querySelector('button.lane-filter');
+  const box = (name) => todo().querySelector(`[data-todo-filter="${name}"]`);
+  const tap = async (el) => { b.page.fire(b.root, 'click', { target: el }); await b.settle(); };
+  assert.equal(keys().length, 9);
+  assert.equal(todo().querySelector('summary .count').textContent, '9');
+  assert.ok(!btn().classList.contains('on'));
+  assert.equal(todo().querySelector('.lane-filter-menu'), null);
+  await tap(btn());
+  assert.deepEqual(todo().querySelectorAll('[data-todo-filter]').map((el) => [el.dataset.todoFilter, el.getAttribute('aria-checked')]),
+    [['ready', 'true'], ['discussing', 'true'], ['planning', 'true'], ['blocked', 'true'], ['held', 'true']]);
+  assert.equal(todo().open, true);
+  await tap(box('held'));
+  assert.deepEqual(keys(), ['R1', 'R2', 'D1', 'D2', 'P1', 'P2', 'B1']);
+  assert.ok(btn().classList.contains('on'));
+  assert.equal(todo().querySelector('summary .count').textContent, '7 of 9');
+  await tap(box('blocked'));
+  assert.deepEqual(keys(), ['R1', 'R2', 'D1', 'D2', 'P1', 'P2']);
+  await tap(box('held')); await tap(box('blocked'));
+  await tap(box('ready'));
+  assert.deepEqual(keys(), ['D1', 'D2', 'P1', 'P2', 'H1']);
+  await tap(box('ready')); await tap(box('discussing'));
+  assert.deepEqual(keys(), ['R1', 'R2', 'P1', 'P2', 'B1', 'H1', 'HB']);
+  await tap(box('discussing')); await tap(box('planning'));
+  assert.deepEqual(keys(), ['R1', 'R2', 'D1', 'D2', 'B1', 'HB']);
+  await tap(box('planning'));
+  assert.equal(keys().length, 9);
+  assert.ok(!btn().classList.contains('on'));
+  assert.equal(todo().querySelector('summary .count').textContent, '9');
+});
+
+test('the Todo filter is remembered on this device', async () => {
+  const cards = [workCard('R1', { phase: 'ready', ready: true }), workCard('H1', { phase: 'grilling', held: true })];
+  const first = boardOnDom({ board: boardOf(cards), threads: {} });
+  await first.settle();
+  first.page.fire(first.root, 'click', { target: first.root.querySelector('button.lane-filter') }); await first.settle();
+  first.page.fire(first.root, 'click', { target: first.root.querySelector('[data-todo-filter="held"]') }); await first.settle();
+  const again = boardOnDom({ board: boardOf(cards), threads: {}, stored: [...first.storage] });
+  await again.settle();
+  assert.deepEqual(again.root.querySelectorAll('details.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/R1']);
+  assert.ok(again.root.querySelector('button.lane-filter').classList.contains('on'));
+});

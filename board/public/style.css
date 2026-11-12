@@ -1032,3 +1032,11 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 /* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
 body .view-questions.view-questions main { padding-bottom: var(--app-bottom, 0px); }
 .pfile.retry { cursor: pointer; }
+/* The Todo header's filter (docs/adr/2026-11-12-0600-the-todo-header-has-a-filter.md): a funnel at the right, orange while a box is unchecked, and its checklist under the header. */
+.lane { position: relative; }
+.lane-filter { margin-left: auto; display: inline-flex; align-items: center; padding: 4px; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.lane-filter.on { color: var(--color-notice); }
+.lane-filter-menu { position: absolute; z-index: 5; top: 36px; right: 8px; display: flex; flex-direction: column; min-width: 160px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
+.lane-filter-box { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.lane-filter-box .box { width: 14px; height: 14px; border: 1.5px solid var(--muted); border-radius: 4px; }
+.lane-filter-box[aria-checked="true"] .box { border-color: var(--accent); background: var(--accent); }
