@@ -15,3 +15,5 @@ Considered:
 - Two buttons only on the New task sheet (take A): the owner wanted the thread to state its intent too.
 
 **Order on screen (#299).** The pair is drawn Quick build / Implement on the left and Discuss / Reply on the right, each keeping its colour and its key. `sendButton` marks a button with its `nth` (`data-nth`), and `keyedSend` presses the button by that mark, not by its place in the row.
+
+Superseded in part by [threads say Reply, with Hold, Resume and Reopen beside it](2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md): every thread box's first button is Reply, carrying `intent: 'reply'`; no box is a lone Send.

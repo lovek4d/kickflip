@@ -116,6 +116,7 @@
     Fault: mini('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
     'Related to': LINK, 'Unrelated from': LINK, 'Follow-up': LINK, 'Follow-up of': LINK,
     'Marked done': mini('<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>'),
+    Reopened: mini('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>'),
     Reply: mini('<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>'),
     Implement: mini('<path d="m8 6-6 6 6 6"/><path d="m16 6 6 6-6 6"/>'),
     'answers submitted': mini('<path d="M20 6 9 17l-5-5"/>'),

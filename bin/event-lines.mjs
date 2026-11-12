@@ -14,10 +14,10 @@ export const shownFile = (dir, session) => path.join(dir, 'data', `.shown-${sess
 
 // docs/adr/2026-11-05-1000-record-only-events-do-not-wake-the-session.md,
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap the board server applies
-// itself (Hold, Resume, Done, Unbump, a bare or worded Grill, Prototype or Visual) and an unblock wake nobody. A lifted
+// itself (Hold, Resume, Done, Reopen, Unbump, a bare or worded Grill, Prototype or Visual) and an unblock wake nobody. A lifted
 // pause (usage-resumed) wakes nobody either: the watcher reads the gate itself, and the work it held wakes the session.
 export const RECORD_ONLY = ['main-pulled', 'settings', 'reviewers-removed', 'reviewers-added', 'question-reopen', 'repo-changed', 'ping', 'hello',
-  'card-hold', 'card-done', 'card-unbump', 'card-unblocked', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed'];
+  'card-hold', 'card-done', 'card-reopen', 'card-unbump', 'card-unblocked', 'brief-written', 'grill-more', 'prototype-request', 'visual-request', 'usage-resumed'];
 const kindOf = (line) => { try { return JSON.parse(line).kind; } catch { return null; } };
 export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 
@@ -54,6 +54,7 @@ export const ON_CARD = {
   'ask-edited': (c) => `${c} edited: use the new text, and say what changed if you had started`,
   'ask-withdrawn': (c) => `${c} deleted: drop it`,
   'card-done': (c) => `${c} marked done`,
+  'card-reopen': (c) => `${c} reopened to Todo, discussing`,
   'card-hold': (c, e) => `${c} ${e.data?.hold ? 'held' : 'resumed'}`,
   'card-unblocked': (c) => `${c} unblocked`,
   'prototype-request': (c) => `prototype asked on ${c}`,

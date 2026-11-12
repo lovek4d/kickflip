@@ -271,6 +271,8 @@ BoardView.part((B) => {
       : `${it.held ? `Unhold and implement ${ref}?` : `Implement ${ref}?`} Claude starts its implementer now with the notes as they stand.`),
     finish: (it, ref) => (it.ownerStep ? `Done with "${it.ownerStep}"? ${ref} moves to Done and its ticket closes.`
       : `Close ${ref}? It moves to Done and Claude stops work on it.${openPRs(it).length ? ` Its PR${openPRs(it).length > 1 ? 's stay' : ' stays'} open on GitHub.` : it.pushed ? ` Its branch stays on ${it.pushed.host || 'the remote'}.` : ''}`),
+    // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
+    reopen: (it, ref) => `Reopen ${ref}? It moves back to Todo, discussing, for you to talk it through again.`,
   };
 
   const classes = (it, button, base = '') => {
@@ -487,16 +489,17 @@ BoardView.part((B) => {
     ev.preventDefault();
     confirmTap(b);
   });
-  // A data-confirm button's tap: Hold's sheet, or its confirm, then its event. The thread box's Done comes here on ⌥↵ too.
+  // A data-confirm button's tap: Hold's sheet, or its confirm, then its event. The thread box's Hold, Resume, Done and
+  // Reopen come here on ⌥↵ too.
   async function confirmTap(b) {
     const { key, confirm: act } = b.dataset;
     const it = state.board.items.find((i) => i.key === key);
     if (it && act === 'hold') { openHold(it); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
-    // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement and Done wait while the
-    // server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+    // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement, Done and Reopen
+    // wait while the server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
     const sent = { resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
-      finish: ['card-done', { key }] }[act];
+      finish: ['card-done', { key }], reopen: ['card-reopen', { key }] }[act];
     // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
     // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
     const close = act === 'finish' ? () => {
@@ -516,7 +519,7 @@ BoardView.part((B) => {
       if (pend) { BoardUI.pending.drop(pend); B.render(); }
       B.failed(e);
     }
-    if (act === 'finish') B.syncSends(key);
+    if (act === 'finish' || act === 'reopen') B.syncSends(key);
   }
 
   Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap });

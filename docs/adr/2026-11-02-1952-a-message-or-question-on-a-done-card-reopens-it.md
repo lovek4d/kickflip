@@ -30,3 +30,5 @@ Considered:
 Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a reopen is stored as a move out of Done with reopened_at; a Done card whose PRs all closed unmerged doesn't reopen.
 
 Superseded in part by [In Progress means a builder runs](2026-11-09-1804-in-progress-means-a-builder-runs.md): a reopened card waits in In Review, its Next "Your reply waits on the orchestrator" until Claude answers, and goes to In Progress only once a builder starts on it.
+
+Superseded in part by [threads say Reply, with Hold, Resume and Reopen beside it](2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md): a Done card's thread has Reopen beside Reply; Reopen moves it back to Todo, discussing, and a Reply still reopens it as above.

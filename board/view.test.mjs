@@ -3074,13 +3074,13 @@ test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the
 
 // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which send the message with intent: 'reply' or 'build'; a card past Todo keeps one Send on ⌘↵, and the box follows the card's lane", async () => {
+test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which send the message with intent: 'reply' or 'build'; an In Progress card's has Hold (⌥↵) and Reply, and the box follows the card's lane", async () => {
   const b = boardOnDom({ open: ['w/T1', 'w/P1'], board: boardOf([workCard('T1'), workCard('P1', { lane: 'progress' })]), threads: { 'w/T1': [], 'w/P1': [] } });
   await b.settle();
   const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
   const buttons = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => [el.dataset.intent ?? null, el.textContent]);
   assert.deepEqual(buttons('w/T1'), [['build', 'Implement⌥↵'], ['reply', 'Reply⌘↵']]);
-  assert.deepEqual(buttons('w/P1'), [[null, 'Send⌘↵']]);
+  assert.deepEqual(buttons('w/P1'), [[null, 'Hold⌥↵'], ['reply', 'Reply⌘↵']]);
   const send = async (key, text, intent) => {
     form(key).querySelector('textarea').value = text;
     b.page.fire(b.root, 'submit', { target: form(key), submitter: form(key).querySelector(intent ? `button[data-intent="${intent}"]` : 'button[type="submit"]') });
@@ -3088,9 +3088,9 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   };
   await send('w/T1', 'Use the blue', 'build');
   await send('w/T1', 'Just a reply', 'reply');
-  await send('w/P1', 'Later');
+  await send('w/P1', 'Later', 'reply');
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
-    ['item-message', { key: 'w/T1', text: 'Use the blue', intent: 'build' }], ['item-message', { key: 'w/T1', text: 'Just a reply', intent: 'reply' }], ['item-message', { key: 'w/P1', text: 'Later' }],
+    ['item-message', { key: 'w/T1', text: 'Use the blue', intent: 'build' }], ['item-message', { key: 'w/T1', text: 'Just a reply', intent: 'reply' }], ['item-message', { key: 'w/P1', text: 'Later', intent: 'reply' }],
   ]);
   // An empty box still sends Implement, bare, on a card ready or not: the board server readies it and builds at once.
   await send('w/T1', '', 'build');
@@ -3099,12 +3099,12 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   await send('w/T1', '', 'build');
   assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   const pressed = [];
-  for (const key of ['w/T1', 'w/P1']) form(key).requestSubmit = (s) => pressed.push([key, s?.dataset.intent ?? null]);
+  for (const key of ['w/T1', 'w/P1']) form(key).requestSubmit = (s) => pressed.push([key, s?.dataset.intent ?? s?.dataset.confirm ?? null]);
   const key = (k, ev) => { const box = form(k).querySelector('textarea'); return b.page.fire(b.root, 'keydown', { key: 'Enter', target: box, ...ev }).defaultPrevented; };
-  assert.deepEqual([key('w/T1', { metaKey: true }), key('w/T1', { altKey: true }), key('w/P1', { ctrlKey: true }), key('w/P1', { altKey: true })], [true, true, true, false]);
-  assert.deepEqual(pressed, [['w/T1', 'reply'], ['w/T1', 'build'], ['w/P1', null]]);
+  assert.deepEqual([key('w/T1', { metaKey: true }), key('w/T1', { altKey: true }), key('w/P1', { ctrlKey: true }), key('w/P1', { altKey: true })], [true, true, true, true]);
+  assert.deepEqual(pressed, [['w/T1', 'reply'], ['w/T1', 'build'], ['w/P1', 'reply'], ['w/P1', 'hold']]);
   await b.change({ board: boardOf([workCard('T1', { lane: 'progress' }), workCard('P1', { lane: 'progress' })]) });
-  assert.deepEqual(buttons('w/T1'), [[null, 'Send⌘↵']]);
+  assert.deepEqual(buttons('w/T1'), [[null, 'Hold⌥↵'], ['reply', 'Reply⌘↵']]);
   b.view.unmount();
 });
 
@@ -3116,7 +3116,7 @@ test("a thread box's row has What's left? at the left and the eye, fire, image a
   const row = (key) => [...form(key).querySelector('.row').children].map((el) => el.matches('.quick') ? 'chip' : el.matches('.icons') ? 'icons' : el.dataset.sends);
   const icons = (key) => [...form(key).querySelector('.icons').children].map((el) => ['proto', 'grill', 'visual'].find((k) => el.hasAttribute('data-' + k)) || (el.matches('label.attach') ? 'attach' : '?'));
   assert.deepEqual(row('w/T1'), ['chip', 'icons', 'todo']);
-  assert.deepEqual(row('w/P1'), ['chip', 'icons', 'one']);
+  assert.deepEqual(row('w/P1'), ['chip', 'icons', 'progress']);
   for (const key of ['w/T1', 'w/P1']) {
     assert.deepEqual(icons(key), ['proto', 'grill', 'visual', 'attach']);
     assert.equal(form(key).querySelector('.dz .attach'), null);
@@ -3144,7 +3144,7 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
   assert.deepEqual(sends('w/R1'), ['Done⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/S1'), ['Done⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/a1'), ['Done⌥↵', 'Reply⌘↵']);
-  assert.deepEqual(sends('w/P1'), ['Send⌘↵']);
+  assert.deepEqual(sends('w/P1'), ['Hold⌥↵', 'Reply⌘↵']);
   assert.deepEqual(sends('w/T1'), ['Implement⌥↵', 'Reply⌘↵']);
   assert.equal(form('w/R1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
   assert.equal(form('w/a1').querySelector('[data-confirm="finish"]').getAttribute('class'), 'closes');
@@ -3170,6 +3170,40 @@ test("Done shows only on an In Review card, as Done (⌥↵) then Reply (⌘↵)
   // The box follows the card's lane.
   await b.change({ board: boardOf([{ ...cards[1], lane: 'review' }, ...cards.slice(2)]) });
   assert.deepEqual(sends('w/P1'), ['Done⌥↵', 'Reply⌘↵']);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
+test("an In Progress card's quiet Hold opens the Hold sheet and its orange Resume, while the owner's hold is on, confirms the unhold; a Done card's quiet Reopen confirms and sends card-reopen; every box's other send is Reply", async () => {
+  const cards = [
+    workCard('P1', { lane: 'progress', holdable: true }),
+    workCard('H1', { lane: 'progress', holdable: true, held: true }),
+    workCard('U1', { lane: 'progress', holdable: true, builder: { phase: 'building', pause: { cause: 'usage', words: 'usage limit', paused: true } } }),
+    workCard('D1', { lane: 'done' }),
+  ];
+  const holdChoices = [{ value: '1h', label: '1h', ms: 3_600_000 }];
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: Object.fromEntries(cards.map((c) => [c.key, []])), confirm: true });
+  await b.settle();
+  const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
+  const sends = (key) => [...form(key).querySelectorAll('button[type="submit"]')].map((el) => [el.textContent, el.getAttribute('class') || '', el.dataset.confirm ?? el.dataset.intent]);
+  assert.deepEqual(sends('w/P1'), [['Hold⌥↵', '', 'hold'], ['Reply⌘↵', 'primary', 'reply']]);
+  assert.deepEqual(sends('w/H1'), [['Resume⌥↵', 'unhold', 'resume'], ['Reply⌘↵', 'primary', 'reply']]);
+  assert.deepEqual(sends('w/U1'), [['Hold⌥↵', '', 'hold'], ['Reply⌘↵', 'primary', 'reply']], 'a usage pause is no hold of yours');
+  assert.deepEqual(sends('w/D1'), [['Reopen⌥↵', '', 'reopen'], ['Reply⌘↵', 'primary', 'reply']]);
+  b.page.fire(b.root, 'submit', { target: form('w/P1'), submitter: form('w/P1').querySelector('[data-confirm="hold"]') });
+  await b.settle();
+  assert.equal(b.root.querySelector('#holdSheet').open, true);
+  b.page.fire(b.root.querySelector('#holdClose'), 'click');
+  for (const key of ['w/H1', 'w/D1']) {
+    b.page.fire(b.root, 'submit', { target: form(key), submitter: form(key).querySelector('[data-confirm]') });
+    await b.settle();
+  }
+  assert.deepEqual(b.confirms.slice(-2), ['Unhold H1? It can start again once nothing blocks it.', 'Reopen D1? It moves back to Todo, discussing, for you to talk it through again.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-hold', { key: 'w/H1', hold: false }], ['card-reopen', { key: 'w/D1' }]]);
+  form('w/D1').querySelector('textarea').value = 'One more thing';
+  b.page.fire(b.root, 'submit', { target: form('w/D1'), submitter: form('w/D1').querySelector('button[data-intent="reply"]') });
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/D1', text: 'One more thing', intent: 'reply' }]);
   b.view.unmount();
 });
 
@@ -3931,10 +3965,10 @@ test("a stale card's grey status line is no button, closed or open, and a stalle
   const stalled = workCard('S1', { lane: 'progress', stalled: 'Crashed twice', action: { kind: 'stalled', url: '#selectedCard=w%2FS1', label: 'stalled: Crashed twice' }, resolvedBy: 'reply' });
   const b = boardOnDom({ open: ['w/S1'], board: boardOf([stalled]), threads: { 'w/S1': [] } });
   await b.settle();
-  const send = b.root.querySelector('form[data-reply="w/S1"] button[type="submit"]');
-  assert.deepEqual([send.textContent, send.classList.contains('resolves')], ['Send⌘↵', true]);
+  const send = b.root.querySelector('form[data-reply="w/S1"] button[data-intent="reply"]');
+  assert.deepEqual([send.textContent, send.classList.contains('resolves')], ['Reply⌘↵', true]);
   await b.change({ board: boardOf([workCard('S1', { lane: 'progress' })]) });
-  assert.equal(b.root.querySelector('form[data-reply="w/S1"] button[type="submit"]').classList.contains('resolves'), false);
+  assert.equal(b.root.querySelector('form[data-reply="w/S1"] button[data-intent="reply"]').classList.contains('resolves'), false);
   b.view.unmount();
 });
 

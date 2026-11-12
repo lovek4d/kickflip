@@ -784,6 +784,29 @@ test("a Hold or Done whose item file couldn't be written is refused with why and
   assert.equal(held, 400);
 });
 
+// docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
+test("a Reopen moves a Done card back to Todo, discussing, with its line, records card-reopen and wakes nobody; one on a card not in Done is refused and records nothing", async () => {
+  const wave = path.join(site, 'data', 'items.json');
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => [r.status, await r.json()]);
+  const logged = () => (fs.existsSync(path.join(site, 'data', 'events.jsonl')) ? fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean) : []);
+  await putWave(JSON.stringify({ items: [
+    { id: 'RO1', title: 'One', lane: 'done', phase: 'merged', lane_at: '2026-11-01T00:00:00.000Z', closed_at: '2026-11-01T00:00:00.000Z' },
+    { id: 'RO2', title: 'Two', lane: 'progress', lane_at: '2026-11-01T00:00:00.000Z' },
+  ] }));
+  const [status, out] = await post({ kind: 'card-reopen', key: 't/RO1' });
+  assert.equal(status, 200, out.error);
+  const card = out.board.items.find((i) => i.id === 'RO1');
+  assert.deepEqual([card.lane, card.phase, card.reopened], ['todo', 'discussing', true]);
+  const stored = JSON.parse(fs.readFileSync(wave, 'utf8')).items[0];
+  assert.deepEqual([stored.lane, stored.phase, Boolean(stored.reopened_at)], ['todo', 'discussing', true]);
+  assert.equal(JSON.parse(logged().at(-1)).kind, 'card-reopen');
+  const thread = fs.readFileSync(path.join(site, 'data', 'threads', 't__RO1.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(thread.map((m) => m.text), ['Reopened', 'Moved to Todo: you reopened it']);
+  const before = logged().length;
+  for (const key of ['t/RO1', 't/RO2']) assert.deepEqual(await post({ kind: 'card-reopen', key }), [400, { error: `${key} isn’t in Done, so there is nothing to reopen.` }]);
+  assert.equal(logged().length, before);
+});
+
 test("deleting a New card is one events POST that records ask-withdrawn and hides the ask, and its board has the card gone", async () => {
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post({ kind: 'ask', text: 'Never mind' });

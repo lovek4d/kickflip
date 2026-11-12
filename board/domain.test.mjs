@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -2037,7 +2037,7 @@ test("a thread-file line a button wrote is a request line carrying its command k
   const cards = new Map([['w/A2', { ref: '#12', title: 'Renamed' }]]);
   const linked = threadOf('w/A1', { lines: [{ ts: '2026-11-06T10:00:00Z', who: 'claude', text: 'Related to', command: 'related', card: 'w/A2' }], cards });
   assert.deepEqual(linked.map((m) => [m.text, m.link, m.card, m.mark]), [['Related to #12: Renamed', '#selectedCard=w%2FA2', 'w/A2', 'Related to']]);
-  assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of']);
+  assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done', 'reopened', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of']);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
@@ -2842,4 +2842,35 @@ test("a PR whose hub record has no url still links to it, by its repo and number
   const item = board({ pr: { state: 'MERGED', isDraft: false, reviewDecision: 'APPROVED', url: undefined } }).items.find((i) => i.key === 'w/A1');
   assert.deepEqual(item.prs.map((p) => p.url), ['https://github.com/o/r/pull/7']);
   assert.equal(item.pr.url, 'https://github.com/o/r/pull/7');
+});
+
+// docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
+test("a Done card the owner reopened reads Todo, discussing, its PR merged or not, still counting as finished for its dependents; a message there wakes no reopen, and a build takes it to In Progress", () => {
+  const merged = { ...greenDraft, isDraft: false, state: 'MERGED', mergedAt: '2026-10-23T11:00:00Z' };
+  const back = { lane: 'todo', phase: 'discussing', lane_at: '2026-10-23T12:00:00Z', closed_at: '2026-10-23T11:00:00Z', reopened_at: '2026-10-23T12:00:00Z' };
+  const msg = { id: 'm1', ts: '2026-10-23T12:30:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Try the blue' }, reply: null };
+  const card = (opts) => board(opts).items.find((i) => i.key === 'w/A1');
+  for (const opts of [{ pr: null, item: { pr: undefined, ...back } }, { pr: merged, item: back }, { pr: null, item: { pr: undefined, ...back }, events: [msg] }]) {
+    const it = card(opts);
+    assert.deepEqual([it.lane, it.phase, it.reopened, it.closedAt, it.awaitsDone], ['todo', 'discussing', true, null, false]);
+  }
+  const deps = buildBoard({ fromWaves: false, files: [{ slug: 'w', agents: {}, itemFile: { items: [{ id: 'A1', title: 'One', ...back }, { id: 'A5', title: 'Five', deps: ['A1'] }] } }] });
+  assert.deepEqual(deps.items.find((i) => i.id === 'A5').blockedBy, []);
+  const building = card({ pr: null, item: { pr: undefined, ...back }, agents: { A1: { main: { kind: 'claude', model: 'opus', started: '2026-10-23T12:40:00Z' } } } });
+  assert.equal(building.lane, 'progress');
+});
+
+// docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
+test("an In Progress card the owner held reads held, so its paused build stays paused until the Resume; a usage pause alone doesn't read held", () => {
+  const build = (pause) => ({ A1: { main: { kind: 'claude', started: '2026-11-09T11:00:00Z', pause } } });
+  const paused = { cause: 'held', words: 'held', at: '2026-11-09T11:50:00Z', paused: '2026-11-09T11:55:00Z' };
+  const of = (item, pause = paused) => buildBoard({ fromWaves: false, files: [{ slug: 'w', agents: build(pause), itemFile: { items: [{ id: 'A1', title: 'One', lane: 'progress', ...item }] } }] });
+  const held = of({ held: true, held_at: '2026-11-09T11:50:00Z' });
+  assert.deepEqual([held.items[0].lane, held.items[0].held], ['progress', true]);
+  assert.deepEqual(pauseWork(held.items, { usageHeld: () => false }).resume, []);
+  const asked = of({ held: true, held_at: '2026-11-09T11:50:00Z' }, { ...paused, paused: undefined });
+  assert.deepEqual(pauseWork(asked.items, { usageHeld: () => false }).drop, []);
+  assert.deepEqual(pauseWork(of({}).items, { usageHeld: () => false }).resume, ['w/A1']);
+  const usage = of({}, { cause: 'usage', words: 'usage limit', at: '2026-11-09T11:50:00Z', paused: '2026-11-09T11:55:00Z' });
+  assert.equal(usage.items[0].held, false);
 });

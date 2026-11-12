@@ -199,7 +199,11 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // (docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md).
   const doneAt = String(closed || '');
   const neverLanded = views.length > 0 && views.every((v) => v.status === PR_STATE.closed);
-  const reopenedAt = (it.lane === 'done' || it.reopened_at || prStatus === PR_STATE.merged) && !neverLanded
+  // The owner's Reopen put the card back in Todo, discussing (store.mjs recordOwnerTap): it reads as a Todo card until a
+  // build takes it, merged PR or not, and still counts as finished for the cards waiting on it
+  // (docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md).
+  const backInTodo = it.lane === 'todo' && Boolean(it.reopened_at);
+  const reopenedAt = !backInTodo && (it.lane === 'done' || it.reopened_at || prStatus === PR_STATE.merged) && !neverLanded
     ? [...said.filter((m) => m.kind === 'item-message').map((m) => m.ts), ...askedAt].map(String).filter((t) => t > doneAt).sort().pop() || it.reopened_at || undefined : undefined;
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: a card the orchestrator answered
   // (store.mjs answerCard) before it was sorted or closed waits as a reopened card Claude has answered does: on the
@@ -235,8 +239,9 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const lastRebase = (it.rebased || []).at(-1);
   const runs = agents.filter((a) => a.started && !a.done && builds(a));
   const checkingCode = Boolean(checkingAt) && changesCode(newestBuild(agents));
-  let lane = laneOf(it, pr, runs.some(changesCode), checkingCode, pushed || mergeReady, Boolean(reopenAt), skipDraft, rebasing, runs.length > 0 || Boolean(checkingAt));
+  let lane = laneOf(it, pr, runs.some(changesCode), checkingCode, pushed || mergeReady, Boolean(reopenAt) || backInTodo, skipDraft, rebasing, runs.length > 0 || Boolean(checkingAt));
   if (reopenAt && lane === 'todo') lane = 'progress';
+  if (backInTodo && !runs.length && !checkingAt) lane = 'todo';
   // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
   const staleReview = lane === 'review' && Boolean(inReviewSince) && now - Date.parse(inReviewSince) > STALE_AFTER;
   const stepWaits = Boolean(ownerStep) && landed && lane === 'done';
@@ -254,8 +259,11 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   const idle = lane === 'progress' && !waitsOn && (redReady || (Boolean(reopenAt) && !builtSinceReopen));
   if (idle) lane = 'review';
   const tapped = holdAsk && String(holdAsk.ts) > String(it.held_at || '');
-  // Only a Todo card reads held; old data can't show one in Done.
-  const held = lane === 'todo' && (tapped ? Boolean(holdAsk.data.hold) : Boolean(it.held));
+  // A Todo card reads held, and so does an In Progress one, whose build the hold pauses until the owner's Resume
+  // (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md,
+  // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md); old data can't show one in
+  // In Review or Done.
+  const held = (lane === 'todo' || lane === 'progress') && (tapped ? Boolean(holdAsk.data.hold) : Boolean(it.held));
   // docs/adr/2026-11-02-1727-a-card-can-be-held-until-a-time.md
   const heldUntil = held ? (tapped ? holdAsk.data.until : it.pick_up_at) || null : null;
   // docs/adr/2026-10-29-1639-a-card-that-hasnt-started-can-be-bumped.md
@@ -296,7 +304,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     key, kind: 'work', order, file: slug, fileTitle: itemFile.title || slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
     created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
     internal: itemFile.internal === true, repo: itemFile.internal === true && !itemFile.repo ? null : repo,
-    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt), answered: Boolean(answeredAt), awaitsDone,
+    lane, waitsOn, builder: waitsOn === 'checking' ? null : builder, reachedPhase, agents, worktree: worktree ?? null, eta, working, reopened: Boolean(reopenedAt) || backInTodo, answered: Boolean(answeredAt), awaitsDone,
     ownerStep: awaitsDone ? ownerStep : null,
     // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
@@ -829,7 +837,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 export const COMMANDS = {
   implement: 'Implementation requested', prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
-  reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done',
+  reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done', reopened: 'Reopened',
   discussing: 'Marked as discussing', staged: 'Marked as staging', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
 };

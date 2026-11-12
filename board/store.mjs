@@ -3054,10 +3054,11 @@ export async function pickUp(site, key, until, { announce = true } = {}) {
   await writeJSON(source.file, itemFile);
 }
 
-// The owner's Hold, Resume or Done tap (card-hold {key, hold, until?} or card-done {key}), or a Full person's, whose
-// data.shared_by {login, name} names their thread line, recorded in the item file as the board server takes it, with a
-// thread line; a Done closes the card and unblocks blocked cards as item set --done does
-// (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). → the item set result.
+// The owner's Hold, Resume, Done or Reopen tap (card-hold {key, hold, until?}, card-done {key} or card-reopen {key}), or
+// a Full person's, whose data.shared_by {login, name} names their thread line, recorded in the item file as the board
+// server takes it, with a thread line; a Done closes the card and unblocks blocked cards as item set --done does
+// (docs/adr/2026-11-02-2044-the-cli-and-board-server-do-the-boards-housekeeping.md). → the item set result, or null
+// when there is nothing to write.
 export async function recordOwnerTap(site, kind, data) {
   const key = String(data?.key || '');
   const { file: slug, id } = parseKey(key);
@@ -3067,6 +3068,13 @@ export async function recordOwnerTap(site, kind, data) {
   // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: each tap's line is its status line.
   const said = { text: COMMANDS.done, who: 'love', by, command: 'done' };
   const item = itemFile.items.find((it) => it.id === id) || fail(`item file "${slug}" has no item "${id}"`);
+  // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md: a Done card's Reopen moves it
+  // back to Todo, discussing, its conversation open again; a card not in Done has nothing to reopen.
+  if (kind === 'card-reopen') {
+    if (item.lane !== 'done') return null;
+    await appendCommand(site, key, { who: 'love', by, command: 'reopened' });
+    return moveCard(site, key, 'todo', 'you reopened it', 'discussing');
+  }
   // A Done card waiting on its owner step closes on the owner's Done; any other card in Done has nothing to write.
   const stepOpen = kind === 'card-done' && Boolean(item.owner_step);
   if (!stepOpen && item.lane === 'done') return null;

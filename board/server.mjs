@@ -175,7 +175,9 @@
 //                                docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md).
 //                                card-hold and card-done are written to the item file first, with the owner's thread
 //                                line, and a Done unblocks blocked cards (store.mjs recordOwnerTap); a Resume relaunches
-//                                the run its Hold stopped (resumeRun). Neither wakes a session, nor do card-unbump,
+//                                the run its Hold stopped (resumeRun). card-reopen {key} is a Done card's Reopen: it
+//                                moves the card back to Todo, discussing, before its event (store.mjs recordOwnerTap),
+//                                and one on a card not in Done → 400 {error}. None of them wakes a session, nor do card-unbump,
 //                                grill-more, prototype-request or visual-request
 //                                (docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md); one whose item
 //                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
@@ -440,7 +442,7 @@ async function readBody(req, limit = 64 * 1024) {
 // thread messages, New task and its asks, and card buttons; Merge, Board settings' reviewers, a PR review's Post and
 // the header's GitHub check stay the owner's, as does any kind not listed.
 const FULL_KINDS = new Set(['owner-answer', 'owner-answers', 'prototype-request', 'reask-request', QUESTION_REOPEN, 'grill-more', 'visual-request', 'item-message',
-  'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-bump', 'card-unbump',
+  'ask', 'ask-edited', 'ask-withdrawn', 'card-build', 'card-hold', 'card-done', 'card-reopen', 'card-bump', 'card-unbump',
   'plan-waves']);
 const VIEW_ONLY = 'This board is shared with you to look at only.';
 const OWNERS_ONLY = 'Merge and Board settings stay the owner’s.';
@@ -1229,6 +1231,15 @@ const server = http.createServer(async (req, res) => {
           await appendStatus(here, key, 'builder-stopped');
         }
         if (kind === 'card-hold' && !body.hold) await resumeRun(key);
+      }
+      // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md: a Reopen is written to the
+      // item file before its event, as a Done is; one on a card not in Done is refused and records nothing.
+      if (kind === 'card-reopen') {
+        const key = String(body.key || '');
+        let moved;
+        try { moved = await recordOwnerTap(here, kind, body); }
+        catch (e) { return json(res, e instanceof BoardError ? 400 : 500, { error: `Couldn’t write ${key} to its item file: ${e.message}` }); }
+        if (!moved) return json(res, 400, { error: `${key} isn’t in Done, so there is nothing to reopen.` });
       }
       // A Save's removes and adds are both written here, and recorded as reviewers-removed and reviewers-added, which the
       // session takes no action on (docs/adr/2026-11-05-2100-the-server-adds-reviewers-from-fetched-lists.md).

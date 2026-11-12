@@ -13,20 +13,30 @@ BoardView.part((B) => {
   // docs/adr/2026-11-04-2343-each-text-box-sends-its-intent-from-a-key.md,
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
   // docs/adr/2026-11-05-1918-done-shows-only-in-in-review-beside-reply.md
-  // A Todo card's reply box sends with Reply (intent: 'reply') or Implement (intent: 'build'), which is the card's build
-  // action: builder orange once the card is ready, quiet before. An In Review card's box has Done then Reply
-  // (ui-threads.js doneButton), Done in its tone. Any other card's box sends with Send, carrying no intent. A pair wraps
-  // onto its own line under the row. Send or Reply is orange while a message clears the card's Action needed, as on a
-  // card the orchestrator stalled (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
+  // docs/adr/2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md
+  // Every card's reply box sends with Reply (intent: 'reply'), the second button of its pair beside it on ⌥↵: a Todo
+  // card's Implement (intent: 'build'), its build action, builder orange once the card is ready, quiet before; an In
+  // Progress card's Hold, quiet, which opens the Hold sheet, or orange Resume while the owner's hold is on; an In Review
+  // card's Done (ui-threads.js doneButton), in its tone; a Done card's Reopen, quiet. A card with no second button (one
+  // not yet read from the board) has Reply alone. A pair wraps onto its own line under the row. Reply is orange while
+  // a message clears the card's Action needed, as on a card the orchestrator stalled
+  // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
   const replyTone = (item) => (item?.resolvedBy === BUTTON.reply ? 'resolves' : undefined);
-  const sendsOf = (item) => [item?.lane === 'todo' ? (item.ready ? 'todo-ready' : 'todo')
-    : item?.lane === 'review' ? ['review', doneTone(item)].filter(Boolean).join(' ') : 'one', item?.resolvedBy === BUTTON.implement && 'implement-resolves', replyTone(item) && 'reply-resolves'].filter(Boolean).join(' ');
+  const laneSends = (item) => (item?.lane === 'todo' ? (item.ready ? 'todo-ready' : 'todo')
+    : item?.lane === 'review' ? ['review', doneTone(item)].filter(Boolean).join(' ')
+    : item?.lane === 'progress' ? (item.held ? 'progress-held' : 'progress')
+    : item?.lane === 'done' ? 'done' : 'one');
+  const sendsOf = (item) => [laneSends(item), item?.resolvedBy === BUTTON.implement && 'implement-resolves', replyTone(item) && 'reply-resolves'].filter(Boolean).join(' ');
   const pair = (kind, html) => `<span class="send-actions" data-sends="${kind}">${html}</span>`;
   const sends = (kind, item) => {
-    const reply = (label, attrs = '') => sendButton(label, 0, attrs, replyTone(item));
-    return kind.startsWith('one') ? `<span data-sends="${kind}">${reply('Send')}</span>`
-      : kind.startsWith('review') ? pair(kind, `${doneButton(item)}${reply('Reply', ' data-intent="reply"')}`)
-      : pair(kind, `${sendButton('Implement', 1, ` class="build${kind.startsWith('todo-ready') ? ' ready' : ''}${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"`)}${reply('Reply', ' data-intent="reply"')}`);
+    const reply = sendButton('Reply', 0, ' data-intent="reply"', replyTone(item));
+    const card = (label, act, cls = '') => sendButton(label, 1, `${cls ? ` class="${cls}"` : ''} data-confirm="${act}" data-key="${esc(item.key)}"`);
+    const second = kind.startsWith('todo') ? sendButton('Implement', 1, ` class="build${kind.startsWith('todo-ready') ? ' ready' : ''}${kind.includes('implement-resolves') ? ' resolves' : ''}" data-intent="build"`)
+      : kind.startsWith('review') ? doneButton(item)
+      : kind.startsWith('progress-held') ? card('Resume', 'resume', 'unhold')
+      : kind.startsWith('progress') ? card('Hold', 'hold')
+      : kind.startsWith('done') ? card('Reopen', 'reopen') : '';
+    return second ? pair(kind, `${second}${reply}`) : `<span data-sends="${kind}">${reply}</span>`;
   };
   // The board, not the thread, decides the send buttons, so they follow each board load even when the thread is unchanged.
   function syncSends(el, key) {
@@ -171,7 +181,7 @@ BoardView.part((B) => {
     const f = ev.target.closest('form[data-reply]');
     if (!f) return;
     ev.preventDefault();
-    // Done on ⌥↵ (app-asks.js) confirms and closes the card as its tap does (app-cards.js).
+    // Hold, Resume, Done or Reopen on ⌥↵ (app-asks.js) does what its tap does (app-cards.js confirmTap).
     if (ev.submitter?.dataset.confirm) { B.confirmTap(ev.submitter); return; }
     post(f, slashOf(f.querySelector('textarea').value).flag, ev.submitter);
   });

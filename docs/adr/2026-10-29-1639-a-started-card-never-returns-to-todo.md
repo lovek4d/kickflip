@@ -23,3 +23,5 @@ Considered:
 - counting any thread line as started, which would lift cards moved in with a note but never worked.
 
 Superseded in part by [a card stores its lane, and facts replace statuses](2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md): a placed card has started once its stored lane isn't Todo; a block or a hold moves it back to Todo with a thread line.
+
+Superseded in part by [threads say Reply, with Hold, Resume and Reopen beside it](2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md): the owner's Reopen on a Done card moves it back to Todo, discussing.

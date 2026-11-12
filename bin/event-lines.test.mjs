@@ -69,7 +69,7 @@ test('SKILL.md describes no event that nothing writes, and the record-only and l
 
 test('usage-resumed and the taps the board applies itself are record-only; a bump, a typed message and an answer wake', () => {
   const quiet = (k) => recordOnly(JSON.stringify(event(k)));
-  for (const k of ['usage-resumed', 'card-hold', 'card-done', 'card-unbump', 'grill-more', 'prototype-request', 'visual-request']) assert.equal(quiet(k), true, k);
+  for (const k of ['usage-resumed', 'card-hold', 'card-done', 'card-reopen', 'card-unbump', 'grill-more', 'prototype-request', 'visual-request']) assert.equal(quiet(k), true, k);
   for (const k of ['card-bump', 'item-message', 'owner-answer', 'builder-ask', 'orchestrator-waits']) assert.equal(quiet(k), false, k);
   assert.equal(ON_CARD['card-bump']('#3', event('card-bump')), '#3 bumped: handle its waits lines first; with none, leave it');
 });

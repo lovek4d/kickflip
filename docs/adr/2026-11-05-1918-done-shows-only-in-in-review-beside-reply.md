@@ -16,3 +16,5 @@ Considered:
 - The icons inside the text box's corner (take B), or the pair beside the icons on one footer line (take C).
 
 Supersedes [a lightning button in a Todo thread's footer starts a quick build](2026-11-05-0010-a-lightning-button-in-a-todo-threads-footer-starts-a-quick-build.md).
+
+Superseded in part by [threads say Reply, with Hold, Resume and Reopen beside it](2026-11-12-1300-threads-say-reply-with-hold-resume-and-reopen-beside-it.md): an In Progress card's box has Hold (or Resume while held) then Reply, and no box says Send.
