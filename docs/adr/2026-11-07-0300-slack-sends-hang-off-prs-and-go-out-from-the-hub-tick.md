@@ -2,6 +2,8 @@
 
 Status: accepted (#277, 11/07). Superseded in part by [review posts go into one day thread per board](2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md) (#522): links and their bumps now go into each reviewer's day thread.
 
+Superseded in part by [a day thread carries only each PR's link](2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md) (#542): pushes, comments and Updated post nothing, and builder done no longer asks for the Updated decision.
+
 ## Context
 
 #35 gave the hub a Slack user token and had each poll send what `review due` owed: one link per card, `git_merged` on a merged card's links, and the weekday digest. The owner asked for the links, reactions and digest to go out mechanically, every send recorded and retried. Reading that code turned up four ways a send went missing or went twice:

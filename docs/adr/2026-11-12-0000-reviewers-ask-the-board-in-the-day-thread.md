@@ -2,6 +2,8 @@
 
 Status: accepted (#531, 11/11). Builds on [review posts go into one day thread per board](2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md).
 
+Superseded in part by [a day thread carries only each PR's link](2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md): orchestrator messages are at most 250 characters, and it writes in the thread only when asked.
+
 ## Context
 
 The owner's pivot on #505 (11/09) made each board's day thread "effectively ... general messages to that board's orchestrator, allowing reviewers to ask the board broader questions, not stored anywhere but the slack thread". #522 put the review posts in that thread; this card makes the board hear it.

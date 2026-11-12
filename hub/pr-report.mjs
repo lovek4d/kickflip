@@ -96,11 +96,11 @@ export async function fetchPR({ repo, pr, since, comments = true }) {
 // (docs/adr/2026-11-04-0226-the-hub-checks-every-minute-while-youre-here-and-every-5-when-away.md). GraphQL has no `since`,
 // so each PR brings its last 50 comments, reviews and review threads of 20 comments, and reportOf filters them by time.
 const AUTHOR = 'author { __typename login }';
-// Title, size, whether anyone approved and the newest commits are for the PR's Slack link and push replies; url, merge
+// Title, size and whether anyone approved are for the PR's Slack link and its reactions; url, merge
 // time, branch, update time and each reviewer's latest state are for the board's badges
 // (docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md).
 const PR_QUERY_FIELDS = 'state isDraft reviewDecision mergeable mergeStateStatus headRefOid title additions deletions changedFiles url mergedAt headRefName updatedAt'
-  + ` latestReviews(first: 50) { nodes { state ${AUTHOR} } } recent: commits(last: 20) { nodes { commit { oid messageHeadline } } }`
+  + ` latestReviews(first: 50) { nodes { state ${AUTHOR} } }`
   + ' commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 50) { nodes { __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }'
   + ` comments(last: 50) { nodes { databaseId ${AUTHOR} createdAt body url } }`
   + ` reviews(last: 50) { nodes { databaseId ${AUTHOR} submittedAt body state url } }`
@@ -166,7 +166,6 @@ export async function fetchPRs(prs, repos = []) {
         statusCheckRollup: p.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [],
         title: p.title ?? null, additions: p.additions ?? null, deletions: p.deletions ?? null, changedFiles: p.changedFiles ?? null,
         approved: (p.latestReviews?.nodes ?? []).some((r) => r.state === 'APPROVED'),
-        commits: (p.recent?.nodes ?? []).map((n) => ({ oid: n.commit.oid.slice(0, 10), subject: n.commit.messageHeadline })),
         url: p.url ?? null, mergedAt: p.mergedAt ?? null, headRefName: p.headRefName ?? null, updatedAt: p.updatedAt ?? null,
         reviews: Object.fromEntries((p.latestReviews?.nodes ?? []).filter((r) => r.author?.login).map((r) => [r.author.login, r.state])),
         codexOpen: codexOpen(reviewComments) },
@@ -195,7 +194,7 @@ export function reportOf({ view, issueComments, reviewComments, reviews }, { pr,
     failing: checks.filter((c) => /FAILURE|ERROR/.test(c.conclusion ?? c.state ?? '')).map((c) => c.name ?? c.context ?? null),
     pending: checks.filter((c) => (c.status ?? 'COMPLETED') !== 'COMPLETED').length, events,
     title: view.title ?? null, additions: view.additions ?? null, deletions: view.deletions ?? null, files: view.changedFiles ?? null,
-    approved: Boolean(view.approved), commits: view.commits ?? [],
+    approved: Boolean(view.approved),
     // The board's badges (fetchPRs; a REST fetchPR view has none but the CI and the full head).
     url: view.url ?? null, mergedAt: view.mergedAt ?? null, headRefName: view.headRefName ?? null, headRefOid: view.headRefOid ?? null,
     updatedAt: view.updatedAt ?? null, checks: checksOf(checks), reviews: view.reviews ?? {}, codexOpen: view.codexOpen ?? 0,

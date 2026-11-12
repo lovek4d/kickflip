@@ -85,7 +85,7 @@ test('state fields follow null fallthrough, check conclusions and status-only pe
   ] });
   const report = reportOf({ view, issueComments: [], reviewComments: [], reviews: [] }, { pr: '7', since, me: 'owner' });
   assert.deepEqual(report, { pr: 7, state: 'OPEN', isDraft: true, reviewDecision: '', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED', head: '1234567890', failing: ['failure', 'error', 'legacy', 'null conclusion', ''], pending: 2, events: [],
-    title: null, additions: null, deletions: null, files: null, approved: false, commits: [],
+    title: null, additions: null, deletions: null, files: null, approved: false,
     url: null, mergedAt: null, headRefName: null, headRefOid: '1234567890abcdef', updatedAt: null, checks: { total: 10, fail: 6, pending: 2, state: 'fail' }, reviews: {}, codexOpen: 0 });
   const missing = reportOf({ view: {}, issueComments: [{ user: { login: 'ann' }, created_at: '2026-10-23T11:00:00Z' }], reviewComments: [{ created_at: '2026-10-23T12:00:00Z' }], reviews: [{ submitted_at: '2026-10-23T13:00:00Z' }] }, { ...input, me: 'owner' });
   assert.equal(missing.head, null);
@@ -183,7 +183,7 @@ test('fetchPRs reads every PR in one GraphQL query, in the shapes reportOf reads
   writeUser(dir, { login: 'owner' });
   writeRate(dir, { remaining: 4321, resetAt: '2026-10-23T12:00:00Z' });
   writePR(dir, 'o/site#3', prView({ isDraft: true, failing: ['lint'], title: 'Fix limiter', additions: 84, deletions: 12, changedFiles: 5,
-    latestReviews: { nodes: [{ state: 'COMMENTED' }, { state: 'APPROVED' }] }, recent: { nodes: [{ commit: { oid: 'aaa0000000ffff', messageHeadline: 'Add limiter' } }, { commit: { oid: 'bbb0000000ffff', messageHeadline: 'Fix reset' } }] } }));
+    latestReviews: { nodes: [{ state: 'COMMENTED' }, { state: 'APPROVED' }] } }));
   writeIssueComments(dir, 7, [
     comment(1, 'owner', '2026-10-23T11:00:00Z'),
     comment(2, 'owner', '2026-10-23T11:01:00Z', '🤖 Done\n\n<!-- claude-bridge -->'),
@@ -209,8 +209,8 @@ test('fetchPRs reads every PR in one GraphQL query, in the shapes reportOf reads
   assert.deepEqual(reportOf(results[0], { ...input, me: login }), reportOf(await fetchPR(input), { ...input, me: login }));
   const site = reportOf(results[1], { repo: 'o/site', pr: 3, since, me: login });
   assert.deepEqual([site.isDraft, site.failing, site.head], [true, ['lint'], 'abc1234567']);
-  // The PR's Slack link and push replies read its title, size, whether anyone approved and its newest commits.
-  assert.deepEqual([site.title, site.additions, site.deletions, site.files, site.approved, site.commits], ['Fix limiter', 84, 12, 5, true, [{ oid: 'aaa0000000', subject: 'Add limiter' }, { oid: 'bbb0000000', subject: 'Fix reset' }]]);
+  // The PR's Slack link and its reactions read its title, size and whether anyone approved.
+  assert.deepEqual([site.title, site.additions, site.deletions, site.files, site.approved], ['Fix limiter', 84, 12, 5, true]);
 });
 
 // docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md

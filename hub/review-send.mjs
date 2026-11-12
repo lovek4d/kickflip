@@ -1,22 +1,22 @@
 // The hub sends what each board's `review due` owes, as the owner through Hub's Slack token, recording each send in the
 // board's files as board/store.mjs posts it (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md,
 // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md,
-// docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md). Each reviewer gets one thread per board
-// for each Slack day, in the DM the hub opens with them: the weekday digest opens it when it is due first, else a
-// “<board> reviews” header line. Each PR's link and its push, comment and Updated bumps go in as replies; a link posted
-// top-level before the day threads keeps its own thread for its bumps. Reactions go on every link and bump. A failed
-// send stays owed and goes again next poll. After the sends, the hub hears the day threads (hearBoards).
+// docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md,
+// docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md). Each reviewer gets one thread per board for
+// each Slack day, in the DM the hub opens with them: the weekday digest opens it when it is due first, else a
+// “<board> reviews” header line. Each PR's link goes in as a reply, and nothing else about the PR does. Reactions go on
+// every posted link and reply. A failed send stays owed and goes again next poll. After the sends, the hub hears the
+// day threads (hearBoards).
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendEvent, listBoards } from './boards.mjs';
 import { savedSlack, slackStatus, refusalUnpushed, markRefusalPushed, missingScope, setHearing, hearingUnpushed, markHearingPushed, slackUserId } from './slack.mjs';
 import { deliver } from './push.mjs';
-import { reviewDue, queuePushes, postLink, postReply, recordReaction, postDigest, openDayThread, heardThreads, markHeard, boardPosts, ANSWER_MARK } from '../board/store.mjs';
+import { reviewDue, postLink, recordReaction, postDigest, openDayThread, heardThreads, markHeard, boardPosts, ANSWER_MARK } from '../board/store.mjs';
 
 const refusedToken = (e) => e.status === 400 && e.message === 'Slack refused the token.';
 
 async function sendBoard(board, slack, now) {
-  await queuePushes(board.dir);
   const due = await reviewDue(board.dir, { now });
   if (due.waiting) return { sent: [], failed: [] };
   const sent = [];
@@ -48,12 +48,6 @@ async function sendBoard(board, slack, now) {
     await attempt(`link to ${link.reviewer} on ${link.pr}`, async () => {
       const thread = await dayThread(link.reviewer, () => slack.openDM(link.slack_user));
       await postLink(board.dir, link, thread, () => slack.post({ channel: thread.channel, thread_ts: thread.ts, text: link.text }));
-    });
-  }
-  for (const reply of due.replies) {
-    await attempt(`${reply.id} to ${reply.reviewer} on ${reply.pr}`, async () => {
-      const threadTs = reply.thread_ts || (await dayThread(reply.reviewer, async () => reply.channel)).ts;
-      await postReply(board.dir, reply, () => slack.post({ channel: reply.channel, thread_ts: threadTs, text: reply.text }));
     });
   }
   for (const r of due.reactions) {

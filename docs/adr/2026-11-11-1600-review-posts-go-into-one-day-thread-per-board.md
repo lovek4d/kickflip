@@ -2,6 +2,8 @@
 
 Status: accepted (#522, 11/11). Supersedes the "each PR gets its own fresh link" and thread-reply parts of [Slack sends hang off PRs and go out from the hub tick](2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md).
 
+Superseded in part by [a day thread carries only each PR's link](2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md): the push, comment and Updated bumps are gone.
+
 ## Context
 
 Under #277, each PR's link went to each reviewer as a top-level DM, and its pushes, comments and Updated went in that link's own thread. A reviewer on a busy board got a stream of top-level messages. The owner pivoted #505 (11/09): "they always go into a digest thread. This avoids spamming reviewers and keeps the messages contained. One thread per board, use morning digest if present else start one." #505 split into this card (the posts go into the thread) and a second one (reviewers ask the board there).

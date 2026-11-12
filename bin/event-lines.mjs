@@ -41,7 +41,7 @@ export const PLAIN = {
   'prototype-overdue': (e) => `prototype overdue on ${e.data?.key}: dispatch its prototype agent now`,
   // docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md
   'slack-question': (e) => (e.data?.answer
-    ? `${e.data.from === 'owner' ? 'the owner' : e.data?.reviewer} asked the board in ${e.data?.reviewer}'s Slack review thread: slack thread ${e.id}, then answer only about this board with slack answer ${e.id} --text, or file a request for work with slack task ${e.id} <file>`
+    ? `${e.data.from === 'owner' ? 'the owner' : e.data?.reviewer} wrote to the board in ${e.data?.reviewer}'s Slack review thread: slack thread ${e.id}, then, only if it asks something, answer about this board alone with slack answer ${e.id} --text (250 characters at most), or file a request for work with slack task ${e.id} <file>; a thanks gets no reply`
     : `the owner wrote in ${e.data?.reviewer}'s Slack review thread without @kickflip: slack thread ${e.id} for context; no reply`),
 };
 // The kinds whose line names the card the event is on.

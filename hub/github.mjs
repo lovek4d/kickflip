@@ -41,9 +41,9 @@ export function summarize(out) {
     mergeable: out.mergeable || null, mergeStateStatus: out.mergeStateStatus || null, head: out.head || null,
     failing: [...new Set(out.failing || [])].sort(), pending: Number(out.pending) || 0,
     eventId: newest ? String(newest.id) : null, eventAt: newest?.at || null,
-    // For the PR's Slack link and push replies (board/store.mjs reviewDue, queuePushes)
+    // For the PR's Slack link and its reactions (board/store.mjs reviewDue)
     title: out.title ?? null, additions: out.additions ?? null, deletions: out.deletions ?? null, files: out.files ?? null,
-    approved: Boolean(out.approved), commits: Array.isArray(out.commits) ? out.commits : [],
+    approved: Boolean(out.approved),
     // What a board's badges draw, which boards read from here (board/server.mjs snapshot,
     // docs/adr/2026-11-09-1556-boards-read-pr-state-from-the-hubs-check.md)
     url: out.url ?? null, mergedAt: out.mergedAt ?? null, headRefName: out.headRefName ?? null, headRefOid: out.headRefOid ?? null,

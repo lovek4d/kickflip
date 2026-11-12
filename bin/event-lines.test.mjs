@@ -98,6 +98,6 @@ test('a new task, a message in an ask thread and an agent-added card wake the se
 test("a slack-question wakes the session to read the thread, then answer or file it, unless it is the owner's with no @kickflip", () => {
   const where = { reviewer: 'Ann', channel: 'D1', thread_ts: '1.1', ts: '1.2' };
   assert.equal(recordOnly(JSON.stringify(event('slack-question', { ...where, from: 'reviewer', answer: true }))), false);
-  assert.match(PLAIN['slack-question'](event('slack-question', { ...where, from: 'reviewer', answer: true })), /^Ann asked the board .*slack thread e1, then answer only about this board with slack answer e1 --text, or file a request for work with slack task e1 <file>$/);
+  assert.match(PLAIN['slack-question'](event('slack-question', { ...where, from: 'reviewer', answer: true })), /^Ann wrote to the board .*slack thread e1, then, only if it asks something, answer about this board alone with slack answer e1 --text \(250 characters at most\), or file a request for work with slack task e1 <file>; a thanks gets no reply$/);
   assert.equal(PLAIN['slack-question'](event('slack-question', { ...where, from: 'owner', answer: false })), "the owner wrote in Ann's Slack review thread without @kickflip: slack thread e1 for context; no reply");
 });

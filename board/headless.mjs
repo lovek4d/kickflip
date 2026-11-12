@@ -42,7 +42,6 @@ const finishSteps = ({ route, key, worktree, base }) => [
   `- On a conflict it undoes its rebase and names the files: run \`${rebase(base)}\` in ${worktree}, resolve each conflict keeping both sides' intent, continue with \`git -c core.commentChar=';' rebase --continue\`, rerun the tests, and run done again.`,
   '- On failing tests, fix them, commit, and run done again.',
   '- While another card is landing, done waits its turn and then lands; leave it running.',
-  '- Once a reviewer has the card\'s PR link, done refuses without `--updated "<what changed>"`, which goes in that link\'s Slack thread, or `--updated none` for a change only to comments, names, docs or tests.',
   `- Finishing never goes to the orchestrator. If done refuses for a reason you can't fix, record it with \`${cli(route)} builder call ${key} "<why>"\` and run done again: with the call it hands the card back.`,
 ];
 const finishCommand = ({ route, key }) => `\`${cli(route)} builder done ${key} --text "<what you checked>"\``;

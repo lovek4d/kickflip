@@ -239,12 +239,13 @@ test("pr comment and pr reply post Claude's words through gh with the robot pref
   const cli = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
   const posts = () => tokens(dir).filter((c) => c.args[0] === 'api').map(({ args, token }) => [args[1], args[3], token]);
 
-  // A comment on a PR whose link a reviewer has also goes in that link's Slack thread.
-  write(site('orch', 'data', 'pr-slack.json'), { 'o/r#7': { head: 'a', links: { Ann: { channel: 'D1', ts: '1.1', reactions: [] } }, replies: [] } });
+  // A comment on a PR whose link a reviewer has stays on GitHub: nothing goes in that link's Slack thread.
+  const slackRecord = { 'o/r#7': { links: { Ann: { channel: 'D1', ts: '1.1', reactions: [] } }, replies: [] } };
+  write(site('orch', 'data', 'pr-slack.json'), slackRecord);
   const comment = cli('pr', 'comment', '7', '--body', 'Fixed in abc1234.');
   assert.equal(comment.code, 0, comment.err);
-  assert.equal(comment.out, 'posted on PR #7: https://github.com/o/r/issues/7/comments\nqueued for Ann\'s Slack thread\n');
-  assert.deepEqual(read(site('orch', 'data', 'pr-slack.json'))['o/r#7'].replies, [{ id: 'comment-1', text: 'comment: Fixed in abc1234.', to: { Ann: {} } }]);
+  assert.equal(comment.out, 'posted on PR #7: https://github.com/o/r/issues/7/comments\n');
+  assert.deepEqual(read(site('orch', 'data', 'pr-slack.json')), slackRecord);
   assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
   assert.equal(cli('pr', 'reply', '7', '901', '--body', 'Not changed: the owner kept it.').code, 0);
   const elsewhere = cli('pr', 'comment', 'o/site#1', '--body', 'Linked from #7.');
@@ -639,18 +640,19 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
   ] });
   const link = (channel, ts, reactions = []) => ({ channel, ts, reactions });
   write(site('orch', 'data', 'pr-slack.json'), {
-    'o/r#1': { head: 'h1', links: { Ann: link('D1', '1.1') }, replies: [{ id: 'comment-1', text: 'comment: fixed', to: { Ann: {} } }] },
+    'o/r#1': { links: { Ann: link('D1', '1.1') }, replies: [{ id: 'comment-1', text: 'comment: fixed', to: { Ann: {} } }] },
     'o/r#3': { head: 'h3', links: { Ann: link('D1', '3.1', ['git_merged']), Bob: link('D2', '3.2') }, replies: [] },
     'o/r#4': { head: 'h4', links: { Bob: link('D2', '4.2') }, replies: [] },
   });
   write(at('kickflip', 'github-state.json'), { prs: { 'o/r#1': { state: 'OPEN', isDraft: false, head: 'h1', title: 'Open PR', additions: 1, deletions: 2, files: 3 }, 'o/r#2': { state: 'OPEN', isDraft: true }, 'o/r#3': { state: 'MERGED' } } });
   const owed = due();
-  assert.deepEqual(owed.links, [{ pr: 'o/r#1', key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', head: 'h1', text: '<@U2> <https://github.com/o/r/pull/1|r#1> ready for review: Open PR (+1/-2, 3 files)' }]);
-  assert.deepEqual(owed.replies, [{ pr: 'o/r#1', id: 'comment-1', reviewer: 'Ann', channel: 'D1', thread_ts: '1.1', text: '<@U1> <https://github.com/o/r/pull/1|r#1> comment: fixed' }]);
+  assert.deepEqual(owed.links, [{ pr: 'o/r#1', key: 'w/A1', reviewer: 'Bob', slack_user: 'U2', text: '<@U2> <https://github.com/o/r/pull/1|r#1> ready for review: Open PR (+1/-2, 3 files)' }]);
+  // A bump queued before bumps stopped is never owed.
+  assert.equal('replies' in owed, false);
   assert.deepEqual(owed.reactions, [{ pr: 'o/r#3', reviewer: 'Bob', channel: 'D2', ts: '3.2', emoji: 'git_merged' }]);
   assert.deepEqual([owed.digest.due, owed.digest.reviewers.map((r) => r.name)], [true, ['Ann', 'Bob']]);
   slackToken({ refused_at: '2026-11-02T00:00:00Z' });
-  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], replies: [], reactions: [], digest: null });
+  assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], reactions: [], digest: null });
 });
 
 test('review digest waits without changing the record while Slack is not ready', () => {

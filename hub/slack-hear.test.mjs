@@ -13,7 +13,7 @@ process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));
 const { sendReviews } = await import('./review-send.mjs');
 const { slackStatus, slackClient } = await import('./slack.mjs');
 const { readinessRows } = await import('./readiness.mjs');
-const { slackThread, slackAnswer, slackTask } = await import('../board/store.mjs');
+const { slackThread, slackAnswer, slackSay, slackTask } = await import('../board/store.mjs');
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
@@ -26,7 +26,7 @@ const saveToken = (world) => write(kf('secrets.json'), { slack: { token: world.t
 const boards = [{ route: 'orch', dir: site, title: 'Orch' }];
 const events = () => lines(path.join(site, 'data', 'events.jsonl'));
 const questions = () => events().filter((e) => e.kind === 'slack-question').map((e) => e.data);
-const pr = { state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', head: 'aaa0000000', title: 'Fix limiter', additions: 84, deletions: 12, files: 5, approved: false, commits: [] };
+const pr = { state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', head: 'aaa0000000', title: 'Fix limiter', additions: 84, deletions: 12, files: 5, approved: false };
 const sunday = new Date('2026-11-01T17:00:00Z');
 const days = (n) => new Date(sunday.getTime() + n * 86400000);
 
@@ -122,7 +122,8 @@ test('slack thread reads the thread, slack answer posts “🤖 ” and the answ
   await slackAnswer(site, question.id, 'Drafts never reach it; filed a task for the owner.', client);
   assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: '🤖 Drafts never reach it; filed a task for the owner.', thread_ts: day, ts: world.messages.at(-1).ts });
   await assert.rejects(slackAnswer(site, quiet.id, 'ok', client), /names no @kickflip, so it expects no reply/);
-  await assert.rejects(slackAnswer(site, question.id, 'x'.repeat(601), client), /past an answer's 600/);
+  await slackAnswer(site, question.id, 'x'.repeat(250), client);
+  await assert.rejects(slackAnswer(site, question.id, 'x'.repeat(251), client), /runs to 251 characters, past the orchestrator's 250/);
   await assert.rejects(slackAnswer(site, 'enope', 'ok', client), /no slack-question "enope"/);
 
   const filed = await slackTask(site, question.id, 'w', { title: 'Digest skips drafts', notes: 'Ann asks the digest to skip drafts.' }, client);
@@ -134,7 +135,28 @@ test('slack thread reads the thread, slack answer posts “🤖 ” and the answ
   assert.deepEqual([said.who, said.text, said.link], ['Ann', 'Could the digest skip drafts?\nThey clutter it.', `https://acme.slack.com/archives/D1/p${asked.replace('.', '')}?thread_ts=${day}&cid=D1`]);
 });
 
-test('board.mjs slack thread, slack answer and slack task run through Hub’s token', async () => {
+test("slack say posts “🤖 ” and the words in the reviewer's day thread, opening today's when none is open, and the hub hears past it", async () => {
+  const { world, slack, poll, day } = await opened();
+  const client = slackClient(world.token, { fetch: slack.fetch });
+  assert.deepEqual((await slackSay(site, 'ann', 'r#1 is ready for another look.', { now: sunday }, client)).lines, ["said in Ann's day thread"]);
+  assert.deepEqual(world.messages.at(-1), { channel: 'D1', user: 'U0', text: '🤖 r#1 is ready for another look.', thread_ts: day, ts: world.messages.at(-1).ts });
+  await poll();
+  assert.deepEqual(questions(), []);
+
+  // The next day, the words open that day's thread under the board's header.
+  world.messages.length = 0;
+  await slackSay(site, 'Ann', 'Merged.', { now: days(1) }, client);
+  const [header, said] = world.messages;
+  assert.deepEqual([header.channel, header.text, header.thread_ts], ['D1', 'Orch reviews', undefined]);
+  assert.deepEqual([said.text, said.thread_ts], ['🤖 Merged.', header.ts]);
+  await poll(days(1));
+  assert.deepEqual(questions(), []);
+
+  await assert.rejects(slackSay(site, 'Ann', 'x'.repeat(251), { now: sunday }, client), /runs to 251 characters, past the orchestrator's 250/);
+  await assert.rejects(slackSay(site, 'Zed', 'hi', { now: sunday }, client), /no reviewer "Zed" on this board; its reviewers are Ann/);
+});
+
+test('board.mjs slack thread, slack answer, slack say and slack task run through Hub’s token', async () => {
   const { world, slack, poll, day } = await opened();
   slack.say({ channel: 'D1', user: 'U1', text: 'Can it batch?', thread_ts: day });
   await poll();
@@ -155,6 +177,9 @@ test('board.mjs slack thread, slack answer and slack task run through Hub’s to
     const answered = await cli('slack', 'answer', question.id, '--text', 'Not yet; filed for the owner.');
     assert.equal(answered.code, 0, answered.err);
     assert.equal(world.messages.at(-1).text, '🤖 Not yet; filed for the owner.');
+    const said = await cli('slack', 'say', 'Ann', '--text', 'Batching is filed.');
+    assert.equal(said.code, 0, said.err);
+    assert.equal(world.messages.at(-1).text, '🤖 Batching is filed.');
     const filed = await cli('slack', 'task', question.id, 'w', '--title', 'Batch sends', '--notes', 'Ann asks for batching.');
     assert.equal(filed.code, 0, filed.err);
     assert.match(filed.out, /w\/T-1/);

@@ -857,14 +857,15 @@ async function writeReviewers(site, change) {
 export const setReviewers = (site, list) => writeReviewers(site, () => checkReviewers(list, 'the reviewer file'));
 
 // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md,
-// docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md
-// data/pr-slack.json {<owner/repo#n>: {head, links: {<reviewer>: {channel, thread_ts, ts, reactions: [emoji]}},
-// replies: [{id, text, to: {<reviewer>: {ts, reactions}}}]}}: each PR's Slack messages, apart from the cards that hold
-// it. Every reviewer of a PR has their own link message, in the owner's DM with them, and the same bumps and reactions.
-// A link with thread_ts is a reply in that day's thread, and its bumps go in the reviewer's thread for the day they are
-// sent; a link without one was posted top-level before the day threads, and its bumps go in its own thread. head is
-// the commit the bumps last told about. A message carries ts once posted, and posting_at while its post is out or
-// after its ts couldn't be recorded; either way it is never posted again.
+// docs/adr/2026-11-11-1600-review-posts-go-into-one-day-thread-per-board.md,
+// docs/adr/2026-11-12-0044-a-day-thread-carries-only-each-prs-link.md
+// data/pr-slack.json {<owner/repo#n>: {links: {<reviewer>: {channel, thread_ts, ts, reactions: [emoji]}},
+// replies: [{id, text, to: {<reviewer>: {channel?, ts, reactions}}}]}}: each PR's Slack messages, apart from the cards
+// that hold it. Every reviewer of a PR has their own link message, in the owner's DM with them: a reply in that day's
+// thread when it has thread_ts, else posted top-level before the day threads. replies are the PR's other messages
+// already posted, which get the link's reactions: a one-PR digest reply, and the bumps sent before they stopped; one
+// never posted is never sent. A message carries ts once posted, and posting_at while its post is out or after its ts
+// couldn't be recorded; either way it is never posted again.
 const prSlackFile = (site) => path.join(needSite(site), 'data', 'pr-slack.json');
 export const readPRSlack = (site) => readJSON(prSlackFile(site), {});
 const held = (message) => Boolean(message?.ts || message?.posting_at);
@@ -900,12 +901,9 @@ async function postOnce(file, find, post) {
 
 // due: one of review due's links; thread: the reviewer's day thread {channel, ts}; post() → ts.
 export const postLink = (site, due, thread, post) => postOnce(prSlackFile(site), (all) => {
-  const rec = all[due.pr] ||= { head: due.head, links: {}, replies: [] };
-  rec.head ??= due.head;
+  const rec = all[due.pr] ||= { links: {}, replies: [] };
   return Object.assign(rec.links[due.reviewer] ||= { reactions: [] }, { channel: thread.channel, thread_ts: thread.ts });
 }, post);
-// due: one of review due's replies; post() → ts.
-export const postReply = (site, due, post) => postOnce(prSlackFile(site), (all) => all[due.pr].replies.find((r) => r.id === due.id).to[due.reviewer], post);
 // due: one of review due's reactions, once Slack has it.
 export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) => {
   const rec = all[due.pr];
@@ -913,54 +911,11 @@ export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) =
   message.reactions = [...new Set([...(message.reactions || []), due.emoji])];
 });
 
-// A bump owed to every reviewer with a posted link to the PR. → their names
-const queueReply = (site, pr, kind, text) => editJSON(prSlackFile(site), (all) => {
-  const rec = all[pr];
-  const names = Object.keys(rec?.links || {}).filter((name) => rec.links[name].ts);
-  if (!names.length) return [];
-  rec.replies.push({ id: `${kind}-${rec.replies.length + 1}`, text, to: Object.fromEntries(names.map((name) => [name, {}])) });
-  return names;
-});
-
-// “<n> new commits”: those after the head the bumps last told about, among the newest commits the hub's poll read;
-// every one it read when that head is older than them all.
-function pushText(gh, since) {
-  const commits = gh.commits || [];
-  const n = commits.length - commits.findIndex((c) => c.oid === since) - 1;
-  return `${n} new commit${n === 1 ? '' : 's'}`;
-}
-
-// Queues a push bump on each PR whose head moved since its bumps last told about it. The hub runs this each poll,
-// before it reads review due.
-export async function queuePushes(site) {
-  const cache = await readJSON(GITHUB_STATE, {});
-  const moved = (pr, rec) => {
-    const head = routeRecord(cache.prs, pr)?.head;
-    return Boolean(head) && head !== rec.head && Object.values(rec.links).some((l) => l.ts);
-  };
-  // A poll with no head moved writes nothing.
-  if (!Object.entries(await readPRSlack(site)).some(([pr, rec]) => moved(pr, rec))) return [];
-  return editJSON(prSlackFile(site), (all) => {
-    const queued = [];
-    for (const [pr, rec] of Object.entries(all)) {
-      if (!moved(pr, rec)) continue;
-      const gh = routeRecord(cache.prs, pr);
-      const names = Object.keys(rec.links).filter((name) => rec.links[name].ts);
-      if (rec.head) {
-        rec.replies.push({ id: `push-${rec.replies.length + 1}`, text: pushText(gh, rec.head), to: Object.fromEntries(names.map((name) => [name, {}])) });
-        queued.push(pr);
-      }
-      rec.head = gh.head;
-    }
-    return queued;
-  });
-}
-
-// Every message in a day thread about one PR, in the owner's words: “@reviewer repo#n <what>”, the reviewer's mention
-// so Slack tells them of the reply, and repo#n linking the PR. A reviewer no longer on the board goes unmentioned.
+// A PR's link in a day thread, in the owner's words: “@reviewer repo#n <what>”, the reviewer's mention so Slack tells
+// them of the reply, and repo#n linking the PR.
 function aboutPR(slackUser, pr, what) {
   const [repo, number] = pr.split('#');
-  return [slackUser && `<@${slackUser}>`, `<${prURL({ repo, number })}|${repo.split('/').pop()}#${number}>`, what].filter(Boolean).join(' ');
+  return `<@${slackUser}> <${prURL({ repo, number })}|${repo.split('/').pop()}#${number}> ${what}`;
 }
 // What a link says after the PR: its title and “+N/-M, K files”.
 function linkText(gh, item) {
@@ -971,24 +926,21 @@ const approved = (gh) => Boolean(gh?.approved) || gh?.reviewDecision === 'APPROV
 
 // docs/adr/2026-11-03-0003-the-board-records-what-it-knows-and-commands-make-the-rule-calls.md
 // `review due`: each Slack send still owed, from local state with no GitHub call; the hub sends them each poll.
-// date: the Slack day, whose thread a link or a bump with no thread_ts goes in. links: a fresh link to each reviewer
-// of a card's PR that the hub last read open and out of draft, once per PR. replies: each bump not yet posted, with
-// thread_ts only for a link posted top-level before the day threads. reactions: git_approved once anyone approved, then
-// git_merged on merge or x on a close, on each posted link and bump. digest: review digest's answer while one is due,
-// else null. While Slack isn't ready → waiting and nothing owed.
+// date: the Slack day, whose thread a link goes in. links: a fresh link to each reviewer of a card's PR that the hub
+// last read open and out of draft, once per PR. reactions: git_approved once anyone approved, then git_merged on merge
+// or x on a close, on each posted link and reply. digest: review digest's answer while one is due, else null. While
+// Slack isn't ready → waiting and nothing owed.
 export async function reviewDue(site, options) {
   needSite(site);
   const waiting = await readiness.waiting('slack');
-  if (waiting) return { waiting, links: [], replies: [], reactions: [], digest: null };
+  if (waiting) return { waiting, links: [], reactions: [], digest: null };
   const cfg = await boardConfig(site);
   const cache = await readJSON(GITHUB_STATE, {});
   const record = await readPRSlack(site);
   const links = [];
-  const slackUsers = new Map();
   for (const source of await itemSources(site)) {
     const itemFile = await readJSON(source.file, {});
     const people = reviewersOf(itemFile, cfg.reviewers);
-    for (const r of people) if (!slackUsers.has(r.name)) slackUsers.set(r.name, r.slack_user);
     for (const item of itemFile.items || []) {
       if (item.lane === 'done') continue;
       for (const p of cardPRs(item, boardRepoOf(site, itemFile))) {
@@ -997,12 +949,11 @@ export async function reviewDue(site, options) {
         if (gh?.state !== 'OPEN' || gh.isDraft) continue;
         for (const r of people) {
           if (held(record[pr]?.links?.[r.name]) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
-          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, head: gh.head || null, text: aboutPR(r.slack_user, pr, linkText(gh, item)) });
+          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, text: aboutPR(r.slack_user, pr, linkText(gh, item)) });
         }
       }
     }
   }
-  const replies = [];
   const reactions = [];
   for (const [pr, rec] of Object.entries(record)) {
     const gh = routeRecord(cache.prs, pr);
@@ -1012,35 +963,10 @@ export async function reviewDue(site, options) {
       for (const emoji of wanted) if (!message.reactions?.includes(emoji)) reactions.push({ pr, reviewer: name, ...(reply ? { reply } : {}), channel: message.channel || rec.links[name].channel, ts: message.ts, emoji });
     };
     for (const [name, link] of Object.entries(rec.links)) react(name, link);
-    for (const reply of rec.replies) {
-      for (const [name, sent] of Object.entries(reply.to)) {
-        react(name, sent, reply.id);
-        const link = rec.links[name];
-        if (!held(sent)) replies.push({ pr, id: reply.id, reviewer: name, channel: link.channel, thread_ts: link.thread_ts ? null : link.ts, text: aboutPR(slackUsers.get(name), pr, reply.text) });
-      }
-    }
+    for (const reply of rec.replies) for (const [name, sent] of Object.entries(reply.to)) react(name, sent, reply.id);
   }
   const digest = await reviewDigest(site, options);
-  return { date: slackDay(options?.now).date, links, replies, reactions, digest: digest.due ? digest : null };
-}
-
-// `review updated`: “updated: <what changed>” queued for every reviewer with a posted link on the card's PRs, which the
-// hub's next poll sends (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md).
-export async function reviewUpdated(site, key, whatChanged) {
-  needSite(site);
-  const words = text(whatChanged, 'what changed');
-  const { itemFile, item } = await loadItem(site, key);
-  const sent = [];
-  for (const p of cardPRs(item, boardRepoOf(site, itemFile))) sent.push(...await queueReply(site, prKeyOf(p), 'updated', `updated: ${words}`));
-  const names = [...new Set(sent)];
-  return { lines: [names.length ? `Updated queued for ${names.join(', ')} on ${key}` : `no reviewer has a link to ${key}'s PRs; nothing queued`] };
-}
-
-// Whether a reviewer already has a link to one of the card's PRs, so its builder's done owes the Updated decision.
-export async function cardLinked(site, key) {
-  const { itemFile, item } = await loadItem(site, key);
-  const record = await readPRSlack(site);
-  return cardPRs(item, boardRepoOf(site, itemFile)).some((p) => Object.values(record[prKeyOf(p)]?.links || {}).some((l) => l.ts));
+  return { date: slackDay(options?.now).date, links, reactions, digest: digest.due ? digest : null };
 }
 
 const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.json');
@@ -1113,7 +1039,7 @@ export async function heardThreads(site, now = new Date()) {
 }
 // Records ts as the newest message the hub has read in thread.
 export const markHeard = (site, thread, ts) => editJSON(digestFile(site), (all) => { dayEntry(thread.date, thread.reviewer)(all).heard = ts; });
-// The ts of every message the board posted to Slack: links, bumps, day-thread openers and digest replies.
+// The ts of every message the board posted to Slack: links, their replies, day-thread openers and digest replies.
 export async function boardPosts(site) {
   const out = new Set();
   for (const rec of Object.values(await readPRSlack(site))) {
@@ -1126,7 +1052,13 @@ export async function boardPosts(site) {
 }
 // The orchestrator's answers in a day thread open with this; they post as the owner, so the hub hears past them.
 export const ANSWER_MARK = '🤖 ';
-const ANSWER_LIMIT = 600;
+// What the orchestrator posts in a day thread, “🤖 ” and its words: the words, at most WORDS_LIMIT characters.
+const WORDS_LIMIT = 250;
+function orchestratorWords(words) {
+  const body = text(words, '--text');
+  if (body.length > WORDS_LIMIT) fail(`--text runs to ${body.length} characters, past the orchestrator's ${WORDS_LIMIT}: keep it brief`);
+  return `${ANSWER_MARK}${body}`;
+}
 
 // A slack-question event's data: {reviewer, channel, thread_ts, ts, from: reviewer|owner, answer}.
 async function slackQuestion(site, eventId) {
@@ -1153,14 +1085,36 @@ export async function slackThread(site, eventId, slack = savedSlack()) {
 }
 
 // `slack answer`: “🤖 ” and the answer, posted as a reply in the event's day thread. Refuses an owner's message that
-// names no @kickflip, which expects no reply, and an answer past ANSWER_LIMIT, which isn't brief.
+// names no @kickflip, which expects no reply, and words past WORDS_LIMIT.
 export async function slackAnswer(site, eventId, words, slack = savedSlack()) {
   const q = await slackQuestion(site, eventId);
   if (!q.answer) fail("that message is the owner's and names no @kickflip, so it expects no reply");
-  const body = text(words, '--text');
-  if (body.length > ANSWER_LIMIT) fail(`--text runs to ${body.length} characters, past an answer's ${ANSWER_LIMIT}: keep it brief`);
-  await slackCall(throughSlack(slack).post({ channel: q.channel, thread_ts: q.thread_ts, text: `${ANSWER_MARK}${body}` }));
+  const message = orchestratorWords(words);
+  await slackCall(throughSlack(slack).post({ channel: q.channel, thread_ts: q.thread_ts, text: message }));
   return { lines: [`answered in ${q.reviewer}'s day thread`] };
+}
+
+// `slack say`: “🤖 ” and the words, posted in the reviewer's day thread for now's Slack day, opened with the board's
+// “<title> reviews” header when none is open, as the hub opens one. The owner's explicit ask is its only use
+// (SKILL.md); a message in a thread is answered with slack answer. Refuses words past WORDS_LIMIT.
+export async function slackSay(site, name, words, { now = new Date() } = {}, slack = savedSlack()) {
+  needSite(site);
+  const message = orchestratorWords(words);
+  const cfg = await boardConfig(site);
+  const reviewers = new Map();
+  for (const source of await itemSources(site)) for (const r of reviewersOf(await readJSON(source.file, {}), cfg.reviewers)) reviewers.set(r.name, r);
+  const reviewer = [...reviewers.values()].find((r) => sameName(r.name, name))
+    || fail(`no reviewer "${name}" on this board; its reviewers are ${[...reviewers.keys()].join(', ') || 'none'}`);
+  const client = throughSlack(slack);
+  const { date } = slackDay(now);
+  const open = dayEntry(date, reviewer.name)(await readJSON(digestFile(site), {}));
+  const thread = await slackCall(openDayThread(site, date, reviewer.name, {
+    channel: open?.channel || await slackCall(client.openDM(reviewer.slack_user)),
+    header: `${cfg.title} reviews`,
+    post: (m) => client.post(m),
+  }));
+  await slackCall(client.post({ channel: thread.channel, thread_ts: thread.ts, text: message }));
+  return { lines: [`said in ${reviewer.name}'s day thread`] };
 }
 
 // `slack task`: a request for work in a day thread, filed as a new card in item file `file`, grilling, for the owner
@@ -1206,7 +1160,7 @@ export async function postDigest(site, date, reviewer, { channel, header, post }
   for (const [i, reply] of sent.replies.entries()) {
     if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text }));
   }
-  // A one-PR reply is a message about that PR, so it joins the PR's bumps, posted, and gets its reactions (the digest
+  // A one-PR reply is a message about that PR, so it joins the PR's posted replies and gets its reactions (the digest
   // file keeps only the days still heard); a reply naming several PRs gets none.
   const posted = entry(await readJSON(file, {})).replies.filter((r) => r.pr && r.ts);
   if (posted.length) await editJSON(prSlackFile(site), (all) => {
@@ -3137,9 +3091,7 @@ export async function postPR(site, pr, { replyTo, body }) {
   const repo = ref.repo || boardRepoOf(needSite(site), {}) || fail(`${command} needs a board on GitHub; this board has no repo there`);
   try {
     const url = await postToPR({ repo, pr: ref.number, replyTo, words, login: settingsOf(await boardConfig(site)).github_login });
-    // The comment also goes to each reviewer with a link to the PR, as a bump the hub's next poll sends.
-    const told = await queueReply(site, prKeyOf({ repo, number: ref.number }), 'comment', `comment: ${words}`);
-    return { lines: [`posted on PR ${ref.repo ? pr : `#${pr}`}: ${url}`, ...(told.length ? [`queued for ${told.join(', ')}'s Slack thread`] : [])] };
+    return { lines: [`posted on PR ${ref.repo ? pr : `#${pr}`}: ${url}`] };
   } catch (e) { fail(e.message); }
 }
 

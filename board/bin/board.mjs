@@ -347,27 +347,28 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   slack thread <eventId>                                a slack-question event's day thread, read from Slack through
                                                          Hub's token: one message a line, named board, you or the
                                                          reviewer; → marks the event's message
-  slack answer <eventId> --text <t>                     posts "🤖 " and the answer, at most 600 characters, as a reply
+  slack answer <eventId> --text <t>                     posts "🤖 " and the answer, at most 250 characters, as a reply
                                                          in that thread. Refuses an owner's message that names no
                                                          @kickflip, which expects no reply
+  slack say <reviewer> --text <t>                       posts "🤖 " and the words, at most 250 characters, in the
+                                                         reviewer's day thread for today, opening it with the
+                                                         "<board> reviews" header when none is open; only on the
+                                                         owner's explicit ask
   slack task <eventId> <file> --title <t>               a request for work in that thread: a new card in item file
          (--notes <md> | --notes-from <draft.md>)       <file>, filed grilling for the owner's review, never ready;
                                                          the Slack message is its first thread line, by its writer
   integrations                                          readiness rows as one JSON line
-  review updated <file>/<id> --text "<what changed>"     queues “updated: <what changed>” for every reviewer with a
-                                                         posted link on the card's PRs; the hub's next poll sends it
   review due                                            one JSON line of the Slack sends the hub owes, from local state
                                                          and data/pr-slack.json: {date, links: [{pr, key, reviewer,
-                                                         slack_user, head, text}], replies: [{pr, id, reviewer,
-                                                         channel, thread_ts, text}], reactions: [{pr, reviewer,
-                                                         reply?, channel, ts, emoji}], digest: review digest's
-                                                         answer while due, else null}. links: each open, non-draft
-                                                         PR's link to each reviewer without one; links and replies
-                                                         with no thread_ts go in the reviewer's thread for date;
-                                                         reactions: git_approved once anyone approved, git_merged
-                                                         on merge, x on close, on every link and reply. The hub
-                                                         sends and records each. While Slack isn't ready: {waiting}
-                                                         and nothing owed
+                                                         slack_user, text}], reactions: [{pr, reviewer, reply?,
+                                                         channel, ts, emoji}], digest: review digest's answer while
+                                                         due, else null}. links: each open, non-draft PR's link to
+                                                         each reviewer without one, in the reviewer's thread for
+                                                         date; no other message about a PR is owed. reactions:
+                                                         git_approved once anyone approved, git_merged on merge, x
+                                                         on close, on every posted link and reply. The hub sends
+                                                         and records each. While Slack isn't ready: {waiting} and
+                                                         nothing owed
   review post <pr> --file <review.md>                   posts the session's words as one Comment review (never an
           --read-at <time>                               approval or a request for changes) on an incoming PR at
                                                          its listed head, as the board's github-login (else gh's
@@ -553,11 +554,6 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          arguments are refused. Three runs in a row that can't run
                                                          mark it broken and append owner-check-broken {key, check,
                                                          error}; fix it with item set --check. land takes it too
-         [--updated "<what changed>" | --updated none]   on a card whose PR link a reviewer already has, done
-                                                         refuses without it: the text queues “updated: <what
-                                                         changed>” for each reviewer, as review updated does;
-                                                         none sends nothing, for a change only to comments, names,
-                                                         docs or tests
          [--title "<type>(<scope>): <summary>"]          the draft PR's title on a GitHub board, a Conventional
                                                          subject of at most 72 characters (else the branch's first
                                                          commit subject); refused in any other shape before
@@ -886,12 +882,12 @@ const COMMANDS = {
   }],
   'slack thread': [['eventId'], [], (site, [id]) => store.slackThread(needSite(site, 'slack thread'), id)],
   'slack answer': [['eventId'], ['text'], (site, [id], f) => store.slackAnswer(needSite(site, 'slack answer'), id, f.text)],
+  'slack say': [['reviewer'], ['text'], (site, [name], f) => store.slackSay(needSite(site, 'slack say'), name, f.text)],
   'slack task': [['eventId', 'file'], ['title', 'notes', 'notes-from'], (site, [id, file], f) => {
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
     return store.slackTask(needSite(site, 'slack task'), id, file, { title: f.title, notes: f.notes, notesFrom: f['notes-from'] });
   }],
   integrations: [[], [], async () => ({ lines: [JSON.stringify(await readiness.rows())] })],
-  'review updated': [['file/id'], ['text'], (site, [key], f) => store.reviewUpdated(site, key, f.text)],
   'review record': [['pr'], ['state', 'text', 'file'], (site, [pr], f) => {
     if ((f.text === undefined) === (f.file === undefined)) throw new UsageError('review record takes --text or --file');
     return store.recordReview(site, pr, { state: f.state, text: f.text ?? readInput(f.file) });
@@ -942,15 +938,7 @@ const COMMANDS = {
     if (!words.length && f.text === undefined) throw new UsageError('builder progress needs its text, as words or as --text');
     return store.builderProgress(site, key, f.text ?? words.join(' '), { ...f, clearEta: f['clear-eta'] });
   }],
-  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'updated', 'title'], async (site, [key], { updated, ...f }) => {
-    // docs/adr/2026-11-07-0300-slack-sends-hang-off-prs-and-go-out-from-the-hub-tick.md: the Updated decision is made
-    // before anything runs, and its reply queued only once done has gone through.
-    const onBoard = site && !f.dir;
-    if (onBoard && updated === undefined && await store.cardLinked(site, key)) throw new store.BoardError(`a reviewer has ${key}'s PR link: pass --updated "<what changed>" for its thread, or --updated none for a change only to comments, names, docs or tests`);
-    const out = await builderDone(site, key, f);
-    if (onBoard && updated !== undefined && updated.trim().toLowerCase() !== 'none') await store.reviewUpdated(site, key, updated);
-    return out;
-  }],
+  'builder done': [['file/id'], ['dir', 'agent', 'next', 'owner-step', 'check', 'text', 'title'], (site, [key], f) => builderDone(site, key, f)],
   'builder pick': [['file/id'], [], (site, [key]) => store.pickBuilder(site, key)],
   'agent launch': [['file/id'], ['name', 'task', 'writes', 'model'], (site, [key], f) => store.requestHelper(site, key, f)],
   'agent wait': [['file/id'], ['name', 'agent', 'timeout'], (site, [key], f) => store.waitHelper(site, key, { ...f, alive: pidAlive })],
