@@ -481,7 +481,7 @@ An owner message Claude hasn't answered yet ends with **waiting…**, or **think
 _Avoid_: comments, chat
 
 **Unread message**:
-A message in a card's thread from Claude (replies included) or GitHub, newer than the card's **read mark**. The owner's own lines, their copied-in answers included, other people's Slack lines, and builder, status and ask-link lines are never unread. Their count reads in bold orange as "3 new messages" on the row under the card's footer, after any Action needed, until the card is opened.
+A message in a card's thread from Claude (replies included) or GitHub, newer than the card's **read mark**. The owner's own lines, their copied-in answers included, other people's Slack lines, and builder, status and ask-link lines are never unread. Their count reads in bold blue (info) in every lane as "3 new messages" on the row under the card's footer, after any Action needed, until the card is opened.
 _Avoid_: inbox, notification. "New" names it only in that count's "N new messages"; a New card is an unsorted ask.
 
 **Read mark**:
