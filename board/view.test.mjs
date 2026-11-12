@@ -2592,7 +2592,7 @@ test("Board Settings' Tickets control loads Linear once it is the source and cre
   assert.match(root.textContent, /Loading Linear/);
   await tick();
   assert.equal(loads.length, 1);
-  assert.match(root.textContent, /A task gets a ENG issue in Existing, in the Acme workspace from Hub’s key, when you answer yes to its ticket question/);
+  assert.match(root.textContent, /A task gets a ENG issue in Existing, in the Acme workspace from Hub’s key, when it goes ready to build/);
   assert.deepEqual(JSON.parse(JSON.stringify(control.read())), { source: 'linear', workspace: 'acme', team: 'ENG', project: 'p1' });
   const team = root.querySelector('[data-tk="team"]');
   team.value = 'OPS'; page.fire(root, 'change', { target: team });
