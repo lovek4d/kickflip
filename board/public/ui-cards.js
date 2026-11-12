@@ -287,9 +287,9 @@
     draft: ['draft', 'quiet'], reviewers: ['pending review', 'notice'], merge: ['pending merge', 'notice'], stale: ['stale', 'quiet'],
     merged: ['merged', 'merged'], closed: ['closed', 'quiet'],
   };
-  // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a discussing card says whose turn it is, blue for the
-  // owner's, orange while the orchestrator owes the reply.
-  const TURN_LOOK = { owner: ['discussing · your turn', 'info'], claude: ["discussing · Claude's turn", 'notice'] };
+  // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: a discussing card reads just "discussing", blue on the
+  // owner's turn and grey while the orchestrator owes the reply.
+  const TURN_LOOK = { owner: ['discussing', 'info'], claude: ['discussing', 'quiet'] };
   function phaseWord(it) {
     if (it.kind !== 'work' || it.lane === 'progress' || !it.phase || it.phase === 'new' || (it.phase === 'ready' && !it.ready)) return '';
     const [word, tone] = it.phase === 'discussing' ? TURN_LOOK[it.turn] : PHASE_LOOK[it.phase];

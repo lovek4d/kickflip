@@ -1679,9 +1679,9 @@ test("a discussing card's time line says whose turn it is: blue for the owner's,
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt, phase: 'discussing' };
   const yours = ui.workLines({ ...card, turn: 'owner' }, { unread: 1 });
-  assert.equal(lines(yours).at(-1), `${ui.cardTime(sortAt)} · discussing · your turn · 1 new message`);
-  assert.match(yours, /<span class="card-phase ph-info">discussing · your turn<\/span>/);
-  assert.match(ui.workLines({ ...card, turn: 'claude' }), /<span class="card-phase ph-notice">discussing · Claude's turn<\/span>/);
+  assert.equal(lines(yours).at(-1), `${ui.cardTime(sortAt)} · discussing · 1 new message`);
+  assert.match(yours, /<span class="card-phase ph-info">discussing<\/span>/);
+  assert.match(ui.workLines({ ...card, turn: 'claude' }), /<span class="card-phase ph-quiet">discussing<\/span>/);
   assert.equal(ui.statusWord(card), 'discussing');
 });
 
