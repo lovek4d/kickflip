@@ -118,12 +118,14 @@
 //                                (domain.mjs ownerQuestion). The server appends prototype-overdue {key, request,
 //                                question?, since} once per request still waiting on its prototype after
 //                                PROTOTYPE_WAIT with no prototype agent running on the card (domain.mjs prototypeWaits).
-//                                Either one on a card launches a headless planner on it (startPlanner) unless an
-//                                agent already works on it, so the session acts only on prototype-overdue; on a
-//                                discussing, ready or staging card it first moves the card to grilling or prototyping (store.mjs planAgain).
-//                                visual-request {key, text?, files?} asks for a visual: the server launches a
-//                                visual agent on the card beside any other agent, once no other visual runs there
-//                                (launchVisuals; docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md)
+//                                Either one on a Todo card owes the orchestrator's brief for its planner, an
+//                                orchestrator wait, and on a discussing, ready or staging card first moves the card
+//                                to grilling or prototyping (store.mjs planAgain).
+//                                visual-request {key, text?, files?} asks for a visual: it owes the orchestrator's
+//                                visual brief, the card's phase as it is. Once the orchestrator writes a brief (item
+//                                brief), the server launches its agent, a planner while no other agent but a visual
+//                                one works on the card, a visual agent beside any other once no other visual runs
+//                                there (launchBriefs; docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md)
 //                                reask-request {key?, question} asks the session to ask a resolved question again from the
 //                                card's current notes; one naming a question that isn't resolved → 400 {error}. The
 //                                question reads reask until question add names it in reask_of (domain.mjs ownerQuestion)
@@ -194,7 +196,7 @@
 //                                'hub', after the helpers board.mjs agent launch asked for (launchHelpers), which come
 //                                first, and the landers and rebase runs, which come before those; a bumped card
 //                                starts past the cap, bumping out the newest unbumped build (stop.mjs bumpOut); and
-//                                each card that arrives in Todo (domain.mjs arrivalsOf) gets a grill launched, up to
+//                                each card that arrives in Todo (domain.mjs arrivalsOf) owes a grill brief, up to
 //                                max_planners running at once, a bumped card's past it, the rest waiting in board
 //                                order, busy board or not. Neither appends an event.
 //                                With auto_triage on, once a night from the middle of the hub's quiet hours to their
@@ -321,14 +323,14 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { PAUSE_CLEARS, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, visualsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, roundsDue, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { PAUSE_CLEARS, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, stopAgents, stopRuns } from './headless.mjs';
-import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, landable, relaunchLander, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { GITHUB_STATE, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -466,10 +468,10 @@ async function appendEvents(list) {
 }
 
 // Owner answers [{id, ...}] → their event ids, appended in one write. An answer to a card's prototype question that
-// picks no take carries prototype_again: true and the board launches that card's next prototype round itself, with the
-// answer's note as its guidance, one launch per card whatever its note reads as
+// picks no take carries prototype_again: true and the card owes the orchestrator's brief for its next prototype round,
+// with the answer's note as its ask, one per card whatever its note reads as
 // (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md,
-// docs/adr/2026-11-12-0100-a-no-pick-prototype-answer-starts-the-next-round-itself.md). A note with no take resolves its
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md). A note with no take resolves its
 // question, and the Send is acted on in code: gates settled, answers in the notes, cards left with nothing open staged.
 // An answer to a question that already has one recorded, and wasn't reopened since, is skipped
 // (docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md).
@@ -481,11 +483,11 @@ async function recordAnswers(sent) {
   const ids = await appendEvents(answers.map((a) => ['owner-answer', isAgain(a) ? { ...a, prototype_again: true } : a]));
   await resolveNoteAnswers(here, answers);
   // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md, docs/adr/2026-11-07-0700-staging-then-ready.md
-  const { prototype } = await settleAnswers(here, answers);
+  await settleAnswers(here, answers);
   dataVersion++;
   const again = new Map();
-  for (const a of answers.filter(isAgain)) again.set(asked.get(String(a.id)).topic.slice(5), { question: String(a.id), note: a.note ? String(a.note) : undefined });
-  for (const key of new Set([...prototype, ...again.keys()])) await launchPlanner(key, 'prototype', again.get(key));
+  for (const a of answers.filter(isAgain)) again.set(asked.get(String(a.id)).topic.slice(5), { question: String(a.id), ...(a.note ? { note: String(a.note) } : {}) });
+  for (const [key, ask] of again) await planAgain(here, key, 'prototype', ask);
   return ids;
 }
 // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md
@@ -1260,17 +1262,16 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'ask-withdrawn') await dropAskCard(here, String(body.id || ''));
       // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bump moves the card's queued lands.
       if (kind === 'card-bump' || kind === 'card-unbump') moveQueuedLand(here, String(body.key || ''), kind === 'card-bump' ? new Date().toISOString() : null);
-      if ((kind === 'grill-more' || kind === 'prototype-request') && body.key) {
-        const ask = {
+      // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a tap owes the orchestrator's
+      // brief; the agent launches from the brief.
+      const tapped = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual' }[kind];
+      if (tapped && body.key) {
+        await planAgain(here, String(body.key), tapped, {
           ...(body.text ? { text: String(body.text) } : {}),
           ...(Array.isArray(body.files) && body.files.length ? { files: body.files } : {}),
-          ...(body.question ? { question: String(body.question), note: body.note ? String(body.note) : undefined, choice: body.choice ?? undefined } : {}),
-        };
-        const planner = kind === 'grill-more' ? 'grill' : 'prototype';
-        await planAgain(here, String(body.key), planner);
-        await launchPlanner(String(body.key), planner, ask);
+          ...(body.question ? { question: String(body.question), ...(body.note ? { note: String(body.note) } : {}), ...(body.choice != null ? { choice: body.choice } : {}) } : {}),
+        });
       }
-      if (kind === 'visual-request' && body.key) await launchVisuals((await sharedBoard()).items, await readLines(events));
       if (kind === 'ask-withdrawn') await setHidden(here, String(body.id || ''), true);
       // docs/adr/2026-11-03-0500-every-owner-tap-the-server-can-apply-draws-at-once.md
       return json(res, 200, { id, board: await answerBoard(req, since) });
@@ -1459,7 +1460,7 @@ async function checkPickUps() {
 // Build tap would, launching its builder, past the cap and whether Auto implement is on or not; the pull fills the
 // free implementer slots with Todo's top ready cards (domain.mjs pullOf, docs/adr/2026-11-05-0802-todo-has-no-queue.md)
 // that the landers and rebase runs leave, a bumped card past the cap, bumping out a build
-// (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md). With Auto implement on, each card that arrived in Todo gets its grill, up to max_planners at once (launchArrivals).
+// (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md). With Auto implement on, each card that arrived in Todo owes the orchestrator its grill brief, up to max_planners at once (launchArrivals).
 // The pull fills every free implementer slot whatever else runs; triage and the review wait for an idle
 // board. An unanswered triage holds only the cards it names, until quiet hours end, and a card pulled and not yet started holds the
 // review. None goes out while usage is paused or the Mac is busy, nor, near the line, while the last Claude start hasn't
@@ -1500,14 +1501,13 @@ async function runAuto() {
   boardPaused = gate.manual === 'board';
   heldByPause = launchHeld(gate, 'claude');
   if (!heldByPause) await launchQueuedPlanners();
-  if (!heldByPause) await launchRounds(roundsDue(items));
+  if (!heldByPause) await launchBriefs(items);
   if (!heldByPause) await launchLanders(items, stoppedKeys(items), room);
   if (!heldByPause) await launchRebases(items, room);
   const resumes = await checkPauses(items, gate);
   if (!heldByPause) for (const key of resumes.slice(0, room.free)) { room.free--; await resumeBuild(key); }
   const { idle, pullable, waiting, pulls, helpers, bumpOuts, pastCap } = pullOf(items, { cap, pulled, hold, taken: free - room.free });
   const ready = idle && !heldByPause;
-  if (!heldByPause) await launchVisuals(items, log);
   if (!heldByPause) await launchHelpers(helpers);
   if (settings.auto_pull && !heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
   await checkTriage(settings, log, items, ready);
@@ -1579,27 +1579,16 @@ async function handOff(started) {
 }
 
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-// Each card domain.mjs arrivalsOf lists gets a planner, its own status line showing it: a prototype for a card filed
-// prototyping, the owner having asked for one, a grill for any other. Its open record keeps it off the list from then
-// on, so the cached board is dropped, as handOff does, before the next pass reads it.
+// Each card domain.mjs arrivalsOf lists owes the orchestrator the brief for its planner
+// (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md): a prototype for a card filed
+// prototyping, the owner having asked for one, a grill for any other. Its owed brief keeps it off the list from then on,
+// so the cached board is dropped before the next pass reads it.
 async function launchArrivals(cards) {
   for (const { key, phase } of cards) {
     if (launchHeldNow()) return;
     const kind = phase === 'prototyping' ? 'prototype' : 'grill';
     logCall({ call: 'arrival-planner', key, result: kind, reason: phase === 'prototyping' ? 'It landed in Todo filed prototyping.' : 'It landed in Todo, not filed prototyping.', inputs: { phase } });
-    await launchPlanner(key, kind);
-    dataVersion++;
-  }
-}
-
-// docs/adr/2026-11-07-0700-staging-then-ready.md
-// Each card the orchestrator sent back from staging or ready (domain.mjs roundsDue) gets that round's planner; its
-// record keeps it off the list from then on.
-async function launchRounds(cards) {
-  for (const { key, kind } of cards) {
-    if (launchHeldNow()) return;
-    logCall({ call: 'round-planner', key, result: kind, reason: 'It was sent back from staging or ready for another round.', inputs: { kind } });
-    await launchPlanner(key, kind);
+    await oweBrief(here, key, kind);
     dataVersion++;
   }
 }
@@ -1627,27 +1616,28 @@ async function launchHelpers(helpers) {
   }
 }
 
-// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
-// Each card's oldest visual request no agent has drawn gets its visual agent, launched headless in the board's repo
-// beside whatever else runs on the card, once no other visual runs there (domain.mjs visualsDue, store.mjs startVisual),
-// so a visual agent's finish, which changes its record, brings in the card's next request. One that can't start or
-// launch leaves a thread line and its record, if any, closed. Passes run one at a time, the tap's and the auto pass's,
-// and startVisual reads the records again, so a request opens one record however stale items is.
-let visualsPass = Promise.resolve();
-function launchVisuals(items, log) {
-  const pass = visualsPass.then(() => drawVisuals(items, log));
-  visualsPass = pass.catch(() => {});
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+// Each agent due from a written brief (domain.mjs briefsDue) launches: a grill or prototype planner (launchPlanner), or
+// a visual agent headless in the board's repo beside whatever else runs on the card
+// (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md, store.mjs startVisual), so an agent's
+// finish, which changes its record, brings in the card's next brief. A visual that can't start or launch leaves a thread
+// line and its record, if any, closed. Passes run one at a time, and the starts read the card again, so a brief opens
+// one record however stale items is.
+let briefsPass = Promise.resolve();
+function launchBriefs(items) {
+  const pass = briefsPass.then(() => launchBriefed(items));
+  briefsPass = pass.catch(() => {});
   return pass;
 }
-async function drawVisuals(items, log) {
-  for (const { key, request } of visualsDue(items, log)) {
+async function launchBriefed(items) {
+  for (const { key, kind } of briefsDue(items)) {
     if (launchHeldNow()) return;
+    dataVersion++;
+    if (kind !== 'visual') { await launchPlanner(key, kind); continue; }
     try {
-      const started = await startVisual(here, key, request);
+      const started = await startVisual(here, key);
       if (!started) continue;
-      const { text, files } = request.data;
-      const ask = { ...(text ? { text: String(text) } : {}), ...(Array.isArray(files) && files.length ? { files } : {}) };
-      try { await launchBuilder(here, { ...started, ...ask }); } catch (e) {
+      try { await launchBuilder(here, started); } catch (e) {
         await abandonPlanner(here, key, ['planner-failed', { kind: 'visual agent', error: e.message }], started.agent);
       }
     } catch (e) {
@@ -1657,11 +1647,11 @@ async function drawVisuals(items, log) {
   }
 }
 
-// A planner, kind grill or prototype, the owner asked for or a card's arrival in Todo started, opens on the card and
-// launches headless in the board's repo (store.mjs startPlanner), unless an agent already works on it. One that can't
-// start or launch leaves a thread line and its record closed. One asked for while the board's launches are held
-// (launchHeld) waits in data/queued-planners.json {<key>: {kind, ask}}, with a thread line saying so, and launches
-// when the hold lifts (launchQueuedPlanners); asking again replaces it.
+// A planner, kind grill or prototype, opens on the card from its written brief, or from kept, the briefs entry of the
+// run a Hold stopped, and launches headless in the board's repo (store.mjs startPlanner), unless an agent already works
+// on it. One that can't start or launch leaves a thread line and its record closed. One due while the board's launches
+// are held (launchHeld) waits in data/queued-planners.json {<key>: {kind, kept}}, with a thread line saying so, and
+// launches when the hold lifts (launchQueuedPlanners); another replaces it.
 // (docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md)
 const queuedPlanners = path.join(data, 'queued-planners.json');
 async function saveQueuedPlanners(queued) {
@@ -1669,19 +1659,19 @@ async function saveQueuedPlanners(queued) {
   await fs.writeFile(queuedPlanners + '.tmp', JSON.stringify(queued) + '\n');
   await fs.rename(queuedPlanners + '.tmp', queuedPlanners);
 }
-async function launchPlanner(key, kind, ask = {}) {
+async function launchPlanner(key, kind, kept = null) {
   const gate = readUsageGate({ dir: here });
   if (launchHeld(gate, 'claude')) {
     heldByPause = true;
-    await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [key]: { kind, ask } });
+    await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [key]: { kind, ...(kept ? { kept } : {}) } });
     logCall({ call: 'planner-queued', key, result: kind, reason: pauseReasonFor(gate, 'claude'), inputs: { kind, gate } });
     await appendStatus(here, key, gate.machine.state === 'busy' ? 'host-busy' : 'planner-held', { kind });
     return;
   }
   try {
-    const started = await startPlanner(here, key, kind);
+    const started = await startPlanner(here, key, kind, kept);
     if (!started) return;
-    try { await launchBuilder(here, { ...started, ...ask }); } catch (e) {
+    try { await launchBuilder(here, started); } catch (e) {
       await abandonPlanner(here, key, ['planner-failed', { kind, error: e.message }]);
     }
   } catch (e) {
@@ -1699,7 +1689,7 @@ async function resumeRun(key) {
   const run = await takeHoldStopped(here, key);
   if (!run) return;
   logCall({ call: 'resume', key, result: run.kind, reason: 'Its hold stopped this run.', inputs: run });
-  if (run.kind === 'grill' || run.kind === 'prototype') await launchPlanner(key, run.kind);
+  if (run.kind === 'grill' || run.kind === 'prototype') await launchPlanner(key, run.kind, run.brief);
   else if (run.label === 'Builder') await handOff(await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub'));
 }
 
@@ -1760,12 +1750,12 @@ async function resumeBuild(key) {
 
 // The planners launchPlanner queued during a hold, oldest asked first, each once, until a launch is held again.
 async function launchQueuedPlanners() {
-  for (const [key, { kind, ask }] of Object.entries(await readJSON(queuedPlanners, {}))) {
+  for (const [key, { kind, kept }] of Object.entries(await readJSON(queuedPlanners, {}))) {
     if (launchHeldNow()) return;
     const { [key]: _, ...rest } = await readJSON(queuedPlanners, {});
     await saveQueuedPlanners(rest);
     logCall({ call: 'planner-queued', key, result: 'launching', reason: 'The hold it waited on has lifted.', inputs: { kind } });
-    await launchPlanner(key, kind, ask);
+    await launchPlanner(key, kind, kept);
     dataVersion++;
   }
 }

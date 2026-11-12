@@ -22,3 +22,5 @@ A card's state is now `grilling | prototyping | staging | ready`.
 Checks this replaces: `implement_at` and `askImplement`, the release that started an Implement-asked card at once (`startReleasedBuild`, pullOf's `starts`), `startedByAnswer` and the `card-unblocked` event on an answer, the `implement` orchestrator wait, and the pull's own question and planner checks. `checkNotesComplete` stays, as the gate out of staging.
 
 Amended by [every lane has phases](2026-11-11-1200-every-lane-has-phases.md): `state` is now `phase`, and staging and ready are phase words at the end of the footer.
+
+Superseded in part by [every planner launches from the orchestrator's brief](2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md): moving a staging or ready card back to grilling or prototyping owes the orchestrator that round's brief, and the board launches the round from it; `round_at`, `roundsDue` and `launchRounds` are gone.

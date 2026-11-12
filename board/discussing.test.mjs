@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildBoard, arrivalsOf, roundsDue, threadOf, PHASES } from './domain.mjs';
+import { buildBoard, arrivalsOf, PHASES } from './domain.mjs';
 import { board, home, site, read, write, lines } from './board-fixture.mjs';
 
 const ask = { id: 'a1', ts: '2026-11-09T10:00:00Z', kind: 'ask', data: { text: 'Rethink the footer' } };
@@ -47,11 +47,6 @@ test('a discussing card is not an arrival: the board launches it no grill', () =
   assert.deepEqual(arrivalsOf(built({ item: { phase: 'grilling' } }).items), ['hub/T-1']);
 });
 
-test('a discussing card the orchestrator sends to grilling or prototyping gets its round from the board', () => {
-  const b = built({ item: { phase: 'grilling', round_at: '2026-11-09T11:00:00Z' } });
-  assert.deepEqual(roundsDue(b.items), [{ key: 'hub/T-1', kind: 'grill' }]);
-});
-
 test("a New task's intake wait says to discuss it by reply, file an Implement ask ready, grill or prototype only on its word, and link a ticket it names", () => {
   const next = card(built()).orchestrator.next;
   assert.match(next, /reply hub\/T-1/);
@@ -84,7 +79,7 @@ test('reply on a New card starts its discussion: a message in its thread, the ca
   assert.match(board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit').err, /sorted \(grilling\)/);
 });
 
-test('item set --phase discussing files a card discussing, and leaving it for grilling or prototyping marks the round', async () => {
+test("item set --phase discussing files a card discussing, and leaving it for grilling or prototyping owes the orchestrator's brief for the round", async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
@@ -93,7 +88,9 @@ test('item set --phase discussing files a card discussing, and leaving it for gr
   assert.equal(t1().phase, 'discussing');
   const before = new Date().toISOString();
   assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'prototyping', '--site', 'audit').code, 0);
-  assert.deepEqual([t1().phase, t1().round_at >= before], ['prototyping', true]);
+  assert.deepEqual([t1().phase, t1().briefs.map((b) => b.kind), t1().briefs[0].at >= before, t1().round_at], ['prototyping', ['prototype'], true, undefined]);
+  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'prototyping', '--site', 'audit').code, 0);
+  assert.equal(t1().briefs.length, 1, 'staying in the phase owes no second brief');
 });
 
 test('item add --phase discussing files a card discussing; ready still comes only from staging', async () => {
@@ -105,24 +102,66 @@ test('item add --phase discussing files a card discussing; ready still comes onl
   assert.match(board('item', 'set', 'audit/D1', '--phase', 'ready', '--size', 'small', '--site', 'audit').err, /reads discussing, not staging/);
 });
 
-test("item visual asks the board for a visual on a card, a request line of Claude's that answers none of the owner's messages", async () => {
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+test("item brief writes the orchestrator's brief into the notes as \"Brief for <kind> round N\" and onto what the card owes; a grill or prototype brief moves the card to that phase, a visual's leaves it", async () => {
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const r = board('item', 'visual', 'audit/T-1', '--text', 'The footer folded into the sidebar, phone and desktop', '--site', 'audit');
+  board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  await s.planAgain(audit(), 'audit/T-1', 'grill', { text: 'Ask about mobile' });
+  assert.equal(t1().phase, 'grilling');
+  assert.deepEqual(t1().briefs.map(({ kind, ask: asked, brief }) => [kind, asked, brief]), [['grill', { text: 'Ask about mobile' }, undefined]]);
+  const draft = path.join(home, 'brief.md');
+  fs.writeFileSync(draft, 'Settled: the footer folds into the sidebar.\nOpen: how it reads on a phone.\n');
+  const r = board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--file', draft, '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
-  assert.match(r.out, /visual asked on/);
-  const request = lines(audit('data', 'events.jsonl')).at(-1);
-  assert.deepEqual([request.kind, request.data], ['visual-request', { key: 'audit/T-1', text: 'The footer folded into the sidebar, phone and desktop', who: 'claude' }]);
-  assert.match(board('item', 'visual', 'audit/T-1', '--site', 'audit').err, /--text/);
-  assert.match(board('item', 'visual', 'audit/T-9', '--text', 'x', '--site', 'audit').err, /T-9/);
+  assert.match(r.out, /"Brief for grill round 1" added to its notes; the board launches its grill planner from it/);
+  const notes = () => fs.readFileSync(path.join(audit('data'), t1().plan), 'utf8');
+  assert.match(notes(), /## Brief for grill round 1\nSettled: the footer folds into the sidebar\.\nOpen: how it reads on a phone\.\n/);
+  const [grill] = t1().briefs;
+  assert.deepEqual([grill.kind, grill.ask, grill.brief.heading, grill.brief.text], ['grill', { text: 'Ask about mobile' }, 'Brief for grill round 1', 'Settled: the footer folds into the sidebar.\nOpen: how it reads on a phone.']);
 
-  const said = { id: 'm1', ts: '2026-11-09T10:10:00Z', kind: 'item-message', data: { key: 'hub/T-1', text: 'Show me?' } };
-  const drawn = { id: 'v1', ts: '2026-11-09T10:11:00Z', kind: 'visual-request', data: { key: 'hub/T-1', text: 'The footer, folded', who: 'claude' } };
-  const line = threadOf('hub/T-1', { lines: [reply], events: [said, drawn] }).find((m) => m.eventId === 'v1');
-  assert.deepEqual([line.who, line.text], ['claude', 'The footer, folded']);
-  const b = built({ item: { phase: 'discussing' }, threads: { 'hub/T-1': [reply] }, events: [said, drawn] });
-  assert.equal(card(b).turn, 'claude', 'a visual request answers no message');
+  // A brief nobody asked for: the orchestrator's own visual, the phase left as it is; the next of a kind is its round 2.
+  assert.equal(board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--file', draft, '--site', 'audit').code, 0);
+  assert.equal(board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--file', draft, '--site', 'audit').code, 0);
+  assert.deepEqual(t1().briefs.map((b) => [b.kind, b.brief.heading, 'ask' in b]), [['grill', 'Brief for grill round 1', true], ['visual', 'Brief for visual round 1', false], ['visual', 'Brief for visual round 2', false]]);
+  assert.equal(t1().phase, 'grilling');
+  board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  assert.equal(board('item', 'brief', 'audit/T-1', '--kind', 'prototype', '--file', draft, '--site', 'audit').code, 0);
+  assert.equal(t1().phase, 'prototyping');
+
+  assert.match(board('item', 'brief', 'audit/T-1', '--kind', 'build', '--file', draft, '--site', 'audit').err, /--kind grill, prototype or visual/);
+  assert.match(board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--site', 'audit').err, /--file <draft.md>/);
+  assert.match(board('item', 'brief', 'audit/T-9', '--kind', 'grill', '--file', draft, '--site', 'audit').err, /T-9/);
+  assert.match(board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--file', path.join(audit('data'), t1().plan), '--site', 'audit').err, /notes file of/);
+  assert.match(board('item', 'visual', 'audit/T-1', '--text', 'x', '--site', 'audit').err, /unknown|item visual/i, 'item visual is gone: item brief --kind visual replaces it');
+});
+
+test("the board's start of a planner or visual agent takes the oldest written brief of its kind off the card onto its record, and refuses a card with none", async () => {
+  auditEvents(ask);
+  const s = await store();
+  await s.fileAsk(audit(), 'a1');
+  board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit');
+  await s.planAgain(audit(), 'audit/T-1', 'grill', { text: 'Ask about mobile' });
+  await assert.rejects(s.startPlanner(audit(), 'audit/T-1', 'grill'), /has no grill brief; the orchestrator writes it with item brief audit\/T-1 --kind grill --file <draft.md>/);
+  await assert.rejects(s.startVisual(audit(), 'audit/T-1'), /has no visual brief/);
+  assert.equal(fs.existsSync(audit('data', 'agents', 'T-1.json')), false, 'a refused start opens no record');
+  const draft = path.join(home, 'brief.md');
+  fs.writeFileSync(draft, 'Cover the phone layout.');
+  board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--file', draft, '--site', 'audit');
+  const started = await s.startPlanner(audit(), 'audit/T-1', 'grill');
+  assert.deepEqual([started.kind, started.text, started.brief.heading, started.brief.text], ['grill', 'Ask about mobile', 'Brief for grill round 1', 'Cover the phone layout.']);
+  assert.equal(t1().briefs, undefined, 'the brief left the card');
+  const record = read(audit('data', 'agents', 'T-1.json'));
+  assert.deepEqual([record.kind, record.dispatched, record.brief.brief.heading, record.brief.ask], ['grill', 'hub', 'Brief for grill round 1', { text: 'Ask about mobile' }]);
+  // The planner's own builder start keeps the brief on its record, for a Resume after a Hold.
+  assert.equal(board('builder', 'start', 'audit/T-1', '--kind', 'grill', '--site', 'audit').code, 0);
+  assert.equal(read(audit('data', 'agents', 'T-1.json')).brief.brief.text, 'Cover the phone layout.');
+
+  board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--file', draft, '--site', 'audit');
+  const visual = await s.startVisual(audit(), 'audit/T-1');
+  assert.match(visual.agent, /^visual-\d+$/);
+  assert.equal(read(audit('data', 'agents', `T-1@${visual.agent}.json`)).brief.brief.heading, 'Brief for visual round 1');
 });
 
 test("the owner's Grill or Prototype tap on a discussing card moves it to that planner's phase; an Implement stages it", async () => {

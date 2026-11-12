@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { boardSees, freePorts, until, ownSession, boardListening, fakeSlack, slackWorld, untilTestEnds, putWave as sharedPutWave } from '../shared/test-helpers.mjs';
 import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
 import { withFileLock } from '../hub/locks.mjs';
+import { writeBrief } from './store.mjs';
 
 let home, site, child, base, slackWorldOf, slackServer, ghDir;
 const uploads = () => path.join(site, 'data', 'uploads');
@@ -214,9 +215,16 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     assert.deepEqual([last().kind, last().data.prototype_again], ['owner-answer', true]);
     const card = (await r.json()).board.items.find((i) => i.key === 't/P1');
     assert.deepEqual([card.phase, card.next, card.buildable], ['prototyping', 'Prototype again', false]);
-    // The board starts the next round itself, with the note as its guidance, even when the note reads as a question.
+    // The card owes the orchestrator its next round's brief, the note its ask even when it reads as a question; the board
+    // launches the round from the brief (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
+    const p1 = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'P1');
+    assert.deepEqual(p1().briefs.map((b) => [b.kind, b.ask, b.brief]), [['prototype', { question: 'moon', note: 'Neither: try a darker moon' }, undefined]]);
+    const draft = path.join(home, 'brief-P1.md');
+    fs.writeFileSync(draft, 'Neither take landed; try a darker moon.');
+    writeBrief(site, 't/P1', { kind: 'prototype', file: draft });
     const record = path.join(site, 'data', 'agents', 'P1.json');
-    await until(() => fs.existsSync(record) && JSON.parse(fs.readFileSync(record, 'utf8')).kind === 'prototype', 'the board launches the prototype planner');
+    await until(() => fs.existsSync(record) && JSON.parse(fs.readFileSync(record, 'utf8')).kind === 'prototype', 'the board launches the prototype planner from its brief');
+    assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')).brief.ask, { question: 'moon', note: 'Neither: try a darker moon' });
     await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'question-reopen', question: 'moon' }) });
     await ok200(answer('moon', 'B', ''));
     assert.equal(last().data.prototype_again, undefined);

@@ -290,6 +290,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
   // A rebase run that handed back: its newest judgment call says why (headless.mjs rebaseBrief).
   const rebaseFailed = rebasing && waitsOn === 'checking'
     ? agents.flatMap((a) => a.calls).sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1)?.text ?? null : null;
+  const briefing = lane === 'done' ? null : BRIEF_KINDS.find((k) => (it.briefs || []).some((b) => b.kind === k && !b.brief)) ?? null;
   return {
     key, kind: 'work', order, file: slug, fileTitle: itemFile.title || slug, id: it.id, ref: refOf(itemFile, it, tickets), title: it.title, storedLane,
     created: it.created || null, reviewSince: (idle && reopenAt) || it.review_since || inReviewSince || it.merge_ready?.at || it.pushed?.at || it.created || null, progressSince, closedAt: lane === 'done' ? closed : null,
@@ -299,7 +300,7 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     // docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md
     ownerCheck: awaitsDone && ownerStep && it.owner_check ? { words: checkWords(parseCheck(it.owner_check.check)), broken: it.owner_check.broken || null } : null,
     // docs/adr/2026-11-07-0700-staging-then-ready.md: when the card was staged, and when it was last sent back for a round.
-    stagedAt: lane === 'todo' && it.phase === 'staging' ? it.staged_at || null : null, roundAt: it.round_at || null,
+    stagedAt: lane === 'todo' && it.phase === 'staging' ? it.staged_at || null : null,
     deps: it.deps || [], blockedUntil: it.blocked_until || null, blockReason: it.block_reason || null, held, heldUntil, risky: Boolean(it.risky), bumpable, bumpedAt: bumpable && bumpStands ? bumpedAt : null,
     holdable: lane !== 'done', hasNotes: Boolean(it.plan || String(it.notes || '').trim()),
     finishable: lane !== 'done',
@@ -322,6 +323,11 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
     reviewers: reviewers.map((r) => r.name), review: reviewOf(reviewers, pr || prs[least]?.kept, sentAt), inReviewSince,
     threadCount: thread.length + events.length, lastTs, othersAt,
     grilling: planningOf('grill', events, agents, askedAt), prototyping: planningOf('prototype', events, agents, askedAt),
+    // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the card's briefs, owed or
+    // waiting to launch, the kind whose brief the orchestrator owes (briefing), and the card's blue status word for them:
+    // the brief's while it is owed, else generating visual while a visual agent draws.
+    briefs: lane === 'done' ? [] : it.briefs || [], briefing,
+    planning: briefing ? BRIEF_WORD[briefing] : agents.some((a) => a.kind === VISUAL && a.started && !a.done) ? PLANNER_WORD[VISUAL] : null,
     storedPhase: it.phase || null, phase: null, recheckAt: it.recheck_at || null,
     // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md: whose turn a discussing card is, the orchestrator's
     // while an owner message or answer on it is unanswered, otherwise the owner's.
@@ -514,9 +520,14 @@ const PLANNERS = new Set(['grill', 'prototype', VISUAL]);
 export const plans = (agent) => PLANNERS.has(agent.kind);
 export const builds = (agent) => !plans(agent);
 // A planner's word, never a builder phase: its card reads it before the planner's first line and leads each line with
-// it (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md). A request no planner has picked up
-// reads preheating instead (ui-cards.js; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
-export const PLANNER_WORD = { grill: 'grilling', prototype: 'prototyping' };
+// it (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md). A running visual agent's card reads
+// generating visual.
+export const PLANNER_WORD = { grill: 'grilling', prototype: 'prototyping', [VISUAL]: 'generating visual' };
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+// The kinds of agent the board launches only from the orchestrator's brief, and a card's status word while the
+// orchestrator owes that brief.
+export const BRIEF_KINDS = ['grill', 'prototype', VISUAL];
+export const BRIEF_WORD = { grill: 'preheating', prototype: 'planning prototype', [VISUAL]: 'planning visual' };
 
 // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md
 // The words for what the orchestrator did to a card's run (build, land), as its status line and thread line read:
@@ -932,7 +943,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
-      // A visual the orchestrator asked for (item visual) is Claude's line; every other event is the owner's.
+      // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.
       .map((e) => ({ ts: e.ts, who: e.data.who === 'claude' ? 'claude' : 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies,
         ...requestOf(e, asked), ...byOf(e) })),
     ...answers.map((e) => {
@@ -1516,44 +1527,38 @@ export const MAX_PLANNERS = 3;
 export const MAX_SERVES = 10;
 // For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
 // card in Todo nothing has picked up: buildable, not discussing, ready nor staging, filed (not New), not held or worked on by a session, with
-// no planner record ever, no grill or prototype requested and no question topic. However it was filed (an ask, item add,
+// no planner record ever, no grill or prototype requested or briefed and no question topic. However it was filed (an ask, item add,
 // the +, an import) it counts the same, and a blocked card arrives too: a block only keeps a card from In Progress
 // (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). The cap, less the planners running, takes
-// the unblocked arrivals first, then the blocked ones, each in board order; the rest wait.
+// the unblocked arrivals first, then the blocked ones, each in board order; the rest wait. An arrival owes the
+// orchestrator's brief for its planner (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
 export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
-  const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done)).length;
+  // A card owing or holding a grill or prototype brief takes its slot as a running planner does.
+  const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done) || (i.briefs || []).some((b) => b.kind !== VISUAL)).length;
   const fresh = open.filter((i) => i.buildable && !['discussing', 'ready', 'staging'].includes(i.phase) && !i.unsorted && !i.held && !i.working && !i.grilling && !i.prototyping
-    && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL));
+    && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL) && !(i.briefs || []).some((b) => b.kind !== VISUAL));
   const arrived = [...fresh.filter((i) => !i.blocked), ...fresh.filter((i) => i.blocked)];
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped arrival gets its grill past the cap.
   const bumped = arrived.filter((i) => i.bumpedAt);
   return [...bumped, ...arrived.filter((i) => !i.bumpedAt).slice(0, Math.max(0, cap - planners - bumped.length))].map((i) => i.key);
 }
 
-// docs/adr/2026-11-07-0700-staging-then-ready.md
-// For built items: the Todo cards sent back from staging or ready to grilling or prototyping (roundAt) whose round no
-// planner has started since, and none runs. The board launches each, so the orchestrator never starts a planner.
-// → [{key, kind}], kind grill or prototype.
-export function roundsDue(items) {
-  return items.filter((i) => i.kind === 'work' && i.lane === 'todo' && i.roundAt && ['grilling', 'prototyping'].includes(i.phase)
-    && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL && a.started && (String(a.started) >= String(i.roundAt) || !a.done)))
-    .map((i) => ({ key: i.key, kind: i.phase === 'grilling' ? 'grill' : 'prototype' }));
-}
-
-// docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
-// For built items and the event log: per card with no visual agent running, its oldest visual-request no agent has
-// drawn, the agent of request <id> being named visual-<id>, so a card's requests are drawn one after another.
-// → [{key, request}], request being the event.
-export const visualAgent = (request) => `${VISUAL}-${request.id}`;
-export function visualsDue(items, events) {
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+// For built items: the agents due to launch, one per open card and kind with a written brief: a grill or prototype on a
+// Todo card while no agent other than a visual one runs there, a visual beside anything but another visual
+// (docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md), so a card's visuals draw one after
+// another. A visual agent is named visual-<its brief's time in ms>. → [{key, kind}]
+export const visualAgent = (brief) => `${VISUAL}-${Date.parse(brief.at)}`;
+export function briefsDue(items) {
   const out = [];
-  for (const it of items) {
-    const agents = it.agents || [];
-    if (agents.some((a) => a.kind === VISUAL && a.started && !a.done)) continue;
-    const drawn = new Set(agents.map((a) => a.name));
-    const request = events.find((e) => e.kind === 'visual-request' && e.data?.key === it.key && !drawn.has(visualAgent(e)));
-    if (request) out.push({ key: it.key, request });
+  for (const it of items.filter((i) => i.kind === 'work' && !closedLane(i))) {
+    const running = (it.agents || []).filter((a) => a.started && !a.done);
+    for (const kind of BRIEF_KINDS) {
+      if (!(it.briefs || []).some((b) => b.kind === kind && b.brief)) continue;
+      const busy = kind === VISUAL ? running.some((a) => a.kind === VISUAL) : it.lane !== 'todo' || running.some((a) => a.kind !== VISUAL);
+      if (!busy) out.push({ key: it.key, kind });
+    }
   }
   return out;
 }
@@ -1735,6 +1740,8 @@ const STAGING_NEXT = 'Judge the staged card against the whole board: for a discu
 const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions against what landed; answer a stale one again with question settle <id> --note, or send the card back with item set --phase grilling when the change is too big; then item set --phase ready --text "<what you re-checked>"';
 function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
+  const owed = it.briefing ? it.briefs.find((b) => b.kind === it.briefing && !b.brief) : null;
+  const briefed = (kind) => it.briefs.some((b) => b.kind === kind);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
   const unasked = facts.unasked && it.storedPhase === { grill: 'grilling', prototype: 'prototyping' }[facts.unasked.kind]
     && !it.agents.some((a) => a.kind === facts.unasked.kind && a.started && (!a.done || String(a.started) > facts.unasked.at)) ? facts.unasked : null;
@@ -1742,14 +1749,17 @@ function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
     : it.staging ? { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT }
     : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
     : facts.replyAt ? { kind: 'reply', since: facts.replyAt, next: "Act on the owner's reply" }
+    // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
+    // prototype or visual agent until the orchestrator writes its brief, whatever else the card asks of the owner.
+    : owed ? { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page' }[owed.kind]} should cover and the files that matter` }
     : ASKING.has(it.action?.kind) ? null
     : it.builder?.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the card` }
     : it.builder?.stale ? { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` }
     : it.lane === 'review' && it.stale ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale and fix what you can: rebase, CI, comments; if only a reviewer owes it, a thread line naming who; or ${STALL_NEXT}` }
     : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
       : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }
-    : it.grilling && facts.grillAt && !running('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }
-    : it.prototyping && facts.prototypeAt && !running('prototype') ? { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' }
+    : it.grilling && facts.grillAt && !running('grill') && !briefed('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }
+    : it.prototyping && facts.prototypeAt && !running('prototype') && !briefed('prototype') ? { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' }
     // docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md: held until the card
     // has a question (the asking branch above), a planner of that kind running or started since, or a new phase.
     : unasked ? { kind: 'unasked', since: unasked.at, next: `Its ${unasked.kind} planner ended without its question: read its log, then post the question, start the planner again, or move the card's phase` }

@@ -1130,7 +1130,10 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
     [{ lane: 'progress', builder: null, waitsOn: 'checking' }, 'Orchestrator review'],
     [{ lane: 'progress', builder: null, reachedPhase: 'testing' }, 'stopped at testing'],
     [{ lane: 'todo', builder: { progress: 'Grilling · x', planner: true, kind: 'grill' } }, 'grilling'],
-    [{ lane: 'todo', grilling: true }, 'preheating'],
+    [{ lane: 'todo', grilling: true, planning: 'preheating' }, 'preheating'],
+    [{ lane: 'todo', prototyping: true, planning: 'planning prototype' }, 'planning prototype'],
+    [{ lane: 'todo', phase: 'discussing', turn: 'owner', planning: 'generating visual' }, 'generating visual'],
+    [{ lane: 'todo', grilling: true }, 'to do'],
     [{ lane: 'todo', ready: true, phase: 'ready' }, 'ready'],
     [{ lane: 'review' }, 'in review'],
     [{ lane: 'done' }, 'done'],
@@ -1431,7 +1434,7 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-test("a planner's line on a card is marked planner, keeping its dot, orange in In Progress and grey in Todo, where a running grill or prototype draws no bar; a Grill or Prototype request no planner has picked up reads preheating in grey, with no dot, until the planner's line takes it", () => {
+test("a planner's line on a card is marked planner, keeping its dot, where a running grill or prototype draws no bar; a card owing a brief reads its word in the same blue line, with its dot, until the planner's line takes it", () => {
   const planner = { progress: 'Prototyping · the takes', kind: 'prototype', phase: null, at: null, planner: true };
   for (const [lane, tone] of [['todo', 'in-todo'], ['progress', 'in-progress']]) {
     const html = ui.workLines({ ...workCard, lane, sortAt: '2020-01-01T10:00:00.000Z', builder: planner });
@@ -1442,11 +1445,15 @@ test("a planner's line on a card is marked planner, keeping its dot, orange in I
   for (const kind of ['prototype', 'grill']) assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', builder: { ...planner, kind } }), /phase-bars/);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'progress', sortAt: '2020-01-01T10:00:00.000Z', builder: planner }), /phase-bars/, 'no dashes in In Progress');
   const line = (it) => /<div class="line3 sub agent planner in-todo">.*?<\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
-  const asked = (it) => /<div class="line3 sub asked">([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
-  assert.equal(asked({ grilling: true }), 'preheating');
-  assert.equal(asked({ prototyping: true }), 'preheating');
+  // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+  const blue = (it) => /<div class="line3 sub agent planner"><span class="working-dot" aria-hidden="true"><\/span>([^<]*)<\/div>/.exec(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1];
+  for (const word of ['preheating', 'planning prototype', 'planning visual', 'generating visual']) {
+    assert.equal(blue({ planning: word, orchestrator: { kind: 'brief', since: '2020-01-01T10:00:00.000Z', picked: null, next: 'x' } }), word, 'before the wait on the orchestrator');
+  }
+  assert.equal(blue({ grilling: true }), undefined, 'a request alone reads no word');
+  assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'todo', sortAt: '2020-01-01T10:00:00.000Z', grilling: true }), /preheating/);
   assert.equal(line({ grilling: true }), undefined);
-  assert.equal(line({ prototyping: true, builder: planner }), 'Prototyping · the takes');
+  assert.equal(line({ prototyping: true, planning: 'planning visual', builder: planner }), 'Prototyping · the takes', "a running planner's line wins");
   assert.equal(line({}), undefined);
 });
 

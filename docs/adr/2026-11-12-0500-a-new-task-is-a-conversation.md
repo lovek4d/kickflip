@@ -22,3 +22,5 @@ Considered:
 - Grill, Prototype and Visual buttons on the New task sheet: split out to T-154; the sheet keeps Discuss and Implement.
 - A flag on `item set --phase ready` for whether the card ends in a commit: every ready card goes to a builder, which commits, so the flag would always be set; the cards that never commit are discussions closed from discussing, which never go ready.
 - A prototype round ending in staging, as a grill does: the owner wants the prototype to feed the conversation, not end it.
+
+Superseded in part by [every planner launches from the orchestrator's brief](2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md): the Grill tap and `item set --phase grilling` owe a grill brief rather than starting the round (`round_at` is gone), and `item visual` gives way to `item brief <key> --kind visual --file <draft.md>`.

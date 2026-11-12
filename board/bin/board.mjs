@@ -51,8 +51,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   visual add <file>/<id> --file <page.html> --title <t>  a visual agent's page: copied to public/visuals/<id>/<slug>.html
                                                          (a new name each time), linked by a visual line in the
                                                          item's thread; prints the page's link
-  item visual <file>/<id> --text <t>                    asks the board for a visual on the card, as the thread's
-                                                         image does: a visual agent draws what --text says
+  item brief <file>/<id> --kind grill|prototype|visual   the orchestrator's brief for the card's next agent of that
+         --file <draft.md>                               kind: what the discussion settled, what is still open,
+                                                         what the questions, takes or page should cover and the
+                                                         files that matter. Appended to its notes as "Brief for
+                                                         <kind> round N"; the board launches the agent from it, and
+                                                         from nothing else. A grill or prototype brief moves the
+                                                         Todo card to grilling or prototyping
   topic add <id> --title <t> [--summary <s>]             a question topic in data/owner.json
   question add --file <json>                             one question or an array of them:
          {id, topic, question, options: [{id, label, recommended?, detail?, diagram?, practice?}],
@@ -839,7 +844,7 @@ const COMMANDS = {
   }],
   thread: [['file/id'], ['text', 'link', 'who', 'via'], (site, [key], f) => store.appendMessage(site, key, f)],
   'visual add': [['file/id'], ['file', 'title'], (site, [key], f) => store.addVisual(site, key, f)],
-  'item visual': [['file/id'], ['text'], (site, [key], f) => store.requestVisual(site, key, f)],
+  'item brief': [['file/id'], ['kind', 'file'], (site, [key], f) => store.writeBrief(site, key, f)],
   'topic add': [['id'], ['title', 'summary'], (site, [id], f) => store.addTopic(site, { id, ...f })],
   'question add': [[], ['file'], async (site, _, f) => {
     const input = readJSONInput(f.file);

@@ -9,3 +9,5 @@ On #90 the owner answered a prototype question with a note and no take ("i don't
 - **The fallback stays.** `pullOf`'s plannable still takes a card prototyping again with nothing waiting on the owner, so a launch that fails (`planner-failed`) still ends in a plan.
 
 Considered: a distinct orchestrator wait kind for the unlaunched answer. It would keep a hand-off the board can do itself, since [the board launches grill and prototype planners](2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md).
+
+Superseded in part by [every planner launches from the orchestrator's brief](2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md): an answer that picks no take owes the orchestrator the next round's prototype brief, with the answer's question and note as its ask, and the board launches the round from that brief, not straight from the answer.

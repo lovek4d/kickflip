@@ -7,7 +7,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, BOARD_CLI } from './headless.mjs';
-import { briefFacts, archiveCards, builderProgress, readArchive, threadFile } from './store.mjs';
+import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
 
 // Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
@@ -18,7 +18,22 @@ function stopFakeBuilders(seen) {
   for (const { pid } of runs) try { process.kill(pid, 'SIGKILL'); } catch {}
 }
 
-const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'], thread: '/s/data/threads/w__A1.jsonl' };
+// brief is the orchestrator's, which a grill, prototype or visual agent starts from; a builder's brief ignores it.
+const card = { route: 'shop', key: 'w/A1', ref: 'ENG-1', title: 'Make it go', notes: '/s/waves/w/a1.md', worktree: '/wt/A1', base: 'main', rules: ['Use Node 22+'], thread: '/s/data/threads/w__A1.jsonl',
+  brief: { heading: 'Brief for grill round 1', text: 'Settled: the footer folds.\nOpen: the phone layout.' } };
+
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+test("a grill's, a prototype's and a visual agent's brief open with the orchestrator's brief, before the thread and notes, and none is written without one", () => {
+  const briefs = [plannerBrief({ ...card, kind: 'grill', repo: '/r/shop' }), plannerBrief({ ...card, kind: 'prototype', repo: '/r/shop' }), visualBrief({ ...card, repo: '/r/shop', agent: 'visual-1' })];
+  for (const [brief, what] of briefs.map((b, i) => [b, ['questions', 'takes', 'page'][i]])) {
+    assert.ok(brief.includes(`Start from the orchestrator's brief, its notes section "Brief for grill round 1": what the discussion settled, what is still open, and what your ${what} should cover, with the files that matter. Read it before the thread and the notes:\n\nSettled: the footer folds.\nOpen: the phone layout.\n`), what);
+    assert.ok(brief.indexOf('Settled: the footer folds.') < brief.indexOf('1. Run') && brief.indexOf('1. Run') < brief.indexOf(card.thread), what);
+  }
+  for (const write of [() => plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', brief: undefined }), () => visualBrief({ ...card, repo: '/r/shop', agent: 'v', brief: null })]) {
+    assert.throws(write, /no orchestrator's brief/);
+  }
+  assert.ok(!builderBrief(card).includes('Settled: the footer folds.'), "a builder's brief has none");
+});
 
 // docs/adr/2026-11-04-0306-builders-launch-headless-check-their-notes-and-land-on-their-own.md
 test("a headless builder's brief names its card, notes, worktree and rules, and has it report, ask, record calls and finish with builder done", () => {
@@ -635,6 +650,12 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
   const thread = (id) => (fs.existsSync(path.join(data, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse) : []);
   const record = (id) => JSON.parse(fs.readFileSync(path.join(data, 'agents', `${id}.json`), 'utf8'));
   const item = (id) => JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items.find((i) => i.id === id);
+  // The orchestrator's `item brief` on card id: its words, for an agent of kind.
+  const brief = (id, kind, words) => {
+    const draft = path.join(home, `brief-${id}-${kind}.md`);
+    fs.writeFileSync(draft, words);
+    return writeBrief(site, `t/${id}`, { kind, file: draft });
+  };
   async function start({ fastMinute = false } = {}) {
     const [port] = await freePorts();
     const setup = path.join(home, 'setup.mjs');
@@ -659,44 +680,62 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
     await until(() => all.every((pid) => { try { process.kill(pid, 0); return false; } catch (e) { return e.code !== 'EPERM'; } }), 'the agents exit');
     fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
-  return { home, site, data, clone, runs, events, thread, record, item, start, cleanup };
+  return { home, site, data, clone, runs, events, thread, record, item, brief, start, cleanup };
 }
 
-test("the server launches a planner for the owner's Grill and Prototype taps and for a card arriving in Todo, from the card, in the board's repo", async () => {
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+test("the owner's Grill and Prototype taps and a card arriving in Todo launch no planner but owe the orchestrator's brief, which launches it from the card, in the board's repo", async () => {
   const b = oneLaunchBoard([
-    { id: 'G1', title: 'Grill me', phase: 'grilling' },
-    { id: 'P1', title: 'Draw me', phase: 'prototyping' },
+    { id: 'G1', title: 'Grill me', phase: 'discussing' },
+    { id: 'P1', title: 'Draw me', phase: 'discussing' },
     { id: 'Q1', title: 'Plan me' },
   ]);
   const { child, send } = await b.start();
   try {
-    await send('grill-more', { key: 't/G1' });
-    await until(() => b.runs().length === 1, 'the grill launches');
+    await send('grill-more', { key: 't/G1', text: 'Ask about the phone' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(b.runs().length, 0, 'the tap launches nothing');
+    assert.deepEqual([b.item('G1').phase, b.item('G1').briefs.map((x) => [x.kind, x.ask, x.brief])], ['grilling', [['grill', { text: 'Ask about the phone' }, undefined]]]);
+    const waitsFile = path.join(b.data, 'orchestrator-waits.json');
+    await until(() => fs.existsSync(waitsFile) && JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits.some((w) => w.key === 't/G1' && w.kind === 'brief'), 'the brief waits on the orchestrator');
+
+    await b.brief('G1', 'grill', 'Settled: the footer folds.\nOpen: the phone layout.');
+    await until(() => b.runs().length === 1, 'the brief launches the grill');
     const [grill] = b.runs();
     assert.equal(grill.cwd, fs.realpathSync(b.clone));
     assert.match(grill.argv[1], /builder start t\/G1 --kind grill/);
     assert.match(grill.argv[1], /grilling skill/);
+    assert.match(grill.argv[1], /Start from the orchestrator's brief, its notes section "Brief for grill round 1"[^]*Settled: the footer folds\.\nOpen: the phone layout\.[^]*1\. Run/);
+    assert.match(grill.argv[1], /The owner asked for this grill, writing: "Ask about the phone"/);
     assert.equal(grill.argv[grill.argv.indexOf('--model') + 1], 'opus');
-    assert.deepEqual([b.record('G1').kind, b.record('G1').dispatched], ['grill', 'hub']);
+    assert.deepEqual([b.record('G1').kind, b.record('G1').dispatched, b.record('G1').brief.brief.heading], ['grill', 'hub', 'Brief for grill round 1']);
+    await until(() => b.record('G1').session?.log, 'the launch records its session');
     assert.match(b.record('G1').session.log, /^planner-G1-.*\.log$/);
-    assert.equal(b.item('G1').lane, 'todo', 'a planner never starts the card');
+    assert.deepEqual([b.item('G1').lane, b.item('G1').briefs], ['todo', undefined], 'a planner never starts the card, and its brief left the card');
 
     await send('prototype-request', { key: 't/P1' });
+    await b.brief('P1', 'prototype', 'Two takes: a drawer and a sheet.');
     await until(() => b.runs().length === 2, 'the prototype launches');
     const proto = b.runs()[1];
     assert.match(proto.argv[1], /builder start t\/P1 --kind prototype/);
+    assert.match(proto.argv[1], /Two takes: a drawer and a sheet\./);
     assert.equal(proto.argv[proto.argv.indexOf('--model') + 1], 'sonnet');
 
-    // With Auto implement on, the card that arrived in Todo with no planner yet gets its grill; the planned ones don't.
+    // With Auto implement on, the card that arrived in Todo with no planner yet owes its grill's brief; the planned ones don't.
     for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
     fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', auto_pull: true }));
-    await until(() => b.runs().length === 3, 'the arrival launches a grill');
+    await until(() => b.item('Q1').briefs?.length, 'the arrival owes a grill brief');
+    assert.deepEqual(b.item('Q1').briefs.map((x) => x.kind), ['grill']);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(b.runs().length, 2, 'the arrival launches nothing by itself');
+    assert.deepEqual(b.thread('Q1'), [], 'the arrival posts no thread line of its own');
+    await b.brief('Q1', 'grill', 'Plan it.');
+    await until(() => b.runs().length === 3, 'its brief launches the grill');
     assert.match(b.runs()[2].argv[1], /builder start t\/Q1 --kind grill/);
     await until(() => b.record('Q1').session?.log, 'the launch records the run');
-    assert.deepEqual(b.thread('Q1'), [], 'the arrival posts no thread line of its own');
     assert.ok(!b.events().includes('card-plan'), 'the grill wakes no session');
-    // A tap while the card's planner is open launches nothing more.
-    await send('grill-more', { key: 't/Q1' });
+    // A brief while the card's planner is open launches nothing more, until it finishes.
+    await b.brief('Q1', 'grill', 'And the desktop.');
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 3);
   } finally {
@@ -717,19 +756,21 @@ const reportUsage = (home, used) => {
   fs.appendFileSync(path.join(dir, newest), JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: used / 100, resetsAt, status: 'allowed' }, seven_day: { utilization: 0.2, resetsAt, status: 'allowed' } } } }) + '\n');
 };
 
-test('a grill or prototype asked for during a pause waits on the card and launches when the pause lifts', async () => {
+test('a grill briefed during a pause waits on the card and launches when the pause lifts', async () => {
   const b = oneLaunchBoard([{ id: 'G1', title: 'Grill me', phase: 'grilling' }]);
   usageAt(b.home, 95);
   const { child, send } = await b.start({ fastMinute: true });
   try {
     await send('grill-more', { key: 't/G1', text: 'One more thing' });
-    await until(() => b.thread('G1').some((t) => t.line === 'planner-held' && t.text === 'The grill waits and starts when the hold lifts.'), 'the card says the grill waits');
+    await b.brief('G1', 'grill', 'Ask about the footer.');
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 0, 'nothing launches while paused');
+    assert.equal(b.item('G1').briefs[0].brief.heading, 'Brief for grill round 1', 'the brief waits on the card');
     fs.rmSync(path.join(b.home, '.claude', 'kickflip', 'usage.json'));
     await until(() => b.runs().length === 1, 'the grill launches once the pause lifts');
     assert.match(b.runs()[0].argv[1], /builder start t\/G1 --kind grill/);
     assert.match(b.runs()[0].argv[1], /One more thing/);
+    assert.match(b.runs()[0].argv[1], /Ask about the footer\./);
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 1, 'it launches once');
   } finally {
@@ -743,6 +784,7 @@ test('within twice the buffer of the line the board starts one agent, and the ne
   usageAt(b.home, 85);
   const { child } = await b.start({ fastMinute: true });
   try {
+    for (const id of ['A1', 'A2']) await await b.brief(id, 'grill', `Grill ${id}.`);
     await until(() => b.runs().length === 1, 'the first grill launches');
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(b.runs().length, 1, 'the second waits for the first run to report');
@@ -824,11 +866,12 @@ test("the owner's Hold pauses the card's running builder at its next progress re
 });
 
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
-test("Resume relaunches the grill a Hold stopped, and neither tap wakes a session", async () => {
+test("Resume relaunches the grill a Hold stopped from the brief it ran on, and neither tap wakes a session", async () => {
   const b = oneLaunchBoard([{ id: 'G2', title: 'Grill me', phase: 'grilling' }]);
   const { child, send } = await b.start();
   try {
     await send('grill-more', { key: 't/G2', text: 'Ask about the footer' });
+    await b.brief('G2', 'grill', 'Cover the footer on a phone.');
     await until(() => b.runs().length === 1, 'the grill launches');
     assert.match(b.runs()[0].argv[1], /Ask about the footer/, 'the typed text goes to the planner');
     await send('card-hold', { key: 't/G2', hold: true });
@@ -836,6 +879,7 @@ test("Resume relaunches the grill a Hold stopped, and neither tap wakes a sessio
     await send('card-hold', { key: 't/G2', hold: false });
     await until(() => b.runs().length === 2, 'the resume launches the grill again');
     assert.match(b.runs()[1].argv[1], /builder start t\/G2 --kind grill/);
+    assert.match(b.runs()[1].argv[1], /Cover the footer on a phone\.[^]*Ask about the footer/, 'with its brief and the ask it answered');
   } finally {
     await b.cleanup(child);
   }
@@ -875,7 +919,7 @@ test("a visual agent's brief has it start as its own agent, read the card and th
   ]) assert.ok(brief.includes(want), `the visual brief has ${want}`);
   assert.ok(!brief.includes('question add') && !brief.includes('item set'), 'a visual posts no question and moves no card');
   assert.ok(brief.indexOf('visual add') < brief.indexOf(`${b} builder done`));
-  assert.match(visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1' }), /what the thread was last discussing/);
+  assert.doesNotMatch(visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1' }), /The owner wrote/, 'with no text from the owner, the orchestrator\'s brief says what to draw');
 });
 
 // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
@@ -896,32 +940,37 @@ test('a new task launches no agent: it arrives as a New card that waits on the o
   }
 });
 
-test("the owner's visual request launches a visual agent on Sonnet beside the card's build, as its own agent, and a second waits for the first to finish", async () => {
+test("the owner's visual request owes the orchestrator's visual brief, which launches a visual agent on Sonnet beside the card's build, as its own agent, and a second waits for the first to finish", async () => {
   const b = oneLaunchBoard([{ id: 'V1', title: 'Show me', lane: 'progress' }]);
   fs.mkdirSync(path.join(b.data, 'agents'), { recursive: true });
   const build = { kind: 'claude', model: 'opus', started: new Date().toISOString(), worktree: { path: b.clone } };
   fs.writeFileSync(path.join(b.data, 'agents', 'V1.json'), JSON.stringify(build));
   const { child, send } = await b.start();
   try {
-    const { id } = await send('visual-request', { key: 't/V1', text: 'Draw the queue' });
+    await send('visual-request', { key: 't/V1', text: 'Draw the queue' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(b.runs().length, 0, 'the tap launches nothing');
+    assert.deepEqual([b.item('V1').lane, b.item('V1').briefs.map((x) => [x.kind, x.ask])], ['progress', [['visual', { text: 'Draw the queue' }]]]);
+    await b.brief('V1', 'visual', 'The land queue as a flow, oldest first.');
     await until(() => b.runs().length === 1, 'the visual agent launches beside the build');
     const [run] = b.runs();
+    const agent = /--agent (visual-\d+)/.exec(run.argv[1])[1];
     assert.equal(run.cwd, fs.realpathSync(b.clone));
-    assert.match(run.argv[1], new RegExp(`builder start t/V1 --kind visual --agent visual-${id}`));
-    assert.match(run.argv[1], /Draw the queue/);
+    assert.match(run.argv[1], new RegExp(`builder start t/V1 --kind visual --agent ${agent}`));
+    assert.match(run.argv[1], /The land queue as a flow, oldest first\.[^]*Draw the queue/);
     assert.equal(run.argv[run.argv.indexOf('--model') + 1], 'sonnet');
-    const visual = b.record(`V1@visual-${id}`);
-    assert.deepEqual([visual.kind, visual.model, visual.dispatched], ['visual', 'sonnet', 'hub']);
+    const visual = b.record(`V1@${agent}`);
+    assert.deepEqual([visual.kind, visual.model, visual.dispatched, visual.brief.brief.heading], ['visual', 'sonnet', 'hub', 'Brief for visual round 1']);
     assert.deepEqual(b.record('V1'), build, "the build's record is untouched");
-    await until(() => b.record(`V1@visual-${id}`).session?.log, 'the launch records the run');
+    await until(() => b.record(`V1@${agent}`).session?.log, 'the launch records the run');
 
-    const second = await send('visual-request', { key: 't/V1' });
+    await b.brief('V1', 'visual', 'Now the review lane.');
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 1, 'the second waits while the first runs');
-    fs.writeFileSync(path.join(b.data, 'agents', `V1@visual-${id}.json`), JSON.stringify({ ...visual, done: new Date().toISOString() }));
+    fs.writeFileSync(path.join(b.data, 'agents', `V1@${agent}.json`), JSON.stringify({ ...b.record(`V1@${agent}`), done: new Date().toISOString() }));
     await until(() => b.runs().length === 2, 'the second launches once the first is done');
-    assert.match(b.runs()[1].argv[1], new RegExp(`--agent visual-${second.id}`));
-    assert.match(b.runs()[1].argv[1], /what the thread was last discussing/);
+    assert.doesNotMatch(b.runs()[1].argv[1], new RegExp(`--agent ${agent}\\b`));
+    assert.match(b.runs()[1].argv[1], /Now the review lane\./);
   } finally {
     await b.cleanup(child);
   }

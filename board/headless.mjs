@@ -136,17 +136,26 @@ export function rebaseBrief({ route, key, ref, title, thread, worktree, base, pr
   ].join('\n');
 }
 
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+// The orchestrator's brief, {heading, text} as its notes section, which a grill, prototype or visual agent reads before
+// anything else, what naming what the agent makes; an agent with none is a bug, so it throws.
+function orchestratorsBrief(brief, what) {
+  if (!brief?.text) throw new Error("no orchestrator's brief: the board launches a grill, prototype or visual agent only from one (item brief)");
+  return [`Start from the orchestrator's brief, its notes section "${brief.heading}": what the discussion settled, what is still open, and what your ${what} should cover, with the files that matter. Read it before the thread and the notes:`, '', brief.text, ''];
+}
+
 // The brief for a planner, a grill or a prototype, launched from the card and its notes so far. card as builderBrief's,
 // with kind grill or prototype, repo the board's repo folder it reads, the owner's text and files (uploads, {name, path})
 // when the request carried them, and for the owner's eye on one question, question (its id), note and choice.
 // prototype is the card's kept prototype answer (briefFacts), which the grill then never asks
 // (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md).
-export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo, rules = [], links = [], text, files = [], question, note, choice, prototype = null }) {
+export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo, brief, rules = [], links = [], text, files = [], question, note, choice, prototype = null }) {
   const b = cli(route);
   const grill = kind === 'grill';
   return [
     `You are the headless ${grill ? 'grill' : 'prototype'} planner for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person: the owner answers on the board, and a later planner or builder picks up from their answers. Read and run in ${repo}; write no output code ${grill ? 'there' : `in ${repo} itself`}, never restart the hub or a board server, and never push.`,
     '',
+    ...orchestratorsBrief(brief, grill ? 'questions' : 'takes'),
     `1. Run \`${b} builder start ${key} --kind ${kind}\`. If it refuses, stop.`,
     `2. Gather the context yourself: ${notes ? `the card's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the card has no notes file yet; '}its thread, ${thread}, the repo's docs/adr and CONTEXT.md, and the cards its notes and thread link.`,
     `3. Report progress with \`${b} builder progress ${key} "<plain, 80 characters or fewer>"\` at least every 10 minutes.`,
@@ -177,14 +186,15 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
 // The brief for a visual agent: one HTML page answering the owner's visual request in the card's thread. card as
 // plannerBrief's, with agent its record's name and the owner's text and files when the request carried them.
-export function visualBrief({ route, key, ref, title, notes, thread, repo, agent, rules = [], links = [], text, files = [] }) {
+export function visualBrief({ route, key, ref, title, notes, thread, repo, agent, brief, rules = [], links = [], text, files = [] }) {
   const b = cli(route);
   return [
-    `You are the headless visual agent for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The owner asked, in the card's thread, for a visual: one HTML page that answers in a visual way, such as a diagram, a flow or a comparison. It is not a prototype or a grill: no question, no takes. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code there, never restart the hub or a board server, and never push.`,
+    `You are the headless visual agent for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The card's thread wants a visual: one HTML page that answers in a visual way, such as a diagram, a flow or a comparison. It is not a prototype or a grill: no question, no takes. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code there, never restart the hub or a board server, and never push.`,
     '',
+    ...orchestratorsBrief(brief, 'page'),
     `1. Run \`${b} builder start ${key} --kind visual --agent ${agent}\`. If it refuses, stop.`,
     `2. Gather what the page needs: ${notes ? `the card's notes, ${notes}; ` : ''}its thread, ${thread}, and the code or docs it is about.`,
-    text ? `   The owner wrote: "${text}"` : '   The owner typed nothing: draw what the thread was last discussing.',
+    ...(text ? [`   The owner wrote, asking for it: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     '3. Write one HTML file outside the repo, such as in a temporary folder. Keep its own CSS and script inline; it may load a library such as Mermaid or D3 from a CDN. Make it read well at phone width (390px) and on a desktop, in the dark and the light theme (prefers-color-scheme).',
     `4. Place it with \`${b} visual add ${key} --file <page.html> --title "<what it shows>"\`, which copies it to the board and links it in the thread.`,
@@ -321,7 +331,7 @@ const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'lo
 // adapter (agents.mjs launchAgent): a build or lander as its record's kind, a planner as Claude. The session id it names
 // goes on the agent's builder record and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', text, files, question, note, choice, task, writes, worktree }, { lander = false } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, question, note, choice, task, writes, worktree }, { lander = false } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
@@ -331,7 +341,7 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const rebase = !planner && !helper && !lander && facts.rebasePR !== null;
   const visual = kind === VISUAL;
   const cwd = planner ? repo : helper ? worktree ?? facts.worktree ?? repo : facts.worktree;
-  const card = { ...facts, route, base, repo, rules, kind, agent, text, files, question, note, choice, task, writes, cwd, pr: facts.rebasePR };
+  const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, question, note, choice, task, writes, cwd, pr: facts.rebasePR };
   const role = visual ? 'Visual agent' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
   const prompt = visual ? visualBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
   const launched = await launchAgent({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });

@@ -2951,7 +2951,7 @@ test('a tap anywhere on an asleep board, refresh included, asks the hub to wake 
   b.view.unmount();
 });
 
-test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Questions links to its first question, a grill request no planner has picked up reads preheating in grey", async () => {
+test("an open card shows its workflow buttons below a final details line of Notes, Install and GitHub links, and colours orange the control that clears Action needed: Questions links to its first question, a grill whose brief the orchestrator owes reads preheating in blue", async () => {
   const draft = { state: 'OPEN', isDraft: true, number: 7, url: 'https://github.com/o/r/pull/7', checks: { state: 'pass' } };
   const ready = { ...draft, isDraft: false };
   const install = { url: 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist', label: null, older: false };
@@ -2959,7 +2959,7 @@ test("an open card shows its workflow buttons below a final details line of Note
   const cards = [
     workCard('A1', { ...asking, action: { kind: 'questions', url: 'questions.html#q7', label: 'Answer 1 question' }, resolvedBy: 'openQuestions' }),
     workCard('A2', { actionButton: null, bumpable: true }),
-    workCard('A3', { actionButton: null, grilling: true }),
+    workCard('A3', { actionButton: null, grilling: true, planning: 'preheating' }),
     workCard('A4', { actionButton: null, lane: 'done' }),
     workCard('A5', { ...asking, held: true, holdable: true, action: null, resolvedBy: null }),
     workCard('P1', { ...asking, action: { kind: 'pick', url: 'questions.html#q7', label: 'Prototypes ready: pick a take' }, resolvedBy: 'openQuestions' }),
@@ -3002,7 +3002,7 @@ test("an open card shows its workflow buttons below a final details line of Note
   assert.equal(b.root.querySelector('.action-row.external'), null);
   assert.equal(row('w/D1').querySelector('.actions .install, .actions a[target="_blank"]'), null);
   assert.equal(row('w/R1').querySelector('.external-links .resolves'), null);
-  assert.match(b.root.querySelector('details.item[data-key="w/A3"] summary .line3.sub.asked').textContent, /^preheating$/);
+  assert.match(b.root.querySelector('details.item[data-key="w/A3"] summary .line3.sub.agent.planner').textContent, /^preheating$/);
   assert.equal(b.root.querySelector('details.item[data-key="w/A2"] summary .line3.planner'), null);
 });
 

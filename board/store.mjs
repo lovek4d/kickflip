@@ -1848,10 +1848,9 @@ export async function settleAnswers(site, answers) {
 // A card moves on once none of its questions is open: a grilling card whose gates.prototype is yes to prototyping, with
 // a thread line, the yes then spent as ran (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md); a
 // prototyping or discussing card back to the conversation, discussing (docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md);
-// any other stageable card to staging. round_at, which moveOnAnswered sets when asked, has the board server start the
-// prototype planner (domain.mjs roundsDue), for a move made outside the server.
+// any other stageable card to staging. The move to prototyping owes the orchestrator's prototype brief.
 // → 'prototyping', 'discussing', 'staging' or null when the card stays.
-async function moveOnAnswered(site, key, { roundAt = false } = {}) {
+async function moveOnAnswered(site, key) {
   const { item } = await loadItem(site, key);
   const { asked } = await cardQuestions(site, key);
   if (asked.some((q) => q.state === 'open')) return null;
@@ -1859,7 +1858,7 @@ async function moveOnAnswered(site, key, { roundAt = false } = {}) {
     await setItem(site, key, { phase: 'prototyping' });
     const { source, itemFile, item: moved } = await loadItem(site, key);
     moved.gates = { ...moved.gates, prototype: 'ran' };
-    if (roundAt) moved.round_at = new Date().toISOString();
+    owe(moved, 'prototype');
     await writeJSON(source.file, itemFile);
     await appendStatus(site, key, 'prototype-round');
     return 'prototyping';
@@ -2066,15 +2065,80 @@ export async function stageReply(site, key, message) {
   if (words) await appendNotes(site, key, `Reply (owner, ${noteStamp()}), verbatim`, words);
   await stage(site, key);
 }
-// The owner's Grill or Prototype tap (kind grill or prototype) on a discussing, ready or staging card takes it out of
-// that phase, to grilling or prototyping; the tap launches the planner itself.
-export async function planAgain(site, key, kind) {
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+// A card's briefs, item.briefs [{kind, at, ask?, brief?: {heading, text, at}}], kind grill, prototype or visual. An entry
+// with no brief is owed: the orchestrator writes it (item brief, writeBrief). One with a brief waits for the board server
+// to launch its agent (domain.mjs briefsDue), which takes the entry off the card onto the agent's record (takeBrief). ask
+// is the owner's request it answers, {text?, files?, question?, note?, choice?}. A kind owed again keeps its first time
+// and takes the newer ask.
+const BRIEF_KINDS = ['grill', 'prototype', VISUAL];
+const PLANNER_PHASE = { grill: 'grilling', prototype: 'prototyping' };
+function owe(item, kind, ask = {}, at = new Date().toISOString()) {
+  const briefs = item.briefs || [];
+  const owed = briefs.find((b) => b.kind === kind && !b.brief);
+  const asked = Object.keys(ask).length ? { ask } : {};
+  item.briefs = owed ? briefs.map((b) => (b === owed ? { ...b, ...asked } : b)) : [...briefs, { kind, at, ...asked }];
+}
+// The owner's Grill or Prototype tap (kind grill or prototype) on a Todo card: the card owes the orchestrator's brief for
+// it, and a discussing, ready or staging card moves to grilling or prototyping. A Visual tap (kind visual) owes a
+// visual's brief on any open card and moves no phase.
+export async function planAgain(site, key, kind, ask = {}) {
   const { source, itemFile, item } = await loadItem(site, key);
-  if (!['discussing', 'ready', 'staging'].includes(item.phase) || leftTodo(item)) return;
-  item.phase = kind === 'prototype' ? 'prototyping' : 'grilling';
-  delete item.staged_at;
+  if (closed(item) || (kind !== VISUAL && leftTodo(item))) return;
+  if (kind !== VISUAL && ['discussing', 'ready', 'staging'].includes(item.phase)) {
+    item.phase = PLANNER_PHASE[kind];
+    delete item.staged_at;
+  }
+  owe(item, kind, ask);
   await writeJSON(source.file, itemFile);
 }
+// The board's own call for a planner, a card arriving in Todo with no planner yet: it owes the brief, its phase as it is.
+export async function oweBrief(site, key, kind) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  owe(item, kind);
+  await writeJSON(source.file, itemFile);
+}
+// `item brief <key> --kind grill|prototype|visual --file <draft.md>`: the orchestrator's brief for the card's next agent
+// of that kind, appended to its notes as "Brief for <kind> round N" and set on the kind's owed entry, or on a new one when
+// the orchestrator briefs an agent nobody asked for. A grill or prototype brief moves the Todo card to that phase; the
+// board server launches the agent from it. → {heading, lines}
+export async function writeBrief(site, key, { kind, file }) {
+  needSite(site);
+  if (!BRIEF_KINDS.includes(kind)) fail(`item brief needs --kind grill, prototype or ${VISUAL}`);
+  if (file === undefined) fail('item brief needs --file <draft.md>: what the discussion settled, what is still open, what the agent should cover and the files that matter');
+  const name = await cardName(site, key);
+  const { item } = await loadItem(site, key);
+  if (closed(item)) fail(`${name} is done; there is nothing to brief`);
+  if (kind !== VISUAL && leftTodo(item)) fail(`${name} is past Todo, so it gets no ${kind}`);
+  const body = (await refuseCardNotes(site, file, '--file', () => `${DRAFT_HINT}, holding only the brief`)).trim();
+  if (!body) fail(`${file} is empty`);
+  const notes = item.plan ? (await readNotes(site, key)).markdown : '';
+  const heading = `Brief for ${kind} round ${(notes.match(new RegExp(`^## Brief for ${kind} round \\d+`, 'gm')) || []).length + 1}`;
+  await appendNotes(site, key, heading, body);
+  const { source, itemFile, item: briefed } = await loadItem(site, key);
+  const at = new Date().toISOString();
+  if (!(briefed.briefs || []).some((b) => b.kind === kind && !b.brief)) owe(briefed, kind, {}, at);
+  briefed.briefs = briefed.briefs.map((b) => (b.kind === kind && !b.brief ? { ...b, brief: { heading, text: body, at } } : b));
+  if (kind !== VISUAL && briefed.phase !== PLANNER_PHASE[kind]) {
+    briefed.phase = PLANNER_PHASE[kind];
+    delete briefed.staged_at;
+  }
+  await writeJSON(source.file, itemFile);
+  return { heading, lines: [`${name}: "${heading}" added to its notes; the board launches its ${kind === VISUAL ? 'visual agent' : `${kind} planner`} from it`] };
+}
+// The card's oldest written brief of kind, taken off the card for the agent the board server is starting, or null.
+async function takeBrief(site, key, kind) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  const entry = (item.briefs || []).find((b) => b.kind === kind && b.brief);
+  if (!entry) return null;
+  item.briefs = item.briefs.filter((b) => b !== entry);
+  if (!item.briefs.length) delete item.briefs;
+  await writeJSON(source.file, itemFile);
+  return entry;
+}
+// The oldest written brief of kind on the card, left on it, or null.
+const briefOn = async (site, key, kind) => ((await loadItem(site, key)).item.briefs || []).find((b) => b.kind === kind && b.brief) ?? null;
+const noBrief = async (site, key, kind) => fail(`${await cardName(site, key)} has no ${kind} brief; the orchestrator writes it with item brief ${key} --kind ${kind} --file <draft.md>`);
 // A question published on a ready or staging card leaves the owner something to decide, so the card is grilling until
 // the answer's Send stages it again.
 async function grillAgain(site, key) {
@@ -2118,7 +2182,7 @@ export async function resolveQuestion(site, id, note) {
   // docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md: a question the orchestrator
   // closes counts as answered, so the grilling card it leaves with nothing open moves on.
   const key = cardOfTopic(q.topic);
-  if (key && (await loadItem(site, key).catch(() => null))?.item.phase === 'grilling') await moveOnAnswered(site, key, { roundAt: true });
+  if (key && (await loadItem(site, key).catch(() => null))?.item.phase === 'grilling') await moveOnAnswered(site, key);
   return file;
 }
 
@@ -2768,9 +2832,10 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (phase === 'ready' && !judged && !rechecked && said !== undefined && fromAsk === undefined && !done) fail(`${key} reads ${item.phase || 'no phase'}, not staging, so there is no judgment for --text to record`);
   const readied = phase === 'ready' && item.phase !== 'ready';
   if (phase !== undefined) {
-    // docs/adr/2026-11-07-0700-staging-then-ready.md: sent from discussing, staging or ready to a grill or prototype,
-    // the card gets its round from the board (domain.mjs roundsDue).
-    if (PLANNED.includes(phase) && ['discussing', 'staging', 'ready'].includes(item.phase)) item.round_at = new Date().toISOString();
+    // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: sent from discussing, staging or
+    // ready to a grill or prototype, the card owes the orchestrator's brief for its round, which the board launches the
+    // planner from. A new card filed grilling waits for its arrival (domain.mjs arrivalsOf), under the planner cap.
+    if (PLANNED.includes(phase) && ['discussing', 'staging', 'ready'].includes(item.phase)) owe(item, phase === 'grilling' ? 'grill' : 'prototype');
     item.phase = phase;
     delete item.recheck_at;
     delete item.staged_at;
@@ -3992,6 +4057,8 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(dispatch ? { dispatched: dispatch } : {}),
     ...(resumed ? { calls: resumed.calls, ...(resumed.verified ? { verified: resumed.verified } : {}) } : {}),
     ...(launchedSession(before) ? { session: before.session } : {}),
+    // A planner's or visual agent's record keeps the brief the board launched it from (startPlanner, startVisual).
+    ...(takeUp?.brief && plans({ kind: k }) ? { brief: takeUp.brief } : {}),
     // A helper's record keeps what agent launch asked of it.
     ...(k === HELPER && before?.kind === HELPER ? { label: before.label, task: before.task, writes: before.writes, requested: before.requested } : {}),
   };
@@ -4328,27 +4395,36 @@ export async function isLanding(site, key) {
 const launchedSession = (record) => Boolean(record?.session) && record.session.at > (record.done ?? record.started);
 
 // The board server's start of a planner, kind grill or prototype, on a card: the main record opens, dispatched: 'hub',
-// as builder start --kind <kind> does. → {key, kind, model}, or null while an agent already works on the card's main
-// record.
-export async function startPlanner(site, key, kind) {
-  const open = await readJSON(await builderFile(site, key), null);
+// as builder start --kind <kind> does, from the card's oldest written brief of that kind, which moves onto the record
+// (brief, the card's briefs entry), or from kept, the entry a run the Hold stopped had. A card with neither is refused
+// (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
+// → {key, kind, model, brief, ...its ask}, or null while an agent already works on the card's main record.
+export async function startPlanner(site, key, kind, kept = null) {
+  const file = await builderFile(site, key);
+  const open = await readJSON(file, null);
   if (open && !open.done) return null;
+  if (!kept && !(await briefOn(site, key, kind))) await noBrief(site, key, kind);
   const started = await startBuilder(site, key, { kind, dispatch: 'hub' });
-  return { key, kind, model: started.model };
+  const entry = kept ?? await takeBrief(site, key, kind);
+  await writeJSON(file, { ...(await readJSON(file, null)), brief: entry });
+  return { key, kind, model: started.model, brief: entry.brief, ...entry.ask };
 }
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
-// The board server's start of the visual agent for request, a visual-request event on the card (domain.mjs
-// visualsDue): its own record, agent visual-<request id>, opens dispatched 'hub' beside any other agent on the card.
-// → {key, kind, model, agent}, or null while a visual agent runs on the card or the request already has its record.
-export async function startVisual(site, key, request) {
+// The board server's start of the visual agent for the card's oldest written visual brief (domain.mjs briefsDue): its
+// own record, agent visual-<the brief's time in ms>, opens dispatched 'hub' beside any other agent on the card, and the
+// brief moves onto it. → {key, kind, model, agent, brief, ...its ask}, or null while a visual agent runs on the card; a
+// card with no visual brief is refused.
+export async function startVisual(site, key) {
   const { source } = await loadItem(site, key);
   const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
   if (records.some((r) => r?.kind === VISUAL && r.started && !r.done)) return null;
-  const agent = visualAgent(request);
-  if (await readJSON(await builderFile(site, key, undefined, agent), null)) return null;
+  const waiting = await briefOn(site, key, VISUAL) ?? await noBrief(site, key, VISUAL);
+  const agent = visualAgent(waiting.brief);
   const started = await startBuilder(site, key, { kind: VISUAL, agent, dispatch: 'hub' });
-  return { key, kind: VISUAL, model: started.model, agent };
+  const entry = await takeBrief(site, key, VISUAL);
+  await writeJSON(started.file, { ...(await readJSON(started.file, null)), brief: entry });
+  return { key, kind: VISUAL, model: started.model, agent, brief: entry.brief, ...entry.ask };
 }
 
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
@@ -4465,17 +4541,6 @@ export async function isHelper(site, key, agent = 'main') {
 export async function isPlanner(site, key, agent = 'main') {
   const record = await readJSON(await builderFile(site, key, undefined, agent), null);
   return Boolean(record?.started && !record.done && plans(record));
-}
-
-// docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md
-// `item visual <file/id> --text <t>`: the orchestrator asks for a visual on the card, a visual-request event of its own
-// (who: claude) that the board server launches a visual agent on, as it does the owner's (domain.mjs visualsDue).
-export async function requestVisual(site, key, { text: said }) {
-  needSite(site);
-  if (said === undefined) fail('item visual needs --text "<what the visual should show>"');
-  await loadItem(site, key);
-  await appendEvent({ dir: site }, 'visual-request', { key, text: text(said, '--text'), who: 'claude' });
-  return { lines: [`visual asked on ${await cardName(site, key)}: the board launches its visual agent`] };
 }
 
 // `visual add <file/id> --file <html> --title <t>`: the visual agent's page, copied to the site's
@@ -4878,15 +4943,15 @@ async function closeBuilders(fileDir, id, cardFinished, { handedBack, endHandBac
 }
 
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
-// The run a Hold stopped on the card's main record, taken off it for the resume that relaunches it: → {kind, label}, or
-// null when the hold stopped none.
+// The run a Hold stopped on the card's main record, taken off it for the resume that relaunches it: → {kind, label,
+// brief}, brief a planner's briefs entry (startPlanner) or null, or null when the hold stopped none.
 export async function takeHoldStopped(site, key) {
   const file = await builderFile(site, key);
   const record = await readJSON(file, null);
   if (!record?.hold_stopped) return null;
   const { hold_stopped, ...rest } = record;
   await writeJSON(file, rest);
-  return { kind: record.kind ?? null, label: record.label ?? null };
+  return { kind: record.kind ?? null, label: record.label ?? null, brief: record.brief ?? null };
 }
 
 // The record stays, marked done, so the item's thread can show when the agent finished (domain.mjs threadOf).
@@ -4937,7 +5002,7 @@ export async function stopPlanner(site, key, flags) {
   const { phase, gates } = (await loadItem(site, key)).item;
   const asked = await hasOpenQuestion(site, key) || Boolean((await readJSON(stagedFile(site), {}))[key]);
   if (phase !== { grill: 'grilling', prototype: 'prototyping' }[kind] || asked) return { file, lines: [] };
-  if (kind === 'grill' && gates?.prototype && await moveOnAnswered(site, key, { roundAt: true })) return { file, lines: [] };
+  if (kind === 'grill' && gates?.prototype && await moveOnAnswered(site, key)) return { file, lines: [] };
   const { line, lines } = await appendStatus(site, key, 'planner-unasked', { kind });
   return { file, lines: [line.text, ...lines] };
 }

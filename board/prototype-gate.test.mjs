@@ -75,13 +75,14 @@ test('yes waits for every question: the card stays grilling while another is ope
   assert.equal(last.card(), 'prototyping');
 });
 
-test('a remaining question the orchestrator resolves counts as answered: the grilling card moves on as a Send would, and the board starts its prototype planner', async () => {
+test("a remaining question the orchestrator resolves counts as answered: the grilling card moves on as a Send would, and owes the orchestrator's prototype brief", async () => {
   const yes = world();
   await addQuestions(yes.site, [other, gate]);
   await settleAnswers(yes.site, [yes.answer('q-gate', 'yes', 'Show it as a badge, so Which? is settled')]);
   await resolveQuestion(yes.site, 'q-other', 'Settled by your note on q-gate');
   assert.equal(yes.card(), 'prototyping');
-  assert.ok(yes.read().round_at, 'round_at asks the board server for its prototype planner (domain.mjs roundsDue)');
+  // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches its planner from the brief.
+  assert.deepEqual(yes.read().briefs.map((b) => [b.kind, b.brief]), [['prototype', undefined]]);
 
   const no = world();
   await addQuestions(no.site, [other, gate]);

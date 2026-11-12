@@ -254,7 +254,7 @@
     if (b && b.kind !== BUILDER_KIND.install) return b.stopped || (b.pause ? (b.pause.paused ? 'paused' : 'pausing') : b.alive === false ? 'stopped' : b.phase === 'landing' ? 'landing' : 'implementing');
     if (it.waitsOn === 'checking') return 'Orchestrator review';
     if (it.lane === 'done') return 'done';
-    if (it.grilling || it.prototyping) return 'preheating';
+    if (it.planning) return it.planning;
     if (it.lane === 'todo') return it.phase && (it.ready || it.phase !== 'ready') ? PHASE_LOOK[it.phase][0] : 'to do';
     if (it.lane === 'progress') return it.reachedPhase ? `stopped at ${it.reachedPhase}` : 'in progress';
     return 'in review';
@@ -354,10 +354,12 @@
     const ids = it.isNew ? badge('notice', 'New') : ticket;
     const chips = `${prChips(it)}${reviewChips(it)}${it.risky ? badge('notice', 'risky') : ''}${installChip(it)}`;
     const status = it.isNew && !it.action ? (askLine(it.ask) && `<div class="line3 sub">${askLine(it.ask)}</div>`)
+      // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype
+      // or planning visual while the orchestrator writes the brief, generating visual while a visual agent draws, in blue.
+      : it.planning && !it.builder ? `<div class="line3 sub agent planner">${DOT}${esc(it.planning)}</div>`
       : it.orchestrator && !it.builder ? `${it.rebaseFailed ? `<div class="line3 sub">${escText(it.rebaseFailed)}</div>` : ''}${orchestratorStatus(it)}`
       : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
       : it.builder ? builderStatus(it)
-      : it.grilling || it.prototyping ? '<div class="line3 sub asked">preheating</div>'
       : it.refusal ? `<div class="line3 sub refused">${escText(it.refusal)}</div>`
       : it.landStopped ? `<div class="line3 sub">${escText(`${it.landStopped.words} · ${lasted(it.landStopped.at)}`)}</div>`
       : it.working ? `<div class="line3 sub agent">${thinkingLine()}</div>`

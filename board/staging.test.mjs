@@ -109,17 +109,18 @@ test('item set --from-ask files a Quick build ask ready, from any phase, with it
   assert.equal(item('A3').phase, undefined);
 });
 
-test('leaving staging or ready for grilling or prototyping marks the round for the board to start', () => {
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+test("leaving staging or ready for grilling or prototyping owes the orchestrator the round's brief", () => {
   setState({ phase: 'staging', staged_at: '2026-11-06T10:00:00.000Z' });
   const before = new Date().toISOString();
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'grilling').code, 0);
-  assert.deepEqual([item().phase, item().staged_at, item().round_at >= before], ['grilling', undefined, true]);
-  setState({ phase: 'ready', round_at: undefined });
+  assert.deepEqual([item().phase, item().staged_at, item().briefs.map((b) => [b.kind, b.at >= before, b.brief])], ['grilling', undefined, [['grill', true, undefined]]]);
+  setState({ phase: 'ready', briefs: undefined });
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'prototyping').code, 0);
-  assert.deepEqual([item().phase, Boolean(item().round_at)], ['prototyping', true]);
-  setState({ phase: 'grilling', round_at: undefined });
+  assert.deepEqual([item().phase, item().briefs.map((b) => b.kind)], ['prototyping', ['prototype']]);
+  setState({ phase: 'grilling', briefs: undefined });
   assert.equal(board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'prototyping').code, 0);
-  assert.equal(item().round_at, undefined, 'a grill handing on to its prototype starts no round of its own');
+  assert.equal(item().briefs, undefined, 'a grill handing on to its prototype owes no round of its own');
 });
 
 test('a question added on a staging or ready card moves it to grilling, where it waits on the answer', () => {
@@ -128,7 +129,7 @@ test('a question added on a staging or ready card moves it to grilling, where it
     write(path.join(home, 'q.json'), question(`q${n}`, { topic: 'item:w/A1' }));
     const r = board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'));
     assert.equal(r.code, 0, r.err);
-    assert.deepEqual([item().phase, item().staged_at, item().round_at], ['grilling', undefined, undefined]);
+    assert.deepEqual([item().phase, item().staged_at, item().briefs], ['grilling', undefined, undefined]);
     assert.match(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, /^A new question on it, so it is grilling until you answer\.$/);
   }
 });

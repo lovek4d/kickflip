@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, roundsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, visualsDue } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER } from './domain.mjs';
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
@@ -1630,21 +1630,47 @@ test('a staging card stays in Todo waiting on the orchestrator, and is neither p
   assert.equal(owesNext(items[0], []), false);
 });
 
-// docs/adr/2026-11-07-0700-staging-then-ready.md
-test('a card sent back to grilling or prototyping from staging gets its round from the board once, until a planner starts after it', () => {
-  const at = (m) => `2026-11-07T10:${String(m).padStart(2, '0')}:00.000Z`;
-  const card = (key, more = {}) => ({ key, lane: 'todo', kind: 'work', phase: 'grilling', roundAt: at(5), agents: [], ...more });
+// docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
+test("briefsDue names each open card's agent due from a written brief: a grill or prototype on a Todo card nothing but a visual runs on, a visual beside anything but another visual, and nothing from an owed brief", () => {
+  const at = (m) => `2026-11-12T10:${String(m).padStart(2, '0')}:00.000Z`;
+  const briefed = (kind) => ({ kind, at: at(1), brief: { heading: `Brief for ${kind} round 1`, text: 'What to cover', at: at(2) } });
+  const card = (key, briefs, more = {}) => ({ key, lane: 'todo', kind: 'work', phase: 'grilling', agents: [], briefs, ...more });
+  const running = (kind) => ({ kind, started: at(3), done: null });
   const items = [
-    card('w/G1'),
-    card('w/P1', { phase: 'prototyping' }),
-    card('w/G2', { agents: [{ kind: 'grill', started: at(1), done: at(2) }] }),
-    card('w/D1', { agents: [{ kind: 'grill', started: at(6), done: at(7) }] }),
-    card('w/D2', { agents: [{ kind: 'prototype', started: at(6), done: null }] }),
-    card('w/D3', { roundAt: null }),
-    card('w/D4', { phase: 'ready' }),
-    card('w/D5', { lane: 'progress' }),
+    card('w/G1', [briefed('grill')]),
+    card('w/P1', [briefed('prototype')], { phase: 'prototyping', agents: [running('visual')] }),
+    card('w/O1', [{ kind: 'grill', at: at(1) }]),
+    card('w/B1', [briefed('grill')], { agents: [running('grill')] }),
+    card('w/B2', [briefed('prototype')], { agents: [running('claude')] }),
+    card('w/X1', [briefed('grill')], { lane: 'progress' }),
+    card('w/V1', [briefed('visual')], { lane: 'progress', agents: [running('claude')] }),
+    card('w/V2', [briefed('visual')], { agents: [running('visual')] }),
+    card('w/D1', [briefed('visual')], { lane: 'done' }),
   ];
-  assert.deepEqual(roundsDue(items), [{ key: 'w/G1', kind: 'grill' }, { key: 'w/P1', kind: 'prototype' }, { key: 'w/G2', kind: 'grill' }]);
+  assert.deepEqual(briefsDue(items), [{ key: 'w/G1', kind: 'grill' }, { key: 'w/P1', kind: 'prototype' }, { key: 'w/V1', kind: 'visual' }]);
+});
+
+test("a card owing a brief reads the brief's word, blue, and waits on the orchestrator to write it, whatever it asks of the owner; a written one or a drawing visual reads its agent's word", () => {
+  const at = (m) => `2026-11-12T10:${String(m).padStart(2, '0')}:00.000Z`;
+  const board = (items, agents = {}) => buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, now: Date.parse(at(30)), files: [{ slug: 'w', agents, itemFile: { internal: true, items } }] });
+  const one = (item, agents) => board([{ id: 'A1', title: 'One', lane: 'todo', ...item }], agents ? { A1: agents } : {}).items[0];
+  const owed = (kind) => one({ phase: kind === 'visual' ? 'discussing' : `${kind === 'grill' ? 'grill' : 'prototyp'}ing`, briefs: [{ kind, at: at(5), ask: { text: 'Show me' } }] });
+  for (const [kind, word, output] of [['grill', 'preheating', 'questions'], ['prototype', 'planning prototype', 'takes'], ['visual', 'planning visual', 'page']]) {
+    const it = owed(kind);
+    assert.deepEqual([it.briefing, it.planning], [kind, word], kind);
+    assert.deepEqual(it.orchestrator, { kind: 'brief', since: at(5), picked: null, next: `Write the ${kind} brief: item brief w/A1 --kind ${kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${output} should cover and the files that matter` }, kind);
+  }
+  assert.equal(owed('grill').builder, null);
+  const written = one({ phase: 'grilling', briefs: [{ kind: 'grill', at: at(5), brief: { heading: 'Brief for grill round 1', text: 'x', at: at(6) } }] });
+  assert.deepEqual([written.briefing, written.planning, written.orchestrator?.kind], [null, null, undefined]);
+  const drawing = one({ phase: 'discussing' }, { 'visual-1': { kind: 'visual', model: 'sonnet', started: at(7) } });
+  assert.deepEqual([drawing.planning, drawing.builder], ['generating visual', null]);
+  assert.equal(one({ lane: 'done', briefs: [{ kind: 'grill', at: at(5) }] }).planning, null, 'a closed card owes nothing');
+  // An owed grill keeps an arrival off the arrivals: it waits on its brief, not a launch.
+  assert.deepEqual(arrivalsOf(board([{ id: 'A1', title: 'One', lane: 'todo', briefs: [{ kind: 'grill', at: at(5) }] }]).items), []);
+  // and takes a planner slot, so the cap counts cards owing briefs as it counts running planners.
+  const two = board([{ id: 'A1', title: 'One', lane: 'todo', briefs: [{ kind: 'grill', at: at(5) }] }, { id: 'A2', title: 'Two', lane: 'todo' }]).items;
+  assert.deepEqual([arrivalsOf(two, { cap: 1 }), arrivalsOf(two, { cap: 2 })], [[], ['w/A2']]);
 });
 
 test('a card-unbump after a card-bump unbumps the card, and a later bump bumps it again', () => {
@@ -2544,18 +2570,6 @@ test("a visual agent is a planner beside the card's work: its card shows the bui
   const todo = [{ id: 'A1', title: 'One', phase: 'grilling' }, { id: 'B1', title: 'Two', phase: 'grilling' }];
   assert.deepEqual(arrivalsOf(board({ B1: { 'visual-v1': { ...visual, done: '2026-10-23T10:00:30Z' } } }, todo).items), ['w/A1', 'w/B1']);
   assert.deepEqual(arrivalsOf(board({ B1: { 'visual-v1': visual } }, todo).items, { cap: 1 }), []);
-});
-
-test('visualsDue names, per card with no visual agent running, its oldest visual request no agent has drawn', () => {
-  const ev = (id, key, ts) => ({ id, ts, kind: 'visual-request', data: { key }, reply: null });
-  const events = [ev('v1', 'w/A1', '2026-10-23T10:00:00Z'), ev('v2', 'w/A1', '2026-10-23T10:01:00Z'), ev('v3', 'w/B1', '2026-10-23T10:02:00Z'), ev('v4', 'w/C1', '2026-10-23T10:03:00Z'),
-    { id: 'g1', ts: '2026-10-23T10:04:00Z', kind: 'grill-more', data: { key: 'w/C1' }, reply: null }];
-  const items = [
-    { key: 'w/A1', lane: 'todo', agents: [{ name: 'visual-v1', kind: 'visual', started: '2026-10-23T10:00:00Z', done: '2026-10-23T10:03:00Z' }] },
-    { key: 'w/B1', lane: 'progress', agents: [{ name: 'visual-v0', kind: 'visual', started: '2026-10-23T09:00:00Z', done: null }] },
-    { key: 'w/C1', lane: 'todo', agents: [] },
-  ];
-  assert.deepEqual(visualsDue(items, events), [{ key: 'w/A1', request: events[1] }, { key: 'w/C1', request: events[3] }]);
 });
 
 // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md

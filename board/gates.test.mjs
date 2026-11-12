@@ -79,7 +79,7 @@ test("a grill that ends asking nothing on a card whose prototype answer is kept 
     await stopPlanner(w.site, 't/A1', { note: 'Nothing left to ask' });
     assert.equal(w.read().phase, phase, prototype);
     assert.equal(w.thread().some((l) => l.line === 'planner-unasked'), false, prototype);
-    if (prototype === 'yes') assert.ok(w.read().round_at, 'the board server starts its prototype planner');
+    if (prototype === 'yes') assert.deepEqual(w.read().briefs.map((b) => b.kind), ['prototype'], 'the card owes the orchestrator its prototype brief');
   }
   const unset = world();
   unset.grill();

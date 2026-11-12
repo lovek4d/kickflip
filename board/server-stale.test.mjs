@@ -6,6 +6,7 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { until, boardListening } from '../shared/test-helpers.mjs';
+import { writeBrief } from './store.mjs';
 
 // Writes a file the running server may be reading the way the board does (write aside, then rename), so the server
 // never reads it half-written.
@@ -326,7 +327,7 @@ test('with auto implement on the board starts and launches the build of the top 
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md
-test('a starting server turns a waiting Implement ask into staging, starts nothing for it, and launches the round of a card sent back from staging, once', async (t) => {
+test('a starting server turns a waiting Implement ask into staging, starts nothing for it, and launches the briefed round of a card sent back from staging, once', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'staging-round-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -340,7 +341,7 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   put(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
   put(waveFile, JSON.stringify({ items: [
     { id: 'Q1', title: 'Asked', phase: 'grilling', implement_at: iso(now - 60000) },
-    { id: 'G1', title: 'Again', phase: 'grilling', round_at: iso(now - 30000) },
+    { id: 'G1', title: 'Again', phase: 'grilling', briefs: [{ kind: 'grill', at: iso(now - 30000), brief: { heading: 'Brief for grill round 2', text: 'Ask about the edge.', at: iso(now - 20000) } }] },
   ] }));
   put(path.join(dataDir, 'agents', 'G1.json'), JSON.stringify({ kind: 'grill', started: iso(now - 120000), done: iso(now - 90000) }));
   fs.writeFileSync(setup, "import http from 'node:http'; http.Server.prototype.listen = function (port, host, ready) { ready(); return this; };");
@@ -351,8 +352,10 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   });
   worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), siteDir], { env: { ...process.env, KICKFLIP_CODEX: 'true', HOME: dir, KICKFLIP_CLAUDE: claude } });
   await boardListening(worker);
-  await until(() => launched('grill').length === 1, 'the round sent back from staging launches');
+  await until(() => launched('grill').length === 1, 'the round sent back from staging launches from its brief');
   assert.deepEqual(launched('grill'), ['t/G1']);
+  const g1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'G1');
+  assert.deepEqual([g1.briefs, JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'G1.json'), 'utf8')).brief.brief.heading], [undefined, 'Brief for grill round 2'], 'the launch takes the brief off the card onto the record');
   assert.ok(!fs.existsSync(path.join(dataDir, 'threads', 't__G1.jsonl')), 'the round posts no thread line of its own');
   const q1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1');
   assert.deepEqual([q1.phase, q1.staged_at, q1.implement_at], ['staging', iso(now - 60000), undefined]);
@@ -511,7 +514,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
 });
 
 // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-test('with auto-pull on, each card arriving in Todo gets a grill up to the planner cap, busy board or not, the rest in board order, once each, never while paused', async (t) => {
+test('with auto-pull on, each card arriving in Todo owes a grill brief up to the planner cap and grills from it, busy board or not, the rest in board order, once each, never while paused', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-plan-'));
   const siteDir = path.join(dir, 'site');
   const dataDir = path.join(siteDir, 'data');
@@ -580,8 +583,21 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   const grills = () => fs.readFileSync(path.join(dir, 'launches.log'), 'utf8').split('\n').filter((l) => l.endsWith(' grill')).length;
   assert.deepEqual(launched('grill', 'prototype', 'build'), [], 'nothing launches while usage is paused');
   fs.rmSync(usageFile);
-  await until(() => launched('grill').length === 2 && launched('build').length === 1 && fs.existsSync(agentFile('B3')), 'the arrivals get their grills');
-  assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4'], 'the cap of two takes the top arrivals, Todo being oldest first');
+  const owes = (id) => (JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === id).briefs || []).map((b) => b.kind);
+  await until(() => owes('B3').length && owes('B4').length && launched('build').length === 1, 'the arrivals owe their grill briefs');
+  assert.deepEqual(['B2', 'B3', 'B4'].map(owes), [[], ['grill'], ['grill']], 'the cap of two takes the top arrivals, Todo being oldest first');
+  await tick();
+  assert.deepEqual(launched('grill'), [], 'an owed brief launches nothing');
+  // The orchestrator writes each arrival's brief (item brief); the board launches its grill from it.
+  const brief = (id, kind) => {
+    const draft = path.join(dir, `brief-${id}.md`);
+    fs.writeFileSync(draft, `What ${id} settled and what is open.`);
+    writeBrief(siteDir, `t/${id}`, { kind, file: draft });
+  };
+  brief('B3', 'grill');
+  brief('B4', 'grill');
+  await until(() => launched('grill').length === 2 && fs.existsSync(agentFile('B3')), 'the arrivals get their grills');
+  assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
   assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
   assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
   assert.deepEqual(thread('B3'), [], 'the arrival posts no thread line of its own');
@@ -597,7 +613,10 @@ test('with auto-pull on, each card arriving in Todo gets a grill up to the plann
   // it gets a prototype planner, not a grill.
   put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B4')] }));
   put(agentFile('B4'), JSON.stringify({ ...record, done: iso(now) }));
-  await until(() => launched('prototype').length === 1, 'the next arrival gets the free slot');
+  await until(() => owes('B2').length, 'the next arrival gets the free slot');
+  assert.deepEqual(owes('B2'), ['prototype']);
+  brief('B2', 'prototype');
+  await until(() => launched('prototype').length === 1, 'its prototype planner launches from its brief');
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
   assert.deepEqual(launched('prototype'), ['t/B2']);
   assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);

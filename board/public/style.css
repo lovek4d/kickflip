@@ -395,19 +395,22 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 .msg.agent.started { color: var(--color-notice); } .msg.agent.finished { color: var(--color-success); }
 .msg.agent .muted { font-weight: 400; }
 /* A planner's line in the thread, dot included, is the owner's blue; its finish stays green
-   (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md). On the card it takes the lane's colour below. */
+   (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md). On the card it is blue too (.sub.agent.planner below). */
 .msg.builder-status.planner, .msg.agent.started.planner { color: var(--accent); }
 .planner .working-dot { background: currentColor; }
-/* A run's status line, dot included, takes its card's lane colour, a planner's too: grey in Todo, the phase-bar orange in
+/* A builder run's status line, dot included, takes its card's lane colour: grey in Todo, the phase-bar orange in
    In Progress, blue in In Review; a Todo card's planner dashes are its grey, the running one pulsing
    (docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md). */
 .sub.agent.in-todo { color: var(--muted); }
 .sub.agent.in-progress { color: var(--color-notice); }
 .sub.agent.in-review { color: var(--color-info); }
 .sub.agent.in-todo .working-dot, .sub.agent.in-progress .working-dot, .sub.agent.in-review .working-dot { background: currentColor; }
-/* docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a quiet builder and a request no planner
-   has picked up are grey, after the lane colours so they win. */
-.sub.agent.quiet, .sub.asked { color: var(--muted); }
+/* docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a grill, prototype or visual's status
+   line, its brief's and its agent's, is blue in every lane, after the lane colours so it wins. */
+.sub.agent.planner { color: var(--color-info); }
+/* docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a quiet builder is grey, after the
+   lane colours so it wins. */
+.sub.agent.quiet { color: var(--muted); }
 .sub.agent.waiting-gray { color: var(--muted); }
 /* A stale build's status line is grey, its dot still (ui-cards.js builderStatus). */
 .sub.agent.stale { color: var(--muted); }

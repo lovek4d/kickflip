@@ -102,7 +102,7 @@ test("a slack-question wakes the session to read the thread, then answer or file
   assert.equal(PLAIN['slack-question'](event('slack-question', { ...where, from: 'owner', answer: false })), "the owner wrote in Ann's Slack review thread without @kickflip: slack thread e1 for context; no reply");
 });
 
-test('an answer that picks no take on a prototype tells the session the board starts the next round, any other answer to act on it', () => {
-  assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1', prototype_again: true })), /the board starts the next prototype round itself/);
+test("an answer that picks no take on a prototype tells the session the card owes the next round's brief, any other answer to act on it", () => {
+  assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1', prototype_again: true })), /it picks no take, so the card owes you the next prototype round's brief: item brief <key> --kind prototype --file <draft.md>/);
   assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1' })), /act on it on its card/);
 });
