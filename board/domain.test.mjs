@@ -2393,6 +2393,11 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   assert.deepEqual(shape(one({ lane: 'progress' }, { agents: handed, threads: said })), [['w/A1', 'calls', at, later]], 'a thread line picks it up');
   const progress = { 'w/A1': [{ ts: later, who: 'claude', kind: 'status', text: 'Testing: x' }] };
   assert.deepEqual(shape(one({ lane: 'progress' }, { agents: handed, threads: progress })), [['w/A1', 'calls', at, null]], 'a status line is no pick-up');
+  // The board writes command lines (staged, related, followup) on a card; none is the session's pickup.
+  const staged = { phase: 'staging', staged_at: at };
+  const stagedLine = { 'w/A1': [{ ts: later, who: 'claude', command: 'staged', text: 'Marked as staging' }, { ts: later, who: 'claude', command: 'related', text: 'Related to', card: 'w/A2' }] };
+  assert.deepEqual(shape(one(staged, { threads: stagedLine })), [['w/A1', 'staging', at, null]], 'a board command line is no pick-up');
+  assert.deepEqual(waitsStep([], orchestratorWaits(built({ items: [{ id: 'A1', title: 'One', ...staged }], threads: stagedLine })), new Date(later)).added, ['w/A1'], 'an Implement tap wakes the orchestrator');
 
   // An open builder ask, until it is answered.
   const ask = { ts: at, who: 'Claude Opus builder', kind: 'builder-ask', ask: 'ask1', agent: 'main', text: 'Which file?' };

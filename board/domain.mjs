@@ -336,13 +336,13 @@ function workItem({ slug, itemFile, it, order, prs, repo, remote, base, builder,
 // What a card's wait on the orchestrator is read from (orchestratorWaitOf), kept on the item only until buildBoard places
 // it: when its build handed back and its stored Next, its oldest builder ask with no answer, its newest grill and
 // prototype requests, when the pull refused it, the owner's reply it waits on in In Review, whether its records hold
-// unverified calls, and the session's writes on it: a thread line of Claude's other than a status, agent, move or
-// refusal line, a verify and a builder start.
+// unverified calls, and the session's writes on it: a thread line of Claude's other than a status, agent, move,
+// refusal or board command line (staged, related, followup: the board writes those, not the session), a verify and a builder start.
 function waitFactsOf(it, { agents, thread, events, refusedAt, replyAt }) {
   const answered = new Set(thread.filter((m) => m.kind === BUILDER_ASK.answer).map((m) => m.ask));
   const ask = thread.filter((m) => m.kind === BUILDER_ASK.ask && !answered.has(m.ask)).sort((a, b) => String(a.ts).localeCompare(String(b.ts)))[0];
   const requestAt = (kind) => events.filter((e) => isRequest(e, kind)).pop()?.ts || null;
-  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !['status', 'agent', 'command', MOVE].includes(m.kind) && m.line !== BUILD_REFUSED).map((m) => m.ts);
+  const lines = thread.filter((m) => (m.who || 'claude') === 'claude' && !m.command && !['status', 'agent', MOVE].includes(m.kind) && m.line !== BUILD_REFUSED).map((m) => m.ts);
   return {
     handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
     unasked: thread.filter((m) => m.line === 'planner-unasked').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((m) => ({ at: m.ts, kind: m.detail })).pop() || null,
