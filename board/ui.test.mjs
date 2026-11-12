@@ -85,6 +85,13 @@ test('a closed ask in the Asks lane shows the done icon a done work card shows',
   assert.match(asks, new RegExp(`\\{\\s*${done[2].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}`));
 });
 
+test('a button keyboard hint inherits the button text colour, with no per-tone colour rule', () => {
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  const rules = css.split('\n').filter((l) => /\.key-hint[^{]*\{/.test(l) && !l.startsWith('@media'));
+  assert.ok(rules.some((l) => /^\.key-hint\s*\{[^}]*color:\s*inherit/.test(l)));
+  assert.deepEqual(rules.filter((l) => /color:/.test(l) && !/^\.key-hint\s*\{[^}]*color:\s*inherit/.test(l)), []);
+});
+
 test('a badge takes one of the six tones, each coloured by a shared colour constant, as a span or a link, and refuses any other tone', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   const shared = definedIn(colorsCss);
