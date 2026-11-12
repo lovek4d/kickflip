@@ -26,7 +26,7 @@ import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLA
 import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
-import { slackDay } from '../hub/slack.mjs';
+import { SlackError, SLACK_NEEDS_TOKEN, readSlack, savedSlack, slackDay, slackUserId } from '../hub/slack.mjs';
 import { storedPath } from '../bin/install.mjs';
 import { readPermissions } from './permissions.mjs';
 import { validBuildTarget } from './build-script.mjs';
@@ -1046,9 +1046,10 @@ const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.j
 
 // `review digest`: each reviewer's PRs the hub last read open, out of draft, green and not approved, one item per PR
 // with its digest reply's text, “<PR link> · <card title>” plus “ (<n> days old)” for a link over two days old.
-// data/review-digests.json {digests: [{date, reviewer, channel, ts, replies?: [{pr | prs, text, ts}]}]} holds each
-// reviewer's thread for the day, posted as postOnce posts: ts is its opener, the digest's header or the header line
-// openDayThread posts, and replies are the digest's, absent until the digest begins. A reviewer is owed the day's
+// data/review-digests.json {digests: [{date, reviewer, channel, ts, heard?, replies?: [{pr | prs, text, ts}]}]} holds
+// each reviewer's thread for each day, posted as postOnce posts: ts is its opener, the digest's header or the header
+// line openDayThread posts, and replies are the digest's, absent until the digest begins. heard is the newest message
+// in the thread the hub has read (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md). A reviewer is owed the day's
 // digest until it is posted, weekdays from 09:00 to 17:00 in the Slack timezone; a day missed by 17:00 is skipped.
 export async function reviewDigest(site, { now = new Date() } = {}) {
   needSite(site);
@@ -1092,11 +1093,87 @@ export async function reviewDigest(site, { now = new Date() } = {}) {
 }
 
 const dayEntry = (date, name) => (all) => (all.digests || []).find((d) => d.date === date && d.reviewer === name);
-// The reviewer's entry for date, added when there is none; the file keeps only that day's entries.
+// The hub hears a day thread for HEARD_DAYS days, the day it opens included.
+const HEARD_DAYS = 7;
+const heardOn = (thread, date) => (Date.parse(date) - Date.parse(thread.date)) / 86400000 < HEARD_DAYS;
+// The reviewer's entry for date, added when there is none; the file keeps the entries of the days still heard.
 function addDayEntry(all, date, name, fields) {
   if (dayEntry(date, name)(all)) return;
-  all.digests = [...(all.digests || []).filter((d) => d.date === date), { date, reviewer: name, ...fields }];
+  all.digests = [...(all.digests || []).filter((d) => heardOn(d, date)), { date, reviewer: name, ...fields }];
   delete all.last_date;
+}
+
+// docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md
+// The day threads the hub still hears on now's Slack day: those opened in the last HEARD_DAYS days.
+// → [{date, reviewer, channel, ts, heard?}]
+export async function heardThreads(site, now = new Date()) {
+  const { date } = slackDay(now);
+  return ((await readJSON(digestFile(site), {})).digests || []).filter((d) => d.ts && heardOn(d, date));
+}
+// Records ts as the newest message the hub has read in thread.
+export const markHeard = (site, thread, ts) => editJSON(digestFile(site), (all) => { dayEntry(thread.date, thread.reviewer)(all).heard = ts; });
+// The ts of every message the board posted to Slack: links, bumps, day-thread openers and digest replies.
+export async function boardPosts(site) {
+  const out = new Set();
+  for (const rec of Object.values(await readPRSlack(site))) {
+    for (const link of Object.values(rec.links || {})) out.add(link.ts);
+    for (const reply of rec.replies || []) for (const sent of Object.values(reply.to)) out.add(sent.ts);
+  }
+  for (const d of (await readJSON(digestFile(site), {})).digests || []) for (const m of [d, ...(d.replies || [])]) out.add(m.ts);
+  out.delete(undefined);
+  return out;
+}
+// The orchestrator's answers in a day thread open with this; they post as the owner, so the hub hears past them.
+export const ANSWER_MARK = '🤖 ';
+const ANSWER_LIMIT = 600;
+
+// A slack-question event's data: {reviewer, channel, thread_ts, ts, from: reviewer|owner, answer}.
+async function slackQuestion(site, eventId) {
+  domId(eventId, 'the event id');
+  const e = (await readLines(path.join(needSite(site), 'data', 'events.jsonl'))).find((x) => x.id === eventId && x.kind === 'slack-question');
+  return e?.data || fail(`no slack-question "${eventId}" in this site's data/events.jsonl`);
+}
+const throughSlack = (slack) => slack || fail(SLACK_NEEDS_TOKEN);
+const slackCall = (call) => call.catch((e) => (e instanceof SlackError ? fail(e.message) : Promise.reject(e)));
+
+// `slack thread`: the event's day thread, read from Slack, one message a line and continued lines indented, each
+// named board (the board's posts and answers), you (the owner) or the reviewer; → marks the event's message.
+export async function slackThread(site, eventId, slack = savedSlack()) {
+  const q = await slackQuestion(site, eventId);
+  const ours = await boardPosts(site);
+  const owner = slackUserId();
+  const messages = await slackCall(throughSlack(slack).replies({ channel: q.channel, ts: q.thread_ts }));
+  const lines = messages.flatMap((m) => {
+    const who = ours.has(m.ts) || (m.user === owner && m.text?.startsWith(ANSWER_MARK)) ? 'board' : m.user === owner ? 'you' : q.reviewer;
+    const [first, ...rest] = String(m.text || '').split('\n');
+    return [`${m.ts === q.ts ? '→ ' : ''}${who}: ${first}`, ...rest.map((l) => `    ${l}`)];
+  });
+  return { lines };
+}
+
+// `slack answer`: “🤖 ” and the answer, posted as a reply in the event's day thread. Refuses an owner's message that
+// names no @kickflip, which expects no reply, and an answer past ANSWER_LIMIT, which isn't brief.
+export async function slackAnswer(site, eventId, words, slack = savedSlack()) {
+  const q = await slackQuestion(site, eventId);
+  if (!q.answer) fail("that message is the owner's and names no @kickflip, so it expects no reply");
+  const body = text(words, '--text');
+  if (body.length > ANSWER_LIMIT) fail(`--text runs to ${body.length} characters, past an answer's ${ANSWER_LIMIT}: keep it brief`);
+  await slackCall(throughSlack(slack).post({ channel: q.channel, thread_ts: q.thread_ts, text: `${ANSWER_MARK}${body}` }));
+  return { lines: [`answered in ${q.reviewer}'s day thread`] };
+}
+
+// `slack task`: a request for work in a day thread, filed as a new card in item file `file`, grilling, for the owner
+// to review; never ready, so never a Quick build. The Slack message, read whole, is the card's first thread line,
+// under its writer's name and linking to it when the Slack identity has the workspace's domain.
+export async function slackTask(site, eventId, file, { title, notes, notesFrom }, slack = savedSlack()) {
+  const q = await slackQuestion(site, eventId);
+  const messages = await slackCall(throughSlack(slack).replies({ channel: q.channel, ts: q.thread_ts }));
+  const message = messages.find((m) => m.ts === q.ts) || fail('that Slack message is gone from its thread');
+  const filed = await addItem(site, file, { title, notes, notesFrom, phase: 'grilling', intake: true });
+  const domain = readSlack().slack_domain;
+  const link = domain ? `https://${domain}.slack.com/archives/${q.channel}/p${q.ts.replace('.', '')}?thread_ts=${q.thread_ts}&cid=${q.channel}` : undefined;
+  await appendMessage(site, filed.key, { text: message.text, who: q.from === 'owner' ? 'love' : q.reviewer, via: 'slack', link });
+  return { ...filed, lines: [`filed ${filed.key} grilling, for the owner's review`] };
 }
 
 // The reviewer's thread for date, opened with the header line unless the digest or an earlier post opened it.
@@ -1129,7 +1206,7 @@ export async function postDigest(site, date, reviewer, { channel, header, post }
     if (!held(reply)) await postOnce(file, (all) => entry(all).replies[i], () => post({ channel: sent.channel, thread_ts: top, text: reply.text }));
   }
   // A one-PR reply is a message about that PR, so it joins the PR's bumps, posted, and gets its reactions (the digest
-  // file keeps only today); a reply naming several PRs gets none.
+  // file keeps only the days still heard); a reply naming several PRs gets none.
   const posted = entry(await readJSON(file, {})).replies.filter((r) => r.pr && r.ts);
   if (posted.length) await editJSON(prSlackFile(site), (all) => {
     const id = `digest-${date}`;

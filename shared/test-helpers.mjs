@@ -177,9 +177,11 @@ export function stallingPs(dir, standIn = null) {
   };
 }
 
-// Slack's Web API for one user token: auth.test, conversations.open, chat.postMessage and reactions.add, recording
-// each call. world.dms maps a user id to the DM channel conversations.open answers; posts land in world.messages and
-// reactions in world.reactions.
+// Slack's Web API for one user token: auth.test, conversations.open, chat.postMessage, reactions.add,
+// conversations.history and conversations.replies, recording each call. world.dms maps a user id to the DM channel
+// conversations.open answers; posts land in world.messages as the token's user, and reactions in world.reactions.
+// say({channel, user, text, thread_ts}) adds another person's message → its ts. world.unheard answers the two reads
+// missing_scope, as a token without im:history does.
 export const slackWorld = () => ({
   token: 'xoxp-test-token', team: 'Acme', team_id: 'T1', user: 'love', user_id: 'U0', url: 'https://acme.slack.com/',
   dms: { U1: 'D1', U2: 'D2', U3: 'D3' }, messages: [], reactions: [],
@@ -187,6 +189,13 @@ export const slackWorld = () => ({
 export function fakeSlack(world) {
   const calls = [];
   let next = 1000;
+  const say = ({ channel, user, text, thread_ts }) => {
+    const ts = `${1792800000 + ++next}.000100`;
+    world.messages.push({ channel, user, text, ...(thread_ts ? { thread_ts } : {}), ts });
+    return ts;
+  };
+  const top = (m) => !m.thread_ts || m.thread_ts === m.ts;
+  const repliesTo = (channel, ts) => world.messages.filter((m) => m.channel === channel && m.thread_ts === ts && m.ts !== ts);
   function answer(method, body, auth) {
     calls.push({ method, body });
     if (auth !== `Bearer ${world.token}`) return { ok: false, error: 'invalid_auth' };
@@ -199,10 +208,19 @@ export function fakeSlack(world) {
       const channel = world.dms[body.users];
       return channel ? { ok: true, channel: { id: channel } } : { ok: false, error: 'user_not_found' };
     }
-    if (method === 'chat.postMessage') {
-      const ts = `${1792800000 + ++next}.000100`;
-      world.messages.push({ channel: body.channel, text: body.text, ...(body.thread_ts ? { thread_ts: body.thread_ts } : {}), ts });
-      return { ok: true, channel: body.channel, ts };
+    if (method === 'chat.postMessage') return { ok: true, channel: body.channel, ts: say({ channel: body.channel, user: world.user_id, text: body.text, thread_ts: body.thread_ts }) };
+    if ((method === 'conversations.history' || method === 'conversations.replies') && world.unheard) return { ok: false, error: 'missing_scope' };
+    if (method === 'conversations.history') {
+      const messages = world.messages.filter((m) => m.channel === body.channel && top(m) && Number(m.ts) >= Number(body.oldest || 0)).reverse().map((m) => {
+        const replies = repliesTo(m.channel, m.ts);
+        return { ...m, ...(replies.length ? { reply_count: replies.length, latest_reply: replies.at(-1).ts } : {}) };
+      });
+      return { ok: true, messages, has_more: false };
+    }
+    if (method === 'conversations.replies') {
+      const parent = world.messages.find((m) => m.channel === body.channel && m.ts === body.ts);
+      if (!parent) return { ok: false, error: 'thread_not_found' };
+      return { ok: true, messages: [parent, ...repliesTo(body.channel, body.ts).filter((m) => Number(m.ts) > Number(body.oldest || 0))], has_more: false };
     }
     if (method === 'reactions.add') {
       if (world.reactions.some((r) => r.channel === body.channel && r.timestamp === body.timestamp && r.name === body.name)) return { ok: false, error: 'already_reacted' };
@@ -213,6 +231,7 @@ export function fakeSlack(world) {
   }
   return {
     calls,
+    say,
     async fetch(url, init) {
       return { ok: true, status: 200, json: async () => answer(String(url).split('/').at(-1), JSON.parse(init.body || '{}'), init.headers.authorization) };
     },

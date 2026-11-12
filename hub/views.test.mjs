@@ -381,7 +381,7 @@ test('Hub settings modals keep summaries, turn this device on, snooze inline thr
   const slackSlot = root.querySelector('.setting-content');
   const appLink = slackSlot.querySelector('a[href^="https://api.slack.com/apps?new_app=1&manifest_json="]');
   assert.equal(appLink.textContent, 'a new Slack app');
-  assert.deepEqual(JSON.parse(new URL(appLink.getAttribute('href')).searchParams.get('manifest_json')).oauth_config.scopes.user, ['chat:write', 'im:write', 'reactions:write', 'users:read']);
+  assert.deepEqual(JSON.parse(new URL(appLink.getAttribute('href')).searchParams.get('manifest_json')).oauth_config.scopes.user, ['chat:write', 'im:history', 'im:write', 'reactions:write', 'users:read']);
   assert.match(slackSlot.textContent, /User OAuth Token \(xoxp-…\)/);
   assert.match(slackSlot.textContent, /The hub sends your reviewers their PR links, git_merged reactions and weekday digests as you, in your DMs with them\./);
   await fire(slackSlot, 'paste', { target: root.querySelector('#slackToken'), clipboardData: { getData: () => ' xoxp-secret-token ' } });
@@ -556,6 +556,7 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   // Linear's and Slack's rows end in a button that opens their key modal, whichever state they are in.
   assert.equal(linear.querySelector('[data-settings-open="linear"]').textContent, 'Add key');
   assert.equal(slack.querySelector('[data-settings-open="slack"]').textContent, 'Change key');
+  assert.equal(slack.querySelector('.rd-waits'), null);
   assert.equal(linear.querySelector('.rd-fix'), null);
   assert.equal(github.querySelector('[data-settings-open]'), null);
   const link = linear.querySelector('[data-settings-open="linear"]');
@@ -598,6 +599,11 @@ test('the hub page shows each session\'s remembered rules under its board, escap
   assert.match(limited.textContent, /rate limited · resets at 3:12pm/);
   assert.equal(limited.querySelector('.rd-waits').textContent, integrations[0].waits);
   assert.match(limited.querySelector('.icon').getAttribute('style'), /var\(--color-danger\)/);
+  // Slack's ready row says when its token can't read the review threads.
+  live.paint({ ...data, version: '0.4.2', integrations: integrations.map((it) => (it.id === 'slack' ? { ...it, note: "Can't read replies <img>" } : it)) });
+  const slackRow = root.querySelectorAll('.label').find((el) => el.textContent === 'Integrations').nextSibling.querySelectorAll('.row')[3];
+  assert.equal(slackRow.querySelector('.st.ok').textContent, 'ready');
+  assert.equal(slackRow.querySelector('.rd-waits').textContent, "Can't read replies <img>");
 });
 
 // docs/adr/2026-11-03-1638-the-hub-restarts-itself-from-its-stale-code-notice.md

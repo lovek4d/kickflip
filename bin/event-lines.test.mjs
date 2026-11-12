@@ -94,3 +94,10 @@ test('a new task, a message in an ask thread and an agent-added card wake the se
   assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1', text: '', intent: 'build' })), 'Implement asked on the ask: file it with item add --from-ask --phase ready, with its --size and notes');
   assert.equal(Object.hasOwn(ON_CARD, 'intake-handoff'), false);
 });
+
+test("a slack-question wakes the session to read the thread, then answer or file it, unless it is the owner's with no @kickflip", () => {
+  const where = { reviewer: 'Ann', channel: 'D1', thread_ts: '1.1', ts: '1.2' };
+  assert.equal(recordOnly(JSON.stringify(event('slack-question', { ...where, from: 'reviewer', answer: true }))), false);
+  assert.match(PLAIN['slack-question'](event('slack-question', { ...where, from: 'reviewer', answer: true })), /^Ann asked the board .*slack thread e1, then answer only about this board with slack answer e1 --text, or file a request for work with slack task e1 <file>$/);
+  assert.equal(PLAIN['slack-question'](event('slack-question', { ...where, from: 'owner', answer: false })), "the owner wrote in Ann's Slack review thread without @kickflip: slack thread e1 for context; no reply");
+});

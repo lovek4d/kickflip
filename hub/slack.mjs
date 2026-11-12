@@ -50,8 +50,8 @@ export function slackDay(now = new Date()) {
 // Slack through the owner's user token (docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md):
 // the hub sends as the owner, in the owner's DMs with each reviewer. The token lives in secrets.json's `slack`
 // {token, team, team_id, user, user_id, saved_at}, plus refused_at once Slack refused it and refusal_pushed_at once
-// the owner's phone was told; only slackStatus's
-// {set, refused, team, user} leaves this module for a page. Every call goes to KICKFLIP_SLACK_URL when it is set, else
+// the owner's phone was told, and unheard_at and unheard_pushed_at the same way for reads it can't make (setHearing);
+// only slackStatus's {set, refused, unheard, team, user} leaves this module for a page. Every call goes to KICKFLIP_SLACK_URL when it is set, else
 // Slack's Web API, through the fetch passed in.
 export class SlackError extends Error {
   constructor(message, status = 502) { super(message); this.status = status; }
@@ -101,16 +101,34 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     async react({ channel, ts, name }) {
       try { await call('reactions.add', { channel, timestamp: ts, name }); } catch (e) { if (e.message !== 'Slack: already_reacted') throw e; }
     },
+    // The DM's top-level messages from oldest on, each with latest_reply once it has replies. Needs im:history.
+    history: ({ channel, oldest }) => pages('conversations.history', { channel, oldest, inclusive: true }),
+    // A thread's opener, then its replies after oldest when given, else all of them. Needs im:history.
+    replies: ({ channel, ts, oldest }) => pages('conversations.replies', { channel, ts, ...(oldest ? { oldest } : {}) }),
   };
+  async function pages(method, body) {
+    const out = [];
+    let cursor = '';
+    do {
+      const page = await call(method, { ...body, limit: 200, ...(cursor ? { cursor } : {}) });
+      out.push(...page.messages);
+      cursor = page.response_metadata?.next_cursor || '';
+    } while (cursor);
+    return out;
+  }
 }
+// Whether Slack answered a read with missing_scope, as it does for a token without im:history.
+export const missingScope = (e) => e.message === 'Slack: missing_scope';
 
 const savedToken = (home) => { const s = readSecret('slack', home); return typeof s?.token === 'string' && s.token ? s : null; };
 
 export function slackStatus(home) {
   const saved = savedToken(home);
   if (!saved) return { set: false };
-  return { set: true, ...(saved.refused_at ? { refused: true } : {}), ...(saved.team ? { team: saved.team, user: saved.user } : {}) };
+  return { set: true, ...(saved.refused_at ? { refused: true } : {}), ...(saved.unheard_at ? { unheard: true } : {}), ...(saved.team ? { team: saved.team, user: saved.user } : {}) };
 }
+// The owner's Slack user id, whose messages in a day thread are the owner's, as auth.test named it when the token was saved.
+export const slackUserId = () => savedToken()?.user_id;
 export const SLACK_NEEDS_TOKEN = 'Slack needs Hub’s Slack token; add it in Hub › Integrations › Slack first.';
 
 // Checks the token with auth.test and saves it, as refused when Slack refuses it. Any other failure saves nothing.
@@ -143,6 +161,21 @@ export const refusalUnpushed = () => { const s = savedToken(); return Boolean(s?
 export function markRefusalPushed() {
   const saved = savedToken();
   if (saved?.refused_at) writeSecret('slack', { ...saved, refusal_pushed_at: new Date().toISOString() });
+}
+
+// docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md: whether the saved token can read the day
+// threads, from the newest read with it; unheard_at once Slack answered missing_scope, and unheard_pushed_at once the
+// owner's phone was told.
+export function setHearing(works) {
+  const saved = savedToken();
+  if (!saved || Boolean(saved.unheard_at) === !works) return;
+  const { unheard_at: _, unheard_pushed_at: __, ...rest } = saved;
+  writeSecret('slack', works ? rest : { ...rest, unheard_at: new Date().toISOString() });
+}
+export const hearingUnpushed = () => { const s = savedToken(); return Boolean(s?.unheard_at && !s.unheard_pushed_at); };
+export function markHearingPushed() {
+  const saved = savedToken();
+  if (saved?.unheard_at) writeSecret('slack', { ...saved, unheard_pushed_at: new Date().toISOString() });
 }
 
 // A client over the saved token, or null when none is saved. Its calls keep the token's refused_at up to date.

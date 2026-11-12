@@ -344,6 +344,15 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   slack                                                 Slack identity as JSON; imports slack-bridge config once
   slack set [--self-dm D..] [--user U..]                 sets hub Slack identity in ~/.claude/kickflip/slack.json
             [--domain x] [--timezone Area/City]
+  slack thread <eventId>                                a slack-question event's day thread, read from Slack through
+                                                         Hub's token: one message a line, named board, you or the
+                                                         reviewer; → marks the event's message
+  slack answer <eventId> --text <t>                     posts "🤖 " and the answer, at most 600 characters, as a reply
+                                                         in that thread. Refuses an owner's message that names no
+                                                         @kickflip, which expects no reply
+  slack task <eventId> <file> --title <t>               a request for work in that thread: a new card in item file
+         (--notes <md> | --notes-from <draft.md>)       <file>, filed grilling for the owner's review, never ready;
+                                                         the Slack message is its first thread line, by its writer
   integrations                                          readiness rows as one JSON line
   review updated <file>/<id> --text "<what changed>"     queues “updated: <what changed>” for every reviewer with a
                                                          posted link on the card's PRs; the hub's next poll sends it
@@ -870,6 +879,12 @@ const COMMANDS = {
     const fields = { 'self-dm': 'self_dm', user: 'owner_slack_user', domain: 'slack_domain', timezone: 'timezone' };
     try { return { lines: [JSON.stringify(await setSlack(Object.fromEntries(Object.entries(f).map(([k, v]) => [fields[k], v]))))] }; }
     catch (e) { throw new store.BoardError(e.message); }
+  }],
+  'slack thread': [['eventId'], [], (site, [id]) => store.slackThread(needSite(site, 'slack thread'), id)],
+  'slack answer': [['eventId'], ['text'], (site, [id], f) => store.slackAnswer(needSite(site, 'slack answer'), id, f.text)],
+  'slack task': [['eventId', 'file'], ['title', 'notes', 'notes-from'], (site, [id, file], f) => {
+    if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
+    return store.slackTask(needSite(site, 'slack task'), id, file, { title: f.title, notes: f.notes, notesFrom: f['notes-from'] });
   }],
   integrations: [[], [], async () => ({ lines: [JSON.stringify(await readiness.rows())] })],
   'review updated': [['file/id'], ['text'], (site, [key], f) => store.reviewUpdated(site, key, f.text)],

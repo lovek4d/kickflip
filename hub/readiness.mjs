@@ -23,7 +23,10 @@ const INTEGRATIONS = [
   ['tailscale', 'Tailscale', 'Try builds wait on this.'],
   ['notifications', 'Notifications', 'Pushes wait on this.'],
 ];
-const settingsFix = (settings, label, text) => ({ settings, label: `Hub settings › ${label}`, text });
+// Slack's ready row while its token can't read the day threads: sends go on, and reviewers' messages wait unheard
+// (docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md).
+const UNHEARD = "Can't read replies in the review threads: add im:history to the Slack app, reinstall it and paste its new token.";
+const settingsFix =(settings, label, text) => ({ settings, label: `Hub settings › ${label}`, text });
 
 export function readinessRows(checks, { now = Date.now(), platform = process.platform } = {}) {
   const row = (id, value) => {
@@ -40,7 +43,7 @@ export function readinessRows(checks, { now = Date.now(), platform = process.pla
         : { ready: true, detail: `Key set · ${value.workspace} workspace`, keyButton: 'Change key' };
       case 'slack': return !value.set ? { ready: false, missing: 'No Slack token set', keyButton: 'Add key' }
         : value.refused ? { ready: false, missing: 'Slack refused the token', keyButton: 'Change key' }
-        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Change key' };
+        : { ready: true, detail: `Token set · ${value.team} workspace, sending as ${value.user}`, keyButton: 'Change key', ...(value.unheard ? { note: UNHEARD } : {}) };
       case 'tailscale': {
         let missing, command;
         if (!value.installed) { missing = "Tailscale isn't installed on the host"; command = tailscaleInstallCommand(platform); }

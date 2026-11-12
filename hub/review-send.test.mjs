@@ -107,7 +107,7 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
     ['D9', 'Orch reviews', null], ['D9', `<@U2> ${label(1)} updated: renamed the flag`, bobNext],
     ['D1', `<@U1> ${label(2)} updated: renamed the flag`, annNext], ['D9', `<@U2> ${label(2)} updated: renamed the flag`, bobNext],
   ]);
-  assert.deepEqual(digests().map((d) => [d.date, d.reviewer]), [['2026-11-02', 'Ann'], ['2026-11-02', 'Bob']]);
+  assert.deepEqual(digests().map((d) => [d.date, d.reviewer]), [['2026-11-01', 'Ann'], ['2026-11-01', 'Bob'], ['2026-11-02', 'Ann'], ['2026-11-02', 'Bob']]);
 
   // A refused token stops every send, and is pushed once while a board has reviewers.
   world.token = 'xoxp-revoked';
@@ -232,7 +232,9 @@ test('the digest is owed to each reviewer until its header and every reply are p
   await poll();
   assert.deepEqual(world.reactions.map((r) => `${r.channel} ${r.timestamp} ${r.name}`).sort(),
     [`D1 ${digestTs('Ann', 1)} git_merged`, `D1 ${linkTs('Ann')} git_merged`, `D2 ${digestTs('Bob', 1)} git_merged`, `D2 ${linkTs('Bob')} git_merged`].sort());
-  // The next day starts afresh, keeping only that day's record.
+  // The next day starts afresh; the record keeps the last 7 days, whose threads the hub still hears.
   await poll(new Date('2026-11-03T17:00:00Z'));
-  assert.deepEqual(digests().map((d) => d.date), ['2026-11-03', '2026-11-03']);
+  assert.deepEqual(digests().map((d) => d.date), ['2026-11-02', '2026-11-02', '2026-11-03', '2026-11-03']);
+  await poll(new Date('2026-11-09T17:00:00Z'));
+  assert.deepEqual(digests().map((d) => d.date), ['2026-11-03', '2026-11-03', '2026-11-09', '2026-11-09']);
 });

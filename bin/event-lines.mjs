@@ -39,6 +39,10 @@ export const PLAIN = {
   'arch-review': (e) => `architecture review asked on ${e.data?.key}: review ${e.data?.repo} on ${e.data?.branch} and file the findings`,
   rules: (e) => `${e.data?.scope === 'hub' ? 'hub' : 'board'} rules changed: the rule lines below are the new ones; follow them from now`,
   'prototype-overdue': (e) => `prototype overdue on ${e.data?.key}: dispatch its prototype agent now`,
+  // docs/adr/2026-11-12-0000-reviewers-ask-the-board-in-the-day-thread.md
+  'slack-question': (e) => (e.data?.answer
+    ? `${e.data.from === 'owner' ? 'the owner' : e.data?.reviewer} asked the board in ${e.data?.reviewer}'s Slack review thread: slack thread ${e.id}, then answer only about this board with slack answer ${e.id} --text, or file a request for work with slack task ${e.id} <file>`
+    : `the owner wrote in ${e.data?.reviewer}'s Slack review thread without @kickflip: slack thread ${e.id} for context; no reply`),
 };
 // The kinds whose line names the card the event is on.
 export const ON_CARD = {

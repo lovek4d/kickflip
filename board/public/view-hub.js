@@ -51,7 +51,7 @@
     // GitHub's row while its rate limit holds is red, a fault, and says when it resets
     // (docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md).
     const rows = integrations.map((it) => row({ icon: tile(it.id, it.ready ? 'var(--color-quiet)' : it.limited ? 'var(--color-danger)' : 'var(--color-notice)'), title: esc(it.name), wrap: true, trail: keyButton(it),
-      sub: it.ready ? `<span class="st ok">ready</span> · ${esc(it.detail)}${devices(it)}`
+      sub: it.ready ? `<span class="st ok">ready</span> · ${esc(it.detail)}${devices(it)}${it.note ? `<span class="links"><span class="rd-waits">${esc(it.note)}</span></span>` : ''}`
         : `${it.limited ? '<span class="st down">rate limited</span>' : '<span class="st wait">not ready</span>'} · ${esc(it.missing)}${missingLinks(it)}` })).join('');
     return `<h2 class="label" id="integrations">Integrations</h2><div class="group">${rows}</div>
 <p class="note">A feature that needs an integration stays off until it’s ready, and says why.</p>
