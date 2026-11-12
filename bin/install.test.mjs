@@ -943,7 +943,7 @@ test('the installed usage hook reminds sessions, denies only new agents while pa
     assert.deepEqual([result.status, result.stderr], [0, '']);
     return result.stdout;
   };
-  for (const event of ['SessionStart', 'UserPromptSubmit']) assert.match(run(event), /Running steps finish; start no new work, builders or agents until/);
+  for (const event of ['SessionStart', 'UserPromptSubmit']) assert.match(run(event), /Running steps finish; builders and agents are held until/);
   for (const tool_name of ['Agent', 'Task']) {
     const out = JSON.parse(run('PreToolUse', { tool_name })).hookSpecificOutput;
     assert.equal(out.hookEventName, 'PreToolUse');

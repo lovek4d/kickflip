@@ -24,7 +24,7 @@ test("a board's session hears its own board's pause and the hub's, and other ses
     return r.stdout;
   };
   assert.equal(run({ hook_event_name: 'UserPromptSubmit', session_id: 's1' }).trim(),
-    `The owner paused this board. Running steps finish; start no new work, builders or agents until ${until}; answer the owner's messages briefly with "paused until <that time, in the owner's local time>".`);
+    `The owner paused this board. Running steps finish; builders and agents are held until ${until}; keep sorting, readying, screening and answering.`);
   const denied = JSON.parse(run({ hook_event_name: 'PreToolUse', session_id: 's1', tool_name: 'Agent' }));
   assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(denied.hookSpecificOutput.permissionDecisionReason, /the owner paused this board/);
@@ -34,5 +34,5 @@ test("a board's session hears its own board's pause and the hub's, and other ses
   assert.match(run({ hook_event_name: 'SessionStart', session_id: 'other' }), /^The owner paused the hub\. /);
   write(path.join(state, 'settings.json'), { paused_until: 'forever' });
   assert.equal(run({ hook_event_name: 'SessionStart', session_id: 'other' }).trim(),
-    'The owner paused the hub. Running steps finish; start no new work, builders or agents until the owner resumes it; answer the owner\'s messages briefly with "paused until you resume".');
+    'The owner paused the hub. Running steps finish; builders and agents are held until the owner resumes it; keep sorting, readying, screening and answering.');
 });

@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readUsageGate, pauseReason, pauseUntilWords } from '../../shared/usage-gate.mjs';
-import { FOREVER } from '../../hub/duration.mjs';
 
 function boardDirOf(session) {
   try {
@@ -27,8 +26,7 @@ try {
     } }));
   } else if (['SessionStart', 'UserPromptSubmit'].includes(input.hook_event_name)) {
     const why = gate.manual ? MANUAL[gate.manual] : `Claude's usage is past the pause line (${gate.pause_at}%)`;
-    const answer = gate.resets_at === FOREVER ? '"paused until you resume"' : `"paused until <that time, in the owner's local time>"`;
-    if (gate.state === 'paused') console.log(`${why}. Running steps finish; start no new work, builders or agents ${pauseUntilWords(gate.resets_at)}; answer the owner's messages briefly with ${answer}.`);
+    if (gate.state === 'paused') console.log(`${why}. Running steps finish; builders and agents are held ${pauseUntilWords(gate.resets_at)}; keep sorting, readying, screening and answering.`);
     else if (gate.state === 'going') console.log(`Keep going is on: work runs past the pause line until ${gate.resets_at}, spending usage.`);
   }
 } catch {}

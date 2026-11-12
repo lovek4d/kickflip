@@ -12,4 +12,6 @@ The owner settled the usage buffer on hub/INT-211: new Claude work waits at a pa
 - The Usage card puts Pause work at under Claude's bars, with −/value/+ in steps of 5, the buffer and description for both tools. Every Claude and Codex bar in the card gets a tick at the line, except Off. Forms post and redirect like Codex share.
 - Hub's amber pause banner names the window, usage and reset with Keep going; the red banner while going says usage is being spent until the reset, with Stop. Paused fills Hub's and boards' sidebar status words and the board header's time slot. Nothing goes on the logo.
 
+Superseded in part by [only agents pause past the pause line](2026-11-11-1500-only-agents-pause-past-the-pause-line.md): the orchestrator's own turns are not new work, so it keeps sorting, readying, screening and answering, and the hook says so instead of “paused until <time>”.
+
 Superseded in part by [a card pause stops its builder at its next stopping point](2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md): a running build pauses at its next stopping point rather than finishing.
