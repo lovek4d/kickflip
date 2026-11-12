@@ -178,7 +178,8 @@
     },
   };
 
-  // A prototype viewer's Round pill and its sheet (prototype-switcher.js). rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds
+  // A prototype viewer's Round pill and its sheet, on the full page (prototype-switcher.js) and in the board's right pane
+  // (app-pane.js). rounds: the card's prototype questions, oldest round first, as /api/board's card prototypes.rounds
   // lists them ({n, q, url, confirm, state}). The pill names the round qid is in, out of the newest round's number; a
   // card with a single round gets none.
   function roundPill(rounds, qid) {

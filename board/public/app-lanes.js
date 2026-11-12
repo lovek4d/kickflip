@@ -200,10 +200,10 @@ BoardView.part((B) => {
     return groupHtml('todo', band.slug, open, head, doneRow + todo.map((it) => B.card(it)).join(''));
   }
 
-  // Opens the band holding card key, for a #selectedCard= link.
-  function openBand({ key }) {
-    const lane = state.board?.items.find((i) => i.key === key)?.lane || 'todo';
-    const band = (state.board?.waveBands || []).find((b) => b.keys.includes(key));
+  // Opens the band holding card key or named slug, for a #selectedCard= link or a pill in the pane (app.js focusOnBoard).
+  function openBand({ key, slug }) {
+    const lane = (key && state.board?.items.find((i) => i.key === key)?.lane) || 'todo';
+    const band = (state.board?.waveBands || []).find((b) => b.slug === slug || b.keys.includes(key));
     if (band) store.set(groupStore(`${lane}/${band.slug}`), true);
   }
 

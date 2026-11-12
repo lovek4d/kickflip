@@ -87,8 +87,9 @@ test("the bar shows the take's name between ‹ and ›, and below it, on its ow
 });
 
 // resolved: the questions of its topic /api/board leaves out, which /api/questions answers. drafts: this device's
-// unsent {choice, note} by question id, as questions.html keeps them.
-function prototypePage(url, { framed = false, owner, resolved = [], drafts = {}, rounds = null }) {
+// unsent {choice, note} by question id, as questions.html keeps them. pane: framed in the board's right pane
+// (app-pane.js openViewer).
+function prototypePage(url, { framed = false, pane = false, owner, resolved = [], drafts = {}, rounds = null }) {
   const listeners = [];
   const el = () => {
     const e = { hidden: false, value: '', textContent: '', innerHTML: '', parts: {}, classList: { add() {}, remove() {} },
@@ -127,7 +128,8 @@ function prototypePage(url, { framed = false, owner, resolved = [], drafts = {},
     ClaudeSite: { url: (p) => new URL(p, 'https://mac.ts.net/orch/').href, send: async (kind, data) => { sent.push([kind, data]); return {}; } },
   };
   win.window = win;
-  win.top = framed ? { AppShell: { open: (to, opts) => { moves.push(['app', to, { ...opts }]); return true; } } } : win;
+  if (pane) win.frameElement = { closest: (sel) => (sel === '.board-pane' ? {} : null) };
+  win.top = framed || pane ? { AppShell: { open: (to, opts) => { moves.push(['app', to, { ...opts }]); return true; } } } : win;
   vm.createContext(win);
   for (const file of ['ui.js', 'ui-links.js', 'ui-questions.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), win);
   const loaded = [];
@@ -190,10 +192,14 @@ test('the bar is the full-width footer at every width, and from 900px its pill a
   assert.match(css, /@media \(min-width: 900px\) \{[^@]*\.ps-states \{[^}]*flex-wrap:wrap/);
 });
 
-test('a framed page keeps its ✕ and Round pill', () => {
-  const page = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed: true, owner: [question] });
-  assert.deepEqual(page.classes, []);
-  assert.doesNotMatch(page.styles, /ps-pane/);
+// docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md
+test("framed in the board's right pane, the page hides its ✕ and Round pill, which the pane's top bar holds, starts at the top and wraps its state pills", () => {
+  const inPane = prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { pane: true, owner: [question] });
+  assert.deepEqual(inPane.classes, ['ps-pane']);
+  assert.match(inPane.styles, /\.ps-pane \.ps-top \{ display:none; \}/);
+  assert.match(inPane.styles, /\.ps-pane main\.proto-main \{ padding-top:0; \}/);
+  assert.match(inPane.styles, /\.ps-pane \.ps-states \{[^}]*flex-wrap:wrap;/);
+  assert.deepEqual(prototypePage('https://mac.ts.net/orch/prototype-snooze.html?q=q1', { framed: true, owner: [question] }).classes, [], 'a page framed anywhere else keeps them');
 });
 
 test('?take= is no longer an embed: the page keeps its bar, top controls and question at any take', () => {

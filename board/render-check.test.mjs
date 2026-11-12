@@ -69,10 +69,10 @@ test('a prototype question is refused, naming each take that throws, logs an err
 
 // docs/adr/2026-11-12-0300-a-prototype-stage-shows-what-the-board-hides-by-width.md
 // T-90's round 3 drew inside a box style.css hid from 900px, so it was blank on a desktop.
-test('a take whose box is hidden at one width is refused naming its class; the stage shows the key hint at both', { skip }, () => {
-  recordPrototype('site', ['A:Hint', 'B:Plain', 'C:Hidden'], false);
+test('a take whose box is hidden at one width is refused naming its class; the stage shows the key hint and the board pane at both', { skip }, () => {
+  recordPrototype('site', ['A:Hint', 'B:Pane', 'C:Hidden'], false);
   write(takePath('site', 'A'), 'export function render(stage) { stage.innerHTML = `<p><span class="key-hint">⌘K</span></p>`; }');
-  write(takePath('site', 'B'), 'export function render(stage) { stage.innerHTML = `<p>plain</p>`; }');
+  write(takePath('site', 'B'), 'export function render(stage) { stage.innerHTML = `<aside class="board-pane"><p>pane</p></aside>`; }');
   write(takePath('site', 'C'), 'export function render(stage) { stage.innerHTML = `<style>@media (min-width: 900px) { .gone { display: none; } }</style><p class="gone">x</p><p class="kept">y</p>`; }');
   const r = add(['A', 'B', 'C']);
   assert.equal(r.code, 1);

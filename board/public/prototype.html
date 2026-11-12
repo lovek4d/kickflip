@@ -22,9 +22,10 @@
   #stage .top { position: static; }
   #stage .hub-view main { padding-bottom: 16px; }
   /* A served round's page, framed from the board's base prototype worktree, edge to edge from under the ✕ row to the
-     viewer's footer. */
+     viewer's footer; in the board's right pane (.ps-pane) there is no ✕ row, so it starts at the top. */
   #stage:has(> .kit-served) { max-width: none; padding: 0; }
   .kit-served { display: block; width: 100%; min-height: 320px; height: calc(100dvh - 60px - var(--ps-footer-h, 150px) - var(--app-bottom, 0px) - env(safe-area-inset-top)); border: 0; background: var(--panel); }
+  .ps-pane .kit-served { height: calc(100dvh - var(--ps-footer-h, 150px)); }
   .kit-served-failed pre { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
   .kit-missing { margin: 0; padding: 16px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); overflow-wrap: anywhere; }
   #protoToast { position: fixed; z-index: 40; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100vw - 32px); }
@@ -49,8 +50,9 @@
   #stage .kit-sidebar.sidebar:not(.kit-head) > header.top { display: none; }
   @media (min-width: 900px) { #stage .kit-sidebar.sidebar { width: 272px; } }
   /* Everything a take draws shows at every width: the board's width-gated hides are undone here (style.css hides
-     .key-hint below 600px). render-check.mjs refuses a take whose box is
+     .board-pane below 900px, .key-hint below 600px). render-check.mjs refuses a take whose box is
      still hidden at one of its two widths, so a gate missed here fails the round instead of drawing blank. */
+  #stage .board-pane { display: block; position: static; height: auto; overflow: visible; border-left: 0; padding: 0; }
   #stage .key-hint { display: inline; }
   #stage .kit-sheet-strip { padding: 32px 0 0; border-radius: 12px; background: rgba(0,0,0,.35); overflow: hidden; }
   #stage .kit-sheet { max-width: 560px; margin: 0 auto; border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--panel); color: var(--text); box-shadow: 0 -8px 30px rgba(0,0,0,.18); }
@@ -96,6 +98,7 @@
 <script src="app-cards.js"></script>
 <script src="app-lanes.js"></script>
 <script src="app-asks.js"></script>
+<script src="app-pane.js"></script>
 <script src="app-header.js"></script>
 <script src="app-arch.js"></script>
 <script src="app-reader.js"></script>

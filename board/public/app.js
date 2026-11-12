@@ -198,6 +198,7 @@ window.BoardView = (function () {
         setHTML($('#lanes'), B.lanesHtml(d, d.items), { keep: '[data-thread]' });
         for (const key of state.openItems) if (state.threadCache.has(key)) B.renderThread(key, state.threadCache.get(key));
         B.moveStrips(d.items, strips);
+        B.renderPane(d);
         B.renderBanner(d);
         B.renderNew(d);
       });
@@ -206,16 +207,23 @@ window.BoardView = (function () {
     }
 
     // #review=<PR number> opens that review in the Auto Review lane (app-lanes.js openReview), as a held review's push does.
-    // #selectedCard=<file>/<id> (or the older #item=) opens that card; push notifications link here, with &reply to land in the thread's reply box
+    // #selectedCard=<file>/<id> (or the older #item=) opens that card, and &openItemsCard=<topic id> opens that pill in the pane; push notifications link here, with &reply to land in the thread's reply box
     // (docs/adr/2026-10-29-1639-a-push-lands-where-the-owner-answers.md). An ask now in a work item's thread opens that item.
     let focusKey = null;
     let replyKey = null;
     let hashRead = false;
     // A board this page left goes back to where the owner left it once it first renders, unless its URL names a card.
     const returnToPlace = () => B.restorePlace({ linked: /^#(?:selectedCard|item|review)=/.test(location.hash) });
+    // The pane's pill the fragment names opens once the pane has loaded; a phone has no pane, its pill is the Waiting on
+    // you page (shell.js go).
+    function openPill(id, tries = 50) {
+      if (!id || !matchMedia('(min-width: 900px)').matches || B.focusQuestion?.(id) || tries <= 0) return;
+      B.later(100, () => openPill(id, tries - 1));
+    }
     function readHash() {
-      const { selectedCard, review, reply } = AppRouter.fragmentOf(location.hash);
+      const { selectedCard, openItemsCard, review, reply } = AppRouter.fragmentOf(location.hash);
       if (review && state.board) { B.openReview(review); return; }
+      openPill(openItemsCard);
       if (!selectedCard) return;
       focusKey = BoardUI.record(state.board?.moved, selectedCard) || selectedCard;
       replyKey = reply ? focusKey : null;
@@ -238,6 +246,15 @@ window.BoardView = (function () {
       ev.preventDefault();
       readHash(); render(); scrollToFocus();
     });
+    // Opens and scrolls to the card key or the band slug on the board → whether the board shows it.
+    function focusOnBoard({ key, slug }) {
+      const band = slug && state.board?.waveBands?.find((b) => b.slug === slug);
+      if (!band && !state.board?.items.some((i) => i.key === key)) return false;
+      if (key) { location.hash = AppRouter.hashWith(location.hash, { selectedCard: key }); readHash(); } else B.openBand({ slug });
+      render();
+      if (key) scrollToFocus(); else $(`section.wb[data-lane="todo"][data-band="${CSS.escape(slug)}"]`)?.scrollIntoView({ block: 'start' });
+      return true;
+    }
     // A card missing from the last visit's board waits for the fresh one, which is final.
     function scrollToFocus(final = true) {
       if (!focusKey) return;
@@ -436,7 +453,7 @@ window.BoardView = (function () {
       signalled();
       render();
     }
-    Object.assign(B, { render, loadBoard, send, failed, stillWaiting, reload: signalled });
+    Object.assign(B, { render, focusOnBoard, loadBoard, send, failed, stillWaiting, reload: signalled });
     B.headerWired();
     const sent = BoardUI.sentNotice.take(B.route);
     if (sent) B.toast(sent);
@@ -459,6 +476,7 @@ window.BoardView = (function () {
   function markup({ title = '', shared = null } = {}) {
     const strip = shared ? `<p class="view-only-strip">${sharedStrip(shared)}</p>\n` : '';
     return `${BoardUI.header({ lead: 'logo', title, logoSrc: '/_hub/kickflip.png', pages: 'questions', moon: true })}
+<div class="split">
 <main>
 ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <section id="pauseBanner" class="hub-view" hidden></section>
@@ -469,6 +487,9 @@ ${strip}  <section id="setup" class="setup" aria-live="polite" hidden></section>
   <div id="downLanding" hidden></div>
   ${BoardUI.boardFoot()}
 </main>
+<div class="col-handle" data-col="pane" role="separator" aria-orientation="vertical" aria-label="Resize the Waiting on you pane" tabindex="0"></div>
+<aside id="boardPane" class="board-pane" aria-label="Waiting on you"></aside>
+</div>
 ${BoardNewTask.markup()}
 <dialog id="mainLogSheet" class="sheet" aria-labelledby="mainLogTitle">
   <div class="sheet-body">

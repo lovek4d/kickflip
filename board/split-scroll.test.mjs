@@ -1,11 +1,21 @@
-// Waiting on you's own page: the Send bar ends it, a pill tap keeps its scroll, and the board's ? shows at every width.
+// Waiting on you's page and the desktop pane: the pane scrolls on its own, the Send bar ends either, a pill tap keeps
+// its scroll, and the board's ? shows at every width.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
 
-test('the Send bar ends its page: no padding runs on below it', () => {
+test('the desktop right pane is its own scroller that does not chain into the page', () => {
+  const split = css.match(/@media \(min-width: 900px\) \{\s*\.split \{[\s\S]*?\n\}/)[0];
+  const pane = split.match(/\.board-pane \{[^}]*\}/)[0];
+  assert.match(pane, /overflow-y: auto/);
+  assert.match(pane, /overscroll-behavior: contain/);
+});
+
+test('the Send bar ends its page and its pane: no padding runs on below it', () => {
+  const pane = css.match(/\.board-pane \{[^}]*sticky[^}]*\}/)[0];
+  assert.match(pane, /padding: 12px 16px 0;/);
   const page = css.match(/body \.view-questions\.view-questions main \{[^}]*\}/)[0];
   assert.match(page, /padding-bottom: var\(--app-bottom, 0px\)/);
   assert.ok(css.indexOf(page) > css.indexOf('body.has-sidebar > :not(.sidebar) > main {'), 'it comes after the phone rule it overrides');
@@ -19,8 +29,17 @@ test('a topic pill tap keeps the page scroll, and the move on after a Send still
   assert.match(js, /scroll\(0\);/);
 });
 
-test('no width hides the question mark: it is the way to Waiting on you on a desktop too', () => {
+// docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md
+test('no width hides the question mark: on a desktop it opens its topic in the pane', () => {
   assert.doesNotMatch(css, /pages-switch \{ display: none; \}/);
+});
+
+test('the desktop right pane never scrolls sideways: its content wraps to the pane width', () => {
+  const wide = css.slice(css.indexOf('@media (min-width: 900px) {\n  .split'));
+  const pane = wide.match(/\.board-pane \{[^}]*\}/)[0];
+  assert.match(pane, /overflow-x: hidden/);
+  assert.match(wide, /\.board-pane \* \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
+  assert.match(wide, /\.board-pane pre[^{]*\{[^}]*white-space: pre-wrap;/);
 });
 
 test('the Send bar stacks above the notes\' attach buttons, with equal padding above and below', () => {

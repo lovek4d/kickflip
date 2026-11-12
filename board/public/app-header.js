@@ -1,8 +1,8 @@
 // The board view's header and GitHub status: the time since the last change signal or refresh, refresh, the In Review
 // header's GitHub line (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md);
 // the GitHub mark's Hub links sheet and a new board's setup checklist (docs/adr/2026-10-29-1639-one-board-registry-for-every-hub-feature.md);
-// the ?, the way to Waiting on you at every width, with the open-question count as its badge
-// (docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md);
+// the ?, the way to Waiting on you at every width (from 900px its topic opens in the pane beside the lanes), with the
+// open-question count as its badge (docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md);
 // and the wake: any tap on an asleep board's page, refresh included, asks the hub to resume its session
 // (docs/adr/2026-11-03-0313-boards-run-in-the-background-and-the-hub-board-in-tmux.md). Needs app-core.js.
 BoardView.part((B) => {

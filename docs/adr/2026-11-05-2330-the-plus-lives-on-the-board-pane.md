@@ -5,3 +5,5 @@ On the desktop split view the + (new task) sits at the bottom right of the left,
 The Open questions page has no + anywhere, phone and the desktop right pane included (the right pane's + is the board's, now on the left). shell.js leaves it out of that page, and the offset that lifted it above the page's bar went with it.
 
 Superseded in part by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): with no pane, the + sits at the window's bottom right on a desktop too.
+
+Restored by [the desktop pane is back without the Needs you deck](2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md): with the pane back, the + sits at the lanes' bottom right again.

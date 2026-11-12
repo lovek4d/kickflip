@@ -510,7 +510,7 @@ button.attach[aria-pressed="true"] { color: var(--accent); background: var(--chi
 .down-landing-hint { margin: 0; font-size: 14px; color: var(--muted); }
 .down-landing-stack { margin: 0; max-width: 100%; overflow: auto; text-align: left; font-size: 12px; padding: 10px; border-radius: 8px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
 .down-landing-stack[hidden] { display: none; }
-.view-board.down main > :not(#downLanding), .view-board.down #compose { display: none; }
+.view-board.down main > :not(#downLanding), .view-board.down :is(#boardPane, #compose) { display: none; }
 .view-settings.down .settings-body > :not(.down-landing) { display: none; }
 /* INT-28: answer banner */
 .answer-banner { display: flex; align-items: center; gap: 4px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
@@ -734,7 +734,7 @@ main > * { transition: opacity .25s ease; }
 /* The + rides above the sticky Send bar rather than over its Send. */
 .view-questions .bar #qstatus { min-width: 0; }
 .view-questions .bar #qstatus.sent { color: var(--color-success); font-weight: 600; }
-/* With no open question, the moon and its line sit at the centre of what the page shows between its top and the nav. */
+/* With no open question, the moon and its line sit at the centre of what the page or the desktop pane shows. */
 .view-questions .q-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); text-align: center;
   min-height: calc(var(--vh, 100dvh) - var(--app-bottom, 0px) - max(16px, env(safe-area-inset-top))); }
 .view-questions .q-empty p { margin: 0; font-size: 15px; }
@@ -791,8 +791,8 @@ main > * { transition: opacity .25s ease; }
 .view-notes .md-table th, .view-notes .md-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .view-notes .md-table th { background: var(--bg); font-weight: 600; }
 .view-notes .md-table tr:last-child td { border-bottom: 0; }
-/* The sidebar and every page never scroll sideways: content wraps at its width, overflow-x hidden is the last guard. */
-.view-questions, .view-notes, .reader-sheet { overflow-x: hidden; }
+/* The sidebar and every pane never scroll sideways: content wraps at the pane's width, overflow-x hidden is the last guard. */
+.view-questions, .view-notes, .reader-sheet, .pane-viewer { overflow-x: hidden; }
 /* A framed page (view-frame.js) fills the space beside the header, and scrolls inside its frame. */
 .view-frame { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .view-frame > .top { flex: none; }
@@ -811,7 +811,7 @@ main > * { transition: opacity .25s ease; }
     border-bottom: 0; border-top: 1px solid var(--line); padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
   .top .nav #refresh, .top .nav a.icon, .top .pages-switch { min-width: 44px; min-height: 44px; }
-  body > main, body.has-sidebar > :not(.sidebar) > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
+  body > main, body.has-sidebar > :not(.sidebar) > main, body.has-sidebar > :not(.sidebar) > .split > main { padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: calc(96px + var(--app-bottom, 0px) + env(safe-area-inset-bottom)); }
   .view-frame:not(.own-header) { padding-bottom: var(--app-bottom, 0px); }
   .sheet { bottom: max(0px, calc(var(--app-bottom, 0px) - var(--kb, 0px)));
     max-height: calc(var(--vh, 100dvh) + var(--kb, 0px) - max(var(--app-bottom, 0px), var(--kb, 0px)) - env(safe-area-inset-top) - 12px); }
@@ -973,25 +973,57 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 .rv-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .view-questions .bar #qstatus .try-spin { color: var(--accent); margin-right: 6px; }
 
+/* From 900px the pane beside the lanes holds Waiting on you (app-pane.js,
+   docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md). */
+.board-pane { display: none; }
 .col-handle { display: none; }
-/* From 900px the lanes take the board's full width; Waiting on you is the header's ?
-   (docs/adr/2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md). */
 @media (min-width: 900px) {
-  .view-board > main { max-width: none; margin: 0; }
+  .split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) var(--pane-w, minmax(0, 1fr)); align-items: start; }
+  .split > main { max-width: none; margin: 0; }
+  /* The board's + sits at the bottom right of the left pane: the pane ends at the middle of the space right of the sidebar. */
+  .view-board .fab { right: calc(var(--pane-w, calc(50% - var(--sidebar-w, 0px) / 2)) + var(--fab-edge)); }
   body.has-sidebar { --sidebar-w: var(--sb-w, 272px); }
   html.sb-collapsed body.has-sidebar { --sidebar-w: 0px; }
-  /* The sidebar's drag edge (col-resize.js): a hairline that thickens on hover. */
+  /* The drag edges (col-resize.js): a hairline that thickens on hover, on the pane's left edge and the sidebar's right. */
   .col-handle { display: block; position: absolute; z-index: 5; top: 0; bottom: 0; width: 9px; cursor: col-resize; touch-action: none; }
   .col-handle::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: transparent; transition: background .12s, width .12s, left .12s; }
   .col-handle:is(:hover, :focus-visible, .dragging)::after { left: 3px; width: 3px; background: var(--accent); }
   .col-handle:focus-visible { outline: none; }
   html.col-dragging, html.col-dragging * { cursor: col-resize !important; user-select: none; }
-  /* The reader sheet (app-reader.js) is a panel over the right half of the space beside the sidebar while it is open. */
-  .sheet.reader-sheet { position: fixed; z-index: 30; inset: 56px 0 0 auto; margin: 0; width: calc((100vw - var(--sidebar-w, 0px)) / 2); max-width: none;
+  .split > .col-handle { right: calc(var(--pane-w, 50%) - 4px); }
+  .split:has(.board-pane.widened) > .col-handle { display: none; }
+  /* The reader sheet (app-reader.js) is a panel over the pane's half, at the width the seam gives it, while it is open. */
+  .sheet.reader-sheet { position: fixed; z-index: 30; inset: 56px 0 0 auto; margin: 0; width: var(--pane-w, calc((100vw - var(--sidebar-w, 0px)) / 2)); max-width: none;
     height: auto; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
   .sheet.reader-sheet[open] { animation: reader-in .22s ease-out; }
   .sheet.reader-sheet.closing { animation: reader-out .18s ease-in forwards; }
   .reader-sheet::backdrop { background: transparent; }
+  .board-pane { display: block; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 12px 16px 0; border-left: 1px solid var(--line); }
+  .board-pane .pane-questions main { padding: 0; max-width: none; }
+  .board-pane:has(.q-empty), .board-pane .pane-questions:has(.q-empty), .board-pane .pane-questions:has(.q-empty) main, .board-pane #page:has(.q-empty) { display: flex; flex-direction: column; }
+  .board-pane .pane-questions:has(.q-empty), .board-pane .pane-questions:has(.q-empty) main, .board-pane #page:has(.q-empty), .board-pane .q-empty { flex: 1; min-height: 0; }
+  .board-pane * { min-width: 0; overflow-wrap: anywhere; }
+  .board-pane pre, .board-pane code { white-space: pre-wrap; }
+  .board-pane :is(.row, .actions, .btns) { flex-wrap: wrap; }
+  /* A prototype in the pane (app-pane.js openViewer): a top bar over the framed page, whose footer ends the pane; ⤢
+     (.widened) lays the pane over the lanes, from the sidebar's edge. */
+  .board-pane.viewing { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+  .board-pane.viewing > :not(.pane-viewer) { display: none; }
+  .board-pane.viewing.widened { position: fixed; top: 56px; left: var(--sidebar-w, 0px); right: 0; bottom: 0; height: auto; z-index: 7; border-left: 0; background: var(--bg); }
+  .pane-viewer { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .pv-top { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .pv-top .pv-grow { flex: 1; }
+  .pv-top button { min-height: 36px; border-radius: 8px; font-weight: 600; }
+  .pv-top .pv-back { border: 0; background: transparent; color: var(--text); padding: 6px 8px; }
+  .pv-top .pv-back:hover { background: var(--line); }
+  .pv-top .pv-widen { width: 36px; padding: 0; font-size: 17px; }
+  .pv-top .pv-widen[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .pv-top .ps-chip { border-radius: 999px; padding: 0 14px; }
+  .pv-frame { flex: 1; min-height: 0; width: 100%; border: 0; display: block; background: var(--panel); }
+  .pane-viewer .ps-sheet { position: absolute; left: 8px; right: 8px; top: 56px; z-index: 2; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+  .pane-viewer .ps-sheet h3 { margin: 0 0 6px; font-size: 14px; }
+  .pane-viewer .ps-sheet button { display: flex; justify-content: space-between; gap: 12px; width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); padding: 10px 2px; text-align: left; }
+  .pane-viewer .ps-sheet button span + span { color: var(--muted); }
 }
 /* The Send bar is the last thing on its page: only the phone nav under it is left clear, so its background runs to the edge. */
 body .view-questions.view-questions main { padding-bottom: var(--app-bottom, 0px); }

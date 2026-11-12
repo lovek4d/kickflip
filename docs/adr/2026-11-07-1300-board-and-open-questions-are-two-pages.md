@@ -14,3 +14,5 @@ Considered:
 - **The bulb and gear as buttons at the top of the board, or in the header beside the ?** (round 3). The owner picked the bottom of the board.
 
 Superseded in part by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): the two pages are apart at every width, with no pane from 900px, and the header's ? shows on a desktop too.
+
+Restored by [the desktop pane is back without the Needs you deck](2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md): from 900px the two pages sit side by side again, Waiting on you in the pane; the header's ? stays at every width.

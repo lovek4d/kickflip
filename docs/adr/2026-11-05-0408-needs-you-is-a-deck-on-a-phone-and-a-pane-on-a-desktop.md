@@ -18,3 +18,5 @@ Considered:
 The deck's "Draft, then Send" is superseded by [a deck option sends on a second tap](2026-11-07-1212-a-deck-option-sends-on-a-second-tap.md).
 
 Superseded by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): the board has no deck and no pane; the header's ? opens Waiting on you at every width.
+
+Restored in part by [the desktop pane is back without the Needs you deck](2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md): from 900px the pane is back with Waiting on you, but without its Needs you lines.
