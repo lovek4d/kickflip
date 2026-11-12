@@ -30,6 +30,8 @@
       const pick = list.length === 1 ? list[0] : list.find((i) => i.file === file);
       if (pick) refs[ref] = pick.key;
     }
+    const lanes = Object.create(null);
+    for (const i of items) lanes[i.key] = i.lane;
     const teams = Object.create(null);
     const repos = Object.create(null);
     for (const i of items) {
@@ -41,7 +43,7 @@
         if (team && prefix && !teams[team]) teams[team] = prefix;
       }
     }
-    return { refs, teams, repos, repo: items.find((i) => i.key === key)?.repo || null, base };
+    return { refs, lanes, teams, repos, repo: items.find((i) => i.key === key)?.repo || null, base };
   }
 
   const TOKEN = new RegExp([
@@ -67,7 +69,12 @@
     return anyLink(url, url) + esc(raw.slice(url.length));
   }
 
-  const cardLink = (ref, ctx) => `<a href="${esc(`${ctx.base || ''}#selectedCard=${encodeURIComponent(record(ctx.refs, ref))}`)}">${esc(ref)}</a>`;
+  // The card row's lane ring (style.css .status), at the link's text size, ahead of the id.
+  const laneRing = (lane) => (lane ? `<span class="status link-lane ${esc(lane)}"></span>` : '');
+  const cardLink = (ref, ctx) => {
+    const key = record(ctx.refs, ref);
+    return `<a href="${esc(`${ctx.base || ''}#selectedCard=${encodeURIComponent(key)}`)}">${laneRing(record(ctx.lanes || {}, key))}${esc(ref)}</a>`;
+  };
 
   // The longest hyphen-prefix of a word that is a known ref or a Linear id, then the rest as text.
   function wordLink(word, ctx) {
@@ -145,5 +152,5 @@
     return res + (keep ? tail : linkRun(tail, ctx));
   }
 
-  Object.assign(globalThis.BoardUI, { linkContext, linkText, linkHtml, opensHere, anyLink });
+  Object.assign(globalThis.BoardUI, { linkContext, laneRing, linkText, linkHtml, opensHere, anyLink });
 })();

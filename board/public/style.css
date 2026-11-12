@@ -110,6 +110,7 @@ button.chip { border: 0; }
   box-shadow: 0 4px 16px rgba(0,0,0,.2); touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .toast:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) { .toast-row { transition: none; } }
+.status.link-lane { width: .8em; height: .8em; border-width: 1.5px; box-sizing: border-box; margin-right: .3em; vertical-align: -.05em; }
 .status.done, .status.asks { border-color: var(--color-quiet); background: var(--color-quiet); }
 
 .detail { padding: 4px 12px 14px 38px; }
