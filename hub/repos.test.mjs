@@ -135,7 +135,7 @@ test('an unlisted public repo lists branches and prepares a verified clone with 
     if (argv.includes('fetch')) return { status: 0 };
     assert.fail(`unexpected command ${command} ${argv.join(' ')}`);
   } });
-  assert.deepEqual(await repos.branches('outside/public'), { defaultBranch: 'trunk', branches: ['release/next', 'trunk'] });
+  assert.deepEqual(await repos.branches('outside/public'), { defaultBranch: 'trunk', branches: ['trunk', 'release/next'] });
   saveJSON(manifestFile, manifest);
   const result = await changeBoardRepo('board', { github: 'outside/public', branch: 'release/next' }, { repos, event: async () => 'event' });
   assert.equal(result.repo, path.join(base, 'outside/public'));
@@ -327,4 +327,14 @@ test('runRepo hands each stderr chunk to onStderr as it arrives, and still answe
   assert.equal(r.status, 0);
   assert.equal(chunks.join(''), 'one\rtwo\n');
   assert.equal(r.stderr, 'one\rtwo\n');
+});
+
+test('branches list the default first and the rest A–Z, ignoring case', async () => {
+  const sha = 'a'.repeat(40);
+  const repos = repoService({ base: path.join(home, 'sorted-clone', '.repos'), run: async (command, argv) => {
+    if (command === 'gh') return { status: 1, stderr: 'not signed in' };
+    if (argv[2] === 'ls-remote') return { status: 0, stdout: `ref: refs/heads/trunk\tHEAD\n${['zed', 'Beta', 'trunk', 'alpha'].map((b) => `${sha}\trefs/heads/${b}\n`).join('')}` };
+    assert.fail(`unexpected command ${command} ${argv.join(' ')}`);
+  } });
+  assert.deepEqual(await repos.branches('outside/public'), { defaultBranch: 'trunk', branches: ['trunk', 'alpha', 'Beta', 'zed'] });
 });

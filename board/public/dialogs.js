@@ -106,7 +106,8 @@
         creating = true; createError = ''; render();
         try {
           const made = await createProject(draft.team, name);
-          linear.projects = [...(linear.projects || []), made];
+          const byName = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+          linear.projects = [...(linear.projects || []), made].sort((a, b) => byName.compare(a.name, b.name));
           draft.project = made.id;
           delete draft.newName;
         } catch (error) { createError = error.message || 'Could not create the project.'; }

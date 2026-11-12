@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { collator } from '../shared/a-to-z.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -28,5 +29,5 @@ export async function listBuildTargets(repo, ref) {
   if (!repo) return [];
   let out;
   try { out = (await execFileAsync('git', ['-C', repo, 'ls-tree', `${ref}:.kickflip`], { encoding: 'utf8', timeout: 3000 })).stdout; } catch { return []; }
-  return out.split('\n').map((line) => /^100755 blob \S+\tbuild-(.+)$/.exec(line)?.[1]).filter(validBuildTarget).sort();
+  return out.split('\n').map((line) => /^100755 blob \S+\tbuild-(.+)$/.exec(line)?.[1]).filter(validBuildTarget).sort(collator.compare);
 }

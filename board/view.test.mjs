@@ -6069,3 +6069,19 @@ test('the Todo filter is remembered on this device', async () => {
   assert.deepEqual(again.root.querySelectorAll('details.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/R1']);
   assert.ok(again.root.querySelector('button.lane-filter').classList.contains('on'));
 });
+
+test('a project made with New project… lands A–Z among the team’s projects, with New project… last', async () => {
+  const page = repoPage(true);
+  const root = page.doc.body.appendChild(new page.Element('div'));
+  const control = page.win.BoardDialogs.ticketsControl(root, { value: { source: 'none' }, title: () => 'beta',
+    loadLinear: async () => ({ set: true, workspace: 'Acme', url_key: 'acme', teams: [{ key: 'ENG', name: 'Engineering' }], projects: [{ team: 'ENG', id: 'p1', name: 'Alpha' }, { team: 'ENG', id: 'p2', name: 'Zed' }] }),
+    createProject: async (team, name) => ({ id: 'p3', name, team }), change: () => {} });
+  page.fire(root, 'click', { target: root.querySelector('[data-tk-source="linear"]') });
+  await tick();
+  const project = root.querySelector('[data-tk="project"]');
+  project.value = '__new'; page.fire(root, 'change', { target: project });
+  page.fire(root, 'click', { target: root.querySelector('[data-tk-create]') });
+  await tick();
+  assert.deepEqual([...root.querySelector('[data-tk="project"]').querySelectorAll('option')].map((o) => o.textContent), ['Alpha', 'beta', 'Zed', 'New project…']);
+  control.destroy();
+});

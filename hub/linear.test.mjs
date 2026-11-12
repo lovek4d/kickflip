@@ -212,3 +212,16 @@ test('a board on Linear falls back to no ticket source when the hub starts with 
   assert.equal(tickets(), undefined);
   assert.equal(fs.readFileSync(wave, 'utf8'), cards);
 });
+
+test('teams come A–Z by key and each team lists only its open projects A–Z by name, numbers by value', async () => {
+  const world = linearWorld();
+  world.teams.reverse();
+  world.teams.find((t) => t.key === 'ENG').projects = [
+    { id: 'a', name: 'zeta', status: { type: 'started' } }, { id: 'b', name: 'Alpha 10', status: { type: 'planned' } },
+    { id: 'c', name: 'Alpha 2' }, { id: 'd', name: 'Beta', status: { type: 'completed' } }, { id: 'e', name: 'Gamma', status: { type: 'canceled' } },
+    { id: 'f', name: 'beta two', status: { type: 'paused' } },
+  ];
+  const teams = await linearClient(world.key, { fetch: fakeLinear(world).fetch }).teams();
+  assert.deepEqual(teams.map((t) => t.key), ['ENG', 'OPS']);
+  assert.deepEqual(teams[0].projects.map((p) => p.name), ['Alpha 2', 'Alpha 10', 'beta two', 'zeta']);
+});

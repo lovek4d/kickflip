@@ -3,6 +3,7 @@
 // refused_at once Linear refused it (docs/adr/2026-11-02-1712-a-board-picks-linear-only-while-hubs-key-works.md). Only
 // linearStatus's {set, refused, workspace, url_key} ever leaves this module for a page.
 // Every request goes to KICKFLIP_LINEAR_URL when it is set, else Linear's GraphQL API, through the fetch passed in.
+import { aToZ } from '../shared/a-to-z.mjs';
 import { readSecret, writeSecret } from './secrets.mjs';
 
 export class LinearError extends Error {
@@ -66,15 +67,17 @@ export function linearClient(key, { fetch = globalThis.fetch, checked = () => {}
       const d = await call('query { viewer { id name } organization { name urlKey } }');
       return { viewer: { id: d.viewer.id, name: d.viewer.name }, workspace: d.organization.name, url_key: d.organization.urlKey };
     },
-    // → [{id, key, name, projects: [{id, name}]}]
+    // → [{id, key, name, projects: [{id, name}]}]: teams A–Z by key, each team's open projects (not completed or canceled) A–Z by name
     async teams() {
       // Linear refuses a query whose nested page sizes multiply past its complexity limit ("Query too complex"), so
       // each team's projects come in a query of their own.
       const d = await call('query { teams(first: 100) { nodes { id key name } } }');
-      return Promise.all(d.teams.nodes.map(async (t) => {
-        const p = await call('query($id: String!) { team(id: $id) { projects(first: 100) { nodes { id name } } } }', { id: t.id });
-        return { id: t.id, key: t.key, name: t.name, projects: p.team.projects.nodes.map((x) => ({ id: x.id, name: x.name })) };
+      const teams = await Promise.all(d.teams.nodes.map(async (t) => {
+        const p = await call('query($id: String!) { team(id: $id) { projects(first: 100) { nodes { id name status { type } } } } }', { id: t.id });
+        const open = p.team.projects.nodes.filter((x) => !['completed', 'canceled'].includes(x.status?.type));
+        return { id: t.id, key: t.key, name: t.name, projects: aToZ(open.map((x) => ({ id: x.id, name: x.name })), (x) => x.name) };
       }));
+      return aToZ(teams, (t) => t.key);
     },
     async createProject(teamKey, name) {
       const t = await team(teamKey);

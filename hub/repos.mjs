@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { gh } from '../shared/gh.mjs';
 import { reposDir } from '../shared/repos.mjs';
+import { aToZ } from '../shared/a-to-z.mjs';
 import { withFileLock } from './locks.mjs';
 import { storedPath } from '../bin/install.mjs';
 
@@ -212,6 +213,8 @@ export function repoService({ run = runRepo, base = reposDir(), now = Date.now }
     const shared = Object.entries(manifest.sites || {}).filter(([, s]) => sameRepo(s.github || s.remote, id) && typeof s.owner?.repo === 'string' && storedPath(path.resolve(s.owner.repo)).toLowerCase() === storedPath(clone).toLowerCase()).map(([route, s]) => ({ route, title: s.title || route }));
     return { ...repo, clone, cloned: fs.lstatSync(path.join(clone, '.git'), { throwIfNoEntry: false })?.isDirectory() || false, shared };
   };
+  // → {defaultBranch, branches}: the default branch first, the rest A–Z
+  const withDefaultFirst = (defaultBranch, names) => ({ defaultBranch, branches: [...names.filter((n) => n === defaultBranch), ...aToZ(names.filter((n) => n !== defaultBranch))] });
   // → {defaultBranch, branches} from ls-remote's answer, or the failed run as {failed}
   async function lsRemote(gitRun, url) {
     const remote = await gitRun(run, ['ls-remote', '--symref', url, 'HEAD', 'refs/heads/*']);
@@ -219,7 +222,7 @@ export function repoService({ run = runRepo, base = reposDir(), now = Date.now }
     const stdout = remote.stdout;
     const branches = [...new Set([...stdout.matchAll(/^[\da-f]+\s+refs\/heads\/(.+)$/gm)].map((m) => m[1]).filter((name) => valid(validateBranch, name)))];
     const head = /^ref:\s+refs\/heads\/(.+)\s+HEAD$/m.exec(stdout)?.[1];
-    return { defaultBranch: branches.includes(head) ? head : branches[0] || '', branches };
+    return withDefaultFirst(branches.includes(head) ? head : aToZ(branches)[0] || '', branches);
   }
   async function remoteBranches(github) {
     const found = await lsRemote(publicGit, `https://github.com/${github}.git`);
@@ -295,7 +298,7 @@ export function repoService({ run = runRepo, base = reposDir(), now = Date.now }
       try {
         const repo = await ghJSON(run, ['api', `repos/${github}`]);
         const pages = await ghJSON(run, ['api', `repos/${github}/branches?per_page=100`, '--paginate', '--slurp']);
-        return { defaultBranch: repo.default_branch, branches: pages.flat().map((b) => b.name).filter((name) => valid(validateBranch, name)) };
+        return withDefaultFirst(repo.default_branch, pages.flat().map((b) => b.name).filter((name) => valid(validateBranch, name)));
       } catch (e) {
         const remote = await remoteBranches(github);
         if (!remote) throw e;
