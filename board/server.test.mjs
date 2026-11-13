@@ -1113,10 +1113,26 @@ test('with thousands of folders and lock folders coming and going, the board ans
     res.on('data', (c) => { text += c; });
     const changes = () => text.split('\n\n').filter((block) => /^event: change$/m.test(block)).length;
     await until(() => text.includes('retry: 3000\n\n'), 'the board change stream opens');
-    await until(() => fs.existsSync(path.join(data, 'action-pushes.json')), 'the first Action needed check');
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await until(() => ['action-pushes.json', 'orchestrator-waits.json'].every((f) => fs.existsSync(path.join(data, f))), "the server's first checks");
+    // The OS delivers file events late, in order, at some hundreds a second shared by every watch on the Mac: the setup
+    // folders' after the server listens, then the server's own first writes, then the locks'. A file the server ignores,
+    // written now, reaches a watch of the test's own once every earlier event has been delivered.
+    const flush = async (name) => {
+      let heard = false;
+      const watch = fs.watch(data, { recursive: true }, (_, file) => { heard ||= file === name; });
+      try {
+        fs.writeFileSync(path.join(data, name), '');
+        await until(() => heard, `the OS delivers the file events before ${name}`, 60000);
+      } finally { watch.close(); }
+    };
+    await flush('.setup-heard');
+    let last = changes(), since = Date.now();
+    await until(() => {
+      if (changes() !== last) { last = changes(); since = Date.now(); }
+      return Date.now() - since >= 1500;
+    }, 'the change stream goes quiet', 30000);
     const settled = changes();
-    churn = spawn(process.execPath, ['-e', `
+    const startChurn = () => spawn(process.execPath, ['-e', `
       const fs = require('fs'), path = require('path');
       let n = 0;
       const tick = () => {
@@ -1128,6 +1144,7 @@ test('with thousands of folders and lock folders coming and going, the board ans
         setTimeout(tick, 1);
       };
       tick();`], { stdio: 'ignore' });
+    churn = startChurn();
 
     const BUDGET = 250;
     let slowest = 0;
@@ -1139,10 +1156,20 @@ test('with thousands of folders and lock folders coming and going, the board ans
     }
     t.diagnostic(`slowest health answer during churn: ${slowest} ms`);
     if (slowest > BUDGET) console.warn(`the board answered in ${slowest} ms during churn, over its ${BUDGET} ms budget`);
+    // With the churn stopped, the locks' events reach the server, and a change for them would go out within a second.
+    churn.kill(); await new Promise((resolve) => churn.once('exit', resolve));
+    await flush('.churn-heard');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     assert.equal(changes(), settled, 'lock folders coming and going send no change');
 
-    fs.writeFileSync(path.join(data, 'w3', 'attachments', 'a7', 'note.json'), '{}');
-    await until(() => changes() > settled, 'a write in a normal folder sends a change during churn');
+    // Under the churn the OS may drop a file event, so the write is repeated until one is heard.
+    churn = startChurn();
+    let writes = 0;
+    await until(() => {
+      if (changes() > settled) return true;
+      fs.writeFileSync(path.join(data, 'w3', 'attachments', 'a7', 'note.json'), String(writes++));
+      return new Promise((resolve) => setTimeout(() => resolve(changes() > settled), 500));
+    }, 'a write in a normal folder sends a change during churn');
   } finally {
     req?.destroy();
     churn?.kill();
@@ -1465,10 +1492,12 @@ test("a message in a stalled card's thread clears the orchestrator's stall, and 
 });
 
 test("a wave's triage runs from its wave-triage event until Claude replies, and its notes show its goal, order and note", async () => {
-  await boardSees(base, () => putWave(JSON.stringify({ internal: true, items: [{ id: 'S1', title: 'One' }, { id: 'S2', title: 'Two', deps: ['S1'] }],
-    waves: [{ slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', items: ['S1', 'S2'] }] })));
+  await putWave(JSON.stringify({ internal: true, items: [{ id: 'S1', title: 'One' }, { id: 'S2', title: 'Two', deps: ['S1'] }],
+    waves: [{ slug: 'mon', title: 'Monitor', goal: 'Runs in kickflip.', items: ['S1', 'S2'] }] }));
   fs.writeFileSync(path.join(site, 'data', 'wave-mon.md'), 'Why: one PR each.\n');
   const row = async () => (await (await fetch(`${base}/api/board`)).json()).waveBands[0];
+  // Waits for the wave itself, not any new version: the server marking the last test's card read moves the version too.
+  await until(async () => (await row())?.slug === 'mon', 'the board sees the wave');
   assert.deepEqual((await row()).triage, { running: false, questions: 0 });
   const { id } = await (await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'wave-triage', wave: 'mon' }) })).json();
   assert.equal((await row()).triage.running, true);
