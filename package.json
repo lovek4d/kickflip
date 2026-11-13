@@ -26,6 +26,7 @@
     "SKILL.md",
     "CONTEXT.md",
     "!**/*.test.mjs",
+    "!**/*.bench.mjs",
     "!board/mini-dom.mjs",
     "!board/board-fixture.mjs",
     "!hub/fake-device.mjs",
@@ -33,7 +34,8 @@
     "!shared/scratch-home.mjs"
   ],
   "scripts": {
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "bench": "node --test --test-timeout=300000 \"board/**/*.bench.mjs\""
   },
   "devDependencies": {
     "esbuild": "0.28.2"

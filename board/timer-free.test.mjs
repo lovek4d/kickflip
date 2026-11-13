@@ -35,7 +35,7 @@ const TIMED = {
   'board/prototype-phone.test.mjs': 3,
   'board/prototype-switcher.test.mjs': 1,
   'board/server-stale.test.mjs': 39,
-  'board/server.test.mjs': 49,
+  'board/server.test.mjs': 36,
   'board/suite-run.test.mjs': 3,
   'board/view.test.mjs': 2,
   'hub/boards.test.mjs': 2,
