@@ -15,7 +15,7 @@ import { launchAgent } from './agents.mjs';
 import { processStarts, ps } from '../hub/live.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
-import { builderRepo } from './worktree.mjs';
+import { builderRepo, testConcurrency } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
 import { appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
 import { HELPER, plans, VISUAL } from './domain.mjs';
@@ -75,7 +75,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     '',
     ...linkLines(links),
     ...ruleLines(rules),
-    "Write tests first, and run the full suite once, in the foreground, at the end. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.",
+    `Write tests first, and run the full suite once, in the foreground, at the end, as \`node --test --test-concurrency=${testConcurrency()}\`. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.`,
     `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape.`,
     '',
     `To finish, run ${finishCommand({ route, key })}.`,

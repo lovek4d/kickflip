@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { nodeTests, passTests } from './worktree.mjs';
+import { nodeTests, passTests, testArgs, testConcurrency } from './worktree.mjs';
 import { until } from '../shared/test-helpers.mjs';
 
 // docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md
@@ -104,4 +104,9 @@ import { tailscaleBin } from ${JSON.stringify(new URL('../shared/tailscale.mjs',
 test('stub', () => assert.equal(tailscaleBin(), '/usr/bin/false'));
 `);
   assert.deepEqual(await nodeTests(tree), { ok: true, pass: 1, fail: 0 });
+});
+
+test('a suite run starts at most half the cores of test files at once, and at least one', () => {
+  assert.equal(testConcurrency(), Math.max(1, Math.floor(os.availableParallelism() / 2)));
+  assert.ok(testArgs(1000, ['a.test.mjs']).includes(`--test-concurrency=${testConcurrency()}`));
 });

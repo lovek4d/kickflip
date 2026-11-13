@@ -160,6 +160,13 @@ function testFiles(dir) {
   return found.sort();
 }
 
+// The test files a run starts at once: half the host's cores, at least one, so several suites at a time don't pile their
+// files up on a loaded Mac (docs/adr/2026-11-12-1600-the-test-runner-caps-concurrency-to-half-the-cores.md).
+export const testConcurrency = () => Math.max(1, Math.floor(os.availableParallelism() / 2));
+
+// The `node --test` arguments of a full suite run over files.
+export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', `--test-concurrency=${testConcurrency()}`, `--test-timeout=${testLimit}`, ...files];
+
 // The full suite of the worktree, as a promise. NODE_TEST_CONTEXT is dropped, since a run started from inside a test
 // would otherwise report to that test's runner instead of exiting with its own result. KICKFLIP_TAILSCALE is a failing
 // stub, so a test's hub never reaches the host's Tailscale; a test with its own stub names it. Each test fails once it runs past
@@ -172,7 +179,7 @@ export function nodeTests(dir, { limit = 15 * 60 * 1000, testLimit = 5 * 60 * 10
   if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
   const { NODE_TEST_CONTEXT: _, ...rest } = process.env;
   const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false' };
-  const child = spawn(nodeBin(), ['--test', '--test-reporter=tap', `--test-timeout=${testLimit}`, ...files], { cwd: dir, env, detached: true });
+  const child = spawn(nodeBin(), testArgs(testLimit, files), { cwd: dir, env, detached: true });
   // macOS answers EPERM, not ESRCH, for a group whose processes have all died but aren't yet reaped.
   child.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH' && e.code !== 'EPERM') throw e; } });
   let stdout = '';
