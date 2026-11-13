@@ -5,8 +5,40 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { until, ownSession, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
+import { watch as watchInProcess } from './wait-events.mjs';
 
 const write = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data)); };
+
+// A watcher in this process on a clock the test turns: each step ends one of its sleeps and returns once it reaches the
+// next, or exits. It reads the home from HOME, so the test points that at its own for its length, and its session
+// never dies unless the test says so.
+function inProcess(t, home, { pid, session = 's1', gone = () => false } = {}) {
+  const savedHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { process.env.HOME = savedHome; });
+  const lines = [];
+  let release = null;
+  let reached = null;
+  let finished = false;
+  const sleep = () => new Promise((resolve) => { release = resolve; reached?.(); });
+  const done = watchInProcess({ route: 'shop', session, sleep, sessionGone: () => gone(), log: (line) => lines.push(line), pid, links: () => [] }).then((code) => { finished = true; reached?.(); return code; });
+  const arrival = () => (release || finished ? Promise.resolve() : new Promise((resolve) => { reached = resolve; }));
+  const step = async () => {
+    await arrival();
+    if (finished) return;
+    const wake = release;
+    release = null;
+    wake();
+    await new Promise((resolve) => { reached = resolve; if (release || finished) resolve(); });
+  };
+  return {
+    done,
+    out: () => lines.join('\n') + (lines.length ? '\n' : ''),
+    finished: () => finished,
+    pass: async (n = 1) => { for (let i = 0; i < n; i++) await step(); },
+    run: async () => { while (!finished) await step(); return done; },
+  };
+}
 
 test('paused watchers hold hub work through owner wakes and restarts, and report it after reset', { timeout: 120000 }, async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'paused-watch-'));
@@ -14,11 +46,9 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   const state = path.join(home, '.claude', 'kickflip');
   const events = path.join(dir, 'data', 'events.jsonl');
   const cursor = path.join(dir, 'data', '.watch-cursor-s1.json');
-  const watcher = path.join(dir, 'data', 'watcher.json');
   const reset = new Date(Date.now() + 3600_000).toISOString();
   const usage = (resets_at) => ({ claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at } } });
-  const children = [];
-  t.after(() => { for (const child of children) if (child.exitCode === null) child.kill(); fs.rmSync(home, { recursive: true, force: true }); });
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   write(path.join(state, 'manifest.json'), { sites: { shop: { dir, watch: ['data/events.jsonl'], owner: { session: 's1' } } } });
   write(path.join(dir, 'board.json'), { title: 'Shop', rules: [{ id: 'b1', text: 'Board rule' }] });
   write(path.join(state, 'settings.json'), { rules: [{ id: 'h1', text: 'Hub rule' }] });
@@ -27,34 +57,22 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
     { key: 'w/A1', ref: 'A1', title: 'One', kind: 'calls', since: '2026-11-04T10:00:00.000Z', picked: null, next: "Verify the builder's judgment calls" },
     { key: 'w/A2', ref: 'A2', title: 'Two', kind: 'answer', since: '2026-11-04T10:05:00.000Z', picked: '2026-11-04T10:06:00.000Z', next: "Act on the owner's answer", bumpedAt: '2026-11-04T09:00:00.000Z' },
   ] });
-  ownSession(home, 's1');
   write(cursor, { 'data/events.jsonl': 0 });
   write(events, '');
   const add = (kind, data) => fs.appendFileSync(events, JSON.stringify({ id: kind, kind, ts: new Date().toISOString(), data }) + '\n');
   for (const kind of ['github-change', 'check-github', 'card-unblocked']) add(kind);
   add('check-github', { reason: 'morning' });
-  const start = () => {
-    const child = spawn(process.execPath, [new URL('./wait-events.mjs', import.meta.url).pathname, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
-    children.push(child);
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => { stdout += d; });
-    child.stderr.on('data', (d) => { stderr += d; });
-    const done = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', (code) => resolve({ code, stdout, stderr })); });
-    return { child, done, stdout: () => stdout };
-  };
-  const first = start();
-  await until(() => fs.existsSync(watcher), 'watcher started');
-  await new Promise((resolve) => setTimeout(resolve, 2500));
-  assert.equal(first.child.exitCode, null);
-  assert.equal(first.stdout(), '');
+  const first = inProcess(t, home, { pid: 900001 });
+  await first.pass();
+  assert.equal(first.finished(), false);
+  assert.equal(first.out(), '');
   add('item-message', { key: 'w/A1' });
   add('item-message', { key: 'w/A1', text: 'Use the blue', intent: 'build' });
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md: a re-wake wakes a paused session too.
   add('orchestrator-waits', { added: ['w/A3'], again: [{ key: 'w/A1', ref: 'A1', kind: 'calls', since: new Date(Date.now() - 2 * 3600_000 - 30_000).toISOString(), next: "Verify the builder's judgment calls" }] });
   add('builder-ask', { key: 'w/A1', ask: 'ask1', agent: 'main', text: 'Stay orange?' });
-  const out = await first.done;
-  assert.deepEqual([out.code, out.stderr], [0, '']);
+  assert.equal(await first.run(), 0);
+  const out = { stdout: first.out() };
   assert.match(out.stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nmessage received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose$/m);
   // docs/adr/2026-11-07-0700-staging-then-ready.md
   assert.match(out.stdout, /^event data\/events.jsonl .*"intent":"build".*\nImplement asked on A1: it is staging, the message in its notes; judge it against the whole board, then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping$/m);
@@ -68,15 +86,12 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   const saved = JSON.parse(fs.readFileSync(cursor, 'utf8'));
   assert.equal(saved['data/events.jsonl'], 8);
   assert.equal(saved.$usageHeld['data/events.jsonl'].length, 4);
-  const second = start();
-  // The watcher writes its file in place, so a read can land between the truncate and the write.
-  const watcherPid = () => { try { return JSON.parse(fs.readFileSync(watcher, 'utf8')).pid; } catch { return null; } };
-  await until(() => watcherPid() === second.child.pid, 'replacement watcher started');
-  await new Promise((resolve) => setTimeout(resolve, 2500));
-  assert.equal(second.child.exitCode, null);
+  const second = inProcess(t, home, { pid: 900002 });
+  await second.pass();
+  assert.equal(second.finished(), false);
   write(path.join(state, 'usage.json'), usage(new Date(Date.now() - 1000).toISOString()));
-  const resumed = await second.done;
-  assert.deepEqual([resumed.code, resumed.stderr], [0, '']);
+  assert.equal(await second.run(), 0);
+  const resumed = { stdout: second.out() };
   for (const kind of ['github-change', 'check-github', 'card-unblocked']) assert.ok(resumed.stdout.includes(`"kind":"${kind}"`));
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
   assert.match(resumed.stdout, /"reason":"morning".*\nthe daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any card stuck with no wait; a thread line on each card you act on, nothing else$/m);
@@ -91,33 +106,26 @@ test("a board's own pause holds its hub work as a usage pause does and names its
   const state = path.join(home, '.claude', 'kickflip');
   const events = path.join(dir, 'data', 'events.jsonl');
   const until = new Date(Date.now() + 3600_000).toISOString();
-  const children = [];
-  t.after(() => { for (const child of children) if (child.exitCode === null) child.kill(); fs.rmSync(home, { recursive: true, force: true }); });
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   write(path.join(state, 'manifest.json'), { sites: { shop: { dir, watch: ['data/events.jsonl'], owner: { session: 's1' } } } });
   write(path.join(dir, 'board.json'), { title: 'Shop', paused_until: until });
-  ownSession(home, 's1');
   write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 0 });
   write(events, JSON.stringify({ id: 'g', kind: 'github-change', ts: new Date().toISOString() }) + '\n');
-  const start = () => {
-    const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
-    children.push(child);
-    let stdout = '';
-    child.stdout.on('data', (d) => { stdout += d; });
-    return { child, done: new Promise((resolve) => child.on('close', () => resolve(stdout))) };
-  };
-  const first = start();
-  await new Promise((resolve) => setTimeout(resolve, 5000));
-  assert.equal(first.child.exitCode, null, 'the held github-change wakes nothing');
+  const first = inProcess(t, home, { pid: 900001 });
+  await first.pass(2);
+  assert.equal(first.finished(), false, 'the held github-change wakes nothing');
   fs.appendFileSync(events, JSON.stringify({ id: 'm', kind: 'item-message', ts: new Date().toISOString(), data: { key: 'w/A1' } }) + '\n');
-  const out = await first.done;
+  assert.equal(await first.run(), 0);
+  const out = first.out();
   assert.match(out, /"kind":"item-message"/);
   assert.doesNotMatch(out, /"kind":"github-change"/);
   assert.match(out, new RegExp(`\\nusage paused ${until} manual board\\n`));
-  const second = start();
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-  assert.equal(second.child.exitCode, null);
+  const second = inProcess(t, home, { pid: 900002 });
+  await second.pass(2);
+  assert.equal(second.finished(), false);
   write(path.join(dir, 'board.json'), { title: 'Shop' });
-  const resumed = await second.done;
+  assert.equal(await second.run(), 0);
+  const resumed = second.out();
   assert.match(resumed, /"kind":"github-change"/);
   assert.doesNotMatch(resumed, /usage paused/);
 });
@@ -165,7 +173,7 @@ test("a watcher whose session dies exits without taking the next event, so the r
   await until(() => Number.isInteger(watcherRecord()?.pid), 'the watcher started');
   const orphan = watcherRecord().pid;
   pids.push(orphan);
-  await new Promise((resolve) => setTimeout(resolve, 2500));
+  await until(() => watcherRecord()?.checks >= 1, 'the watcher checked once');
   assert.ok(running(orphan), 'the watcher waits while its session runs');
   const died = new Promise((resolve) => claude.once('exit', resolve));
   claude.kill('SIGKILL');

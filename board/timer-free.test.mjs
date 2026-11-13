@@ -24,7 +24,7 @@ const TIMED = {
   'bin/install.test.mjs': 3,
   'bin/join.test.mjs': 6,
   'bin/statusline.test.mjs': 1,
-  'bin/wait-events.test.mjs': 27,
+  'bin/wait-events.test.mjs': 21,
   'board/agents.test.mjs': 2,
   'board/arch-review.test.mjs': 2,
   'board/board-land.test.mjs': 2,
