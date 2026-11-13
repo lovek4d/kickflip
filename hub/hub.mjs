@@ -192,7 +192,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { checkGitHub, sendWakes } from './github.mjs';
 import { checkIncoming } from './incoming.mjs';
 import { drainRoutes, routedRows } from './router.mjs';
-import { listBoards, isListening, isBoardSite, listenState, RESUME_STATE, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
+import { listBoards, isListening, isBoardSite, listenState, resumeStateFile, sendToBoards, checkListening, recordHubCode, hubCode, runningHubCode, boardCode, recordLinkFaults, linksOf, hubLink, hubCodeState, readJSON, migrateCellarNode } from './boards.mjs';
 import { liveSessions } from './live.mjs';
 import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './rules.mjs';
 import { siteIcon } from './icons.mjs';
@@ -714,7 +714,7 @@ const linksCache = new Map(); // route → {at, listen, links}
 function boardLinks(boards) {
   const links = new Map();
   const listens = new Map();
-  const ctx = { running: liveSessions(), wakes: readJSON(RESUME_STATE, {}) };
+  const ctx = { running: liveSessions(), wakes: readJSON(resumeStateFile(), {}) };
   for (const b of boards) {
     try {
       const listen = listenState(b, ctx);

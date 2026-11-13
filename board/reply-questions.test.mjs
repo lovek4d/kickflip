@@ -11,8 +11,8 @@ const owned = () => read(site('orch', 'data', 'owner.json')).items;
 const file = (content) => { write(path.join(home, 'qs.json'), content); return path.join(home, 'qs.json'); };
 const ask = (id) => question(id, { topic: 'item:w/A1' });
 
-test('thread --questions posts the message, then its questions asked after it', () => {
-  const r = board('thread', 'w/A1', '--text', 'Two points.', '--questions', file([ask('q1'), ask('q2')]), '--site', 'orch');
+test('thread --questions posts the message, then its questions asked after it', async () => {
+  const r = await board('thread', 'w/A1', '--text', 'Two points.', '--questions', file([ask('q1'), ask('q2')]), '--site', 'orch');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.deepEqual(owned().map((q) => q.id), ['q1', 'q2']);
   const message = lines(threadFile()).find((l) => l.text === 'Two points.');
@@ -32,7 +32,7 @@ const auditAsk = (id) => question(id, { topic: 'item:audit/T-1' });
 
 test('reply --questions on a card answers it, then asks its questions after the reply', async () => {
   await askCard();
-  const r = board('reply', 'audit/T-1', '--text', 'One point.', '--questions', file(auditAsk('q1')), '--site', 'audit');
+  const r = await board('reply', 'audit/T-1', '--text', 'One point.', '--questions', file(auditAsk('q1')), '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   const message = lines(auditThread()).find((l) => l.text === 'One point.');
   assert.ok(auditOwned()[0].asked_at >= message.ts);
@@ -40,20 +40,20 @@ test('reply --questions on a card answers it, then asks its questions after the 
 
 test('a bad questions file is refused before the message posts', async () => {
   await askCard();
-  const r = board('reply', 'audit/T-1', '--text', 'Never posted.', '--questions', file([auditAsk('q1'), auditAsk('q1')]), '--site', 'audit');
+  const r = await board('reply', 'audit/T-1', '--text', 'Never posted.', '--questions', file([auditAsk('q1'), auditAsk('q1')]), '--site', 'audit');
   assert.equal(r.code, 1);
   assert.match(r.err, /already used/);
-  const t = board('thread', 'w/A1', '--text', 'Never posted.', '--questions', file([ask('q1'), ask('q1')]), '--site', 'orch');
+  const t = await board('thread', 'w/A1', '--text', 'Never posted.', '--questions', file([ask('q1'), ask('q1')]), '--site', 'orch');
   assert.equal(t.code, 1);
   assert.deepEqual(owned(), []);
   assert.equal(fs.existsSync(threadFile()), false);
   assert.equal(fs.existsSync(auditThread()) && lines(auditThread()).some((l) => l.text === 'Never posted.'), false);
 });
 
-test('--questions is refused beside --implement and --close, and posts nothing', () => {
+test('--questions is refused beside --implement and --close, and posts nothing', async () => {
   for (const cmd of ['thread', 'reply']) {
     for (const flag of ['--implement', '--close']) {
-      const r = board(cmd, 'w/A1', '--text', 'Never posted.', flag, '--questions', file(ask('q1')), '--site', 'orch');
+      const r = await board(cmd, 'w/A1', '--text', 'Never posted.', flag, '--questions', file(ask('q1')), '--site', 'orch');
       assert.equal(r.code, 1, `${cmd} ${flag}`);
       assert.match(r.err, /--questions/);
     }

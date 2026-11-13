@@ -27,18 +27,18 @@ import { prLinks, reviewLinks, topicItems } from '../board/review.mjs';
 import { cardPRs } from '../shared/card-prs.mjs';
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CLAUDE = path.join(os.homedir(), '.claude');
-const WEB = path.join(CLAUDE, 'kickflip');
-export const WAVES = path.join(CLAUDE, 'waves');
-const MANIFEST = path.join(WEB, 'manifest.json');
-export const GITHUB_STATE = path.join(WEB, 'github-state.json');
-export const WAKE_STATE = path.join(WEB, 'wake-state.json');
-export const INCOMING_FILES = path.join(WEB, 'incoming-files.json');
-const DEAF_STATE = path.join(WEB, 'deaf-state.json');
-export const RESUME_STATE = path.join(WEB, 'resume-state.json');
-const LINK_FAULTS = path.join(WEB, 'link-faults.json');
-export const REPO_FETCH = path.join(WEB, 'repo-fetch.json');
-export const HUB_CODE = path.join(WEB, 'hub-code.json');
+// Paths under $HOME are read on each call, so a process that changes HOME (the in-process CLI tests) sees its own.
+const webDir = () => path.join(os.homedir(), '.claude', 'kickflip');
+export const wavesDir = () => path.join(os.homedir(), '.claude', 'waves');
+const manifestFile = () => path.join(webDir(), 'manifest.json');
+export const githubStateFile = () => path.join(webDir(), 'github-state.json');
+export const wakeStateFile = () => path.join(webDir(), 'wake-state.json');
+export const incomingFilesFile = () => path.join(webDir(), 'incoming-files.json');
+const deafStateFile = () => path.join(webDir(), 'deaf-state.json');
+export const resumeStateFile = () => path.join(webDir(), 'resume-state.json');
+const linkFaultsFile = () => path.join(webDir(), 'link-faults.json');
+export const repoFetchFile = () => path.join(webDir(), 'repo-fetch.json');
+export const hubCodeFile = () => path.join(webDir(), 'hub-code.json');
 const NO_SINCE = '1970-01-01T00:00:00Z';
 // bin/wait-events.mjs exits on each event and the session relaunches it, so a recent exit still counts as running.
 const RELAUNCH_GRACE = 2 * 60_000;
@@ -52,11 +52,11 @@ export function saveJSON(file, value) {
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n');
   fs.renameSync(tmp, file);
 }
-export const readManifest = () => readJSON(MANIFEST, { sites: {} });
+export const readManifest = () => readJSON(manifestFile(), { sites: {} });
 
 // Runs fn while holding the manifest's lock, the directory manifest.json.lock that bin/kickflip.mjs takes too. A lock
 // older than 30 seconds is a dead holder's and is taken over. Throws with code 'ELOCKED' after 10 seconds.
-export const withManifestLock = (fn) => withFileLock(MANIFEST, fn);
+export const withManifestLock = (fn) => withFileLock(manifestFile(), fn);
 
 // Run by the hub as it starts, before any site does: stored commands naming a removed Homebrew Cellar node (site cmds,
 // the hub's login item file) name the Homebrew link, as nodeBin() does for new ones
@@ -113,7 +113,7 @@ export function writeManifest(m) {
       dropSessionPrompts(store, sessions);
       savePrompts(store);
     }
-    saveJSON(MANIFEST, m);
+    saveJSON(manifestFile(), m);
   });
 }
 export const prKey = (p) => `${p.repo}#${p.pr}`;
@@ -138,8 +138,8 @@ function filesOf(dir, cfg, kind) {
     return isItemFile(itemFile) ? [{ slug: cfg.slug || path.basename(cfg.items, '.json'), itemFile }] : [];
   }
   let slugs = [];
-  try { slugs = fs.readdirSync(WAVES, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort(); } catch {}
-  return slugs.map((slug) => ({ slug, itemFile: readJSON(path.join(WAVES, slug, 'wave.json'), null) })).filter((w) => isItemFile(w.itemFile));
+  try { slugs = fs.readdirSync(wavesDir(), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort(); } catch {}
+  return slugs.map((slug) => ({ slug, itemFile: readJSON(path.join(wavesDir(), slug, 'wave.json'), null) })).filter((w) => isItemFile(w.itemFile));
 }
 
 // [{slug, itemFile}] → every PR on each unfinished card, in the card's order: [{file, id, pr, repo, since}], since being the
@@ -272,7 +272,7 @@ export function isListening(board, { now = Date.now(), running = liveSessions() 
 // 'deaf', which nothing will wake. running is live.mjs liveSessions' Map and wakes resume-state.json, passed when
 // checking several boards. A null running, ps giving no answer, reads a board with no watcher as asleep, which pushes
 // nothing.
-export function listenState(board, { now = Date.now(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}) } = {}) {
+export function listenState(board, { now = Date.now(), running = liveSessions(), wakes = readJSON(resumeStateFile(), {}) } = {}) {
   if (isListening(board, { now, running })) return 'listening';
   const session = board.owner?.session;
   const wake = routeRecord(wakes, board.route);
@@ -336,10 +336,10 @@ export function oldestUnheard(board) {
 // One push per board per outage when an event has waited DEAF_AFTER while the board is deaf (listenState); an asleep or
 // waking board waits for the hub's wake, which pushes on its own when it fails. Its listening again ends the outage (~/.claude/kickflip/deaf-state.json {<route>: {at, since}}). The hub runs it after each
 // GitHub check. wakes is resume-state.json's records. → {pushed: [route], failed: [message]}
-export async function checkListening({ manifest, now = new Date(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}) } = {}) {
+export async function checkListening({ manifest, now = new Date(), running = liveSessions(), wakes = readJSON(resumeStateFile(), {}) } = {}) {
   // With ps giving no answer, no board's listen state is known, so the check waits for the next.
   if (!running) return { pushed: [], failed: [] };
-  const state = Object.assign(Object.create(null), readJSON(DEAF_STATE, {}));
+  const state = Object.assign(Object.create(null), readJSON(deafStateFile(), {}));
   const pushed = [];
   const failed = [];
   let dirty = false;
@@ -361,7 +361,7 @@ export async function checkListening({ manifest, now = new Date(), running = liv
       pushed.push(board.route);
     } catch (e) { failed.push(`${board.route}: could not push that it isn't listening (${e.message})`); }
   }
-  if (dirty) saveJSON(DEAF_STATE, state);
+  if (dirty) saveJSON(deafStateFile(), state);
   return { pushed, failed };
 }
 
@@ -401,7 +401,7 @@ function githubLink(board, state) {
   return { link: 'github', ok: true, detail: n ? `${plural(n, 'open PR')}, all in the last check.` : 'No open PRs; the last check reached this board.' };
 }
 
-// fetch is the board's REPO_FETCH record (try.mjs fetchTryBranches), absent for a board the hub doesn't fetch.
+// fetch is the board's repo-fetch.json record (try.mjs fetchTryBranches), absent for a board the hub doesn't fetch.
 function repoFetchLink(fetch) {
   if (!fetch) return null;
   if (fetch.ok) return { link: 'repo-fetch', ok: true, detail: "The hub's last git fetch of this board's repo worked." };
@@ -468,12 +468,12 @@ export const boardCode = (site) => hubCode(path.resolve(site.cwd || site.dir, si
 // Run by the hub as it starts, so the hub link can tell when its files changed under it. → {hash, files, pid, at}
 export function recordHubCode() {
   const code = { ...hubCode(), pid: process.pid, at: new Date().toISOString() };
-  saveJSON(HUB_CODE, code);
+  saveJSON(hubCodeFile(), code);
   return code;
 }
 
 const RESTART_HUB = hubService().restartCommand;
-export const runningHubCode = () => readJSON(HUB_CODE, null)?.hash ?? null;
+export const runningHubCode = () => readJSON(hubCodeFile(), null)?.hash ?? null;
 export const hubCodeState = () => ({ running: runningHubCode(), onDisk: hubCode().hash });
 // The hub's own link, so linksOf leaves it out (docs/adr/2026-10-30-1654-every-builder-works-in-a-worktree.md).
 // → {link: 'hub', ok, detail}
@@ -499,7 +499,7 @@ export const GRACE = {
 // which this then updates.
 function settle(route, links, { now, faults }) {
   const stored = faults === undefined;
-  const known = stored ? routeRecord(readJSON(LINK_FAULTS, {}), route) || {} : faults;
+  const known = stored ? routeRecord(readJSON(linkFaultsFile(), {}), route) || {} : faults;
   const open = {};
   const out = links.map((l) => {
     if (l.ok) return { ...l, state: 'ok' };
@@ -509,9 +509,9 @@ function settle(route, links, { now, faults }) {
     return { ...l, state: now - Date.parse(since) >= grace ? 'broken' : 'settling', since };
   });
   if (stored && JSON.stringify(open) !== JSON.stringify(known)) {
-    const all = Object.assign(Object.create(null), readJSON(LINK_FAULTS, {}));
+    const all = Object.assign(Object.create(null), readJSON(linkFaultsFile(), {}));
     if (Object.keys(open).length) all[route] = open; else delete all[route];
-    try { saveJSON(LINK_FAULTS, all); } catch {}
+    try { saveJSON(linkFaultsFile(), all); } catch {}
   }
   return out;
 }
@@ -528,13 +528,13 @@ function settle(route, links, { now, faults }) {
 // wakes (wake-state.json), listen (listenState), topics (slack-bridge topic items),
 // faults (as settle takes them; given, nothing is written) and now (ms).
 export function linksOf(board, ctx = {}) {
-  const state = ctx.github ?? readJSON(GITHUB_STATE, {});
+  const state = ctx.github ?? readJSON(githubStateFile(), {});
   const settings = ctx.settings ?? readSettings();
   const links = [
     githubLink(board, state),
-    repoFetchLink(routeRecord(ctx.fetches ?? readJSON(REPO_FETCH, {}), board.route)),
+    repoFetchLink(routeRecord(ctx.fetches ?? readJSON(repoFetchFile(), {}), board.route)),
     eventsLink(ctx.listen ?? listenState(board)),
-    wakesLink(board, settings, ctx.wakes ?? readJSON(WAKE_STATE, {})),
+    wakesLink(board, settings, ctx.wakes ?? readJSON(wakeStateFile(), {})),
     slackLink(board, state, ctx.topics ?? topicItems()),
   ].filter(Boolean);
   return settle(board.route, links, { now: ctx.now ?? Date.now(), faults: ctx.faults });
@@ -543,7 +543,7 @@ export function linksOf(board, ctx = {}) {
 // Brings link-faults.json up to date for every board, so a fault no page or watcher looked at still dates from the
 // poll that first saw it. The hub runs it after each poll.
 export function recordLinkFaults(manifest) {
-  const ctx = { running: liveSessions(), wakes: readJSON(RESUME_STATE, {}) };
+  const ctx = { running: liveSessions(), wakes: readJSON(resumeStateFile(), {}) };
   // With ps giving no answer, a fault would be dated from listen states that aren't known; the next poll records it.
   if (!ctx.running) return;
   for (const board of listBoards(manifest)) linksOf(board, { listen: listenState(board, ctx) });

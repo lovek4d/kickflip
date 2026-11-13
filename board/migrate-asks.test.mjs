@@ -64,7 +64,7 @@ test('fileAsks makes each ask with no card a T-<n> card in asked order: answered
   assert.equal(items().length, 6);
 });
 
-test('an ask with no card is listed as unfiled with no row of its own, and a moved or deleted ask is neither', () => {
+test('an ask with no card is listed as unfiled with no row of its own, and a moved or deleted ask is neither', async () => {
   const b = buildBoard({
     now: Date.parse('2026-11-09T12:00:00Z'), askLinks: {},
     threads: { 'ask:a2': [{ ts: '2026-11-01T15:05:00Z', who: 'claude', kind: 'hub', line: 'ask-moved', text: 'Moved to Other.' }] },
@@ -80,11 +80,11 @@ test('ask progress and ask done are gone, and a question on an ask goes on its c
   auditEvents(ask('a1', '2026-11-01T10:00:00Z', 'Hi'));
   const s = await store();
   await s.fileAsks(audit());
-  assert.notEqual(board('ask', 'done', 'a1', '--site', 'audit').code, 0);
-  assert.notEqual(board('ask', 'progress', 'a1', '--site', 'audit').code, 0);
+  assert.notEqual((await board('ask', 'done', 'a1', '--site', 'audit')).code, 0);
+  assert.notEqual((await board('ask', 'progress', 'a1', '--site', 'audit')).code, 0);
   const q = { id: 'q1', topic: 'item:ask:a1', question: 'Which?', options: [{ id: 'A', label: 'This', recommended: true }, { id: 'B', label: 'That' }] };
   write(at('q.json'), [q]);
-  const r = board('question', 'add', '--site', 'audit', '--file', at('q.json'));
+  const r = await board('question', 'add', '--site', 'audit', '--file', at('q.json'));
   assert.match(r.err, /item:audit\/T-1/);
 });
 

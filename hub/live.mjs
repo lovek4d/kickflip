@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 
-export const SESSIONS_DIR = path.join(os.homedir(), '.claude', 'sessions');
+export const sessionsDir = () => path.join(os.homedir(), '.claude', 'sessions');
 const START_SLACK = 2000;
 
 const utc = (lstart) => Date.parse(`${String(lstart).trim().replace(/\s+/g, ' ')} UTC`);
@@ -22,7 +22,7 @@ export function liveOf(records, starts) {
   });
 }
 
-export function sessionRecords(dir = SESSIONS_DIR) {
+export function sessionRecords(dir = sessionsDir()) {
   let files = [];
   try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch {}
   return files.flatMap((f) => {
@@ -72,7 +72,7 @@ export function verifiedProcess(record, starts = processStarts) {
 
 // → Map sessionId → its live record, or null when ps gave no answer and which sessions run is unknown. session limits
 // it to that session's records, so ps is asked about its pid alone.
-export function liveSessions({ dir = SESSIONS_DIR, starts = processStarts, session = null } = {}) {
+export function liveSessions({ dir = sessionsDir(), starts = processStarts, session = null } = {}) {
   const records = sessionRecords(dir).filter((r) => !session || r.sessionId === session);
   const found = starts([...new Set(records.map((r) => r.pid))]);
   return found && new Map(liveOf(records, found).map((r) => [r.sessionId, r]));

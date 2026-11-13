@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import { withFileLock } from './locks.mjs';
 import { routeRecord } from './routes.mjs';
 
-const PROMPTS = path.join(os.homedir(), '.claude', 'kickflip', 'prompts.json');
+const promptsFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'prompts.json');
 // How long the owner has to answer before the hook denies with a note. BG_SETTINGS's hook timeout must stay above it,
 // since Claude Code leaves a timed-out hook's session on a dialog nobody sees.
 export const WAIT_MS = 10 * 60_000;
@@ -214,20 +214,20 @@ export function expired(store, { now = Date.now(), aliveSince = 0 } = {}) {
 
 export function readPrompts() {
   try {
-    const s = JSON.parse(fs.readFileSync(PROMPTS, 'utf8'));
+    const s = JSON.parse(fs.readFileSync(promptsFile(), 'utf8'));
     return { prompts: s?.prompts && typeof s.prompts === 'object' ? s.prompts : {},
       remembered: s?.remembered && typeof s.remembered === 'object' ? s.remembered : {} };
   } catch { return { prompts: {}, remembered: {} }; }
 }
 
 export function savePrompts(store) {
-  const tmp = `${PROMPTS}.${process.pid}.tmp`;
-  fs.mkdirSync(path.dirname(PROMPTS), { recursive: true });
+  const tmp = `${promptsFile()}.${process.pid}.tmp`;
+  fs.mkdirSync(path.dirname(promptsFile()), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify(store, null, 2) + '\n');
-  fs.renameSync(tmp, PROMPTS);
+  fs.renameSync(tmp, promptsFile());
 }
 
-export const withPromptsLock = (fn) => withFileLock(PROMPTS, fn);
+export const withPromptsLock = (fn) => withFileLock(promptsFile(), fn);
 
 export function updatePrompts(fn) {
   return withPromptsLock(() => {

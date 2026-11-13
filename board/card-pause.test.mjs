@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { home, at, site, write, read, run, runAsync, itemOf, threadOf, record } from './board-fixture.mjs';
+import { boardWith, home, at, site, write, read, run, runAsync, itemOf, threadOf, record } from './board-fixture.mjs';
 import * as store from './store.mjs';
 import { bumpOut } from './stop.mjs';
 import { pullOf, pauseWork, confirmedDrops, PAUSE_HARD_STOP } from './domain.mjs';
@@ -14,7 +14,7 @@ const now = () => new Date().toISOString();
 const waveFile = () => at('waves', 'w', 'wave.json');
 const setA1 = (fields) => { const w = read(waveFile()); Object.assign(w.items.find((i) => i.id === 'A1'), fields); write(waveFile(), w); };
 const recordFile = () => at('waves', 'w', 'agents', 'A1.json');
-const onOrch = (...args) => run('board.mjs', ['--site', 'orch', ...args]);
+const onOrch = (...args) => boardWith(['--site', 'orch', ...args]);
 const texts = () => threadOf().filter((l) => l.kind !== 'status').map((l) => l.text);
 
 // A headless builder as the board launches one: a detached process leading its own group.
@@ -48,33 +48,33 @@ test("blocking a card In Progress asks its builder to pause: the card stays In P
   assert.deepEqual(texts(), ['Blocked by ENG-1: its builder pauses at its next stopping point and it stays In Progress.']);
 });
 
-test("a session's own builder is paused the same way, not refused", () => {
+test("a session's own builder is paused the same way, not refused", async () => {
   building();
-  const r = onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1');
+  const r = await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1');
   assert.equal(r.code, 0, r.err);
   assert.equal(record().pause.cause, 'blocked');
   assert.equal(itemOf().lane, 'progress');
 });
 
-test("the builder's next progress report is its stopping point: the reply tells it to commit and stop, and the card reads paused at its phase", () => {
+test("the builder's next progress report is its stopping point: the reply tells it to commit and stop, and the card reads paused at its phase", async () => {
   building();
-  assert.equal(onOrch('builder', 'progress', 'w/A1', '--phase', 'building', 'Writing the limiter test').code, 0);
-  assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
-  const r = onOrch('builder', 'progress', 'w/A1', '--phase', 'building', 'Writing the limiter code');
+  assert.equal((await onOrch('builder', 'progress', 'w/A1', '--phase', 'building', 'Writing the limiter test')).code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  const r = await onOrch('builder', 'progress', 'w/A1', '--phase', 'building', 'Writing the limiter code');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Paused: blocked by ENG-1\. Commit what you have now .*then stop: end your turn and run nothing else\. The board resumes this session, telling it so, once the pause clears\./);
   const { pause } = record();
   assert.deepEqual([pause.phase, typeof pause.paused], ['building', 'string']);
   assert.equal(texts().at(-1), 'Paused at building: blocked by ENG-1. It resumes once nothing blocks it.');
   // A second report from a builder that didn't stop says the same, with no second line.
-  assert.match(onOrch('builder', 'progress', 'w/A1', '--phase', 'building', 'Still going').out, /Paused: blocked by ENG-1/);
+  assert.match((await onOrch('builder', 'progress', 'w/A1', '--phase', 'building', 'Still going')).out, /Paused: blocked by ENG-1/);
   assert.equal(texts().filter((l) => l.startsWith('Paused')).length, 1);
 });
 
-test('a call or an ask is a stopping point too, and the call or ask is still recorded', () => {
+test('a call or an ask is a stopping point too, and the call or ask is still recorded', async () => {
   building();
-  assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
-  const call = onOrch('builder', 'call', 'w/A1', 'Kept the old name');
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  const call = await onOrch('builder', 'call', 'w/A1', 'Kept the old name');
   assert.equal(call.code, 0, call.err);
   assert.match(call.out, /judgment call recorded on A1\nPaused: blocked by ENG-1/);
   assert.deepEqual(record().calls.map((c) => c.text), ['Kept the old name']);
@@ -82,17 +82,17 @@ test('a call or an ask is a stopping point too, and the call or ask is still rec
   assert.equal(texts().at(-1), 'Paused: blocked by ENG-1. It resumes once nothing blocks it.', 'a build with no phase line yet pauses with no phase');
 
   write(recordFile(), { ...record(), pause: { cause: 'held', words: 'held', at: now() } });
-  const ask = onOrch('builder', 'ask', 'w/A1', 'Which name?');
+  const ask = await onOrch('builder', 'ask', 'w/A1', 'Which name?');
   assert.equal(ask.code, 0, ask.err);
   assert.match(ask.out, /Paused: held\. Commit/);
 });
 
 test("a builder waiting on its ask is already at a stopping point, so builder asks --wait returns the pause at once", async () => {
   building();
-  assert.equal(onOrch('builder', 'ask', 'w/A1', 'Which name?').code, 0);
+  assert.equal((await onOrch('builder', 'ask', 'w/A1', 'Which name?')).code, 0);
   const waiting = runAsync('board.mjs', ['--site', 'orch', 'builder', 'asks', 'w/A1', '--wait', '--timeout', '1']);
   await new Promise((r) => setTimeout(r, 800));
-  assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
   const r = await waiting;
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Paused: blocked by ENG-1/);
@@ -102,8 +102,8 @@ test("a builder waiting on its ask is already at a stopping point, so builder as
 test('a card whose pause cause clears resumes: the record drops its pause and the thread says so', async (t) => {
   onHome(t);
   building();
-  assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
-  assert.equal(onOrch('builder', 'progress', 'w/A1', '--phase', 'reading', 'Reading').code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
+  assert.equal((await onOrch('builder', 'progress', 'w/A1', '--phase', 'reading', 'Reading')).code, 0);
   await store.resumePaused(site('orch'), 'w/A1');
   assert.equal(record().pause, undefined);
   assert.equal(texts().at(-1), 'Resumed: nothing blocks it.');
@@ -113,7 +113,7 @@ test('a card whose pause cause clears resumes: the record drops its pause and th
 test('a pause whose cause clears before the builder stops is dropped with no line', async (t) => {
   onHome(t);
   building();
-  assert.equal(onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1').code, 0);
+  assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
   await store.dropPause(site('orch'), 'w/A1');
   assert.equal(record().pause, undefined);
   assert.equal(texts().filter((l) => /Paused|Resumed/.test(l)).length, 0);
@@ -134,7 +134,7 @@ test('a bump-out pauses the build In Progress, naming the bump, and its record s
 test('the hard stop after 15 minutes marks the build paused at its phase', async (t) => {
   onHome(t);
   building();
-  assert.equal(onOrch('builder', 'progress', 'w/A1', '--phase', 'testing', 'Suite').code, 0);
+  assert.equal((await onOrch('builder', 'progress', 'w/A1', '--phase', 'testing', 'Suite')).code, 0);
   write(recordFile(), { ...record(), pause: { cause: 'usage', words: 'usage limit', at: now() } });
   await store.markPaused(site('orch'), 'w/A1');
   assert.deepEqual([record().pause.phase, Boolean(record().pause.paused)], ['testing', true]);
@@ -146,7 +146,7 @@ test('the hard stop after 15 minutes marks the build paused at its phase', async
 const card = (key, fields = {}, agent = {}) => ({ key, lane: 'progress', kind: 'work', blocked: false, held: false, ...fields,
   agents: [{ name: 'main', kind: 'claude', label: 'Builder', started: '2026-11-09T10:00:00.000Z', done: null, pid: 1, ...agent }] });
 
-test('pauseWork asks every running build to pause while usage holds its kind, and a paused one resumes once its cause clears', () => {
+test('pauseWork asks every running build to pause while usage holds its kind, and a paused one resumes once its cause clears', async () => {
   const at = Date.parse('2026-11-09T12:00:00.000Z');
   const items = [
     card('w/A', {}),
@@ -166,7 +166,7 @@ test('pauseWork asks every running build to pause while usage holds its kind, an
 });
 
 // docs/adr/2026-11-10-1400-the-auto-pass-re-reads-a-pause-before-dropping-it.md
-test("a pause the auto pass would drop stands unless a fresh read drops it too: the Hold's two writes can straddle the snapshot", () => {
+test("a pause the auto pass would drop stands unless a fresh read drops it too: the Hold's two writes can straddle the snapshot", async () => {
   const usageHeld = () => false;
   const pause = { cause: 'held', at: '2026-11-09T11:50:00.000Z' };
   const stale = [card('w/A', {}, { pause }), card('w/B', {}, { pause })];
@@ -175,7 +175,7 @@ test("a pause the auto pass would drop stands unless a fresh read drops it too: 
   assert.deepEqual(confirmedDrops(pauseWork(stale, { usageHeld }).drop, fresh, { usageHeld }), ['w/B'], 'A is held on the fresh read, so its pause stays');
 });
 
-test('a paused build frees its implementer slot, and a build already pausing is never bumped out again', () => {
+test('a paused build frees its implementer slot, and a build already pausing is never bumped out again', async () => {
   const paused = card('w/A', {}, { pause: { cause: 'blocked', at: now(), paused: now() } });
   const pausing = card('w/B', {}, { pause: { cause: 'bumped', at: now() } });
   const running = card('w/C', {}, { started: '2026-11-09T09:00:00.000Z' });

@@ -17,7 +17,7 @@ function built({ item = {}, events = [], threads = {}, askLinks = {}, working = 
 }
 const card = (b, key = 'hub/T-1') => b.items.find((i) => i.key === key);
 
-test('a card an ask became reads New with its ask state until it is sorted, and the ask has no row of its own', () => {
+test('a card an ask became reads New with its ask state until it is sorted, and the ask has no row of its own', async () => {
   const b = built();
   const c = card(b);
   assert.deepEqual([c.lane, c.isNew, c.unsorted, c.ask.eventId, c.ask.state, c.ask.canEdit], ['todo', true, true, 'a1', 'waiting', true]);
@@ -33,7 +33,7 @@ test('a card an ask became reads New with its ask state until it is sorted, and 
   assert.deepEqual([Boolean(sorted.isNew), sorted.ask ?? null, sorted.unsorted], [false, null, false]);
 });
 
-test('an answered card waits in In Review for the owner\'s Done with no Action needed, a reply holds it on the orchestrator, and the answer shows in the banner', () => {
+test('an answered card waits in In Review for the owner\'s Done with no Action needed, a reply holds it on the orchestrator, and the answer shows in the banner', async () => {
   const threads = { 'hub/T-1': [{ ts: '2026-11-09T10:05:00Z', who: 'claude', text: 'It jumps because of the sticky bar.' }] };
   const answered = built({ item: { answered_at: '2026-11-09T10:05:00Z' }, threads });
   const c = card(answered);
@@ -50,7 +50,7 @@ test('an answered card waits in In Review for the owner\'s Done with no Action n
   assert.equal(card(built({ item: { answered_at: '2026-11-09T10:05:00Z', lane: 'review', lane_at: '2026-11-09T10:06:00Z' }, threads, events: [done] })).lane, 'done');
 });
 
-test('a card merged into another has no row, its ask opens the other card, and the merge feeds the New strip with the whole message until that card is read', () => {
+test('a card merged into another has no row, its ask opens the other card, and the merge feeds the New strip with the whole message until that card is read', async () => {
   const threads = { 'ask:a1': [{ ts: '2026-11-09T10:07:00Z', who: 'claude', kind: 'hub', line: 'card-merged', text: 'Merged into T-2.', into: 'hub/T-2' }] };
   const b = buildBoard({
     now: Date.parse('2026-11-09T12:00:00Z'), threads, askLinks: { a1: 'hub/T-2' },
@@ -63,7 +63,7 @@ test('a card merged into another has no row, its ask opens the other card, and t
 });
 
 // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md
-test('a card an ask became carries when it was ingested and the full message it came from; a New card and one sorted before the stamp carry none', () => {
+test('a card an ask became carries when it was ingested and the full message it came from; a New card and one sorted before the stamp carry none', async () => {
   const ingested = card(built({ item: { phase: 'discussing', sorted_at: '2026-11-09T10:04:00Z' } }));
   assert.deepEqual(ingested.ingested, { at: '2026-11-09T10:04:00Z', text: 'Fix the header\nIt jumps on scroll' });
   const edited = { id: 'x1', ts: '2026-11-09T10:02:00Z', kind: 'ask-edited', data: { id: 'a1', text: 'Fix the footer' } };
@@ -94,7 +94,7 @@ test('the board files a New ask as a T-<n> card once, titled by its first line w
   assert.equal(await s.fileAsk(audit(), 'a2'), 'audit/T-2');
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-2').title, 'shot.png');
   // A sorted card is not dropped by a withdrawal.
-  assert.equal(board('item', 'set', 'audit/T-2', '--phase', 'grilling', '--site', 'audit').code, 0);
+  assert.equal((await board('item', 'set', 'audit/T-2', '--phase', 'grilling', '--site', 'audit')).code, 0);
   assert.equal(await s.dropAskCard(audit(), 'a2'), null);
 });
 
@@ -106,12 +106,12 @@ test('the first phase a New card gets stamps when it was ingested, by item set o
   await s.fileAsk(audit(), 'a2');
   const item = (id) => read(audit('data', 'items.json')).items.find((i) => i.id === id);
   assert.equal(item('T-1').sorted_at, undefined);
-  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit').code, 0);
+  assert.equal((await board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit')).code, 0);
   const first = item('T-1').sorted_at;
   assert.ok(Date.parse(first) > Date.parse('2026-11-09T10:00:00Z'));
-  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit').code, 0);
+  assert.equal((await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit')).code, 0);
   assert.equal(item('T-1').sorted_at, first);
-  assert.equal(board('reply', 'audit/T-2', '--text', 'Yes.', '--site', 'audit').code, 0);
+  assert.equal((await board('reply', 'audit/T-2', '--text', 'Yes.', '--site', 'audit')).code, 0);
   assert.ok(item('T-2').sorted_at);
 });
 
@@ -120,19 +120,19 @@ test('reply on a New card starts its discussion: a message in its thread, the ca
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const r = board('reply', 'audit/T-1', '--text', 'It jumps because of the sticky bar.', '--title', 'fix: header jumps on scroll', '--site', 'audit');
+  const r = await board('reply', 'audit/T-1', '--text', 'It jumps because of the sticky bar.', '--title', 'fix: header jumps on scroll', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   const t1 = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
   assert.deepEqual([t1.answered_at, t1.phase, t1.title], [undefined, 'discussing', 'fix: header jumps on scroll']);
   assert.deepEqual(lines(audit('data', 'threads', 'audit__T-1.jsonl')).map((m) => m.text), ['It jumps because of the sticky bar.']);
-  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit').code, 0);
-  assert.match(board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit').err, /sorted/);
-  assert.match(board('reply', 'audit/A1', '--text', 'x', '--site', 'audit').err, /not a card an ask became/);
+  assert.equal((await board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit')).code, 0);
+  assert.match((await board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit')).err, /sorted/);
+  assert.match((await board('reply', 'audit/A1', '--text', 'x', '--site', 'audit')).err, /not a card an ask became/);
   // A card answered before discussing existed waits In Review; a phase takes it back to Todo.
   const items = read(audit('data', 'items.json'));
   Object.assign(items.items.find((i) => i.id === 'T-1'), { phase: undefined, answered_at: '2026-11-09T10:05:00Z', lane: 'review' });
   write(audit('data', 'items.json'), items);
-  assert.equal(board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit').code, 0);
+  assert.equal((await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit')).code, 0);
   const back = read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1');
   assert.deepEqual([back.answered_at, back.phase, back.lane], [undefined, 'discussing', 'todo']);
 });
@@ -141,7 +141,7 @@ test('reply to an ask whose card is New writes the reply and starts its discussi
   auditEvents(ask);
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  assert.equal(board('reply', 'a1', '--text', 'Yes.', '--site', 'audit').code, 0);
+  assert.equal((await board('reply', 'a1', '--text', 'Yes.', '--site', 'audit')).code, 0);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'discussing');
 });
 
@@ -150,7 +150,7 @@ test('item relate-ask on an ask whose card is New merges it: the card goes, its 
   const s = await store();
   await s.fileAsk(audit(), 'a1');
   write(audit('data', 'threads', 'audit__T-1.jsonl'), JSON.stringify({ ts: '2026-11-09T10:02:00Z', who: 'love', text: 'Also the footer' }) + '\n');
-  const r = board('item', 'relate-ask', 'a1', 'audit/A1', '--summary', 'Same as the header work', '--site', 'audit');
+  const r = await board('item', 'relate-ask', 'a1', 'audit/A1', '--summary', 'Same as the header work', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(read(audit('data', 'items.json')).items.some((i) => i.id === 'T-1'), false);
   assert.equal(fs.existsSync(audit('data', 'threads', 'audit__T-1.jsonl')), false);
@@ -161,8 +161,8 @@ test('item relate-ask on an ask whose card is New merges it: the card goes, its 
   // A sorted card is filed work: relate-ask refuses rather than dropping it.
   auditEvents({ ...ask, id: 'a3' });
   await s.fileAsk(audit(), 'a3');
-  board('item', 'set', 'audit/T-2', '--phase', 'grilling', '--site', 'audit');
-  assert.match(board('item', 'relate-ask', 'a3', 'audit/A1', '--summary', 'x', '--site', 'audit').err, /became audit\/T-2/);
+  await board('item', 'set', 'audit/T-2', '--phase', 'grilling', '--site', 'audit');
+  assert.match((await board('item', 'relate-ask', 'a3', 'audit/A1', '--summary', 'x', '--site', 'audit')).err, /became audit\/T-2/);
 });
 
 test('a Quick build ask\'s New card goes ready from new on item set --phase ready with its size and notes', async () => {
@@ -171,12 +171,12 @@ test('a Quick build ask\'s New card goes ready from new on item set --phase read
   await s.fileAsk(audit(), 'a1');
   const notes = path.join(home, 'n.md');
   fs.writeFileSync(notes, 'Pin the header.');
-  assert.equal(board('item', 'notes', 'audit/T-1', '--heading', 'Scope', '--file', notes, '--site', 'audit').code, 0);
-  const r = board('item', 'set', 'audit/T-1', '--phase', 'ready', '--size', 'small', '--title', 'fix(board): pin the header', '--site', 'audit');
+  assert.equal((await board('item', 'notes', 'audit/T-1', '--heading', 'Scope', '--file', notes, '--site', 'audit')).code, 0);
+  const r = await board('item', 'set', 'audit/T-1', '--phase', 'ready', '--size', 'small', '--title', 'fix(board): pin the header', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'ready');
   // item add --from-ask on an ask that already has its card points at the card.
-  assert.match(board('item', 'add', 'audit', '--from-ask', 'a1', '--text', 'x', '--title', 'X', '--phase', 'grilling', '--site', 'audit').err, /already card audit\/T-1/);
+  assert.match((await board('item', 'add', 'audit', '--from-ask', 'a1', '--text', 'x', '--title', 'X', '--phase', 'grilling', '--site', 'audit')).err, /already card audit\/T-1/);
 });
 
 // docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md
@@ -197,17 +197,17 @@ test('every sorting command refuses an ask edited after its working mark, printi
     const id = `r${n}`;
     auditEvents({ id, ts: '2026-11-12T09:38:00.000Z', kind: 'ask', data: { text: 'Completed asks go straight to Done', quick: true } });
     const key = await s.fileAsk(audit(), id);
-    board('item', 'notes', key, '--heading', 'Scope', '--file', notes, '--site', 'audit');
+    await board('item', 'notes', key, '--heading', 'Scope', '--file', notes, '--site', 'audit');
     write(audit('data', 'working.json'), { events: { ...(fs.existsSync(audit('data', 'working.json')) ? read(audit('data', 'working.json')).events : {}), [id]: '2026-11-12T09:38:03.000Z' } });
     auditEvents({ id: `x${n}`, ts: '2026-11-12T09:38:14.000Z', kind: 'ask-edited', data: { id, key, text: 'Completed asks wait in In Review for my Done' } });
     const item = () => read(audit('data', 'items.json')).items.find((i) => i.from_ask === id);
-    const refused = board(...args(key, id), '--site', 'audit');
+    const refused = await board(...args(key, id), '--site', 'audit');
     assert.equal(refused.code, 1, name);
     assert.match(refused.err, new RegExp(`task ${id} was edited at 2026-11-12T09:38:14.000Z, after you read it\\. Its text now:\\nCompleted asks wait in In Review for my Done\\nRead it, then run this again, or change the command if the edit changes the plan\\.`), name);
     assert.deepEqual([item().phase, item().title], [undefined, 'Completed asks go straight to Done'], name);
     // The refusal printed the new text, so the ask's mark moves to now and the rerun goes through.
     assert.ok(Date.parse(read(audit('data', 'working.json')).events[id]) > Date.parse('2026-11-12T09:38:14.000Z'), name);
-    const rerun = board(...args(key, id), '--site', 'audit');
+    const rerun = await board(...args(key, id), '--site', 'audit');
     assert.deepEqual([rerun.code, rerun.err], [0, ''], name);
     assert.ok(sorted(item()), name);
   }
@@ -219,18 +219,18 @@ test('an ask edited before its hand-over sorts at once; an edited ask never hand
   await s.fileAsk(audit(), 'a1');
   write(audit('data', 'working.json'), { events: { a1: '2026-11-09T10:01:00Z' } });
   auditEvents({ id: 'm1', ts: '2026-11-09T10:02:00Z', kind: 'item-message', data: { key: 'audit/T-1', text: 'Also the footer' } });
-  assert.deepEqual(board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit').code, 0);
+  assert.deepEqual((await board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit')).code, 0);
 
   auditEvents({ ...ask, id: 'a2' }, { id: 'x2', ts: '2026-11-09T10:00:30Z', kind: 'ask-edited', data: { id: 'a2', text: 'Fix the footer' } });
   await s.fileAsk(audit(), 'a2');
   for (const flags of [['--ticket', '41'], ['--new-ticket'], ['--phase', 'discussing']]) {
     write(audit('data', 'working.json'), { events: { a1: '2026-11-09T10:01:00Z' } });
-    assert.match(board('item', 'set', 'audit/T-2', ...flags, '--site', 'audit').err, /task a2 was edited at 2026-11-09T10:00:30Z, after you read it\. Its text now:\nFix the footer\n/, flags[0]);
+    assert.match((await board('item', 'set', 'audit/T-2', ...flags, '--site', 'audit')).err, /task a2 was edited at 2026-11-09T10:00:30Z, after you read it\. Its text now:\nFix the footer\n/, flags[0]);
   }
   // Commands that don't sort it, and asks with no edit, are untouched.
   write(audit('data', 'working.json'), { events: {} });
-  assert.equal(board('item', 'set', 'audit/T-2', '--next', 'Then this', '--site', 'audit').code, 0);
+  assert.equal((await board('item', 'set', 'audit/T-2', '--next', 'Then this', '--site', 'audit')).code, 0);
   auditEvents({ ...ask, id: 'a3' });
   await s.fileAsk(audit(), 'a3');
-  assert.equal(board('item', 'set', 'audit/T-3', '--phase', 'grilling', '--site', 'audit').code, 0);
+  assert.equal((await board('item', 'set', 'audit/T-3', '--phase', 'grilling', '--site', 'audit')).code, 0);
 });

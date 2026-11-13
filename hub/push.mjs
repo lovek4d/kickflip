@@ -17,27 +17,27 @@ import { validate, quietOf, flushAt, hold, notifications, snoozeEnd } from './sc
 import { storedEnd } from './duration.mjs';
 import { CODEX_SHARE_VALUES, codexStatus, effectiveCodexShare } from '../shared/codex.mjs';
 
-const DIR = path.join(os.homedir(), '.claude', 'kickflip', 'push');
-const VAPID = path.join(DIR, 'vapid.json');
-const SUBS = path.join(DIR, 'subs.json');
-const QUEUE = path.join(DIR, 'queue.json');
-const QUEUE_LOCK = QUEUE + '.lock';
+const pushDir = () => path.join(os.homedir(), '.claude', 'kickflip', 'push');
+const vapidFile = () => path.join(pushDir(), 'vapid.json');
+const subsFile = () => path.join(pushDir(), 'subs.json');
+const queueFile = () => path.join(pushDir(), 'queue.json');
+const queueLock = () => queueFile() + '.lock';
 const settingsFile = (home) => path.join(home, '.claude', 'kickflip', 'settings.json');
 
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 const unb64u = (s) => Buffer.from(s, 'base64url');
 const hmac = (key, input) => crypto.createHmac('sha256', key).update(input).digest();
 const writePrivate = (file, value) => {
-  fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(pushDir(), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, file);
 };
 
 function vapidKey() {
-  try { return JSON.parse(fs.readFileSync(VAPID, 'utf8')); } catch {}
+  try { return JSON.parse(fs.readFileSync(vapidFile(), 'utf8')); } catch {}
   const jwk = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ format: 'jwk' });
-  writePrivate(VAPID, jwk);
+  writePrivate(vapidFile(), jwk);
   return jwk;
 }
 
@@ -46,7 +46,7 @@ export function publicKey() {
   return b64u(Buffer.concat([Buffer.from([4]), unb64u(jwk.x), unb64u(jwk.y)]));
 }
 
-function readSubs(file = SUBS) {
+function readSubs(file = subsFile()) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
 }
 
@@ -56,7 +56,7 @@ export function addSubscription(sub, origin, agent = '') {
   if (!/^https:\/\//.test(sub?.endpoint || '') || !sub.keys?.p256dh || !sub.keys?.auth) throw Object.assign(new Error('bad subscription'), { status: 400 });
   const subs = readSubs().filter((s) => s.endpoint !== sub.endpoint);
   subs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, origin, agent: String(agent).slice(0, 200), added: new Date().toISOString() });
-  writePrivate(SUBS, subs);
+  writePrivate(subsFile(), subs);
   return { count: subs.length, id: deviceId(sub.endpoint) };
 }
 
@@ -66,7 +66,7 @@ const deviceId = (endpoint) => crypto.createHash('sha256').update(endpoint).dige
 export function removeSubscriptionById(id) {
   const subs = readSubs();
   const left = subs.filter((s) => deviceId(s.endpoint) !== id);
-  if (left.length !== subs.length) writePrivate(SUBS, left);
+  if (left.length !== subs.length) writePrivate(subsFile(), left);
   return left.length;
 }
 
@@ -75,7 +75,7 @@ export function removeSubscriptionById(id) {
 export function removeSubscription(endpoint) {
   const subs = readSubs();
   const left = subs.filter((s) => s.endpoint !== endpoint);
-  if (left.length !== subs.length) writePrivate(SUBS, left);
+  if (left.length !== subs.length) writePrivate(subsFile(), left);
   return left.length;
 }
 
@@ -88,7 +88,7 @@ export function deviceNames(agent = '') {
 
 // added is the last time the device's page re-posted its subscription (hub-kit.js device), so it reads as last seen.
 export function subscriptions(home) {
-  return readSubs(home ? path.join(home, '.claude', 'kickflip', 'push', 'subs.json') : SUBS)
+  return readSubs(home ? path.join(home, '.claude', 'kickflip', 'push', 'subs.json') : subsFile())
     .map((s) => ({ id: deviceId(s.endpoint), host: new URL(s.endpoint).host, agent: s.agent, added: s.added, ...deviceNames(s.agent) }));
 }
 
@@ -148,7 +148,7 @@ async function sendTo(subs, message, needs) {
     } catch (e) { return { sub, status: 0, error: String(e.message || e) }; }
   }));
   const gone = new Set(results.filter((r) => r.status === 404 || r.status === 410).map((r) => r.sub.endpoint));
-  if (gone.size) writePrivate(SUBS, readSubs().filter((s) => !gone.has(s.endpoint)));
+  if (gone.size) writePrivate(subsFile(), readSubs().filter((s) => !gone.has(s.endpoint)));
   return results.map((r) => ({ host: new URL(r.sub.endpoint).host, agent: r.sub.agent, status: r.status, error: r.error, dropped: gone.has(r.sub.endpoint) || undefined }));
 }
 
@@ -239,7 +239,7 @@ export async function setNotifications(change, now = new Date()) {
   const { notifications: saved } = saveSettings({ ...s, notifications: next });
   const dropped = saved.on ? 0 : await withQueueLock(() => {
     const { items } = readQueue();
-    if (items.length) writePrivate(QUEUE, { items: [] });
+    if (items.length) writePrivate(queueFile(), { items: [] });
     return items.length;
   });
   return { notifications: saved, dropped };
@@ -247,24 +247,24 @@ export async function setNotifications(change, now = new Date()) {
 
 function readQueue() {
   try {
-    const q = JSON.parse(fs.readFileSync(QUEUE, 'utf8'));
+    const q = JSON.parse(fs.readFileSync(queueFile(), 'utf8'));
     return { items: Array.isArray(q.items) ? q.items : [] };
   } catch { return { items: [] }; }
 }
 
 // The CLI and the hub both write queue.json.
 async function withQueueLock(fn) {
-  fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(pushDir(), { recursive: true, mode: 0o700 });
   const deadline = Date.now() + 10_000;
   for (;;) {
-    try { fs.mkdirSync(QUEUE_LOCK); break; } catch (e) {
+    try { fs.mkdirSync(queueLock()); break; } catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      try { if (Date.now() - fs.statSync(QUEUE_LOCK).mtimeMs > 30_000) { fs.rmdirSync(QUEUE_LOCK); continue; } } catch {}
+      try { if (Date.now() - fs.statSync(queueLock()).mtimeMs > 30_000) { fs.rmdirSync(queueLock()); continue; } } catch {}
       if (Date.now() > deadline) throw new Error('push queue is locked; try again');
       await new Promise((r) => setTimeout(r, 50));
     }
   }
-  try { return fn(); } finally { try { fs.rmdirSync(QUEUE_LOCK); } catch {} }
+  try { return fn(); } finally { try { fs.rmdirSync(queueLock()); } catch {} }
 }
 
 // { settings, held, hold, count, nextFlushAt } for the settings page and the CLI.
@@ -303,7 +303,7 @@ export async function deliver(message, { kind, urgent = false, immediate = false
   if (urgent || (immediate && !held)) {
     const results = await sendTo(readSubs(), msg);
     if (delivered(results)) {
-      if (msg.tag) await withQueueLock(() => writePrivate(QUEUE, { items: readQueue().items.filter((i) => i.tag !== msg.tag) }));
+      if (msg.tag) await withQueueLock(() => writePrivate(queueFile(), { items: readQueue().items.filter((i) => i.tag !== msg.tag) }));
       return { sent: results };
     }
     if (urgent) return { sent: results };
@@ -315,7 +315,7 @@ export async function deliver(message, { kind, urgent = false, immediate = false
     const kept = item.tag ? q.items.filter((i) => i.tag !== item.tag) : q.items;
     const replaced = kept.length < q.items.length;
     q.items = [...kept, item];
-    writePrivate(QUEUE, q);
+    writePrivate(queueFile(), q);
     return { replaced };
   });
   const status = queueStatus(at);
@@ -332,7 +332,7 @@ export async function reviseQueued(tag, revise, url) {
     if (!item) return null;
     item.body = revise(item.body || '');
     if (url) item.url = url;
-    writePrivate(QUEUE, q);
+    writePrivate(queueFile(), q);
     return item.body;
   });
 }
@@ -346,7 +346,7 @@ export async function dropQueued(tags, route) {
     const { items } = readQueue();
     const kept = items.filter((item) => !matches(item));
     const dropped = items.length - kept.length;
-    if (dropped) writePrivate(QUEUE, { items: kept });
+    if (dropped) writePrivate(queueFile(), { items: kept });
     return dropped;
   });
 }
@@ -359,7 +359,7 @@ export function flushQueue() {
   flushing ||= (async () => {
     const items = await withQueueLock(() => {
       const q = readQueue();
-      if (q.items.length) writePrivate(QUEUE, { items: [] });
+      if (q.items.length) writePrivate(queueFile(), { items: [] });
       return q.items;
     });
     if (!items.length) return null;
@@ -376,7 +376,7 @@ export function flushQueue() {
       const q = readQueue();
       const newer = new Set(q.items.map((i) => i.tag).filter(Boolean));
       const back = items.filter((i) => failed.some((f) => f.members.includes(i.id)) && !(i.tag && newer.has(i.tag)));
-      writePrivate(QUEUE, { items: [...back, ...q.items] });
+      writePrivate(queueFile(), { items: [...back, ...q.items] });
     });
     return { count: items.length, sent: sent.length, ok: !failed.length, results };
   })().finally(() => { flushing = null; });

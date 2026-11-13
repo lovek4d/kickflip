@@ -1,13 +1,15 @@
 // The setup and helpers the board-*.test.mjs files share, split from one file by command: a scratch HOME per test
 // with the orch and audit boards, and helpers that run board.mjs and its sibling scripts there. home is a live
 // binding, reassigned before each test.
-import { beforeEach, afterEach } from 'node:test';
+import { after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import util from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { main } from './bin/board.mjs';
 import { startFakeDevice } from '../hub/fake-device.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 
@@ -20,13 +22,37 @@ export const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 export const lines = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 
 export const pushStub = () => path.join(home, 'push-stub.mjs');
-export function run(script, args, input, env = {}) {
+const cliEnv = (env) => {
   write(pushStub(), "import fs from 'node:fs'; fs.appendFileSync(process.env.STUB_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n'); console.log(process.env.STUB_SAY || 'sent'); process.exit(Number(process.env.STUB_EXIT || 0));");
   const pushEnv = { KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, pushStub(), 'push']), STUB_CALLS: path.join(home, 'push-calls.jsonl') };
-  const r = spawnSync(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1', KICKFLIP_RENDER_CHECK: 'off', ...pushEnv, ...env }, input, encoding: 'utf8' });
+  return { HOME: home, KICKFLIP_HUB_PORT: '1', KICKFLIP_RENDER_CHECK: 'off', ...pushEnv, ...env };
+};
+// Runs a script in its own node process. The board's own commands go through boardWith, in-process; this is for a command
+// that reads stdin, the CLI's exit codes and usage, and the board's sibling scripts.
+export function run(script, args, input, env = {}) {
+  const r = spawnSync(process.execPath, [bin(script), ...args], { env: { ...process.env, ...cliEnv(env) }, input, encoding: 'utf8' });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
-export const board = (...args) => run('board.mjs', args);
+// Runs board.mjs's main in this process with the test's HOME and env, and returns what a node process of it would:
+// its exit code and what it printed. A thrown error exits 1 with its stack, as node does.
+export async function boardWith(args, env = {}) {
+  const set = cliEnv(env);
+  const saved = Object.fromEntries(Object.keys(set).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, set);
+  const out = [], err = [];
+  const { log, error } = console;
+  console.log = (...a) => out.push(util.format(...a) + '\n');
+  console.error = (...a) => err.push(util.format(...a) + '\n');
+  try {
+    let code;
+    try { code = await main(args); } catch (e) { err.push(util.inspect(e) + '\n'); code = 1; }
+    return { code, out: out.join(''), err: err.join('') };
+  } finally {
+    Object.assign(console, { log, error });
+    for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+}
+export const board = (...args) => boardWith(args);
 export function runAsync(script, args, env = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [bin(script), ...args], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1', ...env } });
@@ -61,7 +87,6 @@ afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 export async function ticketCli(t) {
   const { saveBoardSettings } = await import('./store.mjs');
-  const { main } = await import('./bin/board.mjs');
   const oldHome = process.env.HOME;
   process.env.HOME = home;
   t.after(() => { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; });
@@ -88,8 +113,8 @@ export async function ticketCli(t) {
 }
 
 export const takePath = (topic, key) => site('orch', 'public', 'prototypes', topic, `${key}.js`);
-export function recordPrototype(topic = 'site', takes = ['A:Keep', 'B:Drop'], files = true) {
-  const r = board('prototype', 'add', topic, '--site', 'orch', '--title', 'Site', ...takes.flatMap((t) => ['--take', t]));
+export async function recordPrototype(topic = 'site', takes = ['A:Keep', 'B:Drop'], files = true) {
+  const r = await board('prototype', 'add', topic, '--site', 'orch', '--title', 'Site', ...takes.flatMap((t) => ['--take', t]));
   assert.equal(r.code, 0, r.err);
   if (files) for (const t of takes) write(takePath(topic, t[0]), 'export function render(stage) {}');
 }
@@ -116,9 +141,12 @@ export const git = (cwd, ...args) => {
   return r.stdout.trim();
 };
 export const commit = (dir, file, text, subject = `change ${file}`) => { write(path.join(dir, file), text); git(dir, 'add', '-A'); git(dir, 'commit', '--quiet', '-m', subject); };
-export function scratchRepo() {
-  const repo = path.join(home, 'repo');
-  fs.mkdirSync(repo, { recursive: true });
+// The scratch repo's one base commit, made once per test file and copied into each test that asks for it.
+let baseRepo;
+after(() => { if (baseRepo) fs.rmSync(path.dirname(baseRepo), { recursive: true, force: true }); });
+function makeBaseRepo() {
+  const repo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'board-repo-')), 'repo');
+  fs.mkdirSync(repo);
   git(repo, 'init', '--quiet', '-b', 'main');
   git(repo, 'config', 'user.name', 'Test');
   git(repo, 'config', 'user.email', 'test@example.com');
@@ -129,6 +157,12 @@ export function scratchRepo() {
   write(path.join(repo, 'ok.test.mjs'), "import test from 'node:test';\ntest('ok', () => {});\n");
   git(repo, 'add', '-A');
   git(repo, 'commit', '--quiet', '-m', 'base');
+  return repo;
+}
+export function scratchRepo() {
+  const repo = path.join(home, 'repo');
+  baseRepo ??= makeBaseRepo();
+  fs.cpSync(baseRepo, repo, { recursive: true });
   write(at('kickflip', 'manifest.json'), { sites: {
     orch: { dir: site('orch'), port: 1, cmd: ['node', '/x/board/server.mjs'] },
     audit: { dir: site('audit'), port: 2, cmd: ['node', '/x/board/server.mjs'] },
@@ -141,14 +175,14 @@ export function scratchRepo() {
 export const heldBoard = () => write(site('orch', 'board.json'), { ...read(site('orch', 'board.json')), auto_merge: false });
 export const worktree = () => at('kickflip', 'worktrees', 'A1');
 export const restarts = () => (fs.existsSync(path.join(home, 'restarts')) ? fs.readFileSync(path.join(home, 'restarts'), 'utf8').trim().split('\n') : []);
-export const land = () => run('board.mjs', ['land', 'w/A1'], undefined, {
+export const land = () => boardWith(['land', 'w/A1'], {
   KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', "require('fs').appendFileSync(process.argv[1], process.argv.slice(2).join(' ') + '\\n')", path.join(home, 'restarts')]),
 });
 export const branches = (repo) => git(repo, 'branch', '--format=%(refname:short)').split('\n');
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md
 export const finishEnv = { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) };
-export const onOrch = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, finishEnv);
+export const onOrch = (...args) => boardWith(['--site', 'orch', ...args], finishEnv);
 export const record = (id = 'A1') => read(at('waves', 'w', 'agents', `${id}.json`));
 export const itemOf = (id = 'A1') => read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === id);
 export const threadOf = (id = 'A1') => lines(site('orch', 'data', 'threads', `w__${id}.jsonl`));

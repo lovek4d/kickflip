@@ -22,7 +22,7 @@ process.env.HOME = home;
 const START = 'Thu Nov  5 00:00:00 2026';
 const ps = stallingPs(home, { lstart: START, ppid: process.pid });
 process.env.PATH = `${ps.bin}:${process.env.PATH}`;
-const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, HUB_CODE, listenState, checkListening, withManifestLock, saveJSON } = await import('./boards.mjs');
+const { listBoards, linksOf, hubLink, oldestUnheard, hubCode, boardCode, hubCodeFile, listenState, checkListening, withManifestLock, saveJSON } = await import('./boards.mjs');
 
 const claude = (...p) => path.join(home, '.claude', ...p);
 const site = (route, ...p) => claude('kickflip', 'sites', route, ...p);
@@ -509,12 +509,12 @@ test("sidebar and Hub page serve usage, the shell keeps it inside Hub, and Codex
 });
 
 test('while the hub runs older code than its files, the Hub row and Health card say so once and no board shows it', async () => {
-  const running = read(HUB_CODE);
+  const running = read(hubCodeFile());
   assert.equal(running.hash, hubCode().hash);
   const sidebar = async () => (await fetch(`${base}/_hub/sidebar.json`)).json();
   const page = async () => (await fetch(`${base}/_hub/api/hub`)).json();
   assert.doesNotMatch((await sidebar()).hub.detail, /older code/);
-  write(HUB_CODE, { ...running, hash: 'older' });
+  write(hubCodeFile(), { ...running, hash: 'older' });
   try {
     for (const route of ['orch', 'shop']) {
       assert.equal((await api(route)).links.some((l) => l.link === 'hub'), false);
@@ -527,7 +527,7 @@ test('while the hub runs older code than its files, the Hub row and Health card 
     const hub = await page();
     assert.equal(hub.hub.detail, side.hub.detail);
     assert.ok(hub.groups.flatMap((g) => g.sites).every((x) => x.lines.every((l) => l.link !== 'hub')));
-  } finally { write(HUB_CODE, running); }
+  } finally { write(hubCodeFile(), running); }
   assert.match((await page()).hub.detail, /runs the code in its files/);
 });
 

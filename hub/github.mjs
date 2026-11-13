@@ -19,7 +19,7 @@ import os from 'node:os';
 import { savedClient } from './linear.mjs';
 import { checksPassed, fetchPRs, markReady, reportOf } from './pr-report.mjs';
 import { wakesDue, localDay } from './schedule.mjs';
-import { GITHUB_STATE as STATE, WAKE_STATE, WAVES, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
+import { githubStateFile, wakeStateFile, wavesDir, listBoards, appendEvent, prKey, readJSON, saveJSON, reviewerLogins } from './boards.mjs';
 import { appendMessage, appendStatus, setItem, mergeCard } from '../board/store.mjs';
 import { allLanded, cardPRs, leastReady, prNames } from '../shared/card-prs.mjs';
 
@@ -95,7 +95,7 @@ function writeChecked(dir, every) {
 // boards.mjs linksOf.
 export async function checkGitHub({ every, manifest }) {
   const at = new Date().toISOString();
-  const state = readJSON(STATE, { prs: {} });
+  const state = readJSON(githubStateFile(), { prs: {} });
   state.prs ||= {};
   state.acknowledged ||= {};
   state.threaded ||= {};
@@ -208,7 +208,7 @@ export async function checkGitHub({ every, manifest }) {
   for (const key of Object.keys(state.threaded)) if (!prs.has(key)) delete state.threaded[key];
   await runOwnerChecks(boards, state, failed);
   state.lastCheck = { at, watched: prs.size, failed: failed.length, changed: changes.length, boards: checked };
-  saveJSON(STATE, state);
+  saveJSON(githubStateFile(), state);
   const linear = { moved: [], failed: [] };
   // docs/adr/2026-11-02-0023-the-hubs-poll-moves-the-owners-linear-tickets.md
   try { await advanceLinear(boards, fetched, fetchKey, linear); }
@@ -275,7 +275,7 @@ async function recordOnCard(board, { p, key, recipient }, report, siblings, { st
   const states = siblings.map((c) => c.next);
   if (!PR_ENDED.includes(report.state) || !states.every((s) => PR_ENDED.includes(s?.state))) return false;
   const landed = allLanded(states);
-  const file = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, p.file, p.id]);
+  const file = JSON.stringify([board.kind === 'waves' ? wavesDir() : board.dir, p.file, p.id]);
   if (!merged.has(file)) {
     const repo = board.github || board.files.find((w) => w.slug === p.file)?.itemFile.repo;
     const prs = siblings.filter((c) => c.next.state === 'MERGED').map((c) => ({ repo: c.p.repo, number: c.p.pr }));
@@ -330,7 +330,7 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
   const tickets = new Map();
   for (const board of boards) {
     const prs = Map.groupBy(board.prs, (p) => JSON.stringify([p.file, p.id]));
-    const source = board.kind === 'waves' ? WAVES : board.dir;
+    const source = board.kind === 'waves' ? wavesDir() : board.dir;
     for (const { slug, itemFile } of board.files) {
       for (const item of itemFile.items) {
         const ids = new Set(item.linear || []);
@@ -384,7 +384,7 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
 // routes, failed} for boards.mjs linksOf. A wake no board took stays due. settings: push.mjs readSettings.
 // → {due: [hhmm], events: [{route, id}], failed: [message]}
 export async function sendWakes({ now = new Date(), settings, manifest }) {
-  const state = readJSON(WAKE_STATE, {});
+  const state = readJSON(wakeStateFile(), {});
   state.sent ||= {};
   const due = wakesDue(now, settings, state.sent);
   const events = [];
@@ -398,7 +398,7 @@ export async function sendWakes({ now = new Date(), settings, manifest }) {
   if (events.length || !boards.length) {
     for (const w of due) state.sent[w] = localDay(now);
     state.last = { at: now.toISOString(), due, routes: events.map((e) => e.route), failed: missed };
-    saveJSON(WAKE_STATE, state);
+    saveJSON(wakeStateFile(), state);
   }
   return { due, events, failed };
 }

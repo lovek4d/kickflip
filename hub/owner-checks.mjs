@@ -4,7 +4,7 @@
 // however many boards show it. A pass closes the card as the owner's Done does (board/store.mjs passOwnerCheck). A run
 // that finds nothing yet does nothing. One that can't run counts in state.ownerChecks, and BROKEN_AFTER in a row mark
 // the check broken (board/store.mjs breakOwnerCheck), which stops it and wakes the session to fix it.
-import { WAVES } from './boards.mjs';
+import { wavesDir } from './boards.mjs';
 import { parseCheck, runCheck } from '../shared/owner-check.mjs';
 import { passOwnerCheck, breakOwnerCheck } from '../board/store.mjs';
 
@@ -21,7 +21,7 @@ export async function runOwnerChecks(boards, state, failed) {
       for (const item of itemFile.items) {
         const check = item.owner_check;
         if (!check || check.broken || !item.owner_step || item.lane !== 'done') continue;
-        const id = JSON.stringify([board.kind === 'waves' ? WAVES : board.dir, slug, item.id, check.check]);
+        const id = JSON.stringify([board.kind === 'waves' ? wavesDir() : board.dir, slug, item.id, check.check]);
         if (ran.has(id)) continue;
         ran.add(id);
         const key = `${slug}/${item.id}`;

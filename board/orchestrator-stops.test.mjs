@@ -225,12 +225,12 @@ test('item bump moves a queued land first with a thread line, item unbump puts i
   assert.equal((await cli('land', 'queue')).out, 'C3 landing now\n1. B9\n2. A1\n');
   fs.rmSync(kick('land.lock'));
   fs.rmSync(kick('land.queue'), { recursive: true });
-  assert.equal(board('--site', 'orch', 'land', 'queue').out, 'no land queued\n');
+  assert.equal((await board('--site', 'orch', 'land', 'queue')).out, 'no land queued\n');
   // A bump with no land queued is the board's bump alone.
-  assert.equal(board('--site', 'orch', 'item', 'bump', 'w/A1').out, 'A1 bumped\n');
+  assert.equal((await board('--site', 'orch', 'item', 'bump', 'w/A1')).out, 'A1 bumped\n');
 });
 
-test('one function words every stop, and a stopped build reads it as its status, waiting on the orchestrator from the stop', () => {
+test('one function words every stop, and a stopped build reads it as its status, waiting on the orchestrator from the stop', async () => {
   assert.equal(stoppedWords('land'), 'land stopped by orchestrator');
   assert.equal(stoppedWords('build'), 'build stopped by orchestrator');
   const started = '2026-11-05T10:00:00.000Z';
@@ -247,7 +247,7 @@ test('one function words every stop, and a stopped build reads it as its status,
   assert.deepEqual([restarted.builder.stopped, restarted.builder.alive], [null, true]);
 });
 
-test("a held card's stopped land reads land stopped by orchestrator in In Review until the next Merge tap", () => {
+test("a held card's stopped land reads land stopped by orchestrator in In Review until the next Merge tap", async () => {
   const card = (merge_ready) => buildBoard({
     fromWaves: true, branch: 'main',
     files: [{ slug: 'w', agents: {}, itemFile: { items: [{ id: 'A1', title: 'One', branch: 'A1', merge_ready }] } }],

@@ -740,8 +740,6 @@ test("a work card's Hold, Resume and Done apply at once from their events, a Hol
   assert.deepEqual([filed().held, filed().pick_up_at], [true, undefined]);
   await post('/_claude/events', { kind: 'card-hold', key: 't/AK2', hold: false });
   assert.equal((await work()).held, false);
-  const board = await (await fetch(`${base}/api/board`)).json();
-  assert.deepEqual(board.holdChoices.map((c) => c.value), ['1h', '3h', '6h', '1d', 'forever']);
   const before = Date.now();
   await post('/_claude/events', { kind: 'card-hold', key: 't/AK2', hold: true, for: '3h' });
   const timed = await work();
@@ -1311,13 +1309,6 @@ test("the settings page's auto-merge toggle writes board.json, keeping its other
     assert.deepEqual(await (await save({ skip_draft: true })).json().then((b) => [b.settings.skip_draft, Boolean(b.id)]), [true, true]);
     assert.deepEqual((await settingsEvents())[0], { skip_draft: true });
     assert.equal((await save({ skip_draft: 'yes' })).status, 400);
-    // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: Internal is retired; a stored INT ticket reads unlinked.
-    await putWave(JSON.stringify({ items: [{ id: 'A1', title: 'One', ticket: 'INT-3' }, { id: 'B2', title: 'Two' }] }));
-    assert.equal((await save({ tickets: { source: 'internal', prefix: 'OPS' } })).status, 400);
-    const none = await (await save({ tickets: { source: 'none' } })).json();
-    assert.equal(none.settings.tickets, undefined);
-    const cards = (await (await fetch(`${base}/api/board`)).json()).items;
-    assert.deepEqual(['A1', 'B2'].map((id) => cards.find((i) => i.id === id).ticket ?? null), [{ id: 'INT-3', url: null, source: null }, null]);
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
   }

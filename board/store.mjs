@@ -11,7 +11,7 @@ import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
 import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, waveItems, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
-import { GITHUB_STATE, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
+import { githubStateFile, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
 import { AT_RE } from '../hub/duration.mjs';
@@ -994,7 +994,7 @@ export async function reviewDue(site, options) {
   const waiting = await readiness.waiting('slack');
   if (waiting) return { waiting, links: [], reactions: [], digest: null };
   const cfg = await boardConfig(site);
-  const cache = await readJSON(GITHUB_STATE, {});
+  const cache = await readJSON(githubStateFile(), {});
   const record = await readPRSlack(site);
   const links = [];
   for (const source of await itemSources(site)) {
@@ -1040,7 +1040,7 @@ const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.j
 export async function reviewDigest(site, { now = new Date() } = {}) {
   needSite(site);
   const cfg = await boardConfig(site);
-  const cache = await readJSON(GITHUB_STATE, {});
+  const cache = await readJSON(githubStateFile(), {});
   const record = await readPRSlack(site);
   const topics = topicItems();
   const reviewers = new Map();

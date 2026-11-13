@@ -21,7 +21,7 @@ import { boardAt } from '../hub/boards.mjs';
 
 const board = path.dirname(fileURLToPath(import.meta.url));
 export const WIDTHS = [390, 1280];
-const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chromePath = () => process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const SETTLE_MS = 3000;
 const LATE_MS = 300;
@@ -57,8 +57,8 @@ function serve(site, proto) {
 }
 
 async function launchOnce(dir) {
-  if (!fs.existsSync(CHROME)) throw new BoardError(`the render check needs Chrome; none at ${CHROME}, set CHROME to its path`);
-  const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', 'about:blank'],
+  if (!fs.existsSync(chromePath())) throw new BoardError(`the render check needs Chrome; none at ${chromePath()}, set CHROME to its path`);
+  const chrome = spawn(chromePath(), ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', 'about:blank'],
     // The account's own home, not a $HOME a caller pointed elsewhere: Chrome's network stack stalls on a home without its keychain.
     { stdio: 'ignore', env: { ...process.env, HOME: os.userInfo().homedir } });
   const portFile = path.join(dir, 'DevToolsActivePort');

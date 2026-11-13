@@ -5,7 +5,7 @@ import http from 'node:http';
 import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
-import { listBoards, readManifest, readJSON, saveJSON, appendEvent, GITHUB_STATE, REPO_FETCH } from './boards.mjs';
+import { listBoards, readManifest, readJSON, saveJSON, appendEvent, githubStateFile, repoFetchFile } from './boards.mjs';
 import { boardRepo, githubFromOrigin, mainRefOf } from './board-repo.mjs';
 import { gitReachFault, remoteFromInput, remoteGitEnv } from './repos.mjs';
 import { readiness } from './readiness.mjs';
@@ -798,7 +798,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     ticking = (async () => {
       await reserve();
       const listed = listBoards(manifest);
-      const prs = readJSON(GITHUB_STATE, {}).prs || {};
+      const prs = readJSON(githubStateFile(), {}).prs || {};
       for (const [dir, old] of [...serving]) if (!listed.some((b) => b.dir === dir)) { serving.delete(dir); await halt(old); }
       for (const run of [...runs.values()]) {
         if (!listed.some((b) => b.dir === run.board.dir)) {
@@ -1004,12 +1004,12 @@ export async function pullBranch(repo, branch, { run = originGit } = {}) {
   }
 }
 
-// Fetches the branch of each board that isn't local (board-repo.mjs boardRepo) and writes REPO_FETCH {<route>: {at, ok, error?, hint?}} for the boards it
+// Fetches the branch of each board that isn't local (board-repo.mjs boardRepo) and writes repo-fetch.json {<route>: {at, ok, error?, hint?}} for the boards it
 // fetched, which boards.mjs linksOf reads as each board's repo-fetch link. On a board whose repo is a plain git
 // remote, it then moves each pushed card to Done once its branch is merged or gone (settlePushed). routes: only these
 // boards, keeping the other boards' records.
 export async function fetchTryBranches({ manifest = readManifest(), log = console.log, routes } = {}) {
-  const fetched = routes ? readJSON(REPO_FETCH, {}) : {};
+  const fetched = routes ? readJSON(repoFetchFile(), {}) : {};
   for (const board of listBoards(manifest)) {
     if (routes && !routes.includes(board.route)) continue;
     try {
@@ -1034,7 +1034,7 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
       }
     } catch (e) { log(`fetch /${board.route} failed: ${e.message}`); }
   }
-  saveJSON(REPO_FETCH, fetched);
+  saveJSON(repoFetchFile(), fetched);
 }
 
 // docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md: a pushed card (board.mjs item set --pushed) is Done once its

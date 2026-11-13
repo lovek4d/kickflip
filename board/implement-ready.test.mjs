@@ -18,7 +18,7 @@ function built(item = {}) {
 }
 const card = (b) => b.items.find((i) => i.key === 'hub/T-1');
 
-test('a card marked ready to implement reads Action needed in Todo, with the thread as its link, and counts as a need', () => {
+test('a card marked ready to implement reads Action needed in Todo, with the thread as its link, and counts as a need', async () => {
   const c = card(built({ waits_on_owner: { on: 'implement', at: '2026-11-09T11:00:00Z' } }));
   assert.deepEqual([c.lane, c.ownerWait], ['todo', 'implement']);
   assert.deepEqual(c.action, { kind: 'implement', url: '#selectedCard=hub%2FT-1&reply', label: 'Tap Implement' });
@@ -26,7 +26,7 @@ test('a card marked ready to implement reads Action needed in Todo, with the thr
   assert.equal(card(built()).ownerWait, null);
 });
 
-test('a card marked waiting to be closed reads Action needed, Close or Done is its orange resolving button, and a closed card shows none', () => {
+test('a card marked waiting to be closed reads Action needed, Close or Done is its orange resolving button, and a closed card shows none', async () => {
   const mark = { on: 'close', at: '2026-11-09T11:00:00Z' };
   const c = card(built({ lane: 'todo', waits_on_owner: mark }));
   assert.deepEqual([c.lane, c.ownerWait, c.resolvedBy, c.awaitsDone], ['todo', 'close', 'done', false]);
@@ -47,36 +47,36 @@ test('reply --implement and --close post the message and store the mark; the own
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  assert.equal(board('reply', 'audit/T-1', '--text', 'Plain.', '--site', 'audit').code, 0);
+  assert.equal((await board('reply', 'audit/T-1', '--text', 'Plain.', '--site', 'audit')).code, 0);
   assert.equal(t1().waits_on_owner, undefined);
-  const r = board('reply', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
+  const r = await board('reply', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(t1().waits_on_owner.on, 'implement');
   assert.match(t1().waits_on_owner.at, /^\d{4}-/);
   await s.clearOwnerWait(audit(), 'audit/T-1');
   assert.equal(t1().waits_on_owner, undefined);
-  const c = board('reply', 'audit/T-1', '--text', 'Only Done is left.', '--close', '--site', 'audit');
+  const c = await board('reply', 'audit/T-1', '--text', 'Only Done is left.', '--close', '--site', 'audit');
   assert.deepEqual([c.code, c.err], [0, '']);
   assert.equal(t1().waits_on_owner.on, 'close');
   await s.clearOwnerWait(audit(), 'audit/T-1');
-  board('reply', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
+  await board('reply', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
   await s.stageImplement(audit(), 'audit/T-1', {});
   assert.equal(t1().waits_on_owner, undefined);
   // The card is staged now, so it is a work card: thread --close marks it.
-  const t = board('thread', 'audit/T-1', '--text', 'Only Done is left.', '--close', '--site', 'audit');
+  const t = await board('thread', 'audit/T-1', '--text', 'Only Done is left.', '--close', '--site', 'audit');
   assert.deepEqual([t.code, t.err], [0, '']);
   assert.equal(t1().waits_on_owner.on, 'close');
   await s.clearOwnerWait(audit(), 'audit/T-1');
   assert.equal(t1().waits_on_owner, undefined);
 });
 
-test('--implement and --close are refused on a reply to an event, which has no card to mark, and together', () => {
+test('--implement and --close are refused on a reply to an event, which has no card to mark, and together', async () => {
   for (const flag of ['--implement', '--close']) {
-    const r = board('reply', 'e1', '--text', 'x', flag, '--site', 'audit');
+    const r = await board('reply', 'e1', '--text', 'x', flag, '--site', 'audit');
     assert.notEqual(r.code, 0);
     assert.match(r.err, /--implement and --close/);
   }
-  const both = board('reply', 'audit/T-1', '--text', 'x', '--implement', '--close', '--site', 'audit');
+  const both = await board('reply', 'audit/T-1', '--text', 'x', '--implement', '--close', '--site', 'audit');
   assert.notEqual(both.code, 0);
   assert.match(both.err, /not both/);
 });
@@ -85,27 +85,27 @@ test('thread --implement marks any ticket ready to implement, and is refused wit
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const t = board('thread', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
+  const t = await board('thread', 'audit/T-1', '--text', 'Tap Implement.', '--implement', '--site', 'audit');
   assert.deepEqual([t.code, t.err], [0, '']);
   assert.equal(t1().waits_on_owner.on, 'implement');
   await s.clearOwnerWait(audit(), 'audit/T-1');
-  const both = board('thread', 'audit/T-1', '--text', 'x', '--implement', '--close', '--site', 'audit');
+  const both = await board('thread', 'audit/T-1', '--text', 'x', '--implement', '--close', '--site', 'audit');
   assert.notEqual(both.code, 0);
   assert.match(both.err, /not both/);
-  const love = board('thread', 'audit/T-1', '--text', 'x', '--implement', '--who', 'love', '--site', 'audit');
+  const love = await board('thread', 'audit/T-1', '--text', 'x', '--implement', '--who', 'love', '--site', 'audit');
   assert.notEqual(love.code, 0);
   assert.match(love.err, /--implement/);
   assert.equal(t1().waits_on_owner, undefined);
 });
 
-test('thread --close is refused for a message that is not the orchestrator\'s', () => {
-  const r = board('thread', 'audit/T-1', '--text', 'x', '--close', '--who', 'love', '--site', 'audit');
+test('thread --close is refused for a message that is not the orchestrator\'s', async () => {
+  const r = await board('thread', 'audit/T-1', '--text', 'x', '--close', '--who', 'love', '--site', 'audit');
   assert.notEqual(r.code, 0);
   assert.match(r.err, /--close/);
 });
 
 // docs/adr/2026-11-12-2300-a-finished-ask-waits-in-todo-with-an-orange-close.md: an ask already stored In Review stays there until Done.
-test('a finished ask card (stored In Review, close mark, no build) reads Action needed in In Review with no phase and no builder', () => {
+test('a finished ask card (stored In Review, close mark, no build) reads Action needed in In Review with no phase and no builder', async () => {
   const c = card(built({ lane: 'review', phase: undefined, waits_on_owner: { on: 'close', at: '2026-11-09T11:00:00Z' } }));
   assert.deepEqual([c.lane, c.waitsOn, c.phase, c.builder, c.resolvedBy, c.next], ['review', 'owner', null, null, 'done', 'Tap Done']);
   assert.equal(c.action.kind, 'close');
@@ -115,11 +115,11 @@ test('item set --done on an ask card no build ran on is refused, pointing at rep
   fs.appendFileSync(audit('data', 'events.jsonl'), JSON.stringify(ask) + '\n');
   const s = await store();
   await s.fileAsk(audit(), 'a1');
-  const r = board('item', 'set', 'audit/T-1', '--done', '--text', 'Answered: yes.', '--site', 'audit');
+  const r = await board('item', 'set', 'audit/T-1', '--done', '--text', 'Answered: yes.', '--site', 'audit');
   assert.notEqual(r.code, 0);
   assert.match(r.err, /reply .*--close/);
   assert.deepEqual([t1().waits_on_owner, t1().closed_at], [undefined, undefined]);
-  board('reply', 'audit/T-1', '--text', 'Answered: yes.', '--close', '--site', 'audit');
+  await board('reply', 'audit/T-1', '--text', 'Answered: yes.', '--close', '--site', 'audit');
   assert.deepEqual([t1().lane, t1().waits_on_owner.on, t1().closed_at], [t1().lane, 'close', undefined]);
   assert.notEqual(t1().lane, 'review');
   await s.recordOwnerTap(audit(), 'card-done', { key: 'audit/T-1' });

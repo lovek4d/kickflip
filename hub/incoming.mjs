@@ -6,7 +6,7 @@
 // they are kept in ~/.claude/kickflip/incoming-files.json by repo#pr; any other card PR's files are read each time.
 import fs from 'node:fs';
 import path from 'node:path';
-import { INCOMING_FILES, listBoards, readJSON, saveJSON } from './boards.mjs';
+import { incomingFilesFile, listBoards, readJSON, saveJSON } from './boards.mjs';
 import { openPRs, prFiles, githubLogin } from './pr-report.mjs';
 import { cardPRs, storedPRs } from '../shared/card-prs.mjs';
 
@@ -35,7 +35,7 @@ function writeIncoming(dir, value) {
 // gh {openPRs(repo), prFiles(repo, number) → {state, files}} and login() → the gh account, for a board with no
 // github_login; tests pass their own. → {checked: [route], failed: [message]}
 export async function checkIncoming({ manifest, gh = { openPRs, prFiles }, login = githubLogin }) {
-  const cache = readJSON(INCOMING_FILES, {});
+  const cache = readJSON(incomingFilesFile(), {});
   const checked = [];
   const failed = [];
   let fallback;
@@ -63,6 +63,6 @@ export async function checkIncoming({ manifest, gh = { openPRs, prFiles }, login
       checked.push(board.route);
     } catch (e) { failed.push(`${board.route}: ${e.message}`); }
   }
-  saveJSON(INCOMING_FILES, cache);
+  saveJSON(incomingFilesFile(), cache);
   return { checked, failed };
 }

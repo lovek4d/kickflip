@@ -11,7 +11,7 @@ const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items
 const auditThread = (id = 'A1') => { try { return lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)); } catch { return []; } };
 const moveLines = (id) => auditThread(id).filter((m) => m.kind === 'move').map((m) => m.text);
 
-test("each lane's phases, in order: Todo's, the five build steps, In Review's and Done's", () => {
+test("each lane's phases, in order: Todo's, the five build steps, In Review's and Done's", async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(PHASES)), {
     todo: ['new', 'discussing', 'grilling', 'prototyping', 'staging', 'ready'],
     progress: ['reading', 'building', 'testing', 'checking', 'landing'],
@@ -20,23 +20,23 @@ test("each lane's phases, in order: Todo's, the five build steps, In Review's an
   });
 });
 
-test('item add and item set take --phase, store it as phase, and refuse --state naming --phase', () => {
-  const added = board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling');
+test('item add and item set take --phase, store it as phase, and refuse --state naming --phase', async () => {
+  const added = await board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([auditItem('B2').phase, 'state' in auditItem('B2')], ['grilling', false]);
   for (const args of [['item', 'set', 'audit/B2', '--state', 'prototyping'], ['item', 'add', 'audit/B3', '--title', 'feat: three', '--state', 'grilling']]) {
-    const r = board(...args, '--site', 'audit');
+    const r = await board(...args, '--site', 'audit');
     assert.equal(r.code, 1);
     assert.match(r.err, /^--state is now --phase/);
   }
-  assert.equal(board('item', 'set', 'audit/B2', '--site', 'audit', '--phase', 'prototyping').code, 0);
+  assert.equal((await board('item', 'set', 'audit/B2', '--site', 'audit', '--phase', 'prototyping')).code, 0);
   assert.equal(auditItem('B2').phase, 'prototyping');
 });
 
-test("--phase sets only a Todo card's phase", () => {
-  assert.equal(board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling').code, 0);
-  assert.equal(board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude').code, 0);
-  const r = board('item', 'set', 'audit/B2', '--site', 'audit', '--phase', 'grilling');
+test("--phase sets only a Todo card's phase", async () => {
+  assert.equal((await board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling')).code, 0);
+  assert.equal((await board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude')).code, 0);
+  const r = await board('item', 'set', 'audit/B2', '--site', 'audit', '--phase', 'grilling');
   assert.equal(r.code, 1);
   assert.match(r.err, /--phase sets a Todo card's phase; audit\/B2 is In Progress/);
 });
@@ -56,15 +56,15 @@ test('moveCard writes the lane and its phase together; a phase change inside a l
   await assert.rejects(moveCard(dir, 'audit/A1', 'review', 'x', 'closing'), /no In Review phase "closing"/);
 });
 
-test("the store's own moves write the phase: a build's start reads reading, a block that leaves it in place, a close merged or closed", () => {
+test("the store's own moves write the phase: a build's start reads reading, a block that leaves it in place, a close merged or closed", async () => {
   write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'A1', title: 'feat: one', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'feat: two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'feat: four', lane: 'progress', phase: 'testing' }] });
-  assert.equal(board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude').code, 0);
+  assert.equal((await board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude')).code, 0);
   assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'reading']);
   write(site('audit', 'data', 'agents', 'A4.json'), { kind: 'claude', started: '2026-11-04T09:00:00Z', done: '2026-11-04T10:00:00Z', handed_back: '2026-11-04T10:00:00Z' });
-  const blocked = board('item', 'set', 'audit/A4', '--site', 'audit', '--blocked-until', 'the API ships');
+  const blocked = await board('item', 'set', 'audit/A4', '--site', 'audit', '--blocked-until', 'the API ships');
   assert.equal(blocked.code, 0, blocked.err);
   assert.deepEqual([auditItem('A4').lane, auditItem('A4').phase], ['progress', 'testing'], 'a handed-back card stays where it is');
-  assert.equal(board('item', 'set', 'audit/A2', '--site', 'audit', '--done', '--text', 'Dropped: superseded.').code, 0);
+  assert.equal((await board('item', 'set', 'audit/A2', '--site', 'audit', '--done', '--text', 'Dropped: superseded.')).code, 0);
   assert.deepEqual([auditItem('A2').lane, auditItem('A2').phase], ['done', 'closed']);
 });
 
@@ -100,7 +100,7 @@ const built = (items, agents = {}, prs = {}, extra = {}) => buildBoard({ fromWav
 const phases = (b) => Object.fromEntries(b.items.filter((i) => i.kind === 'work').map((i) => [i.id, [i.lane, i.phase]]));
 const pr = (extra = {}) => ({ state: 'OPEN', isDraft: false, checks: { state: 'pass' }, reviews: {}, ...extra });
 
-test("the board gives each card its lane's phase: Todo's stored, the build's step, the review's wait, and how it closed", () => {
+test("the board gives each card its lane's phase: Todo's stored, the build's step, the review's wait, and how it closed", async () => {
   const open = { started: '2026-11-04T09:00:00Z', kind: 'claude' };
   const checked = { started: '2026-11-04T09:00:00Z', done: '2026-11-04T10:00:00Z', handed_back: '2026-11-04T10:00:00Z', kind: 'claude' };
   const b = built([
@@ -123,7 +123,7 @@ test("the board gives each card its lane's phase: Todo's stored, the build's ste
   });
 });
 
-test("an In Progress card's phase is its builder's step; a review past seven days is stale; a merged PR not yet closed reads merged", () => {
+test("an In Progress card's phase is its builder's step; a review past seven days is stale; a merged PR not yet closed reads merged", async () => {
   const thread = [{ ts: '2026-11-04T09:05:00Z', kind: 'status', who: 'claude', text: 'Running the suite', phase: 'testing' }];
   const b = built([
     { id: 'P1', title: 'Testing', lane: 'progress', phase: 'reading' },
@@ -132,7 +132,7 @@ test("an In Progress card's phase is its builder's step; a review past seven day
   assert.deepEqual(phases(b), { P1: ['progress', 'testing'], M1: ['done', 'merged'] });
 });
 
-test('the settle pass writes each In Progress and In Review phase change quietly, carries the phase on a lane move, and leaves Todo and Done phases to their writers', () => {
+test('the settle pass writes each In Progress and In Review phase change quietly, carries the phase on a lane move, and leaves Todo and Done phases to their writers', async () => {
   const open = { started: '2026-11-04T09:00:00Z', kind: 'claude' };
   const b = built([
     { id: 'P1', title: 'Building', lane: 'todo', phase: 'ready' },
@@ -154,7 +154,7 @@ const ui = context.BoardUI;
 const card = (it) => ui.workLines({ key: 'w/A1', id: 'A1', kind: 'work', ref: '#1', title: 'One', sortAt: '2020-01-01T10:00:00.000Z', deps: [], blockedBy: [], reviewers: [], review: {}, pr: null, builder: null, next: null, ...it });
 const phaseWord = (html) => [...html.matchAll(/<span class="card-phase ph-(\w+)">([^<]+)<\/span>/g)].map((m) => [m[2], m[1]]);
 
-test("Todo, In Review and Done end a card's last line with its phase word, toned by who acts next; In Progress shows only its bar", () => {
+test("Todo, In Review and Done end a card's last line with its phase word, toned by who acts next; In Progress shows only its bar", async () => {
   const words = [
     ['todo', 'grilling', 'grilling', 'info'], ['todo', 'prototyping', 'prototyping', 'info'],
     ['todo', 'staging', 'staging', 'notice'], ['todo', 'ready', 'ready', 'success'],
@@ -172,7 +172,7 @@ test("Todo, In Review and Done end a card's last line with its phase word, toned
   assert.match(progress, /phase-bars/);
 });
 
-test('a stale review reads one stale; a blocked ready card shows ready, then its block; a grilling card shows its word and no dashes', () => {
+test('a stale review reads one stale; a blocked ready card shows ready, then its block; a grilling card shows its word and no dashes', async () => {
   assert.equal(card({ lane: 'review', phase: 'stale', stale: true }).match(/stale</g).length, 1);
   const footerWords = (html) => html.match(/<div class="line6 sub card-time">(.*?)<\/div>/)[1].replace(/<[^>]+>/g, '');
   const blockedBy = [{ key: 'w/B1', ref: '#2' }];
@@ -186,7 +186,7 @@ test('a stale review reads one stale; a blocked ready card shows ready, then its
   assert.doesNotMatch(grilling, /phase-bars/);
 });
 
-test('new messages read bold blue in every lane; Action needed is the only orange', () => {
+test('new messages read bold blue in every lane; Action needed is the only orange', async () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.card-alert \{ font-weight: 600; \}/);
   assert.match(css, /\.card-alert \.card-action \{ color: var\(--color-notice\); \}/);
@@ -194,7 +194,7 @@ test('new messages read bold blue in every lane; Action needed is the only orang
   assert.doesNotMatch(css, /\.lane\[data-lane="done"\] \.card-alert/);
 });
 
-test('each phase tone takes its colour from shared/colors.css', () => {
+test('each phase tone takes its colour from shared/colors.css', async () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   for (const [tone, colour] of [['quiet', 'quiet'], ['info', 'info'], ['notice', 'notice'], ['success', 'success'], ['merged', 'merged']]) {
     assert.match(css, new RegExp(`\\.card-phase\\.ph-${tone} \\{ color: var\\(--color-${colour}\\); \\}`));

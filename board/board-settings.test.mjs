@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fakeGh, prView, writePR, writeIssueComments, writeReviews, writeUser, writeAccounts, calls, tokens } from '../shared/fake-gh.mjs';
-import { bin, home, at, site, write, read, lines, run, board, runAsync, wave, ticketCli, record, annReviewer, bobReviewer, reviewState, slackToken, digestCommand } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, lines, run, board, runAsync, wave, ticketCli, record, annReviewer, bobReviewer, reviewState, slackToken, digestCommand } from './board-fixture.mjs';
 
 test('tickets link or are made in the board source through the CLI and an injected GitHub runner, and a board with none has none', async (t) => {
   const { saveBoardSettings } = await import('./store.mjs');
@@ -104,7 +104,7 @@ test("a Linear board creates and checks issues through Hub's key, and each card 
     ['D4', null, 'ENG-10', 'In Progress'], ['D4', ['--done', '--text', 'Merged.'], 'ENG-10', 'Done'],
   ];
   for (const [id, flags, ticket, state] of moves) {
-    assert.equal(await (flags ? cli('item', 'set', `audit/${id}`, ...flags) : start(id)), 0);
+    assert.equal(await (flags ? await cli('item', 'set', `audit/${id}`, ...flags) : await start(id)), 0);
     assert.ok(said(`ticket ${ticket}: moved to ${state}`), out.slice(-4).join('\n'));
     assert.equal(stateOf(ticket), state);
   }
@@ -175,22 +175,22 @@ test("a board still on Linear after Hub's key went refuses new tickets and links
   assert.equal(linear.calls.length, calls);
 });
 
-test("the hub board files its cards as issues in its entry's GitHub repo, as any local board does, as its Tickets gh account, PR calls stay on the active account, and a missing account fails clearly", () => {
+test("the hub board files its cards as issues in its entry's GitHub repo, as any local board does, as its Tickets gh account, PR calls stay on the active account, and a missing account fails clearly", async () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   writeAccounts(dir, { lovek4d: 'token-lovek4d' });
   writePR(dir, 7, prView());
   write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), hub: true, local: true, github: 'someone/fork', cmd: [process.execPath, bin('../server.mjs')] } } });
   write(site('audit', 'data', 'items.json'), { ...wave(), internal: true, items: [{ id: 'A1', title: 'One', ticket: 'A1' }, { id: 'Z9', title: 'Shipped', ticket: 'Z9', lane: 'done', closed_at: '2026-11-01T10:00:00Z' }] });
-  const cli = (...args) => run('board.mjs', ['--site', 'audit', ...args], undefined, env);
-  const last = (...args) => cli(...args).out.trim().split('\n').at(-1);
-  assert.equal(last('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}'), 'setting tickets {"source":"github","account":"lovek4d"}');
-  assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
-  assert.equal(cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--new-ticket').code, 0);
-  assert.equal(cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'feat: three', '--ticket', '#9').code, 0);
-  assert.equal(last('item', 'set', 'audit/B2', '--done', '--text', 'Done.'), 'ticket #1: closed');
-  assert.equal(cli('item', 'set', 'audit/C3', '--pr', '7').code, 0);
-  const report = cli('pr', 'audit/C3');
+  const cli = (...args) => boardWith(['--site', 'audit', ...args], env);
+  const last = async (...args) => (await cli(...args)).out.trim().split('\n').at(-1);
+  assert.equal(await last('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}'), 'setting tickets {"source":"github","account":"lovek4d"}');
+  assert.equal((await cli('settings', 'set', 'github-login', 'owner')).code, 0);
+  assert.equal((await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--new-ticket')).code, 0);
+  assert.equal((await cli('item', 'add', 'audit/C3', '--phase', 'grilling', '--title', 'feat: three', '--ticket', '#9')).code, 0);
+  assert.equal(await last('item', 'set', 'audit/B2', '--done', '--text', 'Done.'), 'ticket #1: closed');
+  assert.equal((await cli('item', 'set', 'audit/C3', '--pr', '7')).code, 0);
+  const report = await cli('pr', 'audit/C3');
   assert.equal(report.code, 0, report.err);
   const issues = tokens(dir).filter((c) => c.args[0] === 'issue').map(({ args, token }) => [args[1], args[args.indexOf('--repo') + 1], token]);
   assert.deepEqual(issues, [
@@ -199,13 +199,13 @@ test("the hub board files its cards as issues in its entry's GitHub repo, as any
   const prs = tokens(dir).filter((c) => c.args[0] === 'pr');
   assert.deepEqual(prs.map((c) => c.args[4]), ['someone/fork']);
   assert.notEqual(prs[0].token, 'token-lovek4d');
-  assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"nobody"}').code, 0);
+  assert.equal((await cli('settings', 'set', 'tickets', '{"source":"github","account":"nobody"}')).code, 0);
   const issueCalls = () => calls(dir).filter((a) => a[0] === 'issue').length;
   const before = issueCalls();
-  assert.deepEqual(cli('item', 'add', 'audit/D4', '--phase', 'grilling', '--title', 'feat: four', '--new-ticket'), { code: 1, out: '', err: 'gh has no nobody account; run gh auth login\n' });
-  assert.equal(last('item', 'set', 'audit/C3', '--done', '--text', 'Done.'), 'ticket #9: could not move to Done (gh has no nobody account; run gh auth login)');
+  assert.deepEqual(await cli('item', 'add', 'audit/D4', '--phase', 'grilling', '--title', 'feat: four', '--new-ticket'), { code: 1, out: '', err: 'gh has no nobody account; run gh auth login\n' });
+  assert.equal(await last('item', 'set', 'audit/C3', '--done', '--text', 'Done.'), 'ticket #9: could not move to Done (gh has no nobody account; run gh auth login)');
   assert.equal(issueCalls(), before);
-  assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}').code, 1);
+  assert.equal((await cli('settings', 'set', 'tickets', '{"source":"github","account":"-bad"}')).code, 1);
 });
 
 test("a card with an owner step keeps its GitHub issue open when the session closes it; the owner's Done closes it", async () => {
@@ -214,13 +214,13 @@ test("a card with an owner step keeps its GitHub issue open when the session clo
   writeAccounts(dir, { lovek4d: 'token-lovek4d' });
   write(at('kickflip', 'manifest.json'), { sites: { audit: { dir: site('audit'), hub: true, local: true, github: 'someone/fork', cmd: [process.execPath, bin('../server.mjs')] } } });
   write(site('audit', 'data', 'items.json'), { ...wave(), internal: true, items: [] });
-  const cli = (...args) => run('board.mjs', ['--site', 'audit', ...args], undefined, env);
-  assert.equal(cli('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}').code, 0);
-  assert.equal(cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--new-ticket').code, 0);
+  const cli = (...args) => boardWith(['--site', 'audit', ...args], env);
+  assert.equal((await cli('settings', 'set', 'tickets', '{"source":"github","account":"lovek4d"}')).code, 0);
+  assert.equal((await cli('item', 'add', 'audit/B2', '--phase', 'grilling', '--title', 'feat: two', '--new-ticket')).code, 0);
   const file = site('audit', 'data', 'items.json');
   write(file, { ...read(file), items: read(file).items.map((it) => ({ ...it, owner_step: 'Tag the first release' })) });
   const closes = () => calls(dir).filter((a) => a[0] === 'issue' && a[1] === 'close').length;
-  const session = cli('item', 'set', 'audit/B2', '--done', '--text', 'Landed.');
+  const session = await cli('item', 'set', 'audit/B2', '--done', '--text', 'Landed.');
   assert.equal(session.code, 0, session.err);
   assert.equal(closes(), 0);
   assert.equal(read(file).items[0].owner_step, 'Tag the first release');
@@ -231,24 +231,24 @@ test("a card with an owner step keeps its GitHub issue open when the session clo
   assert.deepEqual([read(file).items[0].lane, read(file).items[0].owner_step], ['done', undefined]);
 });
 
-test("pr comment and pr reply post Claude's words through gh with the robot prefix and the claude-bridge marker, as the board's github-login", () => {
+test("pr comment and pr reply post Claude's words through gh with the robot prefix and the claude-bridge marker, as the board's github-login", async () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   writeAccounts(dir, { owner: 'token-owner' });
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, github: 'o/r', cmd: [process.execPath, '/skill/board/server.mjs', site('orch')] } } });
-  const cli = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  const cli = (...args) => boardWith(['--site', 'orch', ...args], env);
   const posts = () => tokens(dir).filter((c) => c.args[0] === 'api').map(({ args, token }) => [args[1], args[3], token]);
 
   // A comment on a PR whose link a reviewer has stays on GitHub: nothing goes in that link's Slack thread.
   const slackRecord = { 'o/r#7': { links: { Ann: { channel: 'D1', ts: '1.1', reactions: [] } }, replies: [] } };
   write(site('orch', 'data', 'pr-slack.json'), slackRecord);
-  const comment = cli('pr', 'comment', '7', '--body', 'Fixed in abc1234.');
+  const comment = await cli('pr', 'comment', '7', '--body', 'Fixed in abc1234.');
   assert.equal(comment.code, 0, comment.err);
   assert.equal(comment.out, 'posted on PR #7: https://github.com/o/r/issues/7/comments\n');
   assert.deepEqual(read(site('orch', 'data', 'pr-slack.json')), slackRecord);
-  assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
-  assert.equal(cli('pr', 'reply', '7', '901', '--body', 'Not changed: the owner kept it.').code, 0);
-  const elsewhere = cli('pr', 'comment', 'o/site#1', '--body', 'Linked from #7.');
+  assert.equal((await cli('settings', 'set', 'github-login', 'owner')).code, 0);
+  assert.equal((await cli('pr', 'reply', '7', '901', '--body', 'Not changed: the owner kept it.')).code, 0);
+  const elsewhere = await cli('pr', 'comment', 'o/site#1', '--body', 'Linked from #7.');
   assert.equal(elsewhere.out, 'posted on PR o/site#1: https://github.com/o/site/issues/1/comments\n');
   assert.deepEqual(posts(), [
     ['repos/o/r/issues/7/comments', 'body=🤖 Fixed in abc1234.\n\n<!-- claude-bridge -->', null],
@@ -262,84 +262,84 @@ test("pr comment and pr reply post Claude's words through gh with the robot pref
     [['pr', 'comment', 'x7', '--body', 'Fixed.'], 'pr comment takes a PR number or owner/repo#<n>'],
     [['pr', 'reply', '7', 'abc', '--body', 'Fixed.'], 'pr reply takes the id of the review comment it answers'],
     [['pr', 'comment', '7'], 'pr comment needs --body "<what Claude says>"'],
-  ]) assert.deepEqual([cli(...args).code, cli(...args).err.split(' (node board')[0].trim()], [args.length === 3 ? 2 : 1, err]);
+  ]) assert.deepEqual([(await cli(...args)).code, (await cli(...args)).err.split(' (node board')[0].trim()], [args.length === 3 ? 2 : 1, err]);
   assert.equal(posts().length, 3);
 });
 
-test("reviewers set, add and remove keep the board's own reviewers in its board.json", () => {
+test("reviewers set, add and remove keep the board's own reviewers in its board.json", async () => {
   const ann = { name: 'Ann', slack_user: 'U01ANN', dm: 'D01ANN', github: 'ann' };
   const bob = { name: 'Bob', slack_user: 'U02BOB', dm: 'D02BOB', github: 'bob-b' };
   const cfg = () => read(site('orch', 'board.json'));
   write(at('waves', 'old', 'wave.json'), { title: 'Old', items: [{ id: 'O1', title: 'Shipped', lane: 'done', closed_at: '2026-11-01T10:00:00Z', prs: [{ number: 1, merged_at: '2026-11-01T10:00:00Z' }] }] });
   write(path.join(home, 'r.json'), [ann]);
-  assert.deepEqual(board('reviewers', 'set', '--site', 'orch', '--file', path.join(home, 'r.json')).out.trim().split('\n').slice(1), ['item file w: reviewers copied']);
+  assert.deepEqual((await board('reviewers', 'set', '--site', 'orch', '--file', path.join(home, 'r.json'))).out.trim().split('\n').slice(1), ['item file w: reviewers copied']);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', reviewers: [ann] });
   write(path.join(home, 'bob.json'), bob);
-  assert.equal(board('reviewers', 'add', '--site', 'orch', '--file', path.join(home, 'bob.json')).code, 0);
+  assert.equal((await board('reviewers', 'add', '--site', 'orch', '--file', path.join(home, 'bob.json'))).code, 0);
   write(path.join(home, 'ann.json'), [{ ...ann, name: 'ann', github: 'ann-2' }]);
-  assert.equal(board('reviewers', 'add', '--site', 'orch', '--file', path.join(home, 'ann.json')).code, 0);
+  assert.equal((await board('reviewers', 'add', '--site', 'orch', '--file', path.join(home, 'ann.json'))).code, 0);
   assert.deepEqual(cfg().reviewers, [{ ...ann, name: 'ann', github: 'ann-2' }, bob]);
-  assert.equal(board('reviewers', 'remove', 'Ann', '--site', 'orch').code, 0);
+  assert.equal((await board('reviewers', 'remove', 'Ann', '--site', 'orch')).code, 0);
   assert.deepEqual(cfg().reviewers, [bob]);
 
   const rejected = [[{ name: 'Cy' }], [{ ...ann, email: 'a@x' }], [{ ...ann, slack_user: 'ann' }], [ann, { ...ann, name: 'ANN' }], ann];
   for (const file of rejected) {
     write(path.join(home, 'bad.json'), file);
-    assert.equal(board('reviewers', 'set', '--site', 'orch', '--file', path.join(home, 'bad.json')).code, 1, JSON.stringify(file));
+    assert.equal((await board('reviewers', 'set', '--site', 'orch', '--file', path.join(home, 'bad.json'))).code, 1, JSON.stringify(file));
   }
-  assert.match(board('reviewers', 'remove', 'Bob', 'Zed', '--site', 'orch').err, /Zed/);
-  assert.equal(board('reviewers', 'set', '--file', path.join(home, 'r.json')).code, 1);
+  assert.match((await board('reviewers', 'remove', 'Bob', 'Zed', '--site', 'orch')).err, /Zed/);
+  assert.equal((await board('reviewers', 'set', '--file', path.join(home, 'r.json'))).code, 1);
   assert.deepEqual(cfg(), { title: 'Orch', items: 'waves', reviewers: [bob] });
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).reviewers, read(at('waves', 'old', 'wave.json')).reviewers], [[bob], undefined]);
 });
 
-test("settings prints the board's settings as JSON, off when absent, and settings set turns each on|off setting on and off in board.json, keeping its other keys", () => {
+test("settings prints the board's settings as JSON, off when absent, and settings set turns each on|off setting on and off in board.json, keeping its other keys", async () => {
   const cfg = () => read(site('orch', 'board.json'));
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', rules: [{ id: 'r1', text: 'Ask first', by: 'owner', at: 'x' }] });
-  assert.deepEqual(board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"max_implementers":10,"max_planners":3,"max_serves":10,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
+  assert.deepEqual(await board('settings', '--site', 'orch'), { code: 0, out: '{"auto_merge":false,"auto_build":false,"max_implementers":10,"max_planners":3,"max_serves":10,"auto_triage":false,"auto_review":false,"idle_notification":false,"skip_draft":false,"prs":true}\n', err: '' });
   // docs/adr/2026-11-04-1913-a-board-can-skip-the-draft.md
   for (const name of ['auto-merge', 'auto-build', 'auto-triage', 'auto-review', 'skip-draft', 'idle-notification']) {
     const before = cfg();
     for (const value of ['on', 'off']) {
-      assert.deepEqual(board('settings', 'set', name, value, '--site', 'orch'), { code: 0, out: `${name} ${value}\n`, err: '' });
+      assert.deepEqual(await board('settings', 'set', name, value, '--site', 'orch'), { code: 0, out: `${name} ${value}\n`, err: '' });
       assert.deepEqual(cfg(), { ...before, [name.replace('-', '_')]: value === 'on' });
     }
   }
 
   // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-  const cap = board('settings', 'set', 'max-implementers', '4', '--site', 'orch');
+  const cap = await board('settings', 'set', 'max-implementers', '4', '--site', 'orch');
   assert.deepEqual([cap.code, cap.out, cfg().max_implementers], [0, 'max-implementers 4\n', 4]);
   for (const invalid of ['0', '100', '2.5', 'on', '']) {
-    assert.match(board('settings', 'set', 'max-implementers', invalid, '--site', 'orch').err, /max_implementers must be a whole number from 1 to 99/, invalid);
+    assert.match((await board('settings', 'set', 'max-implementers', invalid, '--site', 'orch')).err, /max_implementers must be a whole number from 1 to 99/, invalid);
   }
   assert.equal(cfg().max_implementers, 4);
-  assert.equal(board('settings', 'set', 'max-implementers', '10', '--site', 'orch').code, 0);
+  assert.equal((await board('settings', 'set', 'max-implementers', '10', '--site', 'orch')).code, 0);
   // docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-  assert.deepEqual(board('settings', 'set', 'max-planners', '5', '--site', 'orch'), { code: 0, out: 'max-planners 5\n', err: '' });
+  assert.deepEqual(await board('settings', 'set', 'max-planners', '5', '--site', 'orch'), { code: 0, out: 'max-planners 5\n', err: '' });
   assert.equal(cfg().max_planners, 5);
   for (const invalid of ['0', '100', '2.5', 'on']) {
-    assert.match(board('settings', 'set', 'max-planners', invalid, '--site', 'orch').err, /max_planners must be a whole number from 1 to 99/, invalid);
+    assert.match((await board('settings', 'set', 'max-planners', invalid, '--site', 'orch')).err, /max_planners must be a whole number from 1 to 99/, invalid);
   }
   assert.equal(cfg().max_planners, 5);
-  assert.equal(board('settings', 'set', 'max-planners', '3', '--site', 'orch').code, 0);
+  assert.equal((await board('settings', 'set', 'max-planners', '3', '--site', 'orch')).code, 0);
 
-  const login = board('settings', 'set', 'github-login', 'owner', '--site', 'orch');
+  const login = await board('settings', 'set', 'github-login', 'owner', '--site', 'orch');
   assert.equal(login.code, 0);
   assert.match(login.out, /^github-login owner$/m);
   assert.equal(cfg().github_login, 'owner');
-  assert.equal(JSON.parse(board('settings', '--site', 'orch').out).github_login, 'owner');
-  assert.match(board('settings', 'set', 'github-login', '', '--site', 'orch').out, /^github-login unset$/m);
+  assert.equal(JSON.parse((await board('settings', '--site', 'orch')).out).github_login, 'owner');
+  assert.match((await board('settings', 'set', 'github-login', '', '--site', 'orch')).out, /^github-login unset$/m);
   assert.ok(!('github_login' in cfg()));
   for (const invalid of ['-owner', 'a_b', 'a'.repeat(40)]) {
-    assert.equal(board('settings', 'set', 'github-login', invalid, '--site', 'orch').code, 1);
+    assert.equal((await board('settings', 'set', 'github-login', invalid, '--site', 'orch')).code, 1);
   }
 
   // docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md
-  assert.deepEqual(board('settings', 'set', 'build-target', 'ios', '--site', 'orch'), { code: 0, out: 'build-target ios\n', err: '' });
+  assert.deepEqual(await board('settings', 'set', 'build-target', 'ios', '--site', 'orch'), { code: 0, out: 'build-target ios\n', err: '' });
   assert.equal(cfg().build_target, 'ios');
-  assert.equal(JSON.parse(board('settings', '--site', 'orch').out).build_target, 'ios');
-  assert.match(board('settings', 'set', 'build-target', '../x', '--site', 'orch').err, /build_target must name \.kickflip\/build-<target>/);
-  assert.deepEqual(board('settings', 'set', 'build-target', 'default', '--site', 'orch'), { code: 0, out: 'build-target default\n', err: '' });
+  assert.equal(JSON.parse((await board('settings', '--site', 'orch')).out).build_target, 'ios');
+  assert.match((await board('settings', 'set', 'build-target', '../x', '--site', 'orch')).err, /build_target must name \.kickflip\/build-<target>/);
+  assert.deepEqual(await board('settings', 'set', 'build-target', 'default', '--site', 'orch'), { code: 0, out: 'build-target default\n', err: '' });
   assert.ok(!('build_target' in cfg()));
 
   const bad = [
@@ -349,41 +349,41 @@ test("settings prints the board's settings as JSON, off when absent, and setting
     [['settings', 'set', 'auto-merge', '--site', 'orch'], 2, /settings set takes <name> <value>/],
   ];
   for (const [args, code, err] of bad) {
-    const r = board(...args);
+    const r = await board(...args);
     assert.equal(r.code, code, args.join(' '));
     assert.match(r.err, err, args.join(' '));
   }
   assert.equal(cfg().auto_merge, false);
 });
 
-test("rules add, edit and remove keep a board's rules in its board.json and the hub's in settings.json, and list prints both", () => {
+test("rules add, edit and remove keep a board's rules in its board.json and the hub's in settings.json, and list prints both", async () => {
   const settings = { quiet: { start: '22:00', end: '08:00', hold: true }, other_key: 'kept' };
   write(at('kickflip', 'settings.json'), settings);
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] });
-  assert.deepEqual([board('rules', 'list', '--site', 'orch').out], ['']);
-  const added = board('rules', 'add', '--site', 'orch', '--text', 'Ask before\n  touching main');
+  assert.deepEqual([(await board('rules', 'list', '--site', 'orch')).out], ['']);
+  const added = await board('rules', 'add', '--site', 'orch', '--text', 'Ask before\n  touching main');
   assert.equal(added.code, 0);
   const boardId = /^id (\S+)$/m.exec(added.out)[1];
-  const hubId = /^id (\S+)$/m.exec(board('rules', 'add', '--hub', '--by', 'claude', '--text', 'Screenshots in every PR').out)[1];
+  const hubId = /^id (\S+)$/m.exec((await board('rules', 'add', '--hub', '--by', 'claude', '--text', 'Screenshots in every PR')).out)[1];
   const cfg = read(site('orch', 'board.json'));
   assert.deepEqual([cfg.title, cfg.reviewers.length, cfg.rules.map((r) => [r.id, r.text, r.by])], ['Orch', 1, [[boardId, 'Ask before touching main', 'owner']]]);
   assert.deepEqual({ ...read(at('kickflip', 'settings.json')), rules: undefined }, { ...settings, rules: undefined });
-  const list = board('rules', 'list', '--site', 'orch');
+  const list = await board('rules', 'list', '--site', 'orch');
   assert.equal(list.out, `hub ${hubId} claude Screenshots in every PR\nboard ${boardId} owner Ask before touching main\n`);
-  assert.equal(board('rules', 'list').out, `hub ${hubId} claude Screenshots in every PR\n`);
+  assert.equal((await board('rules', 'list')).out, `hub ${hubId} claude Screenshots in every PR\n`);
 
-  assert.equal(board('rules', 'edit', boardId, '--site', 'orch', '--text', 'Ask first').code, 0);
-  assert.equal(board('rules', 'edit', hubId, '--hub', '--text', 'Screenshots always').code, 0);
+  assert.equal((await board('rules', 'edit', boardId, '--site', 'orch', '--text', 'Ask first')).code, 0);
+  assert.equal((await board('rules', 'edit', hubId, '--hub', '--text', 'Screenshots always')).code, 0);
   assert.deepEqual(read(at('kickflip', 'settings.json')).rules.map((r) => [r.text, r.by]), [['Screenshots always', 'claude']]);
-  assert.match(board('rules', 'remove', hubId, '--site', 'orch').err, /it is a hub rule, so pass --hub/);
-  assert.match(board('rules', 'remove', boardId, '--hub', '--site', 'orch').err, /it is a board rule, so drop --hub/);
-  assert.equal(board('rules', 'remove', boardId, '--site', 'orch').code, 0);
-  assert.equal(board('rules', 'remove', hubId, '--hub').code, 0);
-  assert.equal(board('rules', 'list', '--site', 'orch').out, '');
+  assert.match((await board('rules', 'remove', hubId, '--site', 'orch')).err, /it is a hub rule, so pass --hub/);
+  assert.match((await board('rules', 'remove', boardId, '--hub', '--site', 'orch')).err, /it is a board rule, so drop --hub/);
+  assert.equal((await board('rules', 'remove', boardId, '--site', 'orch')).code, 0);
+  assert.equal((await board('rules', 'remove', hubId, '--hub')).code, 0);
+  assert.equal((await board('rules', 'list', '--site', 'orch')).out, '');
   assert.deepEqual(read(site('orch', 'board.json')).rules, []);
 });
 
-test('rules refuse a board rule without --site, an empty text, an unknown author or id, and stray flags', () => {
+test('rules refuse a board rule without --site, an empty text, an unknown author or id, and stray flags', async () => {
   const bad = [
     [['rules', 'add', '--text', 'x'], 1, /needs --site/],
     [['rules', 'add', '--site', 'orch', '--text', '  '], 1, /non-empty/],
@@ -396,7 +396,7 @@ test('rules refuse a board rule without --site, an empty text, an unknown author
     [['rules', 'edit', 'r9', '--site', 'orch', '--by', 'claude', '--text', 'x'], 2, /does not take --by/],
   ];
   for (const [args, code, err] of bad) {
-    const r = board(...args);
+    const r = await board(...args);
     assert.equal(r.code, code, args.join(' '));
     assert.match(r.err, err, args.join(' '));
   }
@@ -405,18 +405,18 @@ test('rules refuse a board rule without --site, an empty text, an unknown author
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
-test("review record writes the session's review of a listed incoming PR, keeping the PR's details after it leaves the list", () => {
+test("review record writes the session's review of a listed incoming PR, keeping the PR's details after it leaves the list", async () => {
   const pr = { number: 437, title: 'One endpoint', author: 'quinn', url: 'https://github.com/o/r/pull/437', head: 'abc', touches: ['w/A1'], asked: true };
   write(site('orch', 'data', 'incoming.json'), { at: 'x', repo: 'o/r', prs: [pr] });
   write(site('orch', 'data', 'reviews.json'), {});
-  const held = board('--site', 'orch', 'review', 'record', '437', '--state', 'needs', '--text', 'Clashes with #47.');
+  const held = await board('--site', 'orch', 'review', 'record', '437', '--state', 'needs', '--text', 'Clashes with #47.');
   assert.deepEqual([held.code, held.out], [0, 'review of PR #437 recorded: needs you\n']);
   const { at: heldAt, ...rec } = read(site('orch', 'data', 'reviews.json'))['437'];
   assert.ok(Date.parse(heldAt));
   assert.deepEqual(rec, { ...pr, state: 'needs', text: 'Clashes with #47.' });
   write(site('orch', 'data', 'incoming.json'), { at: 'y', repo: 'o/r', prs: [] });
   write(path.join(home, 'review.md'), 'Posted.\n\n- one point');
-  assert.equal(board('--site', 'orch', 'review', 'record', '437', '--state', 'posted', '--file', path.join(home, 'review.md')).out, 'review of PR #437 recorded: posted\n');
+  assert.equal((await board('--site', 'orch', 'review', 'record', '437', '--state', 'posted', '--file', path.join(home, 'review.md'))).out, 'review of PR #437 recorded: posted\n');
   assert.deepEqual([read(site('orch', 'data', 'reviews.json'))['437'].text, read(site('orch', 'data', 'reviews.json'))['437'].review_url, read(site('orch', 'data', 'reviews.json'))['437'].head], ['Posted.\n\n- one point', undefined, 'abc']);
   for (const [args, err] of [
     [['438', '--state', 'posted', '--text', 'x'], /not an incoming PR/],
@@ -424,26 +424,26 @@ test("review record writes the session's review of a listed incoming PR, keeping
     [['437', '--state', 'posted'], /--text or --file/],
     [['437', '--state', 'posted', '--text', 'x', '--url', 'https://github.com/o/r/pull/437#pullrequestreview-1'], /--url/],
     [['seven', '--state', 'posted', '--text', 'x'], /PR number/],
-  ]) assert.match(board('--site', 'orch', 'review', 'record', ...args).err, err, args.join(' '));
+  ]) assert.match((await board('--site', 'orch', 'review', 'record', ...args)).err, err, args.join(' '));
 });
 
 // docs/adr/2026-11-05-0930-review-post-posts-an-incoming-pr-review.md
-test("review post posts the session's words as one Comment review on a listed incoming PR at its head, then records it posted with the review's link", () => {
+test("review post posts the session's words as one Comment review on a listed incoming PR at its head, then records it posted with the review's link", async () => {
   const dir = path.join(home, 'fake-gh');
   const env = { PATH: `${fakeGh(dir)}:${process.env.PATH}` };
   writeAccounts(dir, { owner: 'token-owner' });
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, github: 'o/r', cmd: [process.execPath, '/skill/board/server.mjs', site('orch')] } } });
-  const cli = (...args) => run('board.mjs', ['--site', 'orch', ...args], undefined, env);
+  const cli = (...args) => boardWith(['--site', 'orch', ...args], env);
   const pr = { number: 437, title: 'One endpoint', author: 'quinn', url: 'https://github.com/o/r/pull/437', head: 'abc', touches: ['w/A1'], asked: true };
   write(site('orch', 'data', 'incoming.json'), { at: 'x', repo: 'o/incoming', prs: [pr] });
   write(site('orch', 'data', 'reviews.json'), {});
   write(path.join(home, 'review.md'), 'One point: the retry loops.\n');
   const file = path.join(home, 'review.md');
   const posts = () => tokens(dir).filter((c) => c.args[0] === 'api' && c.args[1].endsWith('/reviews') && c.args.includes('-f')).map(({ args, token }) => [args.slice(1), token]);
-  assert.equal(cli('settings', 'set', 'github-login', 'owner').code, 0);
+  assert.equal((await cli('settings', 'set', 'github-login', 'owner')).code, 0);
   const title = JSON.parse(fs.readFileSync(site('orch', 'board.json'), 'utf8')).title;
 
-  const done = cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T09:00:00Z');
+  const done = await cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T09:00:00Z');
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out, 'posted review on PR #437: https://github.com/o/incoming/pull/437#pullrequestreview-1\n');
   assert.deepEqual(posts(), [[['repos/o/incoming/pulls/437/reviews', '-f', `body=🤖 Claude review from the ${title} board\n\nOne point: the retry loops.\n\n<!-- claude-bridge -->`, '-f', 'event=COMMENT', '-f', 'commit_id=abc'], 'token-owner']]);
@@ -453,10 +453,10 @@ test("review post posts the session's words as one Comment review on a listed in
 
   // Another review after --read-at is refused, nothing posted; one before it is not.
   writeReviews(dir, 437, [{ id: 5, user: { login: 'ann' }, submitted_at: '2026-11-05T10:00:00Z', body: '', state: 'COMMENTED' }]);
-  const stale = cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T09:00:00Z');
+  const stale = await cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T09:00:00Z');
   assert.match(stale.err, /PR #437 got a review after 2026-11-05T09:00:00Z \(ann at 2026-11-05T10:00:00Z\)/);
   assert.equal(posts().length, 1);
-  assert.equal(cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T10:30:00Z').code, 0);
+  assert.equal((await cli('review', 'post', '437', '--file', file, '--read-at', '2026-11-05T10:30:00Z')).code, 0);
   assert.equal(posts().length, 2);
 
   for (const [name, words, err] of [
@@ -465,35 +465,27 @@ test("review post posts the session's words as one Comment review on a listed in
     ['marker', 'Fine.\n<!-- claude-bridge -->', /adds the 🤖 header/],
   ]) {
     write(path.join(home, `${name}.md`), words);
-    assert.match(cli('review', 'post', '437', '--file', path.join(home, `${name}.md`), '--read-at', '2026-11-05T10:30:00Z').err, err, name);
+    assert.match((await cli('review', 'post', '437', '--file', path.join(home, `${name}.md`), '--read-at', '2026-11-05T10:30:00Z')).err, err, name);
   }
-  assert.match(cli('review', 'post', '438', '--file', file, '--read-at', '2026-11-05T10:30:00Z').err, /not an incoming PR/);
-  assert.match(cli('review', 'post', 'seven', '--file', file, '--read-at', '2026-11-05T10:30:00Z').err, /review post takes the PR number/);
-  assert.match(cli('review', 'post', '437', '--read-at', '2026-11-05T10:30:00Z').err, /review post needs --file/);
-  assert.match(cli('review', 'post', '437', '--file', file).err, /review post needs --read-at/);
-  assert.match(cli('review', 'post', '437', '--file', file, '--read-at', 'noon').err, /--read-at takes the time/);
+  assert.match((await cli('review', 'post', '438', '--file', file, '--read-at', '2026-11-05T10:30:00Z')).err, /not an incoming PR/);
+  assert.match((await cli('review', 'post', 'seven', '--file', file, '--read-at', '2026-11-05T10:30:00Z')).err, /review post takes the PR number/);
+  assert.match((await cli('review', 'post', '437', '--read-at', '2026-11-05T10:30:00Z')).err, /review post needs --file/);
+  assert.match((await cli('review', 'post', '437', '--file', file)).err, /review post needs --read-at/);
+  assert.match((await cli('review', 'post', '437', '--file', file, '--read-at', 'noon')).err, /--read-at takes the time/);
   assert.equal(posts().length, 2);
 });
 
-test('main set publishes an install with the same URL and sha checks as card installs', () => {
+test('main set publishes an install with the same URL and sha checks as card installs', async () => {
   for (const url of ['https://example.com/main.apk', 'itms-services://?action=download-manifest&url=https://m/main.plist']) {
-    assert.equal(board('--site', 'orch', 'main', 'set', '--install', url, '--install-sha', 'ABCDEF1').code, 0);
+    assert.equal((await board('--site', 'orch', 'main', 'set', '--install', url, '--install-sha', 'ABCDEF1')).code, 0);
     const { built_at, ...install } = read(site('orch', 'data', 'main.json')).install;
     assert.ok(Date.parse(built_at));
     assert.deepEqual(install, { url, sha: 'abcdef1' });
   }
-  assert.equal(board('--site', 'orch', 'main', 'set', '--install', 'http://m/app.apk').code, 1);
-  assert.equal(board('--site', 'orch', 'main', 'set', '--install', 'https://m/app.apk', '--install-sha', 'main').code, 1);
-  assert.equal(board('--site', 'orch', 'main', 'set').code, 1);
-  assert.equal(board('main', 'set', '--install', 'https://m/app.apk').code, 1);
-});
-
-// docs/adr/2026-11-12-1400-auto-implement-todo-is-always-on.md
-test('auto_pull is no setting: an old key is ignored and saving it is refused', async () => {
-  const { settingsOf, saveBoardSettings } = await import('./store.mjs');
-  assert.ok(!('auto_pull' in settingsOf({ auto_pull: true })));
-  await assert.rejects(saveBoardSettings(site('orch'), { auto_pull: true }), /auto_pull/);
-  assert.equal(board('settings', '--site', 'orch').out.includes('auto_pull'), false);
+  assert.equal((await board('--site', 'orch', 'main', 'set', '--install', 'http://m/app.apk')).code, 1);
+  assert.equal((await board('--site', 'orch', 'main', 'set', '--install', 'https://m/app.apk', '--install-sha', 'main')).code, 1);
+  assert.equal((await board('--site', 'orch', 'main', 'set')).code, 1);
+  assert.equal((await board('main', 'set', '--install', 'https://m/app.apk')).code, 1);
 });
 
 test('github-login settings lines and API validation support set and clear', async () => {
@@ -505,12 +497,12 @@ test('github-login settings lines and API validation support set and clear', asy
   assert.ok(!('github_login' in read(site('orch', 'board.json'))));
 });
 
-test('item set records a UTC gh-since and pr prints the board report through gh', () => {
+test('item set records a UTC gh-since and pr prints the board report through gh', async () => {
   const since = '2026-10-23T11:00:00Z';
-  assert.equal(board('item', 'set', 'w/A1', '--gh-since', since).code, 0);
+  assert.equal((await board('item', 'set', 'w/A1', '--gh-since', since)).code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].gh_since, since);
   for (const invalid of ['tomorrow', '2026-10-23', '2026-10-23T11:00:00+00:00', '2026-99-23T11:00:00Z']) {
-    assert.match(board('item', 'set', 'w/A1', '--gh-since', invalid).err, /ISO-8601 UTC/);
+    assert.match((await board('item', 'set', 'w/A1', '--gh-since', invalid)).err, /ISO-8601 UTC/);
   }
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].gh_since, since);
   const dir = path.join(home, 'fake-gh');
@@ -518,17 +510,17 @@ test('item set records a UTC gh-since and pr prints the board report through gh'
   writePR(dir, 7, prView());
   writeUser(dir, { login: 'owner' });
   writeIssueComments(dir, 7, [{ id: 1, user: { login: 'owner' }, created_at: '2026-10-23T12:00:00Z', body: 'Please fix', html_url: 'https://github.com/o/r/issues/7#issuecomment-1' }]);
-  const pr = () => run('board.mjs', ['--site', 'orch', 'pr', 'w/A1'], undefined, env);
-  assert.match(pr().err, /has no PR/);
+  const pr = () => boardWith(['--site', 'orch', 'pr', 'w/A1'], env);
+  assert.match((await pr()).err, /has no PR/);
   const w = read(at('waves', 'w', 'wave.json'));
   w.items[0].pr = 7;
   write(at('waves', 'w', 'wave.json'), w);
-  assert.match(pr().err, /has no repo/);
+  assert.match((await pr()).err, /has no repo/);
   w.repo = 'wave/repo';
   write(at('waves', 'w', 'wave.json'), w);
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), github: 'board/repo', cmd: [process.execPath, bin('../server.mjs')] } } });
-  assert.equal(board('--site', 'orch', 'settings', 'set', 'github-login', 'owner').code, 0);
-  const result = pr();
+  assert.equal((await board('--site', 'orch', 'settings', 'set', 'github-login', 'owner')).code, 0);
+  const result = await pr();
   assert.equal(result.code, 0, result.err);
   assert.equal(result.out.trim().split('\n').length, 1);
   assert.equal(JSON.parse(result.out).events[0].who, 'user');
@@ -536,21 +528,21 @@ test('item set records a UTC gh-since and pr prints the board report through gh'
   assert.ok(calls(dir).some((a) => a[0] === 'pr' && a[4] === 'board/repo'));
   assert.ok(calls(dir).some((a) => a[3]?.endsWith(`comments?since=${encodeURIComponent(since)}`)));
   assert.ok(!calls(dir).some((a) => a[1] === 'user'));
-  assert.equal(board('--site', 'orch', 'settings', 'set', 'github-login', '').code, 0);
-  assert.equal(pr().code, 0);
+  assert.equal((await board('--site', 'orch', 'settings', 'set', 'github-login', '')).code, 0);
+  assert.equal((await pr()).code, 0);
   assert.equal(calls(dir).filter((a) => a[1] === 'user').length, 1);
   fs.rmSync(at('kickflip', 'manifest.json'));
-  const fallback = pr();
+  const fallback = await pr();
   assert.equal(fallback.code, 0, fallback.err);
   assert.equal(calls(dir).filter((a) => a[0] === 'pr').at(-1)[4], 'wave/repo');
   writePR(dir, 'o/site#1', prView({ isDraft: true }));
-  assert.equal(board('item', 'set', 'w/A1', '--pr', 'o/site#1').code, 0);
-  const both = pr();
+  assert.equal((await board('item', 'set', 'w/A1', '--pr', 'o/site#1')).code, 0);
+  const both = await pr();
   assert.equal(both.code, 0, both.err);
   assert.deepEqual(both.out.trim().split('\n').map((l) => JSON.parse(l)).map((r) => [r.repo, r.pr, r.isDraft]), [['wave/repo', 7, false], ['o/site', 1, true]]);
 });
 
-test("a PR's posted links and the topic fallback drive the same card age, stale In Review and hub Slack link", () => {
+test("a PR's posted links and the topic fallback drive the same card age, stale In Review and hub Slack link", async () => {
   const sent = String(Math.floor((Date.now() - 8 * 86400000) / 1000)) + '.000100';
   const w = { ...wave(), repo: 'o/r', reviewers: [annReviewer, bobReviewer] };
   w.items[0].pr = 7;
@@ -574,25 +566,25 @@ test("a PR's posted links and the topic fallback drive the same card age, stale 
   assert.equal(recorded.slack.ok, true);
 });
 
-test('slack identity imports config once, protects the saved file and lets the session override it', () => {
+test('slack identity imports config once, protects the saved file and lets the session override it', async () => {
   const config = { self_dm: 'DOLD', owner_slack_user: 'UOLD', slack_domain: 'old', timezone: 'America/Los_Angeles', ignored: 'secret' };
   write(at('slack-bridge', 'state.json'), { config });
   const expected = { self_dm: 'DOLD', owner_slack_user: 'UOLD', slack_domain: 'old', timezone: 'America/Los_Angeles' };
-  assert.deepEqual(JSON.parse(board('slack').out), expected);
+  assert.deepEqual(JSON.parse((await board('slack')).out), expected);
   assert.equal(fs.statSync(at('kickflip', 'slack.json')).mode & 0o777, 0o600);
   write(at('slack-bridge', 'state.json'), { config: { ...config, slack_domain: 'changed' } });
-  assert.deepEqual(JSON.parse(board('slack').out), expected);
-  const updated = board('slack', 'set', '--self-dm', 'DNEW', '--user', 'UNEW', '--domain', 'new', '--timezone', 'Asia/Tokyo');
+  assert.deepEqual(JSON.parse((await board('slack')).out), expected);
+  const updated = await board('slack', 'set', '--self-dm', 'DNEW', '--user', 'UNEW', '--domain', 'new', '--timezone', 'Asia/Tokyo');
   assert.equal(updated.code, 0, updated.err);
   assert.deepEqual(JSON.parse(updated.out), { self_dm: 'DNEW', owner_slack_user: 'UNEW', slack_domain: 'new', timezone: 'Asia/Tokyo' });
-  assert.equal(board('slack', 'set', '--timezone', 'Not/AZone').code, 1);
-  assert.equal(board('slack', 'set', '--self-dm', 'UWRONG').code, 1);
+  assert.equal((await board('slack', 'set', '--timezone', 'Not/AZone')).code, 1);
+  assert.equal((await board('slack', 'set', '--self-dm', 'UWRONG')).code, 1);
 });
 
-test('review digest lists one item per hub-checked PR awaiting review, dates old links and stays due until every reviewer has the day’s digest', () => {
+test('review digest lists one item per hub-checked PR awaiting review, dates old links and stays due until every reviewer has the day’s digest', async () => {
   const now = '2026-11-02T17:00:00Z';
   slackToken();
-  assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
+  assert.equal((await board('slack', 'set', '--timezone', 'America/Los_Angeles')).code, 0);
   const ts = (hours) => String((Date.parse(now) - hours * 3600000) / 1000);
   write(site('orch', 'board.json'), { items: 'waves', reviewers: [bobReviewer] });
   const item = (id, pr, extra = {}) => ({ id, title: id, pr, ...extra });
@@ -624,12 +616,12 @@ test('review digest lists one item per hub-checked PR awaiting review, dates old
   write(site('orch', 'data', 'review-digests.json'), { digests: [sent('Ann', 'D1'), sent('Bob', 'D2')] });
   assert.equal(digestCommand([], now).due, false);
   assert.equal(digestCommand([], '2026-11-03T17:00:00Z').due, true);
-  const realClock = board('review', 'digest', '--site', 'orch');
+  const realClock = await board('review', 'digest', '--site', 'orch');
   assert.equal(realClock.code, 0, realClock.err);
   assert.ok(Array.isArray(JSON.parse(realClock.out).reviewers));
 });
 
-test("review due lists each PR's owed links, thread replies and reactions, and the digest, and waits while Slack is not ready", () => {
+test("review due lists each PR's owed links, thread replies and reactions, and the digest, and waits while Slack is not ready", async () => {
   const now = '2026-11-02T17:00:00Z';
   const due = () => {
     const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
@@ -639,7 +631,7 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
     return JSON.parse(r.stdout);
   };
   slackToken();
-  assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
+  assert.equal((await board('slack', 'set', '--timezone', 'America/Los_Angeles')).code, 0);
   write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer, bobReviewer], items: [
     { id: 'A1', title: 'Open', pr: 1 },
     { id: 'A2', title: 'Draft', pr: 2 },
@@ -663,7 +655,7 @@ test("review due lists each PR's owed links, thread replies and reactions, and t
   assert.deepEqual(due(), { waiting: 'Reviewer DMs and digests wait on Slack: Slack refused the token.', links: [], reactions: [], digest: null });
 });
 
-test("review due reacts git_approved once GitHub's review decision is APPROVED, or on any approval where the branch asks for no review", () => {
+test("review due reacts git_approved once GitHub's review decision is APPROVED, or on any approval where the branch asks for no review", async () => {
   const due = () => {
     const script = `import {main} from ${JSON.stringify(new URL('./bin/board.mjs', import.meta.url).href)};
       process.exitCode = await main(['--site', 'orch', 'review', 'due'], {now: new Date('2026-11-02T17:00:00Z')});`;
@@ -672,7 +664,7 @@ test("review due reacts git_approved once GitHub's review decision is APPROVED, 
     return JSON.parse(r.stdout);
   };
   slackToken();
-  assert.equal(board('slack', 'set', '--timezone', 'America/Los_Angeles').code, 0);
+  assert.equal((await board('slack', 'set', '--timezone', 'America/Los_Angeles')).code, 0);
   write(at('waves', 'w', 'wave.json'), { repo: 'o/r', reviewers: [annReviewer], items: [1, 2, 3, 4].map((pr) => ({ id: `A${pr}`, title: `PR ${pr}`, pr })) });
   write(site('orch', 'data', 'pr-slack.json'), Object.fromEntries([1, 2, 3, 4].map((pr) => [`o/r#${pr}`, { head: `h${pr}`, links: { Ann: { channel: 'D1', ts: `${pr}.1`, reactions: [] } }, replies: [] }])));
   const open = { state: 'OPEN', isDraft: false };
@@ -686,9 +678,9 @@ test("review due reacts git_approved once GitHub's review decision is APPROVED, 
   assert.deepEqual(due().reactions.map((r) => [r.pr, r.emoji]), [['o/r#1', 'git_approved'], ['o/r#3', 'git_approved']]);
 });
 
-test('review digest waits without changing the record while Slack is not ready', () => {
+test('review digest waits without changing the record while Slack is not ready', async () => {
   const now = '2026-11-02T17:00:00Z';
-  board('slack', 'set', '--timezone', 'America/Los_Angeles');
+  await board('slack', 'set', '--timezone', 'America/Los_Angeles');
   const file = site('orch', 'data', 'review-digests.json');
   const record = { last_date: '2026-10-30', digests: [] };
   write(file, record);

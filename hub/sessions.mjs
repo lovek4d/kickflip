@@ -18,7 +18,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { joinName, routeRecord, validRoute } from './routes.mjs';
 import { withFileLock } from './locks.mjs';
-import { RESUME_STATE, carryCursor, hubBoard, isListening, listBoards, listenState, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, watchedLines, watcherCursor, withManifestLock, writeManifest } from './boards.mjs';
+import { resumeStateFile, carryCursor, hubBoard, isListening, listBoards, listenState, oldestUnheard, readManifest, readJSON, saveJSON, watchedCounts, watchedLines, watcherCursor, withManifestLock, writeManifest } from './boards.mjs';
 import { readUsageGate, heldUsageEvent } from '../shared/usage-gate.mjs';
 import { liveSessions, sessionRecords, processStarts, verifiedProcess } from './live.mjs';
 import { deliver } from './push.mjs';
@@ -34,7 +34,7 @@ const SKILL_DIR = storedPath(path.resolve(path.dirname(fileURLToPath(import.meta
 export const RESUME_AFTER = 3 * 60_000;
 export const COMEBACK_WAIT = 5 * 60_000;
 export const STARTING_WAIT = 15 * 60_000;
-const COMPACT_STATE = path.join(os.homedir(), '.claude', 'kickflip', 'compact-state.json');
+const compactStateFile = () => path.join(os.homedir(), '.claude', 'kickflip', 'compact-state.json');
 
 // Whether a Starting record didn't start: its start recorded an error, or it hasn't joined STARTING_WAIT after it was asked.
 export const startFailed = (rec, now = Date.now()) => Boolean(rec.error) || now - Date.parse(rec.asked_at || rec.since) >= STARTING_WAIT;
@@ -125,10 +125,10 @@ const hasTmux = (tmux, route) => tmux(['has-session', '-t', `=${tmuxName(route)}
 // background session has no pane to type into; the sidebar reads context full for it
 // (docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md). The hub runs it after each session check.
 // → {compacted: [route], failed: [message]}
-export async function compactFullContexts({ manifest = readManifest(), now = new Date(), running = liveSessions(), wakes = readJSON(RESUME_STATE, {}), tmux = runTmux } = {}) {
+export async function compactFullContexts({ manifest = readManifest(), now = new Date(), running = liveSessions(), wakes = readJSON(resumeStateFile(), {}), tmux = runTmux } = {}) {
   // With ps giving no answer, no board's listen state is known, so the check waits for the next.
   if (!running) return { compacted: [], failed: [] };
-  const state = Object.assign(Object.create(null), readJSON(COMPACT_STATE, {}));
+  const state = Object.assign(Object.create(null), readJSON(compactStateFile(), {}));
   const compacted = [];
   const failed = [];
   let dirty = false;
@@ -150,7 +150,7 @@ export async function compactFullContexts({ manifest = readManifest(), now = new
     if (error) failed.push(`${board.route}: could not send /compact to tmux session ${tmuxName(board.route)} (${error})`);
     else compacted.push(board.route);
   }
-  if (dirty) saveJSON(COMPACT_STATE, state);
+  if (dirty) saveJSON(compactStateFile(), state);
   return { compacted, failed };
 }
 
@@ -416,7 +416,7 @@ export async function checkSessions({
   // With ps giving no answer, which sessions run is unknown, so nothing wakes or pushes and every outage is kept for
   // the next check.
   if (!running) return { resumed: [], pushed: [], failed: [] };
-  const state = readJSON(RESUME_STATE, {});
+  const state = readJSON(resumeStateFile(), {});
   const next = Object.create(null);
   const out = { resumed: [], pushed: [], failed: [] };
   for (const board of listBoards(manifest)) {
@@ -462,6 +462,6 @@ export async function checkSessions({
     }
     if (entry) next[board.route] = entry;
   }
-  if (JSON.stringify(next) !== JSON.stringify(state)) saveJSON(RESUME_STATE, next);
+  if (JSON.stringify(next) !== JSON.stringify(state)) saveJSON(resumeStateFile(), next);
   return out;
 }

@@ -10,14 +10,14 @@ const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items
 const auditThread = (id = 'A1') => { try { return lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)); } catch { return []; } };
 const moveLines = (id) => auditThread(id).filter((m) => m.kind === 'move').map((m) => m.text);
 
-test('item set refuses --status and --clear-status, and --done closes the card in Done with its line last', () => {
+test('item set refuses --status and --clear-status, and --done closes the card in Done with its line last', async () => {
   for (const args of [['--status', 'done'], ['--clear-status']]) {
-    const r = board('item', 'set', 'audit/A1', '--site', 'audit', ...args);
+    const r = await board('item', 'set', 'audit/A1', '--site', 'audit', ...args);
     assert.equal(r.code, 1);
     assert.match(r.err, /--(clear-)?status (and --clear-status )?(is|are) gone: .* Close it with --done --text/);
   }
-  assert.match(board('item', 'set', 'audit/A1', '--site', 'audit', '--done').err, /--text/);
-  const r = board('item', 'set', 'audit/A1', '--site', 'audit', '--done', '--text', 'Dropped: superseded by A2.');
+  assert.match((await board('item', 'set', 'audit/A1', '--site', 'audit', '--done')).err, /--text/);
+  const r = await board('item', 'set', 'audit/A1', '--site', 'audit', '--done', '--text', 'Dropped: superseded by A2.');
   assert.equal(r.code, 0, r.err);
   const item = auditItem();
   assert.equal(item.lane, 'done');
@@ -27,15 +27,15 @@ test('item set refuses --status and --clear-status, and --done closes the card i
   assert.deepEqual(moveLines('A1'), []);
 });
 
-test('a new card starts in Todo; a build start moves it to In Progress and a PR to In Review, each with a move line', () => {
-  assert.equal(board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling').code, 0);
+test('a new card starts in Todo; a build start moves it to In Progress and a PR to In Review, each with a move line', async () => {
+  assert.equal((await board('item', 'add', 'audit/B2', '--site', 'audit', '--title', 'feat: two', '--phase', 'grilling')).code, 0);
   const added = auditItem('B2');
   assert.equal(added.lane, 'todo');
   assert.equal(added.lane_at, added.created);
-  const started = board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude');
+  const started = await board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude');
   assert.equal(started.code, 0, started.err);
   assert.equal(auditItem('B2').lane, 'progress');
-  assert.equal(board('item', 'set', 'audit/B2', '--site', 'audit', '--pr', '5').code, 0);
+  assert.equal((await board('item', 'set', 'audit/B2', '--site', 'audit', '--pr', '5')).code, 0);
   assert.equal(auditItem('B2').lane, 'review');
   assert.deepEqual(moveLines('B2'), ['Moved to In Progress: a build started', 'Moved to In Review: PR #5 opened']);
 });
@@ -90,7 +90,7 @@ test("the status migration turns each card's status into its lane and facts, in 
 
 const built = (items, agents = {}, prs = {}) => buildBoard({ fromWaves: true, files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items } }], prs, owner: {}, events: [] });
 
-test('the settle pass moves a card to where the board places it, never to Done, and leaves a stored Done card alone unless it reopened', () => {
+test('the settle pass moves a card to where the board places it, never to Done, and leaves a stored Done card alone unless it reopened', async () => {
   const open = { started: '2026-11-04T09:00:00Z', kind: 'claude' };
   const board = built([
     { id: 'P1', title: 'Building', lane: 'todo' },
@@ -108,7 +108,7 @@ test('the settle pass moves a card to where the board places it, never to Done, 
 });
 
 // docs/adr/2026-11-09-1804-in-progress-means-a-builder-runs.md
-test('the settle pass moves a Done card a message reopened, and a ready PR gone red with no builder, to In Review', () => {
+test('the settle pass moves a Done card a message reopened, and a ready PR gone red with no builder, to In Review', async () => {
   const msg = { id: 'm1', ts: '2026-11-04T09:00:00Z', kind: 'item-message', data: { key: 'w/D1', text: 'One more thing' }, reply: null };
   const board = buildBoard({ fromWaves: true, owner: {}, events: [msg], prs: { 'o/r#7': { state: 'OPEN', isDraft: false, checks: { state: 'fail' }, reviews: {} } },
     files: [{ slug: 'w', agents: {}, itemFile: { repo: 'o/r', items: [
