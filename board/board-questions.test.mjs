@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { home, at, site, write, read, run, board, question, takePath, recordPrototype, addPrototypeQuestion, addConfirm, prototypeRefusal, record, addEvents } from './board-fixture.mjs';
+import { home, at, site, write, read, run, board, question, takePath, recordPrototype, addPrototypeQuestion, addConfirm, prototypeRefusal, record, addEvents, itemOf, threadOf } from './board-fixture.mjs';
 
 test('question add appends valid questions and rejects the whole file otherwise', async () => {
   const drawn = (more = {}) => ({ id: 'A', label: 'Keep', diagram: [[{ text: 'Hub' }, { text: 'Board', tone: 'info', to: [0] }], [{ text: 'Owner', tone: 'success' }]], practice: ['One place to change.'], ...more });
@@ -133,6 +133,30 @@ test('question resolve refuses a question the owner asked a prototype of; the ro
     { code: 1, out: '', err: 'asked waits on the prototype the owner asked for; question add with round_of asked resolves it\n' });
   assert.equal((await add(question('r1', { topic: 'item:w/A1', url: 'prototype-site.html?q=r1', round_of: 'asked' }))).code, 0);
   assert.equal(read(site('orch', 'data', 'owner.json')).items[0].resolved, 'Followed by prototype round 1');
+});
+
+// docs/adr/2026-11-13-2030-question-resolve-takes-close-so-implement-never-flashes.md
+test('question resolve --close or --implement resolves the question, writes the note to the thread and marks the card waiting', async () => {
+  const add = async (id) => { write(path.join(home, 'q.json'), question(id, { topic: 'item:w/A1' })); assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'))).code, 0); };
+  const resolved = () => read(site('orch', 'data', 'owner.json')).items.map((q) => q.resolved);
+  await add('qc');
+  assert.equal((await board('question', 'resolve', 'qc', '--site', 'orch', '--note', 'Close it.', '--close')).code, 0);
+  assert.deepEqual(resolved(), ['Close it.']);
+  assert.equal(itemOf().waits_on_owner.on, 'close');
+  assert.deepEqual(threadOf().map((l) => l.text), ['Close it.']);
+  await add('qi');
+  assert.equal((await board('question', 'resolve', 'qi', '--site', 'orch', '--note', 'Build it.', '--implement')).code, 0);
+  assert.equal(itemOf().waits_on_owner.on, 'implement');
+  await add('qb');
+  assert.equal((await board('question', 'resolve', 'qb', '--site', 'orch', '--note', 'x', '--close', '--implement')).code, 2);
+  assert.deepEqual(resolved(), ['Close it.', 'Build it.', undefined]);
+});
+
+test('question resolve --close on a question with no card refuses and leaves it open', async () => {
+  write(path.join(home, 'q.json'), question('qs'));
+  assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'))).code, 0);
+  assert.equal((await board('question', 'resolve', 'qs', '--site', 'orch', '--note', 'x', '--close')).code, 1);
+  assert.equal(read(site('orch', 'data', 'owner.json')).items[0].resolved, undefined);
 });
 
 test('question add refuses a question text past the briefLine limit, naming its length, and takes one at the limit', async () => {

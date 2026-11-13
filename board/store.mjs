@@ -2317,7 +2317,10 @@ async function markResolved(site, owner, ids, note) {
   return ownerFile(site);
 }
 
-export async function resolveQuestion(site, id, note) {
+// waitsOn (close | implement) also puts the note in the question's card's thread and marks that card waiting on the owner's
+// Done or Implement, the card marked first so no state between shows Implement
+// (docs/adr/2026-11-13-2030-question-resolve-takes-close-so-implement-never-flashes.md).
+export async function resolveQuestion(site, id, note, { waitsOn } = {}) {
   needSite(site);
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id);
@@ -2327,13 +2330,16 @@ export async function resolveQuestion(site, id, note) {
   if (view.state === 'resolved') return ownerFile(site);
   // docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md
   if (view.state === 'requested') fail(`${id} waits on the prototype the owner asked for; question add with round_of ${id} resolves it`);
-  const said = text(note, '--note');
+  const said = waitsOn ? messageText(note) : text(note, '--note');
+  const key = cardOfTopic(q.topic);
+  if (waitsOn && !key) fail(`${id} is not a card's question (topic ${q.topic}), so there is no card to mark waiting on ${waitsOn}`);
   if (pageTopic(q.url)) roundSettled(owner, q, answers);
+  if (waitsOn) await markWaiting(site, key, waitsOn);
   const file = await markResolved(site, owner, [id], said);
+  if (waitsOn) await appendMessage(site, key, { text: said });
   await clearWaitedNext(site, q.topic);
   // docs/adr/2026-11-07-1213-a-grill-waits-for-every-answer-before-it-changes-phase.md: a question the orchestrator
   // closes counts as answered, so the grilling card it leaves with nothing open moves on.
-  const key = cardOfTopic(q.topic);
   if (key && (await loadItem(site, key).catch(() => null))?.item.phase === 'grilling') await moveOnAnswered(site, key);
   return file;
 }

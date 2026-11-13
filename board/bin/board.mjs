@@ -124,6 +124,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          prototype page until an answer settles its round: a pick, with a note or none, or an answer to
          an "Is this it?" confirm already on the board. A question already resolved, such as one an
          answer with a note and no option resolved, is left as it is
+         [--close | --implement]                         for a card's question: in the same write the note goes into
+                                                         the card's thread and the card is marked waiting on the
+                                                         owner's Done or Implement (as thread --close or --implement
+                                                         does), so no state between reads Implement
   question settle <id> --note <text>                    a question a finished grill left for the orchestrator to screen
          (a screen wait), which the board already answers: it is published resolved "Settled by the
          orchestrator: <text>", and the answer goes into the card's notes. Refuses the prototype question,
@@ -900,7 +904,10 @@ const COMMANDS = {
     const input = readJSONInput(f.file);
     return { ...(await store.addQuestions(site, input, renderCheck())), asked: [input].flat() };
   }],
-  'question resolve': [['id'], ['note'], (site, [id], f) => store.resolveQuestion(site, id, f.note)],
+  'question resolve': [['id'], ['note', 'close', 'implement'], (site, [id], f) => {
+    if (f.implement && f.close) throw new UsageError('question resolve takes --implement or --close, not both');
+    return store.resolveQuestion(site, id, f.note, { waitsOn: f.implement ? 'implement' : f.close ? 'close' : undefined });
+  }],
   'question settle': [['id'], ['note'], (site, [id], f) => store.settleQuestion(site, id, f.note)],
   'question publish': [['key'], [], async (site, [key]) => ({ ids: await store.publishScreened(site, key) })],
   'question move': [['ids'], ['to', 'block'], (site, [ids], f) => store.moveQuestions(site, ids.split(',').filter(Boolean), f.to, (f.block || '').split(',').filter(Boolean))],
