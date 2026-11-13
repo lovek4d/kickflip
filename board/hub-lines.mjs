@@ -64,6 +64,9 @@ export const HUB_LINES = {
   'prototype-after': { mark: PROTOTYPE, text: () => 'Prototype round asked: it moves to prototyping once every question is answered.' },
   'prototype-round': { mark: PROTOTYPE, text: () => 'You asked for a prototype round, so the board moved the card to prototyping.' },
   'ticket-made': { mark: 'Created ticket', text: ({ ticket }) => fit('Created ticket ', ticket, '') },
+  // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: one per batch published on a
+  // card, holding its question ids; orange while any of them is open, blue once none is (domain.mjs threadOf).
+  'questions-added': { mark: QUESTIONS, text: ({ count }) => `${count} question${count === 1 ? '' : 's'} added`, longest: { count: 1000 } },
   'new-question': { mark: QUESTIONS, text: () => 'A new question on it, so it is grilling until you answer.' },
   'screen-timeout': { mark: QUESTIONS, text: () => 'Questions passed to you unscreened: the orchestrator didn’t screen them in 15 minutes.' },
   'ask-moved': { mark: MOVE, text: ({ board }) => fit('Moved to ', board, '.') },

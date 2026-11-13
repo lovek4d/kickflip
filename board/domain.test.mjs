@@ -2879,3 +2879,17 @@ test('a card in no wave carries its item file title on a board with more than on
   const one = buildBoard({ now: Date.now(), fromWaves: false, files: [file('x', 'Search')] });
   assert.deepEqual(one.items.map((i) => i.fileLabel), [null]);
 });
+
+// docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md
+test("a Questions added line stays in the thread, open while any of its own batch's questions is open and not once each is answered or resolved", () => {
+  const q = (id, extra = {}) => ({ id, topic: 'item:w/A1', question: `${id}?`, asked_at: '2026-11-12T10:00:00Z', ...extra });
+  const added = (ts, ids) => ({ ts, who: 'claude', kind: 'hub', line: 'questions-added', text: `${ids.length} question${ids.length === 1 ? '' : 's'} added`, link: `questions.html#${ids[0]}`, questions: ids });
+  const answer = (id) => ({ id: `ans-${id}`, ts: '2026-11-12T11:00:00Z', kind: 'owner-answer', data: { id, choice: 'A' }, reply: null });
+  const lines = [added('2026-11-12T10:00:00Z', ['qa', 'qb']), added('2026-11-12T10:30:00Z', ['qc'])];
+  const opens = (items, events = []) => threadOf('w/A1', { lines, events, owner: { items } }).filter((m) => m.line === 'questions-added').map((m) => [m.text, m.link, m.open]);
+  assert.deepEqual(opens([q('qa'), q('qb'), q('qc')]), [['2 questions added', 'questions.html#qa', true], ['1 question added', 'questions.html#qc', true]]);
+  // One of the first batch answered leaves it open; the other resolved closes it, while the second batch stays open.
+  assert.deepEqual(opens([q('qa'), q('qb'), q('qc')], [answer('qa')]).map((m) => m[2]), [true, true]);
+  assert.deepEqual(opens([q('qa'), q('qb', { resolved: 'Settled', resolved_at: '2026-11-12T11:30:00Z' }), q('qc')], [answer('qa')]).map((m) => m[2]), [false, true]);
+  assert.deepEqual(opens([q('qa'), q('qb'), q('qc')], [answer('qa'), answer('qb'), answer('qc')]).map((m) => m[2]), [false, false]);
+});

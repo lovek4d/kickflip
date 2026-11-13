@@ -143,7 +143,7 @@ test('question resolve --close or --implement resolves the question, writes the 
   assert.equal((await board('question', 'resolve', 'qc', '--site', 'orch', '--note', 'Close it.', '--close')).code, 0);
   assert.deepEqual(resolved(), ['Close it.']);
   assert.equal(itemOf().waits_on_owner.on, 'close');
-  assert.deepEqual(threadOf().map((l) => l.text), ['Close it.']);
+  assert.deepEqual(threadOf().map((l) => l.text), ['1 question added', 'Close it.']);
   await add('qi');
   assert.equal((await board('question', 'resolve', 'qi', '--site', 'orch', '--note', 'Build it.', '--implement')).code, 0);
   assert.equal(itemOf().waits_on_owner.on, 'implement');
@@ -412,4 +412,16 @@ test("a planner that is stopped or abandoned publishes the questions staged on i
   assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--done', '--text', 'Dropped: no longer wanted.')).code, 0);
   assert.deepEqual(read(owner).items.map((q) => q.id), ['q1']);
   assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
+});
+
+// docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md
+test("each batch of questions published on a card stores one Questions added line in its thread, holding its ids and linking to its first", async () => {
+  write(path.join(home, 'q.json'), [question('qa', { topic: 'item:w/A1' }), question('qb', { topic: 'item:w/A1' }), question('qc', { topic: 'item:w/ENG-1' }), question('qd')]);
+  assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'))).code, 0);
+  const added = (id) => threadOf(id).filter((m) => m.line === 'questions-added').map(({ who, kind, text, link, questions }) => ({ who, kind, text, link, questions }));
+  assert.deepEqual(added('A1'), [{ who: 'claude', kind: 'hub', text: '2 questions added', link: 'questions.html#qa', questions: ['qa', 'qb'] }]);
+  assert.deepEqual(added('ENG-1'), [{ who: 'claude', kind: 'hub', text: '1 question added', link: 'questions.html#qc', questions: ['qc'] }]);
+  write(path.join(home, 'q.json'), question('qe', { topic: 'item:w/A1' }));
+  assert.equal((await board('question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json'))).code, 0);
+  assert.deepEqual(added('A1').map((m) => [m.link, m.questions]), [['questions.html#qa', ['qa', 'qb']], ['questions.html#qe', ['qe']]]);
 });

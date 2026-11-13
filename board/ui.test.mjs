@@ -1986,14 +1986,13 @@ test("a request with text, a question's prototype request and an answer are the 
   assert.equal(foot(ui.threadMessages([msg({ kind: 'item-message', status: undefined })])), waiting);
 });
 
-test("a card's open questions asked since it was last seen are one blue line in its thread, with a plain question mark, linking to the first", () => {
-  const questions = { first: 'q 1', askedAt: ['2026-11-04T10:00:00Z', '2026-11-04T11:00:00Z', '2026-11-04T12:00:00Z'] };
-  const plain = (v) => JSON.parse(JSON.stringify(v));
-  assert.deepEqual(plain(ui.newQuestionsLine(questions, '2026-11-04T10:30:00Z')), [{ ts: '2026-11-04T12:00:00Z', who: 'claude', kind: 'questions', text: '2 new questions', link: 'questions.html#q%201' }]);
-  assert.equal(ui.newQuestionsLine(questions, '2026-11-04T11:30:00Z')[0].text, '1 new question');
-  assert.deepEqual(plain([ui.newQuestionsLine(questions, '2026-11-04T12:00:00Z'), ui.newQuestionsLine(questions, null), ui.newQuestionsLine(null, '2026-11-04T10:30:00Z')]), [[], [], []]);
-  const html = ui.threadMessages(ui.newQuestionsLine(questions, '2026-11-04T10:30:00Z'));
-  assert.match(html, new RegExp(`^<div class="msg status-line builder-status planner new-questions"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q%201">2 new questions</a>`));
+// docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md
+test("a Questions added line is orange while its batch has an open question and blue once none has, with a plain question mark, linking to its first", () => {
+  const added = (open) => ({ ts: '2026-11-04T12:00:00Z', who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', fault: false, text: '2 questions added', link: 'questions.html#q1', open });
+  const lead = `<span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q1">2 questions added</a>`;
+  assert.match(ui.threadMessages([added(true)]), new RegExp(`^<div class="msg status-line request hub asking">${lead}`));
+  assert.match(ui.threadMessages([added(false)]), new RegExp(`^<div class="msg status-line request hub created">${lead}`));
+  assert.ok(!('newQuestionsLine' in ui));
   assert.match(ui.MARK_ICONS.questions, /class="mark-icon big"/);
   assert.doesNotMatch(ui.MARK_ICONS.questions, /<circle/);
 });
@@ -2826,7 +2825,7 @@ test('every status line kind line() draws carries its time, a folded run its new
     { ts: ago(1), who: 'claude', kind: 'hub', line: 'serve-failed', mark: 'Held', text: 'Serve failed', detail: 'boom', fault: true },
     { ts: ago(1), who: 'claude', kind: 'hub', line: 'pulled', mark: 'Held', text: 'Pulled in' },
     { ts: ago(1), who: 'claude', kind: 'move', text: 'Moved' },
-    { ts: ago(1), who: 'claude', kind: 'questions', link: 'questions.html', text: '2 new questions' },
+    { ts: ago(1), who: 'claude', kind: 'hub', line: 'questions-added', link: 'questions.html#q1', questions: ['q1', 'q2'], text: '2 questions added', open: true },
     { ts: ago(1), who: 'claude', kind: 'status', text: 'Reading' },
     { ts: ago(1), who: 'claude', kind: 'agent', text: 'Opus started' },
     { ts: ago(1), who: 'claude', kind: 'calls', text: 'Opus', calls: ['a'], verified: null },

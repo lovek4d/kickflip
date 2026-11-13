@@ -1,7 +1,7 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, waitOn, newQuestionsLine, BUTTON } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, waitOn, BUTTON } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request' };
   // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it.
@@ -90,9 +90,8 @@ BoardView.part((B) => {
     // The window's top edge is fixed when the card first draws, so a hidden message never pulls an older one in.
     if (!topEdge.has(key) && msgs.length) topEdge.set(key, BoardUI.threadFrom(msgs, viewOf(key)) || '');
     const view = viewOf(key);
-    const asked = newQuestionsLine(state.board?.items.find((i) => i.key === key)?.questions, seenAt(key));
     // The outbox's messages follow everything the board has, in the order they were sent.
-    const lines = [...(asked.length ? [...msgs, ...asked].sort((a, b) => String(a.ts).localeCompare(String(b.ts))) : msgs), ...queuedFor(key).map(unsent)];
+    const lines = [...msgs, ...queuedFor(key).map(unsent)];
     const sig = JSON.stringify([lines, view]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;

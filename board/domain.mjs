@@ -971,6 +971,10 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   const acted = new Set(answers
     .filter((e) => resolvedSince(asked.get(e.data.id), e.ts) || rounded.has(e.data.id) || buildsFrom.some((s) => s > String(e.ts))).map((e) => e.id));
   const agentList = agentsOf(agents, true);
+  // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: a questions-added line is
+  // open while any question it holds is.
+  const reopens = index.reopens.get(`item:${key}`) || [];
+  const isOpen = (id) => asked.has(id) && ownerQuestion(asked.get(id), answers, [], [], reopens).state === 'open';
   const msgs = [
     // First, so a start sorts above the status line `builder start` writes at the same moment.
     // A planner's lines are marked planner, which the thread draws in the owner's blue.
@@ -981,7 +985,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
+    ...lines.map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen) } : {}) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.

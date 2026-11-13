@@ -94,7 +94,7 @@
   // A thread status line's leading mark, its icon or dot centred in one fixed box so every line's text starts at the
   // same place: a command line's icon by its words (domain.mjs COMMANDS: the request's eye, fire or image, Implement's
   // code brackets, Hold's pause, Resume's play, Done's circled check), Reply's arrow, answers' check, a reopened
-  // question's turn-back arrow, new questions' plain question mark, a builder's dot.
+  // question's turn-back arrow, a Questions added line's plain question mark, a builder's dot.
   const mini = (body, cls = '') => `<svg class="mark-icon${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
   const LINK = mini('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>');
   const CREATED = mini('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/>');

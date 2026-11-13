@@ -418,11 +418,12 @@ const VIA = ['github', 'slack'];
 // Nothing else writes a plain line to a thread; board-threads.test.mjs holds the code to it.
 const checkThreadKey = async (site, key) => (String(key).startsWith('ask:') ? checkAsk(site, key.slice(4), 'the ask') : loadItem(site, key));
 // A status line of a kind in hub-lines.mjs HUB_LINES, its words from inputs; a fault line freshens the queued push.
+// questions: the ids a questions-added line holds, which colour it (domain.mjs threadOf).
 // → {line, lines for the CLI to print}
-export async function appendStatus(site, key, kind, inputs = {}, { link } = {}) {
+export async function appendStatus(site, key, kind, inputs = {}, { link, questions } = {}) {
   needSite(site);
   await checkThreadKey(site, key);
-  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(detailOf(kind, inputs) ? { detail: detailOf(kind, inputs) } : {}), ...(link ? { link } : {}) };
+  const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(detailOf(kind, inputs) ? { detail: detailOf(kind, inputs) } : {}), ...(link ? { link } : {}), ...(questions ? { questions } : {}) };
   await appendLine(threadFile(site, key), line);
   return { line, lines: hubLineOf(line).fault ? await freshenPush(site, key, line.text) : [] };
 }
@@ -1839,7 +1840,12 @@ async function publishQuestions(site, owner, items, questions, lines) {
   }
   const written = { ...owner, topics: owner.topics || [], items: [...items, ...questions.map((q) => ({ ...q, asked_at: at }))] };
   await writeJSON(ownerFile(site), written);
-  for (const key of new Set(questions.map((q) => cardOfTopic(q.topic)).filter(Boolean))) await grillAgain(site, key);
+  // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md
+  for (const key of new Set(questions.map((q) => cardOfTopic(q.topic)).filter(Boolean))) {
+    const ids = questions.filter((q) => cardOfTopic(q.topic) === key).map((q) => q.id);
+    await appendStatus(site, key, 'questions-added', { count: ids.length }, { link: `questions.html#${encodeURIComponent(ids[0])}`, questions: ids });
+    await grillAgain(site, key);
+  }
   return { file: ownerFile(site), lines: [...lines, ...replaced.map((id) => `replaced: ${id}`), ...resolved.map((id) => `resolved: ${id}`)] };
 }
 

@@ -1,0 +1,10 @@
+# A Questions added line is stored and stays in the thread
+
+The owner (T-204): "Questions added status lines go away after questions are answered it appears. … generally the thread should be an append-only experience. That questions link should not have gone away. What I could be amenable to is having it be orange if there are pending questions and have it fall back to blue when there are no more questions. But it still links back to the topic." The old "N new questions" line was never stored: the page drew it from the card's open questions asked since the card was last seen, so it went once they were answered or once the card was opened. It was the only thread line drawn that way.
+
+- **Stored at publish.** Each batch of questions published on a card (`question add`, a planner's staged questions, `question publish` after screening, all through `store.mjs` `publishQuestions`) writes one `questions-added` status line to that card's thread: "N questions added", led by the plain question mark, linking to `questions.html#<the batch's first id>` and holding the batch's ids (`questions`). A batch spread over several cards writes one line on each, holding that card's ids.
+- **Coloured from its own batch.** `domain.mjs` `threadOf` sets the line's `open` while any question it holds is open (`ownerQuestion` state `open`, so a reopened one counts again), and the thread draws it orange (`asking`) while open and blue (`created`) once every one is answered, replied, requested or resolved. Another batch on the same card never colours it (owner, t204-colour).
+- **No backfill.** Cards whose questions were published before this keep no line for them (owner, t204-old).
+- **The page draws none.** `ui-threads.js` `newQuestionsLine` and its merge in `app-threads.js` are gone, and with them the `questions` thread kind. The card still counts its new questions as one unread message (`it.questions.askedAt`).
+
+Supersedes the "New questions are a thread line" point of [a button tap is a status line or a message footer](2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).

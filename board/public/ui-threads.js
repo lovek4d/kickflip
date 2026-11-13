@@ -48,9 +48,12 @@
     out.sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i || a.part - b.part);
     return out.map(({ m, of, quoted, later }, n) => (of ? { ...m, quote: later || out[n - 1]?.m === of && !(of.answers?.length > 1) ? '' : quoted || '' } : m));
   };
-  // A request or board line's one tone, by the colour rule (red fault > orange staged > green readied > blue created >
-  // gray); style.css colours its icon, words and link from this class alone.
-  const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.command === 'readied' ? ' readied'
+  // A request or board line's one tone, by the colour rule (red fault > orange staged or asking > green readied > blue
+  // created > gray); style.css colours its icon, words and link from this class alone. A questions-added line is asking
+  // while its batch has an open question and created once none has
+  // (docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md).
+  const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.line === 'questions-added' ? (m.open ? ' asking' : ' created')
+    : m.command === 'readied' ? ' readied'
     : ['created', 'created-from'].includes(m.command) || ['ticket-made', 'ask-routed'].includes(m.line) ? ' created' : '');
   // Every status line's shell: its classes, its mark and words (head), then " · " and its time, with `by` before the time
   // and `after` behind it, so no kind can leave its time out
@@ -76,7 +79,6 @@
     : m.kind === 'hub' ? statusLine(`request hub${tone(m)}`, statusMark(m.mark) + (m.link ? linked(m.link, escText(m.text)) : escText(m.text)), m.ts)
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? statusLine('request move', statusMark('move') + escText(m.text), m.ts)
-    : m.kind === 'questions' ? statusLine('builder-status planner new-questions', statusMark('questions') + linked(m.link, escText(m.text)), m.ts)
     : m.folded ? foldedRun(m, links)
     : m.kind === 'status' ? statusLine(`builder-status${m.planner ? ' planner' : ''}`, mark('<span class="working-dot"></span>') + linkText(m.text, links), m.ts)
     // A builder's judgment calls: their posted time, then whether the session verified them and when.
@@ -118,7 +120,7 @@
   const STEP = 3;
   const UNREAD_CAP = 10;
   // Every kind of system line; each leads with a mark, and a test renders each, so a new kind needs an entry in ui.js MARK_ICONS.
-  const SYSTEM_KINDS = ['status', 'agent', 'calls', 'ask-link', 'questions', 'visual', 'command', 'move', 'hub'];
+  const SYSTEM_KINDS = ['status', 'agent', 'calls', 'ask-link', 'visual', 'command', 'move', 'hub'];
   const { isMessage } = globalThis.BoardUI;
   // Only Claude's and GitHub's messages and the board's fault lines are unread, as on the badge (domain.mjs othersAt,
   // ui-cards.js unreadCount); the orchestrator's answer to a builder's ask never is.
@@ -168,14 +170,5 @@
     return sendButton('Done', 1, `${tone ? ` class="${tone}"` : ''} data-confirm="finish" data-key="${esc(it.key)}"`);
   }
 
-  // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
-  // A card's open questions asked since seenAt as one blue line in its thread, at the newest one's time, linking to the
-  // first: it.questions from the board. → [line], or [] with none new or no seen mark.
-  function newQuestionsLine(questions, seenAt) {
-    const fresh = seenAt ? (questions?.askedAt || []).filter((t) => String(t) > seenAt) : [];
-    if (!fresh.length) return [];
-    return [{ ts: fresh.at(-1), who: 'claude', kind: 'questions', text: `${fresh.length} new question${fresh.length === 1 ? '' : 's'}`, link: `questions.html#${encodeURIComponent(questions.first)}` }];
-  }
-
-  Object.assign(globalThis.BoardUI, { DISMISS, threadMessages, threadFrom, withReplies, doneButton, doneTone, newQuestionsLine, SYSTEM_KINDS });
+  Object.assign(globalThis.BoardUI, { DISMISS, threadMessages, threadFrom, withReplies, doneButton, doneTone, SYSTEM_KINDS });
 })();
