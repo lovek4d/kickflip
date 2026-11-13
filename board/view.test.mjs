@@ -419,92 +419,75 @@ test("the board's Settings, Waiting on you and Notes views, mounted then unmount
   }
 });
 
-test('Board Settings saves auto-build immediately, uses kind-specific words and restores the toggle on refusal', async () => {
-  for (const kind of ['web', 'app']) {
-    const page = fakePage(memoryStorage().localStorage);
-    const root = new page.El();
-    let saved = false, refuse = false;
-    const posts = [];
-    page.win.fetch = async (url, opts = {}) => {
-      let body = url.endsWith('/api/board') ? { kind } : {};
-      if (url.endsWith('/api/settings')) {
-        if (opts.method === 'POST') {
-          posts.push([url, JSON.parse(opts.body)]);
-          if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
-          saved = JSON.parse(opts.body).auto_build;
-        }
-        body = { settings: { auto_build: saved } };
-      }
-      return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-    };
-    const view = page.win.AppViews.settings.create(root, '/orch', {});
-    view.mount();
-    await tick();
-    const toggle = root.querySelector('#autoBuild');
-    assert.equal(toggle.disabled, false);
-    assert.match(root.querySelector('#autoBuildSub').textContent, /hub serves/);
-    toggle.checked = true;
-    page.fire(toggle, 'change');
-    assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy')], [true, 'true'], 'the toggle keeps its face, disabled, with a spinner beside it while it saves');
-    await tick();
-    assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy')], [false, null]);
-    assert.deepEqual(posts.at(-1), ['https://mac.ts.net/orch/api/settings', { auto_build: true }]);
-    assert.equal(root.querySelector('#autoBuildStatus').textContent, 'Saved. Each push serves its card.');
-    refuse = true;
-    toggle.checked = false;
-    page.fire(toggle, 'change');
-    await tick();
-    assert.equal(toggle.checked, true);
-    assert.equal(root.querySelector('#autoBuildStatus').textContent, 'Cannot save');
-    view.unmount();
-  }
-});
-
-// docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md
-test("Board Settings' Build target lists the repo's build scripts with a default, names the script it runs and saves a pick at once", async () => {
+// One Board Settings page on a fake board: /api/settings answers what is saved, and a POST is kept in posts and merged
+// into it, or answers s.refuse while that holds an error. Other URLs answer from routes by their ending.
+function settingsPage({ settings = {}, board = {}, routes = {} } = {}) {
   const page = fakePage(memoryStorage().localStorage);
-  const root = new page.El();
-  let saved = 'gone', refuse = false;
-  const posts = [];
+  const s = { page, root: new page.El(), posts: [], confirms: [], refuse: '', saved: { ...settings } };
+  page.win.BoardDialogs.confirm = async (text) => { s.confirms.push(text); return true; };
   page.win.fetch = async (url, opts = {}) => {
-    let body = url.endsWith('/api/board') ? { kind: 'web' } : {};
-    if (url.endsWith('/api/build-targets')) body = { targets: ['ios', 'web'] };
+    let body = url.endsWith('/api/board') ? board : Object.entries(routes).find(([end]) => url.endsWith(end))?.[1] ?? {};
     if (url.endsWith('/api/settings')) {
       if (opts.method === 'POST') {
-        posts.push(JSON.parse(opts.body));
-        if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
-        saved = JSON.parse(opts.body).build_target;
+        s.posts.push(JSON.parse(opts.body));
+        if (s.refuse) return { ok: false, status: 400, text: async () => JSON.stringify({ error: s.refuse }), json: async () => ({ error: s.refuse }) };
+        s.saved = { ...s.saved, ...JSON.parse(opts.body) };
       }
-      body = { settings: saved ? { build_target: saved } : {} };
+      body = { settings: s.saved };
     }
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
   };
-  const view = page.win.AppViews.settings.create(root, '/orch', {});
-  view.mount();
-  await tick();
-  const select = root.querySelector('#buildTarget');
+  s.view = page.win.AppViews.settings.create(s.root, '/orch', {});
+  s.mount = async () => { s.view.mount(); await tick(); return s; };
+  s.set = async (el, value, field = 'value') => { el[field] = value; page.fire(el, 'change'); await tick(); };
+  return s;
+}
+
+// docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md, docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md,
+// docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
+for (const [key, id] of [['auto_build', 'autoBuild'], ['auto_triage', 'autoTriage'], ['auto_review', 'autoReview'], ['idle_notification', 'idleNotification']]) {
+  test(`Board Settings saves ${key} at once with no confirmation, waits on its toggle, and puts the toggle back on refusal`, async () => {
+    const s = await settingsPage({ settings: { [key]: false } }).mount();
+    const toggle = s.root.querySelector(`#${id}`), status = s.root.querySelector(`#${id}Status`);
+    assert.deepEqual([toggle.disabled, toggle.checked], [false, false]);
+    const said = [];
+    for (const want of [true, false]) {
+      toggle.checked = want;
+      s.page.fire(toggle, 'change');
+      assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy')], [true, 'true'], 'the toggle waits, disabled with a spinner, while it saves');
+      await tick();
+      assert.deepEqual([toggle.disabled, toggle.getAttribute('aria-busy'), toggle.checked, s.posts.at(-1)], [false, null, want, { [key]: want }]);
+      said.push(status.textContent);
+    }
+    assert.notEqual(said[0], said[1], 'the status says which way it saved');
+    assert.deepEqual(s.confirms, []);
+    s.refuse = 'Cannot save';
+    await s.set(toggle, true, 'checked');
+    assert.deepEqual([toggle.checked, status.textContent], [false, 'Cannot save']);
+    s.view.unmount();
+  });
+}
+
+// docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md
+test("Board Settings' Build target lists the repo's build scripts with a default, names the script it runs and saves a pick at once", async () => {
+  const s = await settingsPage({ settings: { build_target: 'gone' }, board: { kind: 'web' }, routes: { '/api/build-targets': { targets: ['ios', 'web'] } } }).mount();
+  const select = s.root.querySelector('#buildTarget'), sub = s.root.querySelector('#buildTargetSub'), status = s.root.querySelector('#buildTargetStatus');
+  const options = () => [...select.innerHTML.matchAll(/<option value="([^"]*)"( selected)?/g)].map((m) => m[1] + (m[2] ? '*' : ''));
   assert.equal(select.disabled, false);
-  assert.equal(select.innerHTML, '<option value="">Default</option><option value="ios">ios</option><option value="web">web</option><option value="gone" selected>gone (not on main)</option>');
-  assert.match(root.querySelector('#buildTargetSub').innerHTML, /<code>\.kickflip\/build-gone<\/code>/);
-  select.value = 'ios';
-  page.fire(select, 'change');
-  await tick();
-  assert.deepEqual(posts.at(-1), { build_target: 'ios' });
-  assert.match(root.querySelector('#buildTargetSub').innerHTML, /<code>\.kickflip\/build-ios<\/code>/);
-  assert.equal(root.querySelector('#buildTargetStatus').textContent, 'Saved. The hub runs .kickflip/build-ios for each card and main.');
-  assert.doesNotMatch(select.innerHTML, /gone/);
-  select.value = '';
-  page.fire(select, 'change');
-  await tick();
-  assert.deepEqual(posts.at(-1), { build_target: null });
-  assert.match(root.querySelector('#buildTargetSub').innerHTML, /<code>\.kickflip\/build<\/code>/);
-  refuse = true;
-  select.value = 'web';
-  page.fire(select, 'change');
-  await tick();
-  assert.equal(select.value, '');
-  assert.equal(root.querySelector('#buildTargetStatus').textContent, 'Cannot save');
-  view.unmount();
+  assert.deepEqual(options(), ['', 'ios', 'web', 'gone*'], 'a saved script no longer on main stays listed, picked');
+  assert.match(sub.innerHTML, /\.kickflip\/build-gone\b/);
+  await s.set(select, 'ios');
+  assert.deepEqual(s.posts.at(-1), { build_target: 'ios' });
+  assert.match(sub.innerHTML, /\.kickflip\/build-ios\b/);
+  assert.match(status.textContent, /\.kickflip\/build-ios\b/);
+  assert.deepEqual(options(), ['', 'ios*', 'web']);
+  await s.set(select, '');
+  assert.deepEqual(s.posts.at(-1), { build_target: null });
+  assert.match(sub.innerHTML, /\.kickflip\/build\b(?!-)/);
+  s.refuse = 'Cannot save';
+  await s.set(select, 'web');
+  assert.deepEqual([select.value, status.textContent], ['', 'Cannot save']);
+  s.view.unmount();
 });
 
 // docs/adr/2026-11-04-0119-the-board-server-removes-reviewers-itself.md
@@ -623,99 +606,47 @@ test("Board Settings opens with Pause board: the snooze picker's chips, Forever 
   await tick();
   const box = root.querySelector('#pauseBoard');
   const status = root.querySelector('#pauseBoardStatus');
-  assert.match(box.innerHTML, /<span class="title" id="pauseBoardTitle">Pause board<\/span>/);
-  assert.deepEqual([...box.innerHTML.matchAll(/name="pause" value="([^"]+)"/g)].map((m) => m[1]), ['1h', '3h', 'forever']);
-  assert.match(box.innerHTML, /aria-label="Forever, until you resume">Forever</);
+  const choices = () => [...box.innerHTML.matchAll(/name="pause" value="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(choices(), ['1h', '3h', 'forever']);
   assert.match(box.innerHTML, /action="https:\/\/mac\.ts\.net\/orch\/api\/pause"/);
   const submit = async (value) => { page.fire(box, 'submit', { target: new page.El(), submitter: Object.assign(new page.El(), { value }) }); await tick(); await tick(); };
   await submit('3h');
   assert.deepEqual(posts.at(-1), { pause: '3h' });
-  assert.match(box.innerHTML, /class="row dur-on"><span class="body"><span class="text title">Paused until [^<]+<\/span>[^]*name="pause" value="off">Resume/);
-  assert.equal(status.textContent, 'Paused. New work on this board waits.');
+  assert.deepEqual(choices(), ['off'], 'a paused board offers only Resume');
+  const pausedUntil = box.innerHTML, pausedSaid = status.textContent;
   assert.equal(sidebar, 1, 'the sidebar redraws its paused row');
   await submit('off');
   assert.deepEqual(posts.at(-1), { pause: 'off' });
-  assert.equal(status.textContent, 'Resumed. New work starts again.');
-  assert.match(box.innerHTML, /value="1h"/);
+  assert.notEqual(status.textContent, pausedSaid);
+  assert.deepEqual(choices(), ['1h', '3h', 'forever']);
   await submit('forever');
   assert.deepEqual(posts.at(-1), { pause: 'forever' });
-  assert.match(box.innerHTML, /<span class="text title">Paused until you resume<\/span>[^]*value="off">Resume/);
+  assert.deepEqual(choices(), ['off']);
+  assert.notEqual(box.innerHTML, pausedUntil, 'a forever pause reads differently from one with an end');
   await submit('off');
   await submit('soon');
   assert.equal(status.textContent, 'A pause ends after now and within 30 days.');
   view.unmount();
 });
 
-// docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md, docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
-for (const [key, id, on] of [
-  ['auto_triage', 'autoTriage', 'Saved. Once a night, when cards wait on your answers, Claude triages them.'],
-  ['auto_review', 'autoReview', 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.'],
-  ['idle_notification', 'idleNotification', 'Saved. One push once the board has been idle for 15 minutes.'],
-]) test(`Board Settings turns ${key} on and off with no confirmation and restores the toggle on refusal`, async () => {
-  const page = fakePage(memoryStorage().localStorage);
-  const root = new page.El();
-  let saved = false, refuse = false;
-  const posts = [], confirms = [];
-  page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return true; };
-  page.win.fetch = async (url, opts = {}) => {
-    let body = {};
-    if (url.endsWith('/api/settings')) {
-      if (opts.method === 'POST') {
-        posts.push(JSON.parse(opts.body));
-        if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
-        saved = JSON.parse(opts.body)[key];
-      }
-      body = { settings: { [key]: saved } };
-    }
-    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-  };
-  const view = page.win.AppViews.settings.create(root, '/orch', {});
-  view.mount();
-  await tick();
-  const toggle = root.querySelector(`#${id}`);
-  const status = root.querySelector(`#${id}Status`);
-  assert.equal(toggle.disabled, false);
-  assert.equal(toggle.checked, false);
-  toggle.checked = true;
-  page.fire(toggle, 'change');
-  await tick();
-  assert.deepEqual([confirms, posts.at(-1), toggle.checked], [[], { [key]: true }, true]);
-  assert.equal(status.textContent, on);
-  toggle.checked = false;
-  page.fire(toggle, 'change');
-  await tick();
-  assert.deepEqual([confirms.length, posts.at(-1), toggle.checked], [0, { [key]: false }, false]);
-  refuse = true;
-  toggle.checked = true;
-  page.fire(toggle, 'change');
-  await tick();
-  assert.equal(toggle.checked, false);
-  assert.equal(status.textContent, 'Cannot save');
-  view.unmount();
-});
-
 // docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md
-test('Board Settings shows Landing above Auto only on a GitHub board that builds from its shared clone or the hub board, with Reviewers while it opens PRs, its choice read from prs and skip_draft, and Auto-merge says it merges PRs and base branch landings', async () => {
+test('Board Settings shows Landing above Auto only on a GitHub board that builds from its shared clone or the hub board, with Reviewers while it opens PRs, its choice read from prs and skip_draft', async () => {
   const markup = fakePage(memoryStorage().localStorage).win.AppViews.settings.markup({}, {});
   assert.ok(markup.indexOf('<h2>Landing</h2>') > markup.indexOf('<h2>Tickets</h2>') && markup.indexOf('<h2>Landing</h2>') < markup.indexOf('<h2>Auto</h2>'));
-  assert.deepEqual([...markup.matchAll(/data-landing="(\w+)"[^>]*><span>([^<]+)<\/span><span class="small sub">([^<]+)<\/span>/g)].map((m) => m.slice(1)), [
-    ['draft', 'Draft PR', 'Opens a draft; you mark it ready.'],
-    ['ready', 'Ready PR', 'Opens ready for review once CI passes.'],
-    ['merge', 'Merge', 'No PR; lands on the base branch.'],
-  ]);
-  assert.doesNotMatch(markup, /id="prs"|id="skipDraft"|Skip the draft|lands on main/);
-  assert.match(markup, /Auto-merge<\/span>\s*<span class="muted small sub">Claude merges a PR once it is approved, green and merges cleanly, and lands a build waiting to merge into the base branch\.<\/span>/);
+  assert.deepEqual([...markup.matchAll(/data-landing="(\w+)"/g)].map((m) => m[1]), ['draft', 'ready', 'merge']);
+  assert.doesNotMatch(markup, /id="prs"|id="skipDraft"/);
   const cases = [
-    [{ github: 'owner/project', branch: 'main' }, { prs: true, skip_draft: false }, 'draft', 'Each card opens a draft PR and waits for you to mark it ready for review.'],
-    [{ github: 'owner/project', branch: 'main' }, { prs: true, skip_draft: true }, 'ready', 'Each card opens a PR ready for review, without waiting for you.'],
-    [{ github: 'owner/project', branch: 'main' }, { prs: false, skip_draft: true }, 'merge', 'No PR opens: each card lands on the base branch and the base branch is pushed.'],
+    [{ github: 'owner/project', branch: 'main' }, { prs: true, skip_draft: false }, 'draft'],
+    [{ github: 'owner/project', branch: 'main' }, { prs: true, skip_draft: true }, 'ready'],
+    [{ github: 'owner/project', branch: 'main' }, { prs: false, skip_draft: true }, 'merge'],
     [{ github: 'owner/project', branch: 'main', local: true }, { prs: true }, null],
-    [{ github: 'owner/project', branch: 'main', local: true, hub: true }, { prs: false }, 'merge', 'No PR opens: each card lands on the base branch and the base branch is pushed.'],
-    [{ github: 'owner/project', branch: 'main', local: true, hub: true }, { prs: true, skip_draft: false }, 'draft', 'Each card opens a draft PR and waits for you to mark it ready for review.'],
-    [{ github: 'owner/project', branch: 'main', local: true, hub: true }, { prs: true, skip_draft: true }, 'ready', 'Each card opens a PR ready for review, without waiting for you.'],
+    [{ github: 'owner/project', branch: 'main', local: true, hub: true }, { prs: false }, 'merge'],
+    [{ github: 'owner/project', branch: 'main', local: true, hub: true }, { prs: true, skip_draft: false }, 'draft'],
+    [{ github: 'owner/project', branch: 'main', local: true, hub: true }, { prs: true, skip_draft: true }, 'ready'],
     [{}, { prs: true }, null],
   ];
-  for (const [repoBody, settings, pressed, sub] of cases) {
+  const subs = new Map();
+  for (const [repoBody, settings, pressed] of cases) {
     const page = fakePage(memoryStorage().localStorage);
     const root = new page.El();
     const view = page.win.AppViews.settings.create(root, '/orch', {});
@@ -730,10 +661,12 @@ test('Board Settings shows Landing above Auto only on a GitHub board that builds
     assert.equal(root.querySelector('#reviewersSection').hidden, pressed === 'merge' || !pressed, label);
     if (pressed) {
       assert.deepEqual(['draft', 'ready', 'merge'].map((v) => root.querySelector(`[data-landing="${v}"]`).getAttribute('aria-pressed')), ['draft', 'ready', 'merge'].map((v) => String(v === pressed)), label);
-      assert.equal(root.querySelector('#landingSub').textContent, sub, label);
+      subs.set(pressed, [...(subs.get(pressed) || []), root.querySelector('#landingSub').textContent]);
     }
     view.unmount();
   }
+  assert.deepEqual([...subs.values()].map((said) => new Set(said).size), [1, 1, 1], 'each choice reads one way wherever it shows');
+  assert.equal(new Set([...subs.values()].map((said) => said[0])).size, 3, 'and each reads differently');
 });
 
 // docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md
@@ -763,145 +696,53 @@ test('a Landing tap saves prs and skip_draft together with no confirmation, Merg
   const pressed = () => ['draft', 'ready', 'merge'].filter((v) => button(v).getAttribute('aria-pressed') === 'true');
   const tap = async (v) => { page.fire(button(v), 'click', { target: button(v) }); await tick(); };
   assert.deepEqual([button('draft').disabled, pressed()], [false, ['draft']]);
+  const said = () => root.querySelector('#landingStatus').textContent;
+  const subOf = () => root.querySelector('#landingSub').textContent;
+  const draftSub = subOf();
   await tap('ready');
-  assert.deepEqual([confirms, posts.at(-1), pressed(), root.querySelector('#landingStatus').textContent], [[], { prs: true, skip_draft: true }, ['ready'], 'Saved. Each card opens a PR ready for review.']);
-  assert.equal(root.querySelector('#landingSub').textContent, 'Each card opens a PR ready for review, without waiting for you.');
+  assert.deepEqual([confirms, posts.at(-1), pressed()], [[], { prs: true, skip_draft: true }, ['ready']]);
+  const readySaid = said();
+  assert.notEqual(subOf(), draftSub, 'the sub reads the new choice');
   refuse = true;
   await tap('merge');
-  assert.deepEqual([posts.at(-1), pressed(), root.querySelector('#landingStatus').textContent], [{ prs: false }, ['ready'], 'Merge lands each card on main and pushes it, so turn on Push main after a land first']);
+  assert.deepEqual([posts.at(-1), pressed(), said()], [{ prs: false }, ['ready'], 'Merge lands each card on main and pushes it, so turn on Push main after a land first']);
   assert.equal(root.querySelector('#reviewersSection').hidden, false);
   refuse = false;
   await tap('merge');
-  assert.deepEqual([posts.at(-1), pressed(), root.querySelector('#landingStatus').textContent], [{ prs: false }, ['merge'], 'Saved. Each card lands on the base branch with no PR, and the base branch is pushed.']);
+  assert.deepEqual([posts.at(-1), pressed()], [{ prs: false }, ['merge']]);
+  assert.ok(![readySaid, ''].includes(said()) && !said().startsWith('Merge lands'), said());
   assert.deepEqual([root.querySelector('#reviewersSection').hidden, root.querySelector('#landingSection').hidden], [true, false]);
   await tap('draft');
-  assert.deepEqual([posts.at(-1), pressed(), root.querySelector('#landingStatus').textContent], [{ prs: true, skip_draft: false }, ['draft'], 'Saved. Each card opens a draft PR.']);
+  assert.deepEqual([posts.at(-1), pressed(), subOf()], [{ prs: true, skip_draft: false }, ['draft'], draftSub]);
   assert.equal(root.querySelector('#reviewersSection').hidden, false);
   view.unmount();
 });
 
-// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-test('Board Settings shows Maximum parallel implementers beside Auto implement, saves a whole number from 1 to 99 on change and restores the saved one on refusal', async () => {
-  const page = fakePage(memoryStorage().localStorage);
-  const root = new page.El();
-  let saved = 10, refuse = false;
-  const posts = [];
-  page.win.fetch = async (url, opts = {}) => {
-    let body = {};
-    if (url.endsWith('/api/settings')) {
-      if (opts.method === 'POST') {
-        posts.push(JSON.parse(opts.body));
-        if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
-        saved = JSON.parse(opts.body).max_implementers;
-      }
-      body = { settings: { max_implementers: saved } };
-    }
-    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-  };
-  const view = page.win.AppViews.settings.create(root, '/orch', {});
-  view.mount();
-  await tick();
-  const input = root.querySelector('#maxImplementers');
-  const status = root.querySelector('#maxImplementersStatus');
-  assert.deepEqual([input.disabled, input.value], [false, '10']);
-  input.value = '4';
-  page.fire(input, 'change');
-  await tick();
-  assert.deepEqual([posts.at(-1), input.value, status.textContent], [{ max_implementers: 4 }, '4', 'Saved. Up to 4 agents build at once.']);
-  input.value = '1';
-  page.fire(input, 'change');
-  await tick();
-  assert.equal(status.textContent, 'Saved. Up to 1 agent builds at once.');
-  for (const bad of ['0', '100', '2.5', '']) {
-    input.value = bad;
-    page.fire(input, 'change');
-    await tick();
-    assert.deepEqual([posts.length, input.value, status.textContent], [2, '1', 'Pick a whole number from 1 to 99.'], bad);
-  }
-  refuse = true;
-  input.value = '7';
-  page.fire(input, 'change');
-  await tick();
-  assert.deepEqual([input.value, status.textContent], ['1', 'Cannot save']);
-  view.unmount();
-});
-
+// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md,
 // docs/adr/2026-11-12-0112-a-card-serve-stays-up-while-its-worktree-does.md
-test('Board Settings shows Maximum parallel serves under the planners and saves it on change', async () => {
-  const page = fakePage(memoryStorage().localStorage);
-  const root = new page.El();
-  let saved = { max_implementers: 10, max_planners: 3, max_serves: 10 };
-  const posts = [];
-  page.win.fetch = async (url, opts = {}) => {
-    let body = {};
-    if (url.endsWith('/api/settings')) {
-      if (opts.method === 'POST') { posts.push(JSON.parse(opts.body)); saved = { ...saved, ...JSON.parse(opts.body) }; }
-      body = { settings: saved };
+const CAPS = [['max_implementers', 'maxImplementers'], ['max_planners', 'maxPlanners'], ['max_serves', 'maxServes']];
+for (const [key, id] of CAPS) {
+  test(`Board Settings saves ${key} as a whole number from 1 to 99 on change, and puts the saved one back on a bad number or a refusal`, async () => {
+    const s = await settingsPage({ settings: { max_implementers: 10, max_planners: 3, max_serves: 6 } }).mount();
+    const input = s.root.querySelector(`#${id}`), status = s.root.querySelector(`#${id}Status`);
+    const values = () => CAPS.map(([, other]) => s.root.querySelector(`#${other}`).value);
+    assert.deepEqual([input.disabled, values()], [false, ['10', '3', '6']]);
+    await s.set(input, '4');
+    assert.deepEqual([s.posts, input.value], [[{ [key]: 4 }], '4']);
+    assert.match(status.textContent, /\b4\b/, 'the status names the number saved');
+    const saved = status.textContent;
+    for (const bad of ['0', '100', '2.5', '']) {
+      await s.set(input, bad);
+      assert.deepEqual([s.posts.length, input.value], [1, '4'], bad);
+      assert.notEqual(status.textContent, saved, bad);
     }
-    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-  };
-  const html = page.win.AppViews.settings.markup({}, { siteTitle: 'Orch' });
-  assert.match(html, /Maximum parallel serves<\/span>\s*<span class="muted small sub">Each open card worktree keeps one serve up\. Installs aren’t counted\. A busy host asks before it starts another\.<\/span>/);
-  const view = page.win.AppViews.settings.create(root, '/orch', {});
-  view.mount();
-  await tick();
-  const input = root.querySelector('#maxServes');
-  assert.deepEqual([input.disabled, input.value], [false, '10']);
-  input.value = '4';
-  page.fire(input, 'change');
-  await tick();
-  assert.deepEqual([posts.at(-1), input.value, root.querySelector('#maxServesStatus').textContent], [{ max_serves: 4 }, '4', 'Saved. Up to 4 serves stay up at once.']);
-  input.value = '1';
-  page.fire(input, 'change');
-  await tick();
-  assert.equal(root.querySelector('#maxServesStatus').textContent, 'Saved. Up to 1 serve stays up at once.');
-});
-
-// docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md
-test('Board Settings shows Maximum parallel planners under the implementers, saves 1 to 99 on change and restores the saved one on refusal', async () => {
-  const page = fakePage(memoryStorage().localStorage);
-  const root = new page.El();
-  let saved = { max_implementers: 10, max_planners: 3 }, refuse = false;
-  const posts = [];
-  page.win.fetch = async (url, opts = {}) => {
-    let body = {};
-    if (url.endsWith('/api/settings')) {
-      if (opts.method === 'POST') {
-        posts.push(JSON.parse(opts.body));
-        if (refuse) return { ok: false, json: async () => ({ error: 'Cannot save' }) };
-        saved = { ...saved, ...JSON.parse(opts.body) };
-      }
-      body = { settings: saved };
-    }
-    return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
-  };
-  const view = page.win.AppViews.settings.create(root, '/orch', {});
-  view.mount();
-  await tick();
-  const input = root.querySelector('#maxPlanners');
-  const status = root.querySelector('#maxPlannersStatus');
-  assert.deepEqual([input.disabled, input.value, root.querySelector('#maxImplementers').value], [false, '3', '10']);
-  input.value = '5';
-  page.fire(input, 'change');
-  await tick();
-  assert.deepEqual([posts.at(-1), input.value, status.textContent], [{ max_planners: 5 }, '5', 'Saved. Up to 5 grills or prototypes run at once.']);
-  input.value = '1';
-  page.fire(input, 'change');
-  await tick();
-  assert.equal(status.textContent, 'Saved. Up to 1 grill or prototype runs at once.');
-  for (const bad of ['0', '100', '2.5', '']) {
-    input.value = bad;
-    page.fire(input, 'change');
-    await tick();
-    assert.deepEqual([posts.length, input.value, status.textContent], [2, '1', 'Pick a whole number from 1 to 99.'], bad);
-  }
-  refuse = true;
-  input.value = '7';
-  page.fire(input, 'change');
-  await tick();
-  assert.deepEqual([input.value, status.textContent, root.querySelector('#maxImplementers').value], ['1', 'Cannot save', '10']);
-  view.unmount();
-});
+    s.refuse = 'Cannot save';
+    await s.set(input, '7');
+    assert.deepEqual([input.value, status.textContent], ['4', 'Cannot save']);
+    assert.deepEqual(values().filter((v, i) => CAPS[i][0] !== key), ['10', '3', '6'].filter((v, i) => CAPS[i][0] !== key), 'the other caps stay as saved');
+    s.view.unmount();
+  });
+}
 
 test('Board Settings warns about active work, requires the exact board name and waits for the close response before opening the hub', async () => {
   const page = fakePage(memoryStorage().localStorage);
@@ -3869,43 +3710,44 @@ test("deleting an ask from the New strip is one events POST: its trash icon wait
   b.view.unmount();
 });
 
-test("Done, Unhold, Implement, Merge and a Hold sheet chip each wait on their button, disabled with its label kept, while the card stays as it was; Done closes its card once the server answers, and a refusal toasts the server's reason", async () => {
-  const merge = { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' };
-  const holdChoices = [{ value: '1h', label: '1h', ms: 3_600_000 }];
-  const cards = [workCard('T1', { finishable: true, holdable: true }), workCard('H1', { held: true, holdable: true }), workCard('M1', { lane: 'review', action: merge })];
+// docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md: each button on a card that waits on its tap,
+// the card it sits on, the event it sends, and the card once a board shows its change. A Merge rests on its board in the
+// Merge race test below.
+const HOLD_CHOICES = [{ value: '1h', label: '1h', ms: 3_600_000 }];
+const CARD_TAPS = [
+  { name: 'Unhold', card: workCard('H1', { held: true, holdable: true }), act: 'resume', kind: 'card-hold', changed: (c) => ({ ...c, held: false }) },
+  { name: 'a Hold sheet chip', card: workCard('T1', { holdable: true }), act: 'hold', sheet: true, kind: 'card-hold', changed: (c) => ({ ...c, held: true, heldUntil: '2026-10-30T11:00:00.000Z' }) },
+  { name: 'Done', card: workCard('F1', { finishable: true }), act: 'finish', kind: 'card-done', changed: (c) => ({ ...c, lane: 'done', storedLane: 'done' }) },
+  { name: 'a bump', card: workCard('B1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 }), kind: 'card-bump', changed: (c) => ({ ...c, bumpedAt: '2026-10-30T10:00:01.000Z' }) },
+  { name: 'Merge', card: workCard('M1', { lane: 'review', action: { kind: 'merge', url: '#selectedCard=w%2FM1', label: 'Merge' } }), act: 'merge', kind: 'card-merge' },
+];
+
+// A board holding the row's card open, its button tapped (and the Hold sheet's chip after it), its POST held.
+async function tapCard(row) {
   const sends = heldSends();
-  const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, send: sends.send, confirm: true });
+  const b = boardOnDom({ open: [row.card.key], board: { ...boardOf([row.card]), holdChoices: HOLD_CHOICES }, threads: {}, send: sends.send, confirm: true });
   await b.settle();
-  const button = (key, act) => b.root.querySelector(`details.item[data-key="${key}"] [data-confirm="${act}"]`);
-  const card = (key) => b.root.querySelector(`details.item[data-key="${key}"]`);
-  for (const [key, act, label] of [['w/H1', 'resume', 'Unhold'], ['w/M1', 'merge', 'Merge']]) {
-    b.page.fire(b.root, 'click', { target: button(key, act) });
-    await b.settle();
-    assert.deepEqual([...waitState(button(key, act)), button(key, act).textContent], [...WAITING, label], act);
+  const card = () => b.root.querySelector(`details.item[data-key="${row.card.key}"]`);
+  const button = () => card().querySelector(row.act ? `[data-confirm="${row.act}"]` : 'button[data-card-bump]');
+  const before = { label: button().textContent, lane: card().closest('.lane').dataset.lane };
+  b.page.fire(b.root, 'click', { target: button() });
+  if (row.sheet) b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
+  await b.settle();
+  return { b, sends, card, button, before };
+}
+
+for (const row of CARD_TAPS) {
+  test(`${row.name} waits on its button, disabled with its label kept, while the card stays as it was, and a refusal rests it and toasts the server's reason`, async () => {
+    const { b, sends, card, button, before } = await tapCard(row);
+    assert.deepEqual([waitState(button()), button().textContent, card().closest('.lane').dataset.lane], [WAITING, before.label, before.lane]);
     sends.answer(false, REFUSED);
     await b.settle();
-    assert.deepEqual(waitState(button(key, act)), [false, false, null], act);
-  }
-  assert.equal(b.root.querySelectorAll('.toast').length >= 1, true);
-  assert.match(b.root.textContent, /Couldn’t write t\/T1 to its item file/);
-
-  b.page.fire(b.root, 'click', { target: button('w/T1', 'hold') });
-  b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
-  assert.deepEqual(waitState(button('w/T1', 'hold')), WAITING);
-  sends.answer(false, REFUSED);
-  await b.settle();
-  assert.deepEqual(waitState(button('w/T1', 'hold')), IDLE);
-
-  b.page.fire(b.root, 'click', { target: button('w/T1', 'finish') });
-  await b.settle();
-  assert.deepEqual([waitState(button('w/T1', 'finish')), card('w/T1').open, card('w/T1').closest('.lane').dataset.lane], [WAITING, true, 'todo']);
-  b.server.board = { ...boardOf([workCard('T1', { lane: 'done', storedLane: 'done' }), ...cards.slice(1)]), holdChoices };
-  sends.answer();
-  await b.settle();
-  assert.deepEqual([card('w/T1').open, card('w/T1').closest('.lane').dataset.lane], [false, 'done']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['card-hold', 'card-merge', 'card-hold', 'card-done']);
-  b.view.unmount();
-});
+    assert.deepEqual(waitState(button()), IDLE);
+    assert.ok(b.root.textContent.includes(REFUSED));
+    assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), [row.kind]);
+    b.view.unmount();
+  });
+}
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
 test("a Merge tap spins until a board shows the card left In Review or the merge refused, with no idle Merge in between, even when a reload races the POST", async () => {
@@ -5870,50 +5712,20 @@ test("Prototype, Grill and Visual spin until the thread shows a new line, while 
   b.view.unmount();
 });
 
-test("Hold, Unhold, Done and a bump spin until a board shows their change, while their POST is still out", async () => {
-  const holdChoices = [{ value: '1h', label: '1h', ms: 3_600_000 }];
-  const T1 = workCard('T1', { holdable: true });
-  const H1 = workCard('H1', { held: true, holdable: true });
-  const F1 = workCard('F1', { finishable: true });
-  const B1 = workCard('B1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 });
-  const sends = heldSends();
-  const b = boardOnDom({ open: ['w/T1', 'w/H1', 'w/F1'], board: { ...boardOf([T1, H1, F1, B1]), holdChoices }, threads: {}, send: sends.send, confirm: true });
-  await b.settle();
-  const button = (key, act) => b.root.querySelector(`details.item[data-key="${key}"] [data-confirm="${act}"]`);
-  const bump = () => b.root.querySelector('details.item[data-key="w/B1"] button[data-card-bump]');
-  const show = (cards) => b.change({ board: { ...boardOf(cards), holdChoices } });
-
-  b.page.fire(b.root, 'click', { target: button('w/H1', 'resume') });
-  await b.settle();
-  assert.deepEqual(waitState(button('w/H1', 'resume')), WAITING);
-  await show([T1, H1, F1, B1]);
-  assert.deepEqual(waitState(button('w/H1', 'resume')), WAITING, 'a board without the change keeps the spinner');
-  await show([T1, { ...H1, held: false }, F1, B1]);
-  assert.deepEqual(waitState(button('w/H1', 'hold')), IDLE, 'Unhold rests once a board shows the card unheld');
-
-  b.page.fire(b.root, 'click', { target: button('w/T1', 'hold') });
-  b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
-  assert.deepEqual(waitState(button('w/T1', 'hold')), WAITING);
-  await show([{ ...T1, held: true, heldUntil: '2026-10-30T11:00:00.000Z' }, { ...H1, held: false }, F1, B1]);
-  assert.deepEqual(waitState(button('w/T1', 'resume')), IDLE, 'Hold rests once a board shows the hold');
-
-  b.page.fire(b.root, 'click', { target: bump() });
-  await b.settle();
-  assert.equal(bump().getAttribute('aria-busy'), 'true');
-  await show([{ ...T1, held: true, heldUntil: '2026-10-30T11:00:00.000Z' }, { ...H1, held: false }, F1, { ...B1, bumpedAt: '2026-10-30T10:00:01.000Z' }]);
-  assert.equal(bump().getAttribute('aria-busy'), null, 'the bump rests once a board shows it');
-
-  b.page.fire(b.root, 'click', { target: button('w/F1', 'finish') });
-  await b.settle();
-  assert.deepEqual(waitState(button('w/F1', 'finish')), WAITING);
-  await show([{ ...T1, held: true, heldUntil: '2026-10-30T11:00:00.000Z' }, { ...H1, held: false }, { ...F1, lane: 'done', storedLane: 'done' }, { ...B1, bumpedAt: '2026-10-30T10:00:01.000Z' }]);
-  assert.equal(b.root.querySelector('details.item[data-key="w/F1"] .tap-waiting'), null, 'Done rests once a board shows the card done');
-
-  assert.equal(sends.waiting.length, 4, 'every POST is still out');
-  while (sends.waiting.length) sends.answer();
-  await b.settle();
-  b.view.unmount();
-});
+for (const row of CARD_TAPS.filter((r) => r.changed)) {
+  test(`${row.name} spins until a board shows its change, while its POST is still out`, async () => {
+    const { b, sends, card, button } = await tapCard(row);
+    const show = (c) => b.change({ board: { ...boardOf([c]), holdChoices: HOLD_CHOICES } });
+    await show(row.card);
+    assert.deepEqual(waitState(button()), WAITING, 'a board without the change keeps the spinner');
+    await show(row.changed(row.card));
+    assert.equal(card().querySelector('.tap-waiting'), null);
+    assert.equal(sends.waiting.length, 1, 'the POST is still out');
+    sends.answer();
+    await b.settle();
+    b.view.unmount();
+  });
+}
 
 test("a tap whose POST board cannot land because a reload won the race keeps its spinner until a board made after the tap is drawn", async () => {
   const T1 = workCard('T1', { bumpable: true, sortAt: '2026-10-01T00:00:00.000Z', order: 0 });

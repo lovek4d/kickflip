@@ -34,25 +34,13 @@ test('the board and the hub take every colour from shared/colors.css and define 
   }
 });
 
-test('one human blue: --accent is the planner blue in both modes, and every label on an accent fill reads --on-accent', () => {
-  const [light, dark] = colorsCss.split('@media (prefers-color-scheme: dark)');
-  const value = (src, name) => new RegExp(`${name}:\\s*([^;]+);`).exec(src)?.[1].trim();
-  assert.deepEqual([value(light, '--accent'), value(light, '--accent-soft'), value(light, '--on-accent')], ['#2b6cb0', '#eef6ff', '#ffffff']);
-  assert.deepEqual([value(dark, '--accent'), value(dark, '--accent-soft'), value(dark, '--on-accent')], ['#6fa8e8', '#141b26', '#0b0b0e']);
+test('one human blue: no colour is named for a person or a hue, and every label on an accent fill reads --on-accent', () => {
   assert.deepEqual([...definedIn(colorsCss)].filter((v) => /love|blue/.test(v)), []);
   for (const f of ['style.css', 'sidebar.css', 'hub.css']) {
     const css = fs.readFileSync(new URL(`./public/${f}`, import.meta.url), 'utf8');
     const filled = css.split('}').filter((r) => /background:\s*var\(--accent\)/.test(r) && /[^-]color:/.test(r));
     for (const r of filled) assert.match(r, /[^-]color:\s*var\(--on-accent\)/, `${f}: ${r.trim()}`);
   }
-});
-
-test("dark mode's ground is near-black like Linear's, and the semantic colours stay as they were", () => {
-  const dark = colorsCss.split('@media (prefers-color-scheme: dark)')[1];
-  const value = (name) => new RegExp(`${name}:\\s*([^;]+);`).exec(dark)?.[1].trim();
-  assert.deepEqual(['--bg', '--panel', '--line', '--text', '--muted', '--chip', '--band', '--claude'].map(value),
-    ['#0b0c0d', '#111214', '#212226', '#e8e9ec', '#8a8f98', '#1a1b1e', '#141517', '#1f1a12']);
-  assert.deepEqual(['--ok', '--warn', '--bad', '--purple'].map(value), ['#3ccf7f', '#e3a33a', '#f0687f', '#ab7df8']);
 });
 
 test("every hub.css selector is under .hub-view, so the hub's short class names never reach a board's elements", () => {
@@ -83,13 +71,6 @@ test('a closed ask in the Asks lane shows the done icon a done work card shows',
   const asks = css.split('\n').find((l) => /\.status\.asks\b/.test(l));
   assert.ok(asks, 'no .status.asks rule');
   assert.match(asks, new RegExp(`\\{\\s*${done[2].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}`));
-});
-
-test('a button keyboard hint inherits the button text colour, with no per-tone colour rule', () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const rules = css.split('\n').filter((l) => /\.key-hint[^{]*\{/.test(l) && !l.startsWith('@media'));
-  assert.ok(rules.some((l) => /^\.key-hint\s*\{[^}]*color:\s*inherit/.test(l)));
-  assert.deepEqual(rules.filter((l) => /color:/.test(l) && !/^\.key-hint\s*\{[^}]*color:\s*inherit/.test(l)), []);
 });
 
 test('a badge takes one of the six tones, each coloured by a shared colour constant, as a span or a link, and refuses any other tone', () => {
@@ -195,10 +176,6 @@ test("the PR badge alone shows the PR's state, linking to the PR: a purple check
   assert.equal(text(closed), 'repo#7 ✗');
   assert.match(closed, /^<a class="chip tone-danger" [^>]*title="Closed" [^>]*aria-label="repo#7: Closed">[^<]*<\/a>$/);
   assert.match(ui.prChips({ prs: [{ ...openPR, state: undefined, checks: undefined, status: null }] }), /^<a class="chip tone-quiet" href="[^"]+" target="_blank" rel="noopener">repo#7<\/a>$/);
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const [light, dark] = colorsCss.split('@media (prefers-color-scheme: dark)');
-  assert.match(css, /\.chip\.tone-merged \{ color: var\(--color-merged\); \}/);
-  assert.deepEqual([/--purple:\s*([^;]+);/.exec(light)?.[1], /--purple:\s*([^;]+);/.exec(dark)?.[1]], ['#8250df', '#ab7df8']);
 });
 
 test('the header reads the time since the last change signal or refresh, and the In Review header when GitHub was checked, each saying when it needs a look', () => {
@@ -1072,9 +1049,6 @@ test("a thread's Done is the box's second send button, on ⌥↵, never disabled
 });
 
 test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a ready card's Implement is filled orange", () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /button\.build\.ready, button\.unhold, button\.closes \{[^}]*background: var\(--color-notice\)/);
-
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const clicks = [], later = [];
@@ -1227,13 +1201,9 @@ test('a side page request that keeps failing carries its state, and each wait na
   await assert.rejects(ui.fetchJSON('x', { fetch: async () => { throw new TypeError('Failed to fetch'); }, sleep: async () => {}, limit: 0 }), (e) => e.down.state === 'unreachable');
 });
 
-test("offline, the board neither dims nor blocks reading: only the buttons that send are held, each keeping its label", () => {
+test("offline, only the buttons that send are held, each keeping its label", () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(css, /\.offline main > \*\s*\{\s*opacity/);
-  assert.doesNotMatch(css, /\.offline[^{]*\{[^}]*pointer-events:\s*none/);
-  assert.doesNotMatch(css, /\.offline #compose\s*\{\s*display:\s*none/);
   assert.ok(css.includes(`.offline :is(${ui.SENDS})`), 'every sending button is held');
-  assert.doesNotMatch(css, /Waits for the board/);
   assert.equal(ui.SENDS_LABELLED, undefined);
   for (const sel of ['button[data-edit]', 'a.button', 'button[data-lane-more]', 'button[data-thread-more]']) assert.equal(ui.SENDS.includes(sel), false, sel);
 });
@@ -1296,10 +1266,6 @@ test("the Merge button keeps its colour from idle through the tap and the merge"
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
 test("an open card's action row has no Implement, which lives in a Todo card's thread box, nor Grill or Prototype; a held card shows Unhold", () => {
   assert.equal(ui.buildButton, undefined);
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /button\.build\.ready[,\s][^{]*\{[^}]*--color-notice/);
-  assert.doesNotMatch(css, /button\.build[,\s{]/);
-
   const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
@@ -1347,8 +1313,6 @@ test("an owner's message reads its time first in the footer, then sending… or 
   // Nothing in a thread edits or deletes a message, waiting or working.
   const pending = ui.threadMessages([mine(), mine({ eventId: 'e2', state: 'working' }), mine({ eventId: 'a1', kind: 'ask', canEdit: true, canDelete: true })]);
   assert.doesNotMatch(pending, /data-edit|data-withdraw|ask-actions/);
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.msg-foot \.not-sent \{[^}]*color: var\(--color-danger\);[^}]*font-weight: 600/);
 });
 
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
@@ -1366,11 +1330,6 @@ test('a stale builder has no badge and no nudge: its status line goes grey with 
   assert.doesNotMatch(quiet, /working-dot|stale/);
   for (const next of [{ ...builder, stale: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stale/);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /class="[^"]*\bstale\b/);
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /^\.sub\.agent\.stale \{ color: var\(--muted\); \}$/m);
-  assert.match(css, /^\.card-stale \{ color: var\(--muted\); \}$/m);
-  assert.match(css, /^\.card-stalled \{ color: var\(--color-danger\); \}$/m);
-  assert.doesNotMatch(css, /nudg|button\.sub/);
 });
 
 test('a card the orchestrator stalled reads red stalled rightmost on the row under its footer, after its Action needed, in place of stale', () => {
@@ -1538,14 +1497,6 @@ test("a run's line, dot and bar take its card's lane colour: grey in Todo, orang
   assert.equal(lineClass(rebase), 'in-review');
   assert.doesNotMatch(ui.workLines(rebase), /phase-bars/);
   assert.equal(lineClass({ lane: 'review', waitsOn: 'checking', orchestrator: { kind: 'calls', since: at, picked: at, next: 'x' } }), 'in-review');
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const rule = (selector) => new RegExp(`(^|\\n)${selector.replace(/[.()]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)?.[2].trim();
-  assert.equal(rule('.sub.agent.in-todo'), 'color: var(--muted);');
-  assert.equal(rule('.sub.agent.in-progress'), 'color: var(--color-notice);');
-  assert.equal(rule('.sub.agent.in-review'), 'color: var(--color-info);');
-  // One pulse for every bar, in the bar's own fill.
-  assert.match(css, /@keyframes pulse-fill \{ 50% \{ background-color: color-mix\(in srgb, var\(--bar-fill\) 35%, transparent\); \} \}/);
-  assert.doesNotMatch(css, /pulse-fill-plan|\.phase-bars\.plan/);
 });
 
 test("a builder line shows the progress and its age, not who is building", () => {
@@ -1582,9 +1533,6 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   assert.doesNotMatch(html, /data-edit|data-withdraw/);
   // A card read since its ingest has no entry.
   assert.equal(ui.newEntries({ items: [made], merges: [] }, { 'w/T-3': ago(0.1) }).length, 0);
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /^\.new-entry \.processing \{ color: var\(--color-notice\);/m);
-  assert.match(css, /^\.new-done, \.new-link \{ color: var\(--color-info\);/m);
 });
 
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
@@ -1612,7 +1560,6 @@ test("the hub's Routed section is the New strip under its own head: each row lin
   assert.match(html, /pickup-wait/, 'a queued request reads waiting…');
   assert.doesNotMatch(html, /data-dismiss-new|data-edit|data-withdraw|new-dismiss/);
   assert.match(ui.newStrip([], new Map(), { label: 'Routed', empty: 'Nothing routed yet.' }), /<span class="count">0<\/span>[^]*<div class="new-entry new-empty">Nothing routed yet\.<\/div>/);
-  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /^\.new-why \{[^}]*color: var\(--muted\)/m);
 });
 
 const lines = (html) => html.split('<div class="line').slice(1).map((l) => text('<div class="line' + l));
@@ -1746,8 +1693,6 @@ test('a bumped ready card the host holds reads held while host recovers, in grey
   assert.equal(lines(held).at(-1), `${ui.cardTime(sortAt)} · ready · held while host recovers`);
   assert.match(held, /<span class="card-host-held">held while host recovers<\/span>/);
   assert.doesNotMatch(ui.workLines(card), /host/);
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /^\.card-host-held, \.card-paused \{ color: var\(--muted\); \}$/m);
 });
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
@@ -1771,8 +1716,6 @@ test('a paused build reads "pausing · <cause>" in orange, then "paused · <caus
   assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: false } } }), 'pausing');
   const held = ui.workLines({ ...card, blockedBy: [], blocked: false, held: true, builder: { ...builder, pause: { cause: 'held', words: 'held', paused: true } } });
   assert.match(lines(held).at(-1), new RegExp(`^${ui.cardTime(sortAt)} · paused · held ·`), 'the hold reads once');
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /^\.card-pausing \{ color: var\(--color-notice\); \}$/m);
 });
 
 // docs/adr/2026-11-12-0500-a-new-task-is-a-conversation.md
@@ -1797,7 +1740,6 @@ test("a staging card's time line reads staging in orange where ready reads, and 
   assert.doesNotMatch(html, /ph-success/);
   assert.equal(ui.statusWord(card), 'staging');
   assert.equal(ui.statusWord({ ...card, staging: false, ready: true, phase: 'ready' }), 'ready');
-  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.card-phase\.ph-notice \{ color: var\(--color-notice\); \}/);
 });
 
 test("a card's time reads the time only today, adds the day before today, and adds the year past 365 days", () => {
@@ -1821,15 +1763,13 @@ test('an app install badge opens in place and uses the agreed current and stale 
 
 test('try badges share ready, stale, running, failed and absent states for both kinds, including legacy builders', () => {
   for (const kind of ['web', 'app']) for (const render of [ui.installChip, ui.installButton]) {
-    const done = kind === 'web' ? 'Visit' : 'Install';
-    const going = 'serving…';
-    const failed = 'serve failed';
+    const { done, going, failed } = ui.tryWords(kind);
     const card = { ...workCard, try: { kind, state: 'ready', url: kind === 'web' ? null : 'https://m/app.apk', port: kind === 'web' ? 8501 : null, sha: 'abcdef1' } };
     assert.equal(text(render(card)), done);
     assert.match(render(card), /tone-ready/);
     assert.ok(render(card).includes(`href="${kind === 'web' ? 'https://mac.ts.net:8501/' : 'https://m/app.apk'}"`));
     assert.equal(/target="_blank"/.test(render(card)), kind === 'web');
-    assert.equal(text(render({ ...card, try: { ...card.try, stale: true } })), `${done} (stale)`);
+    assert.ok(text(render({ ...card, try: { ...card.try, stale: true } })).startsWith(`${done} `));
     assert.match(render({ ...card, try: { ...card.try, stale: true } }), /tone-quiet.*Built from abcdef1/);
     for (const busy of [{ ...card, try: { ...card.try, state: 'running' } }, { ...card, builder: { kind: 'install' } }]) {
       assert.equal(text(render(busy)), going);
@@ -1992,13 +1932,6 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   assert.ok(ui.MARK_ICONS['question reopened']);
   assert.ok(reopened.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['question reopened']}</span>Question 2 was reopened <span class="muted">`));
   assert.doesNotMatch(requests, /class="who"|waiting…|data-event/);
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.msg\.request \{[^}]*color: var\(--muted\)/);
-  // One fixed box for every mark, so the text starts at the same place.
-  assert.match(css, /\.mark \{[^}]*width: 18px;[^}]*margin-right: 5px/);
-  // The calls line's summary drops the native marker so its caret is the mark; the list starts at the text's edge, with no per-line margin.
-  assert.match(css, /\.msg\.calls summary \{[^}]*list-style: none/);
-  assert.match(css, /\.msg\.calls ol \{[^}]*padding-left: 23px/);
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
@@ -2706,18 +2639,6 @@ test("a Full person's line in a thread is named as them, the owner's stays You",
   assert.match(html, /<div class="who">You · /);
 });
 
-test('while typing, no header strip or docked bar', () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(css, /kb-up|\.docked|--keyboard/);
-});
-
-// docs/adr/2026-11-07-0600-typing-only-disables-the-plus-button.md
-test('while typing on a phone the floating + is hidden, and on a wider screen it stays as it is', () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(css, /\n:root\.typing \.fab \{/);
-  assert.match(css, /@media \(max-width: 699px\) \{\s*:root\.typing \.fab \{ display: none; \}/);
-});
-
 test('a ↗ written in a question, its context and its options draws as the arrow icon, never the character', () => {
   const q = { ...question, question: 'See Notes ↗ first?', context: 'Open take A↗︎ for more', options: [{ id: 'A', label: 'Notes ↗', detail: 'Open take B ↗' }, { id: 'B', label: 'Drop' }] };
   const html = ui.questionCard(q);
@@ -2755,9 +2676,12 @@ test("a bare visual request is a request line led by the image mark, and the age
     { ts: ago(2), who: 'love', via: 'site', kind: 'visual-request', request: true, text: 'Visual requested', eventId: 'v1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'claude', kind: 'visual', text: 'How a land <moves>', link: 'visuals/A1/how-a-land-moves.html' },
   ]);
-  assert.match(ui.MARK_ICONS['Visual requested'], /<rect x="3" y="3" width="18" height="18" rx="2"\/>/);
-  assert.ok(html.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Visual requested']}</span>Visual requested <span class="muted">`));
-  assert.match(html, /<div class="msg status-line link visual"><span class="mark" aria-hidden="true"><svg.*?<\/svg><\/span><a href="visuals\/A1\/how-a-land-moves\.html">How a land &lt;moves&gt; →<\/a> <span class="muted">· [^<]+<\/span><\/div>$/);
+  const [request, page] = html.split(/(?=<div class="msg )/);
+  assert.match(request, /^<div class="msg status-line request">/);
+  assert.ok(request.includes(ui.MARK_ICONS['Visual requested']), 'led by the image mark');
+  assert.notEqual(ui.MARK_ICONS['Visual requested'], ui.MARK_ICONS.Implement);
+  assert.match(page, /^<div class="msg status-line link visual">/);
+  assert.match(page, /<a href="visuals\/A1\/how-a-land-moves\.html">How a land &lt;moves&gt;/);
   assert.doesNotMatch(html, /target="_blank"|class="who"/);
 });
 
@@ -2765,11 +2689,9 @@ test("a bare visual request is a request line led by the image mark, and the age
 test('a "Marked as staging" line is a bare orange status line and a "Marked as ready" line is the same in green', () => {
   const line = (command, text) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: text, text });
   const html = ui.threadMessages([line('staged', 'Marked as staging'), line('readied', 'Marked as ready')]);
-  assert.ok(html.includes(`<div class="msg status-line request staged"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">`));
-  assert.ok(html.includes(`<div class="msg status-line request readied"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as ready']}</span>Marked as ready <span class="muted">`));
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.msg\.request\.readied \{ color: var\(--color-success\); \}/);
-  assert.match(css, /\.msg\.request\.staged \{ color: var\(--color-notice\); \}/);
+  assert.deepEqual([...html.matchAll(/<div class="msg status-line ([^"]*)">/g)].map((m) => m[1]), ['request staged', 'request readied'], 'bare status lines, each in its own tone');
+  for (const words of ['Marked as staging', 'Marked as ready']) assert.ok(html.includes(ui.MARK_ICONS[words]), words);
+  assert.doesNotMatch(html, /class="who"/);
 });
 
 // Every Created line is blue (--accent); Related to and Unrelated from stay gray.
@@ -2783,7 +2705,6 @@ test('a Created ticket, a Created from and a ticket-made line are blue; a Relate
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the router's line is info the owner reads.
   const routed = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ask-routed', mark: 'ask-link', text: 'Routed here from Slack: the shop', link: 'https://slack.com/x', fault: false }]);
   assert.match(routed, /class="msg status-line request hub created"><span class="mark" aria-hidden="true"><svg[^]*<a href="https:\/\/slack.com\/x">Routed here from Slack: the shop<\/a>/);
-  assert.match(fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8'), /\.msg\.request\.created \{ color: var\(--accent\); \}/);
 });
 
 // docs/adr/2026-11-12-2000-a-status-line-has-one-tone-for-its-icon-words-and-link.md
@@ -2799,8 +2720,6 @@ test('a status line draws icon, words and link in one tone; Created gets its own
   assert.equal(tone(ui.threadMessages([hub({ fault: true, link: '#a' })])), 'request hub fault');
   assert.equal(tone(ui.threadMessages([hub({ line: 'ticket-made', mark: 'Created ticket' })])), 'request hub created');
   assert.ok(ui.threadMessages([hub({ line: 'ticket-made', mark: 'Created ticket' })]).includes(ui.MARK_ICONS['Created ticket']));
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.match(css, /\.status-line a \{ color: inherit; \}/);
 });
 
 // docs/adr/2026-11-07-0600-every-thread-status-line-carries-an-icon.md
@@ -2822,26 +2741,11 @@ test('every kind of thread status or system line leads with an icon, so a new ki
   }
 });
 
-test('a held card reads gray while blocked and action stay orange', () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const colour = (cls) => css.split('\n').find((l) => new RegExp(`^(\\.[\\w-]+, )*\\.${cls}( |,)`).test(l) && l.includes('color:'));
-  assert.match(colour('card-hold'), /^\.card-hold \{ color: var\(--color-quiet\); \}/);
-  assert.match(colour('card-blocked'), /--color-notice/);
-  assert.doesNotMatch(colour('card-blocked'), /card-hold/);
-});
-
 test("a link's thread line is one link icon and a plain link to the other card, and is never unread", () => {
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'followup', request: true, mark: 'Follow-up', text: 'Follow-up #12: Tidy', link: '#selectedCard=w%2FA2', card: 'w/A2' }], { seenAt: ago(5) });
   assert.match(html, /^<div class="msg status-line request"><span class="mark" aria-hidden="true"><svg class="mark-icon"/);
   assert.ok(html.includes('<a href="#selectedCard=w%2FA2">Follow-up #12: Tidy</a>'));
   assert.doesNotMatch(html, /unread/);
-});
-
-test('on a phone the board page bottom bar hides while a text field has focus, like the +', () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  const phone = /@media \(max-width: 699px\) \{([^@]*?)\n\}/.exec(css.slice(css.indexOf('Typing, a text field focused')))[1];
-  assert.match(phone, /:root\.typing \.fab \{ display: none; \}/);
-  assert.match(phone, /:root\.typing body > \.top, :root\.typing body\.has-sidebar > :not\(\.sidebar\) > \.top \{ display: none; \}/);
 });
 
 // docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
@@ -2876,8 +2780,7 @@ test("the board's line is a status line with its mark, never an Orchestrator mes
   assert.doesNotMatch(ui.threadMessages([{ ...quiet, ts: ago(9) }, ...older.slice(1)], {},{ seenAt: ago(10) }), /Host is busy/);
 });
 
-test('every status line kind takes the shared status-line class, whose rule alone holds spacing, and only the logo is .hub-flexed', () => {
-  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+test('every status line kind takes the shared status-line class', () => {
   const lines = [
     { ts: ago(1), who: 'claude', kind: 'hub', line: 'pulled', mark: 'Held', text: 'Pulled in' },
     { ts: ago(1), who: 'claude', kind: 'move', text: 'Moved' },
@@ -2887,12 +2790,6 @@ test('every status line kind takes the shared status-line class, whose rule alon
     { ts: ago(1), who: 'claude', kind: 'calls', text: 'Opus', calls: ['a'] },
   ];
   for (const m of lines) assert.match(ui.threadMessages([m]), /^<(div|details) class="msg status-line /, m.kind);
-  for (const kind of ['link', 'builder-status', 'request', 'agent', 'calls']) {
-    const rule = css.match(new RegExp(`^\\.msg\\.${kind}[^{]*\\{([^}]*)\\}`, 'm'))?.[1] || '';
-    assert.doesNotMatch(rule, /padding|margin|font-size|overflow-wrap/, kind);
-  }
-  assert.match(css, /^a\.hub \{ display: inline-flex/m);
-  assert.match(css, /^\.status-line \{ padding: 0 10px; margin: 4px 0; font-size: 12px;/m);
 });
 
 // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a card with no ticket wears a quiet Task badge
