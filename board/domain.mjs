@@ -959,7 +959,7 @@ function sectionOf(agentList, a) {
 // On a tie in threadOf a message sorts above the status line it causes (the sort is stable, so an agent start still sorts above
 // the status line `builder start` writes).
 const isStatusLine = (m) => Boolean(m.request) || [MOVE, HUB, 'status', 'ask-link'].includes(m.kind);
-export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
+export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
   const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
@@ -1002,7 +1002,9 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', ...commandLine('implement'), text: COMMANDS.implement }] : []),
         ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#selectedCard=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
-  const lastClaude = claudeAtOf(msgs);
+  // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: the orchestrator's last action on the card, or the card's
+  // close (clearedAt), ends the working of the messages before it, as a later Claude line does.
+  const lastClaude = [claudeAtOf(msgs), String(clearedAt || '')].sort().pop();
   const { edits, editFiles } = index;
   for (const m of msgs) {
     if (!m.eventId) continue;
@@ -1081,7 +1083,8 @@ export const waveItems = (wave) => wave.items || wave.phases.flat();
 
 // snapshot: {files: [{slug, itemFile, agents: {<id>: {<agent>: record}}}], fromWaves,
 //   prs: {"<repo>#<n>": pr}, threads: {<key>: [line]}, events: [event with reply, hidden ones left out],
-//   working: {<event id>: ts}, checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <file>/<id>},
+//   working: {<event id>: ts}, actedOn: {<file>/<id>: ts} (data/acted-on.json, the orchestrator's last command on each card),
+//   checked: data/checked.json, listen, watcher: data/watcher.json, askLinks: {<ask event id>: <file>/<id>},
 //   owner: owner.json,
 //   autoMerge: board.json's auto_merge (true leaves merging to the GitHub tick, so no card gets the owner's Merge),
 //   skipDraft: board.json's skip_draft (true leaves a draft to the hub's poll, which marks it ready once CI passes, so
@@ -1093,7 +1096,7 @@ export const waveItems = (wave) => wave.items || wave.phases.flat();
 // moved maps ask:<event id> to the work item whose thread holds that ask.
 // An event marked working needs its reply loaded, or it counts as still working.
 export function buildBoard(snapshot) {
-  const { owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {} } = snapshot;
+  const { owner = {}, topicItems = {}, events = [], threads = {}, prs = {}, working = {}, actedOn = {} } = snapshot;
   const now = snapshot.now ?? Date.now();
   const index = threadIndex(events, owner);
   const withdrawn = new Set(events.filter((e) => e.kind === 'ask-withdrawn').map((e) => e.data?.id));
@@ -1135,7 +1138,8 @@ export function buildBoard(snapshot) {
       const askKeys = new Set(askIds.map((id) => `ask:${id}`));
       const lines = [...(routeRecord(threads, key) || []), ...askIds.flatMap((id) => routeRecord(threads, `ask:${id}`) || [])];
       if (it.from_ask) madeFrom.set(it.from_ask, [...(madeFrom.get(it.from_ask) || []), { key, ref: refOf(itemFile, it, tickets), became: true }]);
-      const msgs = threadOf(key, { lines, events, owner, working, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index });
+      const clearedAt = [routeRecord(actedOn, key), it.lane === 'done' ? it.closed_at : null, cardDones.get(key)].filter(Boolean).map(String).sort().pop() || '';
+      const msgs = threadOf(key, { lines, events, owner, working, clearedAt, fromAsk: it.from_ask || null, sorted: Boolean(it.phase), moved: folded, cards, index });
       for (const m of msgs) for (const [id, state] of stateEntries(m)) threadStates.set(id, state);
       claudeAt.set(key, claudeAtOf(msgs));
       items.push(workItem({
@@ -1299,8 +1303,9 @@ export function buildBoard(snapshot) {
   }
   linkCards(items, byKey, storedLinks);
   // A marked event works until Claude answers it: a reply, a later Claude line in its card's thread or a reply to that
-  // card's ask, its ask becoming or folding into a card, or its card leaving the board or closing after the mark. An
-  // event on no card works until its reply.
+  // card's ask, a later orchestrator command on its card (actedOn), its ask becoming or folding into a card, or its card
+  // leaving the board or closing after the mark. An event on no card works until its reply. Working is display only: it
+  // gates no pull, arrival or idle check (docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md).
   const topicOf = new Map((owner.items || []).map((q) => [q.id, q.topic]));
   const ownCardOf = (e) => {
     if (e.kind === 'owner-answer') return topicOf.has(e.data?.id) ? /^item:(.+)$/.exec(topicOf.get(e.data.id))?.[1] || null : '';
@@ -1314,13 +1319,13 @@ export function buildBoard(snapshot) {
     if (card === null) return !e.reply;
     if (!byKey.has(card) || !(closedAt(card) < String(routeRecord(working, e.id)))) return false;
     if (threadStates.has(e.id)) return threadStates.get(e.id) === 'working';
-    return !e.reply && !moved.has(ownCardOf(e)) && !(String(claudeAt.get(card) || '') > String(e.ts));
+    return !e.reply && !moved.has(ownCardOf(e)) && !([claudeAt.get(card), routeRecord(actedOn, card)].some((t) => String(t || '') > String(e.ts)));
   };
   const workingOn = events.filter((e) => routeRecord(working, e.id) && unanswered(e))
     .map((e) => ({ id: e.id, kind: e.kind, key: cardOf(e), data: e.data, since: routeRecord(working, e.id) }));
   for (const it of items) {
     it.working = workingOn.some((w) => w.key === it.key);
-    if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking' && !it.working) it.next = NO_NEXT;
+    if (it.kind === 'work' && it.lane === 'progress' && !it.builder && !it.next && it.waitsOn !== 'checking') it.next = NO_NEXT;
     it.sortAt = SORT_AT[it.lane](it) || (it.lane === 'review' ? null : it.updatedAt) || null;
   }
   for (const it of items) {
@@ -1329,7 +1334,10 @@ export function buildBoard(snapshot) {
     const workingSince = workingOn.filter((w) => w.key === it.key).map((w) => String(w.since)).sort()[0];
     // A rebase run's hand-back, its stale run, a stale review or an owner's reply waits on the orchestrator from In
     // Review (laneOf, workItem); a card the orchestrator stalled waits on the owner alone.
-    it.orchestrator = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.replyAt))) ? orchestratorWaitOf(it, it.waitFacts, { answeredAt, workingSince }) : null;
+    const waits = !it.stalled && (['progress', 'todo'].includes(it.lane) || it.waitsOn === 'checking' || (it.lane === 'review' && (it.stale || it.waitFacts.unblockedAt || it.waitFacts.replyAt))) ? orchestratorWaitsOf(it, it.waitFacts, { answeredAt, workingSince }) : [];
+    // The card shows its first wait; the waits list (orchestratorWaits) names every one.
+    it.orchestrator = waits[0] || null;
+    it.moreWaits = waits.slice(1);
     delete it.waitFacts;
   }
   intakeWaits(items, events, working, moved);
@@ -1498,10 +1506,9 @@ export const MAX_IMPLEMENTERS = 10;
 // For built items in board order, cap the board's Maximum parallel implementers and pulled the cards the pull started
 // builds on: each open card In Progress takes one slot until it lands, whatever runs on it, building, in Orchestrator
 // review, landing, waiting on the owner, paused or stalled, and however many agents. A card in any other lane takes none.
-// pullable lists the cards ready to build no message a session is working on, in board order, so bumped first and the
+// pullable lists the cards ready to build, in board order, so bumped first and the
 // rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
-// waiting lists the pulled cards not yet started that still hold a slot: pullable, or still in Todo with a session
-// working on them. free is the slots left, the cap less the cards In Progress and waiting. pulls lists the pullable
+// waiting lists the pulled cards not yet started that still hold a slot: the pullable ones. free is the slots left, the cap less the cards In Progress and waiting. pulls lists the pullable
 // cards not pulled that fit them, the bumped ones first (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md,
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md). helpers lists every requested helper, {key, name}: a card's helpers
 // run on its slot. hold lists the cards an unanswered overnight triage names, which the pull leaves. retitle lists the
@@ -1517,10 +1524,11 @@ export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] }
     && !(a.waits && agents.some((h) => h.name === a.waits && !h.done));
   const busy = open.some((i) => !i.stalled && (i.agents || []).some((a, _, all) => running(a, all)));
   // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a card whose title its PR can't take waits to be retitled.
-  const ready = open.filter((i) => pullableCard(i) && !i.working);
+  // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: a card's phase alone decides its pull, not a working mark.
+  const ready = open.filter((i) => pullableCard(i));
   const retitle = ready.filter((i) => startTitleFault(i.key, i.title)).map((i) => i.key);
   const pullable = ready.map((i) => i.key).filter((k) => !retitle.includes(k));
-  const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
+  const waiting = open.filter((i) => pulled.includes(i.key) && pullable.includes(i.key)).map((i) => i.key);
   const helpers = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name })));
   const free = Math.max(0, cap - inProgress - waiting.length);
   const bumped = new Set(open.filter((i) => i.bumpedAt).map((i) => i.key));
@@ -1548,7 +1556,7 @@ export const MAX_PLANNERS = 3;
 // How many card serves a board keeps up at once, unless its max_serves setting says otherwise.
 export const MAX_SERVES = 10;
 // For built items: the cards that arrived in Todo and get a grill now, top first. A card arrives when it is an open work
-// card in Todo nothing has picked up: buildable, not discussing, ready nor staging, filed (not New), not held or worked on by a session, with
+// card in Todo nothing has picked up: buildable, not discussing, ready nor staging, filed (not New), not held, with
 // no planner record ever, no grill or prototype requested or briefed and no question topic. However it was filed (an ask, item add,
 // the +, an import) it counts the same, and a blocked card arrives too: a block only keeps a card from In Progress
 // (docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md). The cap, less the planners running, takes
@@ -1558,7 +1566,7 @@ export function arrivalsOf(items, { cap = MAX_PLANNERS } = {}) {
   const open = items.filter((i) => !closedLane(i));
   // A card owing or holding a grill or prototype brief takes its slot as a running planner does.
   const planners = open.filter((i) => (i.agents || []).some((a) => plans(a) && a.started && !a.done) || (i.briefs || []).some((b) => b.kind !== VISUAL)).length;
-  const fresh = open.filter((i) => i.buildable && !['discussing', 'ready', 'staging'].includes(i.phase) && !i.unsorted && !i.held && !i.working && !i.grilling && !i.prototyping
+  const fresh = open.filter((i) => i.buildable && !['discussing', 'ready', 'staging'].includes(i.phase) && !i.unsorted && !i.held && !i.grilling && !i.prototyping
     && !i.questions && !(i.agents || []).some((a) => plans(a) && a.kind !== VISUAL) && !(i.briefs || []).some((b) => b.kind !== VISUAL));
   const arrived = [...fresh.filter((i) => !i.blocked), ...fresh.filter((i) => i.blocked)];
   // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped arrival gets its grill past the cap.
@@ -1611,8 +1619,13 @@ function intakeWaits(items, events, working, moved) {
     const key = intakeKeyOf(e, moved);
     if (!key || waited.has(key) || !unsorted(byKey, e, key)) continue;
     waited.add(key);
-    byKey.get(key).orchestrator = { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, e) };
+    waitFirst(byKey.get(key), { kind: 'intake', since: String(e.ts), picked: routeRecord(working, e.id) || null, next: INTAKE_NEXT[e.kind](key, e) });
   }
+}
+// Puts wait on the card ahead of the waits it already has, which stay on its list.
+function waitFirst(it, wait) {
+  it.moreWaits = [it.orchestrator, ...(it.moreWaits || [])].filter(Boolean);
+  it.orchestrator = wait;
 }
 
 // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
@@ -1621,7 +1634,7 @@ function intakeWaits(items, events, working, moved) {
 function screenWaits(items, screening) {
   for (const it of items) {
     const s = routeRecord(screening, it.key);
-    if (s) it.orchestrator = { kind: 'screen', since: s.since, picked: null, next: `Screen the grill's questions ${s.ids.join(', ')}: question settle <id> --note for each the board already answers, then question publish ${it.key}; left 15 minutes unscreened, they reach the owner as they are` };
+    if (s) waitFirst(it, { kind: 'screen', since: s.since, picked: null, next: `Screen the grill's questions ${s.ids.join(', ')}: question settle <id> --note for each the board already answers, then question publish ${it.key}; left 15 minutes unscreened, they reach the owner as they are` });
   }
 }
 
@@ -1738,21 +1751,23 @@ export function ownerActions(built) {
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
 // Strictly idle, for a built board and pulled the cards the pull started builds on: no agent running on an open card, so
 // nothing building, grilling or prototyping, no grill or prototype request under way, no card waiting in Orchestrator
-// review to land, no pulled card waiting to start and no event a session is working on.
+// review to land and no pulled card waiting to start. A working mark doesn't count
+// (docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md).
 export function strictlyIdle(built, { pulled = [] } = {}) {
   const open = built.items.filter((i) => !closedLane(i));
   const busy = open.some((i) => i.waitsOn === 'checking' || i.grilling || i.prototyping || (i.agents || []).some((a) => !a.done));
-  return !busy && !built.working && !pullOf(built.items, { pulled }).waiting.length;
+  return !busy && !pullOf(built.items, { pulled }).waiting.length;
 }
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
-// What an open work card waits on the orchestrator for, or null: an open builder ask; an owner answer not acted on;
+// Every wait an open work card has on the orchestrator, in this order, so one never hides another
+// (docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md): an open builder ask; an owner answer not acted on;
 // a staged card's judgment (staging); unless the owner owes it an answer, a hand-back with judgment calls not verified (calls) or a checked card with none left
 // (checking); a builder silent past the stale limit, or stopped (stale); a review past seven days, from when it crossed
 // them (stale); a grill or prototype asked for with no planner of that kind running; a refusal by the pull; or a started
 // card with no live builder and nothing else placing it (unowned). since is when it began to wait, and picked when the
 // session first wrote on the card after that (waitFactsOf), or the watcher marked one of its events working, which the
-// card reads as Orchestrator review. → {kind, since, picked, next, daily?}, next saying what it waits for, and daily on a
+// card reads as Orchestrator review. → [{kind, since, picked, next, daily?}], next saying what it waits for, and daily on a
 // stale review, which re-wakes once a day after pickup (waitsStep).
 const STALL_NEXT = "item stall it with the reason when it can't go on";
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
@@ -1760,44 +1775,52 @@ const RESTART_NEXT = 'restart it once from its worktree with a thread line; if t
 // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a staged card whose split was answered Split is filed as its split, not set ready.
 const STAGING_NEXT = 'Judge the staged card against the whole board: for a discussed card first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead';
 const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions against what landed; answer a stale one again with question settle <id> --note, or send the card back with item set --phase grilling when the change is too big; then item set --phase ready --text "<what you re-checked>"';
-function orchestratorWaitOf(it, facts, { answeredAt, workingSince }) {
+function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
-  const owed = it.briefing ? it.briefs.find((b) => b.kind === it.briefing && !b.brief) : null;
+  // A brief is owed only in Todo: a card past it has its build under way.
+  const owed = it.lane === 'todo' && it.briefing ? it.briefs.find((b) => b.kind === it.briefing && !b.brief) : null;
   const briefed = (kind) => it.briefs.some((b) => b.kind === kind);
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
   const unasked = facts.unasked && it.storedPhase === { grill: 'grilling', prototype: 'prototyping' }[facts.unasked.kind]
     && !it.agents.some((a) => a.kind === facts.unasked.kind && a.started && (!a.done || String(a.started) > facts.unasked.at)) ? facts.unasked : null;
-  const wait = facts.ask ? { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` }
-    : it.staging ? { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT }
-    : answeredAt ? { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" }
-    : facts.replyAt ? { kind: 'reply', since: facts.replyAt, next: "Act on the owner's reply" }
+  const waits = [
+    facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` },
+    it.staging && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
+    answeredAt && { kind: 'answer', since: answeredAt, next: "Act on the owner's answer" },
+    facts.replyAt && { kind: 'reply', since: facts.replyAt, next: "Act on the owner's reply" },
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: the board launches no grill,
     // prototype or visual agent until the orchestrator writes its brief, whatever else the card asks of the owner.
-    : owed ? { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page' }[owed.kind]} should cover and the files that matter` }
-    : ASKING.has(it.action?.kind) ? null
-    : it.builder?.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the card` }
-    : it.builder?.stale ? { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` }
-    : it.lane === 'review' && it.stale ? { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale and fix what you can: rebase, CI, comments; if only a reviewer owes it, a thread line naming who; or ${STALL_NEXT}` }
-    : it.waitsOn === 'checking' ? facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
-      : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }
-    : it.grilling && facts.grillAt && !running('grill') && !briefed('grill') ? { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' }
-    : it.prototyping && facts.prototypeAt && !running('prototype') && !briefed('prototype') ? { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' }
-    // docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md: held until the card
-    // has a question (the asking branch above), a planner of that kind running or started since, or a new phase.
-    : unasked ? { kind: 'unasked', since: unasked.at, next: `Its ${unasked.kind} planner ended without its question: read its log, then post the question, start the planner again, or move the card's phase` }
-    // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
-    // for the re-check that releases it to the pull.
-    : it.recheckAt && it.lane === 'todo' && it.phase === 'ready' && !it.blocked ? { kind: 'recheck', since: it.recheckAt, next: RECHECK_NEXT }
-    : it.refusal && facts.refusedAt ? { kind: 'refused', since: facts.refusedAt, next: it.refusal }
-    : it.next === NO_NEXT && lastBuild ? { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' }
-    // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.
-    : facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.blocked && !facts.writes.some((t) => t > facts.unblockedAt)
-      ? { kind: 'unblocked', since: facts.unblockedAt, next: "Its block ended: act on what it waited for, or set its Next" }
-    : null;
-  if (!wait?.since) return null;
-  const since = String(wait.since);
-  const picked = [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
-  return { kind: wait.kind, since, picked, next: wait.next, ...(wait.daily ? { daily: true } : {}) };
+    owed && { kind: 'brief', since: owed.at, next: `Write the ${owed.kind} brief: item brief ${it.key} --kind ${owed.kind} --file <draft.md>, with what the discussion settled, what is still open, what the ${{ grill: 'questions', prototype: 'takes', visual: 'page' }[owed.kind]} should cover and the files that matter` },
+    // While the owner owes the card an answer, the waits below are theirs to unblock.
+    ...(ASKING.has(it.action?.kind) ? [] : [
+      // One stale wait: a stopped or silent builder, else a review past seven days. A builder waiting on its own ask is
+      // the ask's wait, not a stale one.
+      it.builder?.stopped || it.builder?.stale ? (facts.ask ? null
+        : it.builder.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the card` }
+        : { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` })
+      : it.lane === 'review' && it.stale && { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale and fix what you can: rebase, CI, comments; if only a reviewer owes it, a thread line naming who; or ${STALL_NEXT}` },
+      it.waitsOn === 'checking' && (facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
+        : { kind: 'checking', since: facts.handedBackAt, next: facts.next || 'Land the checked build' }),
+      it.grilling && facts.grillAt && !running('grill') && !briefed('grill') && { kind: 'grill', since: facts.grillAt, next: 'Start the grill asked for' },
+      it.prototyping && facts.prototypeAt && !running('prototype') && !briefed('prototype') && { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' },
+      // docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md: held until the card
+      // has a question (the owner's answer it owes, above), a planner of that kind running or started since, or a new phase.
+      unasked && { kind: 'unasked', since: unasked.at, next: `Its ${unasked.kind} planner ended without its question: read its log, then post the question, start the planner again, or move the card's phase` },
+      // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
+      // for the re-check that releases it to the pull.
+      it.recheckAt && it.lane === 'todo' && it.phase === 'ready' && !it.blocked && { kind: 'recheck', since: it.recheckAt, next: RECHECK_NEXT },
+      it.refusal && facts.refusedAt && { kind: 'refused', since: facts.refusedAt, next: it.refusal },
+      it.next === NO_NEXT && lastBuild && { kind: 'unowned', since: lastBuild, next: 'Start a builder on it, or set its Next' },
+      // docs/adr/2026-11-07-1500-an-unblock-past-todo-waits-on-the-orchestrator.md: a card past Todo whose block ended waits until the session writes on it.
+      facts.unblockedAt && it.lane !== 'todo' && !it.builder && !it.blocked && !facts.writes.some((t) => t > facts.unblockedAt)
+        && { kind: 'unblocked', since: facts.unblockedAt, next: "Its block ended: act on what it waited for, or set its Next" },
+    ]),
+  ];
+  return waits.filter((wait) => wait?.since).map((wait) => {
+    const since = String(wait.since);
+    const picked = [facts.writes.find((t) => t > since), workingSince].filter(Boolean).sort()[0] || null;
+    return { kind: wait.kind, since, picked, next: wait.next, ...(wait.daily ? { daily: true } : {}) };
+  });
 }
 
 // An overnight triage the session hasn't replied to, as an orchestrator wait: key is the event id the reply names,
@@ -1806,10 +1829,11 @@ export const triageWaitOf = (event, picked = null) => ({ key: event.id, ref: eve
 
 // The cards idle on the orchestrator in a built board: the bumped ones first across lanes, the earliest bump first
 // (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md), then the rest lanes top-down, each in
-// the board's order. bumpedAt is the card's bump, null on an unbumped one.
+// the board's order, one entry per wait, a card's in its own order. bumpedAt is the card's bump, null on an unbumped one.
 // → [{key, ref, title, kind, since, picked, next, bumpedAt}]
 export function orchestratorWaits(built) {
-  const waits = built.items.filter((i) => i.orchestrator).map((i) => ({ key: i.key, ref: i.ref, title: i.title, ...i.orchestrator, bumpedAt: i.bumpedAt || null }));
+  const waits = built.items.flatMap((i) => [i.orchestrator, ...(i.moreWaits || [])].filter(Boolean)
+    .map((w) => ({ key: i.key, ref: i.ref, title: i.title, ...w, bumpedAt: i.bumpedAt || null })));
   return [...waits.filter((w) => w.bumpedAt).sort((a, b) => a.bumpedAt.localeCompare(b.bumpedAt)), ...waits.filter((w) => !w.bumpedAt)];
 }
 // How long a card waits on the orchestrator, not picked up, before the board pushes the owner about it once.
@@ -1835,7 +1859,7 @@ export function waitsStep(previous, current, now) {
   const waits = current.map((w) => {
     const was = previous.find((p) => p.key === w.key && p.kind === w.kind && p.since === w.since);
     if (!was) {
-      if (!w.picked) added.push(w.key);
+      if (!w.picked && !added.includes(w.key)) added.push(w.key);
       return { ...w, bumped: at };
     }
     const last = w.picked ? [w.picked, was.bumped].filter(Boolean).sort().pop() : was.bumped || w.since;

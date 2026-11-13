@@ -1170,6 +1170,23 @@ const SAID = {
   'arch file': async (site, [key]) => `findings of ${await card(site, key)} filed`,
 };
 
+// docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
+// The orchestrator's commands on a card, each naming the cards it acted on: once one succeeds, those cards' working
+// marks end (store.mjs markActedOn). A builder's own commands aren't here.
+// name: (site, args, flags, result) → [card key]
+const onCard = (site, [key]) => [key];
+const ACTS = {
+  'item set': onCard, 'item notes': onCard, 'item brief': onCard, 'item stall': onCard, 'item bump': onCard, 'item unbump': onCard,
+  'item relate-ask': (site, [, key]) => [key],
+  reply: (site, [id]) => (id.includes('/') ? [id] : []),
+  thread: (site, [key], f) => ((f.who ?? 'claude') === 'claude' ? [key] : []),
+  'question add': (site, _, f, { asked }) => asked.map((q) => String(q.topic || '')).filter((t) => t.startsWith('item:') && !t.startsWith('item:ask:')).map((t) => t.slice(5)),
+  'question resolve': (site, [id]) => store.questionCards(site, [id]),
+  'question settle': (site, [id]) => store.questionCards(site, [id]),
+  'question publish': onCard,
+  'builder verified': onCard, 'builder answer': onCard, 'builder defer': onCard,
+};
+
 export async function main(argv, options = {}) {
   try {
     const { flags, rest } = parse(argv);
@@ -1188,6 +1205,8 @@ export async function main(argv, options = {}) {
     checkInputs(allowed, opts);
     const site = route === undefined ? null : await store.siteDir(route);
     const result = await run(site, args, opts, options);
+    const acts = routeRecord(ACTS, name);
+    if (site && acts) await store.markActedOn(site, await acts(site, args, opts, result));
     const said = routeRecord(SAID, name);
     const line = said && await said(site, args, opts, result);
     if (line) console.log(line);

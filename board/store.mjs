@@ -208,6 +208,24 @@ export async function markWorking(site, eventIds) {
   await writeJSON(workingFile(site), { events: { ...events, ...Object.fromEntries(eventIds.map((id) => [id, routeRecord(events, id) || at])) } });
 }
 
+// docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
+// data/acted-on.json {cards: {<file>/<id>: ts}}: when the orchestrator's last command on each card ran (bin/board.mjs
+// ACTS). It ends the working of the card's messages before it, as a later thread line of Claude's does (domain.mjs threadOf).
+const actedOnFile = (site) => path.join(site, 'data', 'acted-on.json');
+export async function readActedOn(site) {
+  return (await readJSON(actedOnFile(site), {})).cards || {};
+}
+export async function markActedOn(site, keys) {
+  if (!keys.length) return;
+  const at = new Date().toISOString();
+  await writeJSON(actedOnFile(site), { cards: { ...await readActedOn(site), ...Object.fromEntries(keys.map((key) => [key, at])) } });
+}
+// The cards owner.json's questions ids are asked on, for the question commands' ACTS entries.
+export async function questionCards(site, ids) {
+  const owner = await readJSON(ownerFile(site), { items: [] });
+  return (owner.items || []).filter((q) => ids.includes(q.id)).map((q) => cardOfTopic(q.topic)).filter(Boolean);
+}
+
 // The asks whose text the session was just handed again, an edit the watcher or the PostToolUse hook printed or a
 // sorting command's refusal, have their working mark moved to now: that is when the session read their latest text.
 export async function restampWorking(site, askIds) {

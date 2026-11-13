@@ -581,7 +581,7 @@ test('a message marked working shows on its thread and card until Claude replies
 });
 
 // docs/adr/2026-11-12-0200-sorting-a-card-answers-its-own-ask.md
-test("a card's own ask reads answered once the card has a phase, so a readied Quick build pulls; the owner's other messages stay working", () => {
+test("a card's own ask reads answered once the card has a phase, so a readied Quick build pulls; the owner's other messages stay working, and a ready card working still pulls", () => {
   const ask = { id: 'a1', ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Hi' }, reply: null };
   const msg = { id: 'm1', ts: '2026-10-23T08:30:00Z', kind: 'item-message', data: { key: 'w/T-1', text: 'more' }, reply: null };
   const working = { a1: '2026-10-23T08:01:00Z', m1: '2026-10-23T08:31:00Z' };
@@ -593,7 +593,8 @@ test("a card's own ask reads answered once the card has a phase, so a readied Qu
   assert.deepEqual([card(ready).working, pullOf(ready.items).pullable.includes('w/T-1')], [false, true]);
   assert.equal(card(built([ask], 'grilling')).working, false);
   const both = built([ask, msg], 'ready');
-  assert.deepEqual([card(both).working, pullOf(both.items).pullable.includes('w/T-1')], [true, false], 'a later message still works');
+  // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: T-175 sat ready behind a working mark.
+  assert.deepEqual([card(both).working, pullOf(both.items).pullable.includes('w/T-1')], [true, true], 'a later message still works, and the ready card pulls');
 });
 
 test("a builder's judgment calls follow its lines in the thread, as one entry with its verification, and an agent with none adds nothing", () => {
@@ -2099,7 +2100,6 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
   const pickedUp = [
     card('w/B1', { phase: 'ready' }),
     card('w/B2', { held: true }),
-    card('w/B4', { working: true }),
     card('w/B5', { grilling: true }),
     card('w/B6', { prototyping: true }),
     card('w/B7', { questions: { topic: 'item:w/B7', open: 0, answered: 0, resolved: 2 } }),
@@ -2109,6 +2109,8 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
     card('w/C2', { lane: 'done', buildable: false }),
   ];
   assert.deepEqual(arrivalsOf([...pickedUp, ...arrived], { cap: 99 }), ['w/A1', 'w/A2', 'w/A3']);
+  // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: a working mark doesn't pick a card up.
+  assert.deepEqual(arrivalsOf([card('w/W1', { working: true })]), ['w/W1'], 'a card a session works on still arrives');
   // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a block stops a build, not a plan.
   assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }], blocked: true })]), ['w/B0'], 'a blocked card arrives and is grilled');
   const blockedOrNot = [card('w/K1', { blocked: true }), card('w/K2'), card('w/K3', { blocked: true }), card('w/K4')];
@@ -2206,7 +2208,7 @@ test('with Skip the draft on, a draft waits on its CI in In Review with no Actio
 });
 
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
-test('a board is strictly idle only with nothing building, grilling, prototyping, landing, pulled or worked on', () => {
+test('a board is strictly idle only with nothing building, grilling, prototyping, landing or pulled', () => {
   const at = '2026-11-04T10:00:00Z';
   const built = (item = {}, agents = {}, events = []) => buildBoard({ now: Date.parse(at), owner: {}, events,
     files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'feat: one', ...item }, { id: 'A2', title: 'Two', lane: 'done', closed_at: at }] } }] });
@@ -2218,7 +2220,7 @@ test('a board is strictly idle only with nothing building, grilling, prototyping
   assert.equal(strictlyIdle(built({ lane: 'progress' }, { A1: { main: { kind: 'claude', started: at, done: at, handed_back: at } } })), false, 'a card waits to land');
   assert.equal(strictlyIdle(built({ phase: 'ready' }), { pulled: ['w/A1'] }), false, 'a pulled card waits to start');
   assert.equal(strictlyIdle(built({ phase: 'ready' })), true, 'a ready card nobody pulled');
-  assert.equal(strictlyIdle({ ...built(), working: 1 }), false, 'a session turn runs');
+  assert.equal(strictlyIdle({ ...built(), working: 1 }), true, 'a working mark is display only');
 });
 
 test('the idle notification pushes once 15 minutes into an idle stretch, and again only after the board was busy', () => {
@@ -2892,4 +2894,46 @@ test("a Questions added line stays in the thread, open while any of its own batc
   assert.deepEqual(opens([q('qa'), q('qb'), q('qc')], [answer('qa')]).map((m) => m[2]), [true, true]);
   assert.deepEqual(opens([q('qa'), q('qb', { resolved: 'Settled', resolved_at: '2026-11-12T11:30:00Z' }), q('qc')], [answer('qa')]).map((m) => m[2]), [false, true]);
   assert.deepEqual(opens([q('qa'), q('qb'), q('qc')], [answer('qa'), answer('qb'), answer('qc')]).map((m) => m[2]), [false, false]);
+});
+
+// docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
+test('a card lists every wait it has on the orchestrator, so one never hides another, and a brief is owed only in Todo', () => {
+  const at = '2026-11-04T10:00:00Z';
+  const built = ({ items, agents = {}, events = [], owner = {} }) => buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner, events, threads: {}, working: {},
+    files: [{ slug: 'w', agents, itemFile: { internal: true, items } }] });
+  const kinds = (b) => orchestratorWaits(b).map((w) => [w.key, w.kind, w.since]);
+  const handed = { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', done: at, handed_back: at, calls: [{ at: '2026-11-04T09:30:00Z', text: 'x' }] } } };
+  const stray = [{ kind: 'grill', at: '2026-11-04T08:00:00Z' }];
+  // T-182: a hand-back's calls with a stray owed brief past Todo read as calls.
+  const calls = built({ items: [{ id: 'A1', title: 'One', lane: 'progress', briefs: stray }], agents: handed });
+  assert.deepEqual(kinds(calls), [['w/A1', 'calls', at]]);
+  assert.equal(calls.items[0].orchestrator.kind, 'calls');
+  // An owner answer not acted on and the calls both wait, the answer first on the card.
+  const q = { id: 'q1', topic: 'item:w/A1', question: 'Which?', asked_at: '2026-11-04T08:30:00Z' };
+  const answer = { id: 'e1', ts: '2026-11-04T09:45:00Z', kind: 'owner-answer', data: { id: 'q1', note: 'this' }, reply: null };
+  const both = built({ items: [{ id: 'A1', title: 'One', lane: 'progress' }], agents: handed, owner: { items: [q] }, events: [answer] });
+  assert.deepEqual(kinds(both), [['w/A1', 'answer', '2026-11-04T09:45:00Z'], ['w/A1', 'calls', at]]);
+  assert.deepEqual([both.items[0].orchestrator.kind, both.items[0].moreWaits.map((w) => w.kind)], ['answer', ['calls']]);
+  // In Todo the brief is owed, and a refusal beside it still lists.
+  const refused = { 'w/A1': [{ ts: at, who: 'claude', kind: 'hub', line: 'build-refused', text: "Couldn't start implementing: no repo" }] };
+  const todo = buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner: {}, events: [], threads: refused, working: {},
+    files: [{ slug: 'w', agents: {}, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', phase: 'ready', briefs: stray }] } }] });
+  assert.deepEqual(kinds(todo), [['w/A1', 'brief', '2026-11-04T08:00:00Z'], ['w/A1', 'refused', at]]);
+  // Each wait joins the stored list and wakes the session once.
+  assert.deepEqual(waitsStep([], orchestratorWaits(both), new Date('2026-11-04T11:00:00Z')).added, ['w/A1']);
+});
+
+test("a message's working ends at the orchestrator's next command on its card or the card's close, as at a Claude line, and an earlier one leaves it", () => {
+  const msg = { id: 'm1', ts: '2026-10-23T10:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Send it' }, reply: null };
+  const working = { m1: '2026-10-23T10:01:00Z' };
+  const card = (item = {}, actedOn = {}, events = [msg]) => buildBoard({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), events, working, actedOn,
+    files: [{ slug: 'w', itemFile: { items: [{ id: 'A1', title: 'feat: one', ...item }] } }] }).items[0];
+  assert.equal(card().working, true);
+  // T-175: item set --phase ready after the owner's "Send it".
+  assert.equal(card({ phase: 'ready' }, { 'w/A1': '2026-10-23T10:05:00Z' }).working, false, 'a command after it');
+  assert.equal(card({ phase: 'ready' }, { 'w/A1': '2026-10-23T09:00:00Z' }).working, true, 'a command before it');
+  assert.equal(threadOf('w/A1', { events: [msg], working, clearedAt: '2026-10-23T10:05:00Z' })[0].state, 'answered');
+  // T-115: the owner's own close after their message.
+  assert.equal(card({ lane: 'done', closed_at: '2026-10-23T10:10:00Z' }).working, false, 'a close after it');
+  assert.equal(card({}, {}, [msg, { id: 'd1', ts: '2026-10-23T10:10:00Z', kind: 'card-done', data: { key: 'w/A1' } }]).working, false, "the owner's Done tap after it");
 });

@@ -1173,3 +1173,15 @@ test('item set --done --split-into wave:<slug> refuses when a card waiting on it
   assert.match(r.err, /audit\/N1 waits on audit\/A1 and is in the wave "parts", so it would wait on itself; split into the new cards by key/);
   assert.equal(read(file).items[0].lane, undefined);
 });
+
+// docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
+test("an orchestrator command on a card records when it acted on it, which ends the card's working; a builder's progress line doesn't", async () => {
+  const acted = () => { try { return read(site('orch', 'data', 'acted-on.json')).cards; } catch { return {}; } };
+  const before = new Date().toISOString();
+  assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--dir', home)).code, 0);
+  assert.equal((await board('builder', 'progress', 'w/A1', 'Reading', '--phase', 'reading', '--site', 'orch', '--dir', home)).code, 0);
+  assert.equal(acted()['w/A1'], undefined, 'a builder command is not the orchestrator acting');
+  write(path.join(home, 'acted.md'), 'Settled.');
+  assert.equal((await board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Build notes', '--file', path.join(home, 'acted.md'))).code, 0);
+  assert.ok(acted()['w/A1'] >= before, 'a notes write acts on the card');
+});

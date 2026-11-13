@@ -13,7 +13,7 @@
 //                             whose ask-edited it prints to now (the stamp sorting commands check), and answers a ping for the
 //                             session (board/store.mjs ackPing), then prints:
 //   waits <kind> <ref> <key>[ bumped] since <iso>[, picked up <iso>]: <next>
-//                             each card idle on the orchestrator, bumped ones first, then lanes top-down, from data/orchestrator-waits.json,
+//                             each wait on the orchestrator, a line for each of a card's waits, bumped cards first, then lanes top-down, from data/orchestrator-waits.json,
 //                             which the board server keeps (board/server.mjs checkWaits): handle each one on every wake
 //                             (docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md), then
 //   rule hub <text>           each hub rule (settings.json `rules`), then
