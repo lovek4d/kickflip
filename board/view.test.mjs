@@ -1,12 +1,10 @@
+import { web, write, inProcessHub } from '../hub/hub-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { freePorts, until } from '../shared/test-helpers.mjs';
 import { fixedDate } from '../shared/fixed-clock.mjs';
 import { miniDom } from './mini-dom.mjs';
 import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
@@ -1649,37 +1647,16 @@ test('a reload forgets the saved shell and waits for the worker reply or one sec
   }
 });
 
-test('an open shell shows new hub code before the next Hub paint and reloads only on a tap', { timeout: 120000 }, async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'app-code-'));
-  const dir = path.join(home, '.claude', 'kickflip');
+test('an open shell shows new hub code before the next Hub paint and reloads only on a tap', async (t) => {
+  const dir = web;
   const streams = new Set();
-  let hub;
-  t.after(async () => {
-    for (const stream of streams) stream.close();
-    if (hub && hub.exitCode === null && hub.signalCode === null) {
-      const exited = new Promise((resolve) => hub.once('exit', resolve));
-      hub.kill('SIGTERM');
-      await exited;
-    }
-    fs.rmSync(home, { recursive: true, force: true });
-  });
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ version: 1, sites: {} }));
-  const [port] = await freePorts();
-  const base = `http://127.0.0.1:${port}`;
-  hub = spawn(process.execPath, [new URL('../hub/hub.mjs', import.meta.url).pathname], {
-    env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' },
-  });
-  await new Promise((resolve, reject) => {
-    let out = '';
-    let err = '';
-    const timer = setTimeout(() => reject(new Error(`hub did not start: ${out}${err}`)), 30000);
-    hub.stderr.on('data', (d) => { err += d; });
-    hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) { clearTimeout(timer); resolve(); } });
-    hub.once('error', (e) => { clearTimeout(timer); reject(e); });
-    hub.once('exit', (code) => { clearTimeout(timer); reject(new Error(`hub exited ${code}: ${err}`)); });
-  });
-  let received = 0;
+  t.after(() => { for (const stream of streams) stream.close(); });
+  write(path.join(dir, 'manifest.json'), { version: 1, sites: {} });
+  const hub = await inProcessHub(t);
+  const base = hub.base;
+  // Resolves on the stream's first sidebar event.
+  let heard;
+  const received = new Promise((resolve) => { heard = resolve; });
   class EventSource {
     static CLOSED = 2;
     constructor(url) {
@@ -1704,7 +1681,7 @@ test('an open shell shows new hub code before the next Hub paint and reloads onl
             buffer = buffer.slice(i + 2);
             const type = /^event: ?(.+)$/m.exec(block)?.[1];
             const data = /^data: ?(.+)$/m.exec(block)?.[1];
-            if (type === 'sidebar') received++;
+            if (type === 'sidebar') heard();
             if (type && data) this.emit(type, { data });
           }
         });
@@ -1737,21 +1714,27 @@ test('an open shell shows new hub code before the next Hub paint and reloads onl
   const status = doc.querySelector('.hub-status');
   const logo = doc.querySelector('.view-hub .top a.hub');
   const region = doc.querySelector('.sb-update');
-  await until(() => status.innerHTML && received, 'the first Hub paint and sidebar event');
+  // Each Hub paint: whether the update region offered its Reload as it painted. nextPaint() resolves on the next one.
+  let paints = [];
+  let painted = () => {};
+  const nextPaint = () => new Promise((resolve) => { painted = resolve; });
+  const innerHTML = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(status), 'innerHTML');
+  Object.defineProperty(status, 'innerHTML', {
+    get() { return innerHTML.get.call(this); },
+    set(value) { paints.push(Boolean(doc.querySelector('.sb-update [data-app-reload]'))); innerHTML.set.call(this, value); painted(); },
+  });
+  while (!status.innerHTML) await nextPaint();
+  await received;
   assert.equal(region.innerHTML, '');
   assert.equal(doc.querySelector('[data-app-reload]'), null);
   assert.equal(logo.getAttribute('aria-label'), 'Boards');
   const file = path.join(dir, 'hub-code.json');
   const code = JSON.parse(fs.readFileSync(file, 'utf8'));
   fs.writeFileSync(file, JSON.stringify({ ...code, hash: `${code.hash}-new` }));
-  const paints = [];
-  const innerHTML = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(status), 'innerHTML');
-  Object.defineProperty(status, 'innerHTML', {
-    get() { return innerHTML.get.call(this); },
-    set(value) { paints.push(Boolean(doc.querySelector('.sb-update [data-app-reload]'))); innerHTML.set.call(this, value); },
-  });
+  paints = [];
+  const repainted = nextPaint();
   page.fire(doc.querySelector('.view-hub #refresh'), 'click');
-  await until(() => paints.length, 'the next Hub paint');
+  await repainted;
   assert.ok(paints.every(Boolean));
   assert.equal(doc.querySelector('.sb-update'), region);
   assert.equal(region.getAttribute('role'), 'status');

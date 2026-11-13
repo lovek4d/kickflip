@@ -1,21 +1,18 @@
-import { test, after } from 'node:test';
+import { home as scratch, web, write, inProcessHub, serverSignals } from './hub-fixture.mjs';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until } from '../shared/test-helpers.mjs';
+import { freePorts } from '../shared/test-helpers.mjs';
+import { restartBoard } from './restart-board.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
-const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'restart-board-unit-')));
-process.env.HOME = scratch;
-const { restartBoard } = await import('./restart-board.mjs');
-after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 const boardServer = path.join(HUB_DIR, '..', 'board', 'server.mjs');
 const id = '12345678-1234-1234-1234-123456789abc';
 const hubId = '87654321-4321-4321-4321-cba987654321';
-const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 
 function fakeClaude(home) {
   const file = path.join(home, 'bin', 'claude');
@@ -57,38 +54,47 @@ process.exit(argv[0] === 'has-session' ? 1 : 0);
   return file;
 }
 
-function board(home, route, port, extra) {
+// args go before the board server's script in its cmd (serverSignals' args).
+function board(home, route, port, extra, args = []) {
   const dir = path.join(home, '.claude', 'kickflip', 'sites', route);
   write(path.join(dir, 'board.json'), { title: route, items: 'data/cards.json' });
   write(path.join(dir, 'data', 'cards.json'), { items: [] });
-  return { dir, port, cmd: [process.execPath, boardServer, dir], ...extra };
+  return { dir, port, cmd: [process.execPath, ...args, boardServer, dir], ...extra };
 }
 
-test("Restart stops a board's session, restarts its server and resumes the session once the new server answers, the hub board's in its tmux session", async () => {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'restart-board-')));
-  const [port, shopPort, hubPort] = await freePorts(3);
+test("Restart stops a board's session, restarts its server and resumes the session once the new server answers, the hub board's in its tmux session", async (t) => {
+  const home = scratch;
+  fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
+  const [shopPort, hubPort] = await freePorts(2);
   const repo = path.join(home, 'repo');
-  fs.mkdirSync(repo);
+  fs.mkdirSync(repo, { recursive: true });
   const claude = fakeClaude(home);
   const tmux = fakeTmux(home);
-  for (const tool of ['gh', 'tailscale', 'launchctl', 'systemctl', 'codex', 'caffeinate']) { write(path.join(home, 'bin', tool), '#!/bin/sh\nexit 1\n'); fs.chmodSync(path.join(home, 'bin', tool), 0o755); }
+  const env = { KICKFLIP_CLAUDE: process.env.KICKFLIP_CLAUDE, KICKFLIP_TMUX: process.env.KICKFLIP_TMUX };
+  Object.assign(process.env, { KICKFLIP_CLAUDE: claude, KICKFLIP_TMUX: tmux });
   const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  t.after(() => {
+    Object.assign(process.env, env);
+    sleeper.kill();
+    for (const f of fs.readdirSync(path.join(home, '.claude', 'sessions'))) {
+      try { process.kill(JSON.parse(fs.readFileSync(path.join(home, '.claude', 'sessions', f), 'utf8')).pid); } catch {}
+    }
+  });
   write(path.join(home, '.claude', 'sessions', `${sleeper.pid}.json`), { pid: sleeper.pid, sessionId: id, jobId: id.slice(0, 8), kind: 'bg' });
-  write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { version: 1, migrated: ['hub-flag'], sites: {
-    shop: board(home, 'shop', shopPort, { title: 'The Shop', owner: { session: id, repo, label: 'Shop' } }),
-    'hub-orchestrator': board(home, 'hub-orchestrator', hubPort, { title: 'Hub', hub: true, owner: { session: hubId, repo, label: 'Hub' } }),
+  const signal = await serverSignals(t);
+  write(path.join(web, 'manifest.json'), { version: 1, migrated: ['hub-flag'], sites: {
+    shop: board(home, 'shop', shopPort, { title: 'The Shop', owner: { session: id, repo, label: 'Shop' } }, signal.args),
+    'hub-orchestrator': board(home, 'hub-orchestrator', hubPort, { title: 'Hub', hub: true, owner: { session: hubId, repo, label: 'Hub' } }, signal.args),
   } });
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: claude, KICKFLIP_TMUX: tmux, PATH: `${path.join(home, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin` } });
-  const base = `http://127.0.0.1:${port}`;
+  const hub = await inProcessHub(t);
+  const base = hub.base;
   const calls = () => fs.readFileSync(path.join(home, 'calls.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const restart = (route) => fetch(`${base}/_hub/restart-board`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ route }) });
-  try {
-    await new Promise((resolve, reject) => {
-      let out = '';
-      hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-      hub.once('exit', reject);
-    });
-    await until(() => fetch(`${base}/shop/_claude/health`).then((r) => r.ok, () => false), 'the Shop server answers');
+  {
+    await signal.up();
+    await signal.up();
+    await hub.reconcile();
+    assert.ok((await fetch(`${base}/shop/_claude/health`)).ok, 'the Shop server answers');
     const groups = (await (await fetch(`${base}/_hub/api/hub`)).json()).groups;
     assert.deepEqual(groups.flatMap((g) => g.sites.map((s) => [s.route, s.restart])), [['hub-orchestrator', true], ['shop', true]]);
     const before = fs.readFileSync(path.join(home, '.claude', 'kickflip', 'run', 'shop.pid'), 'utf8');
@@ -107,8 +113,9 @@ test("Restart stops a board's session, restarts its server and resumes the sessi
     assert.equal(made[0].server, before);
     assert.notEqual(made.at(-1).server, before);
     assert.ok(made.at(-1).server);
+    if (sleeper.exitCode === null && sleeper.signalCode === null) await once(sleeper, 'exit');
     assert.equal(sleeper.exitCode ?? sleeper.signalCode, 'SIGTERM');
-    const manifest = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'kickflip', 'manifest.json'), 'utf8'));
+    const manifest = JSON.parse(fs.readFileSync(path.join(web, 'manifest.json'), 'utf8'));
     assert.equal(typeof manifest.sites.shop.restart_at, 'number');
     assert.equal(manifest.sites.shop.owner.session, id);
     assert.equal(manifest.sites['hub-orchestrator'].restart_at, undefined);
@@ -124,14 +131,6 @@ test("Restart stops a board's session, restarts its server and resumes the sessi
     assert.deepEqual([started.includes(claude), started[started.indexOf('--resume') + 1], started.includes('--bg')], [true, hubId, false]);
     assert.ok(started.includes('--settings'));
     assert.equal(calls().length, made.length);
-  } finally {
-    hub.kill();
-    await new Promise((resolve) => hub.once('exit', resolve));
-    sleeper.kill();
-    for (const f of fs.readdirSync(path.join(home, '.claude', 'sessions'))) {
-      try { process.kill(JSON.parse(fs.readFileSync(path.join(home, '.claude', 'sessions', f), 'utf8')).pid); } catch {}
-    }
-    fs.rmSync(home, { recursive: true, force: true });
   }
 });
 

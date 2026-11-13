@@ -1,7 +1,7 @@
 // Keep awake (docs/adr/2026-11-09-1200-keep-awake-is-a-toggle-that-holds-the-mac-awake-only-on-ac-power.md): while settings.json's
 // keep_awake is true, the hub runs `caffeinate -s`, which holds the Mac awake only while it is on AC power and holds nothing
 // on battery, and runs it again after a restart. Only macOS has caffeinate.
-import { spawn } from 'node:child_process';
+import { spawn as spawnChild } from 'node:child_process';
 import { readSettingsFile, writeSettingsFile } from './push.mjs';
 
 const OS_NAMES = { linux: 'Linux', win32: 'Windows', freebsd: 'FreeBSD' };
@@ -21,7 +21,8 @@ export function setKeepAwake(on, { platform = process.platform } = {}) {
 }
 
 // The hub's one caffeinate. apply() starts or stops it to match the setting; stop() ends it for good as the hub exits.
-export function caffeinate({ log = () => {}, platform = process.platform } = {}) {
+// spawn(command, args, options) → the child process; node's spawn by default.
+export function caffeinate({ log = () => {}, platform = process.platform, spawn = spawnChild } = {}) {
   let child = null;
   const end = () => {
     if (!child) return;

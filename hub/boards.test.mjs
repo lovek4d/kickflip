@@ -1,22 +1,24 @@
+// The fixture sets HOME and PATH as it loads, so it comes first; its home is real, as the clone home under it needs
+// (repoPath refuses a clone home whose ancestors go through a symlink).
+import { home, inProcessHub } from './hub-fixture.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { reposDir } from '../shared/repos.mjs';
 import { startFakeDevice } from './fake-device.mjs';
-import { withFileLock } from './locks.mjs';
 import { fakeGh, prView, writePR, writeUser, queried } from '../shared/fake-gh.mjs';
-import { freePorts, until, ownSession, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
+import { freePorts, ownSession, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL = path.join(HUB_DIR, '..');
-// Real, as a home is: the clone home sits under it, and repoPath refuses a clone home whose ancestors go through a symlink.
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-')));
-process.env.HOME = home;
+// The bin on PATH holds a git stand-in once the hub starts; the test's own git is the host's.
+const GIT = '/usr/bin/git';
+// Until the hub listens, a push's needs lookup goes to port 1, which refuses at once, never to the host's hub.
+process.env.KICKFLIP_HUB_PORT = '1';
 // ps is the stand-in for the whole file, here and in the hub and board servers it spawns: each live record's process
 // started at START, so a loaded Mac's slow ps can't leave a session's liveness unknown.
 const START = 'Thu Nov  5 00:00:00 2026';
@@ -38,9 +40,49 @@ const liveSession = (sessionId) => {
   return c;
 };
 
-const [port, orchPort, shopPort, plainPort, stubbornPort, latePort, napPort, hubPort, hubBoardPort, devPort, closePort, freshPort, auditPort, ...namedPorts] = await freePorts(17);
-process.env.KICKFLIP_HUB_PORT = String(port);
-const base = `http://127.0.0.1:${port}`;
+// Ports for the board servers the hub starts, which listen on the port their manifest entry names. The sites that
+// never listen (plain, stubborn, late) and the board the test never starts (nap) take port 1, refused at once.
+const [orchPort, shopPort, closePort, freshPort, auditPort, ...namedPorts] = await freePorts(6);
+const plainPort = 1;
+const napPort = 1;
+// Every board server the hub starts loads this preload (NODE_OPTIONS reaches it through the hub's env), which tells
+// the test its route once the server listens: up(route) resolves on the next such word not yet taken.
+const ups = new Map();
+const upsOf = (route) => { if (!ups.has(route)) ups.set(route, { unclaimed: 0, waiters: [] }); return ups.get(route); };
+const upServer = http.createServer((req, res) => {
+  const q = upsOf(new URL(req.url, 'http://up').searchParams.get('route'));
+  const waiter = q.waiters.shift();
+  if (waiter) waiter(); else q.unclaimed++;
+  res.end();
+});
+await new Promise((resolve) => upServer.listen(0, '127.0.0.1', resolve));
+const upURL = `http://127.0.0.1:${upServer.address().port}/up`;
+const up = (route) => {
+  const q = upsOf(route);
+  if (q.unclaimed) { q.unclaimed--; return Promise.resolve(); }
+  return new Promise((resolve) => q.waiters.push(resolve));
+};
+const preload = path.join(home, 'listening.mjs');
+fs.writeFileSync(preload, `import net from 'node:net';
+const listen = net.Server.prototype.listen;
+net.Server.prototype.listen = function (...args) {
+  if (process.env.KICKFLIP_ROUTE) this.once('listening', () => fetch(${JSON.stringify(upURL)} + '?route=' + process.env.KICKFLIP_ROUTE).catch(() => {}));
+  return listen.apply(this, args);
+};
+`);
+process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, `--import=${pathToFileURL(preload).href}`].filter(Boolean).join(' ');
+let hub, port, base;
+// The hub's clock runs ahead of the host's by ahead ms: a test moves it past a cache's life.
+const clock = { ahead: 0 };
+// Starts what the manifest names and resolves once each route's server listens and the hub has found it up; a server
+// that exits first fails it with its log.
+async function serving(...routes) {
+  await hub.reconcile();
+  await Promise.all(routes.map((route) => Promise.race([up(route), hub.logged(new RegExp(`^${route} exited`)).then((line) => {
+    throw new Error(`${line}\n${fs.readFileSync(claude('kickflip', 'logs', `${route}.log`), 'utf8')}`);
+  })])));
+  await hub.reconcile();
+}
 const boardCmd = (route) => [process.execPath, path.join(SKILL, 'board', 'server.mjs'), site(route)];
 const NOW_SINCE = ago(60);
 
@@ -198,7 +240,9 @@ test("oldestUnheard finds the oldest line past the owner's watcher cursor, or pa
   assert.equal(oldestUnheard({ ...board, owner: null }), null);
 });
 
-let hub, device, orchWatcher, orchSession;
+let device, orchWatcher, orchSession;
+// The file's one hub serves every test; after() closes it.
+const hubClosers = [];
 const poll = async () => (await fetch(`${base}/_hub/poll`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
 const api = async (route) => (await fetch(`${base}/${route}/api/board`)).json();
 const linkState = (links) => Object.fromEntries(links.map((l) => [l.link, l.ok]));
@@ -240,39 +284,19 @@ exit 1
   orchSession = liveSession('s-orch');
   write(site('orch', 'data', 'watcher.json'), { pid: orchWatcher.pid, since: ago(1) });
 
-  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: `${path.join(home, 'bin')}:${process.env.PATH}` } });
-  // The hub's own output rides on whatever fails here: node:test reports a failed hook with no message of its own.
-  let out = '';
-  hub.stdout.on('data', (d) => { out += d; });
-  hub.stderr.on('data', (d) => { out += d; });
-  try {
-    await new Promise((resolve, reject) => {
-      hub.stdout.on('data', () => { if (out.includes('hub on')) resolve(); });
-      hub.once('exit', (code, signal) => reject(new Error(`the hub exited (${code ?? signal}) before it listened`)));
-    });
-    for (const route of ['orch', 'shop']) {
-      await until(() => fetch(`${base}/${route}/_claude/health`).then((r) => r.ok, () => false), `${route} server becomes healthy`);
-    }
-  } catch (e) {
-    const logs = path.join(claude('kickflip'), 'logs');
-    const boardLogs = fs.existsSync(logs) ? fs.readdirSync(logs).map((f) => `--- ${f}\n${fs.readFileSync(path.join(logs, f), 'utf8')}`).join('\n') : '';
-    e.message += `\nhub output:\n${out}\nboard server logs:\n${boardLogs}`;
-    throw e;
-  }
+  hub = await inProcessHub({ after: (close) => hubClosers.push(close) }, { now: () => Date.now() + clock.ahead });
+  ({ port, base } = hub);
+  process.env.KICKFLIP_HUB_PORT = String(port);
+  await serving('orch', 'shop');
 });
 
+// close() returns once every site the hub started has exited; the fixture removes the home as the process exits.
 after(async () => {
   orchWatcher?.kill();
   orchSession?.kill();
-  if (hub && hub.exitCode === null && hub.signalCode === null) {
-    const exited = new Promise((resolve) => hub.once('exit', resolve));
-    hub.kill('SIGTERM');
-    await exited;
-  }
+  for (const close of hubClosers) await close();
   await device?.close();
-  await new Promise((r) => setTimeout(r, 200));
-  // A board server the hub started may still be flushing a write as its tree goes; rmSync retries ENOTEMPTY.
-  fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  await new Promise((resolve) => upServer.close(resolve));
 });
 
 test('hub writes refuse cross-site requests before handling forms, JSON or deletes', async () => {
@@ -310,7 +334,8 @@ test('closing a board through the hub requires JSON, same-origin access and its 
   const headers = { 'content-type': 'application/json', origin: base, 'sec-fetch-site': 'same-origin' };
   const post = (path, body, h = headers) => fetch(base + path, { method: 'POST', headers: h, body: JSON.stringify(body) });
   try {
-    await until(() => fetch(`${base}/${route}/_claude/health`).then((r) => r.ok, () => false), `${route} server becomes healthy`);
+    await serving(route);
+    assert.equal((await fetch(`${base}/${route}/_claude/health`)).ok, true);
     const pid = Number(fs.readFileSync(claude('kickflip', 'run', `${route}.pid`), 'utf8'));
     const body = { route, name: 'Close Me' };
     const before = read(file);
@@ -331,7 +356,10 @@ test('closing a board through the hub requires JSON, same-origin access and its 
     assert.equal(settings.closed.find((b) => b.route === route).title, 'Close Me');
     const sidebar = await (await fetch(`${base}/_hub/sidebar.json`)).json();
     assert.equal(sidebar.sites.some((b) => b.route === route), false);
-    await until(() => !fs.existsSync(claude('kickflip', 'run', `${route}.pid`)), `${route} server pid file is removed`);
+    // The next pass finds the route gone from the manifest and stops its server.
+    await hub.reconcile();
+    await hub.logged(new RegExp(`^${route} exited`));
+    assert.equal(fs.existsSync(claude('kickflip', 'run', `${route}.pid`)), false);
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
     assert.ok(fs.existsSync(site(route, 'data', 'items.json')));
     const reopened = await post('/_hub/reopen-board', { route });
@@ -548,14 +576,14 @@ test("a board whose repo fetch fails gets a Repo fetch link that settles, reads 
   write(failing, '');
   await writeManifestFile({ ...manifest, sites: { ...manifest.sites, shop: { ...manifest.sites.shop, github: 'o/r', owner: { ...manifest.sites.shop.owner, repo } } } });
   try {
-    await until(async () => { await poll(); return (await repoFetch())?.ok === false; }, 'the failed fetch reaches the board');
+    await poll();
     const settling = await repoFetch();
-    assert.deepEqual([settling.state, settling.detail], ['settling', detail]);
-    await until(async () => {
-      write(faultsFile, { ...read(faultsFile), shop: { ...read(faultsFile).shop, 'repo-fetch': ago(200) } });
-      return (await repoFetch())?.state === 'broken';
-    }, 'the fetch fault turns broken past its grace');
-    await until(async () => (await shopLines()).some((l) => l.link === 'repo-fetch' && l.detail === detail), 'Health lists the broken fetch');
+    assert.deepEqual([settling.ok, settling.state, settling.detail], [false, 'settling', detail]);
+    write(faultsFile, { ...read(faultsFile), shop: { ...read(faultsFile).shop, 'repo-fetch': ago(200) } });
+    assert.equal((await repoFetch()).state, 'broken');
+    // Health builds a board's links again once its copy is NEEDS_TTL (20 s) old.
+    clock.ahead += 20_000;
+    assert.ok((await shopLines()).some((l) => l.link === 'repo-fetch' && l.detail === detail), 'Health lists the broken fetch');
     const health = (await (await fetch(`${base}/_hub/sidebar.json`)).json()).hub;
     assert.notEqual(health.word, 'healthy');
     assert.match(health.detail, /^\d+ of \d+ sites up · \d+ links? failing/);
@@ -566,24 +594,25 @@ test("a board whose repo fetch fails gets a Repo fetch link that settles, reads 
     fs.rmSync(claude('sessions', `${process.pid}-s-shop.json`));
     assert.ok(watched.stdout.split('\n').includes(`link repo-fetch ${detail}`), watched.stdout);
     fs.rmSync(failing);
-    await until(async () => { await poll(); return (await repoFetch())?.ok === true; }, 'the next good fetch clears the link');
-    assert.equal((await repoFetch()).state, 'ok');
+    await poll();
+    const cleared = await repoFetch();
+    assert.deepEqual([cleared.ok, cleared.state], [true, 'ok'], 'the next good fetch clears the link');
     assert.equal(read(faultsFile).shop?.['repo-fetch'], undefined);
-    await until(async () => (await shopLines()).every((l) => l.link !== 'repo-fetch'), 'Health drops the fetch line');
+    clock.ahead += 20_000;
+    assert.ok((await shopLines()).every((l) => l.link !== 'repo-fetch'), 'Health drops the fetch line');
   } finally {
     fs.rmSync(failing, { force: true });
     await writeManifestFile(manifest);
     for (const [f, text] of kept) { if (text === null) fs.rmSync(f, { force: true }); else write(f, text); }
-    await until(() => fetch(`${base}/shop/_claude/health`).then((r) => r.ok, () => false), 'shop server is healthy again');
   }
 });
 
 test("the daily wake reaches both boards", async () => {
-  await until(() => events('orch', 'check-github').length && events('shop', 'check-github').length && fs.existsSync(claude('kickflip', 'wake-state.json')), 'the daily wake reaches both boards and records its state');
+  // The hub's tick sends the wake as this does.
+  const { sendWakes } = await import('./github.mjs');
+  await sendWakes({ settings: read(claude('kickflip', 'settings.json')), manifest: read(claude('kickflip', 'manifest.json')) });
   for (const route of ['orch', 'shop']) assert.deepEqual(events(route, 'check-github').map((e) => e.data), [{ reason: 'morning' }]);
-  // The wake can run while another test has a board of its own in the manifest, which it reaches too.
-  const routes = read(claude('kickflip', 'wake-state.json')).last.routes;
-  assert.ok(routes.includes('orch') && routes.includes('shop'), routes.join(', '));
+  assert.deepEqual([...read(claude('kickflip', 'wake-state.json')).last.routes].sort(), ['orch', 'shop']);
 });
 
 test('listening again ends the outage, a watcher whose session is not running does not, and the next one pushes again', async () => {
@@ -594,9 +623,9 @@ test('listening again ends the outage, a watcher whose session is not running do
     assert.ok(read(claude('kickflip', 'deaf-state.json')).shop);
     const s = liveSession('s-shop');
     try {
-      // While ps gives the hub no answer, which sessions run is unknown, and the outage stays until a check can tell.
-      ps.stall(true);
-      try { assert.deepEqual((await poll()).deaf.pushed, []); } finally { ps.stall(false); }
+      // While ps gives the hub no answer (a null running), which sessions run is unknown, and the outage stays until a
+      // check can tell.
+      assert.deepEqual((await checkListening({ manifest: read(claude('kickflip', 'manifest.json')), running: null })).pushed, []);
       assert.ok(read(claude('kickflip', 'deaf-state.json')).shop, 'a check ps gave no answer for keeps the outage');
       assert.deepEqual((await poll()).deaf.pushed, []);
     } finally { s.kill(); }
@@ -635,27 +664,27 @@ test('a board whose stopped session the hub can wake is asleep, then waking once
   const manifest = (o = owner) => ({ sites: { nap: { dir: site('nap'), port: napPort, cmd: boardCmd('nap'), watch: ['data/events.jsonl'], owner: o } } });
   const [nap] = listBoards(manifest());
   const napPushes = () => pushes().filter((p) => p.tag === 'deaf-nap');
-  assert.equal(listenState(nap, { wakes: {} }), 'asleep');
-  assert.deepEqual((await checkListening({ manifest: manifest(), wakes: {} })).pushed, []);
-  assert.equal(listenState(listBoards(manifest({ ...owner, repo: undefined }))[0], { wakes: {} }), 'deaf');
-  const s = liveSession('s-nap');
+  // The sessions running, as live.mjs liveSessions reads them: none, or s-nap's.
+  const none = new Map();
+  const napRuns = new Map([['s-nap', { sessionId: 's-nap', cwd: home }]]);
+  assert.equal(listenState(nap, { running: none, wakes: {} }), 'asleep');
+  assert.deepEqual((await checkListening({ manifest: manifest(), running: none, wakes: {} })).pushed, []);
+  assert.equal(listenState(listBoards(manifest({ ...owner, repo: undefined }))[0], { running: none, wakes: {} }), 'deaf');
   const resumed = { nap: { down_since: ago(1), resumed_at: ago(1) } };
-  try {
-    assert.equal(listenState(nap, { wakes: {} }), 'deaf');
-    assert.equal(listenState(nap, { wakes: resumed }), 'waking');
-  } finally { await new Promise((resolve) => { s.once('exit', resolve); s.kill(); }); }
-  assert.equal(listenState(nap, { wakes: resumed }), 'waking');
-  // The resume records are passed in rather than written to resume-state.json, which the running hub's own session
-  // check rewrites every 15 s for the boards in its manifest, nap not among them.
-  const heard = (wakes) => linksOf(nap, { faults: {}, listen: listenState(nap, { wakes }) }).find((l) => l.link === 'events').ok;
-  assert.deepEqual([heard(resumed), (await checkListening({ manifest: manifest(), wakes: resumed })).pushed], [true, []]);
-  assert.equal(listenState(nap, { wakes: { nap: { ...resumed.nap, pushed_at: ago(0) } } }), 'deaf');
+  assert.equal(listenState(nap, { running: napRuns, wakes: {} }), 'deaf');
+  assert.equal(listenState(nap, { running: napRuns, wakes: resumed }), 'waking');
+  assert.equal(listenState(nap, { running: none, wakes: resumed }), 'waking');
+  // The resume records are passed in rather than written to resume-state.json, which the hub's session check rewrites
+  // for the boards in its manifest, nap not among them.
+  const heard = (wakes) => linksOf(nap, { faults: {}, listen: listenState(nap, { running: none, wakes }) }).find((l) => l.link === 'events').ok;
+  assert.deepEqual([heard(resumed), (await checkListening({ manifest: manifest(), running: none, wakes: resumed })).pushed], [true, []]);
+  assert.equal(listenState(nap, { running: none, wakes: { nap: { ...resumed.nap, pushed_at: ago(0) } } }), 'deaf');
   const failed = { nap: { down_since: ago(1), resumed_at: ago(1), error: 'claude --resume failed' } };
-  assert.equal(listenState(nap, { wakes: failed }), 'deaf');
+  assert.equal(listenState(nap, { running: none, wakes: failed }), 'deaf');
   assert.equal(heard(failed), false);
-  assert.deepEqual((await checkListening({ manifest: manifest(), wakes: failed })).pushed, ['nap']);
+  assert.deepEqual((await checkListening({ manifest: manifest(), running: none, wakes: failed })).pushed, ['nap']);
   assert.deepEqual(napPushes(), [{ title: "Nap isn't listening", url: '/nap/', tag: 'deaf-nap' }]);
-  assert.equal(linksOf(nap, { faults: {} }).find((l) => l.link === 'events').ok, true);
+  assert.equal(linksOf(nap, { faults: {}, listen: listenState(nap, { running: none }) }).find((l) => l.link === 'events').ok, true);
 });
 
 test("the handshake sends a ping without a push; the board shows its checklist until the session's watcher answers the ping", async () => {
@@ -747,11 +776,9 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
     const response = await post(request);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { route: 'backend-audit' });
-    let pending;
-    await until(async () => {
-      pending = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
-      return pending?.failed;
-    }, 'backend-audit clone failure appears in the sidebar');
+    // The start runs past the answer; settled() waits out its clone.
+    await hub.settled();
+    const pending = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
     assert.deepEqual(pending, { route: 'backend-audit', title: request.name, repo, step: 'cloning', stepAt: pending.askedAt, branch: 'main', tickets: null, askedAt: read(manifestFile).starting['backend-audit'].asked_at, failed: true, error: 'git clone failed' });
     assert.equal(events('orch', 'ask').length, before);
     assert.equal((await sidebar()).sites.some((s) => s.route === pending.route), false);
@@ -767,11 +794,9 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
     const retried = await retry(pending.route);
     assert.equal(retried.status, 200);
     assert.deepEqual(await retried.json(), { route: 'backend-audit' });
-    let again;
-    await until(async () => {
-      again = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
-      return again?.failed && again.askedAt !== pending.askedAt;
-    }, 'backend-audit retry fails again with a new asked time');
+    await hub.settled();
+    const again = (await sidebar()).starting.find((s) => s.route === 'backend-audit');
+    assert.notEqual(again.askedAt, pending.askedAt, 'the retry fails again with a new asked time');
     const retriedAt = read(manifestFile).starting['backend-audit'].asked_at;
     assert.deepEqual(again, { ...pending, askedAt: retriedAt, stepAt: retriedAt });
     assert.equal(read(manifestFile).starting['backend-audit'].purpose, request.purpose);
@@ -797,7 +822,8 @@ test("New board validates through HTTP, reports a failed clone and preserves rep
     assert.deepEqual(race.map((r) => r.status).sort(), [200, 400]);
     assert.ok(read(manifestFile).starting['one-race']);
     assert.equal(events('orch', 'ask').length, before);
-    await until(() => !Object.values(read(manifestFile).starting || {}).some((r) => r.github && !r.error && !r.session), 'all in-flight clones record an error or session');
+    await hub.settled();
+    assert.equal(Object.values(read(manifestFile).starting || {}).some((r) => r.github && !r.error && !r.session), false, 'every clone records an error or session');
   } finally { await writeManifestFile(original); fs.rmSync(path.join(reposDir(), 'int180-http-test'), { recursive: true, force: true }); }
 });
 
@@ -811,9 +837,10 @@ test("a board session's permission prompt pushes to the hub page, counts in that
     child.stdin.end(JSON.stringify(input));
   });
   const needs = async (route) => (await fetch(`${base}/${route}/_claude/needs`)).json();
-  let mine;
-  await until(async () => { mine = (await needs('orch')).items.find((x) => x.kind === 'Prompt'); return mine; }, 'the permission prompt appears in Orch Needs you');
-  assert.deepEqual(mine, { kind: 'Prompt', text: 'Bash: npm test', url: '' });
+  // The hub logs the prompt once it holds it, then pushes it; settled() waits out the push.
+  await hub.logged(/^prompt [\w-]+: \/orch Bash/);
+  await hub.settled();
+  assert.deepEqual((await needs('orch')).items.find((x) => x.kind === 'Prompt'), { kind: 'Prompt', text: 'Bash: npm test', url: '' });
   assert.match((await needs('orch')).summary, /^1 prompt/);
   assert.equal((await needs('shop')).items.some((x) => x.kind === 'Prompt'), false);
   const { prompt } = (await api('orch')).needs[0];
@@ -821,7 +848,6 @@ test("a board session's permission prompt pushes to the hub page, counts in that
   const waiting = await (await fetch(`${base}/_hub/needs.json?fresh=1`)).json();
   assert.equal(waiting.total, waiting.sites.orch.count + waiting.sites.shop.count);
   assert.ok(waiting.sites.orch.count >= 1);
-  await until(() => pushes().some((x) => x.tag === `prompt-${prompt.id}`), 'the permission prompt push arrives');
   assert.deepEqual(pushes().find((x) => x.tag === `prompt-${prompt.id}`), { title: 'Orch wants to run npm test', url: '/_hub/', tag: `prompt-${prompt.id}` });
 
   const r = await fetch(`${base}/_hub/prompts/${prompt.id}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ choice: 'always' }) });
@@ -901,7 +927,8 @@ test('object property names work as page routes and as new boards through HTTP a
       assert.equal(joined.status, 0, joined.stderr);
       write(site(route, 'board.json'), { title: names[i], slug: route, items: 'data/items.json' });
       write(site(route, 'data', 'items.json'), { items: [{ id: 'constructor', title: 'Review', lane: 'todo' }] });
-      await until(() => fetch(`${base}/${route}/_claude/health`).then((r) => r.ok, () => false), `${route} server becomes healthy`);
+      await serving(route);
+      assert.equal((await fetch(`${base}/${route}/_claude/health`)).ok, true);
       const side = await get('/_hub/sidebar.json?fresh=1');
       assert.deepEqual(side.starting.filter((s) => s.route === route).map((s) => s.step), ['landing']);
       assert.equal(side.sites.some((s) => s.route === route), false);
@@ -915,7 +942,9 @@ test('object property names work as page routes and as new boards through HTTP a
     const downSince = () => {
       try { const state = read(claude('kickflip', 'resume-state.json')); return routes.filter((route) => Object.hasOwn(state, route) && Number.isFinite(Date.parse(state[route].down_since))); } catch { return []; }
     };
-    await until(() => downSince().length === routes.length, 'all boards record down_since');
+    // The hub's session check, as its tick runs it.
+    const { checkSessions } = await import('./sessions.mjs');
+    await checkSessions();
     assert.deepEqual(downSince(), routes);
     const rows = (await get('/_hub/api/hub')).groups.flatMap((g) => g.sites);
     for (const route of routes) assert.deepEqual(rows.find((s) => s.route === route).remembered, []);
@@ -956,60 +985,61 @@ test("a board page's wake asks the hub for one session check now, from the app's
   assert.deepEqual(await r.json(), { route: 'shop', listen: 'deaf' });
 });
 
+// The hub runs this migration as it starts (hub.mjs startHub), on the file's one manifest, set aside meanwhile.
 test('a starting hub makes the hub board a local board of its own folder once, recording its origin and branch, and flags no board by its route', async () => {
-  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'boards-migrate-')));
-  const file = path.join(other, '.claude', 'kickflip', 'manifest.json');
-  const writeManifestFile = (m) => withFileLock(file, () => saveJSON(file, m));
-  const board = (name, at) => ({ dir: path.join(other, name), port: at, cmd: [process.execPath, path.join(SKILL, 'board', 'server.mjs'), path.join(other, name)] });
-  const startHub = async () => {
-    const h = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: other, KICKFLIP_HUB_PORT: String(hubPort), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' } });
-    await new Promise((resolve, reject) => {
-      let out = '';
-      h.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-      h.once('exit', reject);
-    });
-    const exited = new Promise((resolve) => h.once('exit', resolve));
-    h.kill('SIGTERM');
-    await exited;
-  };
+  const { migrateHubBoard } = await import('./board-repo.mjs');
+  const { runRepo } = await import('./repos.mjs');
+  const git = (command, argv) => runRepo(GIT, argv);
+  const file = claude('kickflip', 'manifest.json');
+  const original = read(file);
+  const other = fs.mkdtempSync(path.join(home, 'migrate-'));
+  const board = (name) => ({ dir: path.join(other, name), port: 1, cmd: [process.execPath, path.join(SKILL, 'board', 'server.mjs'), path.join(other, name)] });
   const flagged = () => Object.entries(read(file).sites).filter(([, s]) => s.hub).map(([route]) => route);
   const folder = path.join(other, 'kickflip-clone');
   fs.mkdirSync(folder, { recursive: true });
-  execFileSync('git', ['-C', folder, 'init', '--quiet', '-b', 'main']);
-  execFileSync('git', ['-C', folder, 'remote', 'add', 'origin', 'git@github.com:owner/kickflip.git']);
+  execFileSync(GIT, ['-C', folder, 'init', '--quiet', '-b', 'main']);
+  execFileSync(GIT, ['-C', folder, 'remote', 'add', 'origin', 'git@github.com:owner/kickflip.git']);
+  // A pass a page asked for may still read the manifest.
+  await hub.settled();
+  fs.rmSync(file);
   try {
-    await startHub();
+    assert.equal(await migrateHubBoard({ run: git }), null);
     assert.equal(fs.existsSync(file), false);
-    await writeManifestFile({ sites: { 'hub-orchestrator': board('hub', hubBoardPort), dev: { ...board('dev', devPort), hub: true, owner: { session: 's-dev', repo: folder } } } });
-    await startHub();
+    await writeManifestFile({ sites: { 'hub-orchestrator': board('hub'), dev: { ...board('dev'), hub: true, owner: { session: 's-dev', repo: folder } } } });
+    assert.equal(await migrateHubBoard({ run: git }), 'dev');
     const dev = read(file).sites.dev;
-    assert.deepEqual([flagged(), dev.local, dev.github, dev.branch, dev.owner, read(file).migrated], [['dev'], true, 'owner/kickflip', 'main', { session: 's-dev', repo: folder }, ['board-github', 'hub-local', 'wave-names']]);
+    assert.deepEqual([flagged(), dev.local, dev.github, dev.branch, dev.owner, read(file).migrated], [['dev'], true, 'owner/kickflip', 'main', { session: 's-dev', repo: folder }, ['hub-local']]);
     const cleared = read(file);
     delete cleared.sites.dev.local;
     delete cleared.sites.dev.hub;
     await writeManifestFile(cleared);
-    await startHub();
+    assert.equal(await migrateHubBoard({ run: git }), null);
     assert.deepEqual([flagged(), read(file).sites.dev.local], [[], undefined]);
-  } finally { fs.rmSync(other, { recursive: true, force: true }); }
+  } finally {
+    await writeManifestFile(original);
+    fs.rmSync(other, { recursive: true, force: true });
+  }
 });
 
 test('stopping the hub stops every site it started, one that ignores SIGTERM and one that joined just before, and starts none', async () => {
-  const sitesDir = claude('kickflip', 'sites');
-  const siteProcs = () => execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(sitesDir)).map((l) => Number(l.trim().split(' ')[0]));
   const node = (route, script) => [process.execPath, '-e', script, site(route)];
   const manifest = read(claude('kickflip', 'manifest.json'));
-  manifest.sites.stubborn = { dir: home, port: stubbornPort, cmd: node('stubborn', `process.on('SIGTERM', () => {}); console.log('ready'); ${untilTestEnds()}`) };
+  // The stubborn site tells the test once it ignores SIGTERM.
+  manifest.sites.stubborn = { dir: home, port: 1, cmd: node('stubborn', `process.on('SIGTERM', () => {}); console.log('ready'); fetch(${JSON.stringify(upURL)} + '?route=stubborn'); ${untilTestEnds()}`) };
   await writeManifestFile(manifest);
-  const log = claude('kickflip', 'logs', 'stubborn.log');
-  await until(() => fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes('ready'), 'the stubborn server logs ready');
-  assert.match(fs.readFileSync(log, 'utf8'), /ready/);
-  manifest.sites.late = { dir: home, port: latePort, cmd: node('late', untilTestEnds()) };
+  await serving('stubborn');
+  assert.match(fs.readFileSync(claude('kickflip', 'logs', 'stubborn.log'), 'utf8'), /ready/);
+  manifest.sites.late = { dir: home, port: 1, cmd: node('late', untilTestEnds()) };
   await writeManifestFile(manifest);
-  const exited = new Promise((resolve) => hub.once('exit', resolve));
-  hub.kill('SIGTERM');
-  await exited;
+  const run = claude('kickflip', 'run');
+  const pidFiles = () => fs.readdirSync(run).filter((f) => f.endsWith('.pid'));
+  const pids = pidFiles().map((f) => Number(fs.readFileSync(path.join(run, f), 'utf8')));
+  assert.ok(['orch', 'shop', 'stubborn'].every((route) => pidFiles().includes(`${route}.pid`)), pidFiles().join(', '));
+  // close() resolves once every site it started has exited, the stubborn one by SIGKILL.
+  await hub.close();
   try {
-    await until(() => siteProcs().length === 0, 'all site processes stop after the hub exits');
-    assert.deepEqual(siteProcs(), []);
-  } finally { for (const pid of siteProcs()) { try { process.kill(pid, 'SIGKILL'); } catch {} } }
+    assert.equal(hub.lines.some((l) => l.startsWith('started late')), false);
+    assert.deepEqual(pidFiles(), []);
+    for (const pid of pids) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, `pid ${pid} still runs`);
+  } finally { for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch {} } }
 });

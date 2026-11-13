@@ -1,14 +1,11 @@
+import { web, write, inProcessHub } from './hub-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { fakeLinear, linearWorld, freePorts } from '../shared/test-helpers.mjs';
+import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import { linearClient, linearStatus, readLinearKey, removeLinearKey, saveLinearKey, savedClient, stateFor, stageOf } from './linear.mjs';
-
-const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 function withHome(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'linear-'));
@@ -128,22 +125,14 @@ test('a linear.json from before secrets.json moves in on the first read, keeping
 });
 
 test("the hub saves the Linear key from its settings form, serves only the workspace, lists teams and projects, and creates a project", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-linear-'));
-  const web = path.join(home, '.claude', 'kickflip');
-  fs.mkdirSync(web, { recursive: true });
-  fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: {} }));
+  fs.rmSync(web, { recursive: true, force: true });
+  write(path.join(web, 'manifest.json'), { version: 1, sites: {} });
   const world = linearWorld();
   const linear = fakeLinear(world);
   const server = await linear.serve();
-  const [port] = await freePorts(1);
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', KICKFLIP_LINEAR_URL: server.url } });
-  t.after(async () => { hub.kill(); await server.close(); fs.rmSync(home, { recursive: true, force: true }); });
-  await new Promise((resolve, reject) => {
-    let out = '';
-    hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-    hub.once('exit', reject);
-  });
-  const base = `http://127.0.0.1:${port}`;
+  t.after(() => server.close());
+  process.env.KICKFLIP_LINEAR_URL = server.url;
+  const { base } = await inProcessHub(t);
   const form = (body) => fetch(`${base}/_hub/settings/linear`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
   assert.deepEqual(await (await fetch(`${base}/_hub/api/linear`)).json(), { set: false });
   assert.equal((await (await fetch(`${base}/_hub/api/settings`)).json()).linear.summary, 'No key');
@@ -180,32 +169,25 @@ test("the hub saves the Linear key from its settings form, serves only the works
 });
 
 test('a board on Linear falls back to no ticket source when the hub starts with no Linear key, and when Hub settings removes the key', async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-linear-fallback-'));
-  const web = path.join(home, '.claude', 'kickflip');
+  fs.rmSync(web, { recursive: true, force: true });
   const site = path.join(web, 'sites', 'app');
   const linearTickets = { source: 'linear', workspace: 'acme', team: 'ENG', project: 'proj-audit' };
-  fs.mkdirSync(path.join(site, 'data'), { recursive: true });
   const config = path.join(site, 'board.json');
   const wave = path.join(site, 'data', 'items.json');
-  fs.writeFileSync(config, JSON.stringify({ title: 'App', items: 'data/items.json', slug: 'app', tickets: linearTickets }));
-  fs.writeFileSync(wave, JSON.stringify({ title: 'App', items: [{ id: 'ENG-9', title: 'Old', ticket: 'ENG-9' }] }));
+  write(config, { title: 'App', items: 'data/items.json', slug: 'app', tickets: linearTickets });
+  write(wave, { title: 'App', items: [{ id: 'ENG-9', title: 'Old', ticket: 'ENG-9' }] });
   const cards = fs.readFileSync(wave, 'utf8');
-  fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: { app: { dir: site, cmd: ['/usr/bin/false', 'board/server.mjs'] } } }));
+  write(path.join(web, 'manifest.json'), { version: 1, sites: { app: { dir: site, cmd: ['/usr/bin/false', 'board/server.mjs'] } } });
   const world = linearWorld();
   const linear = fakeLinear(world);
   const server = await linear.serve();
-  const [port] = await freePorts(1);
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', KICKFLIP_LINEAR_URL: server.url } });
-  t.after(async () => { hub.kill(); await server.close(); fs.rmSync(home, { recursive: true, force: true }); });
-  let out = '';
-  await new Promise((resolve, reject) => {
-    hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-    hub.once('exit', reject);
-  });
+  t.after(() => server.close());
+  process.env.KICKFLIP_LINEAR_URL = server.url;
+  const hub = await inProcessHub(t);
   const tickets = () => JSON.parse(fs.readFileSync(config, 'utf8')).tickets;
   assert.equal(tickets(), undefined);
-  assert.match(out, /linear: \/app fell back to no ticket source: Hub has no Linear key/);
-  const form = (body) => fetch(`http://127.0.0.1:${port}/_hub/settings/linear`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
+  assert.ok(hub.lines.includes('linear: /app fell back to no ticket source: Hub has no Linear key'), hub.lines.join('\n'));
+  const form = (body) => fetch(`${hub.base}/_hub/settings/linear`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
   assert.equal((await form(`key=${world.key}`)).status, 200);
   fs.writeFileSync(config, JSON.stringify({ ...JSON.parse(fs.readFileSync(config, 'utf8')), tickets: linearTickets }));
   assert.equal((await form('remove=1')).status, 200);

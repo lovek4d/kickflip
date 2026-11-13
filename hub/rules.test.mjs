@@ -1,11 +1,12 @@
+import { home as hubHome, web as hubWeb, bin as hubBin, write, inProcessHub, serverSignals } from './hub-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until } from '../shared/test-helpers.mjs';
+import { freePorts } from '../shared/test-helpers.mjs';
 import { SNOOZE_REFUSED } from './views.mjs';
 import { ruleText, rulesOf, addRule, editRule, removeRule, applyRules, changed, ruleLines, RULE_MAX, RuleError } from './rules.mjs';
 
@@ -151,27 +152,26 @@ test('codex-share prints the setting in effect, refuses a change while Codex is 
 });
 
 test("hub Settings edits the hub rules, and a save that changes them sends every board a rules event", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-rules-'));
-  const [port, sitePort] = await freePorts(2);
-  const siteDir = path.join(home, '.claude', 'kickflip', 'sites', 'orch');
-  const web = path.join(home, '.claude', 'kickflip');
+  const home = hubHome;
+  const web = hubWeb;
+  const bin = hubBin;
+  fs.rmSync(web, { recursive: true, force: true });
+  fs.rmSync(path.join(bin, 'codex'), { force: true });
+  const [sitePort] = await freePorts(1);
+  const siteDir = path.join(web, 'sites', 'orch');
+  const signal = await serverSignals(t);
+  write(path.join(siteDir, 'board.json'), { title: 'Orch', items: 'waves' });
   fs.mkdirSync(path.join(siteDir, 'data'), { recursive: true });
-  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ title: 'Orch', items: 'waves' }));
-  fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ quiet: { start: '23:59', end: '00:00', hold: false }, notifications: { on: true, weekends_off: false, snoozed_until: null }, other_key: 'kept' }));
-  fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ version: 1, sites: {
-    orch: { dir: siteDir, port: sitePort, cmd: [process.execPath, path.join(HUB_DIR, '..', 'board', 'server.mjs'), siteDir] },
-  } }));
-  const bin = path.join(home, 'bin');
-  fs.mkdirSync(bin);
-  const hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` } });
-  const base = `http://127.0.0.1:${port}`;
-  try {
-    await new Promise((resolve, reject) => {
-      let out = '';
-      hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-      hub.once('exit', reject);
-    });
-    await until(() => fetch(`${base}/orch/_claude/health`).then((r) => r.ok, () => false), 'Orch server becomes healthy');
+  write(path.join(web, 'settings.json'), { quiet: { start: '23:59', end: '00:00', hold: false }, notifications: { on: true, weekends_off: false, snoozed_until: null }, other_key: 'kept' });
+  write(path.join(web, 'manifest.json'), { version: 1, sites: {
+    orch: { dir: siteDir, port: sitePort, cmd: [process.execPath, ...signal.args, path.join(HUB_DIR, '..', 'board', 'server.mjs'), siteDir] },
+  } });
+  const hub = await inProcessHub(t);
+  const base = hub.base;
+  {
+    await signal.up();
+    await hub.reconcile();
+    assert.ok((await fetch(`${base}/orch/_claude/health`)).ok, 'Orch server is healthy');
     const page = await (await fetch(`${base}/_hub/settings`)).text();
     assert.match(page, /<script src="\/_hub\/app\/rules-editor\.js\?v=[^"]+"><\/script>/);
     assert.match(page, /<script src="\/_hub\/app\/view-hub-settings\.js\?v=[^"]+"><\/script>/);
@@ -390,12 +390,5 @@ test("hub Settings edits the hub rules, and a save that changes them sends every
       assert.equal((await ended.json()).snoozed, null);
       assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).notifications.snoozed_until, null);
     });
-  } finally {
-    if (hub.exitCode === null && hub.signalCode === null) {
-      const exited = new Promise((resolve) => hub.once('exit', resolve));
-      hub.kill('SIGTERM');
-      await exited;
-    }
-    fs.rmSync(home, { recursive: true, force: true });
   }
 });

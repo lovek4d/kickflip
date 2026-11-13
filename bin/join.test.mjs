@@ -1,25 +1,44 @@
+import { home, web as state, bin, inProcessHub } from '../hub/hub-fixture.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until } from '../shared/test-helpers.mjs';
+import { EventEmitter } from 'node:events';
+import { MISSES } from '../hub/answering.mjs';
+import { freePorts } from '../shared/test-helpers.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'join-'));
-const state = path.join(home, '.claude', 'kickflip');
-const bin = path.join(home, 'bin');
-const [port, pagePort, learnPort] = await freePorts(3);
-const base = `http://127.0.0.1:${port}`;
+// The starter server the hub runs for learn listens on the port its manifest entry names, so it takes one that was free.
+const [learnPort] = await freePorts(1);
+// The ports the hub's probe finds answering: a test adds a server's port once it listens and drops it once it closes.
+const answers = new Set();
+// Each line the hub logs, as a 'line' event; hubLogs(pattern) resolves on the next one that matches.
+const logged = new EventEmitter();
+const hubLogs = (pattern) => new Promise((resolve) => {
+  const heard = (line) => { if (pattern.test(line)) { logged.off('line', heard); resolve(); } };
+  logged.on('line', heard);
+});
+// Resolves once file holds pattern: a server the hub starts writes its listening line to its log there.
+const fileHolds = (file, pattern) => new Promise((resolve) => {
+  const watcher = fs.watch(file, () => check());
+  const check = () => { if (pattern.test(fs.readFileSync(file, 'utf8'))) { watcher.close(); resolve(); } };
+  check();
+});
+let hub;
+let base;
+let pagePort;
+// inProcessHub's close, run in this file's after: the hub serves every test here.
+let closeHub;
 const claudeConfig = path.join(home, 'claude-config');
 // A stand-in tmux for join --hub: logs each call; has-session finds none, and attach-session prints its target.
 const fakeTmux = path.join(bin, 'tmux');
 const tmuxLog = path.join(home, 'tmux-calls.jsonl');
 const tmuxCalls = () => (fs.existsSync(tmuxLog) ? fs.readFileSync(tmuxLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
-const env = { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: claudeConfig, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: fakeTmux, KICKFLIP_TAILSCALE: path.join(bin, 'tailscale'), TMUX: '', PATH: `${bin}:${process.env.PATH}` };
+// The CLI's env: the fixture's HOME, PATH and stand-ins, with this file's hub, claude config and tmux.
+const env = () => ({ ...process.env, CLAUDE_CONFIG_DIR: claudeConfig, KICKFLIP_HUB_PORT: String(hub.port), KICKFLIP_TMUX: fakeTmux, TMUX: '' });
 // A stand-in claude for kickflip join: it logs each call, and a --bg start prints its id and leaves a session record.
 const fakeClaude = path.join(bin, 'claude');
 const claudeLog = path.join(home, 'claude-calls.jsonl');
@@ -28,7 +47,7 @@ const manifest = () => JSON.parse(fs.readFileSync(path.join(state, 'manifest.jso
 const sidebar = async () => (await (await fetch(`${base}/_hub/sidebar.json?fresh=1`)).json()).sites;
 const row = async (route) => (await sidebar()).find((s) => s.route === route);
 const cliIn = (cwd, args, more = {}) => new Promise((resolve) => {
-  const child = spawn(process.execPath, [path.join(ROOT, 'bin', 'kickflip.mjs'), ...args], { cwd, env: { ...env, KICKFLIP_CLAUDE: fakeClaude, ...more } });
+  const child = spawn(process.execPath, [path.join(ROOT, 'bin', 'kickflip.mjs'), ...args], { cwd, env: { ...env(), KICKFLIP_CLAUDE: fakeClaude, ...more } });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (d) => { stdout += d; });
@@ -49,7 +68,6 @@ function gitRepo(name, origin) {
   return fs.realpathSync(dir);
 }
 
-let hub;
 let page;
 const asked = [];
 
@@ -83,24 +101,14 @@ process.exit(argv[0] === 'has-session' ? 1 : 0);
     res.writeHead(200, { 'content-type': 'text/plain' });
     res.end(`page saw ${req.url}`);
   });
-  await new Promise((resolve) => page.listen(pagePort, '127.0.0.1', resolve));
-  hub = spawn(process.execPath, [path.join(ROOT, 'hub', 'hub.mjs')], { env });
-  await new Promise((resolve, reject) => {
-    let out = '';
-    hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-    hub.once('exit', reject);
-  });
+  await new Promise((resolve) => page.listen(0, '127.0.0.1', resolve));
+  pagePort = page.address().port;
+  answers.add(pagePort);
+  hub = await inProcessHub({ after: (close) => { closeHub = close; } }, { probe: async (port) => answers.has(port), log: (...parts) => logged.emit('line', parts.join(' ')) });
+  base = hub.base;
 });
 
-after(async () => {
-  page?.close();
-  if (hub && hub.exitCode === null && hub.signalCode === null) {
-    const exited = new Promise((resolve) => hub.once('exit', resolve));
-    hub.kill('SIGTERM');
-    await exited;
-  }
-  fs.rmSync(home, { recursive: true, force: true });
-});
+after(async () => { page?.close(); await closeHub(); });
 
 test('join --port puts a server the session runs at /<route> under Pages with no owner, watcher or needs, and it reads down once that server stops', async () => {
   const r = await cli('join', '--name', 'Notes', '--port', String(pagePort));
@@ -112,20 +120,27 @@ test('join --port puts a server the session runs at /<route> under Pages with no
   assert.equal(await (await fetch(`${base}/notes/a/b?x=1`)).text(), 'page saw /a/b?x=1');
   const load = await fetch(`${base}/notes/`, { headers: { 'sec-fetch-dest': 'document' } });
   assert.equal(load.headers.get('x-app-shell'), '1');
-  await until(async () => (await row('notes'))?.state === 'up', 'notes reads up');
+  await hub.reconcile();
+  assert.equal((await row('notes'))?.state, 'up');
   assert.deepEqual(await row('notes').then(({ board, count }) => ({ board, count })), { board: false, count: 0 });
   assert.ok(!asked.some((u) => u.startsWith('/_claude/')), asked.join(', '));
 
   const closed = new Promise((resolve) => page.close(resolve));
   page.closeAllConnections();
   await closed;
-  await until(async () => (await row('notes')).state === 'down', 'notes reads down');
+  answers.delete(pagePort);
+  for (let miss = 0; miss < MISSES; miss++) await hub.reconcile();
+  assert.equal((await row('notes')).state, 'down');
   assert.match((await row('notes')).sub, />down</);
   const down = await fetch(`${base}/notes/`);
   assert.equal(down.status, 502);
   assert.match(await down.text(), /nothing answers on port/);
-  page = http.createServer((req, res) => res.end('back')).listen(pagePort, '127.0.0.1');
-  await until(async () => (await row('notes')).state === 'up', 'notes comes back up');
+  page = http.createServer((req, res) => res.end('back'));
+  await new Promise((resolve) => page.listen(pagePort, '127.0.0.1', resolve));
+  answers.add(pagePort);
+  await hub.reconcile();
+  assert.equal((await row('notes')).state, 'up');
+  assert.equal(await (await fetch(`${base}/notes/`)).text(), 'back');
 });
 
 test('join --dir has the hub serve the folder with the route stripped, never a dot file, and a rejoin by its route keeps the title', async () => {
@@ -171,10 +186,14 @@ test('--watch with --session is today\'s join: the starter kit, the owner, the w
   const entry = manifest().learn;
   assert.deepEqual([entry.owner.session, entry.watch, entry.cmd.at(-1)], ['s-learn', ['data/events.jsonl'], path.join(state, 'sites', 'learn', 'server.mjs')]);
 
-  await until(() => fetch(`${base}/learn/_claude/health`).then((x) => x.ok, () => false), 'the hub runs the starter server');
+  await hub.reconcile();
+  await fileHolds(path.join(state, 'logs', 'learn.log'), /^site on /m);
+  answers.add(learnPort);
+  await hub.reconcile();
+  assert.equal((await fetch(`${base}/learn/_claude/health`)).ok, true);
   fs.mkdirSync(path.join(state, 'sites', 'learn', 'data'), { recursive: true });
   fs.writeFileSync(path.join(state, 'sites', 'learn', 'data', 'needs.json'), JSON.stringify({ items: [{ kind: 'Question', text: 'Which?', url: '#q' }] }));
-  await until(async () => (await row('learn'))?.count === 1, 'learn badges one need');
+  assert.equal((await row('learn'))?.count, 1);
 
   assert.equal((await cli('join', '--name', 'learn', '--session', 's-learn', '--watch', 'data/a.jsonl,data/b.jsonl')).status, 0);
   assert.deepEqual([manifest().learn.watch, manifest().learn.title], [['data/a.jsonl', 'data/b.jsonl'], 'Learn']);
@@ -194,7 +213,11 @@ test('leave takes a plain page off without a session, and still asks for the own
   assert.equal((await cli('leave', 'learn')).status, 2);
   assert.equal((await cli('leave', 'learn', '--session', 's-other')).status, 3);
   assert.equal((await cli('leave', 'learn', '--session', 's-learn')).status, 0);
-  await until(() => fetch(`${base}/learn/_claude/health`).then((x) => !x.ok, () => true), 'the hub stops the starter server');
+  const exited = hubLogs(/^learn exited /);
+  await hub.reconcile();
+  await exited;
+  answers.delete(learnPort);
+  assert.equal((await fetch(`${base}/learn/_claude/health`)).ok, false);
   assert.equal((await cli('leave', 'notes')).status, 0);
   assert.deepEqual(Object.keys(manifest()), []);
 });
@@ -206,8 +229,8 @@ test('kickflip join refuses a folder outside git, says to run kickflip init whil
   assert.equal(outside.status, 2);
   assert.match(outside.stderr, /is not in a git repo/);
   const repo = gitRepo('idle');
-  const [down] = await freePorts(1);
-  const noHub = await cliIn(repo, ['join', '--name', 'Idle'], { KICKFLIP_HUB_PORT: String(down) });
+  // Nothing listens on port 1, so a call to it is refused at once.
+  const noHub = await cliIn(repo, ['join', '--name', 'Idle'], { KICKFLIP_HUB_PORT: '1' });
   assert.deepEqual([noHub.status, noHub.stderr], [1, 'kickflip: the hub is not running; run kickflip init to set it up, then kickflip join here again\n']);
   const unnamed = await cliIn(repo, ['join']);
   assert.deepEqual([unnamed.status, unnamed.stderr], [2, 'kickflip: join needs --name "<Board name>" when it has no terminal to ask in\n']);

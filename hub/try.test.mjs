@@ -1,8 +1,8 @@
-import { test, beforeEach, afterEach, after } from 'node:test';
+import { home, bin, inProcessHub } from './hub-fixture.mjs';
+import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
@@ -13,14 +13,11 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { until as waitUntil } from '../shared/test-helpers.mjs';
 
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'try-')));
-process.env.HOME = home;
 // The temp HOME hides the user's git identity, so the test repos' commits and merges get one here.
 fs.writeFileSync(path.join(home, '.gitconfig'), '[user]\n\tname = Test\n\temail = test@example.com\n');
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
-const bin = path.join(home, 'bin');
 for (const name of ['claude', 'gh', 'codex', 'launchctl', 'systemctl']) {
   write(path.join(bin, name), '#!/bin/sh\nexit 1\n');
   fs.chmodSync(path.join(bin, name), 0o700);
@@ -166,7 +163,6 @@ afterEach(async () => {
     if (fs.existsSync(dir)) git(repo, 'worktree', 'remove', '--force', dir);
   }
 });
-after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 test('an app run uses only the fixed script and arguments, worktree cwd and build env, writes a private replacement log, and leaves builders and threads alone', async () => {
   setScript(`require('node:fs').writeFileSync('called.json', JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), board: process.env.KICKFLIP_BOARD, host: process.env.HOST, base: process.env.KICKFLIP_BASE })); console.log('stdout'); console.error('stderr');`);
@@ -1376,64 +1372,48 @@ test("a tap pulls now and rebuilds Main only when the pull brought commits; it r
   assert.match(state().pull.error, /^can’t pull: /);
 });
 
-test('the hub build route enforces loopback and fixed inputs', async () => {
-  const free = async () => {
-    const server = http.createServer();
-    await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
-    const port = server.address().port;
-    await new Promise((resolve) => server.close(resolve));
-    return port;
-  };
-  const port = await free();
-  const target = await free();
-  setScript(`require('node:http').createServer((req, res) => res.end('ok')).listen(${target}, '127.0.0.1', () => console.log('port ${target}'));`);
+test('the hub build route enforces loopback and fixed inputs', async (t) => {
+  setScript("require('node:http').createServer((req, res) => res.end('ok')).listen(0, '127.0.0.1', function () { console.log('port ' + this.address().port); });");
   const web = path.join(home, '.claude/kickflip');
   write(path.join(web, 'manifest.json'), manifest);
-  write(path.join(home, 'tailscale.status'), { Web: { 'mac.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } });
   write(path.join(web, 'settings.json'), { quiet: { start: '23:59', end: '00:00', hold: false } });
-  const hub = spawn(process.execPath, [path.join(root, 'hub/hub.mjs')], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
-  let errors = '';
-  hub.stderr.on('data', (chunk) => { errors += chunk; });
-  const exited = new Promise((resolve) => hub.once('exit', resolve));
-  try {
-    await new Promise((resolve, reject) => {
-      let output = '';
-      hub.stdout.on('data', (chunk) => { output += chunk; if (output.includes('hub on')) resolve(); });
-      hub.once('exit', (code) => reject(new Error(`hub exited ${code}: ${errors}`)));
+  const { port } = await inProcessHub(t);
+  // Try builds wait until Tailscale serves the hub on the port KICKFLIP_HUB_PORT names (readiness.mjs), here this hub's.
+  process.env.KICKFLIP_HUB_PORT = String(port);
+  t.after(() => { delete process.env.KICKFLIP_HUB_PORT; });
+  write(path.join(home, 'tailscale.status'), { Web: { 'mac.ts.net:443': { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } });
+  // Resolves once the board's try.json holds a ready w/A1. The hub's try manager replaces the file on each change, so
+  // each change ends the watch on the file it replaced, and the wait watches the new one before it reads it again.
+  const ready = () => new Promise((resolve) => {
+    const file = path.join(site, 'data', 'try.json');
+    const check = () => {
+      const watcher = fs.watch(file, () => { watcher.close(); check(); });
+      if (state().cards['w/A1']?.state === 'ready') { watcher.close(); resolve(); }
+    };
+    check();
+  });
+  // POSTs body to the hub's /_hub/<route> → its status code. http.request, not fetch, so a test can set Host.
+  const call = (route, body, headers = {}) => new Promise((resolve, reject) => {
+    const request = http.request({ host: '127.0.0.1', port, path: `/_hub/${route}`, method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (response) => {
+      response.resume(); response.on('end', () => resolve(response.statusCode));
     });
-    const post = (input, headers = {}) => new Promise((resolve, reject) => {
-      const request = http.request({ host: '127.0.0.1', port, path: '/_hub/build', method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (response) => {
-        response.resume(); response.on('end', () => resolve(response.statusCode));
-      });
-      request.on('error', reject); request.end(JSON.stringify(input));
-    });
-    const input = { route: 'orch', key: 'w/A1' };
-    for (const headers of [{ origin: 'https://mac.ts.net' }, { 'x-forwarded-for': '100.64.0.1' }, { host: 'mac.ts.net' }]) assert.equal(await post(input, headers), 403);
-    assert.equal(await post({ ...input, command: '/bin/sh' }), 400);
-    assert.equal(await post({ ...input, key: 'main' }), 409);
-    assert.equal(await post(input), 202);
-    await until(() => state().cards['w/A1']?.state === 'ready');
-    const kill = (body, headers = {}) => new Promise((resolve, reject) => {
-      const request = http.request({ host: '127.0.0.1', port, path: '/_hub/kill', method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (response) => {
-        response.resume(); response.on('end', () => resolve(response.statusCode));
-      });
-      request.on('error', reject); request.end(JSON.stringify(body));
-    });
-    for (const headers of [{ origin: 'https://mac.ts.net' }, { 'x-forwarded-for': '100.64.0.1' }, { host: 'mac.ts.net' }]) assert.equal(await kill(input, headers), 403);
-    assert.equal(await kill({ ...input, anyway: true }), 400);
-    assert.equal(await kill(input), 200);
-    assert.equal(state().cards['w/A1'].state, undefined);
-    assert.equal(await kill(input), 409);
-    const pull = (body, headers = {}) => new Promise((resolve, reject) => {
-      const request = http.request({ host: '127.0.0.1', port, path: '/_hub/pull', method: 'POST', headers: { 'content-type': 'application/json', ...headers } }, (response) => {
-        response.resume(); response.on('end', () => resolve(response.statusCode));
-      });
-      request.on('error', reject); request.end(JSON.stringify(body));
-    });
-    for (const headers of [{ origin: 'https://mac.ts.net' }, { 'x-forwarded-for': '100.64.0.1' }, { host: 'mac.ts.net' }]) assert.equal(await pull({ route: 'orch' }, headers), 403);
-    assert.equal(await pull({ route: 'orch', key: 'main' }), 400);
-    assert.equal(await pull({ route: 'orch' }), 200);
-  } finally { hub.kill('SIGTERM'); await exited; }
+    request.on('error', reject); request.end(JSON.stringify(body));
+  });
+  const outside = [{ origin: 'https://mac.ts.net' }, { 'x-forwarded-for': '100.64.0.1' }, { host: 'mac.ts.net' }];
+  const input = { route: 'orch', key: 'w/A1' };
+  for (const headers of outside) assert.equal(await call('build', input, headers), 403);
+  assert.equal(await call('build', { ...input, command: '/bin/sh' }), 400);
+  assert.equal(await call('build', { ...input, key: 'main' }), 409);
+  assert.equal(await call('build', input), 202);
+  await ready();
+  for (const headers of outside) assert.equal(await call('kill', input, headers), 403);
+  assert.equal(await call('kill', { ...input, anyway: true }), 400);
+  assert.equal(await call('kill', input), 200);
+  assert.equal(state().cards['w/A1'].state, undefined);
+  assert.equal(await call('kill', input), 409);
+  for (const headers of outside) assert.equal(await call('pull', { route: 'orch' }, headers), 403);
+  assert.equal(await call('pull', { route: 'orch', key: 'main' }), 400);
+  assert.equal(await call('pull', { route: 'orch' }), 200);
 });
 
 test('a running script with no port fails after sixty minutes', async (t) => {

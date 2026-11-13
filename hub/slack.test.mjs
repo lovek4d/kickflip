@@ -1,18 +1,12 @@
+import { home, write, inProcessHub } from './hub-fixture.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fakeSlack, slackWorld } from '../shared/test-helpers.mjs';
-
-// boards.mjs and store.mjs read HOME as they load, so it is set before they are imported.
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'slack-'));
-process.env.HOME = home;
-process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));
-const { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack } = await import('./slack.mjs');
+import { slackClient, slackStatus, saveSlackToken, removeSlackToken, savedSlack } from './slack.mjs';
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
-const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const site = kf('sites', 'orch');
 const ann = { name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' };
@@ -80,22 +74,13 @@ test('the token is saved in secrets.json once Slack answers, as refused when Sla
 });
 
 test('the hub saves the Slack token from its settings form and serves only the workspace and user', async (t) => {
-  const { spawn } = await import('node:child_process');
-  const { freePorts } = await import('../shared/test-helpers.mjs');
-  const hubHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-slack-'));
-  const web = path.join(hubHome, '.claude', 'kickflip');
+  const web = kf();
   write(path.join(web, 'manifest.json'), { version: 1, sites: {} });
   const world = slackWorld();
   const server = await fakeSlack(world).serve();
-  const [port] = await freePorts(1);
-  const hub = spawn(process.execPath, [new URL('./hub.mjs', import.meta.url).pathname], { env: { ...process.env, HOME: hubHome, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false', KICKFLIP_SLACK_URL: server.url } });
-  t.after(async () => { hub.kill(); await server.close(); fs.rmSync(hubHome, { recursive: true, force: true }); });
-  await new Promise((resolve, reject) => {
-    let out = '';
-    hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-    hub.once('exit', reject);
-  });
-  const base = `http://127.0.0.1:${port}`;
+  t.after(() => server.close());
+  process.env.KICKFLIP_SLACK_URL = server.url;
+  const { base } = await inProcessHub(t);
   const form = (body) => fetch(`${base}/_hub/settings/slack`, { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }, body });
   assert.equal((await (await fetch(`${base}/_hub/api/settings`)).json()).slack.summary, 'No token');
   const bad = await form('token=xoxb-a-bot-token-here');

@@ -1,22 +1,19 @@
-import { test, after } from 'node:test';
+import { home, write, inProcessHub } from './hub-fixture.mjs';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { until } from '../shared/test-helpers.mjs';
+import { EventEmitter } from 'node:events';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const HOOK = path.join(HUB_DIR, 'permission-hook.mjs');
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prompts-')));
-process.env.HOME = home;
 const { expired, GONE_AFTER, NO_ANSWER, UNREACHABLE, DROPPED, DENIED, WAIT_MS,
   promptRecord, answerOf, pushOf, shown, rememberRules, rememberedAnswer, pruneRemembered, readPrompts, savePrompts, updatePrompts, withPromptsLock, rememberedFor, pendingFor, matchesRule } = await import('./prompts.mjs');
 const { readManifest, writeManifest, withManifestLock, saveJSON } = await import('./boards.mjs');
 
-const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 const writeManifestFile = (m) => withManifestLock(() => saveJSON(path.join(home, '.claude', 'kickflip', 'manifest.json'), m));
 const freePort = () => new Promise((resolve, reject) => { const s = http.createServer().on('error', reject).listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }); });
 
@@ -409,46 +406,45 @@ test("a pending prompt expires once its hook stops polling or never takes its an
 });
 
 let hub;
-let port;
 let base;
-function startHub() {
-  hub = spawn(process.execPath, [path.join(HUB_DIR, 'hub.mjs')], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: '/usr/bin/false' } });
-  return new Promise((resolve, reject) => {
-    let out = '';
-    hub.stdout.on('data', (d) => { out += d; if (out.includes('hub on')) resolve(); });
-    hub.once('exit', reject);
-  });
+// Each line the hub logs, as a 'line' event; hubLogs(pattern) resolves on the next one that matches.
+const logged = new EventEmitter();
+const hubLogs = (pattern) => new Promise((resolve) => {
+  const heard = (line) => { if (pattern.test(line)) { logged.off('line', heard); resolve(); } };
+  logged.on('line', heard);
+});
+// Starts the in-process hub, on port when given: a restart comes back on the port the hook polls.
+async function startHub(t, port = 0) {
+  hub = await inProcessHub(t, { port, log: (...parts) => logged.emit('line', parts.join(' ')) });
+  base = hub.base;
 }
-async function stopHub() {
-  if (!hub || hub.exitCode !== null || hub.signalCode !== null) return;
-  const exited = new Promise((resolve) => hub.once('exit', resolve));
-  hub.kill('SIGTERM');
-  await exited;
+// Stops the hub and starts another on its port. The turn of the event loop between lets this process's fetch read the
+// old hub closing its kept-alive sockets, so no request goes out on one and is reset.
+async function restartHub(t) {
+  await hub.close();
+  await new Promise((resolve) => setImmediate(resolve));
+  await startHub(t, hub.port);
 }
-after(async () => { await stopHub(); fs.rmSync(home, { recursive: true, force: true }); });
 
 const hubPrompts = async () => (await (await fetch(`${base}/_hub/api/hub`)).json()).prompts;
 const answer = (id, body) => fetch(`${base}/_hub/prompts/${id}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-test("a session that owns no board waits on the hub page by its folder and counts in the badge; a question needs a pick on each, and its answer still reaches the hook after the hub restarts", async () => {
-  port = await freePort();
-  base = `http://127.0.0.1:${port}`;
+test("a session that owns no board waits on the hub page by its folder and counts in the badge; a question needs a pick on each, and its answer still reaches the hook after the hub restarts", async (t) => {
   write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { version: 1, sites: {} });
-  await startHub();
+  await startHub(t);
   const total = async () => (await (await fetch(`${base}/_hub/needs.json`)).json()).total;
   const two = { ...question, session_id: 's-nobody', cwd: path.join(home, 'work'), tool_input: { questions: [...question.tool_input.questions, { question: 'Size?', header: '', multiSelect: false, options: [{ label: 'S', description: '' }] }] } };
-  const hook = runHook(two, port);
-  let prompts;
-  await until(async () => { prompts = await hubPrompts(); return prompts.length; }, 'the prompt appears on the hub');
-  const [p] = prompts;
+  const posted = hubLogs(/^prompt /);
+  const hook = runHook(two, hub.port);
+  await posted;
+  const [p] = await hubPrompts();
   assert.deepEqual([p.title, p.cwd, p.tool, p.questions.map((q) => q.question)], ['~/work', '~/work', 'AskUserQuestion', ['Colour?', 'Size?']]);
   assert.equal(await total(), 1);
   assert.equal((await answer(p.id, { choice: 'always' })).status, 400);
   assert.equal((await answer(p.id, { choice: 'allow', answers: { 'Colour?': 'Blue' } })).status, 400);
   assert.equal((await answer(p.id, { choice: 'allow', answers: { 'Colour?': 'Green', 'Size?': 'S' } })).status, 400);
 
-  await stopHub();
-  await startHub();
+  await restartHub(t);
   assert.deepEqual((await hubPrompts()).map((x) => x.id), [p.id]);
   assert.equal((await answer(p.id, { choice: 'allow', answers: { 'Colour?': 'Blue', 'Size?': 'S' } })).status, 200);
   // Refused as answered (409), or as gone (404) once the hook's poll has already taken the answer.
@@ -459,10 +455,7 @@ test("a session that owns no board waits on the hub page by its folder and count
   assert.equal((await answer(p.id, { choice: 'deny' })).status, 404);
 });
 
-test('a remembered match bypasses prompts and push, survives a hub restart, and ends on owner change or session stop', async () => {
-  await stopHub();
-  port = await freePort();
-  base = `http://127.0.0.1:${port}`;
+test('a remembered match bypasses prompts and push, survives a hub restart, and ends on owner change or session stop', async (t) => {
   const web = (...parts) => path.join(home, '.claude', 'kickflip', ...parts);
   const dir = web('sites', 'shop');
   const manifest = { version: 1, sites: { shop: { title: 'Shop', dir, port: await freePort(),
@@ -471,12 +464,24 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
   write(path.join(dir, 'board.json'), { title: 'Shop', items: 'items.json' });
   write(path.join(dir, 'items.json'), { items: [] });
   const sessionFile = path.join(home, '.claude', 'sessions', `${process.pid}.json`);
+  // Resolves once the hub's board server for shop has printed its listening line n times to its log: a hub that stops
+  // it before then would leave its startup's file lock behind.
+  const shopLog = web('logs', 'shop.log');
+  const shopListens = async (n) => {
+    await hub.settled();
+    await new Promise((resolve) => {
+      const watcher = fs.watch(shopLog, () => check());
+      const check = () => { if ((fs.readFileSync(shopLog, 'utf8').match(/^site on /gm)?.length ?? 0) >= n) { watcher.close(); resolve(); } };
+      check();
+    });
+  };
   const procStart = execFileSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim();
   write(sessionFile, { sessionId: 's1', pid: process.pid, procStart, kind: 'bg' });
   write(web('prompts.json'), { prompts: {}, remembered: {} });
   write(web('push', 'subs.json'), [{ endpoint: 'https://unused.invalid/device', keys: {} }]);
   write(web('settings.json'), { notifications: { on: true, weekends_off: false, snoozed_until: new Date(Date.now() + 86_400_000).toISOString() } });
-  await startHub();
+  await startHub(t);
+  await shopListens(1);
   const post = async (input) => (await (await fetch(`${base}/_hub/prompts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) })).json());
   const data = async () => (await (await fetch(`${base}/_hub/api/hub`)).json());
   const queue = () => JSON.parse(fs.readFileSync(web('push', 'queue.json'), 'utf8')).items;
@@ -485,12 +490,13 @@ test('a remembered match bypasses prompts and push, survives a hub restart, and 
   assert.equal((await answer(first.id, { choice: 'always' })).status, 200);
   const wait = await (await fetch(`${base}/_hub/prompts/${first.id}/wait`)).json();
   assert.equal(wait.answer.choice, 'always');
-  await until(() => fs.existsSync(web('push', 'queue.json')), 'the initial prompt push');
+  await hub.settled();
+  assert.ok(fs.existsSync(web('push', 'queue.json')), 'the initial prompt push');
   const pushed = queue().length;
   assert.deepEqual((await data()).groups[0].sites[0].remembered, [{ session: 's1', rules: ['Bash(npm test)'] }]);
-  await stopHub();
-  await startHub();
-  assert.deepEqual(decision(await runHook(bash('npm test'), port)), { behavior: 'allow' });
+  await restartHub(t);
+  await shopListens(2);
+  assert.deepEqual(decision(await runHook(bash('npm test'), hub.port)), { behavior: 'allow' });
   assert.deepEqual(JSON.parse(fs.readFileSync(web('prompts.json'), 'utf8')).prompts, {});
   assert.equal(queue().length, pushed);
 

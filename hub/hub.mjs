@@ -177,7 +177,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 import { routeRecord } from './routes.mjs';
@@ -208,7 +208,7 @@ import { BOARD_PUBLIC, appFile, colorsVersion, destOf, fileVersion, pageOf, shel
 import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing, setHubPause, boardPausedUntil } from '../shared/usage-gate.mjs';
-import { checkMachine } from '../shared/machine-gate.mjs';
+import { checkMachine, readMachine as readMac } from '../shared/machine-gate.mjs';
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, killBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
@@ -232,121 +232,11 @@ const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
 // The version of the code this process started with; new files on disk run only after a restart.
 const VERSION = JSON.parse(fs.readFileSync(path.join(HUB_DIR, '..', 'package.json'), 'utf8')).version;
 
-const log = (...a) => console.log(new Date().toISOString(), ...a);
+const stampedLog = (...a) => console.log(new Date().toISOString(), ...a);
 
-const HOME = path.join(os.homedir(), '.claude', 'kickflip');
-const MANIFEST = path.join(HOME, 'manifest.json');
-const LOGS = path.join(HOME, 'logs');
-const RUN = path.join(HOME, 'run');
-const PORT = Number(process.env.KICKFLIP_HUB_PORT || 4500);
-for (const d of [HOME, LOGS, RUN]) fs.mkdirSync(d, { recursive: true });
-
-try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.length} files)`); } catch (e) { log('could not record the hub code hash:', e.message); }
-try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
-try { const route = await migrateHubBoard(); if (route) log(`manifest: /${route}, the hub board, builds from its own folder's local main`); } catch (e) { log('hub board migration failed:', e.message); }
-try { const routes = await migrateWaveNames(); if (routes.length) log(`boards: lineups renamed to waves and wave files to item files on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('wave name migration failed:', e.message); }
-try { const { routes, loginItem } = await migrateCellarNode(); if (routes.length) log(`manifest: ${routes.map((r) => `/${r}`).join(', ')} spawn node by Homebrew's link`); if (loginItem) log("hub login item file: spawns node by Homebrew's link"); } catch (e) { log('Cellar node migration failed:', e.message); }
-const repos = repoService();
-const readUsage = usageReader();
-const awake = caffeinate({ log });
-awake.apply();
-
-// ---------- manifest ----------
-let manifest = { version: 1, sites: {} };
-// Read on every call: Linux stamps file mtimes per clock tick, so two writes a few ms apart can share an mtime, and a
-// cache keyed on it keeps the first.
-function loadManifest() {
-  try {
-    manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
-    manifest.sites ||= {};
-  } catch (e) {
-    if (e.code === 'ENOENT') manifest = { version: 1, sites: {} };
-    else log('manifest unreadable, keeping the last good copy:', e.message);
-  }
-  return manifest;
-}
-
-// ---------- supervisor ----------
-// route -> { child, key, state, since, exitCode, restarts, nextStart, up, code, waitedOn, why }: code is a board server's
-// boardCode as it started, waitedOn the newer code it waits on a builder to run, why 'code' from that restart's stop until the new server answers or crashes
-const procs = new Map();
-// Every child spawned and not yet exited, including one whose route has left procs.
-const children = new Set();
-let shuttingDown = false;
-const KILL_AFTER = 5000;
-const keyOf = (s) => JSON.stringify([s.cmd, s.cwd || s.dir, s.port, s.env || {}, s.restart_at || 0]);
-const runs = (s) => Array.isArray(s?.cmd) && s.cmd.length > 0 && Boolean(s.port);
-// How a site is served: 'cmd', a server the hub runs; 'port', one it only forwards to; 'files', its dir served by the hub.
-const servesOf = (s) => (runs(s) ? 'cmd' : s?.port ? 'port' : 'files');
-// What the probes read of each 'port' site (answering.mjs): down only after several misses in a row.
-const answering = createAnswering();
-
-function pidFile(route) { return path.join(RUN, route + '.pid'); }
-
-function killStale(route, site) {
-  // A hub that died hard leaves its children running and holding their ports.
-  // Only stop the recorded pid if it still runs this site's command: pids get reused.
-  try {
-    const pid = Number(fs.readFileSync(pidFile(route), 'utf8'));
-    const cmdline = pid ? execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim() : '';
-    if (cmdline && cmdline.includes(site.cmd[site.cmd.length - 1])) { process.kill(-pid, 'SIGTERM'); log(`stopped stale ${route} (pgid ${pid})`); }
-  } catch {}
-  try { fs.unlinkSync(pidFile(route)); } catch {}
-}
-
-function start(route, site) {
-  const p = procs.get(route) || { restarts: 0 };
-  const out = fs.openSync(path.join(LOGS, route + '.log'), 'a');
-  const [cmd, ...args] = site.cmd;
-  const env = { ...process.env, ...(site.env || {}), PORT: String(site.port), PREFIX: '/' + route, KICKFLIP_ROUTE: route };
-  fs.writeSync(out, `\n--- ${new Date().toISOString()} hub starting: ${site.cmd.join(' ')} (port ${site.port})\n`);
-  p.code = isBoardSite(site) ? boardCode(site) : null;
-  let child;
-  try {
-    child = spawn(cmd, args, { cwd: site.cwd || site.dir, env, stdio: ['ignore', out, out], detached: true });
-  } catch (e) {
-    fs.writeSync(out, `hub could not start it: ${e.message}\n`);
-    fs.closeSync(out);
-    Object.assign(p, { child: null, key: keyOf(site), state: 'crashed', exitCode: null, nextStart: Date.now() + backoff(p.restarts++) });
-    procs.set(route, p);
-    return;
-  }
-  fs.closeSync(out);
-  fs.writeFileSync(pidFile(route), String(child.pid));
-  Object.assign(p, { child, key: keyOf(site), state: 'starting', since: Date.now(), exitCode: null, up: false });
-  procs.set(route, p);
-  log(`started ${route} pid ${child.pid}`);
-  if (child.pid) children.add(child);
-  const ended = (code, sig) => {
-    children.delete(child);
-    if (p.child !== child) return;
-    try { fs.unlinkSync(pidFile(route)); } catch {}
-    const ranLong = Date.now() - p.since > 60_000;
-    if (ranLong) p.restarts = 0;
-    Object.assign(p, { child: null, state: p.stopping ? 'stopped' : 'crashed', exitCode: code ?? sig, nextStart: Date.now() + backoff(p.restarts++), why: p.stopping ? p.why : undefined });
-    p.stopping = false;
-    log(`${route} exited (${code ?? sig})`);
-  };
-  // A child that never spawned, such as one whose cwd is missing, emits no exit.
-  child.on('error', (e) => { log(`${route} spawn error: ${e.message}`); if (!child.pid) ended(e.code, null); });
-  child.on('exit', ended);
-}
-
-const backoff = (n) => Math.min(60_000, 1000 * 2 ** Math.min(n, 6));
-
-function stop(route) {
-  const p = procs.get(route);
-  if (!p || !p.child) { procs.delete(route); return; }
-  p.stopping = true;
-  const c = p.child;
-  signal(c, 'SIGTERM');
-  setTimeout(() => { if (children.has(c)) signal(c, 'SIGKILL'); }, KILL_AFTER);
-}
-
-const signal = (child, sig) => { try { process.kill(-child.pid, sig); } catch {} };
-
+// Whether something listens on the port, within PROBE_TIMEOUT.
 const PROBE_TIMEOUT = 2000;
-function probe(port) {
+function tcpProbe(port) {
   return new Promise((resolve) => {
     const s = net.connect({ port, host: '127.0.0.1' });
     const done = (ok) => { s.destroy(); resolve(ok); };
@@ -356,1011 +246,1162 @@ function probe(port) {
   });
 }
 
-let first = true;
-const closingResponses = new Set();
-// Whether the hub page's Restart hub is out (/_hub/restart-hub).
-let hubRestarting = false;
-// Routes whose Restart (restart-board.mjs) is running; the session wake waits them out.
-const restarting = new Set();
-const SERVER_WAIT = 30_000;
-// Whether the route's server, started from its entry as it reads now, answers within SERVER_WAIT.
-async function serverAnswers(route) {
-  const deadline = Date.now() + SERVER_WAIT;
-  for (;;) {
-    const site = routeRecord(loadManifest().sites, route);
-    const p = procs.get(route);
-    if (site && p?.child && p.up && p.key === keyOf(site)) return true;
-    if (Date.now() >= deadline) return false;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-}
-async function reconcile() {
-  if (shuttingDown) return;
-  if (CODE_RESTARTS) selfRestart.check();
-  const { sites } = loadManifest();
-  for (const route of [...procs.keys()]) {
-    if (closingResponses.has(route)) continue;
-    if (!routeRecord(sites, route)) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
-    else if (!runs(routeRecord(sites, route))) { log(`${route} no longer has a command; stopping it`); stop(route); procs.delete(route); }
-  }
-  for (const route of answering.routes()) if (servesOf(routeRecord(sites, route)) !== 'port') answering.forget(route);
-  await Promise.all(Object.entries(sites).filter(([, site]) => servesOf(site) === 'port').map(async ([route, site]) => answering.record(route, await probe(site.port))));
-  for (const [route, site] of Object.entries(sites)) {
-    if (!runs(site)) continue;
-    if (first) killStale(route, site);
-    const p = procs.get(route);
-    if (p && p.child && p.key !== keyOf(site)) {
-      log(`${route} entry changed; restarting it`);
-      stop(route);
-      p.restarts = 0;
-      p.nextStart = Date.now() + 1500;
-      continue;
+// Starts the hub on ~/.claude/kickflip of os.homedir(), listening on 127.0.0.1:port (0 picks a free one), and resolves
+// once it listens. Options stand in for what it reads of the host:
+//   now() → the time in ms the supervisor's restart waits, the poll schedule and the caches read;
+//   codeRestarts: false keeps a board server whose code changed running, and the hub from restarting for new code;
+//   probe(port) → whether a site's port answers (reconcile's probes);
+//   readMachine() → the Mac's {load, cores, pressure} for the busy gate (shared/machine-gate.mjs);
+//   gate: the owner gate every request passes (board/on-host.mjs ownerGate);
+//   awake: the Keep awake controller (awake.mjs caffeinate);
+//   log(...parts): each line the hub logs, stamped on stdout by default;
+//   ticks: false runs no timer of its own, no 2 s reconcile, 15 s tick or 2 s endUnshared, and no poll it wasn't asked
+//   for: the caller runs each pass.
+// → {port, reconcile(), tick(), poll(options), endUnshared(), settled(), close()}: reconcile, tick and poll run one pass
+// and resolve when it is done; settled() resolves once every pass started so far, by a call, a timer or a request, is
+// done; close() stops every site and the server, as the hub does on SIGTERM.
+export async function startHub({ port: askedPort = 0, now: clock = Date.now, codeRestarts = process.env.KICKFLIP_CODE_RESTARTS !== 'off', log = stampedLog, probe = tcpProbe, readMachine = readMac, gate = hubGate, awake = caffeinate({ log }), ticks = true } = {}) {
+  const HOME = path.join(os.homedir(), '.claude', 'kickflip');
+  const MANIFEST = path.join(HOME, 'manifest.json');
+  const LOGS = path.join(HOME, 'logs');
+  const RUN = path.join(HOME, 'run');
+  for (const d of [HOME, LOGS, RUN]) fs.mkdirSync(d, { recursive: true });
+  // The port the hub listens on, once it does; sites it starts get it as KICKFLIP_HUB_PORT.
+  let PORT = askedPort;
+
+  // Every pass in flight (track), for settled().
+  const passes = new Set();
+  const track = (p) => { passes.add(p); p.finally(() => passes.delete(p)).catch(() => {}); return p; };
+  async function settled() { while (passes.size) await Promise.allSettled([...passes]); }
+
+  try { const code = recordHubCode(); log(`hub code ${code.hash} (${code.files.length} files)`); } catch (e) { log('could not record the hub code hash:', e.message); }
+  try { const routes = await migrateBoardRepos(); if (routes.length) log(`manifest: recorded GitHub repos for ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('board repo migration failed:', e.message); }
+  try { const route = await migrateHubBoard(); if (route) log(`manifest: /${route}, the hub board, builds from its own folder's local main`); } catch (e) { log('hub board migration failed:', e.message); }
+  try { const routes = await migrateWaveNames(); if (routes.length) log(`boards: lineups renamed to waves and wave files to item files on ${routes.map((r) => `/${r}`).join(', ')}`); } catch (e) { log('wave name migration failed:', e.message); }
+  try { const { routes, loginItem } = await migrateCellarNode(); if (routes.length) log(`manifest: ${routes.map((r) => `/${r}`).join(', ')} spawn node by Homebrew's link`); if (loginItem) log("hub login item file: spawns node by Homebrew's link"); } catch (e) { log('Cellar node migration failed:', e.message); }
+  const repos = repoService();
+  const readUsage = usageReader();
+  awake.apply();
+
+  // ---------- manifest ----------
+  let manifest = { version: 1, sites: {} };
+  // Read on every call: Linux stamps file mtimes per clock tick, so two writes a few ms apart can share an mtime, and a
+  // cache keyed on it keeps the first.
+  function loadManifest() {
+    try {
+      manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+      manifest.sites ||= {};
+    } catch (e) {
+      if (e.code === 'ENOENT') manifest = { version: 1, sites: {} };
+      else log('manifest unreadable, keeping the last good copy:', e.message);
     }
-    // docs/adr/2026-11-04-0056-a-board-server-whose-code-changed-restarts-between-builders.md
-    const onDisk = CODE_RESTARTS && p?.child && p.code && !p.stopping && !restarting.has(route) && !closingResponses.has(route) ? boardCode(site) : null;
-    if (onDisk && onDisk !== p.code) {
-      if (!(await openBoardBuilders(site.dir)).length) {
-        log(`${route} runs older code than its files; restarting it`);
+    return manifest;
+  }
+
+  // ---------- supervisor ----------
+  // route -> { child, key, state, since, exitCode, restarts, nextStart, up, code, waitedOn, why }: code is a board server's
+  // boardCode as it started, waitedOn the newer code it waits on a builder to run, why 'code' from that restart's stop until the new server answers or crashes
+  const procs = new Map();
+  // Every child spawned and not yet exited, including one whose route has left procs.
+  const children = new Set();
+  let shuttingDown = false;
+  const KILL_AFTER = 5000;
+  const keyOf = (s) => JSON.stringify([s.cmd, s.cwd || s.dir, s.port, s.env || {}, s.restart_at || 0]);
+  const runs = (s) => Array.isArray(s?.cmd) && s.cmd.length > 0 && Boolean(s.port);
+  // How a site is served: 'cmd', a server the hub runs; 'port', one it only forwards to; 'files', its dir served by the hub.
+  const servesOf = (s) => (runs(s) ? 'cmd' : s?.port ? 'port' : 'files');
+  // What the probes read of each 'port' site (answering.mjs): down only after several misses in a row.
+  const answering = createAnswering();
+
+  function pidFile(route) { return path.join(RUN, route + '.pid'); }
+
+  function killStale(route, site) {
+    // A hub that died hard leaves its children running and holding their ports.
+    // Only stop the recorded pid if it still runs this site's command: pids get reused.
+    try {
+      const pid = Number(fs.readFileSync(pidFile(route), 'utf8'));
+      const cmdline = pid ? execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim() : '';
+      if (cmdline && cmdline.includes(site.cmd[site.cmd.length - 1])) { process.kill(-pid, 'SIGTERM'); log(`stopped stale ${route} (pgid ${pid})`); }
+    } catch {}
+    try { fs.unlinkSync(pidFile(route)); } catch {}
+  }
+
+  function start(route, site) {
+    const p = procs.get(route) || { restarts: 0 };
+    const out = fs.openSync(path.join(LOGS, route + '.log'), 'a');
+    const [cmd, ...args] = site.cmd;
+    const env = { ...process.env, KICKFLIP_HUB_PORT: String(PORT), ...(site.env || {}), PORT: String(site.port), PREFIX: '/' + route, KICKFLIP_ROUTE: route };
+    fs.writeSync(out, `\n--- ${new Date().toISOString()} hub starting: ${site.cmd.join(' ')} (port ${site.port})\n`);
+    p.code = isBoardSite(site) ? boardCode(site) : null;
+    let child;
+    try {
+      child = spawn(cmd, args, { cwd: site.cwd || site.dir, env, stdio: ['ignore', out, out], detached: true });
+    } catch (e) {
+      fs.writeSync(out, `hub could not start it: ${e.message}\n`);
+      fs.closeSync(out);
+      Object.assign(p, { child: null, key: keyOf(site), state: 'crashed', exitCode: null, nextStart: clock() + backoff(p.restarts++) });
+      procs.set(route, p);
+      return;
+    }
+    fs.closeSync(out);
+    fs.writeFileSync(pidFile(route), String(child.pid));
+    Object.assign(p, { child, key: keyOf(site), state: 'starting', since: clock(), exitCode: null, up: false });
+    procs.set(route, p);
+    log(`started ${route} pid ${child.pid}`);
+    if (child.pid) children.add(child);
+    const ended = (code, sig) => {
+      children.delete(child);
+      if (p.child !== child) return;
+      try { fs.unlinkSync(pidFile(route)); } catch {}
+      const ranLong = clock() - p.since > 60_000;
+      if (ranLong) p.restarts = 0;
+      Object.assign(p, { child: null, state: p.stopping ? 'stopped' : 'crashed', exitCode: code ?? sig, nextStart: clock() + backoff(p.restarts++), why: p.stopping ? p.why : undefined });
+      p.stopping = false;
+      log(`${route} exited (${code ?? sig})`);
+    };
+    // A child that never spawned, such as one whose cwd is missing, emits no exit.
+    child.on('error', (e) => { log(`${route} spawn error: ${e.message}`); if (!child.pid) ended(e.code, null); });
+    child.on('exit', ended);
+  }
+
+  const backoff = (n) => Math.min(60_000, 1000 * 2 ** Math.min(n, 6));
+
+  function stop(route) {
+    const p = procs.get(route);
+    if (!p || !p.child) { procs.delete(route); return; }
+    p.stopping = true;
+    const c = p.child;
+    signal(c, 'SIGTERM');
+    setTimeout(() => { if (children.has(c)) signal(c, 'SIGKILL'); }, KILL_AFTER).unref();
+  }
+
+  const signal = (child, sig) => { try { process.kill(-child.pid, sig); } catch {} };
+
+  let first = true;
+  const closingResponses = new Set();
+  // Whether the hub page's Restart hub is out (/_hub/restart-hub).
+  let hubRestarting = false;
+  // Routes whose Restart (restart-board.mjs) is running; the session wake waits them out.
+  const restarting = new Set();
+  const SERVER_WAIT = 30_000;
+  // Whether the route's server, started from its entry as it reads now, answers within SERVER_WAIT. Each check runs a
+  // reconcile pass first, so the restart stops, starts and probes the server itself rather than on the hub's timer.
+  async function serverAnswers(route) {
+    const deadline = Date.now() + SERVER_WAIT;
+    for (;;) {
+      await reconcileLogged();
+      const site = routeRecord(loadManifest().sites, route);
+      const p = procs.get(route);
+      if (site && p?.child && p.up && p.key === keyOf(site)) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  // One reconcile at a time: a call while one runs waits for it, then runs its own, so each call's pass reads the
+  // manifest and ports as they are after the call.
+  let reconciled = Promise.resolve();
+  function reconcile() {
+    reconciled = reconciled.then(reconcilePass, reconcilePass);
+    return track(reconciled);
+  }
+  async function reconcilePass() {
+    if (shuttingDown) return;
+    if (codeRestarts) selfRestart.check();
+    const { sites } = loadManifest();
+    for (const route of [...procs.keys()]) {
+      if (closingResponses.has(route)) continue;
+      if (!routeRecord(sites, route)) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
+      else if (!runs(routeRecord(sites, route))) { log(`${route} no longer has a command; stopping it`); stop(route); procs.delete(route); }
+    }
+    for (const route of answering.routes()) if (servesOf(routeRecord(sites, route)) !== 'port') answering.forget(route);
+    await Promise.all(Object.entries(sites).filter(([, site]) => servesOf(site) === 'port').map(async ([route, site]) => answering.record(route, await probe(site.port))));
+    for (const [route, site] of Object.entries(sites)) {
+      if (!runs(site)) continue;
+      if (first) killStale(route, site);
+      const p = procs.get(route);
+      if (p && p.child && p.key !== keyOf(site)) {
+        log(`${route} entry changed; restarting it`);
         stop(route);
-        Object.assign(p, { restarts: 0, nextStart: Date.now() + 1500, why: 'code' });
+        p.restarts = 0;
+        p.nextStart = clock() + 1500;
         continue;
       }
-      if (p.waitedOn !== onDisk) log(`${route} runs older code than its files; restarts once no builder runs`);
-      p.waitedOn = onDisk;
-    }
-    if (!p || (!p.child && Date.now() >= (p.nextStart || 0))) start(route, site);
-  }
-  first = false;
-  for (const [route, p] of procs) {
-    const site = routeRecord(sites, route);
-    if (!site) continue;
-    p.up = p.child ? await probe(site.port) : false;
-    if (p.child && p.up) Object.assign(p, { state: 'up' }, p.stopping ? {} : { why: undefined });
-  }
-}
-// The hub restarts itself for new code once it is whole on disk (self-restart.mjs), and a board server whose code
-// changed between builders (reconcile above), unless KICKFLIP_CODE_RESTARTS=off: a try run's demo hub, which the hub
-// serving it restarts whole when its worktree moves.
-const CODE_RESTARTS = process.env.KICKFLIP_CODE_RESTARTS !== 'off';
-const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), log });
-const reconciling = setInterval(() => reconcile().catch((e) => log('reconcile failed:', e.message)), 2000);
-reconcile().catch((e) => log('reconcile failed:', e.message));
-
-// ---------- polling ----------
-try { if (migrateSettings()) log('settings: migrated the polling windows to quiet hours'); } catch (e) { log('settings migration failed:', e.message); }
-// A board on Linear falls back to internal tickets while Hub has no Linear key (store.mjs fallBackFromLinear).
-const linearFallback = async () => { try { for (const line of await fallBackFromLinear()) log(`linear: ${line}`); } catch (e) { log('linear fallback failed:', e.message); } };
-await linearFallback();
-
-const FIRST_POLL_MS = 60_000;
-const ERROR_LOG_MS = 60 * 60_000;
-// running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
-// after its query, null when it made none.
-const polls = { running: null, startedAt: 0, firstAt: Date.now() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0 };
-const owner = ownerTracker();
-
-const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
-// A change in the owner's presence repaints every page's moon; coming back runs a check at once.
-function presenceChanged({ changed, back }) {
-  if (changed) stream.refresh();
-  if (back && polls.startedAt && !polls.running) runPoll().catch((e) => log('poll failed:', e.message));
-}
-
-function runPoll({ flush = true } = {}) {
-  if (polls.running) return polls.running;
-  const startedAt = new Date();
-  polls.startedAt = startedAt.getTime();
-  polls.running = (async () => {
-    const settings = readSettings();
-    let result;
-    // checked.json's minutes are the away cadence's, the longest the next check can take, so a quiet page never reads late.
-    try { result = await checkGitHub({ every: checkEvery({ present: false, remaining: polls.remaining }), manifest: loadManifest() }); }
-    catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [], merged: [], linear: { moved: [], failed: [] }, rate: null }; }
-    polls.remaining = result.rate?.remaining ?? null;
-    // docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md
-    if (result.merged.length) {
-      try { await fetchTryBranches({ manifest: loadManifest(), log, routes: result.merged }); }
-      catch (e) { log('merge fetch failed:', e.message); }
-      log(`merged on ${result.merged.join(', ')}: fetched and refreshing Main`);
-      tryTick({ manifest: loadManifest(), routes: result.merged }).catch((e) => log('merge refresh failed:', e.message));
-    }
-    try { await fetchTryBranches({ manifest: loadManifest(), log }); }
-    catch (e) { log('fetch failed:', e.message); }
-    // docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md
-    try {
-      const pulled = await pullMains({ manifest: loadManifest() });
-      if (pulled.length) tryTick({ manifest: loadManifest(), routes: pulled }).catch((e) => log('pull refresh failed:', e.message));
-    } catch (e) { log('pull failed:', e.message); }
-    // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
-    try { result.failed.push(...(await checkIncoming({ manifest: loadManifest() })).failed); }
-    catch (e) { result.failed.push(`incoming PRs: ${e.message}`); }
-    if (result.failed.length && Date.now() - polls.errorLoggedAt > ERROR_LOG_MS) {
-      polls.errorLoggedAt = Date.now();
-      log(`github check: ${result.failed.length} step${result.failed.length === 1 ? '' : 's'} failed, first: ${result.failed[0]} (logged at most hourly)`);
-    }
-    if (result.changes.length) log(`github check: ${result.changes.map((c) => `#${c.pr} ${c.changes.join(',')}`).join('; ')} → ${result.events.map((e) => e.route).join(', ') || 'no board'}`);
-    for (const { id, state } of result.linear.moved) log(`linear: ${id} → ${state}`);
-    if (result.linear.failed.length && Date.now() - polls.linearErrorLoggedAt > ERROR_LOG_MS) {
-      polls.linearErrorLoggedAt = Date.now();
-      log(`linear check: ${result.linear.failed.length} step${result.linear.failed.length === 1 ? '' : 's'} failed, first: ${result.linear.failed[0]} (logged at most hourly)`);
-    }
-    // docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md
-    try { result.slack = await sendReviews({ boards: listBoards(loadManifest()) }); }
-    catch (e) { result.slack = { sent: [], failed: [e.message] }; }
-    for (const line of result.slack.sent) log(`slack: sent ${line}`);
-    if (result.slack.failed.length && Date.now() - polls.slackErrorLoggedAt > ERROR_LOG_MS) {
-      polls.slackErrorLoggedAt = Date.now();
-      log(`slack sends: ${result.slack.failed.length} failed, first: ${result.slack.failed[0]} (logged at most hourly)`);
-    }
-    try { result.deaf = await checkListening({ manifest: loadManifest() }); }
-    catch (e) { result.deaf = { pushed: [], failed: [e.message] }; }
-    if (result.deaf.pushed.length || result.deaf.failed.length) log(`not listening: pushed ${result.deaf.pushed.join(', ') || 'none'}${result.deaf.failed.length ? `; ${result.deaf.failed.join('; ')}` : ''}`);
-    try { recordLinkFaults(loadManifest()); } catch (e) { log('could not record link faults:', e.message); }
-    result.flushed = null;
-    result.held = heldUntil(startedAt, settings) !== null;
-    if (flush && !result.held) {
-      try {
-        const r = await flushQueue();
-        if (r) { result.flushed = { count: r.count, sent: r.sent, ok: r.ok }; log(`push queue: sent ${r.sent} of ${r.count} queued`); }
-      } catch (e) { log('push queue flush failed:', e.message); }
-    }
-    polls.last = result;
-    return result;
-  })().finally(() => { polls.running = null; });
-  return polls.running;
-}
-
-let waking = null;
-function runWakes() {
-  waking ||= sendWakes({ settings: readSettings(), manifest: loadManifest() }).then((r) => {
-    if (r.due.length) log(`wake ${r.due.join(', ')}: check-github → ${r.events.map((e) => e.route).join(', ') || 'no board'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
-  }).catch((e) => log('wake failed:', e.message)).finally(() => { waking = null; });
-}
-
-// Routes whose page asked for a wake (/_hub/wake) that no session check has taken up yet.
-const wakeAsks = new Set();
-const sessionCheck = { running: null };
-function runSessionCheck() {
-  if (sessionCheck.running || closingResponses.size || restarting.size) return;
-  const asked = new Set(wakeAsks);
-  wakeAsks.clear();
-  sessionCheck.running = checkSessions({ manifest: loadManifest(), asked }).then((r) => {
-    if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
-  }).catch((e) => log('session check failed:', e.message))
-    // docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md
-    .then(() => compactFullContexts({ manifest: loadManifest() })).then((r) => {
-      if (r.compacted.length || r.failed.length) log(`context full: sent /compact to ${r.compacted.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
-    }).catch((e) => log('context full check failed:', e.message)).finally(() => { sessionCheck.running = null; });
-}
-
-await initializeTries(loadManifest());
-
-// ---------- pending prompts ----------
-const STARTED_AT = Date.now();
-// id → the resolvers of the hook's poll held open on it.
-const promptWaiters = new Map();
-function promptChanged(route) {
-  if (route) { needsCache.delete(route); stream.changed(route); } else stream.refresh();
-}
-async function prunePrompts() {
-  const { gone, rulesChanged } = await updatePrompts((store) => {
-    const gone = expired(store, { now: Date.now(), aliveSince: STARTED_AT });
-    const rulesChanged = pruneRemembered(store, promptContext());
-    for (const r of gone) delete store.prompts[r.id];
-    return { gone, rulesChanged };
-  });
-  for (const r of gone) promptChanged(r.route);
-  if (rulesChanged) stream.refresh();
-  if (gone.length) log(`prompts: dropped ${gone.map((r) => r.id).join(', ')}, whose hook went away`);
-}
-
-const promptContext = () => ({ running: liveSessions(), boards: listBoards(loadManifest()) });
-
-// A session's PermissionDenied or PermissionRequest hook input for a command that one of its board's permission
-// switches allows while on becomes a note under that switch (board/permissions.mjs recordRefusal). A failure to write
-// the note is logged; the prompt goes on. → the switch noted, or null
-async function noteRefusal(input) {
-  const board = listBoards(loadManifest()).find((b) => b.owner?.session && b.owner.session === input.session_id);
-  if (!board) return null;
-  try {
-    const noted = await recordRefusal(boardRepo(board.route).repo, board.dir, input);
-    if (noted) log(`permissions: /${board.route} was still ${input.hook_event_name === 'PermissionDenied' ? 'refused' : 'asked about'} ${input.tool_input.command}`);
-    return noted;
-  } catch (e) { log(`permissions: could not note /${board.route}'s refusal: ${e.message}`); return null; }
-}
-
-// One check runs at a time. A call while one runs waits for it, then for one more check that reads the gate afresh, so a
-// pause-line save always reaches usage-gate-state.json; calls made meanwhile share that one.
-let usageCheck = null;
-let usageRecheck = null;
-async function checkUsageGate() {
-  if (usageCheck) return usageRecheck ??= usageCheck.catch(() => {}).then(() => { usageRecheck = null; return checkUsageGate(); });
-  usageCheck = (async () => checkUsagePause({ gate: readUsageGate(), resume: async (window) => {
-    const out = await sendToBoards(listBoards(loadManifest()), 'usage-resumed', { window });
-    for (const failed of out.failed) log(failed);
-  } }))().finally(() => { usageCheck = null; });
-  return usageCheck;
-}
-
-// docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: routes the requests that waited
-// out a usage pause or a failed call, one drain at a time.
-let routing = null;
-function runRoutes() {
-  routing ||= drainRoutes({ manifest: loadManifest() }).then((r) => {
-    for (const e of r.routed) log(`router: ${e.via} request from ${e.by || 'someone'} → /${e.route}: ${e.reason}`);
-    for (const why of r.failed) log(`router: could not file a request on ${why}`);
-    if (r.routed.length) stream.refresh();
-  }).catch((e) => log('router failed:', e.message)).finally(() => { routing = null; });
-}
-
-setInterval(() => {
-  tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message));
-  runRoutes();
-  checkUsageGate().catch((e) => log('usage gate failed:', e.message));
-  try { checkMachine(); } catch (e) { log('machine check failed:', e.message); }
-  owner.check().then(presenceChanged, (e) => log('presence check failed:', e.message)).finally(() => {
-    if (!polls.running && Date.now() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
-  });
-  settleStarts({ listening: (board) => isListening(board) && status().some((r) => r.route === board.route && r.state === 'up') }).then((landed) => { if (landed.length) stream.refresh(); }, (e) => log('settling starts failed:', e.message));
-  runWakes();
-  awake.apply();
-  upgrade.tick();
-  prunePrompts().catch((e) => log('prompt expiry failed:', e.message)).finally(runSessionCheck);
-}, 15_000);
-
-// Sites run detached, so the hub must not exit while one it started still runs.
-function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  clearInterval(reconciling);
-  awake.stop();
-  log('hub stopping; stopping sites');
-  for (const p of procs.values()) if (p.child) p.stopping = true;
-  for (const c of children) signal(c, 'SIGTERM');
-  let triesStopped = false;
-  stopTries().finally(() => { triesStopped = true; });
-  const deadline = Date.now() + KILL_AFTER;
-  setInterval(() => {
-    if ((!triesStopped || children.size) && Date.now() < deadline) return;
-    for (const c of children) { log(`pid ${c.pid} ignored SIGTERM; killing it`); signal(c, 'SIGKILL'); }
-    process.exit(0);
-  }, 50);
-}
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-
-// ---------- status ----------
-const lastChange = new Map(); // route -> { at, checked }
-function newestMtime(dir, budget = { n: 3000 }) {
-  let newest = 0;
-  let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return 0; }
-  for (const e of entries) {
-    if (budget.n-- <= 0) break;
-    if (e.name.startsWith('.') || e.name === 'node_modules') continue;
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) newest = Math.max(newest, newestMtime(full, budget));
-    else { try { newest = Math.max(newest, fs.statSync(full).mtimeMs); } catch {} }
-  }
-  return newest;
-}
-function changedAt(route, site) {
-  const c = lastChange.get(route);
-  if (c && Date.now() - c.checked < 30_000) return c.at;
-  const at = newestMtime(site.dir);
-  lastChange.set(route, { at, checked: Date.now() });
-  return at;
-}
-
-const isFolder = (dir) => { try { return typeof dir === 'string' && fs.statSync(dir).isDirectory(); } catch { return false; } };
-
-function status() {
-  const { sites } = loadManifest();
-  return Object.entries(sites).sort(([a], [b]) => a.localeCompare(b)).map(([route, s]) => {
-    const p = procs.get(route) || {};
-    const serves = servesOf(s);
-    const state = serves === 'files' ? (isFolder(s.dir) ? 'up' : 'down')
-      : serves === 'port' ? answering.state(route)
-        : p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
-    return {
-      route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port ?? null, serves, state,
-      exitCode: p.exitCode ?? null, owner: s.owner || null, restart: restartable(s), changedAt: changedAt(route, s) || null, created: s.created || null,
-      log: path.join(LOGS, route + '.log'),
-    };
-  });
-}
-
-// ---------- pages ----------
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-// route -> {at, needs}: the last good answer, which a failed read shows in its place (home.mjs holdNeeds).
-const goodNeeds = new Map();
-// route -> {at, needs}: needs is a promise of home.mjs readNeeds' answer from the site's GET /_claude/needs,
-// or of null when the site doesn't serve it, errs or takes over NEEDS_TIMEOUT.
-const needsCache = new Map();
-const NEEDS_TTL = 20_000;
-const NEEDS_TIMEOUT = 1500;
-async function fetchNeeds(port) {
-  try {
-    const r = await fetch(`http://127.0.0.1:${port}/_claude/needs`, { signal: AbortSignal.timeout(NEEDS_TIMEOUT) });
-    if (!r.ok) return null;
-    return readNeeds(await r.json());
-  } catch { return null; }
-}
-// fresh: true refetches every site's answer, a Set of routes only those. A site with no owning session is never asked.
-async function waitingCounts(rows, { fresh = false } = {}) {
-  const up = rows.filter((r) => r.state === 'up' && r.owner && r.port);
-  for (const r of up) {
-    const c = needsCache.get(r.route);
-    if (fresh === true || fresh?.has?.(r.route) || !c || Date.now() - c.at >= NEEDS_TTL) needsCache.set(r.route, { at: Date.now(), needs: fetchNeeds(r.port) });
-  }
-  const reads = await Promise.all(up.map((r) => needsCache.get(r.route).needs));
-  return new Map(up.map((r, i) => {
-    const held = holdNeeds(goodNeeds.get(r.route) ?? null, reads[i], needsCache.get(r.route).at, Date.now());
-    if (held.good) goodNeeds.set(r.route, held.good); else goodNeeds.delete(r.route);
-    return [r.route, held.needs];
-  }));
-}
-// A site whose answer is unknown adds nothing. A board's pending prompts are in its count already, so only the rest
-// add here; the hub page lists them all.
-const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0) + pendingFor(null).length;
-
-// ---------- sidebar ----------
-// Each board's listenState (boards.mjs), read on every call since a session's watcher starts and exits underneath, and
-// its linksOf, cached as long as the sites' needs, since every open page asks for the sidebar. A board's links are built
-// again when its listen state differs from the one they were built with, since the events link follows it.
-// → {links: Map of route to linksOf, listens: Map of route to listenState}
-const linksCache = new Map(); // route → {at, listen, links}
-function boardLinks(boards) {
-  const links = new Map();
-  const listens = new Map();
-  const ctx = { running: liveSessions(), wakes: readJSON(resumeStateFile(), {}) };
-  for (const b of boards) {
-    try {
-      const listen = listenState(b, ctx);
-      listens.set(b.route, listen);
-      let c = linksCache.get(b.route);
-      if (!c || c.listen !== listen || Date.now() - c.at >= NEEDS_TTL) {
-        c = { at: Date.now(), listen, links: linksOf(b, { listen }) };
-        linksCache.set(b.route, c);
+      // docs/adr/2026-11-04-0056-a-board-server-whose-code-changed-restarts-between-builders.md
+      const onDisk = codeRestarts && p?.child && p.code && !p.stopping && !restarting.has(route) && !closingResponses.has(route) ? boardCode(site) : null;
+      if (onDisk && onDisk !== p.code) {
+        if (!(await openBoardBuilders(site.dir)).length) {
+          log(`${route} runs older code than its files; restarting it`);
+          stop(route);
+          Object.assign(p, { restarts: 0, nextStart: clock() + 1500, why: 'code' });
+          continue;
+        }
+        if (p.waitedOn !== onDisk) log(`${route} runs older code than its files; restarts once no builder runs`);
+        p.waitedOn = onDisk;
       }
-      links.set(b.route, c.links);
-    } catch (e) { log(`links of ${b.route} failed:`, e.message); links.set(b.route, []); }
+      if (!p || (!p.child && clock() >= (p.nextStart || 0))) start(route, site);
+    }
+    first = false;
+    for (const [route, p] of procs) {
+      const site = routeRecord(sites, route);
+      if (!site) continue;
+      p.up = p.child ? await probe(site.port) : false;
+      if (p.child && p.up) Object.assign(p, { state: 'up' }, p.stopping ? {} : { why: undefined });
+    }
   }
-  return { links, listens };
-}
+  // The hub restarts itself for new code once it is whole on disk (self-restart.mjs), and a board server whose code
+  // changed between builders (reconcile above), unless codeRestarts is false (KICKFLIP_CODE_RESTARTS=off): a try run's
+  // demo hub, which the hub serving it restarts whole when its worktree moves.
+  const selfRestart = restarter({ root: cloneRoot(), files: hubCode().files, restart: () => restartRunner('hub'), log });
+  const reconcileLogged = () => reconcile().catch((e) => log('reconcile failed:', e.message));
+  const timers = [];
 
-// What /_hub/sidebar.json serves, with each board's links, the hub's code hashes and the status rows behind it for the
-// hub's page.
-async function sidebarState({ fresh = false } = {}) {
-  const now = new Date();
-  const rows = status();
-  const waiting = await waitingCounts(rows, { fresh });
-  const manifest = loadManifest();
-  const boards = listBoards(manifest);
-  const { links, listens } = boardLinks(boards);
-  const code = hubCodeState();
-  const contexts = new Map(boards.map((b) => [b.route, contextReading(b.owner?.session)]).filter(([, reading]) => reading));
-  const starting = startingBoards(manifest, now.getTime(), clonePercent, (route) => listens.get(route) === 'listening' && rows.some((r) => r.route === route && r.state === 'up'));
-  const landing = new Set(starting.map((s) => s.route));
-  // A board under Pause board carries its own gate as pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
-  const pausedBoards = new Map(boards.filter((b) => boardPausedUntil(b.dir)).map((b) => [b.route, readUsageGate({ dir: b.dir })]));
-  const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts).filter((s) => !landing.has(s.route))
-    .map((s) => (pausedBoards.has(s.route) ? { ...s, pause: pausedBoards.get(s.route) } : s));
-  const settings = readSettings();
-  const held = hold(now, settings);
-  const data = {
-    code: code.running ?? null,
-    version: VERSION,
-    total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
-    home: fs.realpathSync(os.homedir()),
-    starting,
-    // The readings alone: the newest Claude run's start is the gate's (pause.near).
-    usage: (({ start: _, ...readings }) => readings)(readUsage({ codexShare: readCodexShare(readCodex()) })),
-    pause: readUsageGate(),
-    notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
-    away: !owner.state().present,
-  };
-  return { data, links, rows, code };
-}
+  // ---------- polling ----------
+  try { if (migrateSettings()) log('settings: migrated the polling windows to quiet hours'); } catch (e) { log('settings migration failed:', e.message); }
+  // A board on Linear falls back to internal tickets while Hub has no Linear key (store.mjs fallBackFromLinear).
+  const linearFallback = async () => { try { for (const line of await fallBackFromLinear()) log(`linear: ${line}`); } catch (e) { log('linear fallback failed:', e.message); } };
+  await linearFallback();
 
-// ---------- app shell ----------
-// Text a browser accepts gzipped goes gzipped; the shell's scripts are a few hundred kilobytes before it.
-function sendText(req, res, code, headers, body) {
-  let out = Buffer.isBuffer(body) ? body : Buffer.from(body);
-  const h = { ...headers, vary: [headers.vary, 'accept-encoding'].filter(Boolean).join(', ') };
-  if (out.length >= 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) { out = zlib.gzipSync(out); h['content-encoding'] = 'gzip'; }
-  h['content-length'] = out.length;
-  res.writeHead(code, h);
-  res.end(req.method === 'HEAD' ? undefined : out);
-}
+  const FIRST_POLL_MS = 60_000;
+  const ERROR_LOG_MS = 60 * 60_000;
+  // running: the poll in progress; startedAt: when the last one began; last: its result; remaining: GitHub's points left
+  // after its query, null when it made none.
+  const polls = { running: null, startedAt: 0, firstAt: clock() + FIRST_POLL_MS, last: null, remaining: null, errorLoggedAt: 0, linearErrorLoggedAt: 0, slackErrorLoggedAt: 0 };
+  const owner = ownerTracker();
 
-// The app shell with the sidebar drawn in (board/public/ui-sidebar.js, run here in a vm context) and its data beside
-// it, so the first paint has both. here is a site's route or a hub page's path without its leading slash. "<" is
-// escaped in the data so no site's title can close its script.
-async function shellPage(here, viewer = null) {
-  const data = viewer ? viewer.sidebar((await sidebarState()).data) : (await sidebarState()).data;
-  const context = vm.createContext({});
-  for (const file of ['ui-progress-bar.js', 'ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
-  return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
-}
+  const nextPollAt = () => (polls.startedAt ? nextCheckAt({ last: new Date(polls.startedAt), ...owner.state(), remaining: polls.remaining }) : new Date(polls.firstAt));
+  // A change in the owner's presence repaints every page's moon; coming back runs a check at once.
+  function presenceChanged({ changed, back }) {
+    if (changed) stream.refresh();
+    if (back && polls.startedAt && !polls.running) runPoll().catch((e) => log('poll failed:', e.message));
+  }
 
-// A newer kickflip on npm, checked as the hub starts and every 15 wall-clock minutes on the hub's 15-second tick, and pulled
-// once the owner has been away 15 minutes (a version tap pulls at once), without a restart, logging to logs/kickflip-update.log
-// (docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md,
-// docs/adr/2026-11-12-0110-the-npm-check-rides-the-hubs-tick-every-15-wall-clock-minutes.md,
-// docs/adr/2026-11-12-0300-an-npm-hub-pulls-only-once-the-owner-has-been-away-15-minutes.md).
-const upgrade = upgrader({
-  root: cloneRoot(),
-  run: runUpdate,
-  log,
-  pulled: () => selfRestart.restartNow(),
-  awayFor: () => { const { awaySince } = owner.state(); return awaySince === null ? 0 : Date.now() - awaySince; },
-});
-// signal aborts a pull that hangs: the update and npm under it, its own process group, are killed.
-function runUpdate({ signal }) {
-  const file = path.join(LOGS, 'kickflip-update.log');
-  fs.writeFileSync(file, `${new Date().toISOString()} kickflip update\n`);
-  const out = fs.openSync(file, 'a');
-  log('kickflip update: pulling the new kickflip');
-  return new Promise((resolve) => {
-    const child = spawn(nodeBin(), [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'update', '--no-restart'], { detached: true, stdio: ['ignore', out, out] });
-    fs.closeSync(out);
-    child.unref();
-    signal.addEventListener('abort', () => {
-      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-      resolve({ ok: false, error: 'killed after 10 minutes' });
-    }, { once: true });
-    child.on('error', (e) => resolve({ ok: false, error: e.message }));
-    child.on('exit', (code) => {
-      const last = fs.readFileSync(file, 'utf8').trim().split('\n').at(-1);
-      log(`kickflip update exited ${code}: ${last}`);
-      resolve(code === 0 ? { ok: true } : { ok: false, error: last.replace(/^kickflip: /, '') });
+  function runPoll({ flush = true } = {}) {
+    if (polls.running) return polls.running;
+    const startedAt = new Date();
+    polls.startedAt = startedAt.getTime();
+    polls.running = track((async () => {
+      const settings = readSettings();
+      let result;
+      // checked.json's minutes are the away cadence's, the longest the next check can take, so a quiet page never reads late.
+      try { result = await checkGitHub({ every: checkEvery({ present: false, remaining: polls.remaining }), manifest: loadManifest() }); }
+      catch (e) { result = { at: startedAt.toISOString(), watched: 0, failed: [e.message], changes: [], events: [], checked: [], merged: [], linear: { moved: [], failed: [] }, rate: null }; }
+      polls.remaining = result.rate?.remaining ?? null;
+      // docs/adr/2026-11-03-1619-a-merge-refreshes-its-boards-main-at-once.md
+      if (result.merged.length) {
+        try { await fetchTryBranches({ manifest: loadManifest(), log, routes: result.merged }); }
+        catch (e) { log('merge fetch failed:', e.message); }
+        log(`merged on ${result.merged.join(', ')}: fetched and refreshing Main`);
+        tryTick({ manifest: loadManifest(), routes: result.merged }).catch((e) => log('merge refresh failed:', e.message));
+      }
+      try { await fetchTryBranches({ manifest: loadManifest(), log }); }
+      catch (e) { log('fetch failed:', e.message); }
+      // docs/adr/2026-11-03-1914-a-local-boards-main-pulls-from-origin-on-its-own.md
+      try {
+        const pulled = await pullMains({ manifest: loadManifest() });
+        if (pulled.length) tryTick({ manifest: loadManifest(), routes: pulled }).catch((e) => log('pull refresh failed:', e.message));
+      } catch (e) { log('pull failed:', e.message); }
+      // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
+      try { result.failed.push(...(await checkIncoming({ manifest: loadManifest() })).failed); }
+      catch (e) { result.failed.push(`incoming PRs: ${e.message}`); }
+      if (result.failed.length && clock() - polls.errorLoggedAt > ERROR_LOG_MS) {
+        polls.errorLoggedAt = clock();
+        log(`github check: ${result.failed.length} step${result.failed.length === 1 ? '' : 's'} failed, first: ${result.failed[0]} (logged at most hourly)`);
+      }
+      if (result.changes.length) log(`github check: ${result.changes.map((c) => `#${c.pr} ${c.changes.join(',')}`).join('; ')} → ${result.events.map((e) => e.route).join(', ') || 'no board'}`);
+      for (const { id, state } of result.linear.moved) log(`linear: ${id} → ${state}`);
+      if (result.linear.failed.length && clock() - polls.linearErrorLoggedAt > ERROR_LOG_MS) {
+        polls.linearErrorLoggedAt = clock();
+        log(`linear check: ${result.linear.failed.length} step${result.linear.failed.length === 1 ? '' : 's'} failed, first: ${result.linear.failed[0]} (logged at most hourly)`);
+      }
+      // docs/adr/2026-11-05-0141-the-hub-sends-reviewer-slack-messages-with-its-own-token.md
+      try { result.slack = await sendReviews({ boards: listBoards(loadManifest()) }); }
+      catch (e) { result.slack = { sent: [], failed: [e.message] }; }
+      for (const line of result.slack.sent) log(`slack: sent ${line}`);
+      if (result.slack.failed.length && clock() - polls.slackErrorLoggedAt > ERROR_LOG_MS) {
+        polls.slackErrorLoggedAt = clock();
+        log(`slack sends: ${result.slack.failed.length} failed, first: ${result.slack.failed[0]} (logged at most hourly)`);
+      }
+      try { result.deaf = await checkListening({ manifest: loadManifest() }); }
+      catch (e) { result.deaf = { pushed: [], failed: [e.message] }; }
+      if (result.deaf.pushed.length || result.deaf.failed.length) log(`not listening: pushed ${result.deaf.pushed.join(', ') || 'none'}${result.deaf.failed.length ? `; ${result.deaf.failed.join('; ')}` : ''}`);
+      try { recordLinkFaults(loadManifest()); } catch (e) { log('could not record link faults:', e.message); }
+      result.flushed = null;
+      result.held = heldUntil(startedAt, settings) !== null;
+      if (flush && !result.held) {
+        try {
+          const r = await flushQueue();
+          if (r) { result.flushed = { count: r.count, sent: r.sent, ok: r.ok }; log(`push queue: sent ${r.sent} of ${r.count} queued`); }
+        } catch (e) { log('push queue flush failed:', e.message); }
+      }
+      polls.last = result;
+      return result;
+    })().finally(() => { polls.running = null; }));
+    return polls.running;
+  }
+
+  let waking = null;
+  function runWakes() {
+    waking ||= sendWakes({ settings: readSettings(), manifest: loadManifest() }).then((r) => {
+      if (r.due.length) log(`wake ${r.due.join(', ')}: check-github → ${r.events.map((e) => e.route).join(', ') || 'no board'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
+    }).catch((e) => log('wake failed:', e.message)).finally(() => { waking = null; });
+    return track(waking);
+  }
+
+  // Routes whose page asked for a wake (/_hub/wake) that no session check has taken up yet.
+  const wakeAsks = new Set();
+  const sessionCheck = { running: null };
+  function runSessionCheck() {
+    if (sessionCheck.running || closingResponses.size || restarting.size) return;
+    const asked = new Set(wakeAsks);
+    wakeAsks.clear();
+    sessionCheck.running = checkSessions({ manifest: loadManifest(), asked }).then((r) => {
+      if (r.resumed.length || r.pushed.length || r.failed.length) log(`sessions: resumed ${r.resumed.join(', ') || 'none'}; pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
+    }).catch((e) => log('session check failed:', e.message))
+      // docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md
+      .then(() => compactFullContexts({ manifest: loadManifest() })).then((r) => {
+        if (r.compacted.length || r.failed.length) log(`context full: sent /compact to ${r.compacted.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
+      }).catch((e) => log('context full check failed:', e.message)).finally(() => { sessionCheck.running = null; });
+    return track(sessionCheck.running);
+  }
+
+  await initializeTries(loadManifest());
+
+  // ---------- pending prompts ----------
+  const STARTED_AT = clock();
+  // id → the resolvers of the hook's poll held open on it.
+  const promptWaiters = new Map();
+  function promptChanged(route) {
+    if (route) { needsCache.delete(route); stream.changed(route); } else stream.refresh();
+  }
+  async function prunePrompts() {
+    const { gone, rulesChanged } = await updatePrompts((store) => {
+      const gone = expired(store, { now: clock(), aliveSince: STARTED_AT });
+      const rulesChanged = pruneRemembered(store, promptContext());
+      for (const r of gone) delete store.prompts[r.id];
+      return { gone, rulesChanged };
     });
+    for (const r of gone) promptChanged(r.route);
+    if (rulesChanged) stream.refresh();
+    if (gone.length) log(`prompts: dropped ${gone.map((r) => r.id).join(', ')}, whose hook went away`);
+  }
+
+  const promptContext = () => ({ running: liveSessions(), boards: listBoards(loadManifest()) });
+
+  // A session's PermissionDenied or PermissionRequest hook input for a command that one of its board's permission
+  // switches allows while on becomes a note under that switch (board/permissions.mjs recordRefusal). A failure to write
+  // the note is logged; the prompt goes on. → the switch noted, or null
+  async function noteRefusal(input) {
+    const board = listBoards(loadManifest()).find((b) => b.owner?.session && b.owner.session === input.session_id);
+    if (!board) return null;
+    try {
+      const noted = await recordRefusal(boardRepo(board.route).repo, board.dir, input);
+      if (noted) log(`permissions: /${board.route} was still ${input.hook_event_name === 'PermissionDenied' ? 'refused' : 'asked about'} ${input.tool_input.command}`);
+      return noted;
+    } catch (e) { log(`permissions: could not note /${board.route}'s refusal: ${e.message}`); return null; }
+  }
+
+  // One check runs at a time. A call while one runs waits for it, then for one more check that reads the gate afresh, so a
+  // pause-line save always reaches usage-gate-state.json; calls made meanwhile share that one.
+  let usageCheck = null;
+  let usageRecheck = null;
+  async function checkUsageGate() {
+    if (usageCheck) return usageRecheck ??= usageCheck.catch(() => {}).then(() => { usageRecheck = null; return checkUsageGate(); });
+    usageCheck = (async () => checkUsagePause({ gate: readUsageGate(), resume: async (window) => {
+      const out = await sendToBoards(listBoards(loadManifest()), 'usage-resumed', { window });
+      for (const failed of out.failed) log(failed);
+    } }))().finally(() => { usageCheck = null; });
+    return usageCheck;
+  }
+
+  // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: routes the requests that waited
+  // out a usage pause or a failed call, one drain at a time.
+  let routing = null;
+  function runRoutes() {
+    routing ||= drainRoutes({ manifest: loadManifest() }).then((r) => {
+      for (const e of r.routed) log(`router: ${e.via} request from ${e.by || 'someone'} → /${e.route}: ${e.reason}`);
+      for (const why of r.failed) log(`router: could not file a request on ${why}`);
+      if (r.routed.length) stream.refresh();
+    }).catch((e) => log('router failed:', e.message)).finally(() => { routing = null; });
+    return track(routing);
+  }
+
+  // The 15-second tick. Its poll runs only on the hub's own timer (ticks); without it, polls run when asked.
+  function tick() {
+    return track(Promise.allSettled([
+      tryTick({ manifest: loadManifest() }).catch((e) => log('try tick failed:', e.message)),
+      runRoutes(),
+      checkUsageGate().catch((e) => log('usage gate failed:', e.message)),
+      (async () => { try { checkMachine({ reading: readMachine() }); } catch (e) { log('machine check failed:', e.message); } })(),
+      owner.check().then(presenceChanged, (e) => log('presence check failed:', e.message)).finally(() => {
+        if (ticks && !polls.running && clock() >= nextPollAt().getTime()) runPoll().catch((e) => log('poll failed:', e.message));
+      }),
+      settleStarts({ listening: (board) => isListening(board) && status().some((r) => r.route === board.route && r.state === 'up') }).then((landed) => { if (landed.length) stream.refresh(); }, (e) => log('settling starts failed:', e.message)),
+      runWakes(),
+      awake.apply(),
+      upgrade.tick(),
+      prunePrompts().catch((e) => log('prompt expiry failed:', e.message)).finally(runSessionCheck),
+    ]));
+  }
+
+  // Sites run detached, so the hub must not exit while one it started still runs: close() stops each, kills one that
+  // ignores SIGTERM for KILL_AFTER, stops the try runs, waits out the passes in flight, and closes the server.
+  let closing = null;
+  function close() {
+    closing ||= (async () => {
+      shuttingDown = true;
+      for (const t of timers) clearInterval(t);
+      awake.stop();
+      log('hub stopping; stopping sites');
+      for (const p of procs.values()) if (p.child) p.stopping = true;
+      const exits = [...children].map((c) => new Promise((resolve) => {
+        if (c.exitCode !== null || c.signalCode !== null) { resolve(); return; }
+        const kill = setTimeout(() => { log(`pid ${c.pid} ignored SIGTERM; killing it`); signal(c, 'SIGKILL'); }, KILL_AFTER);
+        c.once('exit', () => { clearTimeout(kill); resolve(); });
+        signal(c, 'SIGTERM');
+      }));
+      await Promise.allSettled([stopTries(), ...exits]);
+      stream.close();
+      await settled();
+      const closed = new Promise((resolve) => server.close(resolve));
+      server.closeAllConnections();
+      await closed;
+    })();
+    return closing;
+  }
+
+  // ---------- status ----------
+  const lastChange = new Map(); // route -> { at, checked }
+  function newestMtime(dir, budget = { n: 3000 }) {
+    let newest = 0;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return 0; }
+    for (const e of entries) {
+      if (budget.n-- <= 0) break;
+      if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) newest = Math.max(newest, newestMtime(full, budget));
+      else { try { newest = Math.max(newest, fs.statSync(full).mtimeMs); } catch {} }
+    }
+    return newest;
+  }
+  function changedAt(route, site) {
+    const c = lastChange.get(route);
+    if (c && clock() - c.checked < 30_000) return c.at;
+    const at = newestMtime(site.dir);
+    lastChange.set(route, { at, checked: clock() });
+    return at;
+  }
+
+  const isFolder = (dir) => { try { return typeof dir === 'string' && fs.statSync(dir).isDirectory(); } catch { return false; } };
+
+  function status() {
+    const { sites } = loadManifest();
+    return Object.entries(sites).sort(([a], [b]) => a.localeCompare(b)).map(([route, s]) => {
+      const p = procs.get(route) || {};
+      const serves = servesOf(s);
+      const state = serves === 'files' ? (isFolder(s.dir) ? 'up' : 'down')
+        : serves === 'port' ? answering.state(route)
+          : p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
+      return {
+        route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port ?? null, serves, state,
+        exitCode: p.exitCode ?? null, owner: s.owner || null, restart: restartable(s), changedAt: changedAt(route, s) || null, created: s.created || null,
+        log: path.join(LOGS, route + '.log'),
+      };
+    });
+  }
+
+  // ---------- pages ----------
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // route -> {at, needs}: the last good answer, which a failed read shows in its place (home.mjs holdNeeds).
+  const goodNeeds = new Map();
+  // route -> {at, needs}: needs is a promise of home.mjs readNeeds' answer from the site's GET /_claude/needs,
+  // or of null when the site doesn't serve it, errs or takes over NEEDS_TIMEOUT.
+  const needsCache = new Map();
+  const NEEDS_TTL = 20_000;
+  const NEEDS_TIMEOUT = 1500;
+  async function fetchNeeds(port) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/_claude/needs`, { signal: AbortSignal.timeout(NEEDS_TIMEOUT) });
+      if (!r.ok) return null;
+      return readNeeds(await r.json());
+    } catch { return null; }
+  }
+  // fresh: true refetches every site's answer, a Set of routes only those. A site with no owning session is never asked.
+  async function waitingCounts(rows, { fresh = false } = {}) {
+    const up = rows.filter((r) => r.state === 'up' && r.owner && r.port);
+    for (const r of up) {
+      const c = needsCache.get(r.route);
+      if (fresh === true || fresh?.has?.(r.route) || !c || clock() - c.at >= NEEDS_TTL) needsCache.set(r.route, { at: clock(), needs: fetchNeeds(r.port) });
+    }
+    const reads = await Promise.all(up.map((r) => needsCache.get(r.route).needs));
+    return new Map(up.map((r, i) => {
+      const held = holdNeeds(goodNeeds.get(r.route) ?? null, reads[i], needsCache.get(r.route).at, clock());
+      if (held.good) goodNeeds.set(r.route, held.good); else goodNeeds.delete(r.route);
+      return [r.route, held.needs];
+    }));
+  }
+  // A site whose answer is unknown adds nothing. A board's pending prompts are in its count already, so only the rest
+  // add here; the hub page lists them all.
+  const badgeTotal = (waiting) => [...waiting.values()].reduce((n, w) => n + (w?.count || 0), 0) + pendingFor(null).length;
+
+  // ---------- sidebar ----------
+  // Each board's listenState (boards.mjs), read on every call since a session's watcher starts and exits underneath, and
+  // its linksOf, cached as long as the sites' needs, since every open page asks for the sidebar. A board's links are built
+  // again when its listen state differs from the one they were built with, since the events link follows it.
+  // → {links: Map of route to linksOf, listens: Map of route to listenState}
+  const linksCache = new Map(); // route → {at, listen, links}
+  function boardLinks(boards) {
+    const links = new Map();
+    const listens = new Map();
+    const ctx = { running: liveSessions(), wakes: readJSON(resumeStateFile(), {}) };
+    for (const b of boards) {
+      try {
+        const listen = listenState(b, ctx);
+        listens.set(b.route, listen);
+        let c = linksCache.get(b.route);
+        if (!c || c.listen !== listen || clock() - c.at >= NEEDS_TTL) {
+          c = { at: clock(), listen, links: linksOf(b, { listen }) };
+          linksCache.set(b.route, c);
+        }
+        links.set(b.route, c.links);
+      } catch (e) { log(`links of ${b.route} failed:`, e.message); links.set(b.route, []); }
+    }
+    return { links, listens };
+  }
+
+  // What /_hub/sidebar.json serves, with each board's links, the hub's code hashes and the status rows behind it for the
+  // hub's page.
+  async function sidebarState({ fresh = false } = {}) {
+    const now = new Date();
+    const rows = status();
+    const waiting = await waitingCounts(rows, { fresh });
+    const manifest = loadManifest();
+    const boards = listBoards(manifest);
+    const { links, listens } = boardLinks(boards);
+    const code = hubCodeState();
+    const contexts = new Map(boards.map((b) => [b.route, contextReading(b.owner?.session)]).filter(([, reading]) => reading));
+    const starting = startingBoards(manifest, now.getTime(), clonePercent, (route) => listens.get(route) === 'listening' && rows.some((r) => r.route === route && r.state === 'up'));
+    const landing = new Set(starting.map((s) => s.route));
+    // A board under Pause board carries its own gate as pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
+    const pausedBoards = new Map(boards.filter((b) => boardPausedUntil(b.dir)).map((b) => [b.route, readUsageGate({ dir: b.dir })]));
+    const sites = sidebarSites(rows, waiting, new Set(boards.map((b) => b.route)), listens, contexts).filter((s) => !landing.has(s.route))
+      .map((s) => (pausedBoards.has(s.route) ? { ...s, pause: pausedBoards.get(s.route) } : s));
+    const settings = readSettings();
+    const held = hold(now, settings);
+    const data = {
+      code: code.running ?? null,
+      version: VERSION,
+      total: badgeTotal(waiting), start: startRoute(sites), sites, hub: hubHealth(sites, links, hubLink(code)),
+      home: fs.realpathSync(os.homedir()),
+      starting,
+      // The readings alone: the newest Claude run's start is the gate's (pause.near).
+      usage: (({ start: _, ...readings }) => readings)(readUsage({ codexShare: readCodexShare(readCodex()) })),
+      pause: readUsageGate(),
+      notifications: !held ? { state: 'on', text: 'On' } : held.why === 'off' ? { state: 'off', text: 'Off' } : { state: 'held', text: capital(holdLine(held, now)) },
+      away: !owner.state().present,
+    };
+    return { data, links, rows, code };
+  }
+
+  // ---------- app shell ----------
+  // Text a browser accepts gzipped goes gzipped; the shell's scripts are a few hundred kilobytes before it.
+  function sendText(req, res, code, headers, body) {
+    let out = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    const h = { ...headers, vary: [headers.vary, 'accept-encoding'].filter(Boolean).join(', ') };
+    if (out.length >= 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) { out = zlib.gzipSync(out); h['content-encoding'] = 'gzip'; }
+    h['content-length'] = out.length;
+    res.writeHead(code, h);
+    res.end(req.method === 'HEAD' ? undefined : out);
+  }
+
+  // The app shell with the sidebar drawn in (board/public/ui-sidebar.js, run here in a vm context) and its data beside
+  // it, so the first paint has both. here is a site's route or a hub page's path without its leading slash. "<" is
+  // escaped in the data so no site's title can close its script.
+  async function shellPage(here, viewer = null) {
+    const data = viewer ? viewer.sidebar((await sidebarState()).data) : (await sidebarState()).data;
+    const context = vm.createContext({});
+    for (const file of ['ui-progress-bar.js', 'ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
+    return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
+  }
+
+  // A newer kickflip on npm, checked as the hub starts and every 15 wall-clock minutes on the hub's 15-second tick, and pulled
+  // once the owner has been away 15 minutes (a version tap pulls at once), without a restart, logging to logs/kickflip-update.log
+  // (docs/adr/2026-11-06-0800-the-update-row-shows-only-new-version-and-reload.md,
+  // docs/adr/2026-11-12-0110-the-npm-check-rides-the-hubs-tick-every-15-wall-clock-minutes.md,
+  // docs/adr/2026-11-12-0300-an-npm-hub-pulls-only-once-the-owner-has-been-away-15-minutes.md).
+  const upgrade = upgrader({
+    root: cloneRoot(),
+    run: runUpdate,
+    log,
+    pulled: () => selfRestart.restartNow(),
+    awayFor: () => { const { awaySince } = owner.state(); return awaySince === null ? 0 : clock() - awaySince; },
   });
-}
-upgrade.tick();
+  // signal aborts a pull that hangs: the update and npm under it, its own process group, are killed.
+  function runUpdate({ signal }) {
+    const file = path.join(LOGS, 'kickflip-update.log');
+    fs.writeFileSync(file, `${new Date().toISOString()} kickflip update\n`);
+    const out = fs.openSync(file, 'a');
+    log('kickflip update: pulling the new kickflip');
+    return new Promise((resolve) => {
+      const child = spawn(nodeBin(), [path.join(cloneRoot(), 'bin', 'kickflip.mjs'), 'update', '--no-restart'], { detached: true, stdio: ['ignore', out, out] });
+      fs.closeSync(out);
+      child.unref();
+      signal.addEventListener('abort', () => {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+        resolve({ ok: false, error: 'killed after 10 minutes' });
+      }, { once: true });
+      child.on('error', (e) => resolve({ ok: false, error: e.message }));
+      child.on('exit', (code) => {
+        const last = fs.readFileSync(file, 'utf8').trim().split('\n').at(-1);
+        log(`kickflip update exited ${code}: ${last}`);
+        resolve(code === 0 ? { ok: true } : { ok: false, error: last.replace(/^kickflip: /, '') });
+      });
+    });
+  }
+  upgrade.tick();
 
-const stream = hubStream({
-  targets: () => Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
-  watched: () => listBoards(loadManifest()).map(({ route, dir }) => ({ route, dir })),
-  sidebar: async ({ fresh }) => (await sidebarState({ fresh })).data,
-  log,
-});
+  const stream = hubStream({
+    targets: () => Object.entries(loadManifest().sites).filter(([, s]) => isBoardSite(s) && s.port).map(([route, s]) => ({ route, port: s.port })),
+    watched: () => listBoards(loadManifest()).map(({ route, dir }) => ({ route, dir })),
+    sidebar: async ({ fresh }) => (await sidebarState({ fresh })).data,
+    log,
+  });
 
-// iOS caches a Home Screen icon by its URL, so each URL carries the file's mtime: a replaced icon gets a new address.
-function iconUrl(size) {
-  let v = '0';
-  try { v = Math.floor(fs.statSync(path.join(HUB_DIR, `icon-${size}.png`)).mtimeMs).toString(36); } catch {}
-  return `/_hub/icon-${size}.png?v=${v}`;
-}
-const manifestJson = () => JSON.stringify({
-  name: 'Claude sites', short_name: 'Claude', start_url: '/', scope: '/', display: 'standalone',
-  background_color: '#121514', theme_color: '#121514',
-  icons: [{ src: iconUrl(192), sizes: '192x192', type: 'image/png' }, { src: iconUrl(512), sizes: '512x512', type: 'image/png' }],
-});
+  // iOS caches a Home Screen icon by its URL, so each URL carries the file's mtime: a replaced icon gets a new address.
+  function iconUrl(size) {
+    let v = '0';
+    try { v = Math.floor(fs.statSync(path.join(HUB_DIR, `icon-${size}.png`)).mtimeMs).toString(36); } catch {}
+    return `/_hub/icon-${size}.png?v=${v}`;
+  }
+  const manifestJson = () => JSON.stringify({
+    name: 'Claude sites', short_name: 'Claude', start_url: '/', scope: '/', display: 'standalone',
+    background_color: '#121514', theme_color: '#121514',
+    icons: [{ src: iconUrl(192), sizes: '192x192', type: 'image/png' }, { src: iconUrl(512), sizes: '512x512', type: 'image/png' }],
+  });
 
-async function readBody(req, limit = 16 * 1024) {
-  let body = '';
-  for await (const chunk of req) { body += chunk; if (body.length > limit) throw Object.assign(new Error('too large'), { status: 413 }); }
-  return body;
-}
-async function readJSONBody(req, limit) {
-  if (!isJSON(req.headers)) throw Object.assign(new Error('Send the body as application/json.'), { status: 403 });
-  const body = await readBody(req, limit);
-  return body ? JSON.parse(body) : {};
-}
+  async function readBody(req, limit = 16 * 1024) {
+    let body = '';
+    for await (const chunk of req) { body += chunk; if (body.length > limit) throw Object.assign(new Error('too large'), { status: 413 }); }
+    return body;
+  }
+  async function readJSONBody(req, limit) {
+    if (!isJSON(req.headers)) throw Object.assign(new Error('Send the body as application/json.'), { status: 403 });
+    const body = await readBody(req, limit);
+    return body ? JSON.parse(body) : {};
+  }
 
-// The page the hub answers a site that is down or missing with, which a frame or curl gets too.
-const head = (title, extra = '') => `<!doctype html><html lang="en" class="hub-view"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  // The page the hub answers a site that is down or missing with, which a frame or curl gets too.
+  const head = (title, extra = '') => `<!doctype html><html lang="en" class="hub-view"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${esc(title)}</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/png" href="/_hub/kickflip.png"><link rel="apple-touch-icon" href="${iconUrl(180)}">
 <meta name="apple-mobile-web-app-title" content="Claude">${extra}<link rel="stylesheet" href="/_hub/colors.css?v=${colorsVersion()}"><link rel="stylesheet" href="/_hub/hub.css"></head><body><main>`;
 
-// ---------- hub views ----------
-// The hub page and its settings modals live in the app shell (board/public/view-hub.js, view-hub-settings.js), which
-// take their words from views.mjs through /_hub/api/*. A form POST that asks for JSON gets the view's data back; any
-// other gets a 303 back to the page.
-const wantsJSON = (req) => /\bapplication\/json\b/.test(req.headers.accept || '');
+  // ---------- hub views ----------
+  // The hub page and its settings modals live in the app shell (board/public/view-hub.js, view-hub-settings.js), which
+  // take their words from views.mjs through /_hub/api/*. A form POST that asks for JSON gets the view's data back; any
+  // other gets a 303 back to the page.
+  const wantsJSON = (req) => /\bapplication\/json\b/.test(req.headers.accept || '');
 
-async function hubData(req) {
-  await prunePrompts();
-  const now = new Date();
-  const { data, links, rows, code } = await sidebarState();
-  return {
-    ...hubView({
-      now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
-      code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
-      remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }),
-    }),
-    prompts: pending().map(shown),
-    remembered: rememberedFor(null),
-  };
-}
-const settingsData = async () => {
-  const now = new Date();
-  const gate = readUsageGate({ now });
-  const pausedUntil = gate.manual === 'hub' ? endOf(gate.resets_at, now) : null;
-  return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil }), closed: closedBoards() };
-};
-
-const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
-
-async function hubRoute(req, res, url, viewer = null) {
-  const send = (code, type, body, extra = {}) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store', ...extra }); res.end(body); };
-  const sendJSON = (code, v) => {
-    const hash = runningHubCode();
-    return send(code, 'application/json', JSON.stringify(v), hash ? { 'x-hub-code': hash } : {});
-  };
-  // Answers a New board start or retry at once with {route}, and refreshes the sidebar again when its outcome lands.
-  const starting = ({ route, started }) => {
-    started.then(({ error }) => { if (error) log(`new board /${route} didn't start: ${error}`); stream.refresh(); });
-    stream.refresh();
-    return sendJSON(200, { route });
-  };
-  const json = wantsJSON(req);
-  const p = url.pathname;
-  const closing = /^\/_hub\/close-board\/([a-z0-9-]+)$/.exec(p);
-  if (closing && req.method === 'GET') {
-    try { return sendJSON(200, await boardClosure(closing[1])); }
-    catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+  async function hubData(req) {
+    await prunePrompts();
+    const now = new Date();
+    const { data, links, rows, code } = await sidebarState();
+    return {
+      ...hubView({
+        now, st: queueStatus(now), sidebar: data, rows, links, rules: readHubRules(), integrations: await readiness.rows(),
+        code, version: VERSION, host: req.headers['x-forwarded-host'] || req.headers.host || '', codexShare: readCodexShare(readCodex()), claudeModel: readClaudeModel(), codex: readCodex(), awake: { on: awakeOn(), unsupported: awakeUnsupported() },
+        remembered: new Map(listBoards(loadManifest()).map((b) => [b.route, rememberedFor(b.route)])), routed: routedRows({ manifest: loadManifest() }),
+      }),
+      prompts: pending().map(shown),
+      remembered: rememberedFor(null),
+    };
   }
-  if (['/_hub/close-board', '/_hub/reopen-board'].includes(p) && req.method === 'POST') {
-    let route;
-    try {
-      const input = await readJSONBody(req);
-      route = input.route;
-      if (p === '/_hub/reopen-board') {
-        const result = await reopenBoard(route);
+  const settingsData = async () => {
+    const now = new Date();
+    const gate = readUsageGate({ now });
+    const pausedUntil = gate.manual === 'hub' ? endOf(gate.resets_at, now) : null;
+    return { ...settingsView({ now, st: queueStatus(now), rules: readHubRules(), linear: linearStatus(), slack: slackStatus(), pausedUntil }), closed: closedBoards() };
+  };
+
+  const redirect = (res, location) => { res.writeHead(303, { location, 'cache-control': 'no-store' }); res.end(); };
+
+  async function hubRoute(req, res, url, viewer = null) {
+    const send = (code, type, body, extra = {}) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store', ...extra }); res.end(body); };
+    const sendJSON = (code, v) => {
+      const hash = runningHubCode();
+      return send(code, 'application/json', JSON.stringify(v), hash ? { 'x-hub-code': hash } : {});
+    };
+    // Answers a New board start or retry at once with {route}, and refreshes the sidebar again when its outcome lands.
+    const starting = ({ route, started }) => {
+      track(started.then(({ error }) => { if (error) log(`new board /${route} didn't start: ${error}`); stream.refresh(); }));
+      stream.refresh();
+      return sendJSON(200, { route });
+    };
+    const json = wantsJSON(req);
+    const p = url.pathname;
+    const closing = /^\/_hub\/close-board\/([a-z0-9-]+)$/.exec(p);
+    if (closing && req.method === 'GET') {
+      try { return sendJSON(200, await boardClosure(closing[1])); }
+      catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    if (['/_hub/close-board', '/_hub/reopen-board'].includes(p) && req.method === 'POST') {
+      let route;
+      try {
+        const input = await readJSONBody(req);
+        route = input.route;
+        if (p === '/_hub/reopen-board') {
+          const result = await reopenBoard(route);
+          stream.refresh();
+          return sendJSON(200, result);
+        }
+        if (closingResponses.has(route)) return sendJSON(409, { error: 'That board is already closing.' });
+        closingResponses.add(route);
+        // The hub owns this response; reconciliation waits until it is flushed before stopping the site's server.
+        const release = () => closingResponses.delete(route);
+        res.once('finish', release);
+        res.once('close', release);
+        await sessionCheck.running;
+        const result = await closeBoard(route, input.name);
         stream.refresh();
         return sendJSON(200, result);
+      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    if (p === '/_hub/restart-board' && req.method === 'POST') {
+      let route;
+      try {
+        route = (await readJSONBody(req)).route;
+        if (restarting.has(route)) return sendJSON(409, { error: 'That board is already restarting.' });
+        restarting.add(route);
+        await sessionCheck.running;
+        const result = await restartBoard(route, { serverUp: serverAnswers, portUp: probe, onStarting: (title) => log(`restart /${route}: ${title}’s session is back, its server is still starting`) });
+        log(`restarted /${route}: server answers, session ${result.session} resumed`);
+        return sendJSON(200, result);
+      } catch (e) {
+        if (route) log(`restart /${route} failed: ${e.message}`);
+        return sendJSON(e.status || 400, { error: e.message });
+      } finally { restarting.delete(route); stream.refresh(); }
+    }
+    if (p === '/_hub/restart-hub' && req.method === 'POST') {
+      try {
+        await readJSONBody(req);
+        if (hubRestarting) return sendJSON(409, { error: 'The hub is already restarting.' });
+        hubRestarting = true;
+        // The restart stops this process, so it runs once the answer is flushed.
+        track(new Promise((resolve) => res.once('finish', () => {
+          log('restarting the hub from the hub page');
+          const why = restartRunner('hub');
+          if (why) { hubRestarting = false; log(`hub restart failed: ${why}`); }
+          resolve();
+        })));
+        return sendJSON(200, { restarting: true, command: hubService().restartCommand });
+      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    // The hub page's version tap: check npm now, like the 15-minute check (hub/upgrade.mjs). A clone answers with its commit.
+    if (p === '/_hub/check-update' && req.method === 'POST') {
+      try {
+        await readJSONBody(req);
+        const out = await upgrade.check();
+        if (out.state === 'clone') out.commit = execFileSync('git', ['-C', cloneRoot(), 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+        return sendJSON(200, out);
+      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    if (p === '/_hub/presence' && req.method === 'POST') {
+      await readJSONBody(req);
+      presenceChanged(owner.beat());
+      res.writeHead(204, { 'cache-control': 'no-store' });
+      return res.end();
+    }
+    if (p === '/_hub/wake' && req.method === 'POST') {
+      try {
+        const { route } = await readJSONBody(req);
+        const board = listBoards(loadManifest()).find((b) => b.route === route);
+        if (!board) return sendJSON(404, { error: 'That board is not open.' });
+        wakeAsks.add(route);
+        await sessionCheck.running;
+        runSessionCheck();
+        await sessionCheck.running;
+        linksCache.clear();
+        stream.changed(route);
+        return sendJSON(200, { route, listen: listenState(board) });
+      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    if (p === '/_hub/repos' && req.method === 'GET') {
+      try { return sendJSON(200, await repos.list(loadManifest(), { fresh: url.searchParams.get('fresh') === '1' })); }
+      catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
+    }
+    if (p === '/_hub/branches' && req.method === 'GET') {
+      try { return sendJSON(200, await repos.branches(url.searchParams.get('github') ?? url.searchParams.get('remote'))); }
+      catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
+    }
+    if (p === '/_hub/repo' && req.method === 'GET') return repoLookupRoute(url, { repos, manifest: loadManifest(), sendJSON });
+    const repoRoute = /^\/_hub\/board-repo\/([a-z0-9-]+)$/.exec(p);
+    if (repoRoute && ['GET', 'POST'].includes(req.method)) {
+      try {
+        const result = req.method === 'GET' ? boardRepo(repoRoute[1]) : await changeBoardRepo(repoRoute[1], await readJSONBody(req), { repos });
+        if (req.method === 'POST') stream.refresh();
+        return sendJSON(200, result);
+      } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
+    if (p === '/_hub/new-board' && req.method === 'POST') {
+      if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as application/json.');
+      let input;
+      try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as JSON.'); }
+      try { return starting(await requestBoard(input, { repos, changed: () => stream.refresh() })); }
+      catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+    }
+    const retry = /^\/_hub\/new-board\/([a-z0-9-]+)\/retry$/.exec(p);
+    if (retry && req.method === 'POST') {
+      if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send the retry as application/json.');
+      try { return starting(await retryBoard(retry[1], { repos, changed: () => stream.refresh() })); }
+      catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+    }
+    const dismiss = /^\/_hub\/new-board\/([a-z0-9-]+)$/.exec(p);
+    if (dismiss && req.method === 'DELETE') {
+      try {
+        const result = await dismissBoard(dismiss[1]);
+        stream.refresh();
+        return sendJSON(200, result);
+      } catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
+    }
+    if ((p === '/_hub/build' || p === '/_hub/pull' || p === '/_hub/kill') && req.method === 'POST') {
+      if (shuttingDown) return sendJSON(503, { error: 'The hub is stopping. Try again after it restarts.' });
+      const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+      const host = (req.headers.host || '').replace(/:\d+$/, '');
+      if (!local.includes(req.socket.remoteAddress) || !['127.0.0.1', 'localhost', '[::1]'].includes(host)
+        || req.headers.origin || Object.keys(req.headers).some((h) => h === 'forwarded' || h.startsWith('x-forwarded-'))) {
+        return sendJSON(403, { error: `${p === '/_hub/pull' ? 'Pulls' : p === '/_hub/kill' ? 'Serves' : 'Builds'} can only be ${p === '/_hub/kill' ? 'killed' : 'started'} from the host over loopback.` });
       }
-      if (closingResponses.has(route)) return sendJSON(409, { error: 'That board is already closing.' });
-      closingResponses.add(route);
-      // The hub owns this response; reconciliation waits until it is flushed before stopping the site's server.
-      const release = () => closingResponses.delete(route);
-      res.once('finish', release);
-      res.once('close', release);
-      await sessionCheck.running;
-      const result = await closeBoard(route, input.name);
-      stream.refresh();
-      return sendJSON(200, result);
-    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
-  }
-  if (p === '/_hub/restart-board' && req.method === 'POST') {
-    let route;
-    try {
-      route = (await readJSONBody(req)).route;
-      if (restarting.has(route)) return sendJSON(409, { error: 'That board is already restarting.' });
-      restarting.add(route);
-      await sessionCheck.running;
-      const result = await restartBoard(route, { serverUp: serverAnswers, portUp: probe, onStarting: (title) => log(`restart /${route}: ${title}’s session is back, its server is still starting`) });
-      log(`restarted /${route}: server answers, session ${result.session} resumed`);
-      return sendJSON(200, result);
-    } catch (e) {
-      if (route) log(`restart /${route} failed: ${e.message}`);
-      return sendJSON(e.status || 400, { error: e.message });
-    } finally { restarting.delete(route); stream.refresh(); }
-  }
-  if (p === '/_hub/restart-hub' && req.method === 'POST') {
-    try {
-      await readJSONBody(req);
-      if (hubRestarting) return sendJSON(409, { error: 'The hub is already restarting.' });
-      hubRestarting = true;
-      // The restart stops this process, so it runs once the answer is flushed.
-      res.once('finish', () => {
-        log('restarting the hub from the hub page');
-        const why = restartRunner('hub');
-        if (why) { hubRestarting = false; log(`hub restart failed: ${why}`); }
-      });
-      return sendJSON(200, { restarting: true, command: hubService().restartCommand });
-    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
-  }
-  // The hub page's version tap: check npm now, like the 15-minute check (hub/upgrade.mjs). A clone answers with its commit.
-  if (p === '/_hub/check-update' && req.method === 'POST') {
-    try {
-      await readJSONBody(req);
-      const out = await upgrade.check();
-      if (out.state === 'clone') out.commit = execFileSync('git', ['-C', cloneRoot(), 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
-      return sendJSON(200, out);
-    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
-  }
-  if (p === '/_hub/presence' && req.method === 'POST') {
-    await readJSONBody(req);
-    presenceChanged(owner.beat());
-    res.writeHead(204, { 'cache-control': 'no-store' });
-    return res.end();
-  }
-  if (p === '/_hub/wake' && req.method === 'POST') {
-    try {
-      const { route } = await readJSONBody(req);
-      const board = listBoards(loadManifest()).find((b) => b.route === route);
-      if (!board) return sendJSON(404, { error: 'That board is not open.' });
-      wakeAsks.add(route);
-      await sessionCheck.running;
-      runSessionCheck();
-      await sessionCheck.running;
-      linksCache.clear();
-      stream.changed(route);
-      return sendJSON(200, { route, listen: listenState(board) });
-    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
-  }
-  if (p === '/_hub/repos' && req.method === 'GET') {
-    try { return sendJSON(200, await repos.list(loadManifest(), { fresh: url.searchParams.get('fresh') === '1' })); }
-    catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
-  }
-  if (p === '/_hub/branches' && req.method === 'GET') {
-    try { return sendJSON(200, await repos.branches(url.searchParams.get('github') ?? url.searchParams.get('remote'))); }
-    catch (e) { return sendJSON(e.status || 502, { error: e.message }); }
-  }
-  if (p === '/_hub/repo' && req.method === 'GET') return repoLookupRoute(url, { repos, manifest: loadManifest(), sendJSON });
-  const repoRoute = /^\/_hub\/board-repo\/([a-z0-9-]+)$/.exec(p);
-  if (repoRoute && ['GET', 'POST'].includes(req.method)) {
-    try {
-      const result = req.method === 'GET' ? boardRepo(repoRoute[1]) : await changeBoardRepo(repoRoute[1], await readJSONBody(req), { repos });
-      if (req.method === 'POST') stream.refresh();
-      return sendJSON(200, result);
-    } catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
-  }
-  if (p === '/_hub/new-board' && req.method === 'POST') {
-    if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as application/json.');
-    let input;
-    try { input = await readJSONBody(req); } catch { return send(400, 'text/plain; charset=utf-8', 'Send name, github, branch and purpose as JSON.'); }
-    try { return starting(await requestBoard(input, { repos, changed: () => stream.refresh() })); }
-    catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
-  }
-  const retry = /^\/_hub\/new-board\/([a-z0-9-]+)\/retry$/.exec(p);
-  if (retry && req.method === 'POST') {
-    if (!isJSON(req.headers)) return send(403, 'text/plain; charset=utf-8', 'Send the retry as application/json.');
-    try { return starting(await retryBoard(retry[1], { repos, changed: () => stream.refresh() })); }
-    catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
-  }
-  const dismiss = /^\/_hub\/new-board\/([a-z0-9-]+)$/.exec(p);
-  if (dismiss && req.method === 'DELETE') {
-    try {
-      const result = await dismissBoard(dismiss[1]);
-      stream.refresh();
-      return sendJSON(200, result);
-    } catch (e) { if (e.status) return send(e.status, 'text/plain; charset=utf-8', e.message); throw e; }
-  }
-  if ((p === '/_hub/build' || p === '/_hub/pull' || p === '/_hub/kill') && req.method === 'POST') {
-    if (shuttingDown) return sendJSON(503, { error: 'The hub is stopping. Try again after it restarts.' });
-    const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
-    const host = (req.headers.host || '').replace(/:\d+$/, '');
-    if (!local.includes(req.socket.remoteAddress) || !['127.0.0.1', 'localhost', '[::1]'].includes(host)
-      || req.headers.origin || Object.keys(req.headers).some((h) => h === 'forwarded' || h.startsWith('x-forwarded-'))) {
-      return sendJSON(403, { error: `${p === '/_hub/pull' ? 'Pulls' : p === '/_hub/kill' ? 'Serves' : 'Builds'} can only be ${p === '/_hub/kill' ? 'killed' : 'started'} from the host over loopback.` });
+      let input;
+      try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: p === '/_hub/pull' ? 'Send the board route as JSON.' : 'Send the board route and card key as JSON.' }); }
+      try {
+        if (p === '/_hub/pull') return sendJSON(200, await pullNow(input, { manifest: loadManifest() }));
+        if (p === '/_hub/kill') return sendJSON(200, await killBuild(input, { manifest: loadManifest() }));
+        return sendJSON(202, await startBuild(input, { manifest: loadManifest(), log }));
+      } catch (e) { if (e instanceof BuildError) return sendJSON(e.status, { error: e.message, ...(e.ask ? { ask: e.ask } : {}) }); throw e; }
     }
-    let input;
-    try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: p === '/_hub/pull' ? 'Send the board route as JSON.' : 'Send the board route and card key as JSON.' }); }
-    try {
-      if (p === '/_hub/pull') return sendJSON(200, await pullNow(input, { manifest: loadManifest() }));
-      if (p === '/_hub/kill') return sendJSON(200, await killBuild(input, { manifest: loadManifest() }));
-      return sendJSON(202, await startBuild(input, { manifest: loadManifest(), log }));
-    } catch (e) { if (e instanceof BuildError) return sendJSON(e.status, { error: e.message, ...(e.ask ? { ask: e.ask } : {}) }); throw e; }
-  }
-  if (p === '/sw.js') return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(HUB_DIR, 'sw.js')), { 'service-worker-allowed': '/' });
-  if (p === '/manifest.webmanifest') return send(200, 'application/manifest+json', manifestJson());
-  const icon = /^\/_hub\/icon-(180|192|512)\.png$/.exec(p);
-  if (icon) {
-    try { return send(200, 'image/png', fs.readFileSync(path.join(HUB_DIR, `icon-${icon[1]}.png`)), { 'cache-control': 'max-age=86400' }); }
-    catch { res.writeHead(404).end(); return; }
-  }
-  if (p === '/_hub/colors.css') {
-    const cache = url.searchParams.get('v') === colorsVersion() ? 'public, max-age=31536000, immutable' : 'no-cache';
-    try { return send(200, 'text/css; charset=utf-8', fs.readFileSync(COLORS), { 'cache-control': cache }); }
-    catch { res.writeHead(404).end(); return; }
-  }
-  if (p === '/_hub/kickflip.png') {
-    try { return send(200, 'image/png', fs.readFileSync(path.join(BOARD_PUBLIC, 'kickflip.png')), { 'cache-control': 'max-age=86400' }); }
-    catch { res.writeHead(404).end(); return; }
-  }
-  if (p === '/_hub/hub.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, 'hub.css')));
-  if (p === '/_hub/sidebar.json') {
-    const { data } = await sidebarState({ fresh: url.searchParams.get('fresh') === '1' });
-    return sendJSON(200, viewer ? viewer.sidebar(data) : data);
-  }
-  if (p === '/_hub/stream' && req.method === 'GET') {
-    if (viewer) {
-      const open = { login: viewer.login, routes: viewer.routes, res };
-      sharedStreams.add(open);
-      req.on('close', () => sharedStreams.delete(open));
-      req.on('close', shares.watching(viewer.login));
+    if (p === '/sw.js') return send(200, 'text/javascript; charset=utf-8', fs.readFileSync(path.join(HUB_DIR, 'sw.js')), { 'service-worker-allowed': '/' });
+    if (p === '/manifest.webmanifest') return send(200, 'application/manifest+json', manifestJson());
+    const icon = /^\/_hub\/icon-(180|192|512)\.png$/.exec(p);
+    if (icon) {
+      try { return send(200, 'image/png', fs.readFileSync(path.join(HUB_DIR, `icon-${icon[1]}.png`)), { 'cache-control': 'max-age=86400' }); }
+      catch { res.writeHead(404).end(); return; }
     }
-    stream.handle(req, res, viewer && { routes: viewer.routes, view: viewer.sidebar });
-    return;
-  }
-  const sharing = /^\/_hub\/share\/([a-z0-9-]+)$/.exec(p);
-  if (sharing && req.method === 'GET') {
-    const site = routeRecord(loadManifest().sites, sharing[1]);
-    if (!isBoardSite(site)) return sendJSON(404, { error: 'That board is not open.' });
-    const entries = shareEntries(readJSON(path.join(site.dir, 'board.json'), {}));
-    const logins = entries.map((e) => e.login);
-    const host = (await hubGate.node())?.dnsName || req.headers['x-forwarded-host'];
-    const people = shares.people(sharing[1], logins).map((p, i) => ({ ...p, level: entries[i].level }));
-    return sendJSON(200, { people, refused: shares.refusals(sharing[1], logins), link: host ? `https://${host}/${sharing[1]}/` : null });
-  }
-  if (p.startsWith('/_hub/app/')) {
-    const f = appFile(p.slice('/_hub/app/'.length));
-    if (!f) { res.writeHead(404).end(); return; }
-    const ext = path.extname(f);
-    const type = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' }[ext];
-    const cache = url.searchParams.get('v') === fileVersion(f) ? 'public, max-age=31536000, immutable' : 'no-cache';
-    if (ext === '.png') return send(200, type, fs.readFileSync(f), { 'cache-control': cache });
-    return sendText(req, res, 200, { 'content-type': type, 'cache-control': cache }, fs.readFileSync(f));
-  }
-  if (p === '/_hub/api/hub') return sendJSON(200, await hubData(req));
-  if (p === '/_hub/api/settings') return sendJSON(200, await settingsData());
-  if (p === '/_hub/push/key') return sendJSON(200, { key: publicKey() });
-  if (p === '/_hub/push/subscribe' && req.method === 'POST') {
-    const host = req.headers['x-forwarded-host'] || req.headers.host;
-    return sendJSON(200, addSubscription(await readJSONBody(req), `https://${host}/`, req.headers['user-agent']));
-  }
-  if (p === '/_hub/push/forget' && req.method === 'POST') return sendJSON(200, { count: removeSubscriptionById((await readJSONBody(req))?.id) });
-  if (p === '/_hub/push/unsubscribe' && req.method === 'POST') return sendJSON(200, { count: removeSubscription((await readJSONBody(req))?.endpoint) });
-  if (p === '/_hub/push/test' && req.method === 'POST') {
-    const results = await sendAll({ title: 'Claude', body: 'Test notification from the hub.', url: '/', tag: 'hub-test' });
-    return sendJSON(200, { sent: results.filter((r) => r.status >= 200 && r.status < 300).length, results });
-  }
-  // set=on|weekends with value=on (absent for off), or snooze=<push.mjs setNotifications choice | off>.
-  if (p === '/_hub/settings/notifications' && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req));
-    const set = f.get('set');
-    const change = set === 'on' ? { on: f.get('value') === 'on' } : set === 'weekends' ? { weekends_off: f.get('value') === 'on' } : f.has('snooze') ? { snooze: f.get('snooze') } : null;
-    const bad = 'Pass set=on or set=weekends with value=on, or snooze.';
-    if (!change) return json ? sendJSON(400, { error: bad }) : send(400, 'text/plain; charset=utf-8', bad);
-    let r;
-    try { r = await setNotifications(change); } catch (e) {
-      if (e.status !== 400) throw e;
-      return json ? sendJSON(400, { error: SNOOZE_REFUSED }) : redirect(res, '/_hub/?refused=snooze#notifications');
+    if (p === '/_hub/colors.css') {
+      const cache = url.searchParams.get('v') === colorsVersion() ? 'public, max-age=31536000, immutable' : 'no-cache';
+      try { return send(200, 'text/css; charset=utf-8', fs.readFileSync(COLORS), { 'cache-control': cache }); }
+      catch { res.writeHead(404).end(); return; }
     }
-    if (r.dropped) log(`notifications off: dropped ${r.dropped} queued push${r.dropped === 1 ? '' : 'es'}`);
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#notifications');
-  }
-  if (p === '/_hub/settings/keep-awake' && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req));
-    try { setKeepAwake(f.get('keep_awake') === 'on'); } catch (e) {
-      if (e.status !== 409) throw e;
-      return json ? sendJSON(409, { error: e.message }) : send(409, 'text/plain; charset=utf-8', e.message);
+    if (p === '/_hub/kickflip.png') {
+      try { return send(200, 'image/png', fs.readFileSync(path.join(BOARD_PUBLIC, 'kickflip.png')), { 'cache-control': 'max-age=86400' }); }
+      catch { res.writeHead(404).end(); return; }
     }
-    awake.apply();
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#keep-awake');
-  }
-  if (p === '/_hub/settings/hub-pause' && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req));
-    try { setHubPause(f.get('pause')); } catch (e) {
-      if (e.status !== 400) throw e;
-      return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+    if (p === '/_hub/hub.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, 'hub.css')));
+    if (p === '/_hub/sidebar.json') {
+      const { data } = await sidebarState({ fresh: url.searchParams.get('fresh') === '1' });
+      return sendJSON(200, viewer ? viewer.sidebar(data) : data);
     }
-    await checkUsageGate();
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#pause');
-  }
-  if (p === '/_hub/settings/codex' && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req));
-    try { setCodexShare(f.get('value'), readCodex({ fresh: true })); } catch (e) {
-      if (e.status !== 400 && e.status !== 409) throw e;
-      return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+    if (p === '/_hub/stream' && req.method === 'GET') {
+      if (viewer) {
+        const open = { login: viewer.login, routes: viewer.routes, res };
+        sharedStreams.add(open);
+        req.on('close', () => sharedStreams.delete(open));
+        req.on('close', shares.watching(viewer.login));
+      }
+      stream.handle(req, res, viewer && { routes: viewer.routes, view: viewer.sidebar });
+      return;
     }
-    return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
-  }
-  if (p === '/_hub/settings/claude-model' && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req));
-    try { setClaudeModel(f.get('value')); } catch (e) {
-      if (e.status !== 400) throw e;
-      return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+    const sharing = /^\/_hub\/share\/([a-z0-9-]+)$/.exec(p);
+    if (sharing && req.method === 'GET') {
+      const site = routeRecord(loadManifest().sites, sharing[1]);
+      if (!isBoardSite(site)) return sendJSON(404, { error: 'That board is not open.' });
+      const entries = shareEntries(readJSON(path.join(site.dir, 'board.json'), {}));
+      const logins = entries.map((e) => e.login);
+      const host = (await gate.node())?.dnsName || req.headers['x-forwarded-host'];
+      const people = shares.people(sharing[1], logins).map((p, i) => ({ ...p, level: entries[i].level }));
+      return sendJSON(200, { people, refused: shares.refusals(sharing[1], logins), link: host ? `https://${host}/${sharing[1]}/` : null });
     }
-    return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
-  }
-  if (['/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(p) && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req));
-    try {
-      if (p.endsWith('/pause-at')) setPauseAt(f.get('value')); else setKeepGoing(f.get('value'));
+    if (p.startsWith('/_hub/app/')) {
+      const f = appFile(p.slice('/_hub/app/'.length));
+      if (!f) { res.writeHead(404).end(); return; }
+      const ext = path.extname(f);
+      const type = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' }[ext];
+      const cache = url.searchParams.get('v') === fileVersion(f) ? 'public, max-age=31536000, immutable' : 'no-cache';
+      if (ext === '.png') return send(200, type, fs.readFileSync(f), { 'cache-control': cache });
+      return sendText(req, res, 200, { 'content-type': type, 'cache-control': cache }, fs.readFileSync(f));
+    }
+    if (p === '/_hub/api/hub') return sendJSON(200, await hubData(req));
+    if (p === '/_hub/api/settings') return sendJSON(200, await settingsData());
+    if (p === '/_hub/push/key') return sendJSON(200, { key: publicKey() });
+    if (p === '/_hub/push/subscribe' && req.method === 'POST') {
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      return sendJSON(200, addSubscription(await readJSONBody(req), `https://${host}/`, req.headers['user-agent']));
+    }
+    if (p === '/_hub/push/forget' && req.method === 'POST') return sendJSON(200, { count: removeSubscriptionById((await readJSONBody(req))?.id) });
+    if (p === '/_hub/push/unsubscribe' && req.method === 'POST') return sendJSON(200, { count: removeSubscription((await readJSONBody(req))?.endpoint) });
+    if (p === '/_hub/push/test' && req.method === 'POST') {
+      const results = await sendAll({ title: 'Claude', body: 'Test notification from the hub.', url: '/', tag: 'hub-test' });
+      return sendJSON(200, { sent: results.filter((r) => r.status >= 200 && r.status < 300).length, results });
+    }
+    // set=on|weekends with value=on (absent for off), or snooze=<push.mjs setNotifications choice | off>.
+    if (p === '/_hub/settings/notifications' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      const set = f.get('set');
+      const change = set === 'on' ? { on: f.get('value') === 'on' } : set === 'weekends' ? { weekends_off: f.get('value') === 'on' } : f.has('snooze') ? { snooze: f.get('snooze') } : null;
+      const bad = 'Pass set=on or set=weekends with value=on, or snooze.';
+      if (!change) return json ? sendJSON(400, { error: bad }) : send(400, 'text/plain; charset=utf-8', bad);
+      let r;
+      try { r = await setNotifications(change); } catch (e) {
+        if (e.status !== 400) throw e;
+        return json ? sendJSON(400, { error: SNOOZE_REFUSED }) : redirect(res, '/_hub/?refused=snooze#notifications');
+      }
+      if (r.dropped) log(`notifications off: dropped ${r.dropped} queued push${r.dropped === 1 ? '' : 'es'}`);
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#notifications');
+    }
+    if (p === '/_hub/settings/keep-awake' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      try { setKeepAwake(f.get('keep_awake') === 'on'); } catch (e) {
+        if (e.status !== 409) throw e;
+        return json ? sendJSON(409, { error: e.message }) : send(409, 'text/plain; charset=utf-8', e.message);
+      }
+      awake.apply();
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#keep-awake');
+    }
+    if (p === '/_hub/settings/hub-pause' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      try { setHubPause(f.get('pause')); } catch (e) {
+        if (e.status !== 400) throw e;
+        return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+      }
       await checkUsageGate();
-    } catch (e) {
-      if (e.status !== 400 && e.status !== 409) throw e;
-      return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#pause');
     }
-    return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
-  }
-  if (p === '/_hub/settings/linear' && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req, 4 * 1024));
-    try {
-      if (f.has('remove')) { removeLinearKey(); log('linear: key removed'); await linearFallback(); }
-      else log(`linear: key ${(await saveLinearKey(f.get('key'))).refused ? 'refused by Linear' : 'saved'}`);
-    } catch (e) {
-      if (!(e instanceof LinearError)) throw e;
-      return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+    if (p === '/_hub/settings/codex' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      try { setCodexShare(f.get('value'), readCodex({ fresh: true })); } catch (e) {
+        if (e.status !== 400 && e.status !== 409) throw e;
+        return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+      }
+      return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
     }
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#linear');
-  }
-  if (p === '/_hub/settings/slack' && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req, 4 * 1024));
-    try {
-      if (f.has('remove')) { removeSlackToken(); log('slack: token removed'); }
-      else log(`slack: token ${(await saveSlackToken(f.get('token'))).refused ? 'refused by Slack' : 'saved'}`);
-    } catch (e) {
-      if (!(e instanceof SlackError)) throw e;
-      return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+    if (p === '/_hub/settings/claude-model' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      try { setClaudeModel(f.get('value')); } catch (e) {
+        if (e.status !== 400) throw e;
+        return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+      }
+      return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
     }
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#slack');
-  }
-  if (p === '/_hub/api/linear' && req.method === 'GET') {
-    const status = linearStatus();
-    if (!status.set || status.refused) return sendJSON(200, status);
-    const linear = savedClient();
-    try {
-      const teams = await linear.teams();
-      return sendJSON(200, { ...linearStatus(), teams: teams.map(({ key, name }) => ({ key, name })),
-        projects: teams.flatMap((t) => t.projects.map((pr) => ({ id: pr.id, name: pr.name, team: t.key }))) });
-    } catch (e) { if (!(e instanceof LinearError)) throw e; return sendJSON(200, { ...linearStatus(), error: e.message }); }
-  }
-  if (p === '/_hub/linear/projects' && req.method === 'POST') {
-    const linear = savedClient();
-    if (!linear) return sendJSON(400, { error: 'Add a Linear key on Hub first.' });
-    let input;
-    try { input = await readJSONBody(req, 4 * 1024); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the team and project name as JSON.' }); }
-    const name = typeof input.name === 'string' ? input.name.trim() : '';
-    if (!name || name.length > 80 || typeof input.team !== 'string' || !/^[A-Z][A-Z0-9]*$/.test(input.team)) return sendJSON(400, { error: 'Name the project and its team.' });
-    try { return sendJSON(200, await linear.createProject(input.team, name)); }
-    catch (e) { if (!(e instanceof LinearError)) throw e; return sendJSON(e.status, { error: e.message }); }
-  }
-  // One schedule.mjs editQuiet change: start, end or hold.
-  if (p === '/_hub/settings/quiet' && req.method === 'POST') {
-    const f = new URLSearchParams(await readBody(req));
-    const change = Object.fromEntries(['start', 'end'].filter((k) => f.has(k)).map((k) => [k, f.get(k).trim()]));
-    if (f.get('set') === 'hold') change.hold = f.get('value') || 'off';
-    try { saveSettings(editQuiet(readSettings(), change)); } catch (e) {
-      if (e.status !== 400) throw e;
-      return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+    if (['/_hub/settings/pause-at', '/_hub/settings/keep-going'].includes(p) && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      try {
+        if (p.endsWith('/pause-at')) setPauseAt(f.get('value')); else setKeepGoing(f.get('value'));
+        await checkUsageGate();
+      } catch (e) {
+        if (e.status !== 400 && e.status !== 409) throw e;
+        return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+      }
+      return json ? sendJSON(200, await hubData(req)) : redirect(res, '/_hub/');
     }
-    stream.refresh();
-    return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#quiet');
-  }
-  if (p === '/_hub/settings/rules' && req.method === 'POST') {
-    let body, saved;
-    try {
-      body = await readJSONBody(req, 64 * 1024);
-      saved = applyRules(readHubRules(), body.rules, body.base ?? []);
-      if (changed(saved.changes)) writeHubRules(saved.rules);
-    } catch (e) {
-      if (!(e instanceof RuleError) && !(e instanceof SyntaxError)) throw e;
-      return sendJSON(400, { error: e.message });
+    if (p === '/_hub/settings/linear' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req, 4 * 1024));
+      try {
+        if (f.has('remove')) { removeLinearKey(); log('linear: key removed'); await linearFallback(); }
+        else log(`linear: key ${(await saveLinearKey(f.get('key'))).refused ? 'refused by Linear' : 'saved'}`);
+      } catch (e) {
+        if (!(e instanceof LinearError)) throw e;
+        return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+      }
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#linear');
     }
-    if (!changed(saved.changes)) return sendJSON(200, { rules: saved.rules, changed: false, events: [], failed: [] });
-    const sent = await sendToBoards(listBoards(loadManifest()), 'rules', { scope: 'hub', ...saved.changes });
-    log(`hub rules saved: rules → ${sent.events.map((e) => e.route).join(', ') || 'no board'}${sent.failed.length ? `; ${sent.failed.join('; ')}` : ''}`);
-    return sendJSON(200, { rules: saved.rules, changed: true, ...sent });
-  }
-  if (p === '/_hub/push/flush' && req.method === 'POST') {
-    const r = await flushQueue();
-    if (r) log(`push queue: ${r.ok ? 'sent' : 'could not send'} ${r.count} queued (from the settings page)`);
-    return json ? sendJSON(200, flushView(r)) : redirect(res, '/_hub/');
-  }
-  if (p === '/_hub/poll' && req.method === 'POST') {
-    const body = await readJSONBody(req);
-    return sendJSON(200, await runPoll({ flush: body.flush !== false }));
-  }
-  if (p === '/_hub/prompts' && req.method === 'POST') {
-    let input;
-    try { input = await readJSONBody(req, 8 * 1024 * 1024); } catch (e) { if (e.status) throw e; return sendJSON(400, { error: 'Send the hook input as JSON.' }); }
-    if (!input?.tool_name || (input.hook_event_name && input.hook_event_name !== 'PermissionRequest')) return sendJSON(400, { error: 'Send a PermissionRequest hook input.' });
-    const { answer, rec } = await updatePrompts((store) => {
-      const context = promptContext();
-      const board = context.boards.find((b) => b.owner?.session && b.owner.session === input.session_id) || null;
-      if (pruneRemembered(store, context)) stream.refresh();
-      const answer = rememberedAnswer(store, input);
-      if (answer) return { answer };
-      const rec = promptRecord(input, { board, live: context.running?.get(input.session_id) });
-      store.prompts[rec.id] = rec;
-      return { rec };
-    });
-    if (answer) return sendJSON(200, { state: 'answered', answer });
-    promptChanged(rec.route);
-    await noteRefusal(input);
-    log(`prompt ${rec.id}: ${rec.route ? `/${rec.route}` : rec.cwd} ${rec.tool}${rec.action ? ` (${rec.action})` : ''}`);
-    deliver(pushOf(rec), { kind: 'prompt', immediate: true }).catch((e) => log(`prompt ${rec.id}: push failed: ${e.message}`));
-    return sendJSON(200, { id: rec.id, deadline: rec.deadline });
-  }
-  if (p === '/_hub/permission-denied' && req.method === 'POST') {
-    let input;
-    try { input = await readJSONBody(req, 8 * 1024 * 1024); } catch (e) { if (e.status) throw e; return sendJSON(400, { error: 'Send the hook input as JSON.' }); }
-    if (input?.hook_event_name !== 'PermissionDenied') return sendJSON(400, { error: 'Send a PermissionDenied hook input.' });
-    return sendJSON(200, { noted: await noteRefusal(input) });
-  }
-  const prompt = /^\/_hub\/prompts\/([\w-]+)(\/wait|\/answer)?$/.exec(p);
-  if (prompt) return promptRoute(req, res, { id: prompt[1], op: prompt[2]?.slice(1) || null, url, sendJSON });
-  return false;
-}
-
-async function promptRoute(req, res, { id, op, url, sendJSON }) {
-  if (op === 'wait' && req.method === 'GET') {
-    const seen = () => updatePrompts((store) => {
-      const rec = routeRecord(store.prompts, id);
-      if (rec?.answer) delete store.prompts[id];
-      else if (rec) rec.seen = new Date().toISOString();
-      return rec;
-    });
-    const take = (rec) => {
+    if (p === '/_hub/settings/slack' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req, 4 * 1024));
+      try {
+        if (f.has('remove')) { removeSlackToken(); log('slack: token removed'); }
+        else log(`slack: token ${(await saveSlackToken(f.get('token'))).refused ? 'refused by Slack' : 'saved'}`);
+      } catch (e) {
+        if (!(e instanceof SlackError)) throw e;
+        return json ? sendJSON(e.status, { error: e.message }) : send(e.status, 'text/plain; charset=utf-8', e.message);
+      }
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#slack');
+    }
+    if (p === '/_hub/api/linear' && req.method === 'GET') {
+      const status = linearStatus();
+      if (!status.set || status.refused) return sendJSON(200, status);
+      const linear = savedClient();
+      try {
+        const teams = await linear.teams();
+        return sendJSON(200, { ...linearStatus(), teams: teams.map(({ key, name }) => ({ key, name })),
+          projects: teams.flatMap((t) => t.projects.map((pr) => ({ id: pr.id, name: pr.name, team: t.key }))) });
+      } catch (e) { if (!(e instanceof LinearError)) throw e; return sendJSON(200, { ...linearStatus(), error: e.message }); }
+    }
+    if (p === '/_hub/linear/projects' && req.method === 'POST') {
+      const linear = savedClient();
+      if (!linear) return sendJSON(400, { error: 'Add a Linear key on Hub first.' });
+      let input;
+      try { input = await readJSONBody(req, 4 * 1024); } catch (e) { return sendJSON(e.status || 400, { error: 'Send the team and project name as JSON.' }); }
+      const name = typeof input.name === 'string' ? input.name.trim() : '';
+      if (!name || name.length > 80 || typeof input.team !== 'string' || !/^[A-Z][A-Z0-9]*$/.test(input.team)) return sendJSON(400, { error: 'Name the project and its team.' });
+      try { return sendJSON(200, await linear.createProject(input.team, name)); }
+      catch (e) { if (!(e instanceof LinearError)) throw e; return sendJSON(e.status, { error: e.message }); }
+    }
+    // One schedule.mjs editQuiet change: start, end or hold.
+    if (p === '/_hub/settings/quiet' && req.method === 'POST') {
+      const f = new URLSearchParams(await readBody(req));
+      const change = Object.fromEntries(['start', 'end'].filter((k) => f.has(k)).map((k) => [k, f.get(k).trim()]));
+      if (f.get('set') === 'hold') change.hold = f.get('value') || 'off';
+      try { saveSettings(editQuiet(readSettings(), change)); } catch (e) {
+        if (e.status !== 400) throw e;
+        return json ? sendJSON(400, { error: e.message }) : send(400, 'text/plain; charset=utf-8', e.message);
+      }
+      stream.refresh();
+      return json ? sendJSON(200, await settingsData()) : redirect(res, '/_hub/#quiet');
+    }
+    if (p === '/_hub/settings/rules' && req.method === 'POST') {
+      let body, saved;
+      try {
+        body = await readJSONBody(req, 64 * 1024);
+        saved = applyRules(readHubRules(), body.rules, body.base ?? []);
+        if (changed(saved.changes)) writeHubRules(saved.rules);
+      } catch (e) {
+        if (!(e instanceof RuleError) && !(e instanceof SyntaxError)) throw e;
+        return sendJSON(400, { error: e.message });
+      }
+      if (!changed(saved.changes)) return sendJSON(200, { rules: saved.rules, changed: false, events: [], failed: [] });
+      const sent = await sendToBoards(listBoards(loadManifest()), 'rules', { scope: 'hub', ...saved.changes });
+      log(`hub rules saved: rules → ${sent.events.map((e) => e.route).join(', ') || 'no board'}${sent.failed.length ? `; ${sent.failed.join('; ')}` : ''}`);
+      return sendJSON(200, { rules: saved.rules, changed: true, ...sent });
+    }
+    if (p === '/_hub/push/flush' && req.method === 'POST') {
+      const r = await flushQueue();
+      if (r) log(`push queue: ${r.ok ? 'sent' : 'could not send'} ${r.count} queued (from the settings page)`);
+      return json ? sendJSON(200, flushView(r)) : redirect(res, '/_hub/');
+    }
+    if (p === '/_hub/poll' && req.method === 'POST') {
+      const body = await readJSONBody(req);
+      return sendJSON(200, await runPoll({ flush: body.flush !== false }));
+    }
+    if (p === '/_hub/prompts' && req.method === 'POST') {
+      let input;
+      try { input = await readJSONBody(req, 8 * 1024 * 1024); } catch (e) { if (e.status) throw e; return sendJSON(400, { error: 'Send the hook input as JSON.' }); }
+      if (!input?.tool_name || (input.hook_event_name && input.hook_event_name !== 'PermissionRequest')) return sendJSON(400, { error: 'Send a PermissionRequest hook input.' });
+      const { answer, rec } = await updatePrompts((store) => {
+        const context = promptContext();
+        const board = context.boards.find((b) => b.owner?.session && b.owner.session === input.session_id) || null;
+        if (pruneRemembered(store, context)) stream.refresh();
+        const answer = rememberedAnswer(store, input);
+        if (answer) return { answer };
+        const rec = promptRecord(input, { board, live: context.running?.get(input.session_id) });
+        store.prompts[rec.id] = rec;
+        return { rec };
+      });
+      if (answer) return sendJSON(200, { state: 'answered', answer });
       promptChanged(rec.route);
-      return sendJSON(200, { state: 'answered', answer: rec.answer });
+      await noteRefusal(input);
+      log(`prompt ${rec.id}: ${rec.route ? `/${rec.route}` : rec.cwd} ${rec.tool}${rec.action ? ` (${rec.action})` : ''}`);
+      track(deliver(pushOf(rec), { kind: 'prompt', immediate: true }).catch((e) => log(`prompt ${rec.id}: push failed: ${e.message}`)));
+      return sendJSON(200, { id: rec.id, deadline: rec.deadline });
+    }
+    if (p === '/_hub/permission-denied' && req.method === 'POST') {
+      let input;
+      try { input = await readJSONBody(req, 8 * 1024 * 1024); } catch (e) { if (e.status) throw e; return sendJSON(400, { error: 'Send the hook input as JSON.' }); }
+      if (input?.hook_event_name !== 'PermissionDenied') return sendJSON(400, { error: 'Send a PermissionDenied hook input.' });
+      return sendJSON(200, { noted: await noteRefusal(input) });
+    }
+    const prompt = /^\/_hub\/prompts\/([\w-]+)(\/wait|\/answer)?$/.exec(p);
+    if (prompt) return promptRoute(req, res, { id: prompt[1], op: prompt[2]?.slice(1) || null, url, sendJSON });
+    return false;
+  }
+
+  async function promptRoute(req, res, { id, op, url, sendJSON }) {
+    if (op === 'wait' && req.method === 'GET') {
+      const seen = () => updatePrompts((store) => {
+        const rec = routeRecord(store.prompts, id);
+        if (rec?.answer) delete store.prompts[id];
+        else if (rec) rec.seen = new Date().toISOString();
+        return rec;
+      });
+      const take = (rec) => {
+        promptChanged(rec.route);
+        return sendJSON(200, { state: 'answered', answer: rec.answer });
+      };
+      const rec = await seen();
+      if (!rec) return sendJSON(404, { state: 'gone' });
+      if (rec.answer) return take(rec);
+      const ms = Math.max(0, Math.min(Number(url.searchParams.get('ms')) || POLL_MS, POLL_MS));
+      await new Promise((resolve) => {
+        const set = promptWaiters.get(id) || new Set();
+        promptWaiters.set(id, set);
+        const done = () => { clearTimeout(timer); set.delete(done); if (!set.size && promptWaiters.get(id) === set) promptWaiters.delete(id); resolve(); };
+        const timer = setTimeout(done, ms);
+        set.add(done);
+        res.on('close', done);
+      });
+      if (res.writableEnded || res.destroyed) return;
+      const now = await seen();
+      if (!now) return sendJSON(404, { state: 'gone' });
+      return now.answer ? take(now) : sendJSON(200, { state: 'pending' });
+    }
+    if (op === 'answer' && req.method === 'POST') {
+      const body = await readJSONBody(req);
+      const result = await updatePrompts((store) => {
+        const rec = routeRecord(store.prompts, id);
+        if (!rec) return { status: 404, error: 'That prompt has expired.' };
+        if (rec.answer) return { status: 409, error: 'That prompt was already answered.' };
+        const { answer, error } = answerOf(rec, body);
+        if (error) return { status: 400, error };
+        rec.answer = answer;
+        const context = promptContext();
+        pruneRemembered(store, context);
+        rememberRules(store, rec, context);
+        return { rec, answer };
+      });
+      if (result.error) return sendJSON(result.status, { error: result.error });
+      const { rec, answer } = result;
+      log(`prompt ${id}: ${answer.choice}`);
+      for (const done of [...(promptWaiters.get(id) || [])]) done();
+      promptChanged(rec.route);
+      return sendJSON(200, { ok: true });
+    }
+    if (op === null && req.method === 'DELETE') {
+      const rec = await updatePrompts((store) => {
+        const rec = routeRecord(store.prompts, id);
+        delete store.prompts[id];
+        return rec;
+      });
+      if (rec) { promptChanged(rec.route); log(`prompt ${id}: its hook gave up`); }
+      return sendJSON(200, { ok: true });
+    }
+    return false;
+  }
+
+  // One row as the down and missing pages list it.
+  const row = ({ icon = '', title, sub = '' }) => `<div class="row">${icon}<span class="body"><span class="text"><span class="title">${title}</span>${sub ? `<span class="sub">${sub}</span>` : ''}</span></span></div>`;
+
+  // The board page reads why from the answer's x-kickflip-down (board/public/ui.js downOf).
+  function downWhy(route, site) {
+    const p = procs.get(route) || {};
+    const serves = servesOf(site);
+    return serves === 'port' ? 'stopped' : serves === 'files' ? 'missing' : p.why === 'code' ? 'code' : p.child ? 'starting' : 'crashed';
+  }
+
+  // A site that doesn't answer: the 502 page, with why in x-kickflip-down.
+  function sendDown(res, route, site) {
+    res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-kickflip-down': downWhy(route, site) });
+    res.end(downPage(route, site));
+  }
+
+  function downPage(route, site) {
+    const p = procs.get(route) || {};
+    const exit = p.exitCode !== undefined && p.exitCode !== null ? ` (last exit: ${p.exitCode})` : '';
+    const said = {
+      stopped: `down · nothing answers on port ${site.port}`, missing: 'down · its folder is missing', code: 'restarting · its code changed',
+      starting: 'starting · waiting for it to answer', crashed: `down · restarting${exit}`,
     };
-    const rec = await seen();
-    if (!rec) return sendJSON(404, { state: 'gone' });
-    if (rec.answer) return take(rec);
-    const ms = Math.max(0, Math.min(Number(url.searchParams.get('ms')) || POLL_MS, POLL_MS));
-    await new Promise((resolve) => {
-      const set = promptWaiters.get(id) || new Set();
-      promptWaiters.set(id, set);
-      const done = () => { clearTimeout(timer); set.delete(done); if (!set.size && promptWaiters.get(id) === set) promptWaiters.delete(id); resolve(); };
-      const timer = setTimeout(done, ms);
-      set.add(done);
-      res.on('close', done);
-    });
-    if (res.writableEnded || res.destroyed) return;
-    const now = await seen();
-    if (!now) return sendJSON(404, { state: 'gone' });
-    return now.answer ? take(now) : sendJSON(200, { state: 'pending' });
-  }
-  if (op === 'answer' && req.method === 'POST') {
-    const body = await readJSONBody(req);
-    const result = await updatePrompts((store) => {
-      const rec = routeRecord(store.prompts, id);
-      if (!rec) return { status: 404, error: 'That prompt has expired.' };
-      if (rec.answer) return { status: 409, error: 'That prompt was already answered.' };
-      const { answer, error } = answerOf(rec, body);
-      if (error) return { status: 400, error };
-      rec.answer = answer;
-      const context = promptContext();
-      pruneRemembered(store, context);
-      rememberRules(store, rec, context);
-      return { rec, answer };
-    });
-    if (result.error) return sendJSON(result.status, { error: result.error });
-    const { rec, answer } = result;
-    log(`prompt ${id}: ${answer.choice}`);
-    for (const done of [...(promptWaiters.get(id) || [])]) done();
-    promptChanged(rec.route);
-    return sendJSON(200, { ok: true });
-  }
-  if (op === null && req.method === 'DELETE') {
-    const rec = await updatePrompts((store) => {
-      const rec = routeRecord(store.prompts, id);
-      delete store.prompts[id];
-      return rec;
-    });
-    if (rec) { promptChanged(rec.route); log(`prompt ${id}: its hook gave up`); }
-    return sendJSON(200, { ok: true });
-  }
-  return false;
-}
-
-// One row as the down and missing pages list it.
-const row = ({ icon = '', title, sub = '' }) => `<div class="row">${icon}<span class="body"><span class="text"><span class="title">${title}</span>${sub ? `<span class="sub">${sub}</span>` : ''}</span></span></div>`;
-
-// The board page reads why from the answer's x-kickflip-down (board/public/ui.js downOf).
-function downWhy(route, site) {
-  const p = procs.get(route) || {};
-  const serves = servesOf(site);
-  return serves === 'port' ? 'stopped' : serves === 'files' ? 'missing' : p.why === 'code' ? 'code' : p.child ? 'starting' : 'crashed';
-}
-
-// A site that doesn't answer: the 502 page, with why in x-kickflip-down.
-function sendDown(res, route, site) {
-  res.writeHead(502, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-kickflip-down': downWhy(route, site) });
-  res.end(downPage(route, site));
-}
-
-function downPage(route, site) {
-  const p = procs.get(route) || {};
-  const exit = p.exitCode !== undefined && p.exitCode !== null ? ` (last exit: ${p.exitCode})` : '';
-  const said = {
-    stopped: `down · nothing answers on port ${site.port}`, missing: 'down · its folder is missing', code: 'restarting · its code changed',
-    starting: 'starting · waiting for it to answer', crashed: `down · restarting${exit}`,
-  };
-  const why = downWhy(route, site);
-  const tone = why === 'code' || why === 'starting' ? 'wait' : 'down';
-  const serves = servesOf(site);
-  const lede = serves === 'cmd' ? 'The hub runs every site and restarts one that stops.' : serves === 'port' ? 'Its session runs this server, so it comes back when that session starts it again.' : 'The hub serves this page from a folder that is no longer there.';
-  return `${head(`${site.title || route} is down`, '<meta http-equiv="refresh" content="5">')}
+    const why = downWhy(route, site);
+    const tone = why === 'code' || why === 'starting' ? 'wait' : 'down';
+    const serves = servesOf(site);
+    const lede = serves === 'cmd' ? 'The hub runs every site and restarts one that stops.' : serves === 'port' ? 'Its session runs this server, so it comes back when that session starts it again.' : 'The hub serves this page from a folder that is no longer there.';
+    return `${head(`${site.title || route} is down`, '<meta http-equiv="refresh" content="5">')}
 <a class="back" href="/_hub/">‹ Hub</a>
 <h1>${esc(site.title || route)} isn't answering</h1>
 <p class="lede">${esc(lede)}</p>
@@ -1368,145 +1409,161 @@ function downPage(route, site) {
 <div class="group">${row({ icon: siteIcon(route, site), title: esc(site.title || route), sub: `<span class="st ${tone}">${esc(said[why])}</span>` })}</div>
 <p class="note">This page retries every 5 seconds.</p>
 </main></body></html>`;
-}
-
-// ---------- proxy ----------
-// A path starting with // parses as a host, and "//" alone throws and takes the hub down.
-const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
-
-// Shared boards (share.mjs): when each shared person was last seen, and who was just refused.
-const shares = shareTracker({ file: path.join(HOME, 'share-seen.json') });
-// A shared person's open /_hub/stream, {login, routes, res}: the one long-lived answer a shared view holds on the hub.
-// A board's share can be removed or change level while it's open, from Board settings or by editing board.json, so
-// every 2 seconds, and at once after the owner's POST /<route>/api/share, a stream whose login has lost a board it was
-// opened with, or whose level there changed, is ended (its page's EventSource comes back through access, with the
-// boards and levels as they are now, or refused), as are that login's open responses through the board's try relays
-// (try.mjs).
-const sharedStreams = new Set();
-function endUnshared() {
-  const sites = loadManifest().sites;
-  for (const open of sharedStreams) {
-    const now = sharedRoutes(open.login, sites);
-    if ([...open.routes].some(([route, level]) => now.get(route) !== level)) { sharedStreams.delete(open); open.res.destroy(); }
   }
-  endUnsharedTries();
-}
-setInterval(endUnshared, 2000).unref();
 
-// Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs). A login the gate
-// calls someone else that a board's board.json shares with reaches what share.mjs shareReach allows.
-// → {verdict: 'owner' | 'shared' | 'home' | 'view-only' | 'other' | 'unread', viewer}; viewer, for 'shared', is
-// {login, routes, sidebar(data)}, the person, their boards (route → level) and their view of the sidebar
-async function access(req) {
-  const verdict = await hubGate(req);
-  const login = req.headers['tailscale-user-login'];
-  if (verdict !== 'other' || !login) return { verdict };
-  const name = req.headers['tailscale-user-name'] || null;
-  const { pathname } = requestURL(req);
-  const routes = sharedRoutes(login, loadManifest().sites);
-  const reach = routes.size ? shareReach({ method: req.method, pathname, routes }) : 'other';
-  const route = routeOfPath(pathname);
-  if (reach === 'other') {
-    if (!routes.size || route) shares.refuse(login, name, route);
-    return { verdict: 'other' };
+  // ---------- proxy ----------
+  // A path starting with // parses as a host, and "//" alone throws and takes the hub down.
+  const requestURL = (req) => new URL(req.url.replace(/^\/+/, '/'), 'http://hub');
+
+  // Shared boards (share.mjs): when each shared person was last seen, and who was just refused.
+  const shares = shareTracker({ file: path.join(HOME, 'share-seen.json') });
+  // A shared person's open /_hub/stream, {login, routes, res}: the one long-lived answer a shared view holds on the hub.
+  // A board's share can be removed or change level while it's open, from Board settings or by editing board.json, so
+  // every 2 seconds, and at once after the owner's POST /<route>/api/share, a stream whose login has lost a board it was
+  // opened with, or whose level there changed, is ended (its page's EventSource comes back through access, with the
+  // boards and levels as they are now, or refused), as are that login's open responses through the board's try relays
+  // (try.mjs).
+  const sharedStreams = new Set();
+  function endUnshared() {
+    const sites = loadManifest().sites;
+    for (const open of sharedStreams) {
+      const now = sharedRoutes(open.login, sites);
+      if ([...open.routes].some(([route, level]) => now.get(route) !== level)) { sharedStreams.delete(open); open.res.destroy(); }
+    }
+    endUnsharedTries();
   }
-  if (reach !== 'pass') return { verdict: reach };
-  shares.visit(login, name, route);
-  const node = await hubGate.node();
-  return { verdict: 'shared', viewer: { login, routes, sidebar: (data) => sharedSidebar(data, routes, node?.name || node?.login) } };
-}
 
-const server = http.createServer((req, res) => {
-  access(req).then(({ verdict, viewer }) => {
-    if (verdict === 'owner' || verdict === 'shared') serve(req, res, viewer);
-    else if (verdict === 'home') { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }).end(); req.resume(); }
-    else refuse(req, res, verdict);
+  // Every request and upgrade passes the owner gate first (board/on-host.mjs ownerGate, front-door.mjs). A login the gate
+  // calls someone else that a board's board.json shares with reaches what share.mjs shareReach allows.
+  // → {verdict: 'owner' | 'shared' | 'home' | 'view-only' | 'other' | 'unread', viewer}; viewer, for 'shared', is
+  // {login, routes, sidebar(data)}, the person, their boards (route → level) and their view of the sidebar
+  async function access(req) {
+    const verdict = await gate(req);
+    const login = req.headers['tailscale-user-login'];
+    if (verdict !== 'other' || !login) return { verdict };
+    const name = req.headers['tailscale-user-name'] || null;
+    const { pathname } = requestURL(req);
+    const routes = sharedRoutes(login, loadManifest().sites);
+    const reach = routes.size ? shareReach({ method: req.method, pathname, routes }) : 'other';
+    const route = routeOfPath(pathname);
+    if (reach === 'other') {
+      if (!routes.size || route) shares.refuse(login, name, route);
+      return { verdict: 'other' };
+    }
+    if (reach !== 'pass') return { verdict: reach };
+    shares.visit(login, name, route);
+    const node = await gate.node();
+    return { verdict: 'shared', viewer: { login, routes, sidebar: (data) => sharedSidebar(data, routes, node?.name || node?.login) } };
+  }
+
+  const server = http.createServer((req, res) => {
+    access(req).then(({ verdict, viewer }) => {
+      if (verdict === 'owner' || verdict === 'shared') serve(req, res, viewer);
+      else if (verdict === 'home') { res.writeHead(302, { location: '/', 'cache-control': 'no-store' }).end(); req.resume(); }
+      else refuse(req, res, verdict);
+    });
   });
-});
 
-// viewer: null for the owner, else access's shared person, whom access lets through only to their boards and the shell.
-function serve(req, res, viewer = null) {
-  const url = requestURL(req);
-  if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req.headers)) {
-    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-    res.end('Requests must come from the app’s own pages.');
-    return;
-  }
-  const sites = new Set(Object.keys(loadManifest().sites));
-  if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
-    const here = url.pathname === '/' ? '' : url.pathname.startsWith('/_hub/') ? url.pathname.slice(1) : decodeURIComponent(url.pathname.split('/')[1]);
-    shellPage(here, viewer).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
-      .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
-    return;
-  }
-  if (url.pathname === '/_hub') { res.writeHead(302, { location: '/_hub/' + url.search }).end(); return; }
-  if (url.pathname === '/_hub/status.json') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ hub: { port: PORT, pid: process.pid }, sites: status() }, null, 2)); return; }
-  if (url.pathname === '/_hub/needs.json') {
-    const rows = status();
-    waitingCounts(rows, { fresh: url.searchParams.get('fresh') === '1' }).then((waiting) => {
-      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      res.end(JSON.stringify({ total: badgeTotal(waiting), sites: Object.fromEntries(rows.map((r) => [r.route, waiting.get(r.route) ?? null])) }));
-    }).catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
-    return;
-  }
-  if (url.pathname === '/favicon.ico') { res.writeHead(301, { location: '/_hub/kickflip.png' }).end(); return; }
-  if (url.pathname === '/sw.js' || url.pathname === '/manifest.webmanifest' || url.pathname.startsWith('/_hub/')) {
-    hubRoute(req, res, url, viewer).then((handled) => { if (handled === false) res.writeHead(404).end(); })
-      .catch((e) => { if (!res.headersSent) res.writeHead(e.status || 500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
-    return;
+  // viewer: null for the owner, else access's shared person, whom access lets through only to their boards and the shell.
+  function serve(req, res, viewer = null) {
+    const url = requestURL(req);
+    if (req.method !== 'GET' && req.method !== 'HEAD' && crossSite(req.headers)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('Requests must come from the app’s own pages.');
+      return;
+    }
+    const sites = new Set(Object.keys(loadManifest().sites));
+    if (pageOf({ method: req.method, pathname: url.pathname, search: url.search, dest: destOf(req.headers), sites }) === 'shell') {
+      const here = url.pathname === '/' ? '' : url.pathname.startsWith('/_hub/') ? url.pathname.slice(1) : decodeURIComponent(url.pathname.split('/')[1]);
+      shellPage(here, viewer).then((html) => sendText(req, res, 200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', vary: 'sec-fetch-dest', 'x-app-shell': '1' }, html))
+        .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
+      return;
+    }
+    if (url.pathname === '/_hub') { res.writeHead(302, { location: '/_hub/' + url.search }).end(); return; }
+    if (url.pathname === '/_hub/status.json') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ hub: { port: PORT, pid: process.pid }, sites: status() }, null, 2)); return; }
+    if (url.pathname === '/_hub/needs.json') {
+      const rows = status();
+      waitingCounts(rows, { fresh: url.searchParams.get('fresh') === '1' }).then((waiting) => {
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        res.end(JSON.stringify({ total: badgeTotal(waiting), sites: Object.fromEntries(rows.map((r) => [r.route, waiting.get(r.route) ?? null])) }));
+      }).catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
+      return;
+    }
+    if (url.pathname === '/favicon.ico') { res.writeHead(301, { location: '/_hub/kickflip.png' }).end(); return; }
+    if (url.pathname === '/sw.js' || url.pathname === '/manifest.webmanifest' || url.pathname.startsWith('/_hub/')) {
+      hubRoute(req, res, url, viewer).then((handled) => { if (handled === false) res.writeHead(404).end(); })
+        .catch((e) => { if (!res.headersSent) res.writeHead(e.status || 500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
+      return;
+    }
+
+    const route = url.pathname.split('/')[1];
+    const site = routeRecord(loadManifest().sites, route);
+    if (!site) { res.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'x-kickflip-down': 'removed' }); res.end(`${head('No Site')}<a class="back" href="/_hub/">‹ Hub</a><h1>No site at /${esc(route)}</h1></main></body></html>`); return; }
+    if (url.pathname === '/' + route) { res.writeHead(302, { location: '/' + route + '/' + url.search }).end(); return; }
+
+    const prefix = '/' + route;
+    // A shared person's request goes on as the path access checked, so the board can't read it differently.
+    const rest = viewer ? url.pathname.slice(prefix.length) + url.search : req.url.slice(prefix.length) || '/';
+    // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
+    const vary = pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell';
+    if (servesOf(site) === 'files') {
+      if (!isFolder(site.dir)) { sendDown(res, route, site); return; }
+      serveFiles(req, res, { dir: site.dir, rest, prefix, headers: vary ? { vary: 'sec-fetch-dest' } : {} })
+        .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
+      return;
+    }
+    const headers = { ...req.headers, 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
+    // The board names a shared person's write by this login and checks its kind against their level; the owner's
+    // request never carries one (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
+    delete headers['x-kickflip-shared'];
+    if (viewer) headers['x-kickflip-shared'] = viewer.login;
+    const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
+      // A board page tells the board's own failure from the hub's being down by this (board/public/ui.js downOf).
+      const h = { ...r.headers, 'x-kickflip-hub': '1' };
+      if (vary) h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');
+      if (typeof h.location === 'string' && h.location.startsWith('/') && !h.location.startsWith('//') && !h.location.startsWith(prefix + '/') && h.location !== prefix) h.location = prefix + h.location;
+      res.writeHead(r.statusCode, h);
+      r.pipe(res);
+      // pipe() never ends res when the site dies mid-response, so a board's /api/stream would hang open on the page.
+      r.on('close', () => { if (!r.complete) res.destroy(); });
+    });
+    // A page that leaves a long-lived response, such as a board's /api/stream, would otherwise keep the site's end open.
+    res.on('close', () => { if (!res.writableFinished) up.destroy(); });
+    if (!viewer && req.method === 'POST' && rest.split('?')[0] === '/api/share') res.on('finish', endUnshared);
+    up.on('error', () => {
+      if (res.headersSent) { res.destroy(); return; }
+      sendDown(res, route, site);
+    });
+    req.pipe(up);
   }
 
-  const route = url.pathname.split('/')[1];
-  const site = routeRecord(loadManifest().sites, route);
-  if (!site) { res.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'x-kickflip-down': 'removed' }); res.end(`${head('No Site')}<a class="back" href="/_hub/">‹ Hub</a><h1>No site at /${esc(route)}</h1></main></body></html>`); return; }
-  if (url.pathname === '/' + route) { res.writeHead(302, { location: '/' + route + '/' + url.search }).end(); return; }
-
-  const prefix = '/' + route;
-  // A shared person's request goes on as the path access checked, so the board can't read it differently.
-  const rest = viewer ? url.pathname.slice(prefix.length) + url.search : req.url.slice(prefix.length) || '/';
-  // The same URL is the shell for a page load and the page itself for its frame, so neither may answer the other.
-  const vary = pageOf({ pathname: url.pathname, dest: 'document', sites }) === 'shell';
-  if (servesOf(site) === 'files') {
-    if (!isFolder(site.dir)) { sendDown(res, route, site); return; }
-    serveFiles(req, res, { dir: site.dir, rest, prefix, headers: vary ? { vary: 'sec-fetch-dest' } : {} })
-      .catch((e) => { if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' }); res.end(String(e.message || e)); });
-    return;
-  }
-  const headers = { ...req.headers, 'x-forwarded-prefix': prefix, 'x-forwarded-host': req.headers['x-forwarded-host'] || req.headers.host, 'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https' };
-  // The board names a shared person's write by this login and checks its kind against their level; the owner's
-  // request never carries one (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
-  delete headers['x-kickflip-shared'];
-  if (viewer) headers['x-kickflip-shared'] = viewer.login;
-  const up = http.request({ host: '127.0.0.1', port: site.port, method: req.method, path: rest, headers }, (r) => {
-    // A board page tells the board's own failure from the hub's being down by this (board/public/ui.js downOf).
-    const h = { ...r.headers, 'x-kickflip-hub': '1' };
-    if (vary) h.vary = [h.vary, 'sec-fetch-dest'].filter(Boolean).join(', ');
-    if (typeof h.location === 'string' && h.location.startsWith('/') && !h.location.startsWith('//') && !h.location.startsWith(prefix + '/') && h.location !== prefix) h.location = prefix + h.location;
-    res.writeHead(r.statusCode, h);
-    r.pipe(res);
-    // pipe() never ends res when the site dies mid-response, so a board's /api/stream would hang open on the page.
-    r.on('close', () => { if (!r.complete) res.destroy(); });
+  // WebSockets and other upgrades: pipe the raw sockets through.
+  server.on('upgrade', async (req, socket, head) => {
+    // A shared view opens no upgrades.
+    const { verdict } = await access(req);
+    if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict === 'home' ? 'other' : verdict); return; }
+    const route = requestURL(req).pathname.split('/')[1];
+    const site = routeRecord(loadManifest().sites, route);
+    if (!site?.port) { socket.destroy(); return; }
+    const prefix = `/${route}`;
+    pipeUpgrade({ req, socket, head, port: site.port, path: req.url.slice(prefix.length) || '/', replace: ['x-forwarded-prefix'], extra: [`X-Forwarded-Prefix: ${prefix}`] });
   });
-  // A page that leaves a long-lived response, such as a board's /api/stream, would otherwise keep the site's end open.
-  res.on('close', () => { if (!res.writableFinished) up.destroy(); });
-  if (!viewer && req.method === 'POST' && rest.split('?')[0] === '/api/share') res.on('finish', endUnshared);
-  up.on('error', () => {
-    if (res.headersSent) { res.destroy(); return; }
-    sendDown(res, route, site);
-  });
-  req.pipe(up);
+
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(askedPort, '127.0.0.1', resolve); });
+  PORT = server.address().port;
+  log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`);
+  reconcileLogged();
+  if (ticks) {
+    timers.push(setInterval(reconcileLogged, 2000), setInterval(tick, 15_000), setInterval(endUnshared, 2000));
+    timers.at(-1).unref();
+  }
+  return { port: PORT, reconcile, tick, poll: runPoll, endUnshared, settled, close };
 }
 
-// WebSockets and other upgrades: pipe the raw sockets through.
-server.on('upgrade', async (req, socket, head) => {
-  // A shared view opens no upgrades.
-  const { verdict } = await access(req);
-  if (verdict !== 'owner') { refuseUpgrade(socket, verdict === 'shared' ? 'view-only' : verdict === 'home' ? 'other' : verdict); return; }
-  const route = requestURL(req).pathname.split('/')[1];
-  const site = routeRecord(loadManifest().sites, route);
-  if (!site?.port) { socket.destroy(); return; }
-  const prefix = `/${route}`;
-  pipeUpgrade({ req, socket, head, port: site.port, path: req.url.slice(prefix.length) || '/', replace: ['x-forwarded-prefix'], extra: [`X-Forwarded-Prefix: ${prefix}`] });
-});
-
-server.listen(PORT, '127.0.0.1', () => log(`hub on http://127.0.0.1:${PORT}/ (manifest ${MANIFEST})`));
+// node hub/hub.mjs: the hub on KICKFLIP_HUB_PORT, else 4500, until SIGTERM or SIGINT.
+if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
+  const hub = await startHub({ port: Number(process.env.KICKFLIP_HUB_PORT || 4500) });
+  const stop = () => Promise.race([hub.close(), new Promise((resolve) => setTimeout(resolve, 6000))]).finally(() => process.exit(0));
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+}
