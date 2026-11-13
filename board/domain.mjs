@@ -1069,7 +1069,7 @@ function nextOf(cards) {
   const it = todo.find((i) => i.ready && i.buildable) || todo[0];
   if (!it) return null;
   const ready = it.ready && it.buildable;
-  const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `waits on ${it.blockedBy.map((d) => d.ref).join(', ')}` : it.blockedUntil ? `blocked until ${it.blockedUntil}`
+  const word = ready ? 'ready' : it.held ? 'held' : it.blockedBy.length ? `blocked by ${it.blockedBy.map((d) => d.ref).join(', ')}` : it.blockedUntil ? `blocked until ${it.blockedUntil}`
     : it.action ? 'needs you' : it.phase === 'new' ? 'not ready' : it.phase;
   return { key: it.key, ref: it.ref, ready, word };
 }

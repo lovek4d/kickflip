@@ -1627,7 +1627,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.match(ui.workLines({ ...blocked, blockReason: 'shares the send bar' }), />blocked by INT-2<\/a><span class="card-blocked">, shares the send bar<\/span><\/div>/);
   assert.match(ui.workLines({ ...until, blockedBy: blocked.blockedBy }), />blocked by INT-2<\/a><span class="card-blocked"> and until the CI run on main is green, the suite is red &lt;now&gt;<\/span><\/div>/);
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: a bumped blocked card waits for the pull; held, it is blocked as before (below).
-  assert.match(ui.workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#selectedCard=site%2FS2">waits on INT-2<\/a>/);
+  assert.match(ui.workLines({ ...blocked, bumpedAt: '2026-11-05T10:00:00.000Z' }), /<a class="card-blocked" href="#selectedCard=site%2FS2">blocked by INT-2<\/a>/);
   assert.deepEqual(lines(ui.workLines({ ...blocked, blockedBy: [], next: 'Answer 1 question', action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
     ['INT-3 Five', 'Next: Answer 1 question', 'Open items']);
   // docs/adr/2026-11-03-0301-build-on-a-blocked-card-queues-it.md: no bumped badge; the bump icon fills orange and unbumps.

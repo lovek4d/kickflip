@@ -5124,7 +5124,7 @@ test("each wave is a band in Todo above its loose cards: only the first with a r
   const cards = [workCard('A3'), workCard('A2', { blockedBy: [{ key: 'w/A9', ref: 'A9' }] }), workCard('A5'), workCard('A6', { ready: true, buildable: true }), workCard('A7'), workCard('A4'),
     workCard('A8', { lane: 'progress' }), workCard('A1', { lane: 'done' })];
   const bands = (mon = idle, pilot = idle) => [
-    band('mon', 'Monitor', ['A1', 'A2', 'A8', 'A5'], { key: 'w/A2', ref: 'A2', ready: false, word: 'waits on A9' }, { triage: mon }),
+    band('mon', 'Monitor', ['A1', 'A2', 'A8', 'A5'], { key: 'w/A2', ref: 'A2', ready: false, word: 'blocked by A9' }, { triage: mon }),
     band('go', 'Go', ['A6', 'A7'], { key: 'w/A6', ref: 'A6', ready: true, word: 'ready' }, { merged: 0 }),
     { kind: 'file', slug: 'pilot', title: 'Pilot', goal: null, keys: ['w/A4'], next: null, merged: 0, total: 1, triage: pilot },
   ];

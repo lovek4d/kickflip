@@ -77,15 +77,13 @@
     const word = it.action.kind === ACTION_KIND.pick || it.action.kind === ACTION_KIND.questions ? 'Open items' : 'Action needed';
     return `<a class="card-action" href="${esc(it.action.url)}" title="${esc(it.action.label)}" aria-label="${esc(`${word}: ${it.action.label}`)}"${external}>${word}</a>`;
   }
-  // Each unfinished dep, linking to its card: "blocked by #53, #54", or "waits on #53" on a bumped card not held, which
-  // the pull takes once nothing blocks it (docs/adr/2026-11-05-0802-todo-has-no-queue.md); then its condition, "blocked
+  // Each unfinished dep, linking to its card: "blocked by #53, #54", bumped or not; then its condition, "blocked
   // until <condition>" ("and until <condition>" after deps), then ", <reason>"
   // (docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md).
   function blockedWords(it) {
     const deps = it.blockedBy || [];
-    const waits = it.bumpedAt && !it.held;
-    const refs = deps.map((d, i) => `<a class="card-blocked" href="#selectedCard=${encodeURIComponent(d.key)}">${i ? '' : waits ? 'waits on ' : 'blocked by '}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
-    const until = it.blockedUntil ? `${deps.length ? ' and until' : waits ? 'waits until' : 'blocked until'} ${it.blockedUntil}` : '';
+    const refs = deps.map((d, i) => `<a class="card-blocked" href="#selectedCard=${encodeURIComponent(d.key)}">${i ? '' : 'blocked by '}${esc(d.ref)}</a>`).join('<span class="sep">, </span>');
+    const until = it.blockedUntil ? `${deps.length ? ' and until' : 'blocked until'} ${it.blockedUntil}` : '';
     const tail = until + (it.blockReason && (refs || until) ? `, ${it.blockReason}` : '');
     return refs + (tail ? `<span class="card-blocked">${esc(tail)}</span>` : '');
   }

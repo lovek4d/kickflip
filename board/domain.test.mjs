@@ -1522,9 +1522,9 @@ test("each open wave is a band with its cards in order, its next unstarted card 
   const idle = build([]);
   const keys = (...ids) => ids.map((id) => `hub/${id}`);
   assert.deepEqual(idle.waveBands[0], { kind: 'wave', slug: 'mon', title: 'Monitor', goal: 'The monitor runs in kickflip.', merged: 1, total: 4,
-    keys: keys('INT-1', 'INT-2', 'INT-3', 'INT-4'), next: { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }, triage: { running: false, questions: 0 } });
+    keys: keys('INT-1', 'INT-2', 'INT-3', 'INT-4'), next: { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'blocked by INT-2' }, triage: { running: false, questions: 0 } });
   assert.deepEqual(idle.waveBands.map((b) => [b.slug, b.next]), [
-    ['mon', { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'waits on INT-2' }],
+    ['mon', { key: 'hub/INT-3', ref: 'INT-3', ready: false, word: 'blocked by INT-2' }],
     ['go', { key: 'hub/INT-8', ref: 'INT-8', ready: true, word: 'ready' }],
     ['hold', { key: 'hub/INT-10', ref: 'INT-10', ready: false, word: 'held' }],
   ]);
@@ -1561,7 +1561,7 @@ test("a wave's band lists its cards in order, and Implement goes to its first re
   assert.deepEqual([band.keys, 'phases' in band], [['w/P1', 'w/P2', 'w/P3', 'w/P4'], false]);
   assert.deepEqual(band.next, { key: 'w/P2', ref: 'P2', ready: true, word: 'ready' });
   assert.deepEqual(build({ P2: { lane: 'progress' } }).waveBands[0].next, { key: 'w/P3', ref: 'P3', ready: true, word: 'ready' });
-  assert.deepEqual(build({ P2: { lane: 'progress' }, P3: { lane: 'progress' } }).waveBands[0].next, { key: 'w/P4', ref: 'P4', ready: false, word: 'waits on P2' });
+  assert.deepEqual(build({ P2: { lane: 'progress' }, P3: { lane: 'progress' } }).waveBands[0].next, { key: 'w/P4', ref: 'P4', ready: false, word: 'blocked by P2' });
   assert.deepEqual(build({}, [{ slug: 'old', title: 'Old', goal: 'G', phases: [['P1'], ['P3', 'P2'], ['P4']] }]).waveBands[0].keys, ['w/P1', 'w/P3', 'w/P2', 'w/P4']);
 });
 
