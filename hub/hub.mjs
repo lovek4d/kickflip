@@ -225,6 +225,7 @@ import { cloneRoot } from '../shared/repos.mjs';
 import { LinearError, linearStatus, removeLinearKey, saveLinearKey, savedClient } from './linear.mjs';
 import { SlackError, slackStatus, removeSlackToken, saveSlackToken } from './slack.mjs';
 import { sendReviews } from './review-send.mjs';
+import { createAnswering } from './answering.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const COLORS = path.join(HUB_DIR, '..', 'shared', 'colors.css');
@@ -277,8 +278,8 @@ const keyOf = (s) => JSON.stringify([s.cmd, s.cwd || s.dir, s.port, s.env || {},
 const runs = (s) => Array.isArray(s?.cmd) && s.cmd.length > 0 && Boolean(s.port);
 // How a site is served: 'cmd', a server the hub runs; 'port', one it only forwards to; 'files', its dir served by the hub.
 const servesOf = (s) => (runs(s) ? 'cmd' : s?.port ? 'port' : 'files');
-// route -> whether a 'port' site answered its last probe.
-const answering = new Map();
+// What the probes read of each 'port' site (answering.mjs): down only after several misses in a row.
+const answering = createAnswering();
 
 function pidFile(route) { return path.join(RUN, route + '.pid'); }
 
@@ -344,11 +345,12 @@ function stop(route) {
 
 const signal = (child, sig) => { try { process.kill(-child.pid, sig); } catch {} };
 
+const PROBE_TIMEOUT = 2000;
 function probe(port) {
   return new Promise((resolve) => {
     const s = net.connect({ port, host: '127.0.0.1' });
     const done = (ok) => { s.destroy(); resolve(ok); };
-    s.setTimeout(800, () => done(false));
+    s.setTimeout(PROBE_TIMEOUT, () => done(false));
     s.on('connect', () => done(true));
     s.on('error', () => done(false));
   });
@@ -381,8 +383,8 @@ async function reconcile() {
     if (!routeRecord(sites, route)) { log(`${route} left the manifest; stopping it`); stop(route); procs.delete(route); }
     else if (!runs(routeRecord(sites, route))) { log(`${route} no longer has a command; stopping it`); stop(route); procs.delete(route); }
   }
-  for (const route of [...answering.keys()]) if (servesOf(routeRecord(sites, route)) !== 'port') answering.delete(route);
-  for (const [route, site] of Object.entries(sites)) if (servesOf(site) === 'port') answering.set(route, await probe(site.port));
+  for (const route of answering.routes()) if (servesOf(routeRecord(sites, route)) !== 'port') answering.forget(route);
+  await Promise.all(Object.entries(sites).filter(([, site]) => servesOf(site) === 'port').map(async ([route, site]) => answering.record(route, await probe(site.port))));
   for (const [route, site] of Object.entries(sites)) {
     if (!runs(site)) continue;
     if (first) killStale(route, site);
@@ -658,7 +660,7 @@ function status() {
     const p = procs.get(route) || {};
     const serves = servesOf(s);
     const state = serves === 'files' ? (isFolder(s.dir) ? 'up' : 'down')
-      : serves === 'port' ? (answering.has(route) ? (answering.get(route) ? 'up' : 'down') : 'starting')
+      : serves === 'port' ? answering.state(route)
         : p.child ? (p.up ? 'up' : 'starting') : (p.state === 'crashed' ? 'down' : (p.state || 'starting'));
     return {
       route, title: s.title || route, description: s.description || '', icon: s.icon || null, color: s.color || null, port: s.port ?? null, serves, state,
