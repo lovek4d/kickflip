@@ -7,6 +7,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const hook = fileURLToPath(new URL('./board-messages.mjs', import.meta.url));
+// The hook runs with its Date fixed at NOW, the time the fixtures are written from
+// (docs/adr/2026-11-13-1417-ui-tests-freeze-date-in-their-sandbox.md).
+const fixedClock = fileURLToPath(new URL('../../shared/fixed-clock.mjs', import.meta.url));
+const NOW = Date.parse('2026-11-13T12:00:00.000Z');
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 
 // docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md
@@ -20,7 +24,7 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   } });
   write(path.join(dir, 'board.json'), { title: 'Orch' });
   const events = path.join(dir, 'data', 'events.jsonl');
-  const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
+  const ago = (min) => new Date(NOW - min * 60_000).toISOString();
   const line = (id, kind, ts, data) => JSON.stringify({ id, kind, ts, data });
   write(events, [
     line('e0', 'item-message', ago(30), { key: 'w/A1', text: 'Already woken for' }),
@@ -31,7 +35,7 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   ].join('\n') + '\n');
   write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 1 });
   const run = (input) => {
-    const r = spawnSync(process.execPath, [hook], { input: JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'Bash', session_id: 's1', ...input }), env: { ...process.env, HOME: home }, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, ['--import', fixedClock, hook], { input: JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'Bash', session_id: 's1', ...input }), env: { ...process.env, HOME: home, KICKFLIP_TEST_NOW: String(NOW) }, encoding: 'utf8' });
     assert.deepEqual([r.status, r.stderr], [0, '']);
     return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
   };
@@ -70,10 +74,9 @@ test("the PostToolUse hook shows the owner's new thread messages, asks and ask e
   const working = path.join(dir, 'data', 'working.json');
   write(working, { events: { ...JSON.parse(fs.readFileSync(working, 'utf8')).events, e3: '2026-11-12T09:38:03.000Z' } });
   fs.appendFileSync(events, line('e8', 'ask-edited', ago(0), { id: 'e3', text: 'A new task, edited again' }) + '\n');
-  const before = Date.now();
   assert.match(run().additionalContext, /task e3 edited: use the new text/);
   const marks = JSON.parse(fs.readFileSync(working, 'utf8')).events;
-  assert.ok(Date.parse(marks.e3) >= before, marks.e3);
+  assert.equal(marks.e3, new Date(NOW).toISOString());
   assert.equal(marks.e8, undefined);
 
   // No watcher has run for the session yet: nothing to measure against, so nothing shows.

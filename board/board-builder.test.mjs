@@ -469,14 +469,18 @@ test('the SubagentStop hook closes the builder records its agent started and lef
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench')).code, 0);
   assert.equal((await board('builder', 'start', 'audit/A1', '--site', 'audit')).code, 0);
   assert.equal((await board('builder', 'done', 'audit/A1', '--site', 'audit')).code, 0);
-  const finished = read(site('audit', 'data', 'agents', 'A1.json')).done;
+  const audit = read(site('audit', 'data', 'agents', 'A1.json'));
+  // The transcript's times come from the records' own starts, so how long the commands above took can't move a start
+  // out of its command's window. t1's result, not its command, is what reaches its record.
+  const main = record('A1').started;
+  const minutesBefore = (iso, min) => new Date(Date.parse(iso) - min * 60_000).toISOString();
   const transcript = path.join(home, 'agent.jsonl');
   write(transcript, [
     'not json',
-    toolUse('t1', 'node ~/.claude/skills/kickflip/board/bin/board.mjs --site orch builder start w/A1 --kind build --label "Opus builder"; ls', ago(5 * 60 * 1000)),
-    toolResult('t1', ago(1000)),
-    toolUse('t2', 'B="node ~/.claude/skills/kickflip/board/bin/board.mjs --site orch"; eval "$B builder start w/A1 --agent bench --kind codex"', ago(1000)),
-    toolUse('t3', '$B builder start audit/A1 --site audit', ago(1000)),
+    toolUse('t1', 'node ~/.claude/skills/kickflip/board/bin/board.mjs --site orch builder start w/A1 --kind build --label "Opus builder"; ls', minutesBefore(main, 5)),
+    toolResult('t1', main),
+    toolUse('t2', 'B="node ~/.claude/skills/kickflip/board/bin/board.mjs --site orch"; eval "$B builder start w/A1 --agent bench --kind codex"', record('A1@bench').started),
+    toolUse('t3', '$B builder start audit/A1 --site audit', audit.started),
   ].join('\n') + '\n');
   for (const _ of [1, 2]) {
     const r = stopHook({ agent_transcript_path: transcript });
@@ -484,7 +488,7 @@ test('the SubagentStop hook closes the builder records its agent started and lef
   }
   assert.equal(typeof read(at('waves', 'w', 'agents', 'A1.json')).done, 'string');
   assert.equal(typeof read(at('waves', 'w', 'agents', 'A1@bench.json')).done, 'string');
-  assert.equal(read(site('audit', 'data', 'agents', 'A1.json')).done, finished);
+  assert.equal(read(site('audit', 'data', 'agents', 'A1.json')).done, audit.done);
 });
 
 test('the SubagentStop hook leaves a record another agent restarted on the card after its own start', async () => {
@@ -498,10 +502,13 @@ test('the SubagentStop hook leaves a record another agent restarted on the card 
 test('the SubagentStop hook leaves the records open while background work the agent started still runs, and closes them on its real finish', async () => {
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch')).code, 0);
   const transcript = path.join(home, 'agent.jsonl');
-  const launched = (id, toolUseResult) => JSON.stringify({ type: 'user', timestamp: ago(500), message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'started' }] }, toolUseResult });
+  // The transcript's times come from the record's own start, so how long builder start took can't move it out of the window.
+  const started = Date.parse(record().started);
+  const after = (ms) => new Date(started + ms).toISOString();
+  const launched = (id, toolUseResult) => JSON.stringify({ type: 'user', timestamp: after(500), message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'started' }] }, toolUseResult });
   write(transcript, [
-    toolUse('t1', 'node board.mjs --site orch builder start w/A1 --kind build', ago(1000)),
-    toolResult('t1', ago(900)),
+    toolUse('t1', 'node board.mjs --site orch builder start w/A1 --kind build', after(0)),
+    toolResult('t1', after(100)),
     launched('t2', { stdout: '', stderr: '', backgroundTaskId: 'bsuite' }),
     launched('t3', { taskId: 'bmonitor', timeoutMs: 1800000, persistent: false }),
     launched('t4', { isAsync: true, status: 'async_launched', agentId: 'ahelper' }),

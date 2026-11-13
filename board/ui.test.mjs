@@ -2,8 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { fixedDate } from '../shared/fixed-clock.mjs';
 
-const context = vm.createContext({ location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
+// The one time every test here builds its data from and every renderer counts to: each sandbox's Date stands still at it
+// (docs/adr/2026-11-13-1417-ui-tests-freeze-date-in-their-sandbox.md). Local noon, so a day either side stays a day.
+const NOW = new Date(2026, 10, 13, 12).getTime();
+const PageDate = fixedDate(() => NOW);
+const context = vm.createContext({ Date: PageDate, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
 for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
@@ -11,7 +16,7 @@ const ui = context.BoardUI;
 
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
 const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&(amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e]).replace(/\s+/g, ' ').trim();
-const ago = (hours) => new Date(Date.now() - hours * 3600000).toISOString();
+const ago = (hours) => new Date(NOW - hours * 3600000).toISOString();
 // The last option and take end where the question's note composer starts.
 const beforeComposer = (chunk) => chunk.split('<div class="composer"')[0];
 const options = (html) => html.split(/<label class="opt"[^>]*>/).slice(1).map(beforeComposer);
@@ -317,7 +322,7 @@ test('every page header has a logo, a back arrow where needed, the title and dis
 
 test("a board's sidebar row shows its context at the top right beside its name, red from 90% and dimmed once stale", () => {
   const site = (route, ctx) => ({ route, title: route, board: true, count: 0, icon: '', sub: '<b>Working</b>', ctx });
-  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+  const ago = (ms) => new Date(NOW - ms).toISOString();
   const html = ui.sidebar({ sites: [site('a', { percent: 62, at: ago(60_000) }), site('b', { percent: 91, at: ago(3 * 3600_000) }), site('c', null), site('d')] });
   const heads = [...html.matchAll(/<span class="sb-head">(.*?<\/span>)<\/span>(?=<span class="sb-sub">|<\/span><\/a>)/g)].map((m) => m[1]);
   assert.deepEqual(heads, [
@@ -372,8 +377,8 @@ test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New
 
 test("pending boards have muted non-link rows, a failed start keeps its name with failed to start and opens its sheet, and New board stays last in Boards", () => {
   const data = { sites: [{ route: 'page', title: 'Page', board: false, icon: '' }], starting: [
-    { route: 'new', title: 'Backend <audit>', step: 'starting', stepAt: new Date().toISOString(), failed: false },
-    { route: 'cloning', title: 'Cloning board', step: 'cloning', stepAt: new Date().toISOString(), failed: false },
+    { route: 'new', title: 'Backend <audit>', step: 'starting', stepAt: new Date(NOW).toISOString(), failed: false },
+    { route: 'cloning', title: 'Cloning board', step: 'cloning', stepAt: new Date(NOW).toISOString(), failed: false },
     { route: 'old', title: 'Old board', failed: true },
     { route: 'broken', title: 'Broken', failed: true, error: 'claude --bg failed (1): <Not signed in>' },
   ] };
@@ -413,7 +418,7 @@ test("a starting board's row shows the three start steps on the board's phase ba
 
 test("a starting board's row draws an icon for its step, the download arrow, the terminal prompt, then take A's skateboard, and the New board and failed rows keep the plus", () => {
   const glyph = (s) => {
-    const html = ui.sidebar({ sites: [], starting: [{ route: 'audit', title: 'Backend audit', failed: false, stepAt: new Date().toISOString(), ...s }] });
+    const html = ui.sidebar({ sites: [], starting: [{ route: 'audit', title: 'Backend audit', failed: false, stepAt: new Date(NOW).toISOString(), ...s }] });
     return /<span class="icon sb-plus sb-start-icon" aria-hidden="true"><svg [^>]*>(.*?)<\/svg>/.exec(html)[1];
   };
   assert.equal(glyph({ step: 'cloning' }), '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/>');
@@ -521,7 +526,7 @@ test("a back arrow goes one step back after a page on this hub, and to its href 
 });
 
 test("a board's fragment names the focused card and the selected open-items pill, reads the older #item= link as the card, and rewrites one key without the other", () => {
-  const routerContext = vm.createContext({ URL });
+  const routerContext = vm.createContext({ Date: PageDate, URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { fragmentOf, hashWith, viewOf } = routerContext.AppRouter;
   const base = { review: null, reply: false };
@@ -539,7 +544,7 @@ test("a board's fragment names the focused card and the selected open-items pill
 });
 
 test("the app's router reads every hub URL as a view and writes each view back as that URL, every push link's shape included, and mounts a board, its Settings, Waiting on you and Notes, the hub's pages, and every other page in a frame, in place", () => {
-  const routerContext = vm.createContext({ URL });
+  const routerContext = vm.createContext({ Date: PageDate, URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { viewOf, urlOf, mounted } = routerContext.AppRouter;
   const base = 'https://mac.ts.net/orch/';
@@ -600,7 +605,7 @@ function appHistory(url, state = null, { wide = false } = {}) {
     },
     back() { history.go(-1); },
   };
-  const context = vm.createContext({ URL, URLSearchParams, location, history,
+  const context = vm.createContext({ Date: PageDate, URL, URLSearchParams, location, history,
     HashChangeEvent: class { constructor(type) { this.type = type; } }, dispatchEvent: (e) => handlers[e.type]?.(e),
     document: { addEventListener: (type, fn) => { handlers[`document:${type}`] = fn; } },
     addEventListener: (type, fn) => { handlers[type] = fn; } });
@@ -940,8 +945,8 @@ test("a topic's prototype round chip is blue with a spinner while being made, bl
 });
 
 test('a resolved question is read-only: its pick checked and locked, no note box or eye, how it was resolved and when it was acted on, and the note said once', () => {
-  const at = new Date(Date.now() - 3 * 3600_000).toISOString();
-  const answer = { ts: new Date(Date.now() - 4 * 3600_000).toISOString(), choice: 'B', note: 'Drop it, it is noise', files: [], reply: null, acted: true };
+  const at = new Date(NOW - 3 * 3600_000).toISOString();
+  const answer = { ts: new Date(NOW - 4 * 3600_000).toISOString(), choice: 'B', note: 'Drop it, it is noise', files: [], reply: null, acted: true };
   const html = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', resolved_at: at, answers: [answer], reask: null });
   assert.match(text(html), /Kept it\. acted on 3h ago ?\./);
   assert.doesNotMatch(html, /A new answer reopens it|<textarea|data-proto|<details/);
@@ -950,12 +955,12 @@ test('a resolved question is read-only: its pick checked and locked, no note box
   assert.doesNotMatch(text(html), /You · [^]*B\. Drop/, 'the pick is the checked option, not said again');
   assert.match(html, /<button class="chip tone-ready" title="Reopen this question" type="button" data-reopen="q1">✓ Resolved<\/button>/);
   assert.doesNotMatch(html, /re-ask requested/);
-  const pending = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', resolved_at: at, answers: [answer], reask: { id: 'r1', ts: new Date().toISOString() } });
+  const pending = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', resolved_at: at, answers: [answer], reask: { id: 'r1', ts: new Date(NOW).toISOString() } });
   assert.match(text(pending), /re-ask requested/);
 });
 
 test("a resolved question keeps Claude's reply under the note, and one with no answer shows no answer box", () => {
-  const answer = { ts: new Date().toISOString(), choice: 'A', note: '', files: [], reply: { html: '<p>Done that.</p>' }, acted: true };
+  const answer = { ts: new Date(NOW).toISOString(), choice: 'A', note: '', files: [], reply: { html: '<p>Done that.</p>' }, acted: true };
   const html = ui.questionCard({ ...question, state: 'resolved', resolved: 'Kept it', answers: [answer] });
   assert.match(text(html), /Claude Done that\./);
   assert.doesNotMatch(text(html), /acted on/, 'with no resolved_at it says no time');
@@ -1049,7 +1054,7 @@ test("a thread's Done is the box's second send button, on ⌥↵, never disabled
 });
 
 test("the open card's details list ends with Notes, Install and GitHub links in order, omitting links that do not apply; Notes has no summary or button, and a ready card's Implement is filled orange", () => {
-  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const clicks = [], later = [];
   const B = { $: () => ({}), alive: () => false, on: (el, type, fn) => { if (type === 'click') clicks.push(fn); }, later: (ms, fn) => later.push([ms, fn]), store: {}, state: { board: { items: [] }, mainPull: { open: false } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
@@ -1057,7 +1062,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const open = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/A1', action: null, wave: { slug: 'w1', title: 'W' }, deps: [], manualSteps: [], kind: 'work', holdable: true, hasNotes: true, notes: 'Old short note', summary: 'A stored summary' };
   const rows = (it) => [...B.detail(it).matchAll(/<dt[^>]*>(.*?)<\/dt><dd[^>]*>(.*?)<\/dd>/g)].map(([, k, v]) => [text(k), text(v)]);
-  const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(Date.now() - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
+  const pushed = { ...open, ref: 'INT-12', next: 'merge INT-12 into main', branch: 'INT-12', pushed: { branch: 'INT-12', at: new Date(NOW - 25 * 60_000).toISOString(), host: 'gitlab.com' } };
   assert.deepEqual(rows(pushed), [['Wave', 'W'], ['Branch', 'INT-12'], ['Status', 'in review'], ['Next', 'merge INT-12 into main'], ['Links', 'Pushed INT-12 to gitlab.com · 25m ago']]);
   assert.doesNotMatch(B.detail(pushed), /github\.com|gitlab\.com\/|<button[^>]*data-copy/);
   // Notes is a button at the end of the workflow row, after Hold, and has no ↗.
@@ -1091,7 +1096,7 @@ test("the open card's details list ends with Notes, Install and GitHub links in 
 });
 
 test("a card with a worktree opens it in VS Code from its Links line, live on the host and muted with a tooltip off it",() => {
-  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, later() {}, store: {}, state: { board: { items: [], onHost: true } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
@@ -1112,7 +1117,7 @@ test("a card with a worktree opens it in VS Code from its Links line, live on th
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 test("the open card's details list shows Parent, Children, Related to, Blocked by and Waits on it as rows of tappable labels, leaving out empty rows; the workflow row has no follow-up Build", () => {
-  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
@@ -1266,7 +1271,7 @@ test("the Merge button keeps its colour from idle through the tap and the merge"
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
 test("an open card's action row has no Implement, which lives in a Todo card's thread box, nor Grill or Prototype; a held card shows Unhold", () => {
   assert.equal(ui.buildButton, undefined);
-  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
   const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
   app.BoardView = { part: (fn) => fn(B) };
@@ -1399,7 +1404,7 @@ test("every pulse beats on one clock: a pulse animation starting anywhere on the
   ui.onePulse({ animationName: 'spin', target: { getAnimations: () => [ping] } });
   assert.equal(ping.startTime, 812, 'other animations keep their own start');
   const heard = [];
-  const ctx = vm.createContext({ document: { addEventListener: (type, fn) => heard.push([type, fn]) } });
+  const ctx = vm.createContext({ Date: PageDate, document: { addEventListener: (type, fn) => heard.push([type, fn]) } });
   vm.runInContext(fs.readFileSync(new URL('./public/ui-progress-bar.js', import.meta.url), 'utf8'), ctx);
   assert.deepEqual(heard.map(([type, fn]) => [type, fn === ctx.BoardUI.onePulse]), [['animationstart', true]]);
 });
@@ -1465,7 +1470,7 @@ test("a planner's line on a card is marked planner, keeping its dot, where a run
 
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 test("a card idle on the orchestrator reads waiting for orchestrator with how long, then orchestrator review with its dot once picked up, in its lane's colour", () => {
-  const minutes = (n) => new Date(Date.now() - n * 60000).toISOString();
+  const minutes = (n) => new Date(NOW - n * 60000).toISOString();
   const status = (it) => /<div class="line3 sub agent ([\w -]+)">(.*?)<\/div>/.exec(ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.slice(1);
   const waiting = { kind: 'calls', since: minutes(14), picked: null, next: 'x' };
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: waiting }), ['in-progress waiting-gray', 'waiting for orchestrator · 14m']);
@@ -1491,7 +1496,7 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
 
 // docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md
 test("a run's line, dot and bar take its card's lane colour: grey in Todo, orange in In Progress, blue in In Review, where a rebase run is a line with no bar", () => {
-  const at = new Date(Date.now() - 2 * 60000).toISOString();
+  const at = new Date(NOW - 2 * 60000).toISOString();
   const lineClass = (it) => /<div class="line3 sub agent([\w -]*)">/.exec(ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.[1].trim();
   const rebase = { ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'review', builder: { progress: 'Rebasing onto main', phase: null, at } };
   assert.equal(lineClass(rebase), 'in-review');
@@ -1500,7 +1505,7 @@ test("a run's line, dot and bar take its card's lane colour: grey in Todo, orang
 });
 
 test("a builder line shows the progress and its age, not who is building", () => {
-  const at = new Date(Date.now() - 4 * 60000).toISOString();
+  const at = new Date(NOW - 4 * 60000).toISOString();
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m');
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'starting · 4m');
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'starting');
@@ -1659,15 +1664,15 @@ test("a card's last line is the time its lane sorts by, then its hold with no he
   assert.deepEqual(lines(ui.workLines(held)), ['ENG-1 Five', `${ui.cardTime(sortAt)} · held`]);
   assert.match(ui.workLines(held), /<span class="card-hold"[^>]*>held<\/span>/);
   assert.deepEqual(lines(ui.workLines({ ...held, sortAt: null }, { unread: 1 })), ['ENG-1 Five', 'held', '1 new message']);
-  const now = new Date();
+  const now = new Date(NOW);
   const at = (days, h, m) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, h, m);
   const clock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP]M)$/i, (_, x) => ` ${x.toLowerCase()}`);
-  const until = (d) => ({ ...held, heldUntil: d.toISOString() });
-  assert.deepEqual(lines(ui.workLines(until(at(2, 9, 0)), { unread: 2 })).slice(-2), [`${ui.cardTime(sortAt)} · held until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))}`, '2 new messages']);
-  assert.equal(last(ui.workLines(until(at(0, 23, 59)))), `${ui.cardTime(sortAt)} · held until ${clock(at(0, 23, 59))}`);
-  assert.equal(last(ui.workLines(until(at(6, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(6, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(6, 9, 0))}`);
-  assert.equal(last(ui.workLines(until(at(7, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(7, 9, 0).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(at(7, 9, 0))}`);
-  assert.doesNotMatch(ui.workLines(until(at(2, 9, 0))), /class="chip[^"]*">held/);
+  const heldTill = (d) => ({ ...held, heldUntil: d.toISOString() });
+  assert.deepEqual(lines(ui.workLines(heldTill(at(2, 9, 0)), { unread: 2 })).slice(-2), [`${ui.cardTime(sortAt)} · held until ${at(2, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(2, 9, 0))}`, '2 new messages']);
+  assert.equal(last(ui.workLines(heldTill(at(0, 23, 59)))), `${ui.cardTime(sortAt)} · held until ${clock(at(0, 23, 59))}`);
+  assert.equal(last(ui.workLines(heldTill(at(6, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(6, 9, 0).toLocaleDateString([], { weekday: 'short' })} ${clock(at(6, 9, 0))}`);
+  assert.equal(last(ui.workLines(heldTill(at(7, 9, 0)))), `${ui.cardTime(sortAt)} · held until ${at(7, 9, 0).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${clock(at(7, 9, 0))}`);
+  assert.doesNotMatch(ui.workLines(heldTill(at(2, 9, 0))), /class="chip[^"]*">held/);
 });
 
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
@@ -1874,7 +1879,7 @@ test("a card's ETA line gives the time, with the day when not today", () => {
   const now = new Date(2026, 9, 23, 9, 0);
   assert.equal(ui.etaLine(new Date(2026, 9, 23, 16, 30).toISOString(), now), 'ETA about 4:30 pm');
   assert.match(ui.etaLine(new Date(2026, 9, 24, 9, 5).toISOString(), now), /^ETA about Oct 24, 9:05 am$/);
-  const busy = { ...workCard, builder: { progress: 'Running benchmarks', at: null }, eta: new Date(Date.now() + 3600000).toISOString() };
+  const busy = { ...workCard, builder: { progress: 'Running benchmarks', at: null }, eta: new Date(NOW + 3600000).toISOString() };
   assert.match(lines(ui.workLines(busy))[1], /^Running benchmarks$/);
   assert.match(lines(ui.workLines(busy))[2], /^ETA about /);
   assert.equal(lines(ui.workLines({ ...busy, builder: null })).some((l) => l.startsWith('ETA')), false);
@@ -1900,7 +1905,7 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   assert.match(text(html), /^Codex: <b>Running<\/b> tests · \S/);
   assert.doesNotMatch(html, /class="who"|data-withdraw|data-edit/);
   const agents = ui.threadMessages([
-    { ts: ago(1), who: 'claude', kind: 'agent', text: 'Codex started', finished: false, eta: new Date(Date.now() + 3600000).toISOString() },
+    { ts: ago(1), who: 'claude', kind: 'agent', text: 'Codex started', finished: false, eta: new Date(NOW + 3600000).toISOString() },
     { ts: ago(0.8), who: 'claude', kind: 'agent', text: 'Opus builder started', finished: false, eta: null },
     { ts: ago(0.5), who: 'claude', kind: 'agent', text: 'Opus builder <b>finished</b>', finished: true, eta: null },
   ]);
@@ -2259,7 +2264,7 @@ test('a question card and a full plan link refs too, to the board page from anot
 });
 
 test('the rules editor stages edits until Save, sends the list with the ids it loaded, tags Claude\'s rules, and takes colours only from colors.css', () => {
-  const ctx = vm.createContext({});
+  const ctx = vm.createContext({ Date: PageDate });
   vm.runInContext(fs.readFileSync(new URL('./public/rules-editor.js', import.meta.url), 'utf8'), ctx);
   const ed = ctx.RulesEditor;
   const list = ed.rows([{ id: 'r1', text: 'Ask first', by: 'claude', at: 'x' }, { id: 'r2', text: 'Screenshots <b>', by: 'owner', at: 'x' }]);
@@ -2314,8 +2319,8 @@ test('the GitHub mark opens the Hub links sheet, with a red dot while a link is 
 });
 
 test('usage stays within the Hub link and its card shows both windows, reset, stale and missing readings', () => {
-  const at = new Date().toISOString();
-  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const at = new Date(NOW).toISOString();
+  const resets_at = new Date(NOW + 3600_000).toISOString();
   const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live' });
   const usage = { claude: { at, five_hour: live(75), seven_day: live(90) }, codex: { at, five_hour: live(42), seven_day: null } };
   const html = ui.sidebar({ usage }, { here: '_hub/' });
@@ -2345,7 +2350,7 @@ test('usage stays within the Hub link and its card shows both windows, reset, st
 });
 
 test('the sidebar shows Claude’s week as a second bar once it is within the near band of the pause line', () => {
-  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const resets_at = new Date(NOW + 3600_000).toISOString();
   const live = (used_percentage) => ({ used_percentage, resets_at, state: 'live' });
   const hub = (week, pause_at, state = 'live') => /<a class="sb-row on sb-hub-usage"[^>]*>([^]*?)<\/a>/.exec(ui.sidebar({
     usage: { claude: { at: resets_at, five_hour: live(34), seven_day: { ...live(week), state } }, codex: null }, pause: { pause_at },
@@ -2364,9 +2369,9 @@ test('the sidebar shows Claude’s week as a second bar once it is within the ne
 });
 
 test('the pause line stepper, both tools’ ticks, banners and status slots follow the gate', () => {
-  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const resets_at = new Date(NOW + 3600_000).toISOString();
   const until = ui.usageClock(resets_at);
-  const reading = { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at, state: 'live' }, seven_day: null };
+  const reading = { at: new Date(NOW).toISOString(), five_hour: { used_percentage: 91, resets_at, state: 'live' }, seven_day: null };
   const pause = { pause_at: 90, state: 'paused', window: 'five_hour', used: 91, resets_at };
   const hub = context.HubUI;
   const card = hub.usageCard({ claude: reading, codex: reading }, null, pause);
@@ -2418,7 +2423,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.equal([...down.matchAll(/class="word t-paused">paused/g)].length, 0);
   assert.match(down, />not listening</);
   assert.match(down, /class="word t-down">1 site down/);
-  const busyDown = ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy', since: new Date(Date.now() - 5 * 60_000).toISOString() } }, sites: [], hub: { tone: 'down', word: '1 site down', detail: 'x' } });
+  const busyDown = ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy', since: new Date(NOW - 5 * 60_000).toISOString() } }, sites: [], hub: { tone: 'down', word: '1 site down', detail: 'x' } });
   assert.match(busyDown, /class="word t-down">1 site down/);
   assert.doesNotMatch(busyDown, />busy</);
   const degradedPaused = ui.sidebar({ pause, sites: [], hub: { tone: 'wait', word: 'degraded', detail: 'x' } });
@@ -2430,7 +2435,7 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
 
 // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
 test('Pause hub reads paused on the Hub row and every board with Resume on its banner; Pause board on its own row alone', () => {
-  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const resets_at = new Date(NOW + 3600_000).toISOString();
   const until = ui.usageClock(resets_at);
   const manual = (scope) => ({ pause_at: 90, state: 'paused', manual: scope, window: null, used: null, resets_at });
   const working = '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span>';
@@ -2450,14 +2455,14 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
 
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
 test('a busy host reads busy on the Hub row and the logo dot, not on a board or the header, a pause first, and Health has a Machine row', () => {
-  const machine = { state: 'busy', reason: 'memory pressure critical', since: new Date(Date.now() - 42 * 60_000).toISOString() };
+  const machine = { state: 'busy', reason: 'memory pressure critical', since: new Date(NOW - 42 * 60_000).toISOString() };
   const working = '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span>';
   const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: `${working}<span class="lcs"><span class="lc">3 todo</span></span>` }, { route: 'p', title: 'P', board: false, icon: '', sub: '' }];
   const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.equal([...busy.matchAll(/class="word t-wait">busy/g)].length, 1, 'the Hub row alone');
   assert.match(text(busy), /busy 42m/);
   assert.doesNotMatch(text(busy), /the host is busy/);
-  const fresh = { state: 'busy', reason: 'load high', since: new Date(Date.now() - 59_000).toISOString() };
+  const fresh = { state: 'busy', reason: 'load high', since: new Date(NOW - 59_000).toISOString() };
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: fresh }, sites, hub: { tone: 'ok', word: 'healthy', detail: '' } }), />busy</, 'busy under a minute reads as not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: fresh }, hub: { tone: 'ok' } }), '');
   assert.match(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /class="word t-ok">healthy<\/span><\/span>/, 'healthy reads alone');
@@ -2466,7 +2471,7 @@ test('a busy host reads busy on the Hub row and the logo dot, not on a board or 
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'down' } }), 'down', 'a broken hub reads red before busy');
   assert.equal(ui.hubDot({ pause: { state: 'paused', machine }, hub: { tone: 'ok' } }), 'paused', 'a pause shows grey, not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: { state: 'normal' } }, hub: { tone: 'ok' } }), '');
-  const both = ui.sidebar({ pause: { state: 'paused', resets_at: new Date(Date.now() + 3600_000).toISOString(), machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  const both = ui.sidebar({ pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.doesNotMatch(both, />busy</, 'a pause reads first');
   assert.equal([...both.matchAll(/class="word t-paused">paused/g)].length, 2);
   const calm = ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal', reason: null } }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
@@ -2549,7 +2554,7 @@ test("a card's phase bars enter as it lands in In Progress, empty or not, fill a
 
 // docs/adr/2026-11-03-1915-every-pending-control-waits-in-one-style.md
 test("a prompt line's tapped answer waits, disabled with its label kept behind the spinner, while the line's other buttons are disabled, with no Sending… line", () => {
-  const at = new Date().toISOString();
+  const at = new Date(NOW).toISOString();
   const perm = { id: 'p1', cwd: '~/repo', tool: 'Bash', action: 'run npm test', detail: 'npm test', rule: 'Bash(npm test)', questions: null, at };
   const ask = { id: 'p2', cwd: '~/repo', tool: 'AskUserQuestion', at, questions: [{ question: 'Colour?', header: '', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] }] };
   const looks = (html) => [...html.matchAll(/<button[^>]*?(data-prompt-(?:choice|opt|send)(?:="[^"]*")?)[^>]*>/g)].map(([tag, name]) => [name, / disabled aria-busy="true"/.test(tag) ? 'waits' : / disabled/.test(tag) ? 'disabled' : 'on']);
@@ -2813,7 +2818,7 @@ test('a fault line with an error draws as a closed section: its title shows, the
 });
 
 test('the header time stays plain while usage is paused, and the hub pause banner with Keep going is the one the board shows', () => {
-  const resets_at = new Date(Date.now() + 3600_000).toISOString();
+  const resets_at = new Date(NOW + 3600_000).toISOString();
   const pause = { pause_at: 90, state: 'paused', manual: null, window: 'weekly', used: 95, resets_at, near: null };
   assert.equal(/class="fresh"/.test(ui.statusLine(null, { pause })), true);
   assert.match(context.HubUI.pauseBanner(pause), /action="\/_hub\/settings\/keep-going"><button class="btn quiet" name="value" value="on">Keep going/);
@@ -2843,7 +2848,7 @@ test('the logo dot is the highest of red, orange, blue, grey: not listening or o
   assert.equal(ui.hubDot({ ...ok, sites: [{ route: 'b', board: true, listen: 'full' }] }), 'down');
   assert.equal(ui.hubDot({ ...ok, sites: [{ route: 'b', board: true, listen: 'asleep' }] }), '', 'asleep is not a fault');
   assert.equal(ui.hubDot(ok, { offline: true }), 'down', 'a page that cannot reach the host');
-  const busy = { ...ok, pause: { state: 'normal', machine: { state: 'busy', since: new Date(Date.now() - 5 * 60_000).toISOString() } } };
+  const busy = { ...ok, pause: { state: 'normal', machine: { state: 'busy', since: new Date(NOW - 5 * 60_000).toISOString() } } };
   assert.equal(ui.hubDot({ ...busy, sites: [{ route: 'b', board: true, listen: 'deaf' }] }), 'down', 'red beats orange');
   assert.equal(ui.hubDot(busy, { update: 'ready' }), 'busy', 'orange beats blue');
   assert.equal(ui.hubDot(ok, { update: 'ready' }), 'update');

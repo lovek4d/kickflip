@@ -146,6 +146,8 @@ Converts: boards.test (setup, 300, 383, 396, 534, 693, 804, 870, 996), gate.test
 
 ### F7. Renderers take `now` (S1) — M
 
+Done by #660 with a frozen sandbox Date in place of a `now` on each renderer: docs/adr/2026-11-13-1417-ui-tests-freeze-date-in-their-sandbox.md.
+
 Every board and hub renderer that reads the clock takes `now` (`ago`, `since`, `lasted`, `shortSince`, `statusLine`, `githubLine`, `builderLine`, `workLines`, `hubDot`), and ui.test builds its data from one fixed `NOW`. Converts ui.test (2519 first, then the clock-read group and 1699) and view.test 4089 (freeze `win.Date` in `fakePage`). view.test's `until` waits on fake fetch and IndexedDB chains (1268–1705) become a `drain()` that loops `setImmediate` until the fakes are idle: no clock. Also board-messages hook (freeze Date by `--import`) and board-builder 460, 491 (transcript times from the records' own `started`).
 
 ### F8. Test-side clean-ups with no product change (S6, S8, S1) — S

@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { freePorts, until } from '../shared/test-helpers.mjs';
+import { fixedDate } from '../shared/fixed-clock.mjs';
 import { miniDom } from './mini-dom.mjs';
 import { buildBoard, slimDone, BUTTON, ACTION_KIND } from './domain.mjs';
 import { freshSync, stamp, patchSince } from './sync.mjs';
@@ -23,6 +24,10 @@ function boardPatch(from, to) {
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
   'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
+
+// The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
+// (docs/adr/2026-11-13-1417-ui-tests-freeze-date-in-their-sandbox.md). Local noon, so a day either side stays a day.
+const NOW = new Date(2026, 10, 13, 12).getTime();
 
 function memoryStorage(entries = []) {
   const storage = new Map(entries);
@@ -81,7 +86,7 @@ function fakePage(localStorage) {
   const observers = new Set();
   class MutationObserver { observe() { observers.add(this); } unobserve() {} disconnect() { observers.delete(this); } }
   const win = Object.assign(new Target(), {
-    URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
+    Date: fixedDate(() => NOW + now), URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
     location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState() {} }, innerHeight: 844,
     scrollX: 0, scrollY: 0, scrollTo(x, y) { win.scrollX = x; win.scrollY = y; },
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
@@ -585,7 +590,7 @@ test("Board Settings opens with Pause board: the snooze picker's chips, Forever 
   const root = new page.El();
   const markup = page.win.AppViews.settings.markup({}, {});
   assert.ok(markup.indexOf('<h2>Pause board</h2>') < markup.indexOf('<h2>Repo</h2>'), 'Pause board is at the top');
-  const until = new Date(Date.now() + 3 * 3600_000).toISOString();
+  const until = new Date(NOW + 3 * 3600_000).toISOString();
   const posts = [];
   let paused = null;
   let sidebar = 0;
@@ -934,7 +939,7 @@ test("a Hub page form waits on its tapped control: Codex share's tapped segment 
   const choices = (on) => ['half', 'auto', 'off'].map((value) => ({ value, label: value, on: value === on }));
   const hub = { hub: { tone: 'ok', word: 'healthy', detail: '' }, integrations: [], awake: { on: false, unsupported: null }, sites: '0 sites', host: 'mac', groups: [],
     usage: {}, codex: { usable: true, share: 'auto', description: '', choices: choices('auto') }, claude: { builder: 'Opus', description: '', choices: choices('auto') },
-    pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date().toISOString(), machine: { state: 'normal', reason: null } } };
+    pause: { state: 'normal', pause_at: 90, window: 'five_hour', used: 10, resets_at: new Date(NOW).toISOString(), machine: { state: 'normal', reason: null } } };
   const settings = { on: { on: true, sub: '', confirm: '' }, weekends: { on: false, sub: '' }, rules: [], quiet: { start: '22:00', end: '08:00', summary: '10:00pm – 8:00am · pushes held', hint: 'checks', hold: { on: true, sub: '' }, reads: [] }, pause: { summary: 'Off', on: null, choices: [] }, awake: { summary: 'Off', choices: [] }, linear: { title: 'Linear', sub: '', set: false }, slack: { title: 'Slack', sub: '', set: false }, closed: [], snooze: { choices: [] } };
   const posts = [];
   let answer;
@@ -1072,6 +1077,16 @@ test("a framed page hands each load's URL and title to the shell, hides the shel
   assert.deepEqual(page.left(), loaded);
 });
 
+// Event-loop turns until done() holds. A fake page's fetch and IndexedDB answer in promise jobs and event-loop turns, never
+// on a clock, so a chain that hasn't finished within DRAIN_TURNS turns never will, however busy the host is.
+const DRAIN_TURNS = 1000;
+async function drain(done, what) {
+  for (let turn = 0; !done(); turn++) {
+    assert.ok(turn < DRAIN_TURNS, `${what}: not done after ${DRAIN_TURNS} event-loop turns`);
+    await new Promise(setImmediate);
+  }
+}
+
 // IndexedDB's object stores in memory, as it answers: asynchronously, each value a copy. rows is the boards store, pages
 // the side pages'. broken: every open fails, as in a browser that refuses storage.
 function memoryIndexedDB({ broken = false } = {}) {
@@ -1117,10 +1132,10 @@ test("a board view keeps the board and its change number in IndexedDB, and the n
   page.win.fetch = async (url) => { asked.push(url); return { ok: true, status: 200, json: async () => board }; };
   const left = page.win.BoardView.create(new page.El(), site);
   left.mount();
-  await until(() => left.B.state.board?.version === board.version, 'the first load lands');
+  await drain(() => left.B.state.board?.version === board.version, 'the first load lands');
   assert.deepEqual(asked.filter((u) => u.includes('/api/board')), [`${site}/api/board`]);
   left.unmount();
-  await until(() => idb.rows.size === 1, 'the copy saved');
+  await drain(() => idb.rows.size === 1, 'the copy saved');
   assert.equal([...idb.rows.values()][0].board.version, board.version);
   assert.deepEqual(JSON.parse(storage.get('site:board-a:copyVersion')), { build: 'build-1', version: board.version }, "app.html's boot asks since this number");
   assert.equal([...storage.keys()].some((k) => k.startsWith('boardSnapshot')), false, "the last visit's old copies in localStorage go");
@@ -1130,7 +1145,7 @@ test("a board view keeps the board and its change number in IndexedDB, and the n
   const root = new page.El();
   const back = page.win.BoardView.create(root, site);
   back.mount();
-  await until(() => asked.some((u) => u.includes('/api/board')), 'the catch-up asked');
+  await drain(() => asked.some((u) => u.includes('/api/board')), 'the catch-up asked');
   assert.equal(root.dataset.board, 'fresh', 'the copy paints live, not dimmed');
   assert.equal(back.B.state.board.items[0].title, 'Kept');
   assert.deepEqual(asked.filter((u) => u.includes('/api/board')), [`${site}/api/board?since=${board.version}`]);
@@ -1141,7 +1156,7 @@ test("a board view keeps the board and its change number in IndexedDB, and the n
   const other = new page.El();
   const rebuilt = page.win.BoardView.create(other, site);
   rebuilt.mount();
-  await until(() => asked.some((u) => u.includes('/api/board')), 'the load asked');
+  await drain(() => asked.some((u) => u.includes('/api/board')), 'the load asked');
   assert.deepEqual([other.dataset.board, asked.filter((u) => u.includes('/api/board'))], [undefined, [`${site}/api/board`]], 'a copy saved under another build is no copy');
   rebuilt.unmount();
 });
@@ -1158,7 +1173,7 @@ test("with no copy to show, a board out of reach shows the landing for its state
   const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a');
   view.mount();
   const landing = root.querySelector('#downLanding');
-  await until(() => root.classList.contains('down'), 'the landing shows');
+  await drain(() => root.classList.contains('down'), 'the landing shows');
   assert.equal(landing.hidden, false);
   assert.match(landing.innerHTML, /data-down="stopped"/);
   assert.match(landing.innerHTML, /Board stopped/);
@@ -1166,7 +1181,7 @@ test("with no copy to show, a board out of reach shows the landing for its state
 
   answer = { ok: false, status: 404, headers: new Headers({ 'x-kickflip-down': 'removed' }), json: async () => ({}) };
   page.runIntervals(5000);
-  await until(() => /This board is gone/.test(landing.innerHTML), 'the retry reads the new state');
+  await drain(() => /This board is gone/.test(landing.innerHTML), 'the retry reads the new state');
   const sent = asked.length;
   page.runIntervals(5000);
   assert.equal(asked.length, sent, 'nothing brings a removed board back by itself');
@@ -1194,7 +1209,7 @@ test('a board that throws while drawing shows the landing with the error and an 
   try {
     view.mount();
     const landing = root.querySelector('#downLanding');
-    await until(() => root.classList.contains('down'), 'the landing shows');
+    await drain(() => root.classList.contains('down'), 'the landing shows');
     assert.equal(landing.hidden, false);
     assert.match(landing.innerHTML, /data-down="draw"/);
     assert.match(landing.innerHTML, /This board couldn&#39;t draw|This board couldn’t draw|This board couldn't draw/);
@@ -1226,7 +1241,7 @@ test("out of reach with nothing on screen, the board paints the copy another bui
     const root = new page.El();
     const view = page.win.BoardView.create(root, site);
     view.mount();
-    await until(() => root.classList.contains('down'), 'the landing shows');
+    await drain(() => root.classList.contains('down'), 'the landing shows');
     view.unmount();
     idb.rows.set(`${site}/`, { build: 'build-0', savedAt: board.generatedAt, board: saved, threads: {} });
 
@@ -1235,7 +1250,7 @@ test("out of reach with nothing on screen, the board paints the copy another bui
     const again = new page.El();
     const back = page.win.BoardView.create(again, site);
     back.mount();
-    await until(() => asked.length > 0 && (again.dataset.board === 'fresh' || again.classList.contains('down')), 'the old copy paints or the landing shows');
+    await drain(() => asked.length > 0 && (again.dataset.board === 'fresh' || again.classList.contains('down')), 'the old copy paints or the landing shows');
     await new Promise((r) => setImmediate(r));
     if (saved === board) {
       assert.deepEqual([again.dataset.board, back.B.state.link, again.classList.contains('down')], ['fresh', 'offline', false], 'the older copy paints, out of reach');
@@ -1263,17 +1278,17 @@ test("out of reach, Notes show their last answer here under its copy line, or wi
     return { root, view, plan: root.querySelector('#plan') };
   };
   const live = open('w/A1');
-  await until(() => idb.pages?.size === 1, 'the answer saved');
+  await drain(() => idb.pages?.size === 1, 'the answer saved');
   assert.doesNotMatch(live.plan.innerHTML, /copy-note/);
   live.view.unmount();
 
   page.win.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
   const copy = open('w/A1');
-  await until(() => /Keep the strip/.test(copy.plan.innerHTML), 'the copy shows');
+  await drain(() => /Keep the strip/.test(copy.plan.innerHTML), 'the copy shows');
   assert.match(copy.plan.innerHTML, /<p class="note copy-note">Copy of the notes as of just now\. Read only\.<\/p>/);
   copy.view.unmount();
   const none = open('w/B2');
-  await until(() => /down-landing/.test(none.plan.innerHTML), 'the landing shows');
+  await drain(() => /down-landing/.test(none.plan.innerHTML), 'the landing shows');
   assert.match(none.plan.innerHTML, /Board offline/);
   none.view.unmount();
 });
@@ -1295,7 +1310,7 @@ test("out of reach, Waiting on you paints the board's copy with its sending butt
     const view = page.win.AppViews.questions.create(root, site, { view: { kind: 'questions', route: 'board-a' } });
     view.mount();
     const pageEl = root.querySelector('#page');
-    await until(() => pageEl.innerHTML !== '', 'the page paints');
+    await drain(() => pageEl.innerHTML !== '', 'the page paints');
     assert.equal(root.classList.contains('offline'), true);
     if (saved) assert.match(pageEl.innerHTML, /<section class="q" id="q1"/);
     else assert.match(pageEl.innerHTML, /down-landing.*Board offline/s);
@@ -1312,7 +1327,7 @@ test("out of reach, Board Settings shows each part's last answer here, read only
   page.win.fetch = async (url) => { const body = url.endsWith('/api/board') ? { kind: 'web' } : url.endsWith('/api/settings') ? { settings: { auto_build: true } } : {}; return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body }; };
   const live = page.win.AppViews.settings.create(new page.El(), '/orch', {});
   live.mount();
-  await until(() => idb.pages?.has('https://mac.ts.net/orch/api/settings'), 'the answers saved');
+  await drain(() => idb.pages?.has('https://mac.ts.net/orch/api/settings'), 'the answers saved');
   live.unmount();
 
   const answers = page.win.fetch;
@@ -1324,7 +1339,7 @@ test("out of reach, Board Settings shows each part's last answer here, read only
   const view = page.win.AppViews.settings.create(root, '/orch', { reload: () => { reloads++; } });
   view.mount();
   const toggle = root.querySelector('#autoBuild');
-  await until(() => toggle.checked === true, 'the copy fills the toggle');
+  await drain(() => toggle.checked === true, 'the copy fills the toggle');
   assert.equal(root.querySelector('.settings-body').inert, true);
   assert.deepEqual(notes.map((h) => h.replace(/<[^>]+>/g, '')), ['Copy of Settings as of just now. Read only.']);
   page.runIntervals(5000);
@@ -1332,7 +1347,7 @@ test("out of reach, Board Settings shows each part's last answer here, read only
   assert.equal(reloads, 0);
   page.win.fetch = answers;
   page.runIntervals(5000);
-  await until(() => reloads === 1, 'it reopens live');
+  await drain(() => reloads === 1, 'it reopens live');
   view.unmount();
 });
 
@@ -1345,7 +1360,7 @@ test("where IndexedDB refuses or is missing, the board view loads the whole boar
     const root = new page.El();
     const view = page.win.BoardView.create(root, 'https://mac.ts.net/board-a');
     view.mount();
-    await until(() => asked.length > 0, 'the load asked');
+    await drain(() => asked.length > 0, 'the load asked');
     assert.deepEqual([root.dataset.board, asked.filter((u) => u.includes('/api/board'))], [undefined, ['https://mac.ts.net/board-a/api/board']]);
     view.unmount();
   }
@@ -1577,7 +1592,7 @@ test('the shell uses the inline or fetched boot code, adopts the first live code
       paint(data) { assert.equal(data.version, 'new'); assert.ok(region.querySelector('[data-app-reload]')); paints++; },
     }));
     live.mount();
-    await until(() => paints, 'the header code check before paint');
+    await drain(() => paints, 'the header code check before paint');
     live.unmount();
     const button = region.querySelector('[data-app-reload]');
     assert.ok(button, boot);
@@ -1925,11 +1940,11 @@ test('New board chooses a searchable repo before board details, defaults its bra
       if (options.method === 'DELETE') { data = { ...data, starting: [] }; return repoResponse({}); }
       if (url.endsWith('/retry')) {
         if (retryRefusal) return { ok: false, text: async () => retryRefusal };
-        data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, step: 'cloning', stepAt: new Date().toISOString(), askedAt: new Date().toISOString(), failed: false }] };
+        data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, step: 'cloning', stepAt: new Date(NOW).toISOString(), askedAt: new Date(NOW).toISOString(), failed: false }] };
         return repoResponse({ route: 'backend-audit' });
       }
       if (refusal) return { ok: false, text: async () => refusal };
-      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, step: 'cloning', stepAt: new Date().toISOString(), failed: false }] }; resolve(repoResponse({ route: 'backend-audit' })); }; });
+      return new Promise((resolve) => { finish = () => { data = { ...data, starting: [{ route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, step: 'cloning', stepAt: new Date(NOW).toISOString(), failed: false }] }; resolve(repoResponse({ route: 'backend-audit' })); }; });
     };
     const sidebar = win.Sidebar.mount({ data });
     const aside = doc.getElementById('sidebar');
@@ -2010,7 +2025,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     assert.match(aside.querySelector('[data-starting="backend-audit"]').textContent, /Backend audit.*cloning \(0%\) · 0s/);
     assert.equal(aside.querySelector('a[href="/backend-audit/"]'), null);
     assert.equal(aside.classList.contains('open'), !wide);
-    const failed = { route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, branch: 'release/next', tickets: { source: 'linear', team: 'ENG' }, askedAt: new Date().toISOString(), failed: true, error: 'claude --bg failed (1): Not logged in' };
+    const failed = { route: 'backend-audit', title: 'Backend audit', repo: repoList[0].clone, branch: 'release/next', tickets: { source: 'linear', team: 'ENG' }, askedAt: new Date(NOW).toISOString(), failed: true, error: 'claude --bg failed (1): Not logged in' };
     data = { ...data, starting: [failed] };
     win.Sidebar.mount({ data });
     const failedRow = () => aside.querySelector('[data-failed-start="backend-audit"]');
@@ -3236,7 +3251,7 @@ test('a web card’s Serve asks the busy host’s question and sends anyway, a c
 });
 
 test('main paints above the lanes, card failures scroll to their thread and main failures open a log and retry sheet', async () => {
-  const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500, script: '.kickflip/build-web' } };
+  const data = { ...boardOf([workCard('R1', { try: { kind: 'web', state: 'failed', script: true, changes: true } })]), main: { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date(NOW).toISOString(), url: null, port: 8500, script: '.kickflip/build-web' } };
   const b = boardOnDom({ open: ['w/R1'], board: data, threads: {} });
   await b.settle();
   assert.equal(b.root.querySelector('#tryMain a').getAttribute('href'), 'https://mac.ts.net:8500/');
@@ -3348,7 +3363,7 @@ test('main paints above the lanes, card failures scroll to their thread and main
 });
 
 test("Main's refresh icon pulls now and spins only itself until a board shows Main moved, or the answer says nothing was pulled; a tap pulls again after a failure on any device, and a failed pull opens its reason", async () => {
-  const main = { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date().toISOString(), url: null, port: 8500, pull: { running: false, error: null } };
+  const main = { kind: 'web', state: 'ready', slug: 'o/r', branch: 'main', sha: 'abcdef1', at: new Date(NOW).toISOString(), url: null, port: 8500, pull: { running: false, error: null } };
   const data = { ...boardOf([]), main };
   const b = boardOnDom({ board: data, threads: {} });
   await b.settle();
@@ -3929,7 +3944,7 @@ test("Waiting on you names a card's topic from its card, since the board sends t
 });
 
 test('Hold opens a sheet of the shared duration picker in place of a confirm, whose chip sends card-hold with that choice, and Unhold confirms naming the time', async () => {
-  const until = new Date(Date.now() + 2 * 86_400_000).toISOString();
+  const until = new Date(NOW + 2 * 86_400_000).toISOString();
   const holdChoices = [['1h', '1h', 3_600_000], ['3h', '3h', 10_800_000], ['6h', '6h', 21_600_000], ['1d', '1d', 86_400_000], ['forever', 'Forever', null]].map(([value, label, ms]) => ({ value, label, ms }));
   const cards = [workCard('T1', { ref: 'INT-41', holdable: true }), workCard('P1', { ref: 'INT-43', lane: 'progress', holdable: true }), workCard('H1', { ref: 'INT-42', held: true, heldUntil: until, holdable: true })];
   const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices }, threads: {}, confirm: true });
@@ -3950,7 +3965,7 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
     [true, 'Hold INT-41', 'It won’t start until then. Forever holds it until you unhold it.']);
   const chips = sheet.querySelectorAll('[data-hold-for]');
   // The page words each chip's end from its length when the sheet opens.
-  const words = (ms) => (ms === null ? 'until you unhold it' : `until ${b.page.win.BoardUI.heldUntilWords(new Date(Date.now() + ms))}`);
+  const words = (ms) => (ms === null ? 'until you unhold it' : `until ${b.page.win.BoardUI.heldUntilWords(new Date(NOW + ms))}`);
   assert.deepEqual(chips.map((c) => [c.textContent, c.getAttribute('aria-label')]), holdChoices.map((c) => [c.label, `${c.label}, ${words(c.ms)}`]));
   assert.ok(sheet.querySelector('.dur-custom [data-hold-at]'));
   b.page.fire(sheet, 'click', { target: chips[1] });
@@ -6089,7 +6104,7 @@ test("a topic or question arriving on Waiting on you inserts its pill or card in
 test("Board settings' Sharing lists who can look and who was just refused, adds by a tap or a typed login, removes, and copies the board's link", async () => {
   const page = fakePage(memoryStorage().localStorage);
   const root = new page.El();
-  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+  const ago = (ms) => new Date(NOW - ms).toISOString();
   let sharing = { link: 'https://studio.tail1234.ts.net/orch/', people: [{ login: 'maya@github', name: 'Maya Ortiz', now: true, at: ago(1000) }, { login: 'sam@example.com', name: null, now: false, at: ago(2 * 86_400_000) }, { login: 'kim@github', name: 'Kim', now: false, at: null }],
     refused: [{ login: 'jo@github', name: 'Jo Park', at: ago(4 * 60_000) }, { login: 'lee@example.com', name: null, at: ago(10_000) }] };
   const posts = [];
