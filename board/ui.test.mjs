@@ -48,6 +48,25 @@ test('one human blue: no colour is named for a person or a hue, and every label 
   }
 });
 
+test("OLED mode is a :root[data-oled] override inside the dark block: pure-black ground, panels just above it, the semantic colours untouched", () => {
+  const dark = colorsCss.split('@media (prefers-color-scheme: dark)')[1];
+  const [, oled] = /:root\[data-oled\]\s*\{([^}]*)\}/.exec(dark) || [];
+  assert.ok(oled, 'a :root[data-oled] rule inside the dark block');
+  assert.doesNotMatch(colorsCss.split('@media (prefers-color-scheme: dark)')[0], /data-oled/);
+  const value = (name) => new RegExp(`${name}:\\s*([^;]+);`).exec(oled)?.[1].trim();
+  assert.deepEqual(['--bg', '--panel', '--line', '--text', '--muted', '--chip', '--band', '--claude', '--accent-soft'].map(value),
+    ['#000000', '#08080a', '#1c1c20', '#f2f2f5', '#85858f', '#121215', '#0d0d0f', '#17120a', '#0d141d']);
+  assert.deepEqual(['--accent', '--ok', '--warn', '--bad', '--purple'].map(value), [undefined, undefined, undefined, undefined, undefined]);
+});
+
+test('every page that links colors.css applies the per-device OLED key before paint', () => {
+  for (const f of ['app.html', 'log.html', 'progress-review.html', 'prototype.html']) {
+    const html = fs.readFileSync(new URL(`./public/${f}`, import.meta.url), 'utf8');
+    const at = html.search(/<script>[^<]*hub:oled[^<]*<\/script>/);
+    assert.ok(at >= 0 && at < html.indexOf('colors.css'), f);
+  }
+});
+
 test("every hub.css selector is under .hub-view, so the hub's short class names never reach a board's elements", () => {
   const css = fs.readFileSync(new URL('./public/hub.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const selectors = [];

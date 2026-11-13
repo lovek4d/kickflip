@@ -37,7 +37,7 @@
       + `<h2 class="label">Snoozes and wakes read</h2><div class="group">${reads}</div>`;
   }
 
-  const sections = [['pause', 'Pause hub'], ['notifications', 'Notifications'], ['quiet', 'Quiet hours'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
+  const sections = [['pause', 'Pause hub'], ['notifications', 'Notifications'], ['appearance', 'Appearance'], ['quiet', 'Quiet hours'], ['rules', 'Rules for every board'], ['closed', 'Closed boards']];
   // Linear and Slack open from their Integrations rows, so they have modals and no summary rows.
   const keys = [['linear', 'Linear'], ['slack', 'Slack']];
   const sectionOf = (hash) => {
@@ -63,6 +63,8 @@
       let tokenSlot = null;
       const pickers = HubKit.durationPickers(B);
 
+      // The per-device OLED key app.html's head script reads before paint; colors.css reads the data-oled it sets.
+      const oled = () => { try { return localStorage.getItem('hub:oled') === '1'; } catch { return false; } };
       function paint() {
         if (!last) return;
         const { row, tile, deviceRow } = HubUI;
@@ -72,6 +74,8 @@
           content.innerHTML = `<div class="group">${pauseRow(last.pause)}</div><p class="note">Running steps finish. No new builders, planners or pulls start on any board until then, as when usage reaches the pause line.</p>`;
         } else if (active === 'notifications') {
           content.innerHTML = `<div class="group">${deviceRow(device.state(last.device), { compact: true })}${notificationRows(last)}</div>`;
+        } else if (active === 'appearance') {
+          content.innerHTML = `<div class="group"><div class="row field"><label class="body"><span class="text"><span class="title">OLED mode</span><span class="sub wrap">Applies in dark mode. Saved on this device.</span></span><input type="checkbox" id="oledOn" class="toggle"${oled() ? ' checked' : ''}></label></div></div>`;
         } else if (active === 'quiet') {
           content.innerHTML = quietRows(last.quiet);
         } else if (active === 'linear' || active === 'slack') {
@@ -89,6 +93,7 @@
         const summaries = {
           pause: last.pause.summary,
           notifications: [last.on.on ? 'Pushes on' : 'Pushes off', last.snoozed?.summary, last.weekends.on ? 'Off on weekends' : '', deviceSummary()].filter(Boolean).join(' · '),
+          appearance: oled() ? 'OLED mode on' : 'OLED mode off',
           quiet: last.quiet.summary,
           rules: last.rules.length ? `${last.rules.length} rule${last.rules.length === 1 ? '' : 's'}` : 'None yet',
           closed: last.closed?.length ? `${last.closed.length} closed` : 'No closed boards',
@@ -204,6 +209,12 @@
       });
       B.on(root, 'change', async (e) => {
         const on = e.target;
+        if (on.id === 'oledOn') {
+          try { if (on.checked) localStorage.setItem('hub:oled', '1'); else localStorage.removeItem('hub:oled'); } catch {}
+          if (on.checked) document.documentElement.dataset.oled = ''; else delete document.documentElement.dataset.oled;
+          paint();
+          return;
+        }
         if (on.id !== 'notifyOn') return;
         if (on.checked || await BoardDialogs.confirm(on.dataset.confirm)) on.form.requestSubmit();
         else on.checked = true;
