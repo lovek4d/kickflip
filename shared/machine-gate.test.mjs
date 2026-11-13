@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { machineState, pressureOf, checkMachine, readMachineState, readMachine, machineFile } from './machine-gate.mjs';
+import { machineState, pressureOf, checkMachine, readMachineState, readMachineSamples, readMachine, machineFile } from './machine-gate.mjs';
 import { hubAudit, readAudit } from './audit.mjs';
 
 const reading = (load, pressure = 'warn', cores = 10) => ({ load, cores, pressure });
@@ -59,4 +59,20 @@ test('the hub tick keeps the state file and audits each change and a reading eve
   assert.match(log[1].reason, /memory pressure is critical/);
   assert.match(log[3].reason, /under 3× its 10 cores/);
   assert.deepEqual(log[1].inputs, { reading: reading(41.2, 'critical'), previous: 'normal', hold: 4, release: 3 });
+});
+
+// docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md
+test('the hub tick keeps one load sample a minute for the last hour', (t) => {
+  const home = fixture(t);
+  const start = Date.parse('2026-11-06T01:00:10Z');
+  const at = (seconds) => new Date(start + seconds * 1000);
+  // Four ticks a minute, as the hub's 15-second tick runs: one sample each wall-clock minute.
+  for (let s = 0; s < 3 * 60; s += 15) checkMachine({ home, reading: reading(s / 10), now: at(s) });
+  const samples = () => readMachineSamples(home);
+  assert.deepEqual(samples().map((x) => [x.at.slice(11, 19), x.load]), [['01:00:10', 0], ['01:01:10', 6], ['01:02:10', 12]]);
+  for (let m = 3; m <= 75; m++) checkMachine({ home, reading: reading(m), now: at(m * 60) });
+  assert.equal(samples().length, 60, 'the last hour alone');
+  assert.equal(samples()[0].load, 16);
+  assert.equal(samples().at(-1).load, 75);
+  assert.deepEqual(readMachineSamples(fixture(t)), [], 'no file has no samples');
 });

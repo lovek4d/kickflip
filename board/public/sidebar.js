@@ -51,7 +51,7 @@
     const aside = document.getElementById('sidebar');
     const scrim = document.getElementById('sidebarScrim');
     // ui.js replaces the BoardUI global when it loads after this, so the renderers are held here.
-    const { sidebar, failedStart, startCaption, updateRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
+    const { sidebar, failedStart, loadSheet, startCaption, updateRow, othersWaiting, switchKeys, shortcuts } = globalThis.BoardUI || {};
     const none = { setHere() {}, setData() {}, setUpdate() {}, checkDevice() {}, close() {}, toggle() {}, keydown() {}, pointerdown() {} };
     if (!aside || !sidebar) return none;
     if (!data) { try { data = JSON.parse(read(DATA_KEY) || 'null'); } catch { data = null; } }
@@ -214,9 +214,69 @@
         return;
       }
       if (e.target.closest?.('[data-new-board]')) { newBoard(); return; }
+      // The busy words sit inside the Hub row's link, so their tap opens the sheet and not the hub page.
+      if (e.target.closest?.('[data-load-sheet]')) { e.preventDefault(); openLoad(); return; }
       const failed = e.target.closest?.('[data-failed-start]');
       if (failed) openFailed(failed.dataset.failedStart);
     });
+    aside.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('[data-load-sheet]')) { e.preventDefault(); openLoad(); }
+    });
+    // What's loading the host (ui-sidebar.js loadSheet; docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md):
+    // it reads /_hub/machine.json as it opens and again after a Stop. A fold opens or shuts its group; Stop asks in its
+    // row, Keep backs out, and Stop it waits (ui.js waitOn) on /_hub/machine/stop, whose refusal shows in the row.
+    function openLoad() {
+      if (document.getElementById('loadSheet')) return;
+      const previous = document.activeElement;
+      const el = document.createElement('dialog');
+      el.setAttribute('id', 'loadSheet');
+      el.setAttribute('class', 'sheet');
+      el.setAttribute('aria-labelledby', 'loadSheetTitle');
+      el.innerHTML = loadSheet(null);
+      async function read() {
+        try {
+          const response = await fetch('/_hub/machine.json', { headers: { accept: 'application/json' } });
+          if (!response.ok) throw new Error(`The hub answered ${response.status}.`);
+          el.innerHTML = loadSheet(await response.json());
+        } catch (e) {
+          const note = el.querySelector('.ls-note');
+          if (note) note.textContent = `Couldn't read the host: ${e.message}`;
+        }
+      }
+      el.addEventListener('click', async (e) => {
+        if (BoardUI.onBackdrop(e, el) || e.target.closest('[data-load-close]')) { el.close(); return; }
+        const fold = e.target.closest('[data-fold]');
+        if (fold) {
+          const inner = fold.nextElementSibling;
+          inner.hidden = !inner.hidden;
+          fold.setAttribute('aria-expanded', String(!inner.hidden));
+          return;
+        }
+        const item = e.target.closest('.ls-item');
+        if (e.target.closest('[data-stop]')) { item.querySelector('.ls-confirm').hidden = false; item.querySelector('.ls-stop').hidden = true; return; }
+        if (e.target.closest('[data-keep]')) { item.querySelector('.ls-confirm').hidden = true; item.querySelector('.ls-stop').hidden = false; return; }
+        const yes = e.target.closest('[data-stop-yes]');
+        if (!yes) return;
+        const refused = item.querySelector('.ls-refused');
+        refused.hidden = true;
+        try {
+          const request = fetch('/_hub/machine/stop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pid: Number(yes.dataset.stopYes) }) });
+          const response = await BoardUI.waitOn(yes, request, { group: item.querySelectorAll('.ls-confirm button') });
+          if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || `The hub answered ${response.status}.`);
+          await read();
+        } catch (err) {
+          refused.textContent = err.message;
+          refused.hidden = false;
+        }
+      });
+      el.addEventListener('close', () => {
+        el.remove();
+        if (previous?.isConnected) previous.focus({ preventScroll: true });
+      });
+      document.body.appendChild(el);
+      el.showModal();
+      read();
+    }
     // A failed start's sheet (docs/adr/2026-11-02-2006-a-failed-start-retries-from-its-sheet.md). Dismiss deletes its Starting
     // record; Retry starts it again, and its row reads starting… until the hub's next copy says otherwise.
     function openFailed(route) {

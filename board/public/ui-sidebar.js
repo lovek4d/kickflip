@@ -168,6 +168,44 @@
       + `<div class="sheet-actions fs-actions"><button type="button" data-failed-dismiss>Dismiss</button>${s.branch && !s.joined ? '<button type="button" class="primary" data-failed-retry>Retry</button>' : ''}</div></div>`;
   }
 
+  // What's loading the host (docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md), the sheet the
+  // Hub row's busy words open, from /_hub/machine.json (hub/machine-load.mjs machineLoad), or null while it loads: the
+  // load now and its hour's average and line against the cores, then each group folded to its count and total CPU, the
+  // orphans open, each orphan with Stop and its confirm in the row.
+  const ageWords = (s) => (s >= 86400 ? `${Math.floor(s / 86400)}d` : s >= 3600 ? `${Math.floor(s / 3600)}h` : s >= 60 ? `${Math.floor(s / 60)}m` : `${s}s`);
+  const tenth = (n) => Math.round(n * 10) / 10;
+  function loadLine({ samples, cores }) {
+    const h = 36;
+    const top = Math.max(cores, ...samples.map((s) => s.load)) * 1.1;
+    const y = (n) => tenth(h - (n / top) * h);
+    const x = (i) => (samples.length > 1 ? tenth((i * 120) / (samples.length - 1)) : 120);
+    return `<svg class="ls-spark" viewBox="0 0 120 ${h}" preserveAspectRatio="none" aria-hidden="true">`
+      + `<line x1="0" x2="120" y1="${y(cores)}" y2="${y(cores)}" stroke="var(--line)" stroke-dasharray="3 3"/>`
+      + `<polyline fill="none" stroke="var(--color-notice)" stroke-width="2" vector-effect="non-scaling-stroke" points="${samples.map((s, i) => `${x(i)},${y(s.load)}`).join(' ')}"/></svg>`;
+  }
+  function loadSheet(data) {
+    const head = `<div class="sheet-head"><h2 id="loadSheetTitle">What's loading the host</h2><button type="button" data-load-close aria-label="Close sheet">✕</button></div>`;
+    if (!data) return `<div class="sheet-body">${head}<p class="ls-note" role="status">Reading the host…</p></div>`;
+    const load = `<div class="ls-load"><div><b>${tenth(data.load)}</b><span> now, ${data.cores} cores</span></div>`
+      + (data.samples.length
+        ? `<div><b class="ls-avg">${tenth(data.average)}</b><span> hour average</span></div><div class="ls-sparkbox">${loadLine(data)}<span class="ls-axis"><i>60 min ago</i><i>now</i></span></div>`
+        : '<div><span>No samples yet</span></div>')
+      + '</div>';
+    const row = (r, orphan) => `<div class="ls-item"><div class="ls-row"><span class="ls-txt"><span class="ls-cmd">${esc(r.cmd)}</span><span class="ls-facts">${esc([ageWords(r.age), r.owner].filter(Boolean).join(' · '))}</span></span>`
+      + `<span class="ls-cpu${r.cpu >= 100 ? ' hot' : ''}">${Math.round(r.cpu)}%</span>${orphan ? `<button type="button" class="ls-stop" data-stop="${r.pid}">Stop</button>` : ''}</div>`
+      + (orphan ? `<div class="ls-confirm" hidden><span>Stop <code>${esc(r.cmd)}</code> (pid ${r.pid})? It ends the process and anything it's doing.</span><button type="button" data-keep>Keep</button><button type="button" class="danger" data-stop-yes="${r.pid}">Stop it</button><p class="ls-refused" role="alert" hidden></p></div>` : '')
+      + '</div>';
+    const groups = data.groups === null ? '<p class="ls-note">ps gave no answer in time, as happens on a busy host. Try again in a moment.</p>'
+      : !data.groups.length ? '<p class="ls-note">Nothing is loading the host.</p>'
+      : `<div class="ls-groups">${data.groups.map((g) => {
+        const open = g.key === 'orphan';
+        const total = Math.round(g.rows.reduce((n, r) => n + r.cpu, 0));
+        return `<div class="ls-group"><button type="button" class="ls-fold" data-fold aria-expanded="${open}"><span class="ls-chev" aria-hidden="true">›</span><span class="ls-name">${esc(g.title)}</span><span class="ls-sum">${g.rows.length} · ${total}%</span></button>`
+          + `<div class="ls-inner"${open ? '' : ' hidden'}>${g.rows.map((r) => row(r, open)).join('')}</div></div>`;
+      }).join('')}</div>`;
+    return `<div class="sheet-body">${head}${load}${groups}</div>`;
+  }
+
   // A starting board's three steps (docs/adr/2026-11-04-1914-a-new-board-shows-its-start-steps-and-clone-progress.md):
   // s.step is cloning, starting (the orchestrator's session, until it joins the hub) or landing (the joined board, until it
   // listens), since s.stepAt.
@@ -247,7 +285,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage, data?.pause?.pause_at);
-    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: `${busyMinutes(data, now)}m` } : data?.hub;
+    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: `${busyMinutes(data, now)}m`, sheet: true } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')
@@ -256,7 +294,8 @@
     const held = esc(`Notifications ${lower(n.text)}`);
     const moon = n.state === 'held' ? `<span class="sb-moon" role="img" aria-label="${held}" title="${held}">${svg(ICONS.moon, 13)}</span>` : '';
     const subs = {
-      '/_hub/': (hub ? `<span class="sb-status">${word(hub.tone, hub.word)}${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
+      // The busy words open what's loading the host (loadSheet; sidebar.js), and the rest of the row the hub page.
+      '/_hub/': (hub ? `<span class="sb-status${hub.sheet ? ` sb-busy" data-load-sheet role="button" tabindex="0" aria-label="${esc(`${hub.word} ${hub.detail}`)}, what's loading the host" aria-haspopup="dialog` : ''}">${word(hub.tone, hub.word)}${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
         + (notify ? `<span class="sb-status">${notify}</span>` : ''),
     };
     const selected = here.startsWith('_hub') ? '/_hub' : `/${here.replace(/\/$/, '')}`;
@@ -275,5 +314,5 @@
       + `<div class="sb-group">${boards.map(siteRow).join('')}${pending}${newBoard}</div></section></div>`;
   }
 
-  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, START_STEPS, startSteps, startCaption, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
+  Object.assign(globalThis.BoardUI ||= {}, { sidebar, failedStart, loadSheet, START_STEPS, startSteps, startCaption, updateRow, othersWaiting, switchKeys, shortcuts, repoLabel, usageProducts, usageNames, usageClock, pauseUntilWords, usageTone, usageBar, usageWords, hubDot });
 })();

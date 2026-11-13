@@ -52,6 +52,10 @@
 //                     replaces this process; 409 while one is out
 //   /_hub/wake       POST {route} from a board page's tap while the board is asleep: the session check resumes its
 //                     session now, as for an event that landed → {route, listen} (boards.mjs listenState)
+//   /_hub/machine.json GET what is loading this Mac, for the sheet the Hub row's busy word opens: {load, cores, average,
+//                     samples, groups} (machine-load.mjs machineLoad); /_hub/machine/stop POST {pid} (application/json)
+//                     ends a process that still looks orphaned and its children → {stopped}, 409 {error} for any other,
+//                     503 {error} when ps gave no answer (stopOrphan)
 //   /_hub/status.json the manifest's sites and their process state, as JSON
 //   /_hub/needs.json  {total, sites: {<route>: {count, working, summary, lanes, building} | null}}: total is the
 //                     Home Screen badge; ?fresh=1 skips the cache
@@ -160,7 +164,7 @@
 // Every 15 seconds it drops the pending prompts whose hook has gone (prompts.mjs expired).
 // It runs caffeinate -s while Keep awake is on, and starts it again as it starts (awake.mjs).
 // On paused → normal it sends every board usage-resumed {window}, keeping usage-gate-state.json across restarts.
-// It reads the Mac and keeps machine-state.json, which holds every board's new work while the Mac is busy
+// It reads the Mac and keeps machine-state.json, with a load sample a minute for the last hour, which holds every board's new work while the Mac is busy
 // (shared/machine-gate.mjs; docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md).
 // Each served card and main has its own Tailscale HTTPS port, through a loopback relay (try.mjs) that passes the same
 // owner gate, and admits its board's shared people by GET or HEAD; its build script gets HOST=127.0.0.1 to listen on.
@@ -210,6 +214,7 @@ import { hubStream } from './stream.mjs';
 import { usageReader, checkUsagePause, contextReading } from './usage.mjs';
 import { readUsageGate, setPauseAt, setKeepGoing, setHubPause, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { checkMachine, readMachine as readMac } from '../shared/machine-gate.mjs';
+import { machineLoad, stopOrphan, boardBuilders, claudeSessions } from './machine-load.mjs';
 import { readiness, readCodex } from './readiness.mjs';
 import { BuildError, startBuild, killBuild, stopTries, endUnsharedTries, tryTick, initializeTries, fetchTryBranches, pullNow, pullMains } from './try.mjs';
 import { serveFiles } from './files.mjs';
@@ -1098,6 +1103,13 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       catch { res.writeHead(404).end(); return; }
     }
     if (p === '/_hub/hub.css') return send(200, 'text/css; charset=utf-8', fs.readFileSync(path.join(BOARD_PUBLIC, 'hub.css')));
+    // docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md
+    const loadOwners = () => { const manifest = loadManifest(); return { builders: boardBuilders(manifest), sessions: claudeSessions(manifest) }; };
+    if (p === '/_hub/machine.json' && req.method === 'GET') return sendJSON(200, await machineLoad(loadOwners()));
+    if (p === '/_hub/machine/stop' && req.method === 'POST') {
+      try { return sendJSON(200, await stopOrphan(Number((await readJSONBody(req)).pid), loadOwners())); }
+      catch (e) { return sendJSON(e.status || 400, { error: e.message }); }
+    }
     if (p === '/_hub/sidebar.json') {
       const { data } = await sidebarState({ fresh: url.searchParams.get('fresh') === '1' });
       return sendJSON(200, viewer ? viewer.sidebar(data) : data);

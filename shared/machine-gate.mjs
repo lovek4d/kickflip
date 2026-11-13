@@ -12,6 +12,7 @@ import { audit, hubAudit } from './audit.mjs';
 export const HOLD_LOAD = 4;
 export const RELEASE_LOAD = 3;
 const READING_EVERY = 10 * 60_000;
+const SAMPLES_FOR = 60 * 60_000;
 export const MACHINE_NORMAL = Object.freeze({ state: 'normal', reason: null });
 
 // sysctl kern.memorystatus_vm_pressure_level's levels; null for none, as off macOS.
@@ -40,8 +41,13 @@ export function readMachineState(home = os.homedir()) {
   return kept?.state === 'busy' ? { state: 'busy', reason: kept.reason, since: kept.since } : MACHINE_NORMAL;
 }
 
-// The hub's tick: reads the Mac, keeps the state file, and puts each change and one reading every 10 minutes in the
-// hub's audit log (shared/audit.mjs), so the thresholds can be checked against what this Mac reads.
+// The 1-minute load the hub's tick sampled once a minute over the last hour, oldest first: [{at, load}], [] without a file
+// (docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md).
+export const readMachineSamples = (home = os.homedir()) => readFile(home)?.samples ?? [];
+
+// The hub's tick: reads the Mac, keeps the state file with its first reading of each minute over the last hour as
+// samples, and puts each change and one reading every 10 minutes in the hub's audit log (shared/audit.mjs), so the
+// thresholds can be checked against what this Mac reads.
 export function checkMachine({ home = os.homedir(), reading = readMachine(), now = new Date() } = {}) {
   const previous = readFile(home);
   const was = previous?.state ?? 'normal';
@@ -60,7 +66,10 @@ export function checkMachine({ home = os.homedir(), reading = readMachine(), now
     audit(hubAudit(home), { call: 'machine-reading', result: state, reason: `Memory pressure is ${reading.pressure ?? 'unread'} and ${load} on ${reading.cores} cores.`, inputs }, { now });
   }
   const since = state === 'busy' ? (was === 'busy' && previous.since) || now.toISOString() : null;
-  const next = { state, reason, since, at: now.toISOString(), reading, logged_at: changed || due ? now.toISOString() : previous.logged_at };
+  const minute = (at) => Math.floor(Date.parse(at) / 60_000);
+  const kept = (previous?.samples ?? []).filter((s) => now.getTime() - Date.parse(s.at) < SAMPLES_FOR);
+  const samples = kept.at(-1) && minute(kept.at(-1).at) === minute(now.toISOString()) ? kept : [...kept, { at: now.toISOString(), load: reading.load }];
+  const next = { state, reason, since, at: now.toISOString(), reading, logged_at: changed || due ? now.toISOString() : previous.logged_at, samples };
   const file = machineFile(home);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;

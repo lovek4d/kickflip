@@ -5237,7 +5237,7 @@ export async function openBoardBuilders(site) {
         const record = await readJSON(file, null);
         if (!record?.started || record.done) continue;
         const name = path.basename(file, '.json');
-        builders.push({ key: `${source.slug}/${item.id}`, agent: name.slice(String(item.id).length + 1) || 'main', label: record.label || 'Builder', started: record.started });
+        builders.push({ key: `${source.slug}/${item.id}`, agent: name.slice(String(item.id).length + 1) || 'main', label: record.label || 'Builder', started: record.started, kind: record.kind ?? null, pid: record.session?.pid ?? null });
       }
     }
   }

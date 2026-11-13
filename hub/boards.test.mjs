@@ -5,6 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -368,6 +369,23 @@ test('closing a board through the hub requires JSON, same-origin access and its 
     assert.equal(read(file).sites[route], undefined);
     assert.deepEqual(read(file).closed[route].site, entry);
   } finally { await writeManifestFile(original); }
+});
+
+// docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md
+test("the hub serves what's loading this Mac, and its Stop takes JSON and refuses a process that doesn't look orphaned", async () => {
+  const data = await (await fetch(`${base}/_hub/machine.json`)).json();
+  assert.equal(data.cores, os.cpus().length);
+  assert.equal(typeof data.load, 'number');
+  assert.ok(Array.isArray(data.samples));
+  assert.ok(data.groups === null || Array.isArray(data.groups));
+  const stop = (body, headers = { 'content-type': 'application/json' }) => fetch(`${base}/_hub/machine/stop`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const child = sleeper();
+  try {
+    assert.equal((await stop({ pid: child.pid }, { 'content-type': 'text/plain' })).status, 403);
+    const refused = await stop({ pid: child.pid });
+    assert.ok([409, 503].includes(refused.status), String(refused.status));
+    assert.equal(child.exitCode, null, 'the process still runs');
+  } finally { child.kill(); }
 });
 
 test('the proxy preserves browser origin, fetch metadata and the external host for board writes', async () => {

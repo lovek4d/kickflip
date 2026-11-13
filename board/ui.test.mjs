@@ -2917,3 +2917,43 @@ test("only written messages count toward a thread's newest 3: command lines and 
   assert.equal(ui.isMessage({ ts: at(6), request: true, kind: 'visual-request' }), false);
   assert.equal(ui.isMessage({ ts: at(6), who: 'love', kind: 'visual-request', text: 'Show it' }), true);
 });
+
+// docs/adr/2026-11-13-0026-the-busy-hub-row-opens-whats-loading-the-host.md
+test("the Hub row's busy word opens what's loading the host: the load now and over the hour, then collapsed groups with orphans open and Stop on orphans alone", () => {
+  const machine = { state: 'busy', reason: 'load high', since: new Date(NOW - 42 * 60_000).toISOString() };
+  const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } });
+  assert.match(busy, /<span class="sb-status sb-busy" data-load-sheet role="button" tabindex="0" aria-label="busy 42m, what's loading the host" aria-haspopup="dialog">/);
+  assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /data-load-sheet/);
+
+  assert.match(text(ui.loadSheet(null)), /What's loading the host ✕ Reading the host…/);
+  const H = 3600;
+  const data = {
+    load: 58.04, cores: 10, average: 46.25,
+    samples: [{ at: '2026-11-12T01:00:00Z', load: 31 }, { at: '2026-11-12T01:01:00Z', load: 63 }, { at: '2026-11-12T01:02:00Z', load: 58 }],
+    groups: [
+      { key: 'orphan', title: 'Looks orphaned, older than a day', rows: [{ pid: 4127, cmd: 'node --test board/server.test.mjs', age: 5 * 24 * H, cpu: 212, owner: 'no board or session' }, { pid: 5530, cmd: 'node board/server.mjs --port 4431', age: 3 * 24 * H, cpu: 38.4, owner: 'no board or session' }] },
+      { key: 'suite', title: 'Test suites', rows: [{ pid: 122, cmd: 'node --test hub/hub.test.mjs', age: 720, cpu: 96, owner: 'T-171 build' }] },
+      { key: 'session', title: 'Claude sessions', rows: [{ pid: 200, cmd: 'Hub Orchestrator', age: 9 * H, cpu: 3, owner: 'orchestrator' }] },
+      { key: 'other', title: 'Other', rows: [{ pid: 300, cmd: 'mds_stores', age: 40, cpu: 18, owner: '' }] },
+    ],
+  };
+  const sheet = ui.loadSheet(data);
+  assert.match(text(sheet), /^What's loading the host ✕ 58 now, 10 cores 46\.3 hour average 60 min ago now /);
+  assert.match(sheet, /<polyline [^>]*points="0,[\d.]+ 60,[\d.]+ 120,[\d.]+"/);
+  const folds = [...sheet.matchAll(/<button type="button" class="ls-fold" data-fold aria-expanded="(true|false)">(.*?)<\/button>/g)].map((m) => [m[1], text(m[2])]);
+  assert.deepEqual(folds, [
+    ['true', '› Looks orphaned, older than a day 2 · 250%'], ['false', '› Test suites 1 · 96%'], ['false', '› Claude sessions 1 · 3%'], ['false', '› Other 1 · 18%'],
+  ]);
+  assert.equal([...sheet.matchAll(/<div class="ls-inner"( hidden)?>/g)].map((m) => Boolean(m[1])).join(), 'false,true,true,true');
+  assert.match(text(sheet), /node --test board\/server\.test\.mjs 5d · no board or session 212% Stop Stop node --test board\/server\.test\.mjs \(pid 4127\)\? It ends the process and anything it's doing\. Keep Stop it/);
+  assert.match(text(sheet), /node --test hub\/hub\.test\.mjs 12m · T-171 build 96%/);
+  assert.match(text(sheet), /Hub Orchestrator 9h · orchestrator 3%/);
+  assert.match(text(sheet), /mds_stores 40s 18%/);
+  assert.deepEqual([...sheet.matchAll(/data-stop="(\d+)"/g)].map((m) => m[1]), ['4127', '5530'], 'Stop on orphans alone');
+  assert.equal([...sheet.matchAll(/<div class="ls-confirm" hidden>/g)].length, 2);
+  assert.match(sheet, /class="ls-cpu hot">212%/);
+
+  assert.match(text(ui.loadSheet({ ...data, groups: [] })), /Nothing is loading the host\.$/);
+  assert.match(text(ui.loadSheet({ ...data, groups: null })), /ps gave no answer in time, as happens on a busy host\. Try again in a moment\.$/);
+  assert.match(text(ui.loadSheet({ ...data, average: null, samples: [] })), /58 now, 10 cores No samples yet/);
+});

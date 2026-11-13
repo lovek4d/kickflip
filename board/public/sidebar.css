@@ -87,6 +87,44 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 @media (min-width: 900px) {
   #failedStartSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }
 }
+/* The Hub row's busy words open what's loading this Mac (ui-sidebar.js loadSheet), a sheet like a failed start's. */
+.sidebar .sb-busy { cursor: pointer; border-radius: 6px; }
+@media (hover: hover) { .sidebar .sb-busy:hover .word { text-decoration: underline; } }
+.sidebar .sb-busy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#loadSheet .sheet-head h2 { font-size: 17px; }
+#loadSheet .ls-note { margin: 4px 0 8px; color: var(--muted); font-size: 13.5px; }
+#loadSheet .ls-load { display: grid; grid-template-columns: auto auto minmax(90px, 1fr); gap: 4px 18px; align-items: end; padding: 2px 0 10px; font-size: 12.5px; color: var(--muted); }
+#loadSheet .ls-load b { font-size: 24px; font-weight: 600; color: var(--color-notice); }
+#loadSheet .ls-load b.ls-avg { color: var(--text); }
+#loadSheet .ls-spark { display: block; width: 100%; height: 36px; }
+#loadSheet .ls-axis { display: flex; justify-content: space-between; font-size: 10.5px; }
+#loadSheet .ls-axis i { font-style: normal; }
+#loadSheet .ls-groups { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+#loadSheet .ls-group + .ls-group { border-top: 1px solid var(--line); }
+#loadSheet .ls-fold { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-radius: 0; background: none; text-align: left; }
+#loadSheet .ls-name { flex: 1; }
+#loadSheet .ls-sum { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+#loadSheet .ls-chev { color: var(--muted); transition: transform .15s; }
+#loadSheet .ls-fold[aria-expanded="true"] .ls-chev { transform: rotate(90deg); }
+#loadSheet .ls-inner { border-top: 1px solid var(--line); }
+#loadSheet .ls-inner[hidden], #loadSheet .ls-confirm[hidden], #loadSheet .ls-refused[hidden], #loadSheet .ls-stop[hidden] { display: none; }
+#loadSheet .ls-item + .ls-item { border-top: 1px solid var(--line); }
+#loadSheet .ls-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+#loadSheet .ls-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#loadSheet .ls-cmd { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+#loadSheet .ls-facts { font-size: 12px; color: var(--muted); }
+#loadSheet .ls-cpu { min-width: 3.4em; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
+#loadSheet .ls-cpu.hot { color: var(--color-notice); font-weight: 600; }
+#loadSheet .ls-stop { min-height: 36px; }
+#loadSheet .ls-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px 10px; font-size: 13px;
+  background: color-mix(in srgb, var(--color-danger) 9%, var(--panel)); }
+#loadSheet .ls-confirm span { flex: 1 1 100%; overflow-wrap: anywhere; }
+#loadSheet .ls-confirm button { min-height: 40px; }
+#loadSheet .ls-confirm button.danger { border-color: var(--color-danger); background: var(--color-danger); color: #fff; }
+#loadSheet .ls-refused { flex: 1 1 100%; margin: 0; color: var(--color-danger); }
+@media (min-width: 900px) {
+  #loadSheet { inset: 0; margin: auto; height: fit-content; max-height: calc(100dvh - 48px); }
+}
 .sidebar .sb-row .icon.sb-plus { color: var(--muted); background: var(--chip); }
 .sidebar .sb-row .icon.sb-start-icon { color: var(--accent); }
 
