@@ -1,24 +1,24 @@
-import { test, after } from 'node:test';
+import { home } from '../shared/scratch-home.mjs';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, boardListening, until, putWave } from '../shared/test-helpers.mjs';
+import { startBoard } from '../shared/test-helpers.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 
 const serverFile = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
-const children = [];
-after(() => { for (const child of children) child.kill(); });
 
 const readJSON = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
-const today = new Date();
-const stamp = today.toLocaleDateString('en-CA').replaceAll('-', '');
-const title = `Architecture ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+// The server's clock, which names each review's wave.
+const today = new Date(2026, 10, 13, 12);
+const stamp = '20261113';
+const title = 'Architecture Nov 13';
 
-async function boardServer({ items = 'data/items.json', site: entry = {}, skills = true } = {}) {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'arch-review-')));
+// A board over the scratch HOME, emptied for each test, with the board in the hub's manifest, run in process.
+async function boardServer(t, { items = 'data/items.json', site: entry = {}, skills = true } = {}) {
+  fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
   const site = path.join(home, '.claude', 'kickflip', 'sites', 'app');
   fs.mkdirSync(path.join(site, 'data'), { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'App', items, slug: 'app' }));
@@ -32,13 +32,11 @@ async function boardServer({ items = 'data/items.json', site: entry = {}, skills
     fs.mkdirSync(path.join(home, '.claude', 'skills', name), { recursive: true });
     fs.writeFileSync(path.join(home, '.claude', 'skills', name, 'SKILL.md'), `# ${name}\n`);
   }
-  const [port] = await freePorts();
-  const child = spawn(process.execPath, [serverFile, site], { env: { ...process.env, HOME: home, PORT: String(port) } });
-  children.push(child);
-  await boardListening(child);
-  const base = `http://127.0.0.1:${port}`;
+  const { base, changed, settled } = await startBoard(t, { site, now: () => today });
   return {
     home, site, base,
+    // A write to the site's file, as the server's watch reports it.
+    sees: async (file) => { changed(file); await settled(); },
     // The hub's check of each PR, as board/server.mjs reads it (hub/github.mjs summarize).
     checked: (prs) => fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'github-state.json'), JSON.stringify({ prs })),
     arch: async () => (await (await fetch(`${base}/api/board`)).json()).arch,
@@ -47,8 +45,8 @@ async function boardServer({ items = 'data/items.json', site: entry = {}, skills
   };
 }
 
-test('Run makes a wave whose first card is the audit, wakes the session, and while that review is open runs again only point at its card', async () => {
-  const b = await boardServer();
+test('Run makes a wave whose first card is the audit, wakes the session, and while that review is open runs again only point at its card', async (t) => {
+  const b = await boardServer(t);
   assert.deepEqual(await b.arch(), { repo: 'app-repo', waits: null, last: null });
 
   const first = await b.run();
@@ -70,9 +68,9 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
 
   const owner = { items: [{ id: 'f1', topic: 'item:app/T-1', question: 'Split the store?', options: [{ id: 'A', label: 'Split' }, { id: 'skip', label: 'Skip' }] },
     { id: 'f2', topic: 'item:app/T-1', question: 'Merge the readers?', options: [{ id: 'A', label: 'Merge' }, { id: 'skip', label: 'Skip' }] }] };
-  // Each wait is for the review itself, not any new version: the server marking new cards read moves the version too.
   fs.writeFileSync(path.join(b.site, 'data', 'owner.json'), JSON.stringify(owner));
-  await until(async () => ({ last } = await b.arch()).last.findings === 2, "the board sees the review's findings");
+  await b.sees('data/owner.json');
+  ({ last } = await b.arch());
   assert.deepEqual([last.open, last.running, last.findings], [true, false, 2]);
 
   const done = readJSON(path.join(b.site, 'data', 'items.json'));
@@ -81,8 +79,9 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   b.checked({ 'owner/app-repo#10': { state: 'CLOSED', isDraft: false, checks: { total: 0, fail: 0, pending: 0, state: 'none' }, reviews: {} } });
   done.items.push({ id: 'INT-9', title: 'Split the store', lane: 'done', closed_at: new Date().toISOString() }, { id: 'INT-10', title: 'Merge the readers', lane: 'done', closed_at: new Date().toISOString(), prs: [{ number: 10 }] });
   done.waves[0].items.push('INT-9', 'INT-10');
-  await putWave(path.join(b.site, 'data', 'items.json'), JSON.stringify(done));
-  await until(async () => ({ last } = await b.arch()).last.open === false, 'the board sees the review closed');
+  fs.writeFileSync(path.join(b.site, 'data', 'items.json'), JSON.stringify(done));
+  await b.sees('data/items.json');
+  ({ last } = await b.arch());
   assert.deepEqual([last.open, last.running, last.findings, last.built], [false, false, 2, 1]);
 
   const next = await b.run();
@@ -90,8 +89,8 @@ test('Run makes a wave whose first card is the audit, wakes the session, and whi
   assert.equal(readJSON(path.join(b.site, 'data', 'items.json')).waves.at(-1).slug, `arch-${stamp}-2`);
 });
 
-test('arch file files each answered finding as a card in the review, resolves skips, and closes the audit once every finding is settled', async () => {
-  const b = await boardServer();
+test('arch file files each answered finding as a card in the review, resolves skips, and closes the audit once every finding is settled', async (t) => {
+  const b = await boardServer(t);
   assert.equal((await b.run()).status, 200);
   const option = (label, extra = {}) => ({ id: 'A', label, ...extra });
   const finding = (id, question, label, extra) => ({ id, topic: 'item:app/T-1', question, options: [option(label, extra), { id: 'skip', label: 'Skip' }] });
@@ -123,8 +122,8 @@ test('arch file files each answered finding as a card in the review, resolves sk
   assert.equal(JSON.parse(fs.readFileSync(path.join(b.site, 'data', 'threads', 'app__T-1.jsonl'), 'utf8').trim().split('\n').at(-1)).text, 'Every finding is settled: filed T-2, T-3.');
 });
 
-test('a review waits, saying why, while the mattpocock skills are missing', async () => {
-  const b = await boardServer({ skills: false });
+test('a review waits, saying why, while the mattpocock skills are missing', async (t) => {
+  const b = await boardServer(t, { skills: false });
   const { waits } = await b.arch();
   assert.equal(waits, 'Architecture reviews wait on improve-codebase-architecture, codebase-design, grilling and prototype from mattpocock/skills, which aren’t installed. Run kickflip doctor --fix on the host to add them.');
   assert.deepEqual(await b.run(), { status: 409, body: { error: waits } });
@@ -132,8 +131,8 @@ test('a review waits, saying why, while the mattpocock skills are missing', asyn
   assert.equal(readJSON(path.join(b.site, 'data', 'items.json')).items.length, 2);
 });
 
-test("a board on the kickflip clone, as the hub board is, names its review's scope: the clone's code and model, and the live data's shapes", async () => {
-  const b = await boardServer({ site: { hub: true, local: true, owner: { session: 's1', repo: path.resolve(serverFile, '..', '..') } } });
+test("a board on the kickflip clone, as the hub board is, names its review's scope: the clone's code and model, and the live data's shapes", async (t) => {
+  const b = await boardServer(t, { site: { hub: true, local: true, owner: { session: 's1', repo: path.resolve(serverFile, '..', '..') } } });
   assert.equal((await b.run()).status, 200);
   const { data } = b.events()[0];
   assert.deepEqual(data.scope.paths, ['hub/', 'board/', 'shared/', 'CONTEXT.md', 'docs/adr/']);
@@ -141,8 +140,8 @@ test("a board on the kickflip clone, as the hub board is, names its review's sco
   assert.equal(data.repo, path.resolve(serverFile, '..', '..'));
 });
 
-test('on a board over ~/.claude/waves the review is an item file of its own', async () => {
-  const b = await boardServer({ items: 'waves' });
+test('on a board over ~/.claude/waves the review is an item file of its own', async (t) => {
+  const b = await boardServer(t, { items: 'waves' });
   const r = await b.run();
   assert.deepEqual([r.status, r.body.key], [200, `arch-${stamp}/audit`]);
   const wave = readJSON(path.join(b.home, '.claude', 'waves', `arch-${stamp}`, 'wave.json'));

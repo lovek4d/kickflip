@@ -1,19 +1,13 @@
-import { test, after } from 'node:test';
+import { home } from '../shared/scratch-home.mjs';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { fakeGh, prView, writePR, writeReviews, calls } from '../shared/fake-gh.mjs';
-import { freePorts, boardListening } from '../shared/test-helpers.mjs';
-
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'server-merge-'));
-let child;
-after(() => { child?.kill(); fs.rmSync(home, { recursive: true, force: true }); });
+import { startBoard } from '../shared/test-helpers.mjs';
 
 // docs/adr/2026-11-04-2045-the-merge-tap-and-auto-merge-run-in-code.md
-test("the Merge tap merges the card in the board server, and a refusal answers the owner and goes in the card's thread, with no event to wake the session", async () => {
+test("the Merge tap merges the card in the board server, and a refusal answers the owner and goes in the card's thread, with no event to wake the session", async (t) => {
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(data, { recursive: true });
@@ -23,10 +17,8 @@ test("the Merge tap merges the card in the board server, and a refusal answers t
   const approval = (head) => [{ id: 1, user: { login: 'ann' }, state: 'APPROVED', submitted_at: '2026-11-04T10:00:00Z', commit_id: head }];
   writePR(home, 7, prView({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', head: 'aaa' })); writeReviews(home, 7, approval('aaa'));
   writePR(home, 8, prView({ failing: ['build'] })); writeReviews(home, 8, []);
-  const [port] = await freePorts();
-  const base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), PREFIX: '', PATH: `${fakeGh(home)}:${process.env.PATH}` } });
-  await boardListening(child);
+  process.env.PATH = `${fakeGh(home)}:${process.env.PATH}`;
+  const { base } = await startBoard(t, { site });
   const tap = (key) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-merge', key }) });
   const items = () => JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items;
   const thread = (key) => fs.readFileSync(path.join(data, 'threads', `${key.replace('/', '__')}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse).map((l) => l.text);

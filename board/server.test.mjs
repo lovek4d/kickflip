@@ -1810,13 +1810,10 @@ test("the board's version depends on its data alone: a minute later with nothing
   const server = path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs');
   try {
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
-      import http from 'node:http';
       import { mock } from 'node:test';
       mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:20Z') });
-      let server;
-      mock.method(http.Server.prototype, 'listen', function () { server = this; return this; });
-      process.argv[2] = ${JSON.stringify(at)};
-      await import(${JSON.stringify(server)});
+      const { startServer } = await import(${JSON.stringify(server)});
+      const { server } = await startServer({ site: ${JSON.stringify(at)} });
       const get = () => new Promise((resolve) => {
         const req = { method: 'GET', url: '/api/board', headers: {}, socket: { remoteAddress: '127.0.0.1' } };
         const res = { req, writeHead() { return this; }, end(body) { resolve(JSON.parse(body)); } };
@@ -1851,42 +1848,26 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
   try {
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
       import fs from 'node:fs';
-      import http from 'node:http';
       import { mock } from 'node:test';
       mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:00Z') });
-      mock.method(http.Server.prototype, 'listen', function () { return this; });
-      process.argv[2] = ${JSON.stringify(at)};
       const wave = ${JSON.stringify(path.join(at, 'data', 'items.json'))};
       const idle = ${JSON.stringify(path.join(at, 'data', 'idle.json'))};
       const pushes = () => (fs.existsSync(${JSON.stringify(calls)}) ? fs.readFileSync(${JSON.stringify(calls)}, 'utf8').trim().split('\\n').map((l) => JSON.parse(l)) : []);
       const state = () => (fs.existsSync(idle) ? fs.readFileSync(idle, 'utf8') : '');
-      // The mocked Date stands still, so a wait counts real 20 ms sleeps. A busy Mac's watch can drop a write, so every
-      // 2 s of waiting writes the nudge file: one more event that has the server read the board again.
-      const nudge = ${JSON.stringify(path.join(at, 'data', 'nudge'))};
-      const until = async (predicate, message, ms = 30000) => {
-        for (let n = 0; !predicate(); n++) {
-          if (n * 20 > 5 * ms) throw new Error(message);
-          if (n > 0 && n % 100 === 0) fs.writeFileSync(nudge, String(n));
-          await new Promise((r) => setTimeout(r, 20));
-        }
-      };
-      // Writes the wave and waits for the idle check to see it: the state file moves, or a settle time passes.
-      const write = async (items) => {
-        const before = state();
-        fs.writeFileSync(wave, JSON.stringify({ items }));
-        await until(() => state() !== before, 'the idle check', 1500).catch(() => {});
-        await new Promise((r) => setTimeout(r, 400));
-      };
-      await import(${JSON.stringify(server)});
-      await until(() => state(), 'the first idle check');
+      const { startServer } = await import(${JSON.stringify(server)});
+      const board = await startServer({ site: ${JSON.stringify(at)} });
+      // Writes a file and has the server hear it, then waits for every check that started.
+      const heard = async (file, text) => { fs.writeFileSync(file, text); board.changed(file); await board.settled(); };
+      const write = (items) => heard(wave, JSON.stringify({ items }));
+      await board.settled();
+      if (!state()) throw new Error('the first idle check wrote no state');
       const done = (id, mins) => { const at = new Date(Date.parse('2026-11-04T10:00:00Z') + mins * 60000).toISOString(); return { id, title: id, lane: 'done', lane_at: at, closed_at: at }; };
       await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
       mock.timers.tick(16 * 60000);
       await write([{ id: 'I1', title: 'Open!' }, done('I2', 5)]);
-      await until(() => pushes().length === 1, 'the idle push');
-      fs.writeFileSync(${JSON.stringify(path.join(at, 'board.json'))}, JSON.stringify({ title: 'Idle board', items: 'data/items.json', slug: 'i' }));
-      await write([{ id: 'I1', title: 'Open' }, done('I2', 5)]);
-      await until(() => !state(), 'turning it off forgets the stretch');
+      if (pushes().length !== 1) throw new Error('no idle push');
+      await heard(${JSON.stringify(path.join(at, 'board.json'))}, JSON.stringify({ title: 'Idle board', items: 'data/items.json', slug: 'i' }));
+      if (state()) throw new Error('turning it off kept the stretch');
       console.log(JSON.stringify({ pushes: pushes() }));
       process.exit(0);
     `], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PREFIX: '', KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8', timeout: 60000 });

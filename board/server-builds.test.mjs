@@ -1,120 +1,67 @@
+import { home } from '../shared/scratch-home.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import http from 'node:http';
-import os from 'node:os';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { freePorts, until, untilHeard, boardListening } from '../shared/test-helpers.mjs';
+import { EventEmitter } from 'node:events';
+import { startBoard } from '../shared/test-helpers.mjs';
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
-// Each board build reads the wave file once, so the server's reads of it count its builds; the names its watch reports
-// are recorded too. run(ctx) gets the server's port, the site, how many builds so far, settled(), and a page holding the
-// stream that reloads on each signal, its signals and loads counted since the last settled().
-async function withBoard(run) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'board-builds-'));
-  const site = path.join(dir, 'site');
+// docs/adr/2026-11-13-2210-the-board-server-starts-in-process-and-tests-await-settled.md
+// Each board build reads the wave file once, so reads of it count the builds. run(ctx) gets the in-process server, its
+// site, how many builds so far, and a page on its stream: each change signal pushes the page's reload of the board onto
+// ctx.loads.
+async function withBoard(t, run) {
+  const site = fs.mkdtempSync(path.join(home, 'site-'));
   const wave = path.join(site, 'data', 'items.json');
-  const reads = path.join(dir, 'reads');
-  const heard = path.join(dir, 'heard');
-  const setup = path.join(dir, 'setup.mjs');
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.mkdirSync(path.join(site, 'data', 'replies'));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(wave, JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress' }, { id: 'A2', title: 'Two' }] }));
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), '{"items":[]}');
-  fs.writeFileSync(setup, `
-    import fs from 'node:fs';
-    const read = fs.promises.readFile;
-    fs.promises.readFile = function (file, ...rest) {
-      if (String(file) === ${JSON.stringify(wave)}) fs.appendFileSync(${JSON.stringify(reads)}, '.');
-      return read.call(this, file, ...rest);
-    };
-    const watch = fs.watch;
-    fs.watch = function (...args) {
-      const listener = args.pop();
-      return watch.call(this, ...args, (event, name) => { fs.appendFileSync(${JSON.stringify(heard)}, name + '\\n'); listener(event, name); });
-    };
-    (await import('node:module')).syncBuiltinESMExports();
-  `);
-  const count = () => (fs.existsSync(reads) ? fs.readFileSync(reads, 'utf8').length : 0);
-  const [port] = await freePorts();
-  const worker = spawn(process.execPath, ['--import', setup, fileURLToPath(new URL('./server.mjs', import.meta.url)), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PORT: String(port) } });
-  let page;
-  try {
-    await boardListening(worker);
-    await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');
-    const ctx = { port, site, count, signals: 0, loads: 0 };
-    const load = () => fetch(`http://127.0.0.1:${port}/api/board`).then((r) => r.json()).then(() => { ctx.loads++; });
-    // Resolves once the server has read nothing for 800 ms, so every check it started has finished.
-    ctx.settled = async () => {
-      for (let last = -1; last !== count();) { last = count(); await new Promise((resolve) => setTimeout(resolve, 800)); }
-    };
-    await new Promise((resolve) => {
-      page = http.get(`http://127.0.0.1:${port}/api/stream`, (res) => { res.on('data', (c) => { if (String(c).includes('event: change')) { ctx.signals++; load(); } }); resolve(); });
-    });
-    // macOS's watch can report nothing for seconds after the server starts, then the writes since in batches, setup's
-    // and the server's own first writes included, out of order, and a busy Mac's can drop a write. The setup's events
-    // are in once the server's watch has reported a probe written after it started, and then nothing for 2 s.
-    const probe = path.join(site, 'data', 'probe');
-    const names = () => (fs.existsSync(heard) ? fs.readFileSync(heard, 'utf8').split('\n') : []);
-    // Resolves once the server's watch has reported nothing for 2 s, then every build it started has finished, so a late
-    // event, the startup's or a nudge's, has had its build and signal in before a test counts.
-    ctx.quiet = async () => {
-      let last = names().length, since = Date.now();
-      await until(() => {
-        if (names().length !== last) { last = names().length; since = Date.now(); }
-        return Date.now() - since >= 2000;
-      }, "the server's watch goes quiet", 15000);
-      await ctx.settled();
-    };
-    fs.writeFileSync(probe, '0');
-    await untilHeard(() => names().some((name) => name.endsWith('probe')), "the server's watch reports a write", probe);
-    await ctx.quiet();
-    ctx.signals = 0;
-    ctx.loads = 0;
-    await run(ctx);
-  } finally {
-    page?.destroy();
-    worker.kill();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  let reads = 0;
+  const read = fsp.readFile;
+  t.mock.method(fsp, 'readFile', function (file, ...rest) {
+    if (String(file) === wave) reads++;
+    return read.call(this, file, ...rest);
+  });
+  const b = await startBoard(t, { site });
+  await b.settled();
+  const ctx = { ...b, site, count: () => reads, loads: [] };
+  const page = Object.assign(new EventEmitter(), { method: 'GET', url: '/api/stream', headers: {} });
+  b.server.emit('request', page, {
+    writeHead() { return this; },
+    write(text) { if (text.includes('event: change')) ctx.loads.push(fetch(`${b.base}/api/board`).then((r) => r.json())); },
+  });
+  await run(ctx);
 }
 
-test('each change signal builds the board once for every check and the page that reloads on it', () => withBoard(async (ctx) => {
+test('each change signal builds the board once for every check and the page that reloads on it', (t) => withBoard(t, async (ctx) => {
   const before = ctx.count();
-  fs.appendFileSync(path.join(ctx.site, 'data', 'threads', 't__A1.jsonl'), JSON.stringify({ ts: new Date().toISOString(), who: 'claude', kind: 'status', text: 'building: a line' }) + '\n');
-  await untilHeard(() => ctx.signals > 0 && ctx.loads === ctx.signals, 'the change signal and the page load', path.join(ctx.site, 'data', 'nudge'));
-  await ctx.quiet();
-  assert.equal(ctx.loads, ctx.signals);
-  // A late event is one more build, and its signal can be folded into this one.
-  const builds = ctx.count() - before;
-  assert.ok(builds >= ctx.signals && builds <= ctx.signals + 1, `${builds} builds for ${ctx.signals} change signals`);
+  const thread = path.join(ctx.site, 'data', 'threads', 't__A1.jsonl');
+  fs.appendFileSync(thread, JSON.stringify({ ts: new Date().toISOString(), who: 'claude', kind: 'status', text: 'building: a line' }) + '\n');
+  ctx.changed(thread);
+  await ctx.settled();
+  await Promise.all(ctx.loads);
+  await ctx.settled();
+  assert.equal(ctx.loads.length, 1);
+  assert.equal(ctx.count() - before, 1);
 }));
 
 // docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md
-test("a tap builds the board once: its answer's build has read the tap's own line, so the change signal that follows reuses it, and writing data/sync.json sends no signal", () => withBoard(async (ctx) => {
+test("a tap builds the board once: its answer's build has read the tap's own line, so the change signal that follows reuses it, and writing data/sync.json sends no signal", (t) => withBoard(t, async (ctx) => {
   const before = ctx.count();
-  let taps = 0, board;
-  const tap = async () => {
-    taps++;
-    ({ board } = await fetch(`http://127.0.0.1:${ctx.port}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ping', title: 'A tap' }) }).then((r) => r.json()));
-  };
-  // A busy Mac's watch can drop the write to the events file, and the change signal comes only from hearing it, so a
-  // tap with no signal for 5 s is tapped again: each tap still builds the board once.
-  await tap();
-  let tapped = Date.now();
-  await until(async () => {
-    if (ctx.signals > 0 && ctx.loads === ctx.signals) return true;
-    if (Date.now() - tapped >= 5000) { await tap(); tapped = Date.now(); }
-    return false;
-  }, 'the change signal and the page load');
-  await ctx.quiet();
-  // A late event is one more build, and its signal can be folded into the tap's; each tap's own signal reuses the tap's build.
-  assert.ok(ctx.signals >= 1, 'no change signal');
-  const builds = ctx.count() - before;
-  assert.ok(builds >= taps && builds <= Math.max(taps, ctx.signals) + 1, `${builds} builds for ${taps} taps and ${ctx.signals} change signals`);
-  const again = await fetch(`http://127.0.0.1:${ctx.port}/api/board`, { headers: { 'if-none-match': `"${board.version}"` } });
+  const { board } = await fetch(`${ctx.base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ping', title: 'A tap' }) }).then((r) => r.json());
+  ctx.changed(path.join(ctx.site, 'data', 'events.jsonl'));
+  await ctx.settled();
+  await Promise.all(ctx.loads);
+  await ctx.settled();
+  assert.equal(ctx.loads.length, 1);
+  assert.equal(ctx.count() - before, 1);
+  ctx.changed(path.join(ctx.site, 'data', 'sync.json'));
+  await ctx.settled();
+  assert.equal(ctx.loads.length, 1, 'data/sync.json sends no signal');
+  const again = await fetch(`${ctx.base}/api/board`, { headers: { 'if-none-match': `"${board.version}"` } });
   assert.equal(again.status, 304);
 }));

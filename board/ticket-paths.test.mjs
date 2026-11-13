@@ -7,9 +7,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { fakeLinear, freePorts, linearWorld, boardListening } from '../shared/test-helpers.mjs';
+import { fakeLinear, linearWorld, startBoard } from '../shared/test-helpers.mjs';
 import { fakeGh } from '../shared/fake-gh.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 
@@ -176,12 +175,11 @@ test("the board server's Run review route and arch file file their cards as task
   quiet(t);
   const b = board('app');
   for (const name of REVIEW_SKILLS) write(path.join(home, '.claude', 'skills', name, 'SKILL.md'), `# ${name}\n`);
-  const env = { ...process.env, HOME: home, PATH: `${fakeGh(path.join(home, 'gh'))}:${process.env.PATH}` };
-  const [port] = await freePorts();
-  const child = spawn(process.execPath, [path.join(here, 'server.mjs'), b.site], { env: { ...env, PORT: String(port) } });
-  t.after(() => child.kill());
-  await boardListening(child);
-  const post = async (p, body) => { const r = await fetch(`http://127.0.0.1:${port}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+  const searchPath = process.env.PATH;
+  process.env.PATH = `${fakeGh(path.join(home, 'gh'))}:${searchPath}`;
+  t.after(() => { process.env.PATH = searchPath; });
+  const { base } = await startBoard(t, { site: b.site });
+  const post = async (p, body) => { const r = await fetch(`${base}${p}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
 
   assert.equal((await post('/api/settings', { tickets: { source: 'github' } })).status, 200);
   const review = await post('/api/arch-review', {});
@@ -312,9 +310,19 @@ function sources() {
   SOURCE_DIRS.filter((d) => fs.existsSync(path.join(root, d))).forEach(walk);
   return files;
 }
-// The top-level function or const a line sits in.
+// The top-level function or const a line sits in, or the function declared one level inside it that the line sits
+// in, as board/server.mjs declares its functions inside startServer.
 const TOP = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)|(?:const|let)\s+(\w+)\s*=)/;
-const enclosing = (lines, i) => { for (let j = i; j >= 0; j--) { const m = TOP.exec(lines[j]); if (m) return m[1] || m[2]; } return '(top)'; };
+const INNER = /^ {2}(?:async\s+)?function\s+(\w+)/;
+const enclosing = (lines, i) => {
+  for (let j = i; j >= 0; j--) {
+    const inner = INNER.exec(lines[j]);
+    if (inner) return inner[1];
+    const m = TOP.exec(lines[j]);
+    if (m) return m[1] || m[2];
+  }
+  return '(top)';
+};
 const bodyOf = (text, name) => {
   const lines = text.split('\n');
   const start = lines.findIndex((l) => TOP.exec(l)?.slice(1).includes(name));

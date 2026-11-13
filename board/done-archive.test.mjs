@@ -1,12 +1,11 @@
 // docs/adr/2026-11-04-0307-the-board-keeps-the-newest-100-done-cards.md
+import '../shared/scratch-home.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { freePorts, until } from '../shared/test-helpers.mjs';
+import { startBoard } from '../shared/test-helpers.mjs';
 import { buildBoard, archivedOf, slimDone, DONE_KEPT } from './domain.mjs';
 import { archiveCards, readArchive, appendMessage, setItem, stripDeadFields } from './store.mjs';
 
@@ -140,7 +139,7 @@ test("the strip drops what nothing reads: an archive entry's page card for its c
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('the server archives Done cards past the newest 100 as it starts, sends the rest slim, and pages the archive in 100 at a time', async () => {
+test('the server archives Done cards past the newest 100 as it starts, sends the rest slim, and pages the archive in 100 at a time', async (t) => {
   const count = 2 * DONE_KEPT + 36;
   const { home, site, read } = siteOf(count);
   const write = (f, v) => fs.writeFileSync(path.join(site, 'data', f), JSON.stringify(v));
@@ -151,45 +150,41 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
   const owner = read('owner.json');
   Object.assign(owner.items.find((q) => q.id === 'q-other'), { push_tag: 'item-t/D0', no_change: true });
   write('owner.json', owner);
-  const [port] = await freePorts();
-  const base = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, [fileURLToPath(new URL('./server.mjs', import.meta.url)), site], { env: { ...process.env, HOME: home, PORT: String(port) } });
-  try {
-    await new Promise((resolve, reject) => { child.stdout.on('data', (d) => String(d).includes('site on') && resolve()); child.once('exit', reject); });
-    await until(async () => (await readArchive(site)).length === count - DONE_KEPT - 3, 'the start archives every card past the newest 100 but the kept 3');
-    // The server sees its archive's writes to the item file once its file watcher does.
-    let board;
-    await until(async () => (board = await (await fetch(`${base}/api/board`)).json()).items.filter((i) => i.lane === 'done').length === DONE_KEPT + 3, 'the board leaves the archived cards out');
-    const done = board.items.filter((i) => i.lane === 'done');
-    assert.equal(board.doneArchived, count - DONE_KEPT - 3);
-    assert.ok(done.every((c) => !('agents' in c) && !('created' in c)), 'Done cards come slim');
-    assert.ok(board.items.find((i) => i.key === 't/O1').created !== undefined, 'open cards come whole');
-    assert.ok(!read('items.json').items.some((it) => it.id === 'D100'));
-    assert.ok(!board.items.some((i) => i.key === 'ask:a1'), 'an ask made into an archived card stays out of Todo');
-    assert.equal(board.moved['ask:a1'], `t/D${count - 4}`);
+  const { base, changed, settled } = await startBoard(t, { site, home });
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  await settled();
+  assert.equal((await readArchive(site)).length, count - DONE_KEPT - 3, 'the start archives every card past the newest 100 but the kept 3');
+  // The server sees its archive's writes to the item file once its file watch reports them.
+  changed('data/items.json');
+  await settled();
+  const board = await (await fetch(`${base}/api/board`)).json();
+  assert.equal(board.items.filter((i) => i.lane === 'done').length, DONE_KEPT + 3, 'the board leaves the archived cards out');
+  const done = board.items.filter((i) => i.lane === 'done');
+  assert.equal(board.doneArchived, count - DONE_KEPT - 3);
+  assert.ok(done.every((c) => !('agents' in c) && !('created' in c)), 'Done cards come slim');
+  assert.ok(board.items.find((i) => i.key === 't/O1').created !== undefined, 'open cards come whole');
+  assert.ok(!read('items.json').items.some((it) => it.id === 'D100'));
+  assert.ok(!board.items.some((i) => i.key === 'ask:a1'), 'an ask made into an archived card stays out of Todo');
+  assert.equal(board.moved['ask:a1'], `t/D${count - 4}`);
 
-    const first = await (await fetch(`${base}/api/done`)).json();
-    assert.deepEqual([first.cards.length, first.cards[0].key, first.cards.at(-1).key, first.left], [DONE_KEPT, 't/D100', 't/D199', count - DONE_KEPT - 3 - DONE_KEPT]);
-    assert.ok(first.cards.every((c) => c.lane === 'done' && !('agents' in c) && !('created' in c)), 'paged cards come slim');
-    assert.deepEqual([first.cards[0].title, first.cards[0].lane, first.cards[0].sortAt, first.cards[0].file], ['Done 100', 'done', at(100), 't'], 'a paged card is built as it pages in');
-    const last = first.cards.at(-1);
-    const second = await (await fetch(`${base}/api/done?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}`)).json();
-    assert.deepEqual([second.cards.map((c) => c.key), second.left], [Array.from({ length: count - 3 - 200 }, (_, n) => `t/D${200 + n}`), 0]);
-    const answered = second.cards.find((c) => c.key === `t/D${count - 4}`);
-    assert.equal(answered.questions?.state, 'resolved', "a paged card reads its archived questions");
-    assert.ok(answered.threadCount >= 1, 'and its thread');
-    assert.deepEqual(second.cards.find((c) => c.key === `t/D${count - 5}`).children.map((c) => c.key), ['t/D0'], 'a paged card links the board cards that name it');
-    assert.ok((await readArchive(site)).every((a) => !('card' in a) && a.closed_at));
-    assert.equal(read('items.json').items.find((it) => it.id === 'D0').summary, undefined, 'the start strips an item summary');
-    assert.deepEqual(Object.keys(read('owner.json').items.find((q) => q.id === 'q-other')).filter((k) => ['push_tag', 'no_change', 'resolved_at'].includes(k)), ['resolved_at'],
-      "the start strips a question's push_tag and no_change and keeps resolved_at");
+  const first = await (await fetch(`${base}/api/done`)).json();
+  assert.deepEqual([first.cards.length, first.cards[0].key, first.cards.at(-1).key, first.left], [DONE_KEPT, 't/D100', 't/D199', count - DONE_KEPT - 3 - DONE_KEPT]);
+  assert.ok(first.cards.every((c) => c.lane === 'done' && !('agents' in c) && !('created' in c)), 'paged cards come slim');
+  assert.deepEqual([first.cards[0].title, first.cards[0].lane, first.cards[0].sortAt, first.cards[0].file], ['Done 100', 'done', at(100), 't'], 'a paged card is built as it pages in');
+  const last = first.cards.at(-1);
+  const second = await (await fetch(`${base}/api/done?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}`)).json();
+  assert.deepEqual([second.cards.map((c) => c.key), second.left], [Array.from({ length: count - 3 - 200 }, (_, n) => `t/D${200 + n}`), 0]);
+  const answered = second.cards.find((c) => c.key === `t/D${count - 4}`);
+  assert.equal(answered.questions?.state, 'resolved', "a paged card reads its archived questions");
+  assert.ok(answered.threadCount >= 1, 'and its thread');
+  assert.deepEqual(second.cards.find((c) => c.key === `t/D${count - 5}`).children.map((c) => c.key), ['t/D0'], 'a paged card links the board cards that name it');
+  assert.ok((await readArchive(site)).every((a) => !('card' in a) && a.closed_at));
+  assert.equal(read('items.json').items.find((it) => it.id === 'D0').summary, undefined, 'the start strips an item summary');
+  assert.deepEqual(Object.keys(read('owner.json').items.find((q) => q.id === 'q-other')).filter((k) => ['push_tag', 'no_change', 'resolved_at'].includes(k)), ['resolved_at'],
+    "the start strips a question's push_tag and no_change and keeps resolved_at");
 
-    const archived = `t/D${count - 4}`;
-    assert.ok((await readArchive(site)).some((a) => a.key === archived));
-    const thread = await (await fetch(`${base}/api/thread?key=${encodeURIComponent(archived)}`)).json();
-    assert.deepEqual(thread.map((m) => m.text), ['Make a badge', 'Question 1 · Which badge?\n→ The dot', 'Landed.'], "an archived card's thread reads whole, its ask and its answers with their questions");
-  } finally {
-    child.kill();
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+  const archived = `t/D${count - 4}`;
+  assert.ok((await readArchive(site)).some((a) => a.key === archived));
+  const thread = await (await fetch(`${base}/api/thread?key=${encodeURIComponent(archived)}`)).json();
+  assert.deepEqual(thread.map((m) => m.text), ['Make a badge', 'Question 1 · Which badge?\n→ The dot', 'Landed.'], "an archived card's thread reads whole, its ask and its answers with their questions");
 });

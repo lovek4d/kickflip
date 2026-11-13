@@ -41,6 +41,16 @@ export function boardListening(child) {
   });
 }
 
+// docs/adr/2026-11-13-2210-the-board-server-starts-in-process-and-tests-await-settled.md
+// The board server in this process, listening on a port the OS picks, closed after test t; options go to
+// board/server.mjs startServer. base is its address. Import shared/scratch-home.mjs first, as the server reads HOME.
+export async function startBoard(t, options) {
+  const { startServer } = await import('../board/server.mjs');
+  const board = await startServer(options);
+  t.after(() => board.close());
+  return { ...board, base: `http://127.0.0.1:${board.server.address().port}` };
+}
+
 // docs/adr/2026-11-12-1110-a-test-waits-on-state-and-fails-only-at-5x-its-budget.md
 // Polls predicate every 20 ms until it holds. budget is how long the wait should take: past it the wait warns and goes
 // on, since a loaded host is slow, not wrong, and only past 5× the budget does it fail with message.
