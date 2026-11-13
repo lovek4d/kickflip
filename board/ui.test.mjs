@@ -204,16 +204,17 @@ test("the PR badge alone shows the PR's state, linking to the PR: a purple check
 
 test('the header reads the time since the last change signal or refresh, and the In Review header when GitHub was checked, each saying when it needs a look', () => {
   const checks = { at: ago(4 / 60), every: 30, late: false, watcher: 'running', claudeAt: ago(3) };
-  const fresh = ago(1 / 60);
-  assert.equal(text(ui.statusLine(fresh)), '1 min');
-  assert.match(ui.statusLine(fresh), /title="Updated 1 min ago[^"]*"/);
+  const fresh = ago(30 / 3600);
+  assert.equal(text(ui.statusLine(fresh)), 'now');
+  assert.match(ui.statusLine(fresh), /title="Updated [^"]*"/);
+  assert.equal(text(ui.statusLine(ago(2 / 60))), '2 min');
   assert.equal(text(ui.statusLine(ago(0))), 'now');
   assert.equal(text(ui.statusLine(ago(2), { watcher: 'running' })), '2 h');
   assert.equal(ui.statusLine(null), '');
   // The time never changes to words: only the span's class (red, orange) and title move.
   const cls = (html) => /class="([^"]*)"/.exec(html)[1];
   for (const opts of [{ watcher: 'stopped' }, { link: 'offline' }, { link: 'reconnecting' }, { watcher: 'asleep' }, { watcher: 'asleep', waking: true }, { watcher: 'waking' }, { pause: { state: 'paused', resets_at: ago(-1) } }, { watcher: 'stopped', waking: true }]) {
-    assert.equal(text(ui.statusLine(fresh, opts)), '1 min', JSON.stringify(opts));
+    assert.equal(text(ui.statusLine(fresh, opts)), 'now', JSON.stringify(opts));
   }
   assert.equal(cls(ui.statusLine(fresh, { watcher: 'stopped' })), 'fresh', 'never coloured: the logo dot says it');
   assert.match(ui.statusLine(fresh, { watcher: 'stopped' }), /title="Claude not listening\. Updated /);
@@ -223,7 +224,13 @@ test('the header reads the time since the last change signal or refresh, and the
   assert.equal(cls(ui.statusLine(fresh, { link: 'reconnecting' })), 'fresh');
   assert.match(ui.statusLine(fresh, { link: 'reconnecting' }), /title="Reconnecting…\. Updated /);
   assert.match(ui.statusLine(fresh, { watcher: 'asleep' }), /title="Asleep: [^"]*wakes it\. Updated /);
-  assert.equal(text(ui.statusLine(fresh, { watcher: 'running', waking: true })), '1 min');
+  assert.equal(text(ui.statusLine(fresh, { watcher: 'running', waking: true })), 'now');
+  // The time and the arrow go orange (class late) only once the data is more than 60 s old, whatever else the header says.
+  const sec = (n) => new Date(NOW - n * 1000).toISOString();
+  assert.equal(cls(ui.statusLine(sec(59))), 'fresh');
+  assert.equal(cls(ui.statusLine(sec(61))), 'fresh late');
+  assert.equal(cls(ui.statusLine(sec(61), { watcher: 'stopped', link: 'offline' })), 'fresh late');
+  assert.equal(cls(ui.statusLine(sec(59), { watcher: 'stopped', pause: { state: 'paused', resets_at: ago(-1) } })), 'fresh');
   assert.equal(text(ui.statusLine(undefined, { link: 'offline' })), '');
   assert.equal(text(ui.githubLine(checks)), 'GitHub 4 min');
   assert.match(ui.githubLine(checks), /<svg class="gh-mark"[^>]*aria-label="GitHub"/);

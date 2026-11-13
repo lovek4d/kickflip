@@ -2,8 +2,8 @@
 (function () {
   const { since, esc } = globalThis.BoardUI;
   // The header's short time beside refresh: `at` is when the page last got fresh data (nextFresh). It reads that age;
-  // the board's other states only move its title; the time and the arrow are never coloured, since the logo's dot carries
-  // the state (docs/adr/2026-11-12-1000-the-logo-dot-carries-the-hub-state.md). watcher is
+  // the board's other states only move its title; the logo's dot carries the state, and the span takes `late` past a
+  // minute old, which style.css turns orange with the arrow (docs/adr/2026-11-12-1000-the-logo-dot-carries-the-hub-state.md). watcher is
   // /api/board's checks.watcher (docs/adr/2026-10-29-1639-the-board-shows-github-checks-and-watcher-health.md).
   // link is 'online', 'offline' (the last board load failed) or 'reconnecting' (a refresh tap is retrying it, and the icon spins).
   const statusLine = (at, { link = 'online', watcher, pause, waking = false } = {}) => {
@@ -16,7 +16,8 @@
       : watcher === 'asleep' ? 'Asleep: its session idled out. Refresh, or any tap on the page, wakes it' : '';
     if (!at && !reason) return '';
     const title = [reason, at && `Updated ${since(at)}: the last change from the host, or your last refresh`].filter(Boolean).join('. ');
-    return `<span class="fresh" title="${esc(title)}">${at ? shortSince(at) : ''}</span>`;
+    const late = at && Date.now() - Date.parse(at) > 60000;
+    return `<span class="fresh${late ? ' late' : ''}" title="${esc(title)}">${at ? shortSince(at) : ''}</span>`;
   };
   // What the page shows, for telling whether a change signal brought anything new; generatedAt changes on every load.
   const freshSig = (board, threads, openKeys) => JSON.stringify([{ ...board, generatedAt: null }, [...openKeys].sort().map((k) => [k, threads.get(k) ?? null])]);
