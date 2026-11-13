@@ -313,6 +313,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
          [--relate <id>,<file>/<id>]                     own form, linking it with --relate in the same call.
                                                          ready is for a Quick build ask (--from-ask), with --size
                                                          and --notes or --notes-from, since a builder starts from it
+         [--text <t>]                                    with --phase discussing, required: the card's first thread
+                                                         line, after Created from, in the same write; it reads the owner's turn
          [--from-ask <eventId> --text <t>]               files the card from that ask in this one command, as
                                                          item set's --from-ask, refusing an ask that is already a
                                                          card: no grill starts before the ask is on
@@ -924,6 +926,7 @@ const COMMANDS = {
   }],
   'item add': [['file[/id]'], ['title', 'notes', 'notes-from', 'deps', 'notes-file', 'plan', 'ticket', 'new-ticket', 'pick-up-at', 'held', 'parent', 'from', 'split-of', 'size', 'model', 'phase', 'state', 'relate', 'from-ask', 'text'], (site, [key], f, options) => {
     refuseNotesFile(f, 'seed a new card\'s notes with item add --notes-from <draft.md>');
+    if (f.phase === 'discussing' && f.text === undefined && f['from-ask'] === undefined) throw new UsageError('item add --phase discussing needs --text "<first message>": the card opens with it, after Created from, and reads the owner\'s turn');
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
     return store.addItem(site, key, { title: f.title, notes: f.notes, notesFrom: f['notes-from'], deps: f.deps, ticket: f.ticket, newTicket: f['new-ticket'], pickUpAt: f['pick-up-at'], held: f.held, parent: f.parent, from: f.from, splitOf: f['split-of'], size: f.size, model: f.model, phase: f.phase, state: f.state, relate: f.relate, fromAsk: f['from-ask'], text: f.text, intake: true }, options);
   }],

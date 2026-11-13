@@ -3513,7 +3513,8 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   if (id !== undefined) domId(id, 'the item id');
   checkPhase(phase, state);
   if (said !== undefined) text(said, '--text');
-  if (said !== undefined && fromAsk === undefined) fail('--text goes with --from-ask');
+  // docs/adr/2026-11-13-2050-a-task-filed-by-the-orchestrator-opens-with-its-first-message.md
+  if (said !== undefined && fromAsk === undefined && phase !== 'discussing') fail('--text goes with --from-ask, or with --phase discussing');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (ticket !== undefined && newTicket) fail('pass --ticket <id> to link a ticket or --new-ticket to make one, not both');
   // docs/adr/2026-11-10-1100-item-add-files-an-ask-in-one-command.md: every refusal below comes before assignTicket, so it writes nothing.
@@ -3583,6 +3584,7 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   }
   if (madeAtReady && site) await appendStatus(site, added, 'ticket-made', { ticket: item.ticket });
   if (site) await postLinkLines(site, added, { related: new Set(), parent: null }, await linksOf(site, added), from !== undefined);
+  if (said !== undefined && !ask) await appendMessage(site, added, { text: said });
   return { file: source.file, key: added, lines: [] };
 }
 

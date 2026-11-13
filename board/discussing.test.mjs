@@ -95,7 +95,7 @@ test("item set --phase discussing files a card discussing, and leaving it for gr
 
 test('item add --phase discussing files a card discussing; ready still comes only from staging', async () => {
   await store();
-  const r = await board('item', 'add', 'audit/D1', '--title', 'feat: talk it through', '--phase', 'discussing', '--site', 'audit');
+  const r = await board('item', 'add', 'audit/D1', '--title', 'feat: talk it through', '--phase', 'discussing', '--text', 'First message.', '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'D1').phase, 'discussing');
   write(audit('data', 'D1.md'), '# D1\n');
@@ -246,4 +246,17 @@ test('a card set to discussing, by item set or a reply, drops its unwritten brie
   assert.equal((await board('item', 'brief', 'audit/T-1', '--kind', 'visual', '--file', draft, '--site', 'audit')).code, 0);
   assert.equal((await board('item', 'set', 'audit/T-1', '--phase', 'discussing', '--site', 'audit')).code, 0);
   assert.deepEqual(t1().briefs.map((b) => b.kind), ['visual'], 'the unwritten grill goes, the written visual stays');
+});
+
+// docs/adr/2026-11-13-2050-a-task-filed-by-the-orchestrator-opens-with-its-first-message.md
+test("item add --phase discussing writes --text as the card's first thread line, and without it is refused and writes nothing", async () => {
+  await store();
+  const refused = await board('item', 'add', 'audit/D2', '--title', 'feat: talk it', '--phase', 'discussing', '--site', 'audit');
+  assert.equal(refused.code, 2);
+  assert.match(refused.err, /needs --text/);
+  assert.equal(read(audit('data', 'items.json')).items.some((i) => i.id === 'D2'), false);
+  const r = await board('item', 'add', 'audit/D2', '--title', 'feat: talk it', '--phase', 'discussing', '--text', 'Opening message.', '--site', 'audit');
+  assert.deepEqual([r.code, r.err], [0, '']);
+  assert.deepEqual(lines(audit('data', 'threads', 'audit__D2.jsonl')).map((l) => [l.who, l.text]), [['claude', 'Opening message.']]);
+  assert.match((await board('item', 'add', 'audit/D3', '--title', 'feat: grill', '--phase', 'grilling', '--text', 'x', '--site', 'audit')).err, /--text goes with/);
 });

@@ -19,7 +19,7 @@ test('item add, item set --title and reply --title refuse a title that is neithe
     { code: 1, out: '', err: `--title "ask(board): why" isn't "ask(<scope>): <question>?", ending with "?"; a card's title is ${words}\n` });
   assert.deepEqual(read(at('waves', 'w', 'wave.json')), before);
   assert.equal((await board('item', 'add', 'w/B1', '--site', 'orch', '--phase', 'grilling', '--title', 'fix(board): header jumps on scroll')).code, 0);
-  assert.equal((await board('item', 'add', 'w/B2', '--site', 'orch', '--phase', 'discussing', '--title', 'ask(board): do we still need staging?')).code, 0);
+  assert.equal((await board('item', 'add', 'w/B2', '--site', 'orch', '--phase', 'discussing', '--text', 'First message.', '--title', 'ask(board): do we still need staging?')).code, 0);
   assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--title', 'feat: the first')).code, 0);
   assert.deepEqual(items().map((i) => i.title), ['feat: the first', 'feat: later','fix(board): header jumps on scroll', 'ask(board): do we still need staging?']);
 
