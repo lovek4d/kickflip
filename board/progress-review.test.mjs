@@ -94,5 +94,5 @@ test('the page draws the lanes with their colours, opens a tapped card beneath, 
   assert.equal(lines[2], 'Lane colours: Todo #999999 (was #6b6b76), In Progress #d97706, In Review #2b6cb0');
   assert.ok(lines.includes('Building (was Build), In Progress: building › planning › testing › checking › landing (was reading › building › testing › checking › landing)'), p.sent[0].text);
   assert.ok(lines.includes('Rebase run, In Progress (was In Review): a status line, no bar'));
-  assert.equal(p.$('[data-sent]').textContent, 'Sent. The orchestrator files it as a card.');
+  assert.equal(p.$('[data-sent]').textContent, 'Sent. The orchestrator files it as a task.');
 });

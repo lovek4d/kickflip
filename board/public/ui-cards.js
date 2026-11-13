@@ -89,16 +89,16 @@
   }
   const tryWords = (kind) => kind === 'app' ? {
     go: 'Serve', going: 'serving…', done: 'Install', failed: 'serve failed',
-    current: 'Nothing new to serve: Install already has this card’s latest push.',
+    current: 'Nothing new to serve: Install already has this task’s latest push.',
     busy: 'Serving now. The badge turns back into Install when the new build is ready.',
-    autoSub: 'The hub serves each card after each push, and main after each merge.',
-    saved: (on) => on ? 'Saved. Each push serves its card.' : 'Saved. Cards wait for your Serve.',
+    autoSub: 'The hub serves each task after each push, and main after each merge.',
+    saved: (on) => on ? 'Saved. Each push serves its task.' : 'Saved. Tasks wait for your Serve.',
   } : {
     go: 'Serve', going: 'serving…', done: 'Visit', failed: 'serve failed',
-    current: 'Nothing new to serve: Visit already shows this card’s latest push.',
+    current: 'Nothing new to serve: Visit already shows this task’s latest push.',
     busy: 'Serving now. The badge turns back into Visit when the new server is up.',
-    autoSub: 'The hub serves each card after each push, and main after each merge.',
-    saved: (on) => on ? 'Saved. Each push serves its card.' : 'Saved. Cards wait for your Serve.',
+    autoSub: 'The hub serves each task after each push, and main after each merge.',
+    saved: (on) => on ? 'Saved. Each push serves its task.' : 'Saved. Tasks wait for your Serve.',
   };
   const spinner = '<span class="try-spin" aria-hidden="true"></span>';
   const tryURL = (run) => run.kind === 'web' ? run.port ? `https://${location.hostname}:${run.port}/` : null : run.url;
@@ -114,7 +114,7 @@
     const words = tryWords(t.kind);
     if (t.state === 'running') return { tone: 'notice', html: spinner + esc(words.going), attrs: { role: 'status' } };
     if (t.state === 'failed') return { tone: 'danger', html: `${esc(words.failed)} ${LINK_ARROW}`, href: `#selectedCard=${encodeURIComponent(it.key)}`,
-      title: 'The build script stopped with an error. Tap for its log in the card’s thread.', attrs: { 'data-try-log': it.key } };
+      title: 'The build script stopped with an error. Tap for its log in the task’s thread.', attrs: { 'data-try-log': it.key } };
     if (t.state !== 'ready' || !t.url) return null;
     return { tone: t.stale ? 'quiet' : 'ready', html: `${esc(words.done)}${t.stale ? ' (stale)' : ''} ${LINK_ARROW}`, href: t.url,
       title: t.sha ? `Built from ${t.sha}${t.stale ? '; the branch has newer commits' : ''}` : null, attrs: t.kind === 'web' ? EXTERNAL : {} };

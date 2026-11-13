@@ -330,7 +330,7 @@ test("a phased status line reads its phase first on the card, and a free-text li
   const progress = (...lines) => board({ agents, threads: { 'w/A1': lines.map((l, i) => ({ ts: `2026-10-23T10:0${i + 2}:00Z`, who: 'claude', kind: 'status', ...l })) } }).items.find((i) => i.key === 'w/A1').builder.progress;
   assert.equal(progress({ phase: 'testing', text: 'Testing: fix for the scroll jump: red first' }), 'Testing · fix for the scroll jump: red first');
   assert.equal(progress({ phase: 'landing', text: 'Codex landing: rebasing on main' }), 'Codex landing · rebasing on main');
-  assert.equal(progress({ phase: 'testing', text: 'Testing: x' }, { text: 'Cause: steady() anchored the card' }), 'Cause: steady() anchored the card');
+  assert.equal(progress({ phase: 'testing', text: 'Testing: x' }, { text: 'Cause: steady() anchored the task' }), 'Cause: steady() anchored the task');
 });
 
 test('lanes follow the PR, with a red ready PR in In Review until a fix builder starts, and an open follow-up sits in Todo', () => {
@@ -563,7 +563,7 @@ test("needs sorts each card's line by its card's created time, and a topic with 
     ],
   };
   const names = (b) => b.needs.map((l) => l.text.split(' · ')[0]);
-  assert.deepEqual(names(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['A1: One', 'Site'], 'the card was created first, though asked last');
+  assert.deepEqual(names(board({ owner, item: { created: '2026-10-23T10:00:00Z' } })), ['A1: One', 'Site'], 'the task was created first, though asked last');
   assert.deepEqual(board({ owner, item: { created: '2026-10-23T10:00:00Z' } }).needs.map((l) => l.since), ['2026-10-23T10:00:00Z', '2026-10-23T12:00:00Z']);
   const newer = board({ owner, item: { created: '2026-10-23T13:00:00Z' } });
   assert.deepEqual(names(newer), ['Site', 'A1: One']);
@@ -650,7 +650,7 @@ test("a card's own ask reads answered once the card has a phase, so a readied Qu
   const built = (events, phase) => buildBoard({ fromWaves: false, events, working, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'feat: hi', from_ask: 'a1', ...(phase ? { phase } : {}) }] } }] });
   const card = (b) => b.items.find((i) => i.key === 'w/T-1');
   const unsorted = built([ask]);
-  assert.equal(card(unsorted).working, true, 'a New card keeps working');
+  assert.equal(card(unsorted).working, true, 'a New task keeps working');
   const ready = built([ask], 'ready');
   assert.deepEqual([card(ready).working, pullOf(ready.items).pullable.includes('w/T-1')], [false, true]);
   assert.equal(card(built([ask], 'grilling')).working, false);
@@ -996,7 +996,7 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   const unpicked = card({ owner: { items: [takes] }, events: [answer(1, 'A', ''), answer(2, null, 'Neither: try a darker moon')] });
   assert.deepEqual([one(unpicked).lane, one(unpicked).buildable, one(unpicked).next, one(unpicked).action, one(unpicked).phase], ['todo', false, PROTOTYPE_AGAIN, null, 'prototyping']);
   // A card prototyping again has had its questions, so it is no arrival for the board to grill.
-  assert.deepEqual(arrivalsOf(unpicked.items), ['w/ENG-1'], 'its fresh follow-up arrives, the card itself does not');
+  assert.deepEqual(arrivalsOf(unpicked.items), ['w/ENG-1'], 'its fresh follow-up arrives, the task itself does not');
   const picked = card({ owner: { items: [takes] }, events: [answer(2, null, 'Neither'), answer(3, 'B', 'but with the moon on the left')] });
   assert.deepEqual([one(picked).buildable, one(picked).next, one(picked).phase], [true, null, 'new']);
   // A prototype request on any of the card's questions is its newest input the same way, until the next round's pick
@@ -1306,7 +1306,7 @@ test("an internal card's ref reads INT-<n> with no repo, and each card lists whe
 
 test('a card badges only a ticket from its board source, keeps another source\'s id unlinked, and links Linear in its workspace', () => {
   const files = [
-    { slug: 'w', itemFile: { internal: true, items: [{ id: 'S3', title: 'Legacy' }, { id: 'INT-14', title: 'Hub card' }, { id: 'C4', title: 'Internal', ticket: 'INT-4' },
+    { slug: 'w', itemFile: { internal: true, items: [{ id: 'S3', title: 'Legacy' }, { id: 'INT-14', title: 'Hub task' }, { id: 'C4', title: 'Internal', ticket: 'INT-4' },
       { id: 'C5', title: 'Issue', ticket: '#5' }, { id: 'C6', title: 'Linear', ticket: 'ENG-6' }, { id: 'F7', title: 'Follow', ticket: 'INT-7', parent: 'C4' }] } },
     { slug: 'web', itemFile: { items: [{ id: 'P1', title: 'Audit', linear: ['WEB-9'] }] } },
   ];
@@ -1685,9 +1685,9 @@ test('Todo has no queue: every Todo card keeps its place, bumped first and the r
   assert.equal(built().items.some((i) => 'queued' in i || 'queuedAt' in i), false);
 
   const bump = (kind, key, m) => ({ id: `${kind}${m}`, ts: at(m), kind, data: { key } });
-  assert.deepEqual(lanes(built({ events: [bump('card-bump', 'w/R1', 10)] })).slice(1, 3), ['R1:todo', 'R2:todo'], 'a bump puts its card on top');
-  assert.deepEqual(pullOf(built().items).pulls, ['w/R1', 'w/R2'], 'the pull takes the oldest ready card first');
-  assert.deepEqual(pullOf(built({ events: [bump('card-bump', 'w/R2', 10)] }).items).pulls, ['w/R2', 'w/R1'], 'and a bump orders the ready cards');
+  assert.deepEqual(lanes(built({ events: [bump('card-bump', 'w/R1', 10)] })).slice(1, 3), ['R1:todo', 'R2:todo'], 'a bump puts its task on top');
+  assert.deepEqual(pullOf(built().items).pulls, ['w/R1', 'w/R2'], 'the pull takes the oldest ready task first');
+  assert.deepEqual(pullOf(built({ events: [bump('card-bump', 'w/R2', 10)] }).items).pulls, ['w/R2', 'w/R1'], 'and a bump orders the ready tasks');
   assert.deepEqual(pullOf(built({ events: [bump('card-bump', 'w/R2', 10), bump('card-unbump', 'w/R2', 11)] }).items).pulls, ['w/R1', 'w/R2'], 'an unbump returns it to its place by time');
 });
 
@@ -1701,7 +1701,7 @@ test('a staging card stays in Todo waiting on the orchestrator, and is neither p
   const b = buildBoard({ fromWaves: false, now: Date.parse(at(30)), files: [{ slug: 'w', itemFile: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
   assert.deepEqual([card('S1').lane, card('S1').staging, card('S1').ready, card('S1').next, card('S1').stagedAt], ['todo', true, false, null, at(1)]);
-  assert.deepEqual(card('S1').orchestrator, { kind: 'staging', since: at(1), picked: null, next: 'Judge the staged card against the whole board: for a discussed card first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead' });
+  assert.deepEqual(card('S1').orchestrator, { kind: 'staging', since: at(1), picked: null, next: 'Judge the staged task against the whole board: for a discussed task first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead' });
   assert.deepEqual([card('R1').staging, card('R1').ready, card('R1').orchestrator], [false, true, null]);
   assert.deepEqual(pullOf(b.items).pullable, ['w/R1']);
   assert.equal('starts' in pullOf(b.items), false);
@@ -1744,7 +1744,7 @@ test("a card owing a brief reads the brief's word, blue, and waits on the orches
   assert.deepEqual([written.briefing, written.planning, written.orchestrator?.kind], [null, null, undefined]);
   const drawing = one({ phase: 'discussing' }, { 'visual-1': { kind: 'visual', model: 'sonnet', started: at(7) } });
   assert.deepEqual([drawing.planning, drawing.builder], ['generating visual', null]);
-  assert.equal(one({ lane: 'done', briefs: [{ kind: 'grill', at: at(5) }] }).planning, null, 'a closed card owes nothing');
+  assert.equal(one({ lane: 'done', briefs: [{ kind: 'grill', at: at(5) }] }).planning, null, 'a closed task owes nothing');
   // An owed grill keeps an arrival off the arrivals: it waits on its brief, not a launch.
   assert.deepEqual(arrivalsOf(board([{ id: 'A1', title: 'One', lane: 'todo', briefs: [{ kind: 'grill', at: at(5) }] }]).items), []);
   // and takes a planner slot, so the cap counts cards owing briefs as it counts running planners.
@@ -1778,7 +1778,7 @@ test('a bump stays through In Review and ends when the card closes, merged or Do
 
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
 test('a bumped ready card goes first in the pull but waits for a slot like any other, and bumps no build out', () => {
-  const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], bumpedAt: null, ...more });
+  const card = (key, more = {}) => ({ key, title: 'feat: task', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], bumpedAt: null, ...more });
   const running = card('w/P1', { lane: 'progress', buildable: false, state: null, agents: [{ name: 'main', kind: 'claude', pid: 1, started: '2026-11-06T10:00:00Z', done: null }] });
   const plain = card('w/T1');
   const top = card('w/T2', { bumpedAt: '2026-11-06T11:00:00Z' });
@@ -1947,8 +1947,8 @@ test("triageOf names the open cards waiting on unanswered questions, and what it
   const base = [card('w/T1', 'todo', 2, ['2026-11-04T10:00:00Z']), card('w/T2', 'todo'), card('w/P1', 'progress', 1, ['2026-11-04T11:00:00Z'])];
   const seen = triageOf(base);
   assert.deepEqual(seen.waiting, ['w/T1', 'w/P1']);
-  assert.deepEqual(triageOf([...base, card('w/D1', 'done', 1)]), seen, 'a Done card waits on nothing');
-  assert.deepEqual(triageOf([...base, { ...card('w/N1', 'new', 1), kind: 'note' }]).waiting, seen.waiting, 'only work cards');
+  assert.deepEqual(triageOf([...base, card('w/D1', 'done', 1)]), seen, 'a Done task waits on nothing');
+  assert.deepEqual(triageOf([...base, { ...card('w/N1', 'new', 1), kind: 'note' }]).waiting, seen.waiting, 'only work tasks');
   assert.deepEqual(triageOf([card('w/T1', 'todo', 0), ...base.slice(1)]).waiting, ['w/P1'], 'answered questions wait on nothing');
   assert.notEqual(triageOf([card('w/T1', 'todo', 3, ['2026-11-04T10:00:00Z', '2026-11-04T12:00:00Z']), ...base.slice(1)]).seen, seen.seen, 'a new question');
   assert.notEqual(triageOf([...base, card('w/T3', 'todo')]).seen, seen.seen, 'a Todo change');
@@ -2094,7 +2094,7 @@ test('only a running build keeps the board from being idle: a running planner le
 test('every card In Progress takes one implementer slot until it lands, whatever runs on it; the pull fills the rest, bumped first, and a card pulled but not started keeps its slot', () => {
   const at = '2026-11-13T10:00:00Z';
   const run = (kind, more = {}) => ({ name: 'main', kind, started: at, done: null, ...more });
-  const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const card = (key, more = {}) => ({ key, title: 'feat: task', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const progress = (key, more) => card(key, { lane: 'progress', buildable: false, state: null, ...more });
   const todo = ['w/T1', 'w/T2', 'w/T3'].map((k) => card(k));
   const bumped = card('w/T4', { bumpedAt: at });
@@ -2109,28 +2109,28 @@ test('every card In Progress takes one implementer slot until it lands, whatever
   ];
   const others = [card('w/R1', { lane: 'review', buildable: false, agents: [run('claude', { label: 'Rebase' })] }), card('w/G1', { phase: 'grilling', grilling: true, agents: [{ kind: 'grill', started: at, done: null }] })];
   const full = pullOf([...lane, ...others, ...todo, bumped], { cap: 7 });
-  assert.deepEqual([full.free, full.pulls], [0, []], 'building, checking, landing, waiting on the owner, paused, stalled or helped: each card In Progress is one slot');
-  assert.deepEqual(pullOf([...lane, ...others, ...todo, bumped], { cap: 9 }).pulls, ['w/T4', 'w/T1'], 'a card In Review or Todo takes none, and the bumped card goes first');
+  assert.deepEqual([full.free, full.pulls], [0, []], 'building, checking, landing, waiting on the owner, paused, stalled or helped: each task In Progress is one slot');
+  assert.deepEqual(pullOf([...lane, ...others, ...todo, bumped], { cap: 9 }).pulls, ['w/T4', 'w/T1'], 'a task In Review or Todo takes none, and the bumped task goes first');
   const landed = pullOf([...lane.filter((i) => i.key !== 'w/P2'), { ...lane[1], lane: 'done' }, ...todo, bumped], { cap: 7 });
   assert.deepEqual(landed.pulls, ['w/T4'], 'once one lands, the next starts, bumped first');
-  assert.deepEqual(pullOf([...lane, ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3'], 'the default cap leaves room for every ready card');
-  assert.equal(pullOf([lane[1]]).idle, false, 'a card in Orchestrator review keeps the board from idle');
-  assert.equal(pullOf([lane[3]]).idle, true, 'a card waiting on the owner leaves it idle');
+  assert.deepEqual(pullOf([...lane, ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3'], 'the default cap leaves room for every ready task');
+  assert.equal(pullOf([lane[1]]).idle, false, 'a task in Orchestrator review keeps the board from idle');
+  assert.equal(pullOf([lane[3]]).idle, true, 'a task waiting on the owner leaves it idle');
 
   const sent = pullOf([lane[0], ...todo], { cap: 3, pulled: ['w/T1'] });
-  assert.deepEqual([sent.waiting, sent.pulls], [['w/T1'], ['w/T2']], 'a pulled card not yet started keeps its slot and is not pulled again');
+  assert.deepEqual([sent.waiting, sent.pulls], [['w/T1'], ['w/T2']], 'a pulled task not yet started keeps its slot and is not pulled again');
   const working = pullOf([lane[0], card('w/T1', { working: true }), ...todo.slice(1)], { cap: 3, pulled: ['w/T1'] });
-  assert.deepEqual([working.waiting, working.pulls], [['w/T1'], ['w/T2']], 'while the session works on the pull the card keeps its slot');
+  assert.deepEqual([working.waiting, working.pulls], [['w/T1'], ['w/T2']], 'while the session works on the pull the task keeps its slot');
   const started = pullOf([progress('w/T1', { agents: [run('claude')] }), ...todo.slice(1)], { cap: 2, pulled: ['w/T1'] });
-  assert.deepEqual([started.waiting, started.pulls], [[], ['w/T2']], 'once it is In Progress it counts as a card in the lane instead');
+  assert.deepEqual([started.waiting, started.pulls], [[], ['w/T2']], 'once it is In Progress it counts as a task in the lane instead');
   const asked = pullOf([card('w/T1', { phase: 'staging' }), ...todo.slice(1)], { cap: 1, pulled: ['w/T1'] });
-  assert.deepEqual([asked.waiting, asked.pulls], [[], ['w/T2']], 'a pulled card that stops being pullable frees its slot');
+  assert.deepEqual([asked.waiting, asked.pulls], [[], ['w/T2']], 'a pulled task that stops being pullable frees its slot');
 });
 
 // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
 test('every helper a card asks for launches at once, whatever the cap, and a read-only helper alone leaves the board idle', () => {
   const at = '2026-11-06T10:00:00Z';
-  const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const card = (key, more = {}) => ({ key, title: 'feat: task', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const progress = (key, agents) => card(key, { lane: 'progress', buildable: false, state: null, agents });
   const main = (more = {}) => ({ name: 'main', kind: 'claude', started: at, done: null, ...more });
   const helper = (name, more = {}) => ({ name, kind: 'helper', writes: true, started: at, done: null, ...more });
@@ -2138,14 +2138,14 @@ test('every helper a card asks for launches at once, whatever the cap, and a rea
   const top = progress('w/P1', [main(), asked('a'), asked('look', false)]);
   const out = pullOf([top, card('w/T1')], { cap: 1 });
   assert.deepEqual([out.helpers, out.pulls], [[{ key: 'w/P1', name: 'a' }, { key: 'w/P1', name: 'look' }], []]);
-  assert.deepEqual(pullOf([{ ...top, lane: 'done' }], { cap: 5 }).helpers, [], 'a closed card launches none');
+  assert.deepEqual(pullOf([{ ...top, lane: 'done' }], { cap: 5 }).helpers, [], 'a closed task launches none');
   assert.equal(pullOf([progress('w/P1', [main(), helper('survey', { writes: false })])]).idle, false);
   assert.equal(pullOf([progress('w/P1', [helper('survey', { writes: false })])]).idle, true, 'a read-only helper alone leaves the board idle, as a planner does');
 });
 
 // docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md
 test('the pull takes only ready cards in board order, never a card with no state', () => {
-  const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
+  const card = (key, more = {}) => ({ key, title: 'feat: task', lane: 'todo', kind: 'work', buildable: true, state: null, blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const items = [card('w/A1'), card('w/A2', { phase: 'ready' }), card('w/A3'), card('w/A4', { phase: 'ready' }), card('w/A5', { phase: 'ready', blockedBy: [{ key: 'w/X' }], blocked: true })];
   assert.deepEqual(pullOf(items).pullable, ['w/A2', 'w/A4']);
 });
@@ -2174,12 +2174,12 @@ test('a card arrives in Todo however it was filed, until something picks it up, 
   // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: a working mark doesn't pick a card up.
   assert.deepEqual(arrivalsOf([card('w/W1', { working: true })]), ['w/W1'], 'a card a session works on still arrives');
   // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a block stops a build, not a plan.
-  assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }], blocked: true })]), ['w/B0'], 'a blocked card arrives and is grilled');
+  assert.deepEqual(arrivalsOf([card('w/B0', { blockedBy: [{ key: 'w/X' }], blocked: true })]), ['w/B0'], 'a blocked task arrives and is grilled');
   const blockedOrNot = [card('w/K1', { blocked: true }), card('w/K2'), card('w/K3', { blocked: true }), card('w/K4')];
   assert.deepEqual(arrivalsOf(blockedOrNot, { cap: 3 }), ['w/K2', 'w/K4', 'w/K1'], 'unblocked arrivals take the planner slots first, then blocked ones, each in board order');
   assert.deepEqual(arrivalsOf([...blockedOrNot, card('w/K5', { blocked: true, bumpedAt: at })], { cap: 2 }), ['w/K5', 'w/K2'], 'a bump still comes first');
   // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: filed and linked before its grill.
-  assert.deepEqual(arrivalsOf([card('w/U0', { unsorted: true })]), [], 'a card that reads New arrives once its session files it');
+  assert.deepEqual(arrivalsOf([card('w/U0', { unsorted: true })]), [], 'a task that reads New arrives once its session files it');
   assert.deepEqual(arrivalsOf([...pickedUp, ...arrived]), ['w/A1', 'w/A2', 'w/A3'], 'the default cap takes three');
   const running = card('w/R1', { buildable: false, agents: [{ kind: 'grill', started: at, done: null }] });
   const drawing = card('w/R2', { lane: 'progress', buildable: false, agents: [{ kind: 'prototype', started: at, done: null }] });
@@ -2274,14 +2274,14 @@ test('a board is strictly idle only with nothing building, grilling, prototyping
   const at = '2026-11-04T10:00:00Z';
   const built = (item = {}, agents = {}, events = []) => buildBoard({ now: Date.parse(at), owner: {}, events,
     files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'feat: one', ...item }, { id: 'A2', title: 'Two', lane: 'done', closed_at: at }] } }] });
-  assert.equal(strictlyIdle(built()), true, 'a ready card with nothing running is idle');
+  assert.equal(strictlyIdle(built()), true, 'a ready task with nothing running is idle');
   assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'claude', started: at } } })), false, 'a builder runs');
   assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'claude', started: at, done: at } } })), true, 'a finished builder');
   assert.equal(strictlyIdle(built({}, { A1: { main: { kind: 'grill', started: at } } })), false, 'a grill runs');
   assert.equal(strictlyIdle(built({}, {}, [{ id: 'e1', ts: at, kind: 'prototype-request', data: { key: 'w/A1' }, reply: null }])), false, 'a prototype is under way');
-  assert.equal(strictlyIdle(built({ lane: 'progress' }, { A1: { main: { kind: 'claude', started: at, done: at, handed_back: at } } })), false, 'a card waits to land');
-  assert.equal(strictlyIdle(built({ phase: 'ready' }), { pulled: ['w/A1'] }), false, 'a pulled card waits to start');
-  assert.equal(strictlyIdle(built({ phase: 'ready' })), true, 'a ready card nobody pulled');
+  assert.equal(strictlyIdle(built({ lane: 'progress' }, { A1: { main: { kind: 'claude', started: at, done: at, handed_back: at } } })), false, 'a task waits to land');
+  assert.equal(strictlyIdle(built({ phase: 'ready' }), { pulled: ['w/A1'] }), false, 'a pulled task waits to start');
+  assert.equal(strictlyIdle(built({ phase: 'ready' })), true, 'a ready task nobody pulled');
   assert.equal(strictlyIdle({ ...built(), working: 1 }), true, 'a working mark is display only');
 });
 
@@ -2328,8 +2328,8 @@ test("the idle push sums up the cards landed and waves finished since the last i
   const waves = [{ slug: 'mon', title: 'Monitor', items: ['A1', 'A2', 'A3'] }, { slug: 'open', title: 'Still open', items: ['A4', 'B1'] }];
   const built = buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), events: [], owner: {}, prs: { 'o/r#4': { state: 'CLOSED' } }, files: [{ slug: 'w', itemFile: { internal: true, items, waves } }] });
   const ref = (id) => built.items.find((i) => i.id === id).ref;
-  assert.equal(idleSummary(built.items, '2026-11-04T10:00:00Z'), `2 cards landed: ${ref('A3')}, ${ref('A2')} · Monitor finished`);
-  assert.equal(idleSummary(built.items, '2026-11-04T10:15:00Z'), `1 card landed: ${ref('A3')} · Monitor finished`);
+  assert.equal(idleSummary(built.items, '2026-11-04T10:00:00Z'), `2 tasks landed: ${ref('A3')}, ${ref('A2')} · Monitor finished`);
+  assert.equal(idleSummary(built.items, '2026-11-04T10:15:00Z'), `1 task landed: ${ref('A3')} · Monitor finished`);
   assert.equal(idleSummary(built.items, '2026-11-04T10:30:00Z'), 'Nothing closed since the last idle notification.');
 });
 
@@ -2408,7 +2408,7 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
   const waits = (events, options) => orchestratorWaits(built(events, options)).map(({ key, kind, since, picked, next }) => [key, kind, since, picked, next]);
   const sort = (id) => {
     const key = `w/T-${id.slice(1)}`;
-    return `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a card with item relate-ask ${id} <card> --summary`;
+    return `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask ${id} <task> --summary`;
   };
   const cards = [asked('e1'), asked('e2')];
 
@@ -2417,10 +2417,10 @@ test("every unsorted new task's card or agent-added card is an intake wait from 
   assert.deepEqual(built([ask('e1', 1)]).unfiled, ['e1']);
   assert.deepEqual(waits([ask('e1', 1), ask('e2', 2)], { waveItems: cards }), [['w/T-1', 'intake', at(1), null, sort('e1')], ['w/T-2', 'intake', at(2), null, sort('e2')]]);
   assert.deepEqual(waits([ask('e1', 1)], { waveItems: cards, working: { e1: at(4) } }), [['w/T-1', 'intake', at(1), at(4), sort('e1')]], 'picked up when the watcher marks it working');
-  assert.deepEqual(waits([ask('e1', 1)], { waveItems: [asked('e1', { phase: 'grilling' })] }), [], 'a sorted card is sorted');
-  assert.deepEqual(waits([ask('e1', 1, { reply: { at: at(2) } })], { waveItems: [asked('e1', { answered_at: at(2) })] }).filter((w) => w[1] === 'intake'), [], 'an answered card is sorted');
-  assert.deepEqual(waits([added]), [['w/A2', 'intake', at(3), null, 'Link and file the card an agent added: item notes, then item set --relate and --phase']]);
-  assert.deepEqual(waits([added], { waveItems: [{ id: 'A2', title: 'Follow-up', phase: 'grilling' }] }), [], 'a filed card is sorted');
+  assert.deepEqual(waits([ask('e1', 1)], { waveItems: [asked('e1', { phase: 'grilling' })] }), [], 'a sorted task is sorted');
+  assert.deepEqual(waits([ask('e1', 1, { reply: { at: at(2) } })], { waveItems: [asked('e1', { answered_at: at(2) })] }).filter((w) => w[1] === 'intake'), [], 'an answered task is sorted');
+  assert.deepEqual(waits([added]), [['w/A2', 'intake', at(3), null, 'Link and file the task an agent added: item notes, then item set --relate and --phase']]);
+  assert.deepEqual(waits([added], { waveItems: [{ id: 'A2', title: 'Follow-up', phase: 'grilling' }] }), [], 'a filed task is sorted');
   // A message on a work card's thread is no intake.
   const message = { id: 'm1', ts: at(4), kind: 'item-message', data: { key: 'w/A1', text: 'x' }, reply: null };
   assert.deepEqual(waits([message]).filter((w) => w[1] === 'intake'), []);
@@ -2434,7 +2434,7 @@ test("a planner's unasked line is an orchestrator wait on a card still in its ph
     files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'todo', phase }] } }] })).map(({ kind: k, since, next }) => [k, since, next]);
   for (const [kind, phase] of [['grill', 'grilling'], ['prototype', 'prototyping']]) {
     const ended = { A1: { planner: { kind, started: '2026-11-04T09:00:00Z', done: '2026-11-04T09:59:00Z' } } };
-    assert.deepEqual(waits({ phase, kind, agents: ended }), [['unasked', at, `Its ${kind} planner ended without its question: read its log, then post the question, start the planner again, or move the card's phase`]]);
+    assert.deepEqual(waits({ phase, kind, agents: ended }), [['unasked', at, `Its ${kind} planner ended without its question: read its log, then post the question, start the planner again, or move the task's phase`]]);
     assert.deepEqual(waits({ phase: 'ready', kind, agents: ended }), [], 'a new phase clears it');
     assert.equal(waits({ phase, kind, agents: { A1: { planner: { ...ended.A1.planner, started: '2026-11-04T10:30:00Z', done: undefined } } } }).some((w) => w[0] === 'unasked'), false, 'a planner running again clears it');
   }
@@ -2506,7 +2506,7 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   // A card past Todo whose block ended waits until the session writes on it.
   const unblocked = { lane: 'review', unblocked_at: at };
   assert.deepEqual(shape(one(unblocked)), [['w/A1', 'unblocked', at, null]]);
-  assert.deepEqual(one({ ...unblocked, lane: 'todo' }), [], 'a Todo card is the pull\'s');
+  assert.deepEqual(one({ ...unblocked, lane: 'todo' }), [], 'a Todo task is the pull\'s');
 
   // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
   // for the orchestrator's re-check of its notes before the pull takes it.
@@ -2524,15 +2524,15 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
   assert.deepEqual(shape(one({ lane: 'progress', lane_at: '2026-11-04T09:00:00Z' }, { agents: { A1: { main: { kind: 'claude', started: '2026-11-04T09:00:00Z', done: at } } } })),
     [['w/A1', 'unowned', at, null]]);
   assert.deepEqual(one({ lane: 'progress' }, { agents: building, threads: { 'w/A1': [fresh] } }), [], 'a live builder owns it');
-  assert.deepEqual(one({ phase: 'ready' }), [], 'a ready card nobody refused');
-  assert.deepEqual(one({ lane: 'done', closed_at: at }), [], 'a Done card');
+  assert.deepEqual(one({ phase: 'ready' }), [], 'a ready task nobody refused');
+  assert.deepEqual(one({ lane: 'done', closed_at: at }), [], 'a Done task');
 
   // In Progress first, then Todo, each in the board's order; a card's item carries its wait.
   const both = built({ items: [{ id: 'T1', title: 'Todo', phase: 'ready' }, { id: 'P1', title: 'Building', lane: 'progress' }], threads: { 'w/T1': refused['w/A1'] },
     agents: { P1: handed.A1 } });
   assert.deepEqual(orchestratorWaits(both).map((w) => w.key), ['w/P1', 'w/T1']);
   assert.deepEqual(both.items.find((i) => i.key === 'w/P1').orchestrator, { kind: 'calls', since: at, picked: null, next: "Verify the builder's judgment calls" });
-  assert.equal(both.items.find((i) => i.key === 'w/P1').waitFacts, undefined, 'the facts stay off the card');
+  assert.equal(both.items.find((i) => i.key === 'w/P1').waitFacts, undefined, 'the facts stay off the task');
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
@@ -2604,7 +2604,7 @@ test("a visual agent is a planner beside the card's work: its card shows the bui
   const build = { kind: 'claude', model: 'opus', started: '2026-10-23T09:00:00Z' };
   const board = (agents, items = [{ id: 'A1', title: 'One', phase: 'grilling' }]) => buildBoard({ fromWaves: false, events: [], owner: {}, prs: {}, now: Date.parse('2026-10-23T10:01:00Z'), files: [{ slug: 'w', agents, itemFile: { repo: 'o/r', items } }] });
   const one = (b) => b.items.find((i) => i.id === 'A1');
-  assert.equal(one(board({ A1: { 'visual-v1': visual } })).builder, null, 'a visual alone gives the card no status');
+  assert.equal(one(board({ A1: { 'visual-v1': visual } })).builder, null, 'a visual alone gives the task no status');
   const both = one(board({ A1: { main: build, 'visual-v1': visual } }, [{ id: 'A1', title: 'One', lane: 'progress' }]));
   assert.deepEqual([both.builder.kind, both.builder.planner], ['claude', false]);
   const thread = threadOf('w/A1', { agents: { 'visual-v1': visual } });
@@ -2795,7 +2795,7 @@ test("a run gone silent reads stale and waits on the orchestrator; one the orche
   assert.deepEqual(it.action, { kind: 'stalled', url: '#selectedCard=w%2FA1', label: 'stalled: Crashed twice on the same test' });
   assert.equal(it.orchestrator, null);
   assert.deepEqual(orchestratorWaits(stalled), []);
-  assert.deepEqual(pullOf(stalled.items, { cap: 1 }).pulls, [], 'a stalled card In Progress keeps its slot');
+  assert.deepEqual(pullOf(stalled.items, { cap: 1 }).pulls, [], 'a stalled task In Progress keeps its slot');
   const [push] = ownerActions(stalled).filter((a) => a.tag === 'item-w/A1');
   assert.deepEqual([push.kind, push.title.endsWith(': stalled: Crashed twice on the same test'), push.now], ['stalled', true, true]);
   assert.ok(stalled.needs.some((line) => line.key === 'w/A1' && line.text.endsWith('stalled: Crashed twice on the same test')));

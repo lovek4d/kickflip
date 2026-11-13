@@ -14,9 +14,9 @@ const items = () => read(at('waves', 'w', 'wave.json')).items;
 test('item add, item set --title and reply --title refuse a title that is neither a Conventional subject nor an ask, and write nothing', async () => {
   const before = read(at('waves', 'w', 'wave.json'));
   assert.deepEqual(await board('item', 'add', 'w/B1', '--site', 'orch', '--phase', 'grilling', '--title', 'Header jumps on scroll'),
-    { code: 1, out: '', err: `--title "Header jumps on scroll" ${shape}; a card's title is ${words}\n` });
+    { code: 1, out: '', err: `--title "Header jumps on scroll" ${shape}; a task's title is ${words}\n` });
   assert.deepEqual(await board('item', 'set', 'w/A1', '--site', 'orch', '--title', 'ask(board): why'),
-    { code: 1, out: '', err: `--title "ask(board): why" isn't "ask(<scope>): <question>?", ending with "?"; a card's title is ${words}\n` });
+    { code: 1, out: '', err: `--title "ask(board): why" isn't "ask(<scope>): <question>?", ending with "?"; a task's title is ${words}\n` });
   assert.deepEqual(read(at('waves', 'w', 'wave.json')), before);
   assert.equal((await board('item', 'add', 'w/B1', '--site', 'orch', '--phase', 'grilling', '--title', 'fix(board): header jumps on scroll')).code, 0);
   assert.equal((await board('item', 'add', 'w/B2', '--site', 'orch', '--phase', 'discussing', '--text', 'First message.', '--title', 'ask(board): do we still need staging?')).code, 0);
@@ -29,7 +29,7 @@ test('item add, item set --title and reply --title refuse a title that is neithe
   const { fileAsk } = await import('./store.mjs');
   await fileAsk(site('audit'), 'a1');
   const bad = await board('reply', 'audit/T-1', '--text', 'It jumps.', '--title', 'Header jumps', '--site', 'audit');
-  assert.deepEqual([bad.code, bad.err], [1, `--title "Header jumps" ${shape}; a card's title is ${words}\n`]);
+  assert.deepEqual([bad.code, bad.err], [1, `--title "Header jumps" ${shape}; a task's title is ${words}\n`]);
   const t1 = () => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === 'T-1');
   assert.deepEqual([t1().title, t1().phase], ['Fix the header', undefined]);
   assert.equal((await board('reply', 'audit/T-1', '--text', 'It jumps.', '--title', 'fix(board): header jumps on scroll', '--site', 'audit')).code, 0);

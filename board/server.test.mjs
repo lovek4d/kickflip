@@ -353,7 +353,7 @@ test("one owner-answers request records every answer as one-by-one answers would
       ['owner-answer', { id: 'b1a', question: 'b1a?', choice: 'A', label: 'A. This', note: 'Bigger' }],
       ['owner-answer', { id: 'b1b', question: 'b1b?', choice: null, label: '', note: 'Rename it' }]]);
     assert.deepEqual(out.ids, added.map((e) => e.id));
-    assert.equal(out.board.items.find((i) => i.id === 'B1').staging, true, 'a note-only answer stages the card too');
+    assert.equal(out.board.items.find((i) => i.id === 'B1').staging, true, 'a note-only answer stages the task too');
     assert.deepEqual(out.board.owner.filter((q) => q.topic === 'item:t/B1').map((q) => [q.id, q.state]), [['b1a', 'answered']]);
     assert.deepEqual(out.board.ownerTopics.find((t) => t.id === 'item:t/B1').questions, ['b1a', 'b1b']);
     assert.equal(JSON.parse(fs.readFileSync(ownerFile, 'utf8')).items.find((q) => q.id === 'b1b').resolved, 'Answered with a note');
@@ -1106,7 +1106,7 @@ const raw = (p, headers = {}) => new Promise((resolve, reject) => {
 });
 
 test('the board, a thread and the static files come gzipped when the browser accepts it, and the API stays uncached', async () => {
-  await putWave(JSON.stringify({ items: Array.from({ length: 30 }, (_, n) => ({ id: `G${n}`, title: `Gzip card `, lane: 'todo' })) }));
+  await putWave(JSON.stringify({ items: Array.from({ length: 30 }, (_, n) => ({ id: `G${n}`, title: `Gzip task `, lane: 'todo' })) }));
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'data', 'threads', 't__G1.jsonl'), Array.from({ length: 20 }, (_, n) => JSON.stringify({ ts: '2026-10-23T10:00:00Z', who: 'claude', text: `Line ${n} of a long thread` })).join('\n') + '\n');
   await heard(path.join(site, 'data', 'threads', 't__G1.jsonl'));
@@ -1434,7 +1434,7 @@ test('the watcher prints the hub rules, then the board rules, the board settings
     assert.match(pinged[2], /^event data\/events\.jsonl .*"kind":"item-message"/);
     // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
     const triage = () => fs.appendFileSync(path.join(site, 'data', 'events.jsonl'), JSON.stringify({ id: 'tt1', ts: new Date().toISOString(), kind: 'overnight-triage', data: { date: '2026-11-03', topic: 'overnight-triage-2026-11-03', cards: ['w/A1', 'w/A2'] } }) + '\n');
-    assert.equal((await watch('triage', triage))[1], 'Overnight triage 2026-11-03 asks Claude to reply: 2 cards wait on open questions; run the triage, then board.mjs reply tt1');
+    assert.equal((await watch('triage', triage))[1], 'Overnight triage 2026-11-03 asks Claude to reply: 2 tasks wait on open questions; run the triage, then board.mjs reply tt1');
     assert.ok(Date.parse(JSON.parse(fs.readFileSync(path.join(site, 'data', 'working.json'), 'utf8')).events.tt1));
   } finally {
     fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify(cfg));
@@ -1736,7 +1736,7 @@ test("a card's question topic in the page's board carries no title of its own: t
   try {
     await heard(ownerFile);
     const b = await (await fetch(`${base}/api/board`)).json();
-    assert.ok(b.items.some((i) => i.key === 't/G1'), 'the board serves the card');
+    assert.ok(b.items.some((i) => i.key === 't/G1'), 'the board serves the task');
     assert.deepEqual(b.ownerTopics.map((t) => [t.id, t.card, t.title, t.summary]), [['plan', undefined, 'Plan', 'Kept'], ['item:t/G1', 't/G1', undefined, undefined]]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
@@ -1815,7 +1815,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
     const out = JSON.parse(result.stdout.trim().split('\n').at(-1));
     const [push] = out.pushes;
     assert.deepEqual([out.pushes.length, flag(push, 'kind'), flag(push, 'title'), flag(push, 'body'), flag(push, 'url'), flag(push, 'tag')],
-      [1, 'reminder', 'Idle board has gone idle', '1 card landed: I2', '/site/', 'idle']);
+      [1, 'reminder', 'Idle board has gone idle', '1 task landed: I2', '/site/', 'idle']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -1840,7 +1840,7 @@ test("data/sync.json keeps the change numbers across a restart: the counter carr
   let held;
   try {
     held = await first.get();
-    assert.deepEqual(held.items.map((i) => [i.key, Boolean(i.readAt)]), [['s/S1', true], ['s/S2', true]], 'the board reads both cards');
+    assert.deepEqual(held.items.map((i) => [i.key, Boolean(i.readAt)]), [['s/S1', true], ['s/S2', true]], 'the board reads both tasks');
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).n, held.version);
   } finally { await first.close(); }
   wave(['One', 'Two, renamed while the server was down']);
@@ -1866,20 +1866,20 @@ test("read marks live on the board: a card new to it is read up to then, POST /a
   try {
     const start = new Date().toISOString();
     await putWave(JSON.stringify({ ...wave, items: [...wave.items, { id: 'R1', title: 'Read' }, { id: 'R2', title: 'Dropped' }] }));
-    assert.ok((await card('t/R2')).readAt, 'cards new to the board get a mark');
+    assert.ok((await card('t/R2')).readAt, 'tasks new to the board get a mark');
     const first = (await card('t/R1')).readAt;
-    assert.ok(first >= start, `${first} is when the server first saw the card`);
+    assert.ok(first >= start, `${first} is when the server first saw the task`);
 
     await ok200(post({ marks: { 't/R1': '2099-01-01T00:00:00.000Z' } }));
     assert.equal((await card('t/R1')).readAt, '2099-01-01T00:00:00.000Z');
     await ok200(post({ marks: { 't/R1': '2098-01-01T00:00:00.000Z', 'gone/X': '2099-01-01T00:00:00.000Z' } }));
     assert.equal((await card('t/R1')).readAt, '2099-01-01T00:00:00.000Z', 'an older mark leaves the later one');
-    assert.equal(marks()['gone/X'], undefined, 'a card not on the board keeps no mark');
+    assert.equal(marks()['gone/X'], undefined, 'a task not on the board keeps no mark');
 
     for (const bad of [{}, { marks: [] }, { marks: { 't/R1': 5 } }, { marks: { 't/R1': 'yesterday' } }]) assert.equal((await post(bad)).status, 400, JSON.stringify(bad));
 
     await putWave(JSON.stringify({ ...wave, items: [...wave.items, { id: 'R1', title: 'Read' }] }));
-    assert.equal(marks()['t/R2'], undefined, 'the dropped card loses its mark');
+    assert.equal(marks()['t/R2'], undefined, 'the dropped task loses its mark');
     assert.equal(marks()['t/R1'], '2099-01-01T00:00:00.000Z');
   } finally { if (before) await putWave(before); else fs.rmSync(waveFile); }
 });

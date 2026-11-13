@@ -222,10 +222,10 @@ test("item add makes the card's own read-only <id>-notes.md, from --notes-from o
   for (const flag of ['--notes-file', '--plan']) {
     const added = await board('item', 'add', 'w/E5', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: five', flag, 'draft.md');
     assert.equal(added.code, 2);
-    assert.match(added.err, new RegExp(`${flag} is gone: the board names a card's notes file.*item add --notes-from <draft.md>`));
+    assert.match(added.err, new RegExp(`${flag} is gone: the board names a task's notes file.*item add --notes-from <draft.md>`));
     const set = await board('item', 'set', 'w/A1', '--site', 'orch', flag, 'draft.md');
     assert.equal(set.code, 2);
-    assert.match(set.err, new RegExp(`${flag} is gone: the board names a card's notes file.*item notes w/A1 --heading`));
+    assert.match(set.err, new RegExp(`${flag} is gone: the board names a task's notes file.*item notes w/A1 --heading`));
   }
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].plan, undefined);
 });
@@ -311,7 +311,7 @@ test("item notes resolves a prototype pick with a note, whose note is the build'
   const r = await board('item', 'notes', 'w/A1', '--site', 'orch', '--heading', 'Pick', '--file', path.join(home, 'picked.md'));
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(r.out.trim().split('\n').slice(1), ['resolved: q1']);
-  assert.equal(read(file).items[0].resolved, "Recorded in the card's notes");
+  assert.equal(read(file).items[0].resolved, "Recorded in the task's notes");
   assert.equal((await board('question', 'confirm', 'q1', '--site', 'orch')).code, 2);
 });
 
@@ -328,7 +328,7 @@ test('item notes resolves only answered questions', async () => {
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(r.out.trim().split('\n').slice(1), ['resolved: answered']);
   const items = read(file).items;
-  assert.equal(items[0].resolved, "Recorded in the card's notes");
+  assert.equal(items[0].resolved, "Recorded in the task's notes");
   assert.ok(Date.parse(items[0].resolved_at) <= Date.now());
   assert.deepEqual(items.slice(1), original.slice(1));
 });
@@ -388,9 +388,9 @@ test('a follow-up is item add --parent; item set sets or clears a Parent and rep
   assert.deepEqual([item('ENG-7').parent, item('ENG-7').lane], ['audit/A1', 'todo']);
   for (const [args, err] of [
     [['item', 'add', 'audit/X1', '--phase', 'grilling', '--title', 'feat: x', '--parent', 'NOPE'], /^item file "audit" has no item "NOPE"/],
-    [['item', 'set', 'audit/ENG-7', '--parent', 'ENG-7'], /^--parent: a card can't be its own Parent/],
+    [['item', 'set', 'audit/ENG-7', '--parent', 'ENG-7'], /^--parent: a task can't be its own Parent/],
     [['item', 'set', 'audit/A1', '--parent', 'ENG-7'], /^--parent: audit\/ENG-7 is a child of audit\/A1, so it can't be its Parent/],
-    [['item', 'set', 'audit/A1', '--related', 'A1'], /^--related: a card can't be related to itself/],
+    [['item', 'set', 'audit/A1', '--related', 'A1'], /^--related: a task can't be related to itself/],
   ]) {
     const r = await board(...args, '--site', 'audit');
     assert.equal(r.code, 1, args.join(' '));
@@ -424,7 +424,7 @@ test('item set --relate adds links and --unrelate removes them on both sides, ke
   assert.deepEqual([removed.code, removed.out], [0, 'A1: unrelated from R1, R3\n']);
   assert.deepEqual([item('A1').related, 'related' in item('R3')], [['audit/R2'], false]);
   for (const [args, err] of [
-    [['--relate', 'A1'], /^--relate: a card can't be related to itself/],
+    [['--relate', 'A1'], /^--relate: a task can't be related to itself/],
     [['--relate', 'NOPE'], /^item file "audit" has no item "NOPE"/],
     [['--relate', 'R1', '--related', 'R2'], /^pass --related, or --relate and --unrelate, not both/],
   ]) {
@@ -441,15 +441,15 @@ test("item add on a board refuses a card with no --phase, naming grilling and pr
   const events = () => (fs.existsSync(site('audit', 'data', 'events.jsonl')) ? fs.readFileSync(site('audit', 'data', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((e) => e.kind === 'card-added');
   const before = events().length;
   const stateless = await board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up', '--parent', 'A1');
-  assert.deepEqual([stateless.code, stateless.err, item('F1')], [1, 'item add files a card on a board: pass --phase discussing, grilling or prototyping, or --held to file it for later\n', undefined]);
+  assert.deepEqual([stateless.code, stateless.err, item('F1')], [1, 'item add files a task on a board: pass --phase discussing, grilling or prototyping, or --held to file it for later\n', undefined]);
   const filed = await board('item', 'add', 'audit/F1', '--site', 'audit', '--title', 'feat: follow it up', '--parent', 'A1', '--phase', 'grilling', '--relate', 'A1');
   assert.deepEqual([filed.code, filed.err], [0, '']);
   assert.deepEqual([item('F1').phase, 'unfiled' in item('F1'), item('F1').related], ['grilling', false, ['audit/A1']]);
   const held = await board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'feat: filed', '--phase', 'prototyping', '--relate', 'A1,F1', '--held');
-  assert.deepEqual([held.code, held.err, item('F2')], [1, 'a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase\n', undefined]);
+  assert.deepEqual([held.code, held.err, item('F2')], [1, 'a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase\n', undefined]);
   assert.equal((await board('item', 'add', 'audit/F2', '--site', 'audit', '--title', 'feat: filed', '--relate', 'A1,F1', '--held')).code, 0);
   assert.deepEqual([item('F2').phase, item('F2').held, item('F2').related], [undefined, true, ['audit/A1', 'audit/F1']]);
-  assert.equal(events().length, before, 'a card filed with its state wakes nobody');
+  assert.equal(events().length, before, 'a task filed with its state wakes nobody');
   // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md
   const later = await board('item', 'add', 'audit/F4', '--site', 'audit', '--title', 'feat: later', '--held');
   assert.deepEqual([later.code, later.err, item('F4').phase, item('F4').held, item('F4').filed_held], [0, '', undefined, true, true]);
@@ -483,7 +483,7 @@ test("a wave file's follow-ups move into its items once: ids, titles, tickets an
     { id: 'no-from', title: 'Orphan', filed: '2026-11-01' },
   ] });
   write(site('audit', 'data', 'threads', 'audit__closed-one.jsonl'), [{ ts: '2026-11-03T10:00:00.000Z', who: 'claude', text: 'Filed.' }, { ts: '2026-11-03T12:00:00.000Z', who: 'claude', text: 'Done.' }].map((l) => JSON.stringify(l)).join('\n') + '\n');
-  assert.deepEqual(await migrateFollowups(site('audit')), ['audit: 3 follow-ups moved to cards (1 done)']);
+  assert.deepEqual(await migrateFollowups(site('audit')), ['audit: 3 follow-ups moved to tasks (1 done)']);
   const after = read(file);
   assert.equal('followups' in after, false);
   assert.deepEqual(after.items, [
@@ -498,7 +498,7 @@ test("a wave file's follow-ups move into its items once: ids, titles, tickets an
   // A follow-up whose id a card already has leaves the file as it is and names the clash.
   write(file, { items: [{ id: 'A1', title: 'One' }], followups: [{ id: 'A1', title: 'Clash', filed: '2026-11-01' }] });
   const clash = fs.readFileSync(file, 'utf8');
-  await assert.rejects(migrateFollowups(site('audit')), /audit: follow-up A1 has the id of a card; rename one, then restart the board/);
+  await assert.rejects(migrateFollowups(site('audit')), /audit: follow-up A1 has the id of a task; rename one, then restart the board/);
   assert.equal(fs.readFileSync(file, 'utf8'), clash);
 });
 
@@ -521,7 +521,7 @@ test("closing a card resolves its answered questions, refuses while one has no a
   const done = await board('item', 'set', 'w/A1', '--done', '--site', 'orch', '--text', 'Done.');
   assert.equal(done.code, 0, done.err);
   assert.deepEqual(done.out.split('\n').filter((l) => l.startsWith('resolved')), ['resolved: q1', 'resolved: q2']);
-  assert.deepEqual(notes(), { q1: 'Closed with the card', q2: 'Closed with the card', q3: 'Old.', q4: null, q5: null, q6: null, q7: null, q8: null, q9: null });
+  assert.deepEqual(notes(), { q1: 'Closed with the task', q2: 'Closed with the task', q3: 'Old.', q4: null, q5: null, q6: null, q7: null, q8: null, q9: null });
   assert.ok(owner().q2.resolved_at > '2026-10-23T11:00:00Z');
 
   const before = [fs.readFileSync(at('waves', 'w', 'wave.json'), 'utf8'), fs.readFileSync(site('orch', 'data', 'owner.json'), 'utf8')];
@@ -544,7 +544,7 @@ test("closing a card resolves its answered questions, refuses while one has no a
   assert.deepEqual(forced.out.split('\n').filter((l) => l.startsWith('resolved')), ['resolved: q8', 'resolved: q9']);
   const wave = read(at('waves', 'w', 'wave.json'));
   assert.deepEqual(['A2', 'ENG-1'].map((id) => wave.items.find((i) => i.id === id).lane), ['done', 'done']);
-  assert.deepEqual(['q5', 'q6', 'q7', 'q8', 'q9'].map((id) => notes()[id]), Array(5).fill('Closed with the card'));
+  assert.deepEqual(['q5', 'q6', 'q7', 'q8', 'q9'].map((id) => notes()[id]), Array(5).fill('Closed with the task'));
 });
 
 // docs/adr/2026-11-03-0237-an-in-progress-card-always-has-a-builder-line-or-a-next.md
@@ -752,7 +752,7 @@ test("a build's start takes a prototype pick's note as guidance, and refuses whi
 
 // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
 test('intake handoff is gone: the orchestrator sorts new tasks itself', async () => {
-  const r = await board('intake', 'handoff', 'e1', '--site', 'orch', '--text', 'Not sure which card it belongs to');
+  const r = await board('intake', 'handoff', 'e1', '--site', 'orch', '--text', 'Not sure which task it belongs to');
   assert.equal(r.code, 2, r.err);
   assert.equal(lines(site('orch', 'data', 'events.jsonl')).some((e) => e.kind === 'intake-handoff'), false);
 });
@@ -767,10 +767,10 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
   assert.match((await board('item', 'relate-ask', 'e1', 'w/A9', '--summary', 'x', '--site', 'orch')).err, /no item "A9"/);
   assert.equal((await board('ask', 'unfold', 'e1', '--site', 'orch')).code, 0);
   assert.deepEqual(read(site('orch', 'data', 'ask-links.json')), { links: {} });
-  assert.match((await board('ask', 'unfold', 'e1', '--site', 'orch')).err, /ask "e1" is not folded into a card/);
+  assert.match((await board('ask', 'unfold', 'e1', '--site', 'orch')).err, /ask "e1" is not folded into a task/);
   await board('item', 'relate-ask', 'e1', 'w/A1', '--summary', 'Back in', '--site', 'orch');
   const stateless = await board('item', 'set', 'w/A1', '--from-ask', 'e1', '--site', 'orch', '--text', 'Building it.');
-  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a card, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later\n']);
+  assert.deepEqual([stateless.code, stateless.err], [1, '--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].from_ask, undefined);
   assert.equal((await board('item', 'set', 'w/A1', '--from-ask', 'e1', '--phase', 'grilling', '--site', 'orch', '--text', 'Building it.')).code, 0);
   assert.deepEqual([read(site('orch', 'data', 'ask-links.json')), read(at('waves', 'w', 'wave.json')).items[0].from_ask], [{ links: {} }, 'e1']);
@@ -779,17 +779,17 @@ test('item relate-ask folds an ask into an item with one summary line, ask unfol
 });
 
 // docs/adr/2026-11-09-2000-old-asks-migrate-into-cards-and-the-ask-only-records-retire.md
-test('reply --title titles only the New or answered card an ask became, and item relate-ask takes no --title', async () => {
+test('reply --title titles only the New or answered task an ask became, and item relate-ask takes no --title', async () => {
   const w = wave();
   w.items.push({ id: 'T-1', title: 'Header', lane: 'todo', from_ask: 'e1' }, { id: 'T-2', title: 'and the footer', lane: 'todo', from_ask: 'e2' });
   write(at('waves', 'w', 'wave.json'), w);
   addEvents({ id: 'e2', ts: '2026-10-23T10:05:00Z', kind: 'ask', data: { text: 'and the footer' } },
-    { id: 'm2', ts: '2026-10-23T10:07:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'on a card' } });
+    { id: 'm2', ts: '2026-10-23T10:07:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'on a task' } });
   assert.match((await board('reply', 'e1', '--site', 'orch', '--text', 'x', '--title', ' ')).err, /--title/);
   assert.equal((await board('reply', 'e1', '--site', 'orch', '--text', 'Done.', '--title', 'fix: header keeps its spacing')).code, 0);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === 'T-1').title, 'fix: header keeps its spacing');
   assert.deepEqual(await board('reply', 'm2', '--site', 'orch', '--text', 'x', '--title', 'feat: x'),
-    { code: 1, out: '', err: 'reply --title titles the New or answered card an ask became; "m2" is not one\n' });
+    { code: 1, out: '', err: 'reply --title titles the New or answered task an ask became; "m2" is not one\n' });
   assert.match((await board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--title', 'Footer spacing', '--site', 'orch')).err, /--title/);
   const merged = await board('item', 'relate-ask', 'e2', 'w/A1', '--summary', 'Footer too', '--site', 'orch');
   assert.equal(merged.code, 0, merged.err);
@@ -919,17 +919,17 @@ test('wave create links each card to the earlier cards its --card names and writ
   assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4', '--card', 'audit/A3', '--note', 'N')).err, /already in the wave "mon"/);
   assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4')).err, /needs the wave note/);
   assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--note', 'N')).err, /--card takes/);
-  assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4', '--card', 'audit/A4', '--note', 'N')).err, /names a card twice/);
-  assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A5', '--card', 'audit/A5', '--note', 'N')).err, /audit\/A5 is not an earlier card of the wave "two"/);
-  assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A4', '--note', 'N')).err, /audit\/A4 is not an earlier card/);
-  assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A9', '--note', 'N')).err, /audit\/A9 is not an earlier card/);
+  assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4', '--card', 'audit/A4', '--note', 'N')).err, /names a task twice/);
+  assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A5', '--card', 'audit/A5', '--note', 'N')).err, /audit\/A5 is not an earlier task of the wave "two"/);
+  assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A4', '--note', 'N')).err, /audit\/A4 is not an earlier task/);
+  assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--card', 'audit/A4:audit/A9', '--note', 'N')).err, /audit\/A9 is not an earlier task/);
   assert.match((await b('create', 'two', '--title', 'Two', '--goal', 'G', '--step', 'audit/A4', '--note', 'N')).err, /--step/);
 
   const added = await b('add', 'mon', 'audit/A4', '--after', 'audit/A2');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual(read(file).waves[0].items, ['A1', 'A2', 'A3', 'A4']);
   assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A1', 'A2'], A4: ['A2'], A5: [], A9: [] });
-  assert.match((await b('add', 'mon', 'audit/A5', '--after', 'audit/A9')).err, /audit\/A9 is not an earlier card of the wave "mon"/);
+  assert.match((await b('add', 'mon', 'audit/A5', '--after', 'audit/A9')).err, /audit\/A9 is not an earlier task of the wave "mon"/);
 
   const relinked = await b('set', 'mon', 'audit/A3', '--after', 'audit/A1');
   assert.equal(relinked.code, 0, relinked.err);
@@ -937,10 +937,10 @@ test('wave create links each card to the earlier cards its --card names and writ
   assert.deepEqual(deps(), { A1: [], A2: ['A9'], A3: ['A1'], A4: ['A2'], A5: [], A9: [] });
   assert.equal((await b('set', 'mon', 'audit/A2', '--after', '')).code, 0);
   assert.deepEqual(deps().A2, ['A9']);
-  assert.match((await b('set', 'mon', 'audit/A1', '--after', 'audit/A3')).err, /audit\/A3 is not an earlier card of the wave "mon"/);
+  assert.match((await b('set', 'mon', 'audit/A1', '--after', 'audit/A3')).err, /audit\/A3 is not an earlier task of the wave "mon"/);
   assert.match((await b('set', 'mon', 'audit/A5', '--after', '')).err, /audit\/A5 is not in the wave "mon"/);
   assert.match((await b('set', 'mon', 'audit/A3')).err, /--after/);
-  assert.match((await b('set', 'mon', '--after', 'audit/A1')).err, /--after goes with a card/);
+  assert.match((await b('set', 'mon', '--after', 'audit/A1')).err, /--after goes with a task/);
 
   // A card leaving keeps its own links as ordinary blocked-by; it can't leave while an open wave card waits on it.
   assert.equal((await b('set', 'mon', 'audit/A4', '--after', 'audit/A1,audit/A2')).code, 0);
@@ -1121,7 +1121,7 @@ test("--deps wave:<slug> blocks a card on every card in the wave as it grows, un
   for (const k of ['A1', 'A2', 'B2']) assert.doesNotMatch((await b('item', 'set', `audit/${k}`, '--done', '--text', 'Done.')).out, /unblocked/, k);
   const finished = await b('wave', 'finish', 'mon');
   assert.equal(finished.code, 1);
-  assert.match(finished.err, /the wave "mon" still has A3 open; wave finish waits until every card in it is Done/);
+  assert.match(finished.err, /the wave "mon" still has A3 open; wave finish waits until every task in it is Done/);
   assert.equal(read(file).waves[0].finished_at, undefined);
   const last = await b('item', 'set', 'audit/A3', '--done', '--text', 'Done.');
   assert.match(last.out, /^unblocked: audit\/B1$/m);
@@ -1155,7 +1155,7 @@ test('item set --done --split-into moves every open card waiting on the card ont
   assert.equal(lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).at(-1).text, 'Split into the wave Parts (N1, N2)');
   assert.deepEqual(lines(site('audit', 'data', 'threads', 'audit__B1.jsonl')).map(({ ts, ...m }) => m), [{ who: 'claude', kind: 'hub', line: 'split-moved', text: 'Split: A1 became the wave Parts (N1, N2), so it waits on those now.' }]);
 
-  assert.match((await b('item', 'set', 'audit/A1', '--done', '--split-into', 'wave:parts')).err, /audit\/A1 is already Done, so the cards waiting on it were unblocked then/);
+  assert.match((await b('item', 'set', 'audit/A1', '--done', '--split-into', 'wave:parts')).err, /audit\/A1 is already Done, so the tasks waiting on it were unblocked then/);
 
   // Into cards by key, stored as bare ids in the waiting card's own item file.
   const keys = await b('item', 'set', 'audit/C1', '--done', '--split-into', 'M1,audit/N2');
@@ -1170,7 +1170,7 @@ test('item set --done --split-into wave:<slug> refuses when a card waiting on it
   write(file, { title: 'W', items: [{ id: 'A1', title: 'Big' }, { id: 'N1', title: 'Part', deps: ['A1'] }, { id: 'N2', title: 'Part two' }] });
   assert.equal((await board('--site', 'audit', 'wave', 'create', 'parts', '--title', 'Parts', '--goal', 'G', '--card', 'audit/N1', '--card', 'audit/N2', '--note', 'N')).code, 0);
   const r = await board('--site', 'audit', 'item', 'set', 'audit/A1', '--done', '--split-into', 'wave:parts');
-  assert.match(r.err, /audit\/N1 waits on audit\/A1 and is in the wave "parts", so it would wait on itself; split into the new cards by key/);
+  assert.match(r.err, /audit\/N1 waits on audit\/A1 and is in the wave "parts", so it would wait on itself; split into the new tasks by key/);
   assert.equal(read(file).items[0].lane, undefined);
 });
 

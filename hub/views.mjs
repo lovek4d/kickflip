@@ -56,9 +56,9 @@ const codexView = (share, status, claudeModel) => ({
 // when Claude does, which the Codex share and pause line descriptions use: the forced model, or Claude under Auto.
 const BUILDER_WORDS = { opus: 'Opus', sonnet: 'Sonnet', auto: 'Claude' };
 const CLAUDE_CHOICES = [
-  { value: 'opus', label: 'Opus', description: 'Always Opus. Auto would give small cards to Sonnet.' },
-  { value: 'auto', label: 'Auto', description: 'Auto: small cards get Sonnet, the rest get Opus.' },
-  { value: 'sonnet', label: 'Sonnet', description: 'Always Sonnet. Auto would give large cards to Opus.' },
+  { value: 'opus', label: 'Opus', description: 'Always Opus. Auto would give small tasks to Sonnet.' },
+  { value: 'auto', label: 'Auto', description: 'Auto: small tasks get Sonnet, the rest get Opus.' },
+  { value: 'sonnet', label: 'Sonnet', description: 'Always Sonnet. Auto would give large tasks to Opus.' },
 ];
 const claudeView = (model) => ({
   model,

@@ -23,19 +23,19 @@ test('only the board stages a card: item set and item add refuse --phase staging
 test('ready comes only from staging, or a card already ready; staging to ready clears when it was staged', async () => {
   write(at('waves', 'w', 'a1.md'), '# A1\n');
   setState({ plan: 'a1.md' });
-  const ready = () => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small', ...(item().phase === 'staging' ? ['--text', 'No other card covers it.'] : []));
+  const ready = () => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small', ...(item().phase === 'staging' ? ['--text', 'No other task covers it.'] : []));
   for (const from of [undefined, 'grilling', 'prototyping']) {
     setState({ phase: from });
-    assert.deepEqual(await ready(), { code: 1, out: '', err: `w/A1 reads ${from || 'new'}, not staging; a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n` });
+    assert.deepEqual(await ready(), { code: 1, out: '', err: `w/A1 reads ${from || 'new'}, not staging; a task goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n` });
     assert.equal(item().phase, from);
   }
   setState({ phase: 'staging', staged_at: '2026-11-06T10:00:00.000Z' });
   const r = await ready();
   assert.equal(r.code, 0, r.err);
   assert.deepEqual([item().phase, item().staged_at], ['ready', undefined]);
-  assert.equal((await ready()).code, 0, 'a ready card can be set ready again');
+  assert.equal((await ready()).code, 0, 'a ready task can be set ready again');
   // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md: only the move to ready writes the line.
-  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => [m.who, m.command, m.text]), [['claude', 'readied', 'Marked as ready · No other card covers it.']]);
+  assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map((m) => [m.who, m.command, m.text]), [['claude', 'readied', 'Marked as ready · No other task covers it.']]);
 });
 
 // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
@@ -45,13 +45,13 @@ test("staging to ready needs the orchestrator's judgment as --text, which goes i
   const set = (...more) => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', ...more);
   assert.deepEqual(await set(), { code: 1, out: '', err: 'w/A1 goes ready from staging on your judgment: pass --text "<what you checked it against on the board>", which goes into its notes\n' });
   assert.equal(item().phase, 'staging');
-  const r = await set('--text', 'No open card overlaps it; #12 lands first and touches other files.');
+  const r = await set('--text', 'No open task overlaps it; #12 lands first and touches other files.');
   assert.equal(r.code, 0, r.err);
   assert.equal(item().phase, 'ready');
-  assert.match(fs.readFileSync(at('waves', 'w', 'a1.md'), 'utf8'), /\n## Ready \(orchestrator, \d\d\/\d\d \d\d:\d\d\)\nNo open card overlaps it; #12 lands first and touches other files\.\n$/);
+  assert.match(fs.readFileSync(at('waves', 'w', 'a1.md'), 'utf8'), /\n## Ready \(orchestrator, \d\d\/\d\d \d\d:\d\d\)\nNo open task overlaps it; #12 lands first and touches other files\.\n$/);
   assert.deepEqual(await set('--text', 'Again.'), { code: 1, out: '', err: 'w/A1 reads ready, not staging, so there is no judgment for --text to record\n' });
   assert.equal((await set()).code, 0);
-  assert.match((await board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'x', '--text', 'y')).err, /--text goes with --from-ask, --done, or --phase ready on a staging card/);
+  assert.match((await board('item', 'set', 'w/A1', '--site', 'orch', '--next', 'x', '--text', 'y')).err, /--text goes with --from-ask, --done, or --phase ready on a staging task/);
 });
 
 // The readied line is "Marked as ready · <--text>", a status line: a --text too long for it is refused, never cut.
@@ -69,7 +69,7 @@ test('staging to ready refuses a --text the readied line can\'t hold whole, nami
 
 test('item add without --from-ask files a card grilling or prototyping, never ready', async () => {
   const r = await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--phase', 'ready', '--size', 'small');
-  assert.deepEqual(r, { code: 1, out: '', err: "item add files a card discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
+  assert.deepEqual(r, { code: 1, out: '', err: "item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask\n" });
   assert.equal(item('Q1'), undefined);
   assert.equal((await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: quick', '--phase', 'grilling')).code, 0);
 });
@@ -118,7 +118,7 @@ test('item set --from-ask files a Quick build ask ready, from any phase, with it
   const implemented = await file('A2', 'eb', 'ready');
   assert.equal(implemented.code, 0, implemented.err);
   assert.equal(item('A2').phase, 'ready');
-  assert.deepEqual(await file('A3', 'ep', 'ready'), { code: 1, out: '', err: "w/A3 reads new, not staging; a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n" });
+  assert.deepEqual(await file('A3', 'ep', 'ready'), { code: 1, out: '', err: "w/A3 reads new, not staging; a task goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n" });
   assert.equal(item('A3').phase, undefined);
 });
 

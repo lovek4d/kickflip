@@ -73,7 +73,7 @@ test('an archived card leaves the item file with its resolved questions, its thr
     const archive = await readArchive(site);
     assert.deepEqual(archive.map((a) => [a.key, a.file, a.closed_at, a.item.title, a.questions.map((q) => q.id)]),
       [['t/D101', 't', at(101), 'Done 101', []], ['t/D102', 't', at(102), 'Done 102', ['q-done']]], 'newest closed first');
-    assert.ok(archive.every((a) => !('card' in a)), 'an entry keeps no page card');
+    assert.ok(archive.every((a) => !('card' in a)), 'an entry keeps no page task');
     assert.equal(fs.readFileSync(path.join(site, 'data', 'threads', 't__D102.jsonl'), 'utf8'), threadBefore, 'the thread stays whole');
     await archiveCards(site, picks);
     assert.equal((await readArchive(site)).length, 2, 'archiving twice moves nothing twice');
@@ -153,31 +153,31 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
   const { base, changed, settled } = await startBoard(t, { site, home });
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   await settled();
-  assert.equal((await readArchive(site)).length, count - DONE_KEPT - 3, 'the start archives every card past the newest 100 but the kept 3');
+  assert.equal((await readArchive(site)).length, count - DONE_KEPT - 3, 'the start archives every task past the newest 100 but the kept 3');
   // The server sees its archive's writes to the item file once its file watch reports them.
   changed('data/items.json');
   await settled();
   const board = await (await fetch(`${base}/api/board`)).json();
-  assert.equal(board.items.filter((i) => i.lane === 'done').length, DONE_KEPT + 3, 'the board leaves the archived cards out');
+  assert.equal(board.items.filter((i) => i.lane === 'done').length, DONE_KEPT + 3, 'the board leaves the archived tasks out');
   const done = board.items.filter((i) => i.lane === 'done');
   assert.equal(board.doneArchived, count - DONE_KEPT - 3);
-  assert.ok(done.every((c) => !('agents' in c) && !('created' in c)), 'Done cards come slim');
-  assert.ok(board.items.find((i) => i.key === 't/O1').created !== undefined, 'open cards come whole');
+  assert.ok(done.every((c) => !('agents' in c) && !('created' in c)), 'Done tasks come slim');
+  assert.ok(board.items.find((i) => i.key === 't/O1').created !== undefined, 'open tasks come whole');
   assert.ok(!read('items.json').items.some((it) => it.id === 'D100'));
-  assert.ok(!board.items.some((i) => i.key === 'ask:a1'), 'an ask made into an archived card stays out of Todo');
+  assert.ok(!board.items.some((i) => i.key === 'ask:a1'), 'an ask made into an archived task stays out of Todo');
   assert.equal(board.moved['ask:a1'], `t/D${count - 4}`);
 
   const first = await (await fetch(`${base}/api/done`)).json();
   assert.deepEqual([first.cards.length, first.cards[0].key, first.cards.at(-1).key, first.left], [DONE_KEPT, 't/D100', 't/D199', count - DONE_KEPT - 3 - DONE_KEPT]);
-  assert.ok(first.cards.every((c) => c.lane === 'done' && !('agents' in c) && !('created' in c)), 'paged cards come slim');
-  assert.deepEqual([first.cards[0].title, first.cards[0].lane, first.cards[0].sortAt, first.cards[0].file], ['Done 100', 'done', at(100), 't'], 'a paged card is built as it pages in');
+  assert.ok(first.cards.every((c) => c.lane === 'done' && !('agents' in c) && !('created' in c)), 'paged tasks come slim');
+  assert.deepEqual([first.cards[0].title, first.cards[0].lane, first.cards[0].sortAt, first.cards[0].file], ['Done 100', 'done', at(100), 't'], 'a paged task is built as it pages in');
   const last = first.cards.at(-1);
   const second = await (await fetch(`${base}/api/done?before=${encodeURIComponent(`${last.sortAt}|${last.key}`)}`)).json();
   assert.deepEqual([second.cards.map((c) => c.key), second.left], [Array.from({ length: count - 3 - 200 }, (_, n) => `t/D${200 + n}`), 0]);
   const answered = second.cards.find((c) => c.key === `t/D${count - 4}`);
-  assert.equal(answered.questions?.state, 'resolved', "a paged card reads its archived questions");
+  assert.equal(answered.questions?.state, 'resolved', "a paged task reads its archived questions");
   assert.ok(answered.threadCount >= 1, 'and its thread');
-  assert.deepEqual(second.cards.find((c) => c.key === `t/D${count - 5}`).children.map((c) => c.key), ['t/D0'], 'a paged card links the board cards that name it');
+  assert.deepEqual(second.cards.find((c) => c.key === `t/D${count - 5}`).children.map((c) => c.key), ['t/D0'], 'a paged task links the board tasks that name it');
   assert.ok((await readArchive(site)).every((a) => !('card' in a) && a.closed_at));
   assert.equal(read('items.json').items.find((it) => it.id === 'D0').summary, undefined, 'the start strips an item summary');
   assert.deepEqual(Object.keys(read('owner.json').items.find((q) => q.id === 'q-other')).filter((k) => ['push_tag', 'no_change', 'resolved_at'].includes(k)), ['resolved_at'],
@@ -186,5 +186,5 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
   const archived = `t/D${count - 4}`;
   assert.ok((await readArchive(site)).some((a) => a.key === archived));
   const thread = await (await fetch(`${base}/api/thread?key=${encodeURIComponent(archived)}`)).json();
-  assert.deepEqual(thread.map((m) => m.text), ['Make a badge', 'Question 1 · Which badge?\n→ The dot', 'Landed.'], "an archived card's thread reads whole, its ask and its answers with their questions");
+  assert.deepEqual(thread.map((m) => m.text), ['Make a badge', 'Question 1 · Which badge?\n→ The dot', 'Landed.'], "an archived task's thread reads whole, its ask and its answers with their questions");
 });

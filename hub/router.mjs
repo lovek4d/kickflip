@@ -42,7 +42,7 @@ export function routingBoards(manifest = readManifest()) {
 }
 
 export function routePrompt(text, boards) {
-  const listed = boards.map((b) => `/${b.route} · ${b.title}\nDescription: ${b.description || 'none'}\nRecent open cards:${b.recent.length ? b.recent.map((t) => `\n- ${t}`).join('') : ' none'}`).join('\n\n');
+  const listed = boards.map((b) => `/${b.route} · ${b.title}\nDescription: ${b.description || 'none'}\nRecent open tasks:${b.recent.length ? b.recent.map((t) => `\n- ${t}`).join('') : ' none'}`).join('\n\n');
   return `You route one incoming request to the board whose work it belongs to. You only pick the board; you don't answer the request.
 
 The boards:

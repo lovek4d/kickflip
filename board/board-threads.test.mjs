@@ -14,7 +14,7 @@ test('install posts only the route and key to the hub once it quotes the owner, 
     for await (const chunk of req) body += chunk;
     seen.push([req.method, req.url, JSON.parse(body)]);
     res.writeHead(refuse ? 409 : 202, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(refuse ? { error: 'An install build is already running for this card.' } : { status: 'started' }));
+    res.end(JSON.stringify(refuse ? { error: 'An install build is already running for this task.' } : { status: 'started' }));
   });
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   try {
@@ -31,7 +31,7 @@ test('install posts only the route and key to the hub once it quotes the owner, 
     assert.deepEqual(seen, [['POST', '/_hub/build', { route: 'orch', key: 'w/A1' }]]);
     assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ who, text }) => [who, text]), [['claude', 'Running at the owner\'s ask: "build a1 so I can try"']]);
     refuse = true;
-    assert.deepEqual(await run(), { code: 1, out: '', err: 'An install build is already running for this card.\n' });
+    assert.deepEqual(await run(), { code: 1, out: '', err: 'An install build is already running for this task.\n' });
   } finally { await new Promise((resolve) => { hub.closeAllConnections(); hub.close(resolve); }); }
 });
 

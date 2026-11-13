@@ -1,10 +1,10 @@
 ---
-status: amended by 2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives
+status: amended by 2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives, 2026-11-13-1126-work-items-are-tasks-and-tickets-attach-to-them
 ---
 
 # A task is a card with no ticket, keyed T-<n>, and its grill asks whether it gets one
 
-Amended by [every ask is a task card from the moment it arrives](2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md): a dropped card leaves its number as its item file's `last_task`, so the number is not reused.
+Amended by [every ask is a task card from the moment it arrives](2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md): a dropped card leaves its number as its item file's `last_task`, so the number is not reused. Amended by [work items are tasks, and tickets attach to them](2026-11-13-1126-work-items-are-tasks-and-tickets-attach-to-them.md): task now names every work item, ticket or not.
 
 #465, split from #445. The owner, on gh445-task-is-card: "T-n should also replace internal issue mechanism, so by default with no ticketing system we get these". On #465's grill (11/09) they answered: retire Internal, every new card is a task until its ticket question gives it a ticket, the board makes the ticket at once on their yes, and no prototype round (#445's prototype take A drew the badge).
 

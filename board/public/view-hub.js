@@ -134,7 +134,7 @@ ${integrationsHtml(d.integrations)}${sitesHtml(d.groups, restarting, d.routed ||
       const restarting = new Set();
       B.openSettings = (...args) => settings.B.openSettings(...args);
       async function restart(route, title) {
-        if (restarting.has(route) || !(await BoardDialogs.confirm(`This stops ${title}’s session mid-task, along with any implementer it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board. Restart ${title}?`))) return;
+        if (restarting.has(route) || !(await BoardDialogs.confirm(`This stops ${title}’s session mid-task, along with any implementer it started, then restarts its server and resumes the session. Its tasks and threads stay. For a stuck board. Restart ${title}?`))) return;
         restarting.add(route);
         flash = null;
         paint();

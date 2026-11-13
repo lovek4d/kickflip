@@ -155,7 +155,7 @@ test("the kit draws the real sidebar, Hub page, cards and a sheet in the stage's
   assert.deepEqual([...cards.matchAll(/data-lane="(\w+)"/g)].map((m) => m[1]), ['review', 'progress', 'todo']);
   assert.match(cards, /<details class="item" data-key="w\/C0"><summary class="work"><span class="status review"><\/span><div class="title-wrap">/);
   assert.doesNotMatch(kit.cards(kit.fake.items(), { lanes: false }), /data-lane/);
-  assert.match(kit.sheet('<p>Body</p>', { title: 'New <card>' }), /<section class="kit-sheet" role="group" aria-label="New &lt;card&gt;"><div class="sheet-head"><h2>New &lt;card&gt;<\/h2>[\s\S]*<div class="kit-sheet-body"><p>Body<\/p><\/div>/);
+  assert.match(kit.sheet('<p>Body</p>', { title: 'New <task>' }), /<section class="kit-sheet" role="group" aria-label="New &lt;task&gt;"><div class="sheet-head"><h2>New &lt;task&gt;<\/h2>[\s\S]*<div class="kit-sheet-body"><p>Body<\/p><\/div>/);
 });
 
 test('the prototype template loads every script app.html does, in its order, then the switcher and the kit', () => {

@@ -364,7 +364,7 @@ test('question move puts a merged question on one card, resolves the duplicates 
   write(file, { topics: [], items: ['A1', 'B2', 'C3'].map((c, i) => question(`q${i + 1}`, { topic: `item:w/${c}` })) });
   assert.equal((await move('q9', '--to', 'w/A1')).err, 'no question "q9" in owner.json\n');
   assert.equal((await move('q1', '--to', 'w/Z9')).code, 1);
-  assert.equal((await move('q1', '--to', 'w/A1', '--block', 'w/A1')).err, 'question move names a card twice\n');
+  assert.equal((await move('q1', '--to', 'w/A1', '--block', 'w/A1')).err, 'question move names a task twice\n');
   addEvents({ id: 'answer-q3', ts: '2026-10-23T10:00:00Z', kind: 'owner-answer', data: { id: 'q3', choice: 'A' } });
   assert.equal((await move('q2,q3', '--to', 'w/A1')).err, 'q3 is answered; question move takes open questions\n');
   assert.deepEqual(read(file).items.map((q) => q.topic), ['item:w/A1', 'item:w/B2', 'item:w/C3']);

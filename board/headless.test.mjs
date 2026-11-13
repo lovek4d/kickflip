@@ -91,7 +91,7 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
   assert.ok(!brief.includes('node --test'), 'the brief runs the affected tests, not the full suite');
   for (const phase of ['reading', 'building', 'testing', 'checking', 'landing']) assert.ok(brief.includes(`- ${phase}:`), `the brief says what ${phase} means`);
   assert.ok(brief.includes("don't start the text with it"), 'the brief says not to lead with the phase word');
-  assert.ok(!brief.includes(`${b} land`), 'done finishes the card, so the brief never runs land');
+  assert.ok(!brief.includes(`${b} land`), 'done finishes the task, so the brief never runs land');
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'calls come before the finishing step');
   assert.match(builderBrief({ ...card, notes: null }), /no notes file/);
 });
@@ -111,10 +111,10 @@ test("a rebase run's brief takes up the card, rebases its PR's branch onto origi
 test("a resumed builder's land brief speaks to the builder, says why the land needs it, and keeps the lander's steps and label", () => {
   const brief = landerBrief({ ...card, resumed: true, why: 'rebasing A1 onto main conflicts in a.txt' });
   const b = `node ${BOARD_CLI} --site shop`;
-  assert.match(brief, /^The board resumes you, the builder of card ENG-1 .* to land your build: rebasing A1 onto main conflicts in a\.txt/);
+  assert.match(brief, /^The board resumes you, the builder of task ENG-1 .* to land your build: rebasing A1 onto main conflicts in a\.txt/);
   assert.ok(!brief.includes('You are the headless lander'));
   for (const want of [`${b} builder start w/A1 --kind build --label Lander --phase landing`, `${b} builder done w/A1 --text`, 'Never push']) assert.ok(brief.includes(want), `it has ${want}`);
-  assert.match(rebaseBrief({ ...card, pr: 31, resumed: true }), /^The board resumes you, the builder of card ENG-1/);
+  assert.match(rebaseBrief({ ...card, pr: 31, resumed: true }), /^The board resumes you, the builder of task ENG-1/);
 });
 
 test("a lander's brief takes up the card's verified build, acts on the owner's answers, and finishes it with builder done", () => {
@@ -163,30 +163,30 @@ test("a headless planner's brief names its card and its notes so far, spells its
   // docs/adr/2026-11-12-1400-a-grill-ends-asking-to-implement-prototype-or-discuss.md: every grill ends with one
   // closing question, Implement, Prototype first or Keep discussing, which the board acts on.
   assert.ok(grill.includes('End every grill with one more question, "What next, given these answers?", whose options are implement (label "Implement"), prototype ("Prototype first") and discuss ("Keep discussing"), in that order, with "next_gate": true in its `question add --file` entry'));
-  assert.ok(grill.includes('the board moves the card to staging on implement, to prototyping on prototype, or back to discussing on discuss'));
-  assert.ok(grill.includes("Recommend implement when your questions settle the card and it doesn't change the hub's or a board's UI, prototype when it does") && grill.includes('Ask it even when it is your only question'));
+  assert.ok(grill.includes('the board moves the task to staging on implement, to prototyping on prototype, or back to discussing on discuss'));
+  assert.ok(grill.includes("Recommend implement when your questions settle the task and it doesn't change the hub's or a board's UI, prototype when it does") && grill.includes('Ask it even when it is your only question'));
   assert.ok(!grill.includes('prototype_gate') && !grill.includes('Prototype round first?'));
   assert.ok(!proto.includes('next_gate'));
   // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a card that keeps its prototype answer is never asked again.
   for (const [prototype, moves] of [['yes', 'to prototyping'], ['no', 'to staging'], ['ran', 'to staging']]) {
     const kept = plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', prototype });
     assert.ok(!kept.includes('next_gate') && !kept.includes('End every grill with one more question'), prototype);
-    assert.ok(kept.includes(`The card keeps the owner's answer to its prototype question, ${prototype}, so ask no closing "What next, given these answers?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the card ${moves}.`), prototype);
+    assert.ok(kept.includes(`The task keeps the owner's answer to its prototype question, ${prototype}, so ask no closing "What next, given these answers?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the task ${moves}.`), prototype);
   }
   // docs/adr/2026-11-10-1600-tickets-are-made-at-ready.md: the grill never asks about a ticket, and says so.
   assert.ok(!grill.includes('ticket_gate') && !grill.includes('Create a ticket') && !proto.includes('ticket_gate'));
-  assert.ok(grill.includes('Never ask whether to make a ticket: the board makes a card\'s ticket when it goes ready.'));
+  assert.ok(grill.includes('Never ask whether to make a ticket: the board makes a task\'s ticket when it goes ready.'));
   // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a grill proposes a split as one question.
-  assert.ok(grill.includes('separable parts') && grill.includes('"Split as proposed"') && grill.includes('"Keep as one card"'));
+  assert.ok(grill.includes('separable parts') && grill.includes('"Split as proposed"') && grill.includes('"Keep as one task"'));
   assert.ok(grill.includes('ahead of the closing question'));
   // docs/adr/2026-11-09-2200-splits-and-waves-follow-vertical-slices-with-stated-conflicts.md: the slicing comes from /to-tickets, the conflicts are named per card.
   assert.ok(grill.includes('~/.claude/skills/to-tickets/SKILL.md') && grill.includes('step 3, "Draft vertical slices"'));
-  assert.ok(grill.includes('the earlier proposed cards it waits on, or none'));
-  assert.ok(grill.includes('only when it builds on that card or shares its seam'));
-  assert.ok(!grill.includes('which cards build side by side'));
+  assert.ok(grill.includes('the earlier proposed tasks it waits on, or none'));
+  assert.ok(grill.includes('only when it builds on that task or shares its seam'));
+  assert.ok(!grill.includes('which tasks build side by side'));
   assert.ok(!proto.includes('Split as proposed'));
   // A grill sets no ready itself: the gate's answer moves the card; the owner asking for prototypes ends it prototyping.
-  assert.ok(grill.includes(`end the card \`${b} item set w/A1 --phase prototyping\` instead and skip the closing question`));
+  assert.ok(grill.includes(`end the task \`${b} item set w/A1 --phase prototyping\` instead and skip the closing question`));
   assert.ok(grill.includes('never set it ready yourself'));
   assert.ok(grill.includes('never leave a Next that asks the owner to mark it ready'));
   assert.ok(!proto.includes('--phase ready'));
@@ -224,12 +224,12 @@ test("a builder's and a planner's brief list the card's related cards with their
     { relation: 'parent', ref: 'ENG-3', title: 'The lane', lane: 'Done', notes: null, thread: '/s/data/threads/w__A3.jsonl' },
   ];
   for (const brief of [builderBrief({ ...card, links }), plannerBrief({ ...card, kind: 'grill', repo: '/r/shop', links })]) {
-    for (const want of ['Related cards', "don't build their scope", 'ENG-2 "Sort the lane" (related, Todo): notes /s/waves/w/a2.md, thread /s/data/threads/w__A2.jsonl', 'ENG-3 "The lane" (parent, Done): no notes, thread /s/data/threads/w__A3.jsonl']) {
+    for (const want of ['Related tasks', "don't build their scope", 'ENG-2 "Sort the lane" (related, Todo): notes /s/waves/w/a2.md, thread /s/data/threads/w__A2.jsonl', 'ENG-3 "The lane" (parent, Done): no notes, thread /s/data/threads/w__A3.jsonl']) {
       assert.ok(brief.includes(want), `the brief has ${want}`);
     }
   }
-  assert.ok(!builderBrief(card).includes('Related cards'), 'a card with no links has no Related cards line');
-  assert.ok(!landerBrief({ ...card, links }).includes('Related cards'));
+  assert.ok(!builderBrief(card).includes('Related tasks'), 'a task with no links has no Related tasks line');
+  assert.ok(!landerBrief({ ...card, links }).includes('Related tasks'));
 });
 
 test("briefFacts gives a card's links: Related to set on either card, its Parent and its deps, each with its ref, title, lane and notes path", async () => {
@@ -417,7 +417,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   assert.deepEqual(items.map((i) => i.rebase_run?.conflict ?? null), [`${'a'.repeat(40)}@main`, `${'b'.repeat(40)}@main`, null]);
   assert.deepEqual(Object.fromEntries(Object.entries(read('rebases.json')).map(([k, v]) => [k, v.conflict])), { 't/R1': `${'a'.repeat(40)}@main`, 't/R2': `${'b'.repeat(40)}@main` });
   const { items: cards } = await fetch(`${board.base}/api/board`).then((r) => r.json());
-  assert.deepEqual(['t/R1', 't/R2'].map((k) => cards.find((c) => c.key === k).lane), ['review', 'review'], 'the run leaves the card in In Review');
+  assert.deepEqual(['t/R1', 't/R2'].map((k) => cards.find((c) => c.key === k).lane), ['review', 'review'], 'the run leaves the task in In Review');
 
   boardJSON({ title: 'Shop again' });
   await wrote(board, path.join(site, 'board.json'));
@@ -781,7 +781,7 @@ test("the owner's Grill and Prototype taps and a card arriving in Todo launch no
   assert.deepEqual([grill.kind, grill.model], ['claude', 'opus']);
   assert.deepEqual([b.record('G1').kind, b.record('G1').dispatched, b.record('G1').brief.brief.heading], ['grill', 'hub', 'Brief for grill round 1']);
   assert.match(b.record('G1').session.log, /^planner-G1-.*\.log$/, 'the launch records its session');
-  assert.deepEqual([b.item('G1').lane, b.item('G1').briefs], ['todo', undefined], 'a planner never starts the card, and its brief left the card');
+  assert.deepEqual([b.item('G1').lane, b.item('G1').briefs], ['todo', undefined], 'a planner never starts the task, and its brief left the task');
 
   await send('prototype-request', { key: 't/P1' });
   await brief('P1', 'prototype', 'Two takes: a drawer and a sheet.');
@@ -829,7 +829,7 @@ test('a grill briefed during a pause waits on the card and launches when the pau
   await send('grill-more', { key: 't/G1', text: 'One more thing' });
   await brief('G1', 'grill', 'Ask about the footer.');
   assert.equal(b.runs.length, 0, 'nothing launches while paused');
-  assert.equal(b.item('G1').briefs[0].brief.heading, 'Brief for grill round 1', 'the brief waits on the card');
+  assert.equal(b.item('G1').briefs[0].brief.heading, 'Brief for grill round 1', 'the brief waits on the task');
   fs.rmSync(path.join(b.home, '.claude', 'kickflip', 'usage.json'));
   board.minute();
   await board.settled();
@@ -898,7 +898,7 @@ test("the owner's Hold pauses the card's running builder at its next progress re
   const b = oneLaunchBoard(t, [{ id: 'H1', title: 'feat: hold me', phase: 'ready', size: 'large' }]);
   const { send } = await b.start();
   const { pid, id: session } = b.record('H1').session;
-  assert.equal(pid, b.runs[0].pid, 'the pull of the ready card records the agent pid');
+  assert.equal(pid, b.runs[0].pid, 'the pull of the ready task records the agent pid');
   await send('card-hold', { key: 't/H1', hold: true });
   assert.doesNotThrow(() => process.kill(pid, 0), 'the builder runs on to its stopping point');
   assert.deepEqual({ done: b.record('H1').done, pause: b.record('H1').pause?.cause, lane: b.item('H1').lane }, { done: undefined, pause: 'held', lane: 'progress' }, `read the record ${JSON.stringify(b.record('H1'))}`);
@@ -911,7 +911,7 @@ test("the owner's Hold pauses the card's running builder at its next progress re
   assert.equal(b.record('H1').session.pid, b.runs[1].pid);
   const [, again] = b.runs;
   assert.equal(again.resume, session);
-  assert.match(again.prompt, /^The board paused your build of card H1, and the pause has cleared: unheld\. Carry on where you stopped/);
+  assert.match(again.prompt, /^The board paused your build of task H1, and the pause has cleared: unheld\. Carry on where you stopped/);
   assert.equal(again.cwd, b.record('H1').worktree.path);
   assert.deepEqual([b.record('H1').pause, b.record('H1').done], [undefined, undefined]);
   assert.ok(b.thread('H1').some((m) => m.text === 'Resumed: unheld.'));
@@ -961,7 +961,7 @@ test("a visual agent's brief has it start as its own agent, read the card and th
     'ENG-1', 'Make it go', '/s/waves/w/a1.md', `${b} builder start w/A1 --kind visual --agent visual-e1`, 'Draw the land queue',
     `${b} visual add w/A1 --file`, '--title', `${b} builder done w/A1 --agent visual-e1`, 'CDN', 'Never push',
   ]) assert.ok(brief.includes(want), `the visual brief has ${want}`);
-  assert.ok(!brief.includes('question add') && !brief.includes('item set'), 'a visual posts no question and moves no card');
+  assert.ok(!brief.includes('question add') && !brief.includes('item set'), 'a visual posts no question and moves no task');
   assert.ok(brief.indexOf('visual add') < brief.indexOf(`${b} builder done`));
   assert.doesNotMatch(visualBrief({ ...card, repo: '/r/shop', agent: 'visual-e1' }), /The owner wrote/, 'with no text from the owner, the orchestrator\'s brief says what to draw');
 });
@@ -1061,6 +1061,6 @@ test('a writing helper launches at once, its card In Progress already holding th
   assert.equal(run.model, 'sonnet');
   const helper = b.record('V1@tests');
   assert.deepEqual([helper.kind, helper.dispatched, helper.task, helper.writes, helper.worktree.branch], ['helper', 'hub', 'Write the split tests', true, 'V1-tests']);
-  assert.equal(git(tree, 'rev-parse', 'HEAD'), git(cardTree, 'rev-parse', 'HEAD'), "it branches from the card's branch");
+  assert.equal(git(tree, 'rev-parse', 'HEAD'), git(cardTree, 'rev-parse', 'HEAD'), "it branches from the task's branch");
   assert.ok(helper.session?.log, 'the launch records the run');
 });

@@ -121,7 +121,7 @@ const optional = (v, check) => (v === undefined ? undefined : check(v));
 const cardTitle = (v) => {
   const title = text(v, '--title');
   const fault = cardTitleFault(title);
-  return fault ? fail(`--title "${title}" ${fault}; a card's title is ${cardTitleWords}`) : title;
+  return fault ? fail(`--title "${title}" ${fault}; a task's title is ${cardTitleWords}`) : title;
 };
 const PROTOTYPE_PAGE = /^prototype-[\w-]+\.html(?:[?#]\S*)?$/;
 const VISUAL_PAGE = /^visuals\/[\w-]+\/[\w-]+\.html$/;
@@ -179,7 +179,7 @@ export async function writeReply(site, eventId, md, title) {
   if (card && answerable(card.item)) {
     text(md, 'the reply');
     await markAnswered(site, card, title);
-  } else if (title !== undefined) fail(`reply --title titles the New or answered card an ask became; "${eventId}" is not one`);
+  } else if (title !== undefined) fail(`reply --title titles the New or answered task an ask became; "${eventId}" is not one`);
   const dir = path.join(site, 'data', 'replies');
   const earlier = await replyFilesOf(dir, eventId);
   const file = path.join(dir, earlier.length ? `${eventId}~${earlier.at(-1).n + 1}.md` : `${eventId}.md`);
@@ -452,7 +452,7 @@ export async function appendStatus(site, key, kind, inputs = {}, { link, questio
 export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by, close, implement }) {
   needSite(site);
   if (close && implement) fail('thread takes --implement or --close, not both');
-  if ((close || implement) && (who !== 'claude' || via !== undefined)) fail(`thread --${close ? 'close' : 'implement'} is the orchestrator marking a card: it takes no --who or --via`);
+  if ((close || implement) && (who !== 'claude' || via !== undefined)) fail(`thread --${close ? 'close' : 'implement'} is the orchestrator marking a task: it takes no --who or --via`);
   await checkThreadKey(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
@@ -676,7 +676,7 @@ export const dropAskCard = (site, eventId) => ticketWrite(site, async () => {
 const answerable = (item) => [undefined, 'discussing'].includes(item.phase) && !leftTodo(item) && !hasPR(item);
 async function markAnswered(site, card, title) {
   const { item, key } = card;
-  if (!item.from_ask) fail(`${key} is not a card an ask became; write in its thread with thread ${key} --text`);
+  if (!item.from_ask) fail(`${key} is not a task an ask became; write in its thread with thread ${key} --text`);
   if (!answerable(item)) fail(`${key} is sorted (${item.phase || LANES[item.lane]}), so it is work: write in its thread with thread ${key} --text`);
   if (title !== undefined) item.title = cardTitle(title);
   leaveNew(item);
@@ -689,7 +689,7 @@ async function markAnswered(site, card, title) {
 // Refuses filing ask eventId onto a card other than key when the board already filed it as its own.
 async function refuseFiled(site, eventId, key) {
   const card = await askCardOf(site, eventId);
-  if (card && card.key !== key) fail(`ask "${eventId}" is already card ${card.key}: sort it with item set ${card.key} --phase, or merge it with item relate-ask ${eventId} <card>`);
+  if (card && card.key !== key) fail(`ask "${eventId}" is already task ${card.key}: sort it with item set ${card.key} --phase, or merge it with item relate-ask ${eventId} <task>`);
 }
 export async function answerCard(site, key, md, title, { waitsOn } = {}) {
   needSite(site);
@@ -715,7 +715,7 @@ export async function relateAsk(site, eventId, key, summary) {
   // names key. A card already sorted is work of its own.
   const card = await askCardOf(site, eventId);
   if (card && card.key === key) fail(`ask "${eventId}" is ${key} already`);
-  if (card && !stillNew(card.item)) fail(`ask "${eventId}" became ${card.key}, which is sorted; to fold that card's notes into ${key}, use item notes ${key} --from ${card.key}, then close it`);
+  if (card && !stillNew(card.item)) fail(`ask "${eventId}" became ${card.key}, which is sorted; to fold that task's notes into ${key}, use item notes ${key} --from ${card.key}, then close it`);
   if (card) {
     const moved = await ticketWrite(site, () => dropCard(site, card));
     const askThread = threadFile(site, `ask:${eventId}`);
@@ -734,7 +734,7 @@ export async function relateAsk(site, eventId, key, summary) {
 export async function unfoldAsk(site, eventId) {
   await checkAsk(site, eventId, 'the ask');
   const links = await readAskLinks(site);
-  if (routeRecord(links, eventId) === undefined) fail(`ask "${eventId}" is not folded into a card`);
+  if (routeRecord(links, eventId) === undefined) fail(`ask "${eventId}" is not folded into a task`);
   delete links[eventId];
   await writeJSON(askLinksFile(site), { links });
   return askLinksFile(site);
@@ -1402,7 +1402,7 @@ export async function saveBoardSettings(site, changes) {
   }
   if (changes.prs === false) {
     const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
-    if (board?.github && !board.local && !(await readPermissions(board.owner?.repo)).pushMain) fail('Merge lands each card on main and pushes it, so turn on Push main after a land first');
+    if (board?.github && !board.local && !(await readPermissions(board.owner?.repo)).pushMain) fail('Merge lands each task on main and pushes it, so turn on Push main after a land first');
   }
   return writeBoardJSON(site, (cfg) => {
     const board = site ? listBoards().find((b) => samePath(b.dir, site)) : null;
@@ -1670,7 +1670,7 @@ export async function addQuestions(site, input, renderCheck = async () => {}) {
     if (!planner) continue;
     (staged[card] ||= []).push(q);
     held.push(q);
-    lines.push(`staged: ${q.id} waits for ${card}'s ${planner} to finish; the card's staged questions then publish together`);
+    lines.push(`staged: ${q.id} waits for ${card}'s ${planner} to finish; the task's staged questions then publish together`);
   }
   if (held.length) await writeJSON(stagedFile(site), staged);
   if (held.length === questions.length) return { file: stagedFile(site), lines, staged: held.length };
@@ -1697,7 +1697,7 @@ export async function checkQuestions(site, input, renderCheck = async () => {}) 
     // question on it goes on that card's topic.
     if (q.topic.startsWith('item:ask:')) {
       const card = await askCardOf(site, await checkAsk(site, q.topic.slice(9), `${name}.topic`));
-      fail(`${name}.topic: an ask's questions go on its card's topic${card ? `, item:${card.key}` : ''}`);
+      fail(`${name}.topic: an ask's questions go on its task's topic${card ? `, item:${card.key}` : ''}`);
     } else if (q.topic.startsWith('item:')) await loadItem(site, q.topic.slice(5));
     else if (q.topic.startsWith('wave:')) await findWave(site, q.topic.slice(5));
     else if (q.topic.startsWith('file:')) await triagedFile(site, q.topic.slice(5));
@@ -1781,7 +1781,7 @@ export async function settleQuestion(site, id, note) {
   if (!key) return settleStale(site, id, said);
   if (!screening[key]) fail(`${id} waits for ${key}'s planner to finish`);
   const q = staged[key].find((x) => x.id === id);
-  if (q.prototype_gate || q.next_gate) fail(`${id} is the card's ${q.next_gate ? 'closing' : 'prototype'} question, which is the owner's; question publish ${key} passes it on`);
+  if (q.prototype_gate || q.next_gate) fail(`${id} is the task's ${q.next_gate ? 'closing' : 'prototype'} question, which is the owner's; question publish ${key} passes it on`);
   const at = new Date().toISOString();
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   await writeJSON(ownerFile(site), { ...owner, topics: owner.topics || [], items: [...(owner.items || []), { ...q, asked_at: at, resolved: `Settled by the orchestrator: ${said}`, resolved_at: at }] });
@@ -1798,7 +1798,7 @@ export async function settleQuestion(site, id, note) {
 async function settleStale(site, id, said) {
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const q = (owner.items || []).find((x) => x.id === id && x.topic?.startsWith('item:'));
-  if (!q) fail(`no staged question "${id}"; question settle takes a question a finished grill left for you to screen, or a card's question while it waits on your re-check`);
+  if (!q) fail(`no staged question "${id}"; question settle takes a question a finished grill left for you to screen, or a task's question while it waits on your re-check`);
   const key = q.topic.slice('item:'.length);
   if (!(await loadItem(site, key)).item.recheck_at) fail(`${key} waits on no re-check, so its question ${id} stays answered as it is`);
   const at = new Date().toISOString();
@@ -1874,7 +1874,7 @@ async function publishQuestions(site, owner, items, questions, lines) {
 function checkGate(flag, q, field) {
   bool(q[flag], field);
   if (!q[flag]) return false;
-  if (!q.topic.startsWith('item:') || q.topic.startsWith('item:ask:')) fail(`${field} goes on a card's topic, item:<file>/<id>`);
+  if (!q.topic.startsWith('item:') || q.topic.startsWith('item:ask:')) fail(`${field} goes on a task's topic, item:<file>/<id>`);
   const options = Object.keys(GATES[flag].keeps);
   if (q.options?.map((o) => o.id).join() !== options.join()) fail(`${field} takes exactly the options ${options.join(', ')}, in that order`);
   return true;
@@ -1931,7 +1931,7 @@ export async function settleAnswers(site, answers) {
     const flag = Object.keys(GATES).find((f) => q?.[f]);
     if (!flag || !(a.choice in GATES[flag].keeps)) continue;
     const chose = flag === 'next_gate' ? `Next: ${q.options.find((o) => o.id === a.choice).label}` : `Prototype round: ${a.choice}`;
-    const said = `${chose}. The board moves the card on once every question is answered.`;
+    const said = `${chose}. The board moves the task on once every question is answered.`;
     await markResolved(site, await readJSON(ownerFile(site), { topics: [], items: [] }), [q.id], said);
     const key = q.topic.slice(5);
     const card = await loadItem(site, key).catch(() => null);
@@ -2096,7 +2096,7 @@ async function refuseCardNotes(site, draft, flag, hint) {
   if (draft === '-') return readFileSync(0, 'utf8');
   const real = await fs.realpath(draft).catch(() => fail(`${flag} ${draft}: no such file`));
   for (const card of await cardsWithNotes(site)) {
-    if (await realNotes(card) === real) fail(`${flag} ${draft} is the notes file of ${card.ref} "${card.title}" (${card.key}), and a card's notes are its own; ${hint(card)}`);
+    if (await realNotes(card) === real) fail(`${flag} ${draft} is the notes file of ${card.ref} "${card.title}" (${card.key}), and a task's notes are its own; ${hint(card)}`);
   }
   return fs.readFile(real, 'utf8');
 }
@@ -2108,18 +2108,18 @@ const DRAFT_HINT = 'write a draft of your own outside the board\'s data folder';
 export async function addNotes(site, key, { heading, file, from }) {
   let body;
   if (from !== undefined) {
-    if (from === key) fail(`${key} can't fold its own notes into itself; pass --from <the other card>`);
+    if (from === key) fail(`${key} can't fold its own notes into itself; pass --from <the other task>`);
     const [into, other] = await Promise.all([loadItem(site, key), loadItem(site, from)]);
     const [a, b] = await Promise.all([into, other].map(({ source, item }) => (item.plan ? fs.realpath(path.resolve(source.dir, item.plan)).catch(() => null) : null)));
-    if (a && a === b) fail(`${from} and ${key} name one notes file, ${into.item.plan}, from before the board named each card's own; the board splits it as it starts`);
+    if (a && a === b) fail(`${from} and ${key} name one notes file, ${into.item.plan}, from before the board named each task's own; the board splits it as it starts`);
     body = (await readNotes(site, from)).markdown;
     heading ??= `Folded from ${await cardName(site, from)} "${other.item.title}"`;
   } else {
-    body = await refuseCardNotes(site, file, '--file', (card) => (card.key === key ? `${DRAFT_HINT}, holding only the new section` : `${DRAFT_HINT}, or fold that card's notes in with item notes ${key} --from ${card.key}`));
+    body = await refuseCardNotes(site, file, '--file', (card) => (card.key === key ? `${DRAFT_HINT}, holding only the new section` : `${DRAFT_HINT}, or fold that task's notes in with item notes ${key} --from ${card.key}`));
   }
   if (!body.trim()) fail(`${from ?? file} is empty`);
   const name = await appendNotes(site, key, heading, body);
-  const lines = await resolveAnswered(site, key, "Recorded in the card's notes");
+  const lines = await resolveAnswered(site, key, "Recorded in the task's notes");
   return { file: name, heading, lines };
 }
 
@@ -2378,7 +2378,7 @@ export async function moveQuestions(site, ids, to, block = []) {
   if (!kept) fail('question move takes the ids of the questions to merge');
   await loadItem(site, to);
   const chain = [to, ...block];
-  if (new Set(chain).size !== chain.length) fail('question move names a card twice');
+  if (new Set(chain).size !== chain.length) fail('question move names a task twice');
   for (const key of block) await loadItem(site, key);
   const owner = await readJSON(ownerFile(site), { topics: [], items: [] });
   const { answers, requests, reopens } = await ownerEvents(site);
@@ -2500,10 +2500,10 @@ async function closeQuestions(site, key, by, force) {
   if (!site) return async () => [];
   const { owner, asked } = await cardQuestions(site, key);
   const open = asked.filter((q) => q.state === 'open').map((q) => q.id);
-  if (open.length && !force) fail(`${by}: ${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')} with no answer yet; pass --force to close the card and resolve ${open.length === 1 ? 'it' : 'them'} too`);
+  if (open.length && !force) fail(`${by}: ${key} has ${open.length === 1 ? 'an open question' : 'open questions'} ${open.join(', ')} with no answer yet; pass --force to close the task and resolve ${open.length === 1 ? 'it' : 'them'} too`);
   const ids = asked.filter((q) => q.state !== 'resolved').map((q) => q.id);
   return async () => {
-    if (ids.length) await markResolved(site, owner, ids, 'Closed with the card');
+    if (ids.length) await markResolved(site, owner, ids, 'Closed with the task');
     return ids.map((id) => `resolved: ${id}`);
   };
 }
@@ -2534,14 +2534,14 @@ const OWNER_WORDS = { ask: 'text', 'ask-edited': 'text', 'item-message': 'text',
 async function ownerQuote(site, words, flag) {
   const quoted = text(words, flag).replace(/\s+/g, ' ');
   const said = (await readLines(path.join(site, 'data', 'events.jsonl'))).map((e) => String(e.data?.[OWNER_WORDS[e.kind]] ?? '').replace(/\s+/g, ' ').toLowerCase());
-  if (!said.some((t) => t.includes(quoted.toLowerCase()))) fail(`${flag} must quote the owner's words in an ask, card message or answer note on this board`);
+  if (!said.some((t) => t.includes(quoted.toLowerCase()))) fail(`${flag} must quote the owner's words in an ask, task message or answer note on this board`);
   return quoted;
 }
 
 // → the thread line a session's card run writes once the hub starts it; refuses words the owner didn't write here.
 export async function askedGate(site, key, asked) {
   needSite(site);
-  if (asked === undefined) fail(`only the owner's Serve / Build and the hub's Auto-build start a card run; pass --asked "<the owner's words>" quoting where the owner asked for ${key}'s run`);
+  if (asked === undefined) fail(`only the owner's Serve / Build and the hub's Auto-build start a task run; pass --asked "<the owner's words>" quoting where the owner asked for ${key}'s run`);
   return `Running at the owner's ask: "${await ownerQuote(site, asked, '--asked')}"`;
 }
 
@@ -2627,7 +2627,7 @@ function checkPhase(phase, state) {
   if (phase === 'staging') fail(`--phase staging is set by the board, on an owner action; pass ${AGENT_PHASE_LIST}`);
   if (phase !== undefined && !AGENT_PHASES.includes(phase)) fail(`--phase takes ${AGENT_PHASE_LIST}`);
 }
-const NOT_STAGED = "a card goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
+const NOT_STAGED = "a task goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
 // Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. The
 // orchestrator files it --from-ask --phase ready, its filing the judgment staging would ask for
 // (docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md).
@@ -2636,7 +2636,7 @@ async function quickAsk(site, eventId) {
   return events.some((e) => (e.kind === 'ask' && e.id === eventId && e.data?.quick === true) || (e.kind === 'item-message' && e.data?.key === `ask:${eventId}` && e.data?.intent === 'build'));
 }
 // A Next asking the owner to mark the card ready ("Mark ready", "mark it ready").
-const ASKS_READY = /^mark (?:it |this |the card )?ready\b/i;
+const ASKS_READY = /^mark (?:it |this |the (?:task|card) )?ready\b/i;
 // docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md: each --pr adds a PR, owner/repo#n or a bare number in the
 // board's repo (repo), to the card's list; one it already holds stays as it is. An older pr: <n> moves into the list.
 function addPRs(item, refs, repo) {
@@ -2701,7 +2701,7 @@ async function unblockedBy(site, key) {
 async function splitPlan(site, key, splitInto) {
   const slug = parseKey(key).file;
   const entries = (await depList(site, slug, splitInto)).map((d) => (WAVE_DEP.test(d) ? d : depKey(slug, d)));
-  if (!entries.length) fail('--split-into takes wave:<slug> or the cards the split filed, <id>,<file>/<id>');
+  if (!entries.length) fail('--split-into takes wave:<slug> or the tasks the split filed, <id>,<file>/<id>');
   if ((await depCards(site, slug, entries)).includes(key)) fail(`${key} can't be split into itself`);
   const words = await Promise.all(entries.map(async (d) => {
     const wave = d.match(WAVE_DEP)?.[1];
@@ -2717,8 +2717,8 @@ async function splitPlan(site, key, splitInto) {
       if (closed(it) || !(it.deps || []).some((d) => depKey(s.slug, d) === key)) continue;
       for (const d of entries) {
         if (!(await depCards(site, slug, [d])).includes(own)) continue;
-        fail(WAVE_DEP.test(d) ? `${own} waits on ${key} and is in the wave "${d.match(WAVE_DEP)[1]}", so it would wait on itself; split into the new cards by key`
-          : `${own} waits on ${key} and is one of the cards it splits into, so it would wait on itself`);
+        fail(WAVE_DEP.test(d) ? `${own} waits on ${key} and is in the wave "${d.match(WAVE_DEP)[1]}", so it would wait on itself; split into the new tasks by key`
+          : `${own} waits on ${key} and is one of the tasks it splits into, so it would wait on itself`);
       }
       waiters.push(own);
     }
@@ -2765,7 +2765,7 @@ async function checkNextDeps(site, key, item, next) {
       const otherKey = `${source.slug}/${other.id}`;
       if (otherKey === key || deps.has(otherKey) || closed(other)) continue;
       const names = [other.id, refOf(itemFile, other), other.ticket].filter(Boolean).flatMap((id) => [id, `${source.slug}/${id}`]);
-      if (names.some((name) => mentions.has(name))) fail(`--next names unfinished card ${otherKey}; add it with --deps`);
+      if (names.some((name) => mentions.has(name))) fail(`--next names unfinished task ${otherKey}; add it with --deps`);
     }
   }
 }
@@ -2871,7 +2871,7 @@ function markMerged(item, merged, repo) {
 // step's code check (--check "<name> <args>", "" to remove it), kept as owner_check {check, since, broken?} while the
 // step remains (docs/adr/2026-11-04-2308-an-owner-step-can-carry-a-code-check.md).
 async function changeItem(site, key, { ticket, newTicket, status, clearStatus, done, splitInto, merged, landed, start, handBack, next, clearNext, pr, pushed, mergeReady, ghSince, fromAsk, phase, state, held, unheld, pickUpAt, deps, blockedUntil, blockReason, parent, related, relate, unrelate, install, installSha, installLabel, clearInstall, title, size, model, force, text: said, closing, who, by, command, ownerStep, ownerDone, check, finishAsk }, options) {
-  if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a card's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
+  if (status !== undefined || clearStatus) fail(`--status${clearStatus ? ' and --clear-status are' : ' is'} gone: a task's lane is stored and moves itself. Close it with --done --text "<what was done, or why it closes without landing>"`);
   if (merged) done = true;
   if (related !== undefined && (relate !== undefined || unrelate !== undefined)) fail('pass --related, or --relate and --unrelate, not both');
   checkPhase(phase, state);
@@ -2880,11 +2880,11 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   if (splitInto !== undefined && said !== undefined) fail('--split-into writes the closing line; drop --text');
   const split = splitInto === undefined ? null : await splitPlan(site, key, splitInto);
   if (split) said = `Split into ${split.words}`;
-  if (fromAsk !== undefined && done) fail('--from-ask opens a card; close it in another call');
+  if (fromAsk !== undefined && done) fail('--from-ask opens a task; close it in another call');
   if (said !== undefined) messageText(said);
   if (ownerStep !== undefined) text(ownerStep, '--owner-step');
   const spec = check === undefined || check === '' ? check : checkSpec(check);
-  if (said !== undefined && fromAsk === undefined && !done && phase !== 'ready') fail('--text goes with --from-ask, --done, or --phase ready on a staging card');
+  if (said !== undefined && fromAsk === undefined && !done && phase !== 'ready') fail('--text goes with --from-ask, --done, or --phase ready on a staging task');
   if (fromAsk !== undefined && said === undefined) fail('--from-ask needs --text "<first line>", the item\'s first thread line after the ask');
   if (next !== undefined && clearNext) fail('pass --next or --clear-next, not both');
   if (typeof next === 'string' && !next.trim()) [next, clearNext] = [undefined, true];
@@ -2905,15 +2905,15 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
     delete item.answered_at;
     if (leftTodo(item)) placeIn(item, 'todo', undefined, null);
   }
-  if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo card's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
+  if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo task's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
   if (phase === 'ready' && !quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
-  if (ask && hold && phase !== undefined && !item.phase) fail('a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
-  if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
+  if (ask && hold && phase !== undefined && !item.phase) fail('a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
+  if (ask && phase === undefined && !item.phase && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
   const wasFinished = closed(item);
-  if (split && wasFinished) fail(`${key} is already Done, so the cards waiting on it were unblocked then; move them with item set <key> --deps`);
-  if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge`);
+  if (split && wasFinished) fail(`${key} is already Done, so the tasks waiting on it were unblocked then; move them with item set <key> --deps`);
+  if (ownerStep !== undefined && wasFinished) fail(`${key} is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or builder done before the merge`);
   if (ownerStep !== undefined) item.owner_step = text(ownerStep, '--owner-step');
   if (ownerDone) delete item.owner_step;
   if (spec !== undefined && !item.owner_step) fail(`--check goes with an owner step, which ${key} doesn't have: pass --owner-step "<the step>" with it on builder done or land`);
@@ -3077,7 +3077,7 @@ async function changeItem(site, key, { ticket, newTicket, status, clearStatus, d
   const resolved = await resolve();
   // docs/adr/2026-11-01-1813-an-answered-question-stops-waiting-once-claude-acts-on-its-card.md
   // Ready checked that the notes name every answered question, so it resolves them as item notes does.
-  if (phase === 'ready' && site) resolved.push(...await resolveAnswered(site, key, "Recorded in the card's notes"));
+  if (phase === 'ready' && site) resolved.push(...await resolveAnswered(site, key, "Recorded in the task's notes"));
   if (start) resolved.push(...await resolveAnswered(site, key, 'Acted on: build started'));
   if (ask) resolved.push(...(await appendMessage(site, key, { text: said })).lines);
   if (lastLine && site) {
@@ -3139,8 +3139,8 @@ function holdOf({ held, unheld, pickUpAt }) {
 // A past time is refused, so a typo can't start a card at once.
 function pickUpTime(value) {
   const ms = typeof value === 'string' && AT_RE.test(value) ? Date.parse(value) : NaN;
-  if (Number.isNaN(ms)) fail('--pick-up-at takes an ISO time such as 2026-11-04T09:00, the host’s local time unless it names an offset, or "" to resume the card');
-  if (ms <= Date.now()) fail(`--pick-up-at ${value} has passed; pass a later time, or --unheld to resume the card now`);
+  if (Number.isNaN(ms)) fail('--pick-up-at takes an ISO time such as 2026-11-04T09:00, the host’s local time unless it names an offset, or "" to resume the task');
+  if (ms <= Date.now()) fail(`--pick-up-at ${value} has passed; pass a later time, or --unheld to resume the task now`);
   return new Date(ms).toISOString();
 }
 // A card that has left Todo is never still held, so a build's start, a hand-back, --done, --pr, --pushed and
@@ -3255,7 +3255,7 @@ async function depList(site, slug, deps, key) {
 async function parentKey(site, slug, key, parent) {
   if (!String(parent).trim()) return null;
   const to = depKey(slug, String(parent).trim());
-  if (to === key) fail("--parent: a card can't be its own Parent");
+  if (to === key) fail("--parent: a task can't be its own Parent");
   for (let at = to; at;) {
     // Only the new Parent must exist; an ancestor that is gone can't be a descendant of key, so the walk ends there.
     const loaded = at === to ? await loadItem(site, at) : await loadItem(site, at).catch((e) => { if (e instanceof BoardError) return null; throw e; });
@@ -3272,7 +3272,7 @@ async function parentKey(site, slug, key, parent) {
 async function relatedKeys(site, key, value, flag) {
   const slug = key.split('/')[0];
   const list = [...new Set(String(value).split(',').map((r) => r.trim()).filter(Boolean).map((r) => depKey(slug, r)))];
-  if (list.includes(key)) fail(`${flag}: a card can't be related to itself`);
+  if (list.includes(key)) fail(`${flag}: a task can't be related to itself`);
   for (const r of list) await loadItem(site, r);
   return list;
 }
@@ -3502,7 +3502,7 @@ async function assignTicket(site, itemFile, item, ticket, options, dir, body) {
     if (r.created) item.ticket_created = true; else delete item.ticket_created;
   } catch (e) { if (e instanceof BoardError) throw e; fail(e.message); }
 }
-const NO_SOURCE = 'this board has no ticket source, so its cards stay tasks; pick GitHub issues or Linear in Board settings first';
+const NO_SOURCE = 'this board has no ticket source, so its tasks get no tickets; pick GitHub issues or Linear in Board settings first';
 // The next task's id, T-<n> past the highest on the board, its Done archive included, so a key is never reused. Run under
 // the tickets lock (ticketWrite).
 // A card dropped from its item file (dropCard) leaves its number there as last_task.
@@ -3547,32 +3547,32 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   if (ask) await refuseFiled(site, ask);
   // docs/adr/2026-11-07-1300-a-card-filed-held-stays-new-until-unheld.md: a card filed held takes no phase; it reads New until the unhold starts its grill.
   const hold = holdOf({ held, pickUpAt });
-  if (hold && phase !== undefined) fail('a card filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
-  if (ask && phase === undefined && !hold) fail('--from-ask files a card, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
-  if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it discussing, grilling or prototyping` : 'item add files a card discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
-  if (phase === 'ready' && !size) fail(`a new ready card has no size; a builder starts from it, so pass --size small or large with --phase ready`);
+  if (hold && phase !== undefined) fail('a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
+  if (ask && phase === undefined && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
+  if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it discussing, grilling or prototyping` : 'item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
+  if (phase === 'ready' && !size) fail(`a new ready task has no size; a builder starts from it, so pass --size small or large with --phase ready`);
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a new card has no questions yet, so its notes
   // are complete once they hold more than its title.
-  if (phase === 'ready' && !(notes ?? '').trim() && notesFrom === undefined) fail('a new ready card has no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready');
-  if (intake && site && phase === undefined && !hold) fail('item add files a card on a board: pass --phase discussing, grilling or prototyping, or --held to file it for later');
+  if (phase === 'ready' && !(notes ?? '').trim() && notesFrom === undefined) fail('a new ready task has no notes; a builder starts from them, so pass --notes or --notes-from with --phase ready');
+  if (intake && site && phase === undefined && !hold) fail('item add files a task on a board: pass --phase discussing, grilling or prototyping, or --held to file it for later');
   const { source, itemFile } = await loadItemFile(site, slug);
   if (id !== undefined && itemFile.items.some((it) => it.id === id)) fail(`item file "${slug}" already has an item "${id}"`);
   const created = new Date().toISOString();
   // An agent's card is titled Conventionally; the board's own (an architecture review's) waits for a retitle before its build.
   const item = { id, title: intake ? cardTitle(title) : text(title, '--title'), created, lane: 'todo', lane_at: created };
   if (from !== undefined && parent !== undefined) fail('--from sets the Parent; drop --parent');
-  if (from !== undefined) item.parent = await parentKey(site, slug, null, from) || fail('--from takes a card, such as <file>/<id>');
-  if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a card, such as <file>/<id>');
+  if (from !== undefined) item.parent = await parentKey(site, slug, null, from) || fail('--from takes a task, such as <file>/<id>');
+  if (parent !== undefined) item.parent = await parentKey(site, slug, null, parent) || fail('--parent takes a task, such as <file>/<id>');
   // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md: a split child keeps the answers its parent's grill got.
   if (splitOf !== undefined && (parent !== undefined || from !== undefined)) fail('--split-of sets the Parent; drop --parent and --from');
   if (splitOf !== undefined) {
-    item.parent = await parentKey(site, slug, null, splitOf) || fail('--split-of takes a card, such as <file>/<id>');
+    item.parent = await parentKey(site, slug, null, splitOf) || fail('--split-of takes a task, such as <file>/<id>');
     const { gates } = (await loadItem(site, item.parent)).item;
     if (gates) item.gates = { ...gates };
   }
   if (notes !== undefined && notesFrom !== undefined) fail('pass --notes or --notes-from, not both');
   // The ticket's body is the draft or the --notes text; the notes file heads the text with the card's title.
-  const body = notesFrom !== undefined ? await refuseCardNotes(site, notesFrom, '--notes-from', () => `${DRAFT_HINT}, and link that card with --relate`)
+  const body = notesFrom !== undefined ? await refuseCardNotes(site, notesFrom, '--notes-from', () => `${DRAFT_HINT}, and link that task with --relate`)
     : notes === undefined ? '' : text(notes, '--notes');
   if (notesFrom !== undefined && !body.trim()) fail(`--notes-from ${notesFrom} is empty`);
   const seed = notesFrom !== undefined ? body : `# ${item.title}\n${body && `\n${body}\n`}`;
@@ -3623,7 +3623,7 @@ export const migrateFollowups = (site) => ticketWrite(site, async () => {
     const itemFile = await readJSON(entry.file, null);
     if (!Array.isArray(itemFile?.items) || !Array.isArray(itemFile.followups)) continue;
     const clash = itemFile.followups.find((f) => itemFile.items.some((it) => it.id === f.id));
-    if (clash) fail(`${entry.slug}: follow-up ${clash.id} has the id of a card; rename one, then restart the board`);
+    if (clash) fail(`${entry.slug}: follow-up ${clash.id} has the id of a task; rename one, then restart the board`);
     const moved = [];
     for (const { id, title, from, filed, done, ...rest } of itemFile.followups) {
       const closedAt = done ? (site && (await readLines(threadFile(site, `${entry.slug}/${id}`))).map((l) => l.ts).filter(Boolean).sort().pop()) || filed : null;
@@ -3632,7 +3632,7 @@ export const migrateFollowups = (site) => ticketWrite(site, async () => {
     }
     const { followups, ...kept } = itemFile;
     await writeJSON(entry.file, { ...kept, items: [...itemFile.items, ...moved] });
-    lines.push(`${entry.slug}: ${moved.length} follow-ups moved to cards (${moved.filter((m) => m.lane === 'done').length} done)`);
+    lines.push(`${entry.slug}: ${moved.length} follow-ups moved to tasks (${moved.filter((m) => m.lane === 'done').length} done)`);
   }
   return lines;
 });
@@ -3669,14 +3669,14 @@ export const migrateStatuses = (site) => ticketWrite(site, async () => {
     }
     if (!changed) continue;
     await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${changed} cards' statuses became lanes and facts`);
+    lines.push(`${entry.slug}: ${changed} tasks' statuses became lanes and facts`);
   }
   await archiveWrite(site, async () => {
     const cards = await readArchive(site);
     const changed = cards.filter((c) => c.item && statusToFacts(c.item)).length;
     if (!changed) return;
     await writeArchive(site, cards);
-    lines.push(`archive: ${changed} cards' statuses became lanes and facts`);
+    lines.push(`archive: ${changed} tasks' statuses became lanes and facts`);
   });
   return lines;
 });
@@ -3705,7 +3705,7 @@ export const migrateGates = (site) => ticketWrite(site, async () => {
     }
     if (!changed) continue;
     await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${changed} cards keep their gate answers`);
+    lines.push(`${entry.slug}: ${changed} tasks keep their gate answers`);
   }
   return lines;
 });
@@ -3736,7 +3736,7 @@ export const migratePhases = (site) => ticketWrite(site, async () => {
     for (const it of Array.isArray(itemFile?.items) ? itemFile.items : []) if (stateToPhase(it, await built(entry.dir, it))) changed++;
     if (!changed) continue;
     await writeJSON(entry.file, itemFile);
-    lines.push(`${entry.slug}: ${changed} cards' states became phases`);
+    lines.push(`${entry.slug}: ${changed} tasks' states became phases`);
   }
   await archiveWrite(site, async () => {
     const cards = await readArchive(site);
@@ -3744,7 +3744,7 @@ export const migratePhases = (site) => ticketWrite(site, async () => {
     for (const c of cards) if (c.item && stateToPhase(c.item, await built(sources.find((e) => e.slug === (c.file || parseKey(c.key).file))?.dir, c.item))) changed++;
     if (!changed) return;
     await writeArchive(site, cards);
-    lines.push(`archive: ${changed} cards' states became phases`);
+    lines.push(`archive: ${changed} tasks' states became phases`);
   });
   return lines;
 });
@@ -3981,7 +3981,7 @@ async function triagedFile(site, slug) {
 function waveCards(source, itemFile, keys, slug) {
   return keys.map((key) => {
     const { file: from, id } = parseKey(key);
-    if (from !== source.slug) fail(`${key} is not in item file "${source.slug}"; a wave's cards share one file`);
+    if (from !== source.slug) fail(`${key} is not in item file "${source.slug}"; a wave's tasks share one file`);
     const card = itemFile.items.find((it) => it.id === id) || fail(`item file "${from}" has no item "${id}"`);
     if ((card.deps || []).includes(`wave:${slug}`)) fail(`${key} waits on the wave "${slug}", so it can't be in it`);
     const other = (itemFile.waves || []).find((l) => l.slug !== slug && !l.finished_at && waveItems(l).includes(id));
@@ -3999,7 +3999,7 @@ function cardSpecs(values) {
     const [key, after] = String(v).split(':');
     return [key.trim(), cardList(after)];
   });
-  if (!specs.length || specs.some(([key]) => !key)) fail("--card takes one card per flag in build order, as <file>/<id>, or <file>/<id>:<file>/<id>,… naming the earlier cards it conflicts with");
+  if (!specs.length || specs.some(([key]) => !key)) fail("--card takes one task per flag in build order, as <file>/<id>, or <file>/<id>:<file>/<id>,… naming the earlier tasks it conflicts with");
   return specs;
 }
 
@@ -4011,7 +4011,7 @@ function relink(source, itemFile, wave, id, after) {
     const key = depKey(source.slug, d);
     const { file, id: dep } = parseKey(key);
     const was = file === source.slug ? wave.items.indexOf(dep) : -1;
-    if (was < 0 || was >= at) fail(`${key} is not an earlier card of the wave "${wave.slug}"`);
+    if (was < 0 || was >= at) fail(`${key} is not an earlier task of the wave "${wave.slug}"`);
     return dep;
   });
   const it = itemFile.items.find((x) => x.id === id);
@@ -4046,7 +4046,7 @@ export async function createWave(site, slug, { title, goal, cards, note }) {
   const source = sources.find((s) => s.slug === parseKey(specs[0][0]).file) || fail(`this board has no item file "${parseKey(specs[0][0]).file}"`);
   const { itemFile } = await loadItemFile(site, source.slug);
   const ids = waveCards(source, itemFile, specs.map(([key]) => key), slug);
-  if (new Set(ids).size !== ids.length) fail('--card names a card twice');
+  if (new Set(ids).size !== ids.length) fail('--card names a task twice');
   const wave = { slug, title: text(title, '--title'), goal: text(goal, '--goal'), items: ids, created: new Date().toISOString() };
   specs.forEach(([, after], i) => relink(source, itemFile, wave, ids[i], after));
   itemFile.waves = [...(itemFile.waves || []), wave];
@@ -4058,8 +4058,8 @@ export async function createWave(site, slug, { title, goal, cards, note }) {
 // the wave's cards to --after's ("" clears them). Also renames, sets the goal or rewrites the note.
 // docs/adr/2026-11-09-2345-a-card-leaves-a-wave-only-once-no-open-card-waits-on-it.md
 export async function changeWave(site, slug, { add, remove, card, after, title, goal, note }) {
-  if ([add, remove, card, after, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass a card with --after, --title, --goal, --note or --file');
-  if (after !== undefined && add === undefined && card === undefined) fail(`--after goes with a card: wave set ${slug} <file>/<id> --after <file>/<id>,…`);
+  if ([add, remove, card, after, title, goal, note].every((v) => v === undefined)) fail('nothing to change: pass a task with --after, --title, --goal, --note or --file');
+  if (after !== undefined && add === undefined && card === undefined) fail(`--after goes with a task: wave set ${slug} <file>/<id> --after <file>/<id>,…`);
   if (card !== undefined && after === undefined) fail(`wave set ${slug} ${card} needs --after <file>/<id>,… ("" clears its links)`);
   const { source, itemFile, wave } = await findWave(site, slug);
   if (wave.finished_at) fail(`the wave "${slug}" is finished`);
@@ -4080,13 +4080,13 @@ export async function changeWave(site, slug, { add, remove, card, after, title, 
   if (remove !== undefined) {
     const [id] = waveCards(source, itemFile, [remove], slug);
     if (!wave.items.includes(id)) fail(`${remove} is not in the wave "${slug}"`);
-    if (wave.items.length === 1) fail(`${remove} is the wave's last card; wave finish ${slug} ends the wave`);
+    if (wave.items.length === 1) fail(`${remove} is the wave's last task; wave finish ${slug} ends the wave`);
     const waiting = (it) => !closed(it) && (it.deps || []).some((d) => depKey(source.slug, d) === `${source.slug}/${id}`);
     const waiters = itemFile.items.filter((it) => wave.items.includes(it.id) && it.id !== id && waiting(it));
     const gone = itemFile.items.find((it) => it.id === id);
     if (waiters.length && !(gone && closed(gone))) {
       const lines = await Promise.all(waiters.map(async (it) => `${await cardName(site, `${source.slug}/${it.id}`)} waits on ${remove}: wave set ${slug} ${source.slug}/${it.id} --after <its other conflicts, or "">`));
-      fail(`${remove} can't leave the wave "${slug}" while open cards wait on it; relink each, then remove:\n${lines.join('\n')}`);
+      fail(`${remove} can't leave the wave "${slug}" while open tasks wait on it; relink each, then remove:\n${lines.join('\n')}`);
     }
     // A Done card blocks nobody, so the wave's cards drop their links to it.
     if (gone && closed(gone)) {
@@ -4137,7 +4137,7 @@ export async function finishWave(site, slug) {
   const open = itemFile.items.filter((it) => waveItems(wave).includes(it.id) && !closed(it));
   if (open.length) {
     const names = await Promise.all(open.map((it) => cardName(site, `${source.slug}/${it.id}`)));
-    fail(`the wave "${slug}" still has ${names.join(', ')} open; wave finish waits until every card in it is Done`);
+    fail(`the wave "${slug}" still has ${names.join(', ')} open; wave finish waits until every task in it is Done`);
   }
   wave.finished_at = new Date().toISOString();
   await writeJSON(source.file, itemFile);
@@ -4706,10 +4706,10 @@ export async function requestHelper(site, key, { name, task, writes, model }) {
   const forced = readClaudeModel();
   if (model !== undefined && forced !== 'auto' && model !== forced) fail(`--model ${model}: the hub's Claude model is ${forced === 'opus' ? 'Opus' : 'Sonnet'}. Pass --model ${forced}, or no --model.`);
   const { item } = await loadItem(site, key);
-  if (closed(item)) fail(`${await cardName(site, key)} is Done; a helper needs an open card`);
+  if (closed(item)) fail(`${await cardName(site, key)} is Done; a helper needs an open task`);
   const file = await builderFile(site, key, undefined, agent);
   if (existsSync(file)) fail(`${key} already has an agent named ${agent}; pick another --name`);
-  if (writes && !(await cardWorktree(site, key))) fail(`a helper that writes branches from ${key}'s worktree, and the card has none; start its build first, or drop --writes`);
+  if (writes && !(await cardWorktree(site, key))) fail(`a helper that writes branches from ${key}'s worktree, and the task has none; start its build first, or drop --writes`);
   await writeJSON(file, { label: agent, kind: HELPER, task: job, writes: Boolean(writes), ...(model ? { model } : {}), requested: new Date().toISOString() });
   await appendStatus(site, key, 'helper-asked', { agent, writes });
   return { lines: [`helper ${agent} requested: the board launches it now`, `wait for it with agent wait ${key} --name ${agent}`] };
@@ -4997,7 +4997,7 @@ export async function listAsks(site, key, { wait = false, timeout = 9, every = 2
 
 // A question naming a builder's ask ("ask": "ask<n>") is that deferred ask put to the owner.
 async function checkAskQuestion(site, q, name) {
-  const key = q.topic.startsWith('item:') && !q.topic.startsWith('item:ask:') ? q.topic.slice(5) : fail(`${name}.ask goes on a card's question, topic item:<file>/<id>`);
+  const key = q.topic.startsWith('item:') && !q.topic.startsWith('item:ask:') ? q.topic.slice(5) : fail(`${name}.ask goes on a task's question, topic item:<file>/<id>`);
   const ask = (await builderAsks(site, key)).find((a) => a.id === q.ask) || fail(`${name}.ask names no ask "${q.ask}" on ${key}; builder asks ${key} lists them`);
   if (!ask.deferred) fail(`${name}.ask names ${ask.id}, which the orchestrator ${ask.answer ? 'answered' : 'has not deferred'}; only a deferred ask goes to the owner`);
 }
@@ -5100,7 +5100,7 @@ export async function restartLander(site, key) {
   const file = path.join(site, 'data', 'landers.json');
   const sent = await readJSON(file, {});
   const open = records.some((r) => r?.started && !r.done);
-  if (!open && !Object.hasOwn(sent, key)) fail(`${key} has no open builder and no lander; only a card whose lander stopped or exited has a land to restart`);
+  if (!open && !Object.hasOwn(sent, key)) fail(`${key} has no open builder and no lander; only a task whose lander stopped or exited has a land to restart`);
   if (open) await relaunchLander(site, key);
   delete sent[key];
   await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');

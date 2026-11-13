@@ -447,9 +447,9 @@ test('a shared ticket waits for both cards across file boards to be ready and th
   // in the hub's audit log, naming the cards on the ticket; a poll that moves nothing logs nothing.
   const moves = readAudit(hubAudit()).slice(logged);
   assert.deepEqual(moves.map((e) => [e.call, e.key, e.result, e.reason]), [
-    ['linear-move', 'ENG-5', 'moved to In Progress', 'A card on it has a PR.'],
-    ['linear-move', 'ENG-5', 'moved to In Review', 'Every card on it has merged or has a PR ready for review.'],
-    ['linear-move', 'ENG-5', 'moved to Done', 'Every card on it has merged.'],
+    ['linear-move', 'ENG-5', 'moved to In Progress', 'A task on it has a PR.'],
+    ['linear-move', 'ENG-5', 'moved to In Review', 'Every task on it has merged or has a PR ready for review.'],
+    ['linear-move', 'ENG-5', 'moved to Done', 'Every task on it has merged.'],
   ]);
   assert.deepEqual(moves[0].inputs.cards, ['shared-first:linear/A1', 'shared-second:linear/A1', 'shared-second:linear/dropped']);
 });

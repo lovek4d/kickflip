@@ -15,15 +15,15 @@
     const { BUILD_PHASES, START_STEPS } = BoardUI;
     const build = () => [...BUILD_PHASES];
     return [
-      { id: 'grill', name: 'Grilling', lane: 'todo', when: 'A grill planner reads a Todo card and asks its questions', steps: [],
+      { id: 'grill', name: 'Grilling', lane: 'todo', when: 'A grill planner reads a Todo task and asks its questions', steps: [],
         card: { phase: 'grilling', builder: { planner: true, kind: 'grill', progress: 'Grilling · the notes', phase: null, at: ago(2) } } },
-      { id: 'prototype', name: 'Prototyping', lane: 'todo', when: 'A prototype planner draws a Todo card’s takes', steps: [],
+      { id: 'prototype', name: 'Prototyping', lane: 'todo', when: 'A prototype planner draws a Todo task’s takes', steps: [],
         card: { phase: 'prototyping', builder: { planner: true, kind: 'prototype', progress: 'Prototyping · the takes', phase: null, at: ago(2) } } },
-      { id: 'build', name: 'Build', lane: 'progress', when: 'A builder works the card, step by step', steps: build(),
+      { id: 'build', name: 'Build', lane: 'progress', when: 'A builder works the task, step by step', steps: build(),
         card: { builder: { progress: 'Testing · the suite', phase: 'testing', at: ago(2) } } },
       { id: 'check', name: 'Orchestrator review', lane: 'progress', when: 'The orchestrator checks the builder’s calls, on step 4', steps: build(),
         card: { waitsOn: 'checking' } },
-      { id: 'install', name: 'Install', lane: 'progress', when: 'The install builder runs; the card keeps the step its build reached', steps: build(),
+      { id: 'install', name: 'Install', lane: 'progress', when: 'The install builder runs; the task keeps the step its build reached', steps: build(),
         card: { builder: { kind: 'install', progress: 'Installing on the phone', phase: null, at: ago(1) }, reachedPhase: 'landing' } },
       { id: 'start', name: 'Board start', lane: 'progress', when: 'A new board clones, starts its orchestrator and lands, in the sidebar', steps: Object.values(START_STEPS),
         start: { step: 'starting', stepAt: ago(0.5) } },
@@ -112,7 +112,7 @@
       b.disabled = true;
       try {
         await ClaudeSite.send('ask', { text: reviewText({ entries: list, colours }, was) });
-        sent.textContent = 'Sent. The orchestrator files it as a card.';
+        sent.textContent = 'Sent. The orchestrator files it as a task.';
       } catch (e) {
         sent.textContent = `Couldn’t send: ${e.reason || e.message}`;
       } finally {

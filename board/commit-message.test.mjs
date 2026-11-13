@@ -39,8 +39,8 @@ test("a squash body is the PR's body, then Refs: <ref> and each Co-Authored-By i
 
 // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md
 test('a card title is a Conventional subject, or an ask, "ask(<scope>): <question>?", 100 characters at most', () => {
-  for (const ok of ['feat(board): every card title is Conventional', 'fix: one', 'ask(board): do we still need the staging phase?', 'ask: why?']) assert.equal(cardTitleFault(ok), null, ok);
-  for (const bad of ['Every card title is Conventional', 'ask(board): do we still need staging', 'ask(Board): why?', 'ask:why?', 'ask(board)!: why?']) {
+  for (const ok of ['feat(board): every task title is Conventional', 'fix: one', 'ask(board): do we still need the staging phase?', 'ask: why?']) assert.equal(cardTitleFault(ok), null, ok);
+  for (const bad of ['Every task title is Conventional', 'ask(board): do we still need staging', 'ask(Board): why?', 'ask:why?', 'ask(board)!: why?']) {
     assert.ok(cardTitleFault(bad), bad);
   }
   assert.equal(cardTitleFault('ask(board): do we still need staging'), 'isn\'t "ask(<scope>): <question>?", ending with "?"');

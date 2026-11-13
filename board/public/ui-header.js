@@ -51,7 +51,7 @@
     const mark = linksMark(links);
     if (pending) return `<span class="github">${mark} Checking…</span>`;
     if (!checks?.at) return `<span class="github idle" title="GitHub not checked yet">${mark} not checked</span>`;
-    const title = `GitHub checked ${since(checks.at)}${checks.idle ? '; no card shows an open PR' : checks.late ? '; checks are late' : ''}`;
+    const title = `GitHub checked ${since(checks.at)}${checks.idle ? '; no task shows an open PR' : checks.late ? '; checks are late' : ''}`;
     const note = checks.late && !checks.idle ? ' · checks are late' : '';
     return `<span class="github${checks.late && !checks.idle ? ' late' : ''}${checks.idle ? ' idle' : ''}" title="${title}">${mark} ${shortSince(checks.at)}${note}</span>`;
   };

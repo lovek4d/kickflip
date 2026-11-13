@@ -17,7 +17,7 @@ function world(fields = {}) {
   const data = path.join(site, 'data');
   fs.mkdirSync(data);
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'notes.md'), '# Card\n');
+  fs.writeFileSync(path.join(data, 'notes.md'), '# Task\n');
   fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'Card', lane: 'todo', phase: 'grilling', size: 'small', plan: 'notes.md', ...fields }] }));
   fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [] }));
   fs.writeFileSync(path.join(data, 'events.jsonl'), '');

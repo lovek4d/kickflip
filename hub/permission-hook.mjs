@@ -13,7 +13,7 @@ const WAIT_CAP = 10 * 60_000;
 const HARD_STOP = WAIT_CAP + 30_000;
 const RETRY_MS = 2000;
 
-const FALLBACK = "The hub's permission hook failed; ask this as an open question on your board's card instead.";
+const FALLBACK = "The hub's permission hook failed; ask this as an open question on your board's task instead.";
 const deny = (message) => ({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message } } });
 
 let printed = false;

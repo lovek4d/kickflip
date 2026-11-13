@@ -382,7 +382,7 @@ test('offline, the board stays readable with no toast: the header time turns red
   const bump = b.root.querySelector('details.item[data-key="w/T2"] button[data-card-bump]');
   assert.equal(b.page.fire(b.root, 'click', { target: bump }).defaultPrevented, true);
   assert.equal(b.page.fire(b.root, 'submit', { target: b.root.querySelector('#askForm') }).defaultPrevented, true);
-  assert.equal(b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T2"]') }).defaultPrevented, false, 'a card still opens');
+  assert.equal(b.page.fire(b.root, 'click', { target: b.root.querySelector('details.item[data-key="w/T2"]') }).defaultPrevented, false, 'a task still opens');
   await b.settle();
   assert.deepEqual(b.sent, []);
   const refresh = b.root.querySelector('#refresh');
@@ -685,7 +685,7 @@ test('a Landing tap saves prs and skip_draft together with no confirmation, Merg
     if (url.endsWith('/api/settings')) {
       if (opts.method === 'POST') {
         posts.push(JSON.parse(opts.body));
-        if (refuse) { status = 400; body = { error: 'Merge lands each card on main and pushes it, so turn on Push main after a land first' }; }
+        if (refuse) { status = 400; body = { error: 'Merge lands each task on main and pushes it, so turn on Push main after a land first' }; }
         else saved = { ...saved, ...JSON.parse(opts.body) };
       }
       if (status === 200) body = { settings: saved };
@@ -708,7 +708,7 @@ test('a Landing tap saves prs and skip_draft together with no confirmation, Merg
   assert.notEqual(subOf(), draftSub, 'the sub reads the new choice');
   refuse = true;
   await tap('merge');
-  assert.deepEqual([posts.at(-1), pressed(), said()], [{ prs: false }, ['ready'], 'Merge lands each card on main and pushes it, so turn on Push main after a land first']);
+  assert.deepEqual([posts.at(-1), pressed(), said()], [{ prs: false }, ['ready'], 'Merge lands each task on main and pushes it, so turn on Push main after a land first']);
   assert.equal(root.querySelector('#reviewersSection').hidden, false);
   refuse = false;
   await tap('merge');
@@ -766,7 +766,7 @@ test('Board Settings warns about active work, requires the exact board name and 
   const markup = page.win.AppViews.settings.markup();
   assert.match(markup, /id="closeBoard" disabled/);
   assert.match(markup, /Stop the board’s session[\s\S]*Stop its server[\s\S]*Remove its sidebar row/);
-  assert.match(markup, /Keep its folder, cards, threads and notes/);
+  assert.match(markup, /Keep its folder, tasks, threads and notes/);
   const baseline = page.left();
   const view = page.win.AppViews.settings.create(root, '/shop', { open: (url) => opened.push(url), sidebarChanged: () => sidebarChanges++ });
   const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -902,7 +902,7 @@ test("Restart on a board's row of the Hub page confirms, waits disabled with its
   assert.equal(button().textContent, 'Restart');
   page.fire(root.querySelector('.hub-status'), 'click', { target: button() });
   await settle();
-  assert.deepEqual(confirms, [['This stops The <Shop>’s session mid-task, along with any implementer it started, then restarts its server and resumes the session. Its cards and threads stay. For a stuck board. Restart The <Shop>?', undefined]]);
+  assert.deepEqual(confirms, [['This stops The <Shop>’s session mid-task, along with any implementer it started, then restarts its server and resumes the session. Its tasks and threads stay. For a stuck board. Restart The <Shop>?', undefined]]);
   assert.deepEqual(posts, [['/_hub/restart-board', { route: 'shop' }]]);
   assert.equal(row().querySelector('.sub').textContent, 'restarting · stopping its session, then starting it again');
   assert.deepEqual([button().textContent, button().disabled, button().getAttribute('aria-busy')], ['Restart', true, 'true'], 'Restart waits with its label kept behind the spinner');
@@ -2003,7 +2003,7 @@ test('New board chooses a searchable repo before board details, defaults its bra
     const control = sheet.querySelector('[data-board-tickets]');
     const pressed = () => control.querySelector('[aria-pressed="true"]').dataset.tkSource;
     assert.equal(pressed(), 'none');
-    assert.match(control.textContent, /Every card is a task, numbered T-1, T-2… on this board, with no ticket/);
+    assert.match(control.textContent, /Every task is numbered T-1, T-2… on this board, with no ticket/);
     assert.equal(start.disabled, false);
     page.fire(control, 'click', { target: control.querySelector('[data-tk-source="linear"]') });
     await tick(); await tick();
@@ -2343,7 +2343,7 @@ test('Board Settings saves each Tickets change at once, shows the source and Hub
   assert.deepEqual(posts.at(-1), { tickets: { source: 'none' } });
   assert.equal(status.textContent, 'Saved');
   assert.equal(form.hasAttribute('data-dirty'), false);
-  assert.match(control.textContent, /Every card is a task/);
+  assert.match(control.textContent, /Every task is numbered T-1/);
 
   const word = () => control.querySelector('[data-tk-status]').textContent;
   assert.equal(word(), 'none · Linear refused the key');
@@ -2671,7 +2671,7 @@ test("h h on a desktop shows the shortcuts sheet listing each shortcut's keys, a
   assert.deepEqual([...sheet().querySelectorAll('.sc-group')].map((g) => [g.querySelector('h3').textContent,
     [...g.querySelectorAll('.sc-row')].map((r) => [r.querySelector('.sc-what').firstChild.textContent, [...r.querySelectorAll('kbd')].map((k) => k.textContent).join(' ')])]), [
     ['Anywhere', [['Switch boards and pages', 's s'], ['This help', 'h h'], ['Close', 'Esc']]],
-    ['On a board', [['New card', 'n n']]],
+    ['On a board', [['New task', 'n n']]],
     ['Writing', [['Send', '⌘ ↵']]],
   ]);
   assert.equal(press('Escape').defaultPrevented, true);
@@ -3222,7 +3222,7 @@ test('a card try button confirms, posts through the site URL and reloads; disabl
   await b.change({ board: boardOf([{ ...card, try: { ...card.try, kind: 'app', state: 'ready' } }]) });
   b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-try]') });
   await b.settle();
-  assert.match(b.root.textContent, /Nothing new to serve: Install already has this card’s latest push./);
+  assert.match(b.root.textContent, /Nothing new to serve: Install already has this task’s latest push./);
   assert.equal(posts.length, 1);
 });
 
@@ -4116,7 +4116,7 @@ test("opening a card reads it up to the newest message it shows: the page posts 
   const reads = () => b.posts.filter(([p]) => p.endsWith('/api/read')).map(([, body]) => body);
   assert.equal(banner().hidden, false);
   card('w/A1').open = true; b.page.fire(b.root, 'toggle', { target: card('w/A1') });
-  assert.equal(banner().hidden, true, 'the banner redraws as the card opens');
+  assert.equal(banner().hidden, true, 'the banner redraws as the task opens');
   card('w/A2').open = true; b.page.fire(b.root, 'toggle', { target: card('w/A2') });
   await b.settle();
   assert.deepEqual(reads(), [{ marks: { 'w/A1': at(5) } }, { marks: { 'w/A2': at(7) } }], "a question's ask counts as shown");
@@ -4268,7 +4268,7 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   // docs/adr/2026-11-05-2345-new-todo-cards-join-the-bottom.md
   board.items.push(workCard('C2'));
   await b.change({ board });
-  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2'], 'a work card that joins Todo takes the tint');
+  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2'], 'a work task that joins Todo takes the tint');
   // docs/adr/2026-11-06-0300-a-new-task-lands-at-the-bottom-of-todo-and-flashes-blue.md
   // docs/adr/2026-11-12-0228-new-asks-sit-in-a-new-strip-above-the-lanes.md: a New task lands in the New strip, and its
   // card takes the tint once ingested into Todo.
@@ -4278,7 +4278,7 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2']);
   board.items[board.items.length - 1] = { ...n2, isNew: false, ask: null, title: 'feat: n2', phase: 'discussing', turn: 'owner', ingested: { at: '2026-10-30T09:00:00.000Z', text: 'Task n2' } };
   await b.change({ board });
-  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'an ingested card joining Todo takes the tint');
+  assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'an ingested task joining Todo takes the tint');
 });
 
 function questionsOnDom({ topics, questions, at, next, gate = null, items = [], embedded = false }) {
@@ -4597,7 +4597,7 @@ test("Waiting on you folds a topic's sent and resolved questions under a collaps
   assert.deepEqual(group.querySelector('summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (3)']);
   assert.deepEqual(group.querySelectorAll('section.q').map((s) => s.dataset.q), ['r1', 's1', 'r2']);
   assert.equal(group.querySelectorAll('textarea').length, 0);
-  assert.deepEqual(group.querySelectorAll('section.q .muted.small').filter((m) => /^\d\./.test(m.textContent)).map((m) => m.textContent), ['2. ', '3. ', '4. '], 'each keeps its number on the card');
+  assert.deepEqual(group.querySelectorAll('section.q .muted.small').filter((m) => /^\d\./.test(m.textContent)).map((m) => m.textContent), ['2. ', '3. ', '4. '], 'each keeps its number on the task');
   const tap = () => $('section.q[data-q="s1"] [data-reopen]');
   v.page.fire(v.root, 'click', { target: tap() });
   await v.settle();
@@ -4799,7 +4799,7 @@ test("from 900px every questions URL, a link, a push or a hand-off, shows the bo
   const board = s.doc.querySelector('.view-board');
   const count = s.entries().length;
   assert.equal(s.win.AppShell.open('/shop/questions.html?from=push#q2'), true, 'a push tap');
-  assert.deepEqual([s.doc.querySelector('.view-board'), s.win.location.pathname + s.win.location.hash, s.entries().length, focused], [board, '/shop/#selectedCard=w%2FA1', count, ['q2']], 'the open card stays open');
+  assert.deepEqual([s.doc.querySelector('.view-board'), s.win.location.pathname + s.win.location.hash, s.entries().length, focused], [board, '/shop/#selectedCard=w%2FA1', count, ['q2']], 'the open task stays open');
   focused.length = 0;
   const a = s.doc.createElement('a');
   a.setAttribute('href', 'questions.html#q3');
@@ -4842,7 +4842,7 @@ test("from 900px a prototype URL, a link, a push, a cold load or a widening, sho
   const count = s.entries().length;
   assert.equal(s.win.AppShell.open('/shop/prototype-x.html?q=q2&from=push'), true, 'a push tap');
   assert.deepEqual([s.doc.querySelector('.view-board'), s.doc.querySelector('.view-frame'), s.win.location.pathname + s.win.location.hash, s.entries().length],
-    [board, null, '/shop/#item=w%2FA1', count], 'the open card stays open, with no history entry');
+    [board, null, '/shop/#item=w%2FA1', count], 'the open task stays open, with no history entry');
   assert.deepEqual(opened.map((u) => new URL(u).pathname + new URL(u).search), ['/shop/prototype-x.html?q=q2&from=push']);
   opened.length = 0;
   const a = s.doc.createElement('a');
@@ -5269,11 +5269,11 @@ test('answered asks sit in the one Done list among the work cards by time, 10 sh
   assert.equal(lane('done').querySelector('summary .count').textContent, '23');
   assert.equal(lane('done').querySelector('details.fold'), null);
   assert.deepEqual(keys('done'), all.slice(0, 10).map((c) => c.key));
-  assert.equal(more('done').textContent, 'Show more · 13 older cards');
+  assert.equal(more('done').textContent, 'Show more · 13 older tasks');
   assert.ok(more('done').classList.contains('thread-more'));
   b.page.fire(b.root, 'click', { target: more('done') });
   await b.settle();
-  assert.deepEqual([keys('done').length, more('done').textContent], [20, 'Show more · 3 older cards']);
+  assert.deepEqual([keys('done').length, more('done').textContent], [20, 'Show more · 3 older tasks']);
   b.page.fire(b.root, 'click', { target: more('done') });
   await b.settle();
   assert.deepEqual([keys('done'), more('done')], [all.map((c) => c.key), null]);
@@ -5308,15 +5308,15 @@ test('past the 100 Done cards the board carries, Show more fetches the next 100 
   const more = () => lane().querySelector('[data-lane-more]');
   const tap = async (n = 1) => { for (let i = 0; i < n; i++) { b.page.fire(b.root, 'click', { target: more() }); await b.settle(); } };
   const seen = () => [shown(), more()?.textContent ?? null, lane().querySelector('summary .count').textContent];
-  assert.deepEqual(seen(), [10, 'Show more · 220 older cards', '230']);
+  assert.deepEqual(seen(), [10, 'Show more · 220 older tasks', '230']);
   await tap(9);
-  assert.deepEqual([...seen(), asked], [100, 'Show more · 130 older cards', '230', []]);
+  assert.deepEqual([...seen(), asked], [100, 'Show more · 130 older tasks', '230', []]);
   await tap();
-  assert.deepEqual([...seen(), asked], [110, 'Show more · 120 older cards', '230', [null]]);
+  assert.deepEqual([...seen(), asked], [110, 'Show more · 120 older tasks', '230', [null]]);
   await tap(9);
-  assert.deepEqual([...seen(), asked.length], [200, 'Show more · 30 older cards', '230', 1]);
+  assert.deepEqual([...seen(), asked.length], [200, 'Show more · 30 older tasks', '230', 1]);
   await tap();
-  assert.deepEqual([...seen(), asked], [210, 'Show more · 20 older cards', '230', [null, `${day(199)}|w/D199`]]);
+  assert.deepEqual([...seen(), asked], [210, 'Show more · 20 older tasks', '230', [null, `${day(199)}|w/D199`]]);
   await tap(2);
   assert.deepEqual(seen(), [230, null, '230']);
   const old = lane().querySelector('details.item[data-key="w/D205"]');
@@ -6030,12 +6030,12 @@ test("on a desktop a prototype opens in the right pane under a top bar of ‹ Op
   const hashTo = async (hash) => { wide.page.win.location.hash = hash; wide.page.fire(vm.runInContext('window', wide.page.win), 'hashchange'); await wide.settle(); };
   wide.view.B.openViewer('prototype-x2.html?q=q2');
   await hashTo('#item=w%2FT1');
-  assert.ok(viewer(), 'a card opened on the board leaves the viewer open');
+  assert.ok(viewer(), 'a task opened on the board leaves the viewer open');
   await hashTo('#item=w%2FP1&reply');
-  assert.deepEqual([viewer(), pane.classList.contains('viewing')], [null, false], "a push to a card's thread closes the viewer, so the thread shows");
+  assert.deepEqual([viewer(), pane.classList.contains('viewing')], [null, false], "a push to a task's thread closes the viewer, so the thread shows");
   wide.view.B.openViewer('prototype-x2.html?q=q2');
   await hashTo('#selectedCard=w%2FT1');
-  assert.ok(viewer(), 'a #selectedCard= card without reply leaves the viewer open');
+  assert.ok(viewer(), 'a #selectedCard= task without reply leaves the viewer open');
   await hashTo('#selectedCard=w%2FP1&reply');
   assert.deepEqual([viewer(), pane.classList.contains('viewing')], [null, false], 'a push writing #selectedCard=<key>&reply closes the viewer too');
   const narrow = boardOnDom({ board, threads: {} });
@@ -6076,7 +6076,7 @@ test("on a desktop, one click on a pill in the pane opens that topic's card on t
   wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.band || this.dataset.topic); };
   const dbl = async (id) => { const target = wide.root.querySelector(`#boardPane button[data-topic="${id}"]`); const slot = wide.root.querySelector('#boardPane .pane-questions'); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
   await dbl('item:w/T1');
-  assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1', true, 'w/T1'], 'a card topic opens its card');
+  assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1', true, 'w/T1'], 'a task topic opens its task');
   scrolled.length = 0;
   await dbl('file:alpha');
   assert.deepEqual(scrolled, ['alpha'], 'a wave topic scrolls to its band');
@@ -6110,7 +6110,7 @@ test("a topic or question arriving on Waiting on you inserts its pill or card in
   assert.deepEqual(v.shown().questions, ['q1', 'q1b']);
   assert.equal(v.root.querySelector('section.q[data-q="q1"]'), card);
   assert.equal(v.root.querySelector('button[data-topic="item:w/T1"] .n').textContent, '2');
-  assert.deepEqual(v.root.querySelector('#qform').children.map((c) => c.dataset.q || c.getAttribute('class')), ['q1', 'q1b', 'bar'], 'the new card goes after the last open one');
+  assert.deepEqual(v.root.querySelector('#qform').children.map((c) => c.dataset.q || c.getAttribute('class')), ['q1', 'q1b', 'bar'], 'the new task goes after the last open one');
   v.unmount();
 });
 
@@ -6187,7 +6187,7 @@ test("Board settings' Sharing sets each person View or Full with one tap, saying
   await tick();
   const list = root.querySelector('#shareList');
   assert.match(list.innerHTML, /<span role="group" class="share-level" aria-label="Dana Reyes’s access"><button type="button" data-share-level="view" data-login="dana@github" aria-pressed="false">View<\/button><button type="button" data-share-level="full" data-login="dana@github" aria-pressed="true">Full<\/button><\/span>/);
-  assert.match(list.innerHTML, /Answers, taps card buttons and adds New tasks\. Merge and Board settings stay yours\./);
+  assert.match(list.innerHTML, /Answers, taps task buttons and adds New tasks\. Merge and Board settings stay yours\./);
   assert.match(list.innerHTML, /data-share-level="view" data-login="sam@github" aria-pressed="true"/);
   assert.match(list.innerHTML, /Looks only\. Visit links open\./);
   sharing = { ...sharing, people: sharing.people.map((p) => (p.login === 'sam@github' ? { ...p, level: 'full' } : p)) };
@@ -6355,7 +6355,7 @@ test("the thread's image button, after the eye and fire and before attach, asks 
 
 test('a resolved question card has no border or tint of its own; the Resolved badge alone marks it', () => {
   const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(css, /\.q\.resolved\s*\{/, 'no rule styles the resolved card itself');
+  assert.doesNotMatch(css, /\.q\.resolved\s*\{/, 'no rule styles the resolved task itself');
 });
 
 // docs/adr/2026-11-12-0600-the-todo-header-has-a-filter.md

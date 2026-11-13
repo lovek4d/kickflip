@@ -126,7 +126,7 @@ test("the orchestrator's builder stop stops the card's headless builder with eve
   const record = read(recordFile());
   assert.equal(record.stopped.run, 'build');
   assert.ok(record.stopped.at >= started);
-  assert.equal(record.done, undefined, 'the record stays open, so the card stays In Progress');
+  assert.equal(record.done, undefined, 'the record stays open, so the task stays In Progress');
   assert.deepEqual(thread().map((l) => [l.who, l.text]), [['claude', 'build stopped by orchestrator']]);
   // Nothing left to stop.
   const again = await cli('builder', 'stop', 'w/A1');

@@ -19,11 +19,11 @@
   <button type="button" class="who repo-row" id="boardRepo" aria-haspopup="dialog" disabled><span id="boardRepoValue">Loading…</span><span class="muted small" id="boardRepoChange">Change ›</span></button>
   <p class="muted small" id="boardRepoStatus"></p>
   <label class="who" for="buildTarget"><span><span>Build target</span>
-    <span class="muted small sub" id="buildTargetSub">The hub runs <code>.kickflip/build</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.</span></span>
+    <span class="muted small sub" id="buildTargetSub">The hub runs <code>.kickflip/build</code> from each task’s branch and from main. Claude wrote it when it set up this board; if builds break, file a task.</span></span>
     <select id="buildTarget" disabled><option value="">Default</option></select></label>
   <p class="muted small" id="buildTargetStatus" role="status"></p>
   <h2>Tickets</h2>
-  <p class="muted small">Every card on this board has a ticket from here. A new card gets a new ticket unless you name one.</p>
+  <p class="muted small">Every task on this board has a ticket from here. A new task gets a new ticket unless you name one.</p>
   <form id="ticketsForm" class="tk-section"><div id="boardTickets">Loading…</div></form>
   <p class="muted small" id="ticketsStatus" role="status"></p>
   <div id="landingSection" hidden>
@@ -38,15 +38,15 @@
   </div>
   <h2>Auto</h2>
   <label class="who" for="maxImplementers"><span><span>Maximum parallel implementers</span>
-    <span class="muted small sub">The number of cards In Progress: each counts from its build starting until it lands, whatever it waits on. Cards in Todo and In Review don’t.</span></span>
+    <span class="muted small sub">The number of tasks In Progress: each counts from its build starting until it lands, whatever it waits on. Tasks in Todo and In Review don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxImplementersStatus" role="status"></p>
   <label class="who" for="maxPlanners"><span><span>Maximum parallel planners</span>
-    <span class="muted small sub">Grills and prototypes running at once. A card that lands in Todo past it waits its turn.</span></span>
+    <span class="muted small sub">Grills and prototypes running at once. A task that lands in Todo past it waits its turn.</span></span>
     <input type="number" class="count" id="maxPlanners" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxPlannersStatus" role="status"></p>
   <label class="who" for="maxServes"><span><span>Maximum parallel serves</span>
-    <span class="muted small sub">Each open card worktree keeps one serve up. Installs aren’t counted. A busy host asks before it starts another.</span></span>
+    <span class="muted small sub">Each open task worktree keeps one serve up. Installs aren’t counted. A busy host asks before it starts another.</span></span>
     <input type="number" class="count" id="maxServes" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxServesStatus" role="status"></p>
   <label class="who" for="autoBuild"><span><span>Auto serve</span>
@@ -62,7 +62,7 @@
     <input type="checkbox" class="toggle" id="autoMerge" disabled></label>
   <p class="muted small" id="autoMergeStatus" role="status"></p>
   <label class="who" for="autoTriage"><span><span>Triage overnight</span>
-    <span class="muted small sub">Once a night, when two or more cards wait on your answers, Claude merges their overlapping questions and duplicate cards, and tidies Todo.</span></span>
+    <span class="muted small sub">Once a night, when two or more tasks wait on your answers, Claude merges their overlapping questions and duplicate tasks, and tidies Todo.</span></span>
     <input type="checkbox" class="toggle" id="autoTriage" disabled></label>
   <p class="muted small" id="autoTriageStatus" role="status"></p>
   <label class="who" for="idleNotification"><span><span>Idle notification</span>
@@ -95,7 +95,7 @@
   <div id="rules"><p class="muted small">Loading…</p></div>
   <div class="replies" id="rulesReplies"></div>
   <h2>Board</h2>
-  <button class="who close-board-row" id="closeBoard" disabled aria-haspopup="dialog"><span>Close board<span class="muted small sub">Stop its session and server. Keep its cards, threads and notes.</span></span><span aria-hidden="true">›</span></button>
+  <button class="who close-board-row" id="closeBoard" disabled aria-haspopup="dialog"><span>Close board<span class="muted small sub">Stop its session and server. Keep its tasks, threads and notes.</span></span><span aria-hidden="true">›</span></button>
   <p class="muted small" id="closeBoardReason" role="status">Loading…</p>
   <dialog class="sheet close-board-sheet" id="closeBoardSheet" aria-labelledby="closeBoardTitle">
     <form id="closeBoardForm">
@@ -103,7 +103,7 @@
       <h2 id="closeBoardTitle">Close this board?</h2>
       <p id="closeBoardName"></p>
       <ul><li>Stop the board’s session.</li><li>Stop its server.</li><li>Remove its sidebar row and manifest entry.</li></ul>
-      <p>Keep its folder, cards, threads and notes on the host. Reopen later from Hub → Closed boards.</p>
+      <p>Keep its folder, tasks, threads and notes on the host. Reopen later from Hub → Closed boards.</p>
       <div class="close-board-warning" id="closeBoardWarning"></div>
       <label for="closeBoardTyped">Type <strong id="closeBoardTypeName"></strong> to confirm.<input id="closeBoardTyped" autocomplete="off" autocapitalize="off" spellcheck="false" required></label>
       <p class="muted small" id="closeBoardError" role="status"></p>
@@ -236,9 +236,9 @@
     // Merge, prs off. Reviewers show only while cards open PRs
     // (docs/adr/2026-11-05-0200-landing-is-one-choice-draft-pr-ready-pr-or-merge.md).
     const LANDING = {
-      draft: { set: { prs: true, skip_draft: false }, sub: 'Each card opens a draft PR and waits for you to mark it ready for review.', saved: 'Saved. Each card opens a draft PR.' },
-      ready: { set: { prs: true, skip_draft: true }, sub: 'Each card opens a PR ready for review, without waiting for you.', saved: 'Saved. Each card opens a PR ready for review.' },
-      merge: { set: { prs: false }, sub: 'No PR opens: each card lands on the base branch and the base branch is pushed.', saved: 'Saved. Each card lands on the base branch with no PR, and the base branch is pushed.' },
+      draft: { set: { prs: true, skip_draft: false }, sub: 'Each task opens a draft PR and waits for you to mark it ready for review.', saved: 'Saved. Each task opens a draft PR.' },
+      ready: { set: { prs: true, skip_draft: true }, sub: 'Each task opens a PR ready for review, without waiting for you.', saved: 'Saved. Each task opens a PR ready for review.' },
+      merge: { set: { prs: false }, sub: 'No PR opens: each task lands on the base branch and the base branch is pushed.', saved: 'Saved. Each task lands on the base branch with no PR, and the base branch is pushed.' },
     };
     let landing = 'draft';
     const landingButtons = () => Object.keys(LANDING).map((value) => $(`[data-landing="${value}"]`));
@@ -531,7 +531,7 @@
     B.on(autoMerge, 'change', async () => {
       const want = autoMerge.checked;
       const ask = opensPRs() ? 'Turn on auto-merge? Claude merges each approved PR on this board once CI is green and it merges cleanly, without asking you.'
-        : 'Turn on auto-merge? Each verified card lands on the base branch without asking you.';
+        : 'Turn on auto-merge? Each verified task lands on the base branch without asking you.';
       if (want && !(await BoardDialogs.confirm(ask))) {
         autoMerge.checked = false;
         return;
@@ -540,7 +540,7 @@
       try {
         autoMerge.checked = (await saveToggle(autoMerge, { auto_merge: want })).auto_merge === true;
         autoMergeStatus.textContent = opensPRs() ? (autoMerge.checked ? 'Saved. Claude merges approved, green PRs itself.' : 'Saved. Approved, green PRs wait for your Merge.')
-          : autoMerge.checked ? 'Saved. Each verified card lands on the base branch by itself.' : 'Saved. Each verified card waits for your Merge.';
+          : autoMerge.checked ? 'Saved. Each verified task lands on the base branch by itself.' : 'Saved. Each verified task waits for your Merge.';
       } catch (e) {
         autoMerge.checked = !want;
         autoMergeStatus.textContent = e.message || 'Could not save. Is the host awake?';
@@ -551,7 +551,7 @@
     // default .kickflip/build (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
     // A saved target the tip no longer has stays listed, marked, so the picker shows what the hub runs.
     const buildScriptOf = (target) => (target ? `.kickflip/build-${target}` : '.kickflip/build');
-    const buildTargetSub = (target) => `The hub runs <code>${esc(buildScriptOf(target))}</code> from each card’s branch and from main. Claude wrote it when it set up this board; if builds break, file a card.`;
+    const buildTargetSub = (target) => `The hub runs <code>${esc(buildScriptOf(target))}</code> from each task’s branch and from main. Claude wrote it when it set up this board; if builds break, file a task.`;
     const showBuildTargets = () => {
       if (buildTarget === null || buildTargets === null) return;
       const select = $('#buildTarget');
@@ -576,7 +576,7 @@
         if (!B.alive()) return;
         buildTarget = settings.build_target || '';
         showBuildTargets();
-        $('#buildTargetStatus').textContent = `Saved. The hub runs ${buildScriptOf(buildTarget)} for each card and main.`;
+        $('#buildTargetStatus').textContent = `Saved. The hub runs ${buildScriptOf(buildTarget)} for each task and main.`;
       } catch (e) {
         if (!B.alive()) return;
         select.value = buildTarget;
@@ -643,7 +643,7 @@
     capInput('maxServes', 'max_serves', (n) => `Saved. Up to ${n === 1 ? '1 serve stays' : `${n} serves stay`} up at once.`);
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));
     autoToggle('idleNotification', 'idle_notification', (on) => (on ? 'Saved. One push once the board has been idle for 15 minutes.' : 'Saved. No push when the board goes idle.'));
-    autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a night, when cards wait on your answers, Claude triages them.' : 'Saved. Questions and Todo are left as they are.'));
+    autoToggle('autoTriage', 'auto_triage', (on) => (on ? 'Saved. Once a night, when tasks wait on your answers, Claude triages them.' : 'Saved. Questions and Todo are left as they are.'));
     // A Landing tap saves at once with no confirmation, its choice's settings in one POST. Merge needs Push main after a
     // land, which the server checks; its refusal shows in the status line and the saved choice stays pressed.
     for (const want of Object.keys(LANDING)) B.on($(`[data-landing="${want}"]`), 'click', async () => {
@@ -669,7 +669,7 @@
     // A person's row also sets them View or Full with one tap, saying what that level can do
     // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
     let sharing = null;
-    const CAN = { view: 'Looks only. Visit links open.', full: 'Answers, taps card buttons and adds New tasks. Merge and Board settings stay yours.' };
+    const CAN = { view: 'Looks only. Visit links open.', full: 'Answers, taps task buttons and adds New tasks. Merge and Board settings stay yours.' };
     const shareRow = (title, sub, button, more = '') => `<div class="who"><span>${esc(title)}<span class="muted small sub">${sub}</span>${more}</span>${button}</div>`;
     const shareLevel = (p) => `<span role="group" class="share-level" aria-label="${esc(p.name || p.login)}’s access">${[['view', 'View'], ['full', 'Full']].map(([level, label]) =>
       `<button type="button" data-share-level="${level}" data-login="${esc(p.login)}" aria-pressed="${p.level === level}">${label}</button>`).join('')}</span><span class="muted small sub">${CAN[p.level]}</span>`;

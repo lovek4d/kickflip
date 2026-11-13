@@ -21,7 +21,7 @@ BoardView.part((B) => {
     const shown = Math.max(STEP * (1 + (moreTaps.get(laneId) || 0)), lastOpen + 1);
     const left = Math.max(0, cards.length - shown);
     const n = left + (older || 0);
-    const words = `${n} older card${n === 1 ? '' : 's'}`;
+    const words = `${n} older task${n === 1 ? '' : 's'}`;
     const fetches = older !== 0 && shown + STEP > cards.length;
     return waveGroups(laneId, cards.slice(0, shown))
       + (n > 0 ? `<button type="button" class="thread-more" data-lane-more="${laneId}"${fetches ? ' data-fetch' : ''}>Show more <span class="n">· ${words}</span></button>` : '');
@@ -219,7 +219,7 @@ BoardView.part((B) => {
     const more = ev.target.closest('[data-lane-more]');
     if (more) {
       if (more.hasAttribute('data-fetch')) {
-        try { await waitOn(more, fetchOlder()); } catch { B.toast('Could not load older cards. Is the host awake?'); return; }
+        try { await waitOn(more, fetchOlder()); } catch { B.toast('Could not load older tasks. Is the host awake?'); return; }
         if (!B.alive()) return;
       }
       moreTaps.set(more.dataset.laneMore, (moreTaps.get(more.dataset.laneMore) || 0) + 1);
@@ -228,7 +228,7 @@ BoardView.part((B) => {
     }
     const pb = ev.target.closest('button[data-plan]');
     if (pb) {
-      if (!(await B.confirm('Claude triages these Todo cards into one or more waves and asks you about them in Waiting on you. Nothing is implemented until you answer. Start?'))) return;
+      if (!(await B.confirm('Claude triages these Todo tasks into one or more waves and asks you about them in Waiting on you. Nothing is implemented until you answer. Start?'))) return;
       // Spins until a board shows a grill running on one of the cards that wasn't when tapped
       // (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
       const keys = pb.dataset.plan.split(' ');

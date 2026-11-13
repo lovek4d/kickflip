@@ -307,7 +307,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const used = new Set([...mainPorts.values(), ...cardPorts.values()]);
     let port = TRY_PORTS.first;
     while (used.has(port) && port <= TRY_PORTS.last) port++;
-    if (port > TRY_PORTS.last) throw new Error(`No try ports available (${TRY_PORTS.first}–${TRY_PORTS.last}). Stop a served card and retry.`);
+    if (port > TRY_PORTS.last) throw new Error(`No try ports available (${TRY_PORTS.first}–${TRY_PORTS.last}). Stop a served task and retry.`);
     if (key === 'main') {
       mainPorts.set(board.dir, port);
       stateOf(board).state.main_port = port;
@@ -488,7 +488,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     if (!run.ready) lastHeads.delete(runKey(run.board, run.key));
   }
   async function launch(board, key, worktree, metadata = {}, preface = '') {
-    if (!worktree) throw new BuildError('This card has no valid worktree.');
+    if (!worktree) throw new BuildError('This task has no valid worktree.');
     const script = scriptAt(worktree, board.build_target);
     const error = buildScriptError(script);
     if (error) throw new BuildError(error);
@@ -712,12 +712,12 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     reserveMains(manifest);
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
     if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key', 'anyway'].includes(k))
-      || typeof input.route !== 'string' || typeof input.key !== 'string' || !['undefined', 'boolean'].includes(typeof input.anyway)) throw new BuildError('Send only the board route, card key and anyway.');
+      || typeof input.route !== 'string' || typeof input.key !== 'string' || !['undefined', 'boolean'].includes(typeof input.anyway)) throw new BuildError('Send only the board route, task key and anyway.');
     const { route, key } = input;
-    if (isCard(key) && (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..'))) throw new BuildError('Card key must be <file>/<id>.');
+    if (isCard(key) && (!/^[\w.-]+\/[\w.-]+$/.test(key) || key.split('/').some((s) => s === '.' || s === '..'))) throw new BuildError('Task key must be <file>/<id>.');
     const board = listBoards(manifest).find((b) => b.route === route);
     if (!board) throw new BuildError(`/${route} is not a board.`, 404);
-    if (isCard(key) && !board.files.some(({ slug, itemFile }) => itemFile.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this card key.', 404);
+    if (isCard(key) && !board.files.some(({ slug, itemFile }) => itemFile.items.some((it) => `${slug}/${it.id}` === key))) throw new BuildError('There is no item with this task key.', 404);
     const reason = await waiting();
     if (reason) throw new BuildError(reason, 409);
     const id = runKey(board, key);
@@ -727,7 +727,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       current.visited = now();
       return { status: 'ready' };
     }
-    if (starting.has(id) || (current && !current.ready && !current.finished)) throw new BuildError(`A build is already running for ${key === 'main' ? 'main' : key === BASE_KEY ? 'the prototype site' : 'this card'}.`, 409);
+    if (starting.has(id) || (current && !current.ready && !current.finished)) throw new BuildError(`A build is already running for ${key === 'main' ? 'main' : key === BASE_KEY ? 'the prototype site' : 'this task'}.`, 409);
     if (key === 'main') {
       const entry = stateOf(board).state.main;
       if (entry?.state === 'running') throw new BuildError('A build is already running for main.', 409);
@@ -758,12 +758,12 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     await initialize(manifest);
     if (stopping) throw new BuildError('The hub is stopping. Try again after it restarts.', 503);
     if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some((k) => !['route', 'key'].includes(k))
-      || typeof input.route !== 'string' || typeof input.key !== 'string' || !isCard(input.key)) throw new BuildError('Send only the board route and card key.');
+      || typeof input.route !== 'string' || typeof input.key !== 'string' || !isCard(input.key)) throw new BuildError('Send only the board route and task key.');
     const board = listBoards(manifest).find((b) => b.route === input.route);
     if (!board) throw new BuildError(`/${input.route} is not a board.`, 404);
     const id = runKey(board, input.key);
     const run = runs.get(id);
-    if (!run || run.stopped || run.finished) throw new BuildError('This card has no serve running.', 409);
+    if (!run || run.stopped || run.finished) throw new BuildError('This task has no serve running.', 409);
     await stopRun(run);
     restarts.delete(id);
     lastHeads.set(id, run.sha);

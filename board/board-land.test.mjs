@@ -314,7 +314,7 @@ test("a local board, or one with no GitHub repo or git remote, branches from its
   setOrch({ owner: { repo: project } });
   fs.rmSync(at('waves', 'w', 'agents'), { recursive: true });
   git(project, 'worktree', 'add', '--quiet', '-b', 'A1', worktree(), 'main');
-  commit(worktree(), 'card.txt', 'card', 'feat: card\n\nRefs: A1');
+  commit(worktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
   const landed = await boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
   assert.equal(landed.code, 0, landed.err);
   assert.match(landed.out, new RegExp(`main fast-forwarded to \\w+ in ${project}`));
@@ -335,7 +335,7 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   const started = await board('--site', 'orch', 'builder', 'start', 'w/A1', '--worktree');
   assert.equal(started.code, 0, started.err);
   assert.equal(git(worktree(), 'rev-parse', 'HEAD'), git(project, 'rev-parse', 'trunk'));
-  commit(worktree(), 'card.txt', 'card', 'feat: card\n\nRefs: A1');
+  commit(worktree(), 'card.txt', 'card', 'feat: task\n\nRefs: A1');
 
   git(project, 'switch', '--quiet', '-c', 'feature');
   const landTrunk = () => boardWith(['land', 'w/A1', '--site', 'orch', '--text', 'Checked.'], { KICKFLIP_RESTART_CMD: JSON.stringify([process.execPath, '-e', '0']) });
@@ -504,7 +504,7 @@ test('builder done --owner-step records the step on the card, and refuses one on
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, 'Tag the first release');
   items({ lane: 'done', closed_at: '2026-11-01T10:00:00Z' });
   const late = await board('builder', 'done', 'w/A1', '--site', 'orch', '--owner-step', 'Tag it');
-  assert.deepEqual([late.code, late.err], [1, 'w/A1 is already Done, so its ticket closed; an owner step goes on the command that finishes the card: land --owner-step, or builder done before the merge\n']);
+  assert.deepEqual([late.code, late.err], [1, 'w/A1 is already Done, so its ticket closed; an owner step goes on the command that finishes the task: land --owner-step, or builder done before the merge\n']);
   assert.equal(read(at('waves', 'w', 'wave.json')).items[0].owner_step, undefined);
 });
 
@@ -966,7 +966,7 @@ test('a tapped Merge whose rebase conflicts launches a headless lander, and the 
     'Not merged yet: rebasing A1 onto main conflicts in shar… Its builder resumes to fix it and land it.',
   ]);
   await until(() => fs.existsSync(seen), 'the lander runs');
-  assert.match(fs.readFileSync(seen, 'utf8'), /You are the headless lander for card A1/);
+  assert.match(fs.readFileSync(seen, 'utf8'), /You are the headless lander for task A1/);
 
   // The lander resolves the conflict and finishes; the tap was the go.
   assert.equal((await b('builder', 'start', 'w/A1', '--kind', 'build', '--label', 'Lander')).code, 0);
@@ -1002,7 +1002,7 @@ test("a tapped Merge whose rebase conflicts resumes the card's builder session, 
   await until(() => fs.existsSync(seen), 'the builder resumes');
   const [args] = fs.readFileSync(seen, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(args.slice(0, 2), ['--resume', 'sess-1']);
-  assert.match(args[3], /^The board resumes you, the builder of card A1/);
+  assert.match(args[3], /^The board resumes you, the builder of task A1/);
   assert.match(args[3], /rebasing A1 onto main conflicts in shared\/notes\.md/);
   assert.equal(threadOf().at(-1).line, 'builder-resumed-to-land');
   assert.match(threadOf().at(-1).text, /^Builder resumed to land, session /);
@@ -1114,7 +1114,7 @@ test('PRs off on a GitHub board needs Push main granted; then a finish lands in 
   git(origin, 'config', 'receive.denyCurrentBranch', 'updateInstead');
   const clone = path.join(home, 'clone');
   const refused = await onOrch('settings', 'set', 'prs', 'off');
-  assert.deepEqual([refused.code, refused.err], [1, 'Merge lands each card on main and pushes it, so turn on Push main after a land first\n']);
+  assert.deepEqual([refused.code, refused.err], [1, 'Merge lands each task on main and pushes it, so turn on Push main after a land first\n']);
   write(path.join(clone, '.claude', 'settings.local.json'), { permissions: { allow: ['Bash(git push origin main)'] } });
   write(path.join(clone, '.git', 'info', 'exclude'), '.claude\n');
   assert.deepEqual(await onOrch('settings', 'set', 'prs', 'off'), { code: 0, out: 'prs off\n', err: '' });

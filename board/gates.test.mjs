@@ -16,7 +16,7 @@ function world(fields = {}, more = []) {
   const data = path.join(site, 'data');
   fs.mkdirSync(data);
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'notes.md'), '# Card\n');
+  fs.writeFileSync(path.join(data, 'notes.md'), '# Task\n');
   fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'A1', title: 'Card', lane: 'todo', phase: 'grilling', size: 'small', plan: 'notes.md', ...fields }, ...more] }));
   fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [] }));
   fs.writeFileSync(path.join(data, 'events.jsonl'), '');
@@ -79,7 +79,7 @@ test("a grill that ends asking nothing on a card whose prototype answer is kept 
     await stopPlanner(w.site, 't/A1', { note: 'Nothing left to ask' });
     assert.equal(w.read().phase, phase, prototype);
     assert.equal(w.thread().some((l) => l.line === 'planner-unasked'), false, prototype);
-    if (prototype === 'yes') assert.deepEqual(w.read().briefs.map((b) => b.kind), ['prototype'], 'the card owes the orchestrator its prototype brief');
+    if (prototype === 'yes') assert.deepEqual(w.read().briefs.map((b) => b.kind), ['prototype'], 'the task owes the orchestrator its prototype brief');
   }
   const unset = world();
   unset.grill();
@@ -93,7 +93,7 @@ test('item add --split-of sets the Parent and copies its gates; it refuses --par
   const { key } = await addItem(w.site, 't/C1', { title: 'feat: slice one', splitOf: 't/A1', phase: 'grilling', intake: true });
   assert.equal(key, 't/C1');
   assert.deepEqual([w.read('C1').parent, w.read('C1').gates], ['t/A1', { prototype: 'no' }]);
-  await addItem(w.site, 't/C2', { title: 'feat: slice of a bare card', splitOf: 't/B1', phase: 'grilling', intake: true });
+  await addItem(w.site, 't/C2', { title: 'feat: slice of a bare task', splitOf: 't/B1', phase: 'grilling', intake: true });
   assert.deepEqual([w.read('C2').parent, 'gates' in w.read('C2')], ['t/B1', false]);
   await assert.rejects(addItem(w.site, 't/C3', { title: 'feat: both', splitOf: 't/A1', parent: 't/A1', phase: 'grilling', intake: true }), /--split-of sets the Parent; drop --parent/);
   await assert.rejects(addItem(w.site, 't/C4', { title: 'feat: gone', splitOf: 't/Z9', phase: 'grilling', intake: true }), /Z9/);
@@ -122,7 +122,7 @@ test("the start-up backfill sets each live card's gates from its last answered g
   // A1 was regrilled after its round: its thread's prototype-round line comes after the yes.
   fs.mkdirSync(path.join(w.data, 'threads'));
   fs.writeFileSync(path.join(w.data, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: new Date(Date.now() + 1000).toISOString(), who: 'claude', kind: 'hub', line: 'prototype-round', text: 'moved' }) + '\n');
-  assert.deepEqual(await migrateGates(w.site), ['t: 3 cards keep their gate answers']);
+  assert.deepEqual(await migrateGates(w.site), ['t: 3 tasks keep their gate answers']);
   assert.deepEqual(['A1', 'A2', 'A3', 'A4', 'A5'].map((id) => w.read(id).gates ?? null), [{ prototype: 'ran' }, { prototype: 'yes' }, { prototype: 'ran' }, { prototype: 'no' }, null]);
   assert.deepEqual(await migrateGates(w.site), []);
 });

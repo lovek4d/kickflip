@@ -94,7 +94,7 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
   const resumed = { stdout: second.out() };
   for (const kind of ['github-change', 'check-github', 'card-unblocked']) assert.ok(resumed.stdout.includes(`"kind":"${kind}"`));
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
-  assert.match(resumed.stdout, /"reason":"morning".*\nthe daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any card stuck with no wait; a thread line on each card you act on, nothing else$/m);
+  assert.match(resumed.stdout, /"reason":"morning".*\nthe daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any task stuck with no wait; a thread line on each task you act on, nothing else$/m);
   assert.doesNotMatch(resumed.stdout, /item-message|usage paused/);
   assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8')).$usageHeld, undefined);
 });
@@ -296,7 +296,7 @@ test('on a board a new task wakes the session with its sort line and reads Worki
   await until(() => fs.existsSync(path.join(dir, 'data', 'watcher.json')), 'watcher started');
   fs.appendFileSync(events, JSON.stringify({ id: 'a1', kind: 'ask', ts: new Date().toISOString(), data: { text: 'New task' } }) + '\n');
   assert.equal(await exited, 0);
-  assert.ok(stdout.split('\n').includes('new task a1 received as task a1: sort that New card: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a card with item relate-ask a1 <card> --summary'), stdout);
+  assert.ok(stdout.split('\n').includes('new task a1 received as task a1: sort that New task: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask a1 <task> --summary'), stdout);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['a1']);
 });
 

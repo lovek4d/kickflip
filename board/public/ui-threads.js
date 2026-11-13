@@ -10,11 +10,8 @@
   const drawsMarkdown = (m) => m.who === 'claude' && !m.html;
   // A link to a card on this board (#selectedCard=<key>) or on another board (/<route>/#selectedCard=<key>, an ask's move), or ''.
   function cardLink(link) {
-    const key = /^(?:\/[\w-]+\/)?#(?:selectedCard|item)=([^&]+)/.exec(link)?.[1];
-    if (!key) return '';
-    let ask = key.startsWith('ask:');
-    try { ask = decodeURIComponent(key).startsWith('ask:'); } catch {}
-    return `<a href="${esc(link)}">Open the ${ask ? 'task' : 'card'} →</a>`;
+    if (!/^(?:\/[\w-]+\/)?#(?:selectedCard|item)=[^&]+/.test(link)) return '';
+    return `<a href="${esc(link)}">Open the task →</a>`;
   }
   // A message's state comes from domain.mjs threadOf, or, for one the page hasn't sent yet, from app-threads.js's outbox
   // (sending or failed).

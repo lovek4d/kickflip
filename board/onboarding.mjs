@@ -8,14 +8,14 @@ import { execFileSync } from 'node:child_process';
 
 const BUILD_NOTES = `# Prepare .kickflip/build
 
-The hub builds and serves a card's version of this repo by running one script, \`.kickflip/build <file>/<id> <worktree>\`, in the card's worktree. This board has none on main yet.
+The hub builds and serves a task's version of this repo by running one script, \`.kickflip/build <file>/<id> <worktree>\`, in the task's worktree. This board has none on main yet.
 
 Contract (docs/adr/2026-11-01-1846-a-boards-build-script-serves-or-builds-each-card-and-main.md):
 - Print exactly \`port <n>\` on stdout to serve a website on that port.
 - Or exit 0 with no port for an app build, publishing the install with \`board.mjs item set --install --install-sha\`.
 - The file is a regular file in the repo, executable, writable by no one but its owner.
 
-What this card does:
+What this task does:
 - Look at the repo for what it builds: a website or server, an iOS or Android app, a CLI, a library with nothing to serve.
 - If it finds one type, write \`.kickflip/build\` for it.
 - If it finds several, ask the owner which the board should serve, write one \`.kickflip/build-<target>\` for each type the owner wants (for example \`build-web\`, \`build-ios\`), and set this board's Build target in Board Settings to the one picked.
@@ -24,9 +24,9 @@ What this card does:
 
 const CONTEXT_NOTES = `# Write CONTEXT.md and the first ADR
 
-Cards in this repo are grilled and built against its own words and decisions. This card writes them down.
+Tasks in this repo are grilled and built against its own words and decisions. This task writes them down.
 
-What this card does:
+What this task does:
 - Write CONTEXT.md at the repo root: a glossary of the terms this project uses, one entry each with what it means and what to avoid calling it.
 - Write the first ADR in docs/adr/, named docs/adr/YYYY-MM-DD-HHMM-<slug>.md, for the biggest decision the repo's shape shows: what was chosen and what was considered.
 - Ask the owner what the project is for and which words they use for its parts; their wording goes in verbatim.

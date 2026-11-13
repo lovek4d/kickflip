@@ -29,7 +29,7 @@ test('fileAsks makes each ask with no card a T-<n> card in asked order: answered
     ask('a8', '2026-11-01T09:00:00Z', 'Titled by triage'),
     { id: 'd8', ts: '2026-11-01T09:30:00Z', kind: 'ask-done', data: { id: 'a8' } },
     // Deleted from its New card, which sends the card's key and drops the card.
-    ask('a9', '2026-11-01T17:00:00Z', 'Deleted from its card'),
+    ask('a9', '2026-11-01T17:00:00Z', 'Deleted from its task'),
     { id: 'w9', ts: '2026-11-01T17:01:00Z', kind: 'ask-withdrawn', data: { id: 'a9', key: 'audit/T-9' } },
   );
   write(audit('data', 'items.json'), { items: [{ id: 'A1', title: 'One' }, { id: 'T-1', title: 'Filed', lane: 'todo', phase: 'grilling', from_ask: 'a7' }] });

@@ -16,12 +16,12 @@ const ask = async (url = 'prototype-look.html?q=q1') => {
 };
 
 test('prototype add --served records the page path and named states, with no take files to write', async () => {
-  const r = await served('look', ['--state', 'empty:No cards', '--state', 'busy:Ten cards running']);
+  const r = await served('look', ['--state', 'empty:No tasks', '--state', 'busy:Ten tasks running']);
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, ['prototype look recorded', 'page prototype-look.html', 'served /proto/look from the base prototype worktree (board.mjs prototype base)', 'states empty, busy', ''].join('\n'));
   const [record] = read(site('orch', 'data', 'prototypes.json')).prototypes;
   assert.deepEqual({ ...record, at: undefined }, { topic: 'look', title: 'Look', served: '/proto/look', takes: [{ key: 'A', label: 'Chips' }, { key: 'B', label: 'Stepper' }],
-    states: [{ key: 'empty', label: 'No cards' }, { key: 'busy', label: 'Ten cards running' }], at: undefined });
+    states: [{ key: 'empty', label: 'No tasks' }, { key: 'busy', label: 'Ten tasks running' }], at: undefined });
   assert.equal((await board('prototype', 'list', '--site', 'orch')).out, 'look · Look · A: Chips, B: Stepper · served /proto/look · states empty, busy\n');
 });
 
@@ -117,8 +117,8 @@ test('the viewer bar lists the round’s states as a row of chips, the current o
   const context = vm.createContext({});
   for (const file of ['ui.js', 'ui-links.js', 'ui-questions.js', 'prototype-switcher.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
   const sw = context.PrototypeSwitcher;
-  const html = sw.pillHtml({ name: 'Chips', states: { empty: 'No cards', busy: 'Ten <running>' }, state: 'busy' });
-  assert.match(html, /<div class="ps-row ps-states">.*data-ps-state="empty" aria-pressed="false">No cards<\/button>.*data-ps-state="busy" aria-pressed="true">Ten &lt;running&gt;<\/button>/);
+  const html = sw.pillHtml({ name: 'Chips', states: { empty: 'No tasks', busy: 'Ten <running>' }, state: 'busy' });
+  assert.match(html, /<div class="ps-row ps-states">.*data-ps-state="empty" aria-pressed="false">No tasks<\/button>.*data-ps-state="busy" aria-pressed="true">Ten &lt;running&gt;<\/button>/);
   assert.doesNotMatch(sw.pillHtml({ name: 'Chips' }), /ps-states/);
   assert.equal(sw.startTake(['empty', 'busy'], 'busy'), 'busy');
   assert.equal(sw.startTake(['empty', 'busy'], 'gone'), 'empty');

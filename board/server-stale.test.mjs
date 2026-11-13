@@ -190,7 +190,7 @@ test('with auto implement on the board starts and launches the build of the top 
   const question = (id, key) => ({ id, topic: `item:${key}`, question: 'Which?', options: [{ id: 'a', label: 'A' }] });
   fs.writeFileSync(ownerFile, JSON.stringify({ topics: [], items: [question('q3', 't/A3')] }));
   fs.writeFileSync(eventsFile, [
-    { id: 'e1', ts: iso(now - 30000), kind: 'ask', data: { text: 'A new card' } },
+    { id: 'e1', ts: iso(now - 30000), kind: 'ask', data: { text: 'A new task' } },
     { id: 'e2', ts: iso(now - 20000), kind: 'card-bump', data: { key: 't/A5' } },
   ].map((e) => JSON.stringify(e) + '\n').join(''));
   const { claude, launched } = launchingBoard(dir, siteDir);
@@ -217,7 +217,7 @@ test('with auto implement on the board starts and launches the build of the top 
   // the pick it started on are in the board's audit log, with what each read.
   const logged = lines(path.join(dataDir, 'audit.jsonl'));
   const pull = logged.find((e) => e.call === 'pull' && e.key === 't/A5');
-  assert.deepEqual([pull.key, pull.result, pull.reason, pull.inputs.cap, pull.inputs.pullable.includes('t/A5')], ['t/A5', 'started', 'An implementer slot was free and it was the top ready card in Todo.', 2, true]);
+  assert.deepEqual([pull.key, pull.result, pull.reason, pull.inputs.cap, pull.inputs.pullable.includes('t/A5')], ['t/A5', 'started', 'An implementer slot was free and it was the top ready task in Todo.', 2, true]);
   const pick = logged.find((e) => e.call === 'builder-pick');
   assert.deepEqual([pick.key, pick.result, pick.inputs.dispatch, pick.inputs.codex], ['t/A5', 'claude opus', 'hub', 'not logged in']);
   assert.ok(logged.indexOf(pick) < logged.indexOf(pull), 'the pick is logged as the start makes it, the pull once the start returns');
@@ -242,13 +242,13 @@ test('with auto implement on the board starts and launches the build of the top 
   assert.deepEqual(pulls(), ['t/A5'], 'a card waiting in Orchestrator review holds its slot');
   closeCard('A0');
   await board.changed(waveFile);
-  assert.deepEqual(pulls(), ['t/A5', 't/A4'], 'a card landing frees its slot on the change');
+  assert.deepEqual(pulls(), ['t/A5', 't/A4'], 'a task landing frees its slot on the change');
 
   // Changed while the server is down: A5 landing frees its slot.
   await board.stop();
   finish('A5');
   await board.start();
-  assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6'], 'a card closed while the server was down frees its slot');
+  assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6'], 'a task closed while the server was down frees its slot');
 
   put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
   finish('A4');
@@ -281,11 +281,11 @@ test('a starting server turns a waiting Implement ask into staging, starts nothi
   await server(t, siteDir).start();
   assert.deepEqual(launched('grill'), ['t/G1'], 'the round sent back from staging launches from its brief');
   const g1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'G1');
-  assert.deepEqual([g1.briefs, JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'G1.json'), 'utf8')).brief.brief.heading], [undefined, 'Brief for grill round 2'], 'the launch takes the brief off the card onto the record');
+  assert.deepEqual([g1.briefs, JSON.parse(fs.readFileSync(path.join(dataDir, 'agents', 'G1.json'), 'utf8')).brief.brief.heading], [undefined, 'Brief for grill round 2'], 'the launch takes the brief off the task onto the record');
   assert.ok(!fs.existsSync(path.join(dataDir, 'threads', 't__G1.jsonl')), 'the round posts no thread line of its own');
   const q1 = JSON.parse(fs.readFileSync(waveFile, 'utf8')).items.find((i) => i.id === 'Q1');
   assert.deepEqual([q1.phase, q1.staged_at, q1.implement_at], ['staging', iso(now - 60000), undefined]);
-  assert.deepEqual(launched('claude', 'codex', 'prototype'), [], 'a staging card starts nothing');
+  assert.deepEqual(launched('claude', 'codex', 'prototype'), [], 'a staging task starts nothing');
 });
 
 // docs/adr/2026-11-04-1900-triage-runs-once-overnight-on-cards-waiting-on-your-answers.md
@@ -460,7 +460,7 @@ test('each card arriving in Todo owes a grill brief up to the planner cap and gr
   assert.ok(launched('grill').length === 2 && fs.existsSync(agentFile('B3')), 'the arrivals get their grills');
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
   assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
-  assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
+  assert.deepEqual(launched('build'), ['t/B5'], 'a ready task is pulled, not grilled, and its build holds no planner back');
   assert.deepEqual(thread('B3'), ['Grill requested'], "the board posts no line of its own: the orchestrator's brief does");
   const record = JSON.parse(fs.readFileSync(agentFile('B4'), 'utf8'));
   assert.deepEqual([record.kind, record.dispatched], ['grill', 'hub']);
@@ -495,7 +495,7 @@ test('each card arriving in Todo owes a grill brief up to the planner cap and gr
   await board.minute();
   assert.equal(grills(), 2);
   assert.deepEqual(logged('card-plan'), [], 'no event wakes the session');
-  assert.deepEqual(thread('B1'), [], 'a card with questions has had its grill');
+  assert.deepEqual(thread('B1'), [], 'a task with questions has had its grill');
 });
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md
@@ -598,7 +598,7 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   const waits = () => { try { return JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits; } catch { return null; } };
   const board = server(t, siteDir);
   await board.start();
-  assert.deepEqual(waits(), [], 'a live builder owns the card');
+  assert.deepEqual(waits(), [], 'a live builder owns the task');
   // builder done hands it back with its calls: no event of its own, yet the list wakes the session.
   put(buildFile, JSON.stringify({ ...build, done: handedAt, handed_back: handedAt }));
   put(itemsFile, JSON.stringify({ items: [{ id: 'A1', title: 'One', lane: 'progress', next: "Verify the builder's judgment calls" }, { id: 'A2', title: 'Two', phase: 'discussing' }] }));

@@ -1113,7 +1113,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         return sendJSON(403, { error: `${p === '/_hub/pull' ? 'Pulls' : p === '/_hub/kill' ? 'Serves' : 'Builds'} can only be ${p === '/_hub/kill' ? 'killed' : 'started'} from the host over loopback.` });
       }
       let input;
-      try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: p === '/_hub/pull' ? 'Send the board route as JSON.' : 'Send the board route and card key as JSON.' }); }
+      try { input = await readJSONBody(req); } catch (e) { return sendJSON(e.status || 400, { error: p === '/_hub/pull' ? 'Send the board route as JSON.' : 'Send the board route and task key as JSON.' }); }
       try {
         if (p === '/_hub/pull') return sendJSON(200, await pullNow(input, { manifest: loadManifest() }));
         if (p === '/_hub/kill') return sendJSON(200, await killBuild(input, { manifest: loadManifest() }));

@@ -1655,8 +1655,8 @@ function unsorted(items, e, key) {
   return e.kind === 'ask' ? Boolean(it.isNew) : it.unfiled;
 }
 const INTAKE_NEXT = {
-  ask: (key, e) => `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a card with item relate-ask ${e.id} <card> --summary`,
-  'card-added': () => 'Link and file the card an agent added: item notes, then item set --relate and --phase',
+  ask: (key, e) => `Sort the new task: link a ticket it names with item set ${key} --ticket <id>; discuss it with reply ${key}, which reads it discussing; item notes, then item set ${key} --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask ${e.id} <task> --summary`,
+  'card-added': () => 'Link and file the task an agent added: item notes, then item set --relate and --phase',
 };
 // The orchestrator's wait on each card with an intake event still unsorted, on its card's item as orchestrator: from
 // its oldest such event, picked up once the watcher marked that event working (working, data/working.json).
@@ -1821,8 +1821,8 @@ const STALL_NEXT = "item stall it with the reason when it can't go on";
 // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
 const RESTART_NEXT = 'restart it once from its worktree with a thread line; if the restarted run goes stale too, item stall it with the reason';
 // docs/adr/2026-11-07-1216-a-grill-can-propose-splitting-its-card-into-a-wave.md: a staged card whose split was answered Split is filed as its split, not set ready.
-const STAGING_NEXT = 'Judge the staged card against the whole board: for a discussed card first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead';
-const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions against what landed; answer a stale one again with question settle <id> --note, or send the card back with item set --phase grilling when the change is too big; then item set --phase ready --text "<what you re-checked>"';
+const STAGING_NEXT = 'Judge the staged task against the whole board: for a discussed task first fold what was agreed into a Build notes section with item notes; then item set --phase ready --text "<what you checked>", or --phase grilling or prototyping for another round; where its notes answer a split question Split as proposed, file the split instead';
+const RECHECK_NEXT = 'Its block ended: re-read its notes and answered questions against what landed; answer a stale one again with question settle <id> --note, or send the task back with item set --phase grilling when the change is too big; then item set --phase ready --text "<what you re-checked>"';
 function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const running = (kind) => it.agents.some((a) => a.kind === kind && a.started && !a.done);
   // A brief is owed only in Todo: a card past it has its build under way.
@@ -1844,7 +1844,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       // One stale wait: a stopped or silent builder, else a review past seven days. A builder waiting on its own ask is
       // the ask's wait, not a stale one.
       it.builder?.stopped || it.builder?.stale ? (facts.ask ? null
-        : it.builder.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the card` }
+        : it.builder.stopped ? { kind: 'stale', since: it.builder.silentSince, next: `${it.builder.stopped}: ${RESTART_NEXT}, or drop the task` }
         : { kind: 'stale', since: it.builder.silentSince, next: `Find out why the builder went silent, then finish its run or ${RESTART_NEXT}` })
       : it.lane === 'review' && it.stale && { kind: 'stale', since: new Date(Date.parse(it.inReviewSince) + STALE_AFTER).toISOString(), daily: true, next: `Find out why the review went stale and fix what you can: rebase, CI, comments; if only a reviewer owes it, a thread line naming who; or ${STALL_NEXT}` },
       it.waitsOn === 'checking' && (facts.unverified ? { kind: 'calls', since: facts.handedBackAt, next: facts.next || "Verify the builder's judgment calls" }
@@ -1855,7 +1855,7 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       it.prototyping && facts.prototypeAt && !running('prototype') && !briefed('prototype') && { kind: 'prototype', since: facts.prototypeAt, next: 'Draw the prototype asked for' },
       // docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md: held until the card
       // has a question (the owner's answer it owes, above), a planner of that kind running or started since, or a new phase.
-      unasked && { kind: 'unasked', since: unasked.at, next: `Its ${unasked.kind} planner ended without its question: read its log, then post the question, start the planner again, or move the card's phase` },
+      unasked && { kind: 'unasked', since: unasked.at, next: `Its ${unasked.kind} planner ended without its question: read its log, then post the question, start the planner again, or move the task's phase` },
       // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
       // for the re-check that releases it to the pull.
       it.recheckAt && it.lane === 'todo' && it.phase === 'ready' && !it.blocked && { kind: 'recheck', since: it.recheckAt, next: RECHECK_NEXT },
@@ -1954,6 +1954,6 @@ export function idleSummary(items, since) {
   for (const i of items) if (i.wave) waves.set(i.wave.slug, [...(waves.get(i.wave.slug) || []), i]);
   const finished = [...waves.values()].filter((cards) => cards.every((i) => i.lane === 'done') && cards.some(after)).map((cards) => cards[0].wave.title);
   const refs = landed.slice(0, 3).map((i) => i.ref).join(', ') + (landed.length > 3 ? ` and ${landed.length - 3} more` : '');
-  const parts = [landed.length && `${landed.length} ${landed.length === 1 ? 'card' : 'cards'} landed: ${refs}`, ...finished.map((t) => `${t} finished`)].filter(Boolean);
+  const parts = [landed.length && `${landed.length} ${landed.length === 1 ? 'task' : 'tasks'} landed: ${refs}`, ...finished.map((t) => `${t} finished`)].filter(Boolean);
   return parts.join(' · ') || 'Nothing closed since the last idle notification.';
 }

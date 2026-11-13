@@ -1347,7 +1347,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const body = await readBody(req);
         const kill = p === '/api/try/kill';
         if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'key' && (kill || k !== 'anyway')) || typeof body.key !== 'string'
-          || (kill && ['main', 'prototypes'].includes(body.key)) || !['undefined', 'boolean'].includes(typeof body.anyway)) return json(res, 400, { error: kill ? 'Send only the card key.' : 'Send only the card key and anyway.' });
+          || (kill && ['main', 'prototypes'].includes(body.key)) || !['undefined', 'boolean'].includes(typeof body.anyway)) return json(res, 400, { error: kill ? 'Send only the task key.' : 'Send only the task key and anyway.' });
         try {
           const response = await fetch(`http://127.0.0.1:${process.env.KICKFLIP_HUB_PORT || 4500}/_hub/${kill ? 'kill' : 'build'}`, {
             method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1513,12 +1513,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (!heldByPause) await launchArrivals(arrivalsOf(items, { cap: settings.max_planners }).map((key) => items.find((i) => i.key === key)));
     await checkTriage(settings, log, items, ready);
     const held = pullable.filter((k) => hold.includes(k));
-    if (held.length) logCall({ call: 'pull', result: 'held', reason: 'An overnight triage waits for the session\'s reply and names these cards, so the pull leaves them until it is answered or quiet hours end.', inputs: { cards: held } });
+    if (held.length) logCall({ call: 'pull', result: 'held', reason: 'An overnight triage waits for the session\'s reply and names these tasks, so the pull leaves them until it is answered or quiet hours end.', inputs: { cards: held } });
     // Near the line the pull starts one card a pass, and none once another launch is waiting on its first reading.
     const pullNow = (gate) => (launchHeld(gate, 'claude') ? [] : gate.near && !gate.near.going ? pulls.slice(0, 1) : pulls);
     const startPull = async (key) => {
       const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'hub');
-      logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready card in Todo.', inputs: { cap, pullable, waiting } });
+      logCall({ call: 'pull', key, result: startResult(started), reason: 'An implementer slot was free and it was the top ready task in Todo.', inputs: { cap, pullable, waiting } });
       return handOff(started);
     };
     // A card that already has a builder, as a pass an instant earlier left it, is not started again.
@@ -2034,7 +2034,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const topic = `overnight-triage-${date}`;
     const owner = await readJSON(path.join(data, 'owner.json'), { topics: [] });
     if (!(owner.topics || []).some((t) => t.id === topic)) await addTopic(here, { id: topic, title: `Overnight triage ${date}` });
-    logCall({ call: 'triage', result: 'sent', reason: `Auto triage is on, ${waiting.length} cards wait on answers, and tonight's triage hadn't gone out.`, inputs: { date, cards: waiting } });
+    logCall({ call: 'triage', result: 'sent', reason: `Auto triage is on, ${waiting.length} tasks wait on answers, and tonight's triage hadn't gone out.`, inputs: { date, cards: waiting } });
     await appendEvent('overnight-triage', { date, topic, cards: waiting });
     await save();
   }
@@ -2265,7 +2265,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   async function fileNewAsks({ starting = false } = {}) {
     try {
       if (!starting && !(await sharedBoard()).unfiled.length) return;
-      for (const key of await fileAsks(here)) console.log(`filed ask card ${key}`);
+      for (const key of await fileAsks(here)) console.log(`filed ask task ${key}`);
     } catch (err) { console.error('Ask filing failed:', err.message); }
   }
   // docs/adr/2026-11-05-0910-read-marks-live-on-the-board.md

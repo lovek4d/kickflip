@@ -85,7 +85,7 @@ test('a finishing dep makes a ready Todo card wait on the orchestrator to re-che
   assert.equal((await onOrch('item', 'set', 'w/ENG-1', '--done', '--text', 'Done.')).code, 0);
   assert.ok(events().some((e) => e.kind === 'card-unblocked' && e.data.key === 'w/A1'));
   assert.ok(itemOf().recheck_at, 'it waits for the re-check');
-  assert.equal(itemOf().unblocked_at, undefined, 'a Todo card has no past-Todo wait');
+  assert.equal(itemOf().unblocked_at, undefined, 'a Todo task has no past-Todo wait');
   const bare = await onOrch('item', 'set', 'w/A1', '--phase', 'ready');
   assert.equal(bare.code, 1);
   assert.match(bare.err, /pass --text "<what you re-checked/);
@@ -98,7 +98,7 @@ test('a finishing dep makes a ready Todo card wait on the orchestrator to re-che
 test("the re-check answers a stale question again with question settle, only on a card waiting on it", async () => {
   write(at('waves', 'w', 'a1-notes.md'), 'Build it.\n');
   write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'feat: one', phase: 'ready', size: 'small', plan: 'a1-notes.md', recheck_at: now() }, { id: 'ENG-1', title: 'Later', lane: 'done' }] });
-  const asked = { id: 'q1', topic: 'item:w/A1', question: 'Which API?', asked_at: '2026-11-08T10:00:00Z', resolved: "Recorded in the card's notes", resolved_at: '2026-11-08T11:00:00Z' };
+  const asked = { id: 'q1', topic: 'item:w/A1', question: 'Which API?', asked_at: '2026-11-08T10:00:00Z', resolved: "Recorded in the task's notes", resolved_at: '2026-11-08T11:00:00Z' };
   write(site('orch', 'data', 'owner.json'), { topics: [], items: [asked, { ...asked, id: 'q2', topic: 'item:w/ENG-1' }] });
   const settled = await onOrch('question', 'settle', 'q1', '--note', 'ENG-1 landed the v2 API: use it.');
   assert.equal(settled.code, 0, settled.err);
@@ -129,6 +129,6 @@ test('--next naming an unfinished card by its #number is refused without --deps'
   write(waveFile(), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'review' }, { id: 'ENG-1', title: 'Later', ticket: '#398', lane: 'progress' }] });
   const r = await onOrch('item', 'set', 'w/A1', '--next', 'Tag once #398 lands');
   assert.equal(r.code, 1);
-  assert.match(r.err, /names unfinished card w\/ENG-1; add it with --deps/);
+  assert.match(r.err, /names unfinished task w\/ENG-1; add it with --deps/);
   assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1', '--next', 'Tag once #398 lands')).code, 0);
 });

@@ -23,19 +23,19 @@ export const recordOnly = (line) => RECORD_ONLY.includes(kindOf(line));
 
 // The kinds whose line reads from the event alone.
 export const PLAIN = {
-  'owner-answer': (e) => `answer received to question ${e.data?.id}: ${e.data?.prototype_again ? `it picks no take, so the card owes you the next prototype round's brief: item brief ${e.data?.key || '<key>'} --kind prototype --file <draft.md>` : 'act on it on its card'}`,
+  'owner-answer': (e) => `answer received to question ${e.data?.id}: ${e.data?.prototype_again ? `it picks no take, so the task owes you the next prototype round's brief: item brief ${e.data?.key || '<key>'} --kind prototype --file <draft.md>` : 'act on it on its task'}`,
   ping: (e) => `ping ${e.id} from the hub answered`,
   hello: (e) => `ping ${e.id} from the hub answered`,
-  'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${e.data?.cards?.length} cards wait on open questions; run the triage, then board.mjs reply ${e.id}`,
+  'overnight-triage': (e) => `Overnight triage ${e.data?.date} asks Claude to reply: ${e.data?.cards?.length} tasks wait on open questions; run the triage, then board.mjs reply ${e.id}`,
   'pr-review': (e) => `review asked on PR #${e.data?.pr}: the board was idle; read its diff and review post it`,
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
   'orchestrator-waits': (e) => [e.data?.added?.length && `waiting on you now: ${e.data.added.join(', ')}`,
     e.data?.again?.length && waitsAgainLine(e.data.again, Date.parse(e.ts))].filter(Boolean).join(' · '),
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md
-  'check-github': (e) => (e.data?.reason === 'morning' ? 'the daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any card stuck with no wait; a thread line on each card you act on, nothing else' : 'GitHub check asked: run one GitHub tick'),
+  'check-github': (e) => (e.data?.reason === 'morning' ? 'the daily wake: run one GitHub tick, then walk every lane top-down once: clear each blocked-until condition that holds, and act on any task stuck with no wait; a thread line on each task you act on, nothing else' : 'GitHub check asked: run one GitHub tick'),
   'github-change': (e) => `${e.data?.prs?.length ?? 0} PRs changed on GitHub: run one GitHub tick`,
   'review-answer': (e) => (e.data?.answer === 'skip' ? `skip answered on the review of PR #${e.data?.pr}: record it posted, post nothing` : `post answered on the review of PR #${e.data?.pr}: review post it`),
-  'plan-waves': (e) => `Plan waves asked on ${e.data?.keys?.length ?? 0} Todo cards: triage them into waves and ask the owner about them`,
+  'plan-waves': (e) => `Plan waves asked on ${e.data?.keys?.length ?? 0} Todo tasks: triage them into waves and ask the owner about them`,
   'arch-review': (e) => `architecture review asked on ${e.data?.key}: review ${e.data?.repo} on ${e.data?.branch} and file the findings`,
   rules: (e) => `${e.data?.scope === 'hub' ? 'hub' : 'board'} rules changed: the rule lines below are the new ones; follow them from now`,
   'prototype-overdue': (e) => `prototype overdue on ${e.data?.key}: dispatch its prototype agent now`,
@@ -69,7 +69,7 @@ export const ON_CARD = {
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md,
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: c is the New card the board filed
   // for the ask; its waits line carries its key.
-  ask: (c, e) => `new task ${e.id} received as ${c}: sort that New card: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a card with item relate-ask ${e.id} <card> --summary`,
+  ask: (c, e) => `new task ${e.id} received as ${c}: sort that New task: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask ${e.id} <task> --summary`,
 };
 
 // One plain line per event line, from its kind and card (data.key, data.id for an ask-* event, or an ask's own id), or null for a

@@ -151,7 +151,7 @@ test("the board's start of a planner or visual agent takes the oldest written br
   await board('item', 'brief', 'audit/T-1', '--kind', 'grill', '--file', draft, '--site', 'audit');
   const started = await s.startPlanner(audit(), 'audit/T-1', 'grill');
   assert.deepEqual([started.kind, started.text, started.brief.heading, started.brief.text], ['grill', 'Ask about mobile', 'Brief for grill round 1', 'Cover the phone layout.']);
-  assert.equal(t1().briefs, undefined, 'the brief left the card');
+  assert.equal(t1().briefs, undefined, 'the brief left the task');
   const record = read(audit('data', 'agents', 'T-1.json'));
   assert.deepEqual([record.kind, record.dispatched, record.brief.brief.heading, record.brief.ask], ['grill', 'hub', 'Brief for grill round 1', { text: 'Ask about mobile' }]);
   // The planner's own builder start keeps the brief on its record, for a Resume after a Hold.

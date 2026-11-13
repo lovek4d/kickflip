@@ -43,8 +43,8 @@ test('the prompt names every board with its description and recent titles, and t
     { route: 'shop', title: 'Paddock', description: 'The paddock shop', recent: ['Fix the basket'] },
     { route: 'hub', title: 'Hub', description: '', recent: [] },
   ]);
-  assert.match(prompt, /\/shop · Paddock\nDescription: The paddock shop\nRecent open cards:\n- Fix the basket/);
-  assert.match(prompt, /\/hub · Hub\nDescription: none\nRecent open cards: none/);
+  assert.match(prompt, /\/shop · Paddock\nDescription: The paddock shop\nRecent open tasks:\n- Fix the basket/);
+  assert.match(prompt, /\/hub · Hub\nDescription: none\nRecent open tasks: none/);
   assert.match(prompt, /the checkout 500s/);
 });
 
@@ -117,7 +117,7 @@ test("the hub page's rows: newest first, each linked to the card its ask became,
   fs.writeFileSync(ROUTED_LOG, JSON.stringify({ routed: [
     { id: 'r1', at: '2026-11-12T09:00:00Z', text: 'checkout', via: 'slack', by: 'Maya', route: 'shop', eventId: 'e1', reason: 'shop' },
     { id: 'r2', at: '2026-11-12T09:30:00Z', text: 'rename', via: 'slack', by: 'Sam', route: 'shop', eventId: 'e2', reason: 'nearest' },
-    { id: 'r3', at: '2026-11-12T09:40:00Z', text: 'not yet a card', via: 'slack', by: 'Sam', route: 'shop', eventId: 'e3', reason: 'shop again' },
+    { id: 'r3', at: '2026-11-12T09:40:00Z', text: 'not yet a task', via: 'slack', by: 'Sam', route: 'shop', eventId: 'e3', reason: 'shop again' },
   ] }));
   fs.writeFileSync(ROUTE_QUEUE, JSON.stringify({ queue: [{ id: 'q1', at: '2026-11-12T09:50:00Z', text: 'held', from: { via: 'slack', by: 'Quinn' }, tries: 0 }] }));
   const rows = routedRows({ manifest: manifestOf(shop, other) });

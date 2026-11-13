@@ -91,7 +91,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
   if (made.wave) {
     await createWave(site, made.wave, {
       title, goal: `Act on the architecture review of ${name}`, cards: [key],
-      note: `${await cardName(site, key)} is the audit of ${name}: its Notes are the report, and it asks one question per finding. Each finding you don't skip becomes a card after it, built from the option you pick.`,
+      note: `${await cardName(site, key)} is the audit of ${name}: its Notes are the report, and it asks one question per finding. Each finding you don't skip becomes a task after it, built from the option you pick.`,
     });
   }
   await startBuilder(site, key, { label: 'Architecture review' });
@@ -114,7 +114,7 @@ export async function startReview(site, board, { now = new Date(), home = os.hom
 // A question with no answer yet stays. Once none is left, the audit card closes as
 // done. → {lines}
 export async function fileFindings(site, key) {
-  const review = (await readReviews(site)).find((r) => r.key === key) || fail(`${key} is not an architecture review's audit card`);
+  const review = (await readReviews(site)).find((r) => r.key === key) || fail(`${key} is not an architecture review's audit task`);
   const { file } = parseKey(key);
   const { asked } = await topicQuestions(site, `item:${key}`);
   const lines = [];

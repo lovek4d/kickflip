@@ -28,7 +28,7 @@ export async function changeBoardRepo(route, input, { repos = repoService(), eve
   const { github = '', remote } = repoInput(input);
   const branch = validateBranch(input.branch);
   const dir = routeRecord(readManifest().sites, route).dir;
-  if (remote && (await boardConfig(dir)).tickets?.source === 'github') refuse('This board files its cards as GitHub issues. Switch Tickets to None or Linear first.', 409);
+  if (remote && (await boardConfig(dir)).tickets?.source === 'github') refuse('This board files its tasks as GitHub issues. Switch Tickets to None or Linear first.', 409);
   const repo = storedPath(await repos.ensure(github || remote, branch));
   return withManifestLock(async () => {
     const manifest = readManifest();

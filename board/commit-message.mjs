@@ -10,7 +10,7 @@ const SHAPE = new RegExp(`^(${TYPES.join('|')})(\\([a-z][a-z0-9-]*\\))?!?: \\S`)
 // The standard as one sentence, for a brief or a refusal; ref is the card's, else a placeholder.
 export const standardWords = (ref = '<ref>') =>
   `a Conventional subject of at most ${SUBJECT_MAX} characters, "<type>(<scope>): <summary>", the type one of ${TYPES.slice(0, -1).join(', ')} or ${TYPES.at(-1)} `
-  + `(a "!" after the type or scope for a breaking change), the scope optional, lowercase and naming the area (board, hub, skill), and no card ref in it; `
+  + `(a "!" after the type or scope for a breaking change), the scope optional, lowercase and naming the area (board, hub, skill), and no task ref in it; `
   + `then a blank line, the detail wrapped at 72, and the trailers "Refs: ${ref}" on the line directly above Co-Authored-By, no blank line between`;
 
 // → why subject isn't a Conventional subject within the cap, or null when it is.

@@ -62,7 +62,7 @@ export const HUB_LINES = {
   'helper-asked': { mark: BUILD, text: ({ agent, writes }) => fit('Asked for helper ', agent, writes ? ', which writes code' : ''), longest: { writes: true } },
   'arch-review': { mark: BUILD, text: ({ card }) => fit('Started an architecture review of ', card, '; its report becomes the notes') },
   'prototype-after': { mark: PROTOTYPE, text: () => 'Prototype round asked: it moves to prototyping once every question is answered.' },
-  'prototype-round': { mark: PROTOTYPE, text: () => 'You asked for a prototype round, so the board moved the card to prototyping.' },
+  'prototype-round': { mark: PROTOTYPE, text: () => 'You asked for a prototype round, so the board moved the task to prototyping.' },
   'ticket-made': { mark: 'Created ticket', text: ({ ticket }) => fit('Created ticket ', ticket, '') },
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: one per batch published on a
   // card, holding its question ids; orange while any of them is open, blue once none is (domain.mjs threadOf).
@@ -84,8 +84,8 @@ export const HUB_LINES = {
   'ask-moved-closed': { mark: DONE, text: ({ board }) => fit('Closed: its ask moved to ', board, '.') },
   'check-passed': { mark: DONE, text: ({ found }) => fit('Check passed: ', found, '. Closed.') },
   'findings-settled': { mark: DONE, text: ({ filed }) => fit('Every finding is settled: ', filed ? `filed ${filed}` : 'none filed', '.') },
-  'branch-merged': { mark: DONE, text: ({ branch, into, host }) => fit('', `${branch} is merged into ${into} on ${host}`, ', so this card is Done.') },
-  'branch-gone': { mark: DONE, text: ({ branch, host }) => fit('', `${branch} is gone from ${host}`, ', so this card is Done.') },
+  'branch-merged': { mark: DONE, text: ({ branch, into, host }) => fit('', `${branch} is merged into ${into} on ${host}`, ', so this task is Done.') },
+  'branch-gone': { mark: DONE, text: ({ branch, host }) => fit('', `${branch} is gone from ${host}`, ', so this task is Done.') },
   'prs-closed': { mark: DONE, text: ({ prs }) => fit('Closed: ', prs, ' closed unmerged.'), longest: { prs: `${PR}, ${PR}` } },
   'landed-on-merge': { mark: DONE, text: ({ base }) => fit('Landed on ', base, ' on your Merge.') },
   // A land a lander takes over: the card still reads merging (domain.mjs workItem).

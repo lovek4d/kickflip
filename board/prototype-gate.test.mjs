@@ -42,7 +42,7 @@ test('a prototype_gate question takes exactly yes and no, on a card', async () =
   const { site } = world();
   await assert.rejects(addQuestions(site, { ...gate, options: [{ id: 'no', label: 'No' }, { id: 'yes', label: 'Yes' }] }), /takes exactly the options yes, no, in that order/);
   fs.writeFileSync(path.join(site, 'data', 'owner.json'), JSON.stringify({ topics: [{ id: 'general', title: 'General' }], items: [] }));
-  await assert.rejects(addQuestions(site, { ...gate, topic: 'general' }), /goes on a card's topic/);
+  await assert.rejects(addQuestions(site, { ...gate, topic: 'general' }), /goes on a task's topic/);
   await assert.rejects(addQuestions(site, { ...gate, prototype_gate: 'yes' }), /must be true or false/);
   await addQuestions(site, gate);
 });
@@ -65,7 +65,7 @@ test('yes waits for every question: the card stays grilling while another is ope
   assert.equal(first.thread().at(-1).text, 'Prototype round asked: it moves to prototyping once every question is answered.');
   assert.deepEqual(await settleAnswers(first.site, [first.answer('q-other', 'a')]), { prototype: ['t/A1'], staged: [] });
   assert.equal(first.card(), 'prototyping');
-  assert.equal(first.thread().at(-1).text, 'You asked for a prototype round, so the board moved the card to prototyping.');
+  assert.equal(first.thread().at(-1).text, 'You asked for a prototype round, so the board moved the task to prototyping.');
 
   const last = world();
   await addQuestions(last.site, [other, gate]);
@@ -93,7 +93,7 @@ test("a remaining question the orchestrator resolves counts as answered: the gri
   const prototyping = world('prototyping');
   await addQuestions(prototyping.site, other);
   await resolveQuestion(prototyping.site, 'q-other', 'Not needed');
-  assert.equal(prototyping.card(), 'prototyping', 'a card not grilling keeps its phase');
+  assert.equal(prototyping.card(), 'prototyping', 'a task not grilling keeps its phase');
 });
 
 // docs/adr/2026-11-07-0700-staging-then-ready.md

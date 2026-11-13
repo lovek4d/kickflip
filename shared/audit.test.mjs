@@ -23,10 +23,10 @@ test('a board keeps its audit in data/audit.jsonl and the hub in ~/.claude/kickf
 
 test('each call is one line with its time, call, card, result, reason and the inputs it read', (t) => {
   const { file } = fixture(t);
-  audit(file, { call: 'builder-pick', key: 'w/A1', result: 'claude opus', reason: "Claude model is Auto and the card isn't small.", inputs: { claudeModel: 'auto', size: null } }, { now });
+  audit(file, { call: 'builder-pick', key: 'w/A1', result: 'claude opus', reason: "Claude model is Auto and the task isn't small.", inputs: { claudeModel: 'auto', size: null } }, { now });
   audit(file, { call: 'usage-pause', result: 'paused', reason: 'Five-hour usage is at 91%.', inputs: { used: 91 } }, { now });
   assert.deepEqual(lines(file), [
-    { at: now.toISOString(), call: 'builder-pick', key: 'w/A1', result: 'claude opus', reason: "Claude model is Auto and the card isn't small.", inputs: { claudeModel: 'auto', size: null } },
+    { at: now.toISOString(), call: 'builder-pick', key: 'w/A1', result: 'claude opus', reason: "Claude model is Auto and the task isn't small.", inputs: { claudeModel: 'auto', size: null } },
     { at: now.toISOString(), call: 'usage-pause', result: 'paused', reason: 'Five-hour usage is at 91%.', inputs: { used: 91 } },
   ]);
 });
@@ -67,10 +67,10 @@ test('a read takes one card, skips a line a crash cut short, and a missing log r
 
 test('the CLI lines name each call and its result and reason, then the inputs it read', () => {
   assert.deepEqual(auditLines([
-    { at: '2026-11-05T12:00:00.000Z', call: 'builder-pick', key: 'w/A1', result: 'claude sonnet', reason: 'Claude model is Auto and the card is small.', inputs: { size: 'small' } },
+    { at: '2026-11-05T12:00:00.000Z', call: 'builder-pick', key: 'w/A1', result: 'claude sonnet', reason: 'Claude model is Auto and the task is small.', inputs: { size: 'small' } },
     { at: '2026-11-05T12:01:00.000Z', call: 'usage-resume', result: 'resumed', reason: 'Five-hour usage fell under the line.', inputs: {} },
   ]), [
-    '2026-11-05T12:00:00.000Z builder-pick w/A1: claude sonnet. Claude model is Auto and the card is small.',
+    '2026-11-05T12:00:00.000Z builder-pick w/A1: claude sonnet. Claude model is Auto and the task is small.',
     '  inputs: {"size":"small"}',
     '2026-11-05T12:01:00.000Z usage-resume: resumed. Five-hour usage fell under the line.',
     '  inputs: {}',

@@ -88,7 +88,7 @@ test('a new task, a message in an ask thread and an agent-added card wake the se
   assert.equal(wakes({ id: 'a1', kind: 'ask', data: { text: 'Fix it' } }), true);
   assert.equal(wakes(event('card-added', { key: 'w/A2' })), true);
   assert.equal(wakes(event('item-message', { key: 'ask:a1', text: 'More' })), true);
-  assert.equal(ON_CARD.ask('T-4', { id: 'a1' }), 'new task a1 received as T-4: sort that New card: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a card with item relate-ask a1 <card> --summary');
+  assert.equal(ON_CARD.ask('T-4', { id: 'a1' }), 'new task a1 received as T-4: sort that New task: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask a1 <task> --summary');
   assert.equal(ON_CARD['card-added']('#7'), '#7 added by an agent: link it and file it: item notes, then item set --relate and --phase');
   assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1' })), "message received from the ask's thread: reply in its thread; ask open points with reply --questions <json>, not in prose");
   assert.equal(ON_CARD['item-message']('the ask', event('item-message', { key: 'ask:a1', text: '', intent: 'build' })), 'Implement asked on the ask: file it with item add --from-ask --phase ready, with its --size and notes');
@@ -103,6 +103,6 @@ test("a slack-question wakes the session to read the thread, then answer or file
 });
 
 test("an answer that picks no take on a prototype tells the session the card owes the next round's brief, any other answer to act on it", () => {
-  assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1', prototype_again: true })), /it picks no take, so the card owes you the next prototype round's brief: item brief <key> --kind prototype --file <draft.md>/);
-  assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1' })), /act on it on its card/);
+  assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1', prototype_again: true })), /it picks no take, so the task owes you the next prototype round's brief: item brief <key> --kind prototype --file <draft.md>/);
+  assert.match(PLAIN['owner-answer'](event('owner-answer', { id: 'q1' })), /act on it on its task/);
 });

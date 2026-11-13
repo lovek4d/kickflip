@@ -495,7 +495,7 @@ Exported from ${b.from} at ${b.exported_at}. This bundle holds the board's folde
 2. Run \`npm i -g @lovek4d/kickflip\`, then \`kickflip init\`, and fix what its report marks yours.
 3. Run \`kickflip import ${file}\`. It refuses when /${b.route} already exists there.
 4. Start a fresh Claude Code session in the folder the board works in, and have it run the \`join\` line the import prints, with its own session id. \`--force\` takes the board over.
-5. Once the board answers there, stop its session on the old machine and run \`kickflip leave ${b.route} --force\` there, so only one session acts on its cards. Its files stay on the old machine.
+5. Once the board answers there, stop its session on the old machine and run \`kickflip leave ${b.route} --force\` there, so only one session acts on its tasks. Its files stay on the old machine.
 
 ## Set up again
 
@@ -728,7 +728,7 @@ const commands = {
     const dir = fs.realpathSync(site.dir);
     const { itemSources, openBoardBuilders } = await import('../board/store.mjs');
     const outside = (await itemSources(dir)).find((s) => path.relative(dir, s.file).startsWith('..'));
-    if (outside) fail(`/${route}'s cards live outside its folder (${outside.file}); export moves only a board whose board.json items is a file in its folder`);
+    if (outside) fail(`/${route}'s tasks live outside its folder (${outside.file}); export moves only a board whose board.json items is a file in its folder`);
     const builders = await openBoardBuilders(dir);
     if (builders.length) fail(`a builder is open on /${route}: ${builders.map((b) => `${b.key} (${b.label})`).join(', ')}; export once it is done`);
     const { readSettingsFile } = await import('../hub/push.mjs');

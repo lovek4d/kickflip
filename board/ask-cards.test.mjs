@@ -127,7 +127,7 @@ test('reply on a New card starts its discussion: a message in its thread, the ca
   assert.deepEqual(lines(audit('data', 'threads', 'audit__T-1.jsonl')).map((m) => m.text), ['It jumps because of the sticky bar.']);
   assert.equal((await board('item', 'set', 'audit/T-1', '--phase', 'grilling', '--site', 'audit')).code, 0);
   assert.match((await board('reply', 'audit/T-1', '--text', 'x', '--site', 'audit')).err, /sorted/);
-  assert.match((await board('reply', 'audit/A1', '--text', 'x', '--site', 'audit')).err, /not a card an ask became/);
+  assert.match((await board('reply', 'audit/A1', '--text', 'x', '--site', 'audit')).err, /not a task an ask became/);
   // A card answered before discussing existed waits In Review; a phase takes it back to Todo.
   const items = read(audit('data', 'items.json'));
   Object.assign(items.items.find((i) => i.id === 'T-1'), { phase: undefined, answered_at: '2026-11-09T10:05:00Z', lane: 'review' });
@@ -176,7 +176,7 @@ test('a Quick build ask\'s New card goes ready from new on item set --phase read
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.equal(read(audit('data', 'items.json')).items.find((i) => i.id === 'T-1').phase, 'ready');
   // item add --from-ask on an ask that already has its card points at the card.
-  assert.match((await board('item', 'add', 'audit', '--from-ask', 'a1', '--text', 'x', '--title', 'X', '--phase', 'grilling', '--site', 'audit')).err, /already card audit\/T-1/);
+  assert.match((await board('item', 'add', 'audit', '--from-ask', 'a1', '--text', 'x', '--title', 'X', '--phase', 'grilling', '--site', 'audit')).err, /already task audit\/T-1/);
 });
 
 // docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md
@@ -185,7 +185,7 @@ test('every sorting command refuses an ask edited after its working mark, printi
   const notes = path.join(home, 'n.md');
   fs.writeFileSync(notes, 'Pin the header.');
   const commands = [
-    ['reply on its card', (key) => ['reply', key, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
+    ['reply on its task', (key) => ['reply', key, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
     ['reply on its ask', (key, id) => ['reply', id, '--text', 'It jumps.'], (item) => item.phase === 'discussing'],
     ['item set --phase ready', (key) => ['item', 'set', key, '--phase', 'ready', '--size', 'small', '--title', 'fix(board): asks wait for done'], (item) => item.phase === 'ready'],
     ['item set --phase grilling', (key) => ['item', 'set', key, '--phase', 'grilling'], (item) => item.phase === 'grilling'],

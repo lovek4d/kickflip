@@ -247,10 +247,10 @@ test('the reader exposes Codex past the line only while effective share is on', 
   const read = () => readUsageGate({ home: f.home, now });
   const pick = () => { const { inputs, ...picked } = builderPick({ home: f.home, now }); return picked; };
   assert.deepEqual(read().codex, { past: true, window: 'five_hour', used: 91, resets_at: until });
-  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: `Codex is at 91%, past the 90% line until ${until}. Claude model is Auto and the card isn't small.` });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: `Codex is at 91%, past the 90% line until ${until}. Claude model is Auto and the task isn't small.` });
   f.write('settings.json', { codexShare: 'off' });
   assert.equal(read().codex.past, false);
-  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex share is off. Claude model is Auto and the card isn't small." });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex share is off. Claude model is Auto and the task isn't small." });
   f.write('settings.json', { pauseAt: 95, codexShare: 'always' });
   assert.equal(read().codex.past, false);
   assert.deepEqual(pick(), { kind: 'codex', reason: 'Codex share is always and Codex is under the 95% line.' });
@@ -258,7 +258,7 @@ test('the reader exposes Codex past the line only while effective share is on', 
   assert.equal(read().codex.past, true);
   fs.rmSync(path.join(f.home, '.codex', 'auth.json'));
   assert.equal(read().codex.past, false);
-  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex isn't logged in on the host. Claude model is Auto and the card isn't small." });
+  assert.deepEqual(pick(), { kind: 'claude', model: 'opus', reason: "Codex isn't logged in on the host. Claude model is Auto and the task isn't small." });
 });
 
 // docs/adr/2026-11-03-1526-usage-picks-opus-auto-or-sonnet-for-claude-builders.md
@@ -272,14 +272,14 @@ test("the hub's Claude model decides a Claude build's model: Auto gives a small 
     const { model, reason } = builderPick({ home: f.home, now, card });
     return [model, reason.replace("Codex isn't installed on the host. ", '')];
   };
-  assert.deepEqual(pick({}), ['opus', "Claude model is Auto and the card isn't small."]);
-  assert.deepEqual(pick({ size: 'large' }), ['opus', "Claude model is Auto and the card isn't small."]);
-  assert.deepEqual(pick({ size: 'small' }), ['sonnet', 'Claude model is Auto and the card is small.']);
-  assert.deepEqual(pick({ size: 'small', model: 'opus' }), ['opus', 'Claude model is Auto and the card asks for Claude Opus.']);
-  assert.deepEqual(pick({ model: 'sonnet' }), ['sonnet', 'Claude model is Auto and the card asks for Claude Sonnet.']);
+  assert.deepEqual(pick({}), ['opus', "Claude model is Auto and the task isn't small."]);
+  assert.deepEqual(pick({ size: 'large' }), ['opus', "Claude model is Auto and the task isn't small."]);
+  assert.deepEqual(pick({ size: 'small' }), ['sonnet', 'Claude model is Auto and the task is small.']);
+  assert.deepEqual(pick({ size: 'small', model: 'opus' }), ['opus', 'Claude model is Auto and the task asks for Claude Opus.']);
+  assert.deepEqual(pick({ model: 'sonnet' }), ['sonnet', 'Claude model is Auto and the task asks for Claude Sonnet.']);
   for (const card of [{}, { size: 'small' }, { model: 'sonnet' }]) assert.deepEqual(pick(card, { claudeModel: 'opus' }), ['opus', 'Claude model is Opus.']);
   for (const card of [{}, { size: 'large' }, { model: 'opus' }]) assert.deepEqual(pick(card, { claudeModel: 'sonnet' }), ['sonnet', 'Claude model is Sonnet.']);
-  assert.deepEqual(pick({ size: 'small' }, { claudeModel: 'bad' }), ['sonnet', 'Claude model is Auto and the card is small.']);
+  assert.deepEqual(pick({ size: 'small' }, { claudeModel: 'bad' }), ['sonnet', 'Claude model is Auto and the task is small.']);
 
   fs.mkdirSync(path.join(f.home, 'bin'));
   fs.writeFileSync(path.join(f.home, 'bin', 'codex'), '#!/bin/sh\nexit 99\n', { mode: 0o755 });

@@ -193,14 +193,14 @@ test('builder ask posts to the thread as the builder and wakes the orchestrator,
 
 test('builder pick names the kind that builds now, builder start refuses the other, and --kind build takes the pick', async () => {
   const noCodex = (...args) => boardWith(args, { PATH: path.join(home, 'bin') });
-  assert.deepEqual(await noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "claude opus: Codex isn't installed on the host. Claude model is Auto and the card isn't small.\n" });
+  assert.deepEqual(await noCodex('builder', 'pick', 'w/A1', '--site', 'orch'), { code: 0, err: '', out: "claude opus: Codex isn't installed on the host. Claude model is Auto and the task isn't small.\n" });
   assert.equal((await noCodex('builder', 'pick', 'w/Z9', '--site', 'orch')).code, 1);
   const refused = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'codex');
-  assert.deepEqual([refused.code, refused.err], [1, "--kind codex: claude builds now. Codex isn't installed on the host. Claude model is Auto and the card isn't small. Pass --kind claude, or --kind build.\n"]);
+  assert.deepEqual([refused.code, refused.err], [1, "--kind codex: claude builds now. Codex isn't installed on the host. Claude model is Auto and the task isn't small. Pass --kind claude, or --kind build.\n"]);
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
   const picked = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
   assert.equal(picked.code, 0, picked.err);
-  assert.match(picked.out, /^kind: claude\. Codex isn't installed on the host\. Claude model is Auto and the card isn't small\.\nmodel: Claude Opus$/m);
+  assert.match(picked.out, /^kind: claude\. Codex isn't installed on the host\. Claude model is Auto and the task isn't small\.\nmodel: Claude Opus$/m);
   assert.match(picked.out, /^ref: A1$/m);
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).kind, 'claude');
   assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).model, 'opus');
@@ -221,7 +221,7 @@ test("a build start records builder pick's choice, reason and inputs in the boar
   const started = await noCodex('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'build');
   assert.equal(started.code, 0, started.err);
   const [entry, ...more] = fs.readFileSync(site('orch', 'data', 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  const reason = "Codex isn't installed on the host. Claude model is Auto and the card isn't small.";
+  const reason = "Codex isn't installed on the host. Claude model is Auto and the task isn't small.";
   assert.deepEqual([{ ...entry, at: typeof entry.at }, more], [{ at: 'string', call: 'builder-pick', key: 'w/A1', result: 'claude opus', reason, inputs: { codex: 'not installed', claudeModel: 'auto', size: null, cardModel: null } }, []]);
   const printed = await board('--site', 'orch', 'audit');
   assert.equal(printed.code, 0, printed.err);
@@ -237,9 +237,9 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   const card = () => read(at('waves', 'w', 'wave.json')).items[0];
   const pick = async () => (await noCodex('builder', 'pick', 'w/A1', '--site', 'orch')).out;
   assert.deepEqual([(await board('item', 'set', 'w/A1', '--size', 'small')).code, card().size], [0, 'small']);
-  assert.equal(await pick(), "claude sonnet: Codex isn't installed on the host. Claude model is Auto and the card is small.\n");
+  assert.equal(await pick(), "claude sonnet: Codex isn't installed on the host. Claude model is Auto and the task is small.\n");
   assert.deepEqual([(await board('item', 'set', 'w/A1', '--model', 'opus')).code, card().model], [0, 'opus']);
-  assert.equal(await pick(), "claude opus: Codex isn't installed on the host. Claude model is Auto and the card asks for Claude Opus.\n");
+  assert.equal(await pick(), "claude opus: Codex isn't installed on the host. Claude model is Auto and the task asks for Claude Opus.\n");
   assert.equal((await board('item', 'set', 'w/A1', '--model', '', '--size', '')).code, 0);
   assert.deepEqual(['size' in card(), 'model' in card()], [false, false]);
   assert.match((await board('item', 'set', 'w/A1', '--size', 'tiny')).err, /^--size takes small or large/);
@@ -247,14 +247,14 @@ test("a card's --size and --model feed builder pick's Claude model, and builder 
   const added = await board('item', 'add', 'w/A9', '--title', 'feat: nine', '--size', 'small', '--model', 'sonnet');
   assert.equal(added.code, 0, added.err);
   assert.deepEqual([read(at('waves', 'w', 'wave.json')).items.at(-1).size, read(at('waves', 'w', 'wave.json')).items.at(-1).model], ['small', 'sonnet']);
-  assert.equal('phase' in read(at('waves', 'w', 'wave.json')).items.at(-1), false, 'a card added without --phase gets its grill from the board');
+  assert.equal('phase' in read(at('waves', 'w', 'wave.json')).items.at(-1), false, 'a task added without --phase gets its grill from the board');
   // docs/adr/2026-11-07-0700-staging-then-ready.md: item add never files a card ready; it reaches ready through staging.
   const count = () => read(at('waves', 'w', 'wave.json')).items.length;
   const before = count();
   assert.match((await board('item', 'add', 'w/Q1', '--title', 'feat: quick', '--phase', 'planned')).err, /--phase takes ready, discussing, grilling or prototyping/);
   write(at('waves', 'w', 'q1.md'), '# Quick\n');
-  assert.match((await board('item', 'add', 'w/Q1', '--title', 'feat: quick', '--phase', 'ready', '--size', 'small')).err, /item add files a card discussing, grilling or prototyping/);
-  assert.equal(count(), before, 'a refused add writes no card');
+  assert.match((await board('item', 'add', 'w/Q1', '--title', 'feat: quick', '--phase', 'ready', '--size', 'small')).err, /item add files a task discussing, grilling or prototyping/);
+  assert.equal(count(), before, 'a refused add writes no task');
 
   write(at('kickflip', 'settings.json'), { claudeModel: 'sonnet' });
   assert.equal(await pick(), "claude sonnet: Codex isn't installed on the host. Claude model is Sonnet.\n");
@@ -740,7 +740,7 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   assert.deepEqual([record.label, record.kind, record.task, record.writes, record.model, 'started' in record, typeof record.requested], ['tests', 'helper', 'Write the scroll tests', true, 'sonnet', false, 'string']);
   assert.equal(threadOf().at(-1).text, 'Asked for helper tests, which writes code');
   assert.match((await onOrch('agent', 'launch', 'w/A1', '--name', 'tests', '--task', 'Again')).err, /already has an agent named tests/);
-  assert.match((await onOrch('agent', 'launch', 'w/ENG-1', '--name', 'tests', '--task', 'x', '--writes')).err, /branches from w\/ENG-1's worktree, and the card has none/);
+  assert.match((await onOrch('agent', 'launch', 'w/ENG-1', '--name', 'tests', '--task', 'x', '--writes')).err, /branches from w\/ENG-1's worktree, and the task has none/);
   assert.equal((await onOrch('agent', 'launch', 'w/ENG-1', '--name', 'survey', '--task', 'Read the scroll code')).code, 0, 'a read-only helper needs no worktree');
   onHome(t);
   const { now, checked } = pollClock(t);
@@ -765,13 +765,13 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   assert.equal((await onOrch('builder', 'done', 'w/A1', '--agent', 'tests')).code, 2, 'a helper hands back with --text');
   assert.equal((await onOrch('builder', 'done', 'w/A1', '--agent', 'tests', '--text', 'Added the scroll tests')).code, 0);
   assert.equal(typeof read(helperFile).done, 'string');
-  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).done, undefined, "the card's build runs on");
+  assert.equal(read(at('waves', 'w', 'agents', 'A1.json')).done, undefined, "the task's build runs on");
 
   const done = await onOrch('agent', 'wait', 'w/A1', '--name', 'tests');
   assert.equal(done.code, 0, done.err);
   assert.equal(done.out, `helper tests done: Added the scroll tests\nbranch A1-tests in ${tree}: merge it with agent merge w/A1 --name tests\n`);
   assert.equal('waits' in read(at('waves', 'w', 'agents', 'A1.json')), false, 'the wait clears its mark');
-  commit(worktree(), 'card.txt', 'card', 'feat: the card\n\nRefs: A1');
+  commit(worktree(), 'card.txt', 'card', 'feat: the task\n\nRefs: A1');
   const merged = await onOrch('agent', 'merge', 'w/A1', '--name', 'tests');
   assert.equal(merged.code, 0, merged.err);
   assert.equal(merged.out, `merged A1-tests into A1\nworktree removed: ${tree}\nbranch deleted: A1-tests\n`);
@@ -804,7 +804,7 @@ test("agent wait marks its spawner waiting while the helper is open, and refuses
 test("builder done on a planner run takes no --text and posts no thread line; a helper's hand-back stays on its record only", async () => {
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--kind', 'grill')).code, 0);
   const thread = () => lines(site('orch', 'data', 'threads', 'w__A1.jsonl'));
-  assert.equal((await board('builder', 'progress', 'w/A1', '--site', 'orch', '--phase', 'reading', 'Reading the card')).code, 0);
+  assert.equal((await board('builder', 'progress', 'w/A1', '--site', 'orch', '--phase', 'reading', 'Reading the task')).code, 0);
   assert.match((await board('builder', 'done', 'w/A1', '--site', 'orch', '--text', 'Asked which badge stays')).err, /takes no --text/);
   const before = thread().length;
   const done = await board('builder', 'done', 'w/A1', '--site', 'orch');

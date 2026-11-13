@@ -22,11 +22,11 @@ export const WAIT_MS = 10 * 60_000;
 export const POLL_MS = 25_000;
 export const GONE_AFTER = 60_000;
 
-export const NO_ANSWER = "No answer from the owner; ask this as an open question on your board's card instead.";
-export const UNREACHABLE = "The hub can't be reached, so the owner can't answer this prompt; ask this as an open question on your board's card instead.";
-export const DROPPED = "The hub dropped this prompt; ask this as an open question on your board's card instead.";
+export const NO_ANSWER = "No answer from the owner; ask this as an open question on your board's task instead.";
+export const UNREACHABLE = "The hub can't be reached, so the owner can't answer this prompt; ask this as an open question on your board's task instead.";
+export const DROPPED = "The hub dropped this prompt; ask this as an open question on your board's task instead.";
 export const DENIED = 'The owner denied this from the hub.';
-export const SKIPPED = "The owner skipped this question; ask it as an open question on your board's card instead.";
+export const SKIPPED = "The owner skipped this question; ask it as an open question on your board's task instead.";
 
 const ASK = 'AskUserQuestion';
 const FILE_TOOLS = { Edit: 'edit', MultiEdit: 'edit', Write: 'write', Read: 'read', NotebookEdit: 'edit' };

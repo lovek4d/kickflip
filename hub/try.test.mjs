@@ -255,7 +255,7 @@ test('script validation refuses missing, symlink, directory, foreign ownership, 
   await assert.rejects(start({ command: '/bin/sh' }), /only the board route/);
   await assert.rejects(start({ key: 'main' }), { status: 409, message: 'Main has no failed build to retry.' });
   await assert.rejects(start({ key: 'w/missing' }), /no item/);
-  await assert.rejects(start({ key: 'w/..' }), /Card key/);
+  await assert.rejects(start({ key: 'w/..' }), /Task key/);
   await assert.rejects(start({ route: 'missing' }), /not a board/);
 });
 
@@ -631,7 +631,7 @@ test('a board’s build target runs .kickflip/build-<target> for its cards and m
   const sha = commit(repo, 'targets');
   git(repo, 'update-ref', 'refs/remotes/origin/main', sha);
   fs.rmSync(path.join(worktree, '.kickflip', 'build'));
-  commit(worktree, 'card targets');
+  commit(worktree, 'task targets');
   config({ build_target: 'web' });
   await tick();
   assert.equal(state().cards['w/A1'].script, true);
@@ -1212,8 +1212,8 @@ test('on a plain git remote board the poll moves a pushed card to Done once its 
   manifest.sites.orch.remote = 'git@gitlab.example.com:acme/project.git';
   await fetchTryBranches({ manifest, log() {} });
   assert.deepEqual(read(path.join(site, 'data', 'items.json')).items.map((it) => it.lane), ['done', 'review', 'done']);
-  assert.equal(thread().at(-1).text, 'merged-one is merged into main on gitlab.example.com, so this card is Done.');
-  assert.equal(fs.readFileSync(path.join(site, 'data', 'threads', 'w__A3.jsonl'), 'utf8').includes('dropped-one is gone from gitlab.example.com, so this card is Done.'), true);
+  assert.equal(thread().at(-1).text, 'merged-one is merged into main on gitlab.example.com, so this task is Done.');
+  assert.equal(fs.readFileSync(path.join(site, 'data', 'threads', 'w__A3.jsonl'), 'utf8').includes('dropped-one is gone from gitlab.example.com, so this task is Done.'), true);
   git(repo, 'merge', '--quiet', '--no-ff', '-m', 'merge', 'open-one');
   git(repo, 'push', '--quiet', 'origin', 'main');
   await fetchTryBranches({ manifest, log() {} });

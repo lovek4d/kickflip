@@ -30,20 +30,20 @@ const notesCommand = (b, key, heading) => `\`${b} item notes ${key} --heading "$
 const ruleLines = (rules, heading = 'Rules from the hub and this board:') => (rules.length ? [heading, ...rules.map((r) => `- ${r}`), ''] : []);
 // docs/adr/2026-11-05-0130-the-orchestrator-links-a-new-card-when-it-files-it.md: the cards the card links (briefFacts' links).
 const linkLines = (links) => (links.length ? [
-  "Related cards: read their notes for context; don't build their scope.",
+  "Related tasks: read their notes for context; don't build their scope.",
   ...links.map((l) => `- ${l.ref} "${l.title}" (${l.relation}, ${l.lane}): ${l.notes ? `notes ${l.notes}` : 'no notes'}, thread ${l.thread}`),
   '',
 ] : []);
 // docs/adr/2026-11-11-1100-every-agent-brief-names-the-cards-thread-file.md: the card's thread, by its exact file.
-const threadLine = (thread) => `The card's thread, which holds the owner's messages (who: love): ${thread}. Read it live.`;
+const threadLine = (thread) => `The task's thread, which holds the owner's messages (who: love): ${thread}. Read it live.`;
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md: builder done finishes the card.
 const finishSteps = ({ route, key, worktree, base }) => [
-  `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the tests the change affects, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead, titled by \`--title "<type>(<scope>): <what the PR does>"\`, a Conventional subject of at most 100 characters written from the whole diff, else the card's title; with Auto-merge off it stops before the fast-forward, and the card waits for the owner's Merge).`,
+  `- With no unverified calls, done finishes the task itself: it rebases onto ${base}, reruns the tests the change affects, fast-forwards ${base} and closes the task (on a board with pull requests it pushes the branch and opens a draft PR instead, titled by \`--title "<type>(<scope>): <what the PR does>"\`, a Conventional subject of at most 100 characters written from the whole diff, else the task's title; with Auto-merge off it stops before the fast-forward, and the task waits for the owner's Merge).`,
   `- On a conflict it undoes its rebase and names the files: run \`${rebase(base)}\` in ${worktree}, resolve each conflict keeping both sides' intent, continue with \`git -c core.commentChar=';' rebase --continue\`, rerun the tests, and run done again.`,
   '- On failing tests, fix them, commit, and run done again.',
-  '- While another card is landing, done waits its turn and then lands; leave it running.',
-  `- Finishing never goes to the orchestrator. If done refuses for a reason you can't fix, record it with \`${cli(route)} builder call ${key} "<why>"\` and run done again: with the call it hands the card back.`,
+  '- While another task is landing, done waits its turn and then lands; leave it running.',
+  `- Finishing never goes to the orchestrator. If done refuses for a reason you can't fix, record it with \`${cli(route)} builder call ${key} "<why>"\` and run done again: with the call it hands the task back.`,
 ];
 const finishCommand = ({ route, key }) => `\`${cli(route)} builder done ${key} --text "<what you checked>"\``;
 
@@ -57,7 +57,7 @@ const helperSteps = (b, key) => [
 export function builderBrief({ route, key, ref, title, notes, thread, worktree, base, rules = [], links = [] }) {
   const b = cli(route);
   return [
-    `You are the headless builder for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person. Work only in ${worktree}. Never restart the hub or a board server, and never push.`,
+    `You are the headless builder for task ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person. Work only in ${worktree}. Never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind build\`. If it refuses, stop.`,
     `2. Report progress with \`${b} builder progress ${key} --phase reading|building|testing|checking|landing "<plain, 80 characters or fewer>"\`, at least every 10 minutes. The board adds the phase word; don't start the text with it. The phases:`,
@@ -67,10 +67,10 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     "   - checking: your own review of the diff before you hand back; the Orchestrator's review of your calls continues on the same 4th bar.",
     '   - landing: set by the finish step itself; you never report it.',
     `3. Decide, record the call (step 4) and carry on: the orchestrator reviews your calls after the build. Ask it only when you are blocked, meaning every way forward would likely be thrown away: the spec contradicts itself or the code, a rule needs the owner's go before code is written, or the answer is a fact only the orchestrator has. Then run \`${b} builder ask ${key} "<question>"\`, do any work the answer can't change, and wait with \`${b} builder asks ${key} --wait\`, which returns within 10 minutes, so run it again while it says still waiting. If no answer comes in 30 minutes, record the question as a call, "Question: <question>", and hand back.`,
-    `4. Record each judgment call the notes leave open with \`${b} builder call ${key} "<call>"\` instead of guessing silently or asking. A problem you find outside your card is a call "Found: <what>" for the orchestrator to file at review; ask about it at once only when it stalls other cards' builds or lands.`,
+    `4. Record each judgment call the notes leave open with \`${b} builder call ${key} "<call>"\` instead of guessing silently or asking. A problem you find outside your task is a call "Found: <what>" for the orchestrator to file at review; ask about it at once only when it stalls other tasks' builds or lands.`,
     ...helperSteps(b, key),
     '',
-    notes ? `Spec: the card's notes, ${notes}, all sections, where later sections override earlier ones.` : `The card has no notes file: build from its title, and record what you had to decide as calls.`,
+    notes ? `Spec: the task's notes, ${notes}, all sections, where later sections override earlier ones.` : `The task has no notes file: build from its title, and record what you had to decide as calls.`,
     `${threadLine(thread)} Read it with the notes: a message of the owner's is an instruction, but where it contradicts the notes, the notes win; that contradiction counts as blocked (step 3), so ask with \`${b} builder ask ${key} "<question>"\` and wait as step 3 says. Read the thread again in checking, before you finish, for anything the owner wrote during the build.`,
     '',
     ...linkLines(links),
@@ -79,7 +79,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape.`,
     '',
     `To finish, run ${finishCommand({ route, key })}.`,
-    "- If you recorded a judgment call, it hands the card back for the orchestrator to verify your calls; stop there: the orchestrator's verification finishes the card.",
+    "- If you recorded a judgment call, it hands the task back for the orchestrator to verify your calls; stop there: the orchestrator's verification finishes the task.",
     ...finishSteps({ route, key, worktree, base }),
     '',
     'Never push.',
@@ -92,8 +92,8 @@ export function landerBrief({ route, key, ref, title, thread, worktree, base, an
   const b = cli(route);
   return [
     resumed
-      ? `The board resumes you, the builder of card ${ref} (${key}, "${title}") on the kickflip board /${route}, to land your build: ${why ?? 'the orchestrator verified your judgment calls'}, and it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`
-      : `You are the headless lander for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its build is done and the orchestrator verified its judgment calls; it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
+      ? `The board resumes you, the builder of task ${ref} (${key}, "${title}") on the kickflip board /${route}, to land your build: ${why ?? 'the orchestrator verified your judgment calls'}, and it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`
+      : `You are the headless lander for task ${ref} (${key}, "${title}") on the kickflip board /${route}. Its build is done and the orchestrator verified its judgment calls; it waits only to land. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind build --label Lander --phase landing --progress "taking up the verified build"\`. If it refuses, stop.`,
     `2. Report progress with \`${b} builder progress ${key} --phase landing "<plain, 80 characters or fewer>"\`. The board adds the phase word; don't start the text with it.`,
@@ -119,13 +119,13 @@ export function landerBrief({ route, key, ref, title, thread, worktree, base, an
 export function rebaseBrief({ route, key, ref, title, thread, worktree, base, pr, resumed = false }) {
   const b = cli(route);
   return [
-    ...(resumed ? [`The board resumes you, the builder of card ${ref}, for this run: the lines below are your brief for it.`] : []),
-    `You are the headless rebase run for card ${ref} (${key}, "${title}") on the kickflip board /${route}. Its PR #${pr} conflicts with ${base}; rebase its branch onto ${base} so the PR is clean again. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
+    ...(resumed ? [`The board resumes you, the builder of task ${ref}, for this run: the lines below are your brief for it.`] : []),
+    `You are the headless rebase run for task ${ref} (${key}, "${title}") on the kickflip board /${route}. Its PR #${pr} conflicts with ${base}; rebase its branch onto ${base} so the PR is clean again. Nobody watches this session, so never wait on a person. Work only in ${worktree}, never restart the hub or a board server, and never push.`,
     '',
     `1. Run \`${b} builder start ${key} --kind build --label Rebase --phase building --progress "Rebase run started · fetching ${base}"\`. If it refuses, stop.`,
     `2. Run \`git fetch origin\`, then \`${rebase(`origin/${base}`)}\`. Resolve each conflict keeping both sides' intent, \`git add\` it and continue with \`git -c core.commentChar=';' rebase --continue\`. Report each step with \`${b} builder progress ${key} --phase building "<line>"\`, the board adds the phase word, in these words: "Rebasing onto ${base} · resolving <n> files", then "Rebasing onto ${base} · suite running".`,
     `3. Run the tests the change affects once, in the foreground, as \`${b} test --dir ${worktree} --base origin/${base}\`.` + " Fix what the rebase broke, and commit each fix with `git -c core.commentChar=';' commit -F <file>`. A push with commits of its own is no longer rebase-only, so a merge after an approval won't count it as trivial.",
-    `4. If a conflict or a failing test is past what you can resolve with confidence, run \`git -c core.commentChar=';' rebase --abort\` if a rebase is under way, record it with \`${b} builder call ${key} "Rebase failed in <the files or tests> · <why>"\`, and run the finish step: with the call it hands the card to the orchestrator.`,
+    `4. If a conflict or a failing test is past what you can resolve with confidence, run \`git -c core.commentChar=';' rebase --abort\` if a rebase is under way, record it with \`${b} builder call ${key} "Rebase failed in <the files or tests> · <why>"\`, and run the finish step: with the call it hands the task to the orchestrator.`,
     '',
     threadLine(thread),
     '',
@@ -154,27 +154,27 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
   const b = cli(route);
   const grill = kind === 'grill';
   return [
-    `You are the headless ${grill ? 'grill' : 'prototype'} planner for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person: the owner answers on the board, and a later planner or builder picks up from their answers. Read and run in ${repo}; write no output code ${grill ? 'there' : `in ${repo} itself`}, never restart the hub or a board server, and never push.`,
+    `You are the headless ${grill ? 'grill' : 'prototype'} planner for task ${ref} (${key}, "${title}") on the kickflip board /${route}. The board launched you; nobody watches this session, so never wait on a person: the owner answers on the board, and a later planner or builder picks up from their answers. Read and run in ${repo}; write no output code ${grill ? 'there' : `in ${repo} itself`}, never restart the hub or a board server, and never push.`,
     '',
     ...orchestratorsBrief(brief, grill ? 'questions' : 'takes'),
     `1. Run \`${b} builder start ${key} --kind ${kind}\`. If it refuses, stop.`,
-    `2. Gather the context yourself: ${notes ? `the card's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the card has no notes file yet; '}its thread, ${thread}, the repo's docs/adr and CONTEXT.md, and the cards its notes and thread link.`,
+    `2. Gather the context yourself: ${notes ? `the task's notes, ${notes}, all sections, where later sections override earlier ones; ` : 'the task has no notes file yet; '}its thread, ${thread}, the repo's docs/adr and CONTEXT.md, and the tasks its notes and thread link.`,
     `3. Report progress with \`${b} builder progress ${key} "<plain, 80 characters or fewer>"\` at least every 10 minutes.`,
     grill
-      ? `4. Find every decision the card leaves open: read the code it touches and answer what the code answers yourself. Post each decision left as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first. Once you finish, the orchestrator screens them before the owner sees them, settling the ones the board already answers and passing the owner the rest.`
+      ? `4. Find every decision the task leaves open: read the code it touches and answer what the code answers yourself. Post each decision left as a question for the owner with \`${b} question add --file <json>\` on topic item:${key}, one per decision, your recommendation first. Once you finish, the orchestrator screens them before the owner sees them, settling the ones the board already answers and passing the owner the rest.`
         + ' Invoke the grilling skill with the Skill tool and run it as one round: its questions go to the board with question add, never into the chat, and you never wait for an answer; after the round, finish. (With no Skill tool, follow this step as written.)'
-        + ` When the code shows the card has separable parts, each a build of its own, propose splitting it into a wave of smaller cards as one question ahead of the closing question: its options "Split as proposed" and "Keep as one card", your recommendation first. Slice it as ~/.claude/skills/to-tickets/SKILL.md step 3, "Draft vertical slices", says (read that step; you can't invoke the skill, and skip its quiz and publish steps). The first card is the thinnest end-to-end path. The question's context lists each proposed card with its title, its scope, the files it touches and the earlier proposed cards it waits on, or none: a card waits on an earlier one only when it builds on that card or shares its seam (the same function, component, CLI command or doc paragraph); sharing only a file waits on nothing. Write the same breakdown in your notes section. On Split the orchestrator files the cards when the card stages; never file them yourself.`
+        + ` When the code shows the task has separable parts, each a build of its own, propose splitting it into a wave of smaller tasks as one question ahead of the closing question: its options "Split as proposed" and "Keep as one task", your recommendation first. Slice it as ~/.claude/skills/to-tickets/SKILL.md step 3, "Draft vertical slices", says (read that step; you can't invoke the skill, and skip its quiz and publish steps). The first task is the thinnest end-to-end path. The question's context lists each proposed task with its title, its scope, the files it touches and the earlier proposed tasks it waits on, or none: a task waits on an earlier one only when it builds on that task or shares its seam (the same function, component, CLI command or doc paragraph); sharing only a file waits on nothing. Write the same breakdown in your notes section. On Split the orchestrator files the tasks when the task stages; never file them yourself.`
         + (prototype
-          ? ` The card keeps the owner's answer to its prototype question, ${prototype}, so ask no closing "What next, given these answers?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the card ${prototype === 'yes' ? 'to prototyping' : 'to staging'}.`
-          : ` End every grill with one more question, "What next, given these answers?", whose options are implement (label "Implement"), prototype ("Prototype first") and discuss ("Keep discussing"), in that order, with "next_gate": true in its \`question add --file\` entry: once the owner has answered every question the board moves the card to staging on implement, to prototyping on prototype, or back to discussing on discuss, so nothing else moves it. Recommend implement when your questions settle the card and it doesn't change the hub's or a board's UI, prototype when it does. Ask it even when it is your only question.`)
-        + " Never ask whether to make a ticket: the board makes a card's ticket when it goes ready."
+          ? ` The task keeps the owner's answer to its prototype question, ${prototype}, so ask no closing "What next, given these answers?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the task ${prototype === 'yes' ? 'to prototyping' : 'to staging'}.`
+          : ` End every grill with one more question, "What next, given these answers?", whose options are implement (label "Implement"), prototype ("Prototype first") and discuss ("Keep discussing"), in that order, with "next_gate": true in its \`question add --file\` entry: once the owner has answered every question the board moves the task to staging on implement, to prototyping on prototype, or back to discussing on discuss, so nothing else moves it. Recommend implement when your questions settle the task and it doesn't change the hub's or a board's UI, prototype when it does. Ask it even when it is your only question.`)
+        + " Never ask whether to make a ticket: the board makes a task's ticket when it goes ready."
       : `4. Invoke the prototype skill with the Skill tool and build the round as take files, one per option: record them with \`${b} prototype add <topic> --card ${key} --take <K>:<label> …\`, write the take files it prints, built from the repo's existing components, helpers and scripts fed mock data (the prototype template loads the board's scripts, so a take reuses the board's components; a hub-page take reuses them by path or copy), each take showing the states it needs inside itself, then post one question whose url opens prototype-<topic>.html with \`${b} question add --file <json>\` on topic item:${key}, never asking in the chat. Build in situ only where one of the board's rules asks for it: then, run \`${b} prototype base\`, which makes it or moves it to main and prints its path, whether its build script is there and the listener a page loads. When the build script is missing, write one there that serves the app and prints "port <n>" (board/build-script.mjs). Add one page to the worktree, at a path no other round uses, built from the repo's real components, helpers and scripts fed mock data, fully interactive; it reads the take from ?variant= and the state from ?state=, and loads the listener so \`KickflipPrototype.on((take, state) => …)\` re-renders it in place when the viewer switches. Record it with \`${b} prototype add <topic> --card ${key} --served <path> --take <K>:<label> … --state <key>:<label> …\`, one take per option and one state for each state that matters to the question, then post one question whose url opens prototype-<topic>.html with \`${b} question add --file <json>\` on topic item:${key}, never asking in the chat. (With no Skill tool, follow this step as written.)`,
     ...(text ? [`   The owner asked for this ${grill ? 'grill' : 'prototype'}, writing: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     ...(question ? [`   The owner asked for prototypes of question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`] : []),
-    `5. Record what you learned in the card's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it. Anything you leave open becomes a question with question add, never only a line in the notes, so the card can't go ready past it. A question's text is one line of at most ${BRIEF_LINE_LIMIT} characters (question add refuses a longer one); put the detail in its context and the options' details, which take markdown.`,
+    `5. Record what you learned in the task's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it. Anything you leave open becomes a question with question add, never only a line in the notes, so the task can't go ready past it. A question's text is one line of at most ${BRIEF_LINE_LIMIT} characters (question add refuses a longer one); put the detail in its context and the options' details, which take markdown.`,
     ...(grill ? [
-      `6. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end the card \`${b} item set ${key} --phase prototyping\` instead and skip the closing question. Otherwise ${prototype ? 'the board' : 'the closing question'} is what moves the card on: never set it ready yourself, and never leave a Next that asks the owner to mark it ready.`,
+      `6. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end the task \`${b} item set ${key} --phase prototyping\` instead and skip the closing question. Otherwise ${prototype ? 'the board' : 'the closing question'} is what moves the task on: never set it ready yourself, and never leave a Next that asks the owner to mark it ready.`,
     ] : []),
     '',
     ...linkLines(links),
@@ -191,17 +191,17 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
 export function visualBrief({ route, key, ref, title, notes, thread, repo, agent, brief, rules = [], links = [], text, files = [] }) {
   const b = cli(route);
   return [
-    `You are the headless visual agent for card ${ref} (${key}, "${title}") on the kickflip board /${route}. The card's thread wants a visual: one HTML page that answers in a visual way, such as a diagram, a flow or a comparison. It is not a prototype or a grill: no question, no takes. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code there, never restart the hub or a board server, and never push.`,
+    `You are the headless visual agent for task ${ref} (${key}, "${title}") on the kickflip board /${route}. The task's thread wants a visual: one HTML page that answers in a visual way, such as a diagram, a flow or a comparison. It is not a prototype or a grill: no question, no takes. The board launched you; nobody watches this session, so never wait on a person. Read and run in ${repo}; write no code there, never restart the hub or a board server, and never push.`,
     '',
     ...orchestratorsBrief(brief, 'page'),
     `1. Run \`${b} builder start ${key} --kind visual --agent ${agent}\`. If it refuses, stop.`,
-    `2. Gather what the page needs: ${notes ? `the card's notes, ${notes}; ` : ''}its thread, ${thread}, and the code or docs it is about.`,
+    `2. Gather what the page needs: ${notes ? `the task's notes, ${notes}; ` : ''}its thread, ${thread}, and the code or docs it is about.`,
     ...(text ? [`   The owner wrote, asking for it: "${text}"`] : []),
     ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
     '3. Write one HTML file outside the repo, such as in a temporary folder. Keep its own CSS and script inline; it may load a library such as Mermaid or D3 from a CDN. Make it read well at phone width (390px) and on a desktop, in the dark and the light theme (prefers-color-scheme).',
     `4. Place it with \`${b} visual add ${key} --file <page.html> --title "<what it shows>"\`, which copies it to the board and links it in the thread.`,
     '',
-    'Write nothing else: no notes, questions, card state, Next or progress lines.',
+    'Write nothing else: no notes, questions, task state, Next or progress lines.',
     '',
     ...linkLines(links),
     ...ruleLines(rules, "Rules from the hub and this board, written for the orchestrator: where one tells you to push, land, restart the hub or a board server, or do the orchestrator's work, it isn't yours; you never push or restart:"),
@@ -218,9 +218,9 @@ export function visualBrief({ route, key, ref, title, notes, thread, repo, agent
 export function helperBrief({ route, key, ref, title, notes, thread, agent, task, writes, cwd, rules = [], links = [] }) {
   const b = cli(route);
   return [
-    `You are the headless helper ${agent} on card ${ref} (${key}, "${title}") on the kickflip board /${route}. Another agent working on the card asked the board for you to do one task beside it, and waits on your hand-back. Nobody watches this session, so never wait on a person. Never restart the hub or a board server, and never push.`,
+    `You are the headless helper ${agent} on task ${ref} (${key}, "${title}") on the kickflip board /${route}. Another agent working on the task asked the board for you to do one task beside it, and waits on your hand-back. Nobody watches this session, so never wait on a person. Never restart the hub or a board server, and never push.`,
     writes
-      ? `Work only in ${cwd}, your own worktree, branched from the card's: commit your work there with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. The card's builder merges your branch, so leave nothing uncommitted.`
+      ? `Work only in ${cwd}, your own worktree, branched from the task's: commit your work there with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. The task's builder merges your branch, so leave nothing uncommitted.`
       : `Read and run in ${cwd}; change no files there and commit nothing.`,
     '',
     'The task:',
@@ -229,7 +229,7 @@ export function helperBrief({ route, key, ref, title, notes, thread, agent, task
     `1. Run \`${b} builder start ${key} --kind helper --agent ${agent}\`. If it refuses, stop.`,
     `2. Report progress with \`${b} builder progress ${key} --agent ${agent} --phase reading|building|testing|checking "<plain, 80 characters or fewer>"\` at least every 10 minutes; the board adds your name and the phase word.`,
     "3. Do only the task. Don't ask the orchestrator or the owner, record no judgment calls and post no questions: put any decision you had to make in your hand-back.",
-    notes ? `   The card's notes, for context: ${notes}.` : '',
+    notes ? `   The task's notes, for context: ${notes}.` : '',
     `   ${threadLine(thread)}`,
     '',
     ...linkLines(links),
@@ -385,7 +385,7 @@ export function runFailure(file) {
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
 // docs/adr/2026-11-09-1500-a-builder-resumes-to-land-its-own-conflict.md
 // The words a paused builder's own session is resumed with, once its pause cleared ("nothing blocks it").
-export const resumeBrief = ({ ref, worktree, cleared }) => `The board paused your build of card ${ref}, and the pause has cleared: ${cleared}. Carry on where you stopped, in ${worktree}, following your brief as before. Your builder record is still open, so don't run builder start again.`;
+export const resumeBrief = ({ ref, worktree, cleared }) => `The board paused your build of task ${ref}, and the pause has cleared: ${cleared}. Carry on where you stopped, in ${worktree}, following your brief as before. Your builder record is still open, so don't run builder start again.`;
 
 // The one seam where the board puts a card's builder session back to work: every resume (a cleared pause, a verified
 // land, a Merge tap's conflict, a PR rebase run) goes through here, and none of them knows how. card is {key, kind,

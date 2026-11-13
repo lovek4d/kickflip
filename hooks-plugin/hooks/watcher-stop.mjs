@@ -34,7 +34,7 @@ try {
       reasons.push(`Your board has no watcher, so its events wait unheard. Relaunch it as a background Bash task, then end your turn: ${steps.join('; ')}`);
     }
     const owed = (await Promise.all(owned.map(async (b) => (await workingOn(b)).map((w) => `/${b.route} ${w.kind} ${w.id}${w.card ? ` on ${w.card}` : ''}`)))).flat();
-    if (owed.length) reasons.push(`These read Working on it with no answer: ${owed.join('; ')}. Answer each with board.mjs reply or a thread line on its card, even a short "Looking into it" while an agent works, then end your turn.`);
+    if (owed.length) reasons.push(`These read Working on it with no answer: ${owed.join('; ')}. Answer each with board.mjs reply or a thread line on its task, even a short "Looking into it" while an agent works, then end your turn.`);
     if (reasons.length) console.log(JSON.stringify({ decision: 'block', reason: reasons.join(' ') }));
   }
 } catch {}

@@ -70,7 +70,7 @@ test('the Stop hook also blocks once while a message on a board the session owns
     const watcher = { id: 'b1', type: 'shell', status: 'running', description: 'watcher', command: 'node wait-events.mjs orch s1' };
     child.stdin.end(JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, background_tasks: [watcher], session_id: 's1', ...extra }));
   });
-  assert.deepEqual(await stop(), { decision: 'block', reason: 'These read Working on it with no answer: /orch ask e7 on INT-3; /orch wave-triage e8. Answer each with board.mjs reply or a thread line on its card, even a short "Looking into it" while an agent works, then end your turn.' });
+  assert.deepEqual(await stop(), { decision: 'block', reason: 'These read Working on it with no answer: /orch ask e7 on INT-3; /orch wave-triage e8. Answer each with board.mjs reply or a thread line on its task, even a short "Looking into it" while an agent works, then end your turn.' });
   assert.equal(await stop({ stop_hook_active: true }), null);
   working = [];
   assert.equal(await stop(), null);

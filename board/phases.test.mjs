@@ -38,7 +38,7 @@ test("--phase sets only a Todo card's phase", async () => {
   assert.equal((await board('builder', 'start', 'audit/B2', '--site', 'audit', '--kind', 'claude')).code, 0);
   const r = await board('item', 'set', 'audit/B2', '--site', 'audit', '--phase', 'grilling');
   assert.equal(r.code, 1);
-  assert.match(r.err, /--phase sets a Todo card's phase; audit\/B2 is In Progress/);
+  assert.match(r.err, /--phase sets a Todo task's phase; audit\/B2 is In Progress/);
 });
 
 test('moveCard writes the lane and its phase together; a phase change inside a lane writes no line', async () => {
@@ -63,7 +63,7 @@ test("the store's own moves write the phase: a build's start reads reading, a bl
   write(site('audit', 'data', 'agents', 'A4.json'), { kind: 'claude', started: '2026-11-04T09:00:00Z', done: '2026-11-04T10:00:00Z', handed_back: '2026-11-04T10:00:00Z' });
   const blocked = await board('item', 'set', 'audit/A4', '--site', 'audit', '--blocked-until', 'the API ships');
   assert.equal(blocked.code, 0, blocked.err);
-  assert.deepEqual([auditItem('A4').lane, auditItem('A4').phase], ['progress', 'testing'], 'a handed-back card stays where it is');
+  assert.deepEqual([auditItem('A4').lane, auditItem('A4').phase], ['progress', 'testing'], 'a handed-back task stays where it is');
   assert.equal((await board('item', 'set', 'audit/A2', '--site', 'audit', '--done', '--text', 'Dropped: superseded.')).code, 0);
   assert.deepEqual([auditItem('A2').lane, auditItem('A2').phase], ['done', 'closed']);
 });
@@ -167,7 +167,7 @@ test("Todo, In Review and Done end a card's last line with its phase word, toned
     assert.doesNotMatch(html, /phase-bars/, `${lane} ${phase}`);
   }
   const progress = card({ lane: 'progress', phase: 'building', builder: { phase: 'building', progress: 'Writing it', at: '2020-01-01T10:00:00.000Z', alive: true } });
-  assert.deepEqual(phaseWord(card({ lane: 'todo', phase: 'new' })), [], 'a New card draws no phase pill');
+  assert.deepEqual(phaseWord(card({ lane: 'todo', phase: 'new' })), [], 'a New task draws no phase pill');
   assert.deepEqual(phaseWord(progress), []);
   assert.match(progress, /phase-bars/);
 });

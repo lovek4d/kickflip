@@ -363,7 +363,7 @@ async function advanceLinear(boards, fetched, fetchKey, result) {
       : items.every((item) => item.merged || item.ready) ? 'review'
       : items.some((item) => item.hasPR) ? 'started' : null;
     if (!target) continue;
-    const reason = { done: 'Every card on it has merged.', review: 'Every card on it has merged or has a PR ready for review.', started: 'A card on it has a PR.' }[target];
+    const reason = { done: 'Every task on it has merged.', review: 'Every task on it has merged or has a PR ready for review.', started: 'A task on it has a PR.' }[target];
     const entry = { call: 'linear-move', key: id, reason, inputs: { target, cards: ticket.cards, items } };
     try {
       const state = await client.advanceIssue(id, target, { owner: client.saved.viewer.id, created: ticket.created });

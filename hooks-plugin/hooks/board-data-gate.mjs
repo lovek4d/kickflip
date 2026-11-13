@@ -28,9 +28,9 @@ function ownedKind(board, file) {
 }
 
 const HINTS = {
-  file: 'A card changes with `board.mjs --site <route> item add|set <file>/<id> …`',
+  file: 'A task changes with `board.mjs --site <route> item add|set <file>/<id> …`',
   board: 'Board settings change with `board.mjs --site <route> rules|reviewers …` or the settings page',
-  notes: 'A card\'s notes change with `board.mjs --site <route> item notes <file>/<id> --heading "<heading>" --file <draft.md>`, the draft written outside data/',
+  notes: 'A task\'s notes change with `board.mjs --site <route> item notes <file>/<id> --heading "<heading>" --file <draft.md>`, the draft written outside data/',
   data: 'Board data changes with a board.mjs command (`item set`, `thread`, `topic add`, `question add --file <draft>`, `reply`, `builder …`); its usage text lists them',
 };
 

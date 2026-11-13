@@ -149,8 +149,8 @@ export function builderPick({ home = os.homedir(), now = Date.now(), card = {} }
 const NAMES = { opus: 'Opus', sonnet: 'Sonnet' };
 function claudePick(setting, card) {
   if (setting !== 'auto') return { model: setting, reason: `Claude model is ${NAMES[setting]}.` };
-  if (card.model) return { model: card.model, reason: `Claude model is Auto and the card asks for Claude ${NAMES[card.model]}.` };
-  return card.size === 'small' ? { model: 'sonnet', reason: 'Claude model is Auto and the card is small.' } : { model: 'opus', reason: "Claude model is Auto and the card isn't small." };
+  if (card.model) return { model: card.model, reason: `Claude model is Auto and the task asks for Claude ${NAMES[card.model]}.` };
+  return card.size === 'small' ? { model: 'sonnet', reason: 'Claude model is Auto and the task is small.' } : { model: 'opus', reason: "Claude model is Auto and the task isn't small." };
 }
 
 const MANUAL_WORDS = { hub: ['the hub', 'Pause hub in Hub settings'], board: ['this board', 'Pause board in Board settings'] };

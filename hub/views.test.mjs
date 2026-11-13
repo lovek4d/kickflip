@@ -801,9 +801,9 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
       submitter: { name: button.getAttribute('name'), value: button.value }, preventDefault() {} });
   };
   const HELP = {
-    opus: 'Always Opus. Auto would give small cards to Sonnet.',
-    auto: 'Auto: small cards get Sonnet, the rest get Opus.',
-    sonnet: 'Always Sonnet. Auto would give large cards to Opus.',
+    opus: 'Always Opus. Auto would give small tasks to Sonnet.',
+    auto: 'Auto: small tasks get Sonnet, the rest get Opus.',
+    sonnet: 'Always Sonnet. Auto would give large tasks to Opus.',
   };
 
   live.paint(hub('auto'));
@@ -811,7 +811,7 @@ test("the hub page's Usage card opens Claude's block with Opus, Auto and Sonnet,
   assert.equal(claude().querySelector('.segments').getAttribute('aria-label'), 'Claude model');
   assert.equal(claude().querySelector('.segments').getAttribute('action'), '/_hub/settings/claude-model');
   assert.deepEqual(claude().querySelectorAll('.segments button').map((b) => b.textContent), ['Opus', 'Auto', 'Sonnet']);
-  assert.match(claude().textContent, /^Claude.*OpusAutoSonnetAuto: small cards get Sonnet, the rest get Opus\.5-hour42%/);
+  assert.match(claude().textContent, /^Claude.*OpusAutoSonnetAuto: small tasks get Sonnet, the rest get Opus\.5-hour42%/);
   assert.equal(selected(), 'auto');
   for (const value of ['opus', 'sonnet', 'auto']) {
     await submit(value);
