@@ -37,8 +37,10 @@ async function main() {
 
   let id;
   let deadline;
+  // A hub that is down refuses at once; a slow one is waited for, up to HARD_STOP
+  // (docs/adr/2026-11-13-2232-the-permission-hook-waits-for-a-slow-hub-to-take-its-prompt.md).
   try {
-    const r = await fetch(`${BASE}/_hub/prompts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: raw, signal: AbortSignal.timeout(5000) });
+    const r = await fetch(`${BASE}/_hub/prompts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: raw });
     if (!r.ok) throw new Error(`hub ${r.status}`);
     const body = await r.json();
     if (body?.state === 'answered') {

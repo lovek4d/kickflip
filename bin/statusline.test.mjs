@@ -6,6 +6,8 @@ import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { statusLine } from './statusline.mjs';
+
 const script = fileURLToPath(new URL('./statusline.mjs', import.meta.url));
 let home;
 beforeEach(() => { home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-statusline-'))); });
@@ -31,32 +33,29 @@ test('status line prints the exact directory, branch, model and context for clea
   fs.writeFileSync(tracked, 'original\n');
   git('add', 'tracked');
   git('commit', '-m', 'fixture');
-  // Each git call has the status line's 500 ms budget, so on a loaded host a run can print no branch or a stray *; a
-  // few tries give git its time without loosening what the line prints.
-  const inRepo = (input, expected) => {
-    let out;
-    for (let i = 0; i < 5 && out !== expected; i++) out = run(input);
-    assert.equal(out, expected);
-  };
+  // The line's own git calls have a 500 ms limit so a slow repo never holds up a redraw; here git runs with none, so a
+  // loaded host can't drop the branch or the *.
+  const untimed = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: { ...env(), GIT_OPTIONAL_LOCKS: '0' } });
+  const inRepo = (input, expected) => assert.equal(statusLine(input, { git: untimed }), expected);
   const input = { cwd: repo, model: { display_name: 'Opus 4.6' }, context_window: { used_percentage: 42 } };
-  inRepo(input, 'dev/kickflip feature · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip feature · Opus 4.6 / 42% ctx');
   fs.writeFileSync(path.join(repo, 'untracked'), 'untracked files do not count');
-  inRepo(input, 'dev/kickflip feature · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip feature · Opus 4.6 / 42% ctx');
   fs.writeFileSync(tracked, 'changed\n');
-  inRepo(input, 'dev/kickflip feature* · Opus 4.6 / 42% ctx\n');
-  assert.equal(fs.existsSync(usageFile()), false);
-  inRepo({ ...input, rate_limits: { five_hour: { used_percentage: 81 }, seven_day: { used_percentage: 78 } } }, 'dev/kickflip feature* · Opus 4.6 / 42% ctx · 5h: 81% / 7d: 78%\n');
+  inRepo(input, 'dev/kickflip feature* · Opus 4.6 / 42% ctx');
+  inRepo({ ...input, rate_limits: { five_hour: { used_percentage: 81 }, seven_day: { used_percentage: 78 } } }, 'dev/kickflip feature* · Opus 4.6 / 42% ctx · 5h: 81% / 7d: 78%');
   git('add', 'tracked');
-  inRepo(input, 'dev/kickflip feature* · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip feature* · Opus 4.6 / 42% ctx');
   git('commit', '-m', 'second fixture');
   git('checkout', '--detach', 'HEAD');
-  inRepo(input, 'dev/kickflip · Opus 4.6 / 42% ctx\n');
+  inRepo(input, 'dev/kickflip · Opus 4.6 / 42% ctx');
 });
 
 test('status line shortens slash-separated directories and omits absent fields, including outside Git', () => {
   for (const [cwd, dir] of [[home, '~'], [path.join(home, 'dev'), '~/dev'], [path.join(home, 'dev', 'kickflip'), 'dev/kickflip'], ['/one/two/three', 'two/three'], ['/one', '/one'], ['/', '/'], [home + '-other/child', path.basename(home) + '-other/child']]) {
     assert.equal(run({ cwd }), dir + '\n');
   }
+  assert.equal(fs.existsSync(usageFile()), false, 'a line without rate limits saves no usage');
   assert.equal(run({ model: { display_name: 'Sonnet' }, context_window: { used_percentage: 0 } }), 'Sonnet / 0% ctx\n');
   assert.equal(run({ context_window: { used_percentage: 12.5 } }), '12% ctx\n');
   assert.equal(run({ model: { display_name: 'Opus 5.5' }, context_window: { used_percentage: 41.7 }, rate_limits: { five_hour: { used_percentage: 23.4, resets_at: 1793580000 }, seven_day: { used_percentage: 57, resets_at: 1794003836 } } }), 'Opus 5.5 / 41% ctx · 5h: 23% / 7d: 57%\n');

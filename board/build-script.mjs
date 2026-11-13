@@ -23,11 +23,12 @@ export const validBuildTarget = (value) => typeof value === 'string' && /^[A-Za-
 // → the script's path relative to a worktree, `.kickflip/build` or `.kickflip/build-<target>`
 export const buildScriptOf = (target) => (target ? `.kickflip/build-${target}` : '.kickflip/build');
 
-// The targets Board Settings offers: each executable `.kickflip/build-<target>` in the repo's tree at ref, sorted.
-// → [target], [] when the repo or ref can't be read
-export async function listBuildTargets(repo, ref) {
+// The targets Board Settings offers: each executable `.kickflip/build-<target>` in the repo's tree at ref, sorted. run
+// runs git as execFile does; git reads a local tree with no time limit
+// (docs/adr/2026-11-13-2231-build-targets-wait-on-git.md). → [target], [] when the repo or ref can't be read
+export async function listBuildTargets(repo, ref, { run = execFileAsync } = {}) {
   if (!repo) return [];
   let out;
-  try { out = (await execFileAsync('git', ['-C', repo, 'ls-tree', `${ref}:.kickflip`], { encoding: 'utf8', timeout: 3000 })).stdout; } catch { return []; }
+  try { out = (await run('git', ['-C', repo, 'ls-tree', `${ref}:.kickflip`], { encoding: 'utf8' })).stdout; } catch { return []; }
   return out.split('\n').map((line) => /^100755 blob \S+\tbuild-(.+)$/.exec(line)?.[1]).filter(validBuildTarget).sort(collator.compare);
 }

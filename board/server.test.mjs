@@ -36,7 +36,9 @@ before(async () => {
   fs.writeFileSync(path.join(home, '.claude', 'kickflip', 'secrets.json'), JSON.stringify({ slack: { token: slackWorldOf.token, team: 'Acme', user: 'love' } }));
   ghDir = path.join(home, 'gh-fixtures');
   const ghBin = fakeGh(ghDir);
-  const slackEnv = { KICKFLIP_SLACK_URL: slackServer.url, PATH: `${ghBin}:${process.env.PATH}` };
+  // Reviewers' lookups wait longer than the run's own per-file limit, so a loaded host can't give up on the stand-ins
+  // (board/reviewer-people.test.mjs gives up by hand).
+  const slackEnv = { KICKFLIP_SLACK_URL: slackServer.url, PATH: `${ghBin}:${process.env.PATH}`, KICKFLIP_PEOPLE_WAIT_MS: String(60 * 60_000) };
   child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: home, PORT: String(port), PREFIX: '', ...pushEnv, ...mergeEnv, ...slackEnv } });
   await boardListening(child);
   await until(() => fs.existsSync(path.join(site, 'data', 'action-pushes.json')), 'the first Action needed check');

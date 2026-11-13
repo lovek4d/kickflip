@@ -352,6 +352,7 @@ import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
 import { boardRepo, mainRefOf } from '../hub/board-repo.mjs';
 import { listBuildTargets } from './build-script.mjs';
+import { reviewerPeople } from './reviewer-people.mjs';
 import { permissionsView, setPermission } from './permissions.mjs';
 import { bumpOut } from './stop.mjs';
 import { SlackError, SLACK_NEEDS_TOKEN, savedSlack, slackStatus } from '../hub/slack.mjs';
@@ -752,29 +753,14 @@ async function setupOf(links) {
 // (ui-cards.js holdPicker).
 const HOLD_CHOICES = CHOICES.map(([value, label]) => ({ value, label, ms: value === FOREVER ? null : durationEnd(new Date(0), value) - new Date(0) }));
 
-// What Board settings' Reviewers picks from: the workspace's Slack people and the board repo's GitHub collaborators,
-// asked at once. A list that can't be fetched is null (Slack) or empty (GitHub, where a typed login still works), with the
-// reason; one that takes longer than PEOPLE_WAIT_MS is given up on the same way, so the answer comes before the hub's
-// proxy gives up on the board and the page reads that as a restart.
-const PEOPLE_WAIT_MS = Number(process.env.KICKFLIP_PEOPLE_WAIT_MS) || 12_000;
-const withinWait = (work, what) => Promise.race([work, new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} did not answer in time`)), PEOPLE_WAIT_MS).unref())]);
-async function reviewerPeople() {
-  const out = { slack: null, github: [] };
+// Board settings' Reviewers lists, from the hub's Slack and the board repo's GitHub (reviewer-people.mjs).
+function boardReviewerPeople() {
   const slack = savedSlack();
   const repo = boardAt(here)?.github;
-  const [slackAnswer, githubAnswer] = await Promise.allSettled([
-    !slack || slackStatus().refused ? Promise.resolve(null) : withinWait(slack.people(), 'Slack'),
-    repo ? withinWait(collaborators(repo), 'GitHub') : Promise.resolve([]),
-  ]);
-  if (!slack || slackStatus().refused) out.slackProblem = SLACK_NEEDS_TOKEN;
-  else if (slackAnswer.status === 'fulfilled') out.slack = slackAnswer.value;
-  else {
-    const e = slackAnswer.reason;
-    out.slackProblem = e.message === 'Slack: missing_scope' ? 'Slack needs the users:read scope; update the app on Hub › Integrations › Slack.' : e.message;
-  }
-  if (githubAnswer.status === 'fulfilled') out.github = githubAnswer.value;
-  else out.githubProblem = `GitHub: ${githubAnswer.reason.message}`;
-  return out;
+  return reviewerPeople({
+    slackPeople: slack && !slackStatus().refused ? () => slack.people() : null,
+    githubPeople: repo ? () => collaborators(repo) : null,
+  });
 }
 
 // Each person to add with their GitHub login as GitHub spells it and the DM the hub's Slack token opens with them.
@@ -1110,7 +1096,7 @@ const server = http.createServer(async (req, res) => {
       if (sameTag(req.headers['if-none-match'], etag)) { res.writeHead(304, { etag, 'cache-control': 'no-store', vary: 'accept-encoding' }).end(); return; }
       return json(res, 200, b, { etag });
     }
-    if (p === '/api/reviewer-people') return json(res, 200, await reviewerPeople());
+    if (p === '/api/reviewer-people') return json(res, 200, await boardReviewerPeople());
     if (p === '/api/questions') {
       const built = await sharedBoard();
       const ids = new Set(built.ownerTopics.find((t) => t.id === String(url.searchParams.get('topic') ?? ''))?.questions || []);

@@ -4,15 +4,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-process.stdout.on('error', () => {});
+// Each git call has 500 ms, so a slow repo drops the branch rather than hold up the redraw
+// (docs/adr/2026-11-13-2234-a-limit-a-person-sees-stays-and-its-test-passes-the-runner.md). → stdout; throws when git fails
+const timedGit = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], {
+  encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 500,
+  env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+});
 
-function branchOf(cwd) {
+function branchOf(cwd, run) {
   if (!cwd) return '';
-  const git = (...args) => execFileSync('git', ['-C', cwd, ...args], {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 500,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-  }).trim();
+  const git = (...args) => run(cwd, args).trim();
   try {
     if (git('rev-parse', '--is-inside-work-tree') !== 'true') return '';
     const branch = git('symbolic-ref', '--short', 'HEAD');
@@ -89,24 +92,35 @@ function saveContext(input, percent) {
   }
 }
 
-try {
-  const input = JSON.parse(fs.readFileSync(0, 'utf8'));
-  if (input && typeof input === 'object' && !Array.isArray(input)) {
-    const cwd = typeof input.cwd === 'string' ? input.cwd : '';
-    const model = typeof input.model?.display_name === 'string' ? input.model.display_name : '';
-    const percent = (value) => (value == null || value === '' || !Number.isFinite(Number(value)) ? null : Math.floor(Number(value)));
-    const ctx = percent(input.context_window?.used_percentage);
-    const usage = [['5h', input.rate_limits?.five_hour], ['7d', input.rate_limits?.seven_day]]
-      .map(([name, window]) => [name, percent(window?.used_percentage)])
-      .filter(([, value]) => value != null).map(([name, value]) => `${name}: ${value}%`).join(' / ');
-    const join = (parts, separator) => parts.filter(Boolean).join(separator);
-    const line = join([
-      join([shortDir(cwd), branchOf(cwd)], ' '),
-      join([model, ctx == null ? '' : `${ctx}% ctx`], ' / '),
-      usage,
-    ], ' · ');
-    // Wait for stdout to flush before doing filesystem work; errors stay off both streams.
-    process.stdout.write(line + '\n', () => { try { saveUsage(input); } catch {} try { saveContext(input, ctx); } catch {} });
-  }
-} catch { /* Invalid input and every other error leave the status line alone. */ }
-process.exitCode = 0;
+const percent = (value) => (value == null || value === '' || !Number.isFinite(Number(value)) ? null : Math.floor(Number(value)));
+
+// The line for Claude Code's input: directory and branch, model and context, usage. git(cwd, args) runs one git command.
+export function statusLine(input, { git = timedGit } = {}) {
+  const cwd = typeof input.cwd === 'string' ? input.cwd : '';
+  const model = typeof input.model?.display_name === 'string' ? input.model.display_name : '';
+  const ctx = percent(input.context_window?.used_percentage);
+  const usage = [['5h', input.rate_limits?.five_hour], ['7d', input.rate_limits?.seven_day]]
+    .map(([name, window]) => [name, percent(window?.used_percentage)])
+    .filter(([, value]) => value != null).map(([name, value]) => `${name}: ${value}%`).join(' / ');
+  const join = (parts, separator) => parts.filter(Boolean).join(separator);
+  return join([
+    join([shortDir(cwd), branchOf(cwd, git)], ' '),
+    join([model, ctx == null ? '' : `${ctx}% ctx`], ' / '),
+    usage,
+  ], ' · ');
+}
+
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.stdout.on('error', () => {});
+  try {
+    const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      // Wait for stdout to flush before doing filesystem work; errors stay off both streams.
+      process.stdout.write(statusLine(input) + '\n', () => {
+        try { saveUsage(input); } catch {}
+        try { saveContext(input, percent(input.context_window?.used_percentage)); } catch {}
+      });
+    }
+  } catch { /* Invalid input and every other error leave the status line alone. */ }
+  process.exitCode = 0;
+}

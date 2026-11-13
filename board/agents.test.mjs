@@ -32,7 +32,7 @@ test('launchAgent runs claude -p in auto mode on the model in cwd, without the s
     const before = process.env.CLAUDECODE;
     process.env.CLAUDECODE = '1';
     let launched;
-    try { launched = await launchAgent({ kind: 'claude', bin: fake.bin, model: 'sonnet', cwd: dir, site: '/s/shop', prompt: 'Build it.', log }); } finally {
+    try { launched = await launchAgent({ kind: 'claude', bin: fake.bin, model: 'sonnet', cwd: dir, site: '/s/shop', prompt: 'Build it.', log, sessionWait: Infinity }); } finally {
       if (before === undefined) delete process.env.CLAUDECODE; else process.env.CLAUDECODE = before;
     }
     assert.ok(Number.isInteger(launched.pid));
@@ -53,7 +53,7 @@ test("launchAgent runs codex exec in the worktree under workspace-write, with th
     execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'start']);
     execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', worktree, '-b', 'A1']);
     const fake = fakeAgent(dir, 'codex', { stderr: 'OpenAI Codex v0.154.0\n--------\nworkdir: x\nsession id: 019a-codex-2\n--------\n', stays: true });
-    const launched = await launchAgent({ kind: 'codex', bin: fake.bin, cwd: worktree, site: '/s/shop', prompt: 'Build it.', log: path.join(dir, 'A1.log') });
+    const launched = await launchAgent({ kind: 'codex', bin: fake.bin, cwd: worktree, site: '/s/shop', prompt: 'Build it.', log: path.join(dir, 'A1.log'), sessionWait: Infinity });
     assert.equal(launched.sessionId, '019a-codex-2');
     assert.deepEqual(fake.seen().argv, [
       'exec', '--color', 'never', '--cd', worktree, '--sandbox', 'workspace-write',
@@ -73,11 +73,28 @@ test('launchAgent gives no session id for an agent that exits without one, and r
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// docs/adr/2026-11-13-2234-a-limit-a-person-sees-stays-and-its-test-passes-the-runner.md
+test('launchAgent goes on without a session id once its session wait runs out, and the agent runs on', async () => {
+  const dir = tmp('agent-wait-');
+  const fake = path.join(dir, 'claude');
+  fs.writeFileSync(fake, `#!${process.execPath}\n${untilTestEnds()}\n`);
+  fs.chmodSync(fake, 0o755);
+  let launched;
+  try {
+    launched = await launchAgent({ kind: 'claude', bin: fake, model: 'sonnet', cwd: dir, site: dir, prompt: 'x', log: path.join(dir, 'A1.log'), sessionWait: 0 });
+    assert.equal(launched.sessionId, null);
+    assert.doesNotThrow(() => process.kill(launched.pid, 0));
+  } finally {
+    if (launched) process.kill(launched.pid, 'SIGKILL');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('launchAgent stops watching the log once it has the session id, so the agent exiting after its log is gone throws nothing', async () => {
   const dir = tmp('agent-gone-');
   const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-gone', model: 'claude-sonnet', cwd: dir });
   const fake = fakeAgent(dir, 'claude', { stdout: `${init}\n`, stays: true });
-  const launched = await launchAgent({ kind: 'claude', bin: fake.bin, model: 'sonnet', cwd: dir, site: dir, prompt: 'x', log: path.join(dir, 'logs', 'A1.log') });
+  const launched = await launchAgent({ kind: 'claude', bin: fake.bin, model: 'sonnet', cwd: dir, site: dir, prompt: 'x', log: path.join(dir, 'logs', 'A1.log'), sessionWait: Infinity });
   assert.equal(launched.sessionId, 'sess-gone');
   fs.rmSync(dir, { recursive: true, force: true });
   process.kill(launched.pid);

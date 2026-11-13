@@ -167,6 +167,9 @@
   const on = (target, type, fn, opts) => { nativeAdd.call(target, type, fn, opts); ends.push(() => nativeRemove.call(target, type, fn, opts)); };
 
   const kit = { sidebar, hub, cards, sheet, toast, on, fake, esc };
+  // Resolves once the first take has drawn, or failed to: the render check reads the stage then (render-check.mjs).
+  let firstDrawn;
+  const drawn = new Promise((resolve) => { firstDrawn = resolve; });
 
   // [element, place] for each element in stage, its place the tag and class of it and each ancestor up to the stage, with
   // a count telling apart boxes that share one, so a take drawn again finds the same box.
@@ -322,6 +325,7 @@
       if (!take.src) {
         stage.innerHTML = `<p class="kit-missing">Take ${esc(key)} has no file yet: write public/${esc(take.file)}, exporting render(stage, kit).</p>`;
         settle();
+        firstDrawn();
         return;
       }
       live = true;
@@ -337,10 +341,11 @@
       }
       fitPhone(stage, ends);
       settle();
+      firstDrawn();
     }
 
     return PrototypeSwitcher.mount({ takes, initial: keys[0], render });
   }
 
-  globalThis.PrototypeKit = { ...kit, start, servedSrc, servedStatus };
+  globalThis.PrototypeKit = { ...kit, start, servedSrc, servedStatus, drawn };
 })();

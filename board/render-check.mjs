@@ -23,9 +23,12 @@ const board = path.dirname(fileURLToPath(import.meta.url));
 export const WIDTHS = [390, 1280];
 const chromePath = () => process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
-const SETTLE_MS = 3000;
-const LATE_MS = 300;
 const PORT_MS = 120_000;
+// Resolves once the page has drawn, read after its load event: a take page once the kit's first take has drawn
+// (prototype-kit.js drawn), which can follow the load event since the take is a dynamic import; a served page at once.
+// The task after it lets an error the drawing left unhandled reach the problems first. No clock decides it
+// (docs/adr/2026-11-13-2233-render-check-reads-a-page-once-it-has-drawn.md).
+const DRAWN = `(async () => { await globalThis.PrototypeKit?.drawn; await new Promise((resolve) => setTimeout(resolve)); })()`;
 // What the page drew: a take file's stage, or a served page's body text.
 const STAGE = `(document.getElementById('stage')?.innerHTML || '').trim()`;
 // Each element of the stage, by position: null where it is shown, else the name a take's author knows it by.
@@ -117,11 +120,11 @@ async function checkTake({ cdp, on }, url, width, drawn = STAGE) {
     else if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error' && m.params.entry.source !== 'javascript' && !/\/favicon\.ico$/.test(m.params.entry.url || '')) problems.push(`${m.params.entry.text}${m.params.entry.url ? ` ${m.params.entry.url}` : ''}`);
   });
   await cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+  const loaded = new Promise((resolve) => { const stop = on((m) => { if (m.method === 'Page.loadEventFired') { stop(); resolve(); } }); });
   await cdp('Page.navigate', { url });
-  const stage = async () => (await cdp('Runtime.evaluate', { expression: drawn, returnByValue: true })).result.value;
-  let html = '';
-  for (let waited = 0; waited < SETTLE_MS && !html; waited += 100) { await sleep(100); html = await stage(); }
-  await sleep(LATE_MS);
+  await loaded;
+  await cdp('Runtime.evaluate', { expression: DRAWN, awaitPromise: true });
+  const html = (await cdp('Runtime.evaluate', { expression: drawn, returnByValue: true })).result.value;
   off();
   if (!html) problems.push(drawn === STAGE ? 'renders an empty stage' : 'renders an empty page');
   return [...new Set(problems)];
@@ -181,6 +184,7 @@ async function withChrome(fn) {
     chrome = await launch(dir);
     await chrome.cdp('Runtime.enable');
     await chrome.cdp('Log.enable');
+    await chrome.cdp('Page.enable');
     return await fn(chrome);
   } finally {
     await chrome?.close();

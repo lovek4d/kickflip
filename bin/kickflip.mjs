@@ -297,9 +297,11 @@ function tailnetHost() {
 }
 const siteUrl = (route) => { const h = tailnetHost(); return h ? `https://${h}/${route}/` : `http://127.0.0.1:${HUB_PORT}/${route}/`; };
 
+// The hub's status, or null when nothing answers on its port. A hub that is down refuses at once, so a slow one is
+// waited for (docs/adr/2026-11-13-2230-kickflip-waits-for-a-slow-hub.md).
 async function hubStatus() {
   try {
-    const r = await fetch(`http://127.0.0.1:${HUB_PORT}/_hub/status.json`, { signal: AbortSignal.timeout(1500) });
+    const r = await fetch(`http://127.0.0.1:${HUB_PORT}/_hub/status.json`);
     return await r.json();
   } catch { return null; }
 }

@@ -34,11 +34,13 @@ const AGENTS = {
   },
 };
 
-// How long a launch waits for the agent to name its session before going on without it.
+// How long a launch waits for the agent to name its session before going on without it, so a pull never stalls on an
+// agent that stays silent (docs/adr/2026-11-13-2234-a-limit-a-person-sees-stays-and-its-test-passes-the-runner.md).
 const SESSION_WAIT_MS = 15_000;
 
-// Reads log from offset as it grows until a line names the session, the child exits, or the wait runs out. → the id or null.
-function sessionOf(child, log, offset, session) {
+// Reads log from offset as it grows until a line names the session, the child exits, or wait ms run out (never, for
+// Infinity). → the id or null.
+function sessionOf(child, log, offset, session, wait) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (id) => { if (done) return; done = true; clearInterval(poll); clearTimeout(cap); child.off('exit', exited); resolve(id); };
@@ -47,7 +49,7 @@ function sessionOf(child, log, offset, session) {
       for (const line of text.split('\n')) { const id = session(line); if (id) return finish(id); }
     };
     const poll = setInterval(scan, 100);
-    const cap = setTimeout(() => finish(null), SESSION_WAIT_MS);
+    const cap = Number.isFinite(wait) ? setTimeout(() => finish(null), wait) : undefined;
     const exited = () => { scan(); finish(null); };
     child.once('exit', exited);
   });
@@ -55,9 +57,10 @@ function sessionOf(child, log, offset, session) {
 
 // Starts an agent of kind (claude | codex) on prompt, detached in cwd, without the launching session's CLAUDE_*
 // environment, its output going to log as it runs. model is Claude's (opus | sonnet); resume a Claude session id to carry
-// on; site is the board's site folder. bin overrides the kind's binary. → {pid, sessionId, log} once it has named its session (sessionId null if it exited
-// or took too long first); rejects when it can't start.
-export function launchAgent({ kind, model, cwd, site, prompt, log, bin, resume }) {
+// on; site is the board's site folder. bin overrides the kind's binary. sessionWait is how many ms to wait for the session
+// id. → {pid, sessionId, log} once it has named its session (sessionId null if it exited or took too long first); rejects
+// when it can't start.
+export function launchAgent({ kind, model, cwd, site, prompt, log, bin, resume, sessionWait = SESSION_WAIT_MS }) {
   const agent = AGENTS[kind];
   if (!agent) throw new Error(`no agent of kind ${kind}`);
   const command = bin ?? agent.bin();
@@ -70,7 +73,7 @@ export function launchAgent({ kind, model, cwd, site, prompt, log, bin, resume }
     const child = spawn(command, agent.args({ prompt, model, cwd, site, resume }), { cwd, env, detached: true, stdio: ['ignore', out, out] });
     child.once('spawn', async () => {
       fs.closeSync(out);
-      const sessionId = await sessionOf(child, log, offset, agent.session);
+      const sessionId = await sessionOf(child, log, offset, agent.session, sessionWait);
       child.unref();
       resolve({ pid: child.pid, sessionId, log });
     });

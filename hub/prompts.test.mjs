@@ -306,6 +306,17 @@ test('the hook accepts an immediate remembered allow without polling and rejects
   }
 });
 
+// docs/adr/2026-11-13-2232-the-permission-hook-waits-for-a-slow-hub-to-take-its-prompt.md
+test('the hook waits for a hub that is slow to take its prompt, rather than denying it as unreachable', async () => {
+  // A hub slower than any time limit: a POST that carries one is cut off before the hub answers.
+  const slowHub = `globalThis.fetch = async (url, opts) => {
+    if (opts?.method !== 'POST') throw new Error('unexpected poll');
+    if (opts.signal) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    return { ok: true, json: async () => ({ state: 'answered', answer: { choice: 'allow' } }) };
+  };`;
+  assert.deepEqual(decision(await runHook(bash('npm test'), 1, slowHub)), { behavior: 'allow' });
+});
+
 async function fakeHub({ answer, deadlineIn = WAIT_MS }) {
   const seen = { posted: [], deleted: [] };
   const server = http.createServer(async (req, res) => {
