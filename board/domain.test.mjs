@@ -6,12 +6,11 @@ import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, n
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
 
-function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft, moved, alive, commandRunning } = {}) {
+function board({ agents = {}, pr = greenDraft, owner = {}, events = [], topicItems = {}, now, held = false, threads = {}, item = {}, fromWaves = true, skipDraft, moved, alive } = {}) {
   return buildBoard({
     now,
     moved,
     alive,
-    commandRunning,
     skipDraft,
     topicItems,
     threads,
@@ -78,12 +77,12 @@ test('a green draft waits on Ready in In Review until a builder works on it', ()
   const record = { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Record line', progress_at: '2026-10-23T10:06:00Z' };
   const earlier = { ts: '2026-10-23T09:00:00Z', who: 'claude', kind: 'status', text: 'Previous run' };
   const fresh = board({ now: Date.parse(record.started), agents: { A1: { main: record } }, threads: { 'w/A1': [earlier] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual(fresh.builder, { progress: null, phase: null, at: record.started, kind: null, planner: false, stale: false, silentSince: record.started, alive: null, held: false, quiet: false, stopped: null });
+  assert.deepEqual(fresh.builder, { progress: null, phase: null, at: record.started, kind: null, planner: false, stale: false, silentSince: record.started, alive: null, held: false, stopped: null });
   const lines = [earlier, { ts: '2026-10-23T10:05:00Z', who: 'claude', kind: 'status', text: 'Running tests' }, { ts: '2026-10-23T10:07:00Z', who: 'claude', text: 'Halfway.' }];
   const busy = board({ now: Date.parse('2026-10-23T10:07:00Z'), agents: { A1: { main: record } }, threads: { 'w/A1': lines } });
   const item = busy.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([item.lane, item.waitsOn, item.action], ['progress', 'builder', null]);
-  assert.deepEqual(item.builder, { progress: 'Running tests', phase: null, at: '2026-10-23T10:05:00Z', kind: null, planner: false, stale: false, silentSince: '2026-10-23T10:05:00Z', alive: null, held: false, quiet: false, stopped: null });
+  assert.deepEqual(item.builder, { progress: 'Running tests', phase: null, at: '2026-10-23T10:05:00Z', kind: null, planner: false, stale: false, silentSince: '2026-10-23T10:05:00Z', alive: null, held: false, stopped: null });
   const finished = board({ agents: { A1: { main: { label: 'Opus builder', started: '2026-10-23T10:00:00Z', progress: 'Running tests', progress_at: '2026-10-23T10:05:00Z', eta: '2026-10-23T11:00:00Z', done: '2026-10-23T10:30:00Z' } } } });
   const after = finished.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([after.lane, after.waitsOn, after.builder, after.eta], ['review', 'ready', null, null]);
@@ -213,33 +212,33 @@ test('only a run that can change its code moves an In Review card to In Progress
   assert.equal(lane({ main: { kind: 'claude', label: 'Lander', started: at } }, null, { lane: 'progress' }), 'progress');
 });
 
-test('a builder goes stale after 10 minutes without progress or transcript movement, clears on either or done, and ignores ordinary thread lines', () => {
+test('a builder goes stale after 15 minutes without progress or transcript movement, clears on either or done, and ignores ordinary thread lines', () => {
   const started = '2026-10-30T10:00:00Z';
   const record = { kind: 'codex', started };
   const card = (minutes, lines = [], agent = record, moved) => board({
     now: Date.parse(started) + minutes * 60000,
     agents: { A1: { main: agent } }, threads: { 'w/A1': lines }, moved,
   }).items.find((i) => i.key === 'w/A1');
-  for (const minutes of [9, 10, 11]) {
+  for (const minutes of [14, 15, 16]) {
     const builder = card(minutes).builder;
-    assert.deepEqual([builder.stale, builder.silentSince, builder.at], [minutes >= 10, started, started]);
+    assert.deepEqual([builder.stale, builder.silentSince, builder.at], [minutes >= 15, started, started]);
   }
   const progress = { ts: '2026-10-30T10:20:00Z', kind: 'status', text: 'Running tests' };
-  assert.deepEqual([card(31, [progress]).builder.stale, card(31, [progress]).builder.silentSince], [true, progress.ts]);
-  assert.equal(card(29, [progress]).builder.stale, false);
-  assert.equal(card(31, [progress, { ts: '2026-10-30T10:30:00Z', who: 'claude', text: 'Checking.' }]).builder.stale, true);
+  assert.deepEqual([card(36, [progress]).builder.stale, card(36, [progress]).builder.silentSince], [true, progress.ts]);
+  assert.equal(card(34, [progress]).builder.stale, false);
+  assert.equal(card(36, [progress, { ts: '2026-10-30T10:30:00Z', who: 'claude', text: 'Checking.' }]).builder.stale, true);
   assert.equal(card(31, [{ ...progress, ts: '2026-10-30T09:59:00Z' }]).builder.silentSince, started);
   assert.equal(card(31, [], { ...record, done: '2026-10-30T10:30:00Z' }).builder, null);
   assert.equal(card(31, [], { kind: 'codex' }).builder, null);
 });
 
-test("a headless builder's transcript changing within 10 minutes keeps it from reading Stalled, and an unread transcript falls back to progress lines", () => {
+test("a headless builder's transcript changing within 15 minutes keeps it from reading Stalled, and an unread transcript falls back to progress lines", () => {
   const worktree = { path: '/w/GH-1' };
   const record = { kind: 'claude', started: '2026-10-30T10:00:00Z', worktree };
   const card = (minutes, moved) => board({ now: Date.parse(record.started) + minutes * 60000, agents: { A1: { main: record } }, moved }).items.find((i) => i.key === 'w/A1').builder;
   const at = (minutes) => Date.parse(record.started) + minutes * 60000;
   assert.deepEqual([card(40, { '/w/GH-1': at(35) }).stale, card(40, { '/w/GH-1': at(35) }).silentSince], [false, new Date(at(35)).toISOString()]);
-  assert.equal(card(46, { '/w/GH-1': at(35) }).stale, true);
+  assert.equal(card(50, { '/w/GH-1': at(35) }).stale, true);
   assert.equal(card(40, { '/w/GH-1': at(1) }).stale, true);
   assert.equal(card(40, {}).stale, true);
   assert.equal(card(40, undefined).stale, true);
@@ -1760,7 +1759,7 @@ test('a bumped ready card the host holds reads so, and only the bump', () => {
 });
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
-test('a paused build reads its pause, neither live nor stale once paused, and a pausing one reads quiet', () => {
+test('a paused build reads its pause, neither live nor stale once paused', () => {
   const now = Date.parse('2026-11-09T12:00:00.000Z');
   const record = (pause) => ({ A1: { main: { label: 'Builder', kind: 'claude', started: '2026-11-09T10:00:00.000Z', session: { pid: 4, at: '2026-11-09T10:00:00.000Z' }, pause } } });
   const build = (pause, alive) => buildBoard({ fromWaves: false, now, events: [], alive: { 'w/A1': alive },
@@ -1768,7 +1767,7 @@ test('a paused build reads its pause, neither live nor stale once paused, and a 
   const paused = build({ cause: 'blocked', words: 'blocked by #61', at: '2026-11-09T11:00:00.000Z', paused: '2026-11-09T11:02:00.000Z' }, false);
   assert.deepEqual([paused.lane, paused.builder.pause, paused.builder.stale, paused.builder.alive, paused.stale], ['progress', { cause: 'blocked', words: 'blocked by #61', paused: true }, false, null, false]);
   const pausing = build({ cause: 'held', words: 'held', at: '2026-11-09T11:59:00.000Z' }, true);
-  assert.deepEqual([pausing.builder.pause.paused, pausing.builder.quiet, pausing.builder.alive], [false, true, true]);
+  assert.deepEqual([pausing.builder.pause.paused, pausing.builder.alive], [false, true]);
 });
 
 // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
@@ -1903,34 +1902,20 @@ test('a triage sees stale reviews beside Todo, and never Done ones, which leave 
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md
 // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md
-test("a headless builder whose process lives reads quiet once its transcript and lines stop for 5 minutes, and stopped the moment its process is gone without done; one with no known process keeps the 10-minute stale limit", () => {
+test("a headless builder whose process lives is never stale however long it is silent, and stopped the moment its process is gone without done; one with no known process goes stale after 15 minutes", () => {
   const worktree = { path: '/w/GH-1' };
   const record = { kind: 'claude', started: '2026-10-30T10:00:00Z', worktree };
   const at = (minutes) => Date.parse(record.started) + minutes * 60000;
   const card = (minutes, { moved, alive } = {}) => board({ now: at(minutes), agents: { A1: { main: record } }, moved, alive }).items.find((i) => i.key === 'w/A1').builder;
-  const running = card(4, { alive: { 'w/A1': true } });
-  assert.deepEqual([running.alive, running.quiet, running.stale], [true, false, false]);
-  const quiet = card(5, { alive: { 'w/A1': true } });
-  assert.deepEqual([quiet.alive, quiet.quiet, quiet.stale], [true, true, false]);
-  // A live process never turns red, however long it is quiet.
-  assert.deepEqual([card(90, { alive: { 'w/A1': true } }).quiet, card(90, { alive: { 'w/A1': true } }).stale], [true, false]);
-  assert.equal(card(40, { alive: { 'w/A1': true }, moved: { '/w/GH-1': at(38) } }).quiet, false);
+  assert.equal('quiet' in card(5, { alive: { 'w/A1': true } }), false);
+  // A live process is never stale, however long it is silent.
+  assert.deepEqual([card(90, { alive: { 'w/A1': true } }).alive, card(90, { alive: { 'w/A1': true } }).stale], [true, false]);
   const stopped = card(1, { alive: { 'w/A1': false } });
-  assert.deepEqual([stopped.alive, stopped.quiet, stopped.stale], [false, false, true]);
-  const untracked = card(9, { alive: {} });
-  assert.deepEqual([untracked.alive, untracked.quiet, untracked.stale], [null, false, false]);
-  assert.equal(card(10, { alive: {} }).stale, true);
-});
-
-// docs/adr/2026-11-05-1403-a-running-command-keeps-a-build-line-blue.md
-test("a live builder with a command running never reads quiet, and an untracked one whose transcript ends on a dangling tool call still goes stale after 10 minutes", () => {
-  const record = { kind: 'claude', started: '2026-10-30T10:00:00Z', worktree: { path: '/w/GH-1' } };
-  const card = (minutes, extra) => board({ now: Date.parse(record.started) + minutes * 60000, agents: { A1: { main: record } }, ...extra }).items.find((i) => i.key === 'w/A1').builder;
-  const live = card(40, { alive: { 'w/A1': true }, commandRunning: { '/w/GH-1': true } });
-  assert.deepEqual([live.quiet, live.stale], [false, false]);
-  assert.equal(card(40, { alive: { 'w/A1': true } }).quiet, true);
-  const untracked = card(10, { alive: {}, commandRunning: { '/w/GH-1': true } });
-  assert.deepEqual([untracked.alive, untracked.stale], [null, true]);
+  assert.deepEqual([stopped.alive, stopped.stale], [false, true]);
+  const untracked = card(14, { alive: {} });
+  assert.deepEqual([untracked.alive, untracked.stale], [null, false]);
+  assert.equal(card(15, { alive: {} }).stale, true);
+  assert.equal(card(30, { alive: {}, moved: { '/w/GH-1': at(20) } }).stale, false, 'transcript movement is a sign of life');
 });
 
 test("a running planner's line is the card's builder line, marked planner, until a build runs, whose line wins; before its first line a planner reads its kind's word, grilling for a grill and prototyping for a prototype", () => {

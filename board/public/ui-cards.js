@@ -188,7 +188,7 @@
   }
   // A builder reads "starting" until its first status line, from the Implement tap or the session's dispatch on, and
   // ends with how long ago that line was set. One whose process is gone leads with stopped; one whose live process
-  // went quiet keeps its words and only turns grey (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+  // is silent keeps its words and colour (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
   // One the orchestrator stopped reads the stop's words and how long ago it stopped
   // (docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md).
   const builderLine = (b) => (b.stopped ? `${b.stopped} · ${lasted(b.silentSince)}`
@@ -215,7 +215,7 @@
     const name = (phase) => `${phase[0].toUpperCase()}${phase.slice(1)}`;
     if (it.builder && it.builder.kind !== BUILDER_KIND.install) {
       const done = BUILD_PHASES.indexOf(it.builder.phase) + 1;
-      return { count: all, done, now: done ? done - 1 : undefined, dim: asking || Boolean(it.builder.stale || it.builder.quiet || it.builder.pause?.paused), label: `${done ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
+      return { count: all, done, now: done ? done - 1 : undefined, dim: asking || Boolean(it.builder.pause?.paused), label: `${done ? `${name(it.builder.phase)}, ${stepWords(it.builder.phase)}` : 'Starting, no step yet'}${answers}` };
     }
     const dim = !it.builder || asking;
     if (it.reopened) return { count: all, done: all, dim, label: `Reopened, ${ALL_DONE}${answers}` };
@@ -243,14 +243,12 @@
     return `<div class="line3 sub agent${tone(it)}${picked && !isPaused() ? '' : ' waiting-gray'}">${words}</div>`;
   }
   // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
-  // A stale build's status line is grey, its dot still, since the orchestrator is already told; a quiet one is grey with
-  // no dot, and one the orchestrator stopped plain.
+  // A stale build's status line and bars keep their lane colour: stale shows only as the footer word. One the
+  // orchestrator stopped has no dot.
   function builderStatus(it) {
-    const { quiet } = it.builder;
-    const stale = it.builder.stale && !it.builder.stopped && it.lane !== 'done';
-    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}${quiet ? ' quiet' : ''}${stale ? ' stale' : ''}`;
+    const classes = `line3 sub agent${it.builder.planner ? ' planner' : ''}${tone(it)}`;
     if (it.builder.stopped) return `<div class="${classes}">${esc(builderLine(it.builder))}</div>`;
-    return `<div class="${classes}">${quiet ? '' : DOT}${esc(builderLine(it.builder))}</div>`;
+    return `<div class="${classes}">${DOT}${esc(builderLine(it.builder))}</div>`;
   }
   // The open card's Status row: what runs on the card, else where its lane leaves it, never the item file's raw status
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).

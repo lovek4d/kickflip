@@ -42,11 +42,8 @@ export const LANES = Object.freeze({ todo: 'Todo', progress: 'In Progress', revi
 // The thread line kind of a card's move from one lane to another (store.mjs moveCard).
 export const MOVE = 'move';
 // How long a run may go without a status line or transcript movement before it reads stale
-// (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
-export const BUILDER_STALE_AFTER = 10 * 60000;
-// How long a headless builder whose process lives may go without a status line or transcript movement before it reads
-// quiet (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
-export const BUILDER_QUIET_AFTER = 5 * 60000;
+// (docs/adr/2026-11-13-2030-stale-is-a-footer-word-after-15-minutes.md).
+export const BUILDER_STALE_AFTER = 15 * 60000;
 // The status line kind (hub-lines.mjs) for a Build tap the board server refused (store.mjs startTappedBuild).
 export const BUILD_REFUSED = 'build-refused';
 // The thread line kinds of a builder's ask and the orchestrator's answer or deferral of it (store.mjs askOrchestrator).
@@ -628,13 +625,11 @@ function reachedPhaseOf(agents, lines = []) {
 // whether the card's headless process lives (server.mjs snapshot alive), null when the board tracks none for it, or
 // 'held' while the board holds its launch for a usage pause: held, never stale, since the board launches it once the
 // pause lifts (server.mjs reviveHeadless), so it is no wait on the orchestrator.
-// commandRunning is whether its transcript ends on a tool call with no result (server.mjs snapshot commandRunning).
-// A live one reads quiet after BUILDER_QUIET_AFTER of silence with no command running, and is never stale; a gone one is stale at once; an
-// untracked one is stale after BUILDER_STALE_AFTER of silence
-// (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
+// A live one is never stale; a gone one is stale at once; an untracked one is stale after BUILDER_STALE_AFTER of silence
+// (docs/adr/2026-11-13-2030-stale-is-a-footer-word-after-15-minutes.md).
 // A run the orchestrator stopped (a record's stopped {run, at}, written since that record last started) reads stopped
 // with its words from the stop, gone and waiting on the orchestrator from then.
-function builderOf(agents, lines = [], now, movedAt = null, alive = null, commandRunning = false) {
+function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
   const open = agents.filter((a) => a.started && !a.done && a.kind !== VISUAL);
   const planner = open.every(plans);
   const running = planner ? open : open.filter(builds);
@@ -652,13 +647,13 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
   const silentSince = stop ? stop.at : movedAt !== null && movedAt > Date.parse(quiet) ? new Date(movedAt).toISOString() : quiet;
   const progress = line ? (line.phase || line.planner ? line.text.replace(': ', ' · ') : line.text || null) : planner ? PLANNER_WORD[kind] : null;
   const silent = now - Date.parse(silentSince);
-  // A build asked to pause reads quiet, its dot gone; once paused it is neither live nor stale, since the board
+  // Once a build asked to pause has paused it is neither live nor stale, since the board
   // resumes it when its cause clears (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
   const pause = planner ? null : running.find((a) => a.pause)?.pause ?? null;
   const held = !planner && !stop && (alive === 'held' || Boolean(pause?.paused));
   const live = planner || held ? null : stop ? false : alive;
   const stale = held ? false : live === null ? silent >= BUILDER_STALE_AFTER : !live;
-  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, quiet: Boolean(pause) || (live === true && !commandRunning && silent >= BUILDER_QUIET_AFTER), stopped: stop ? stoppedWords(stop.run) : null,
+  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
     ...(pause ? { pause: { cause: pause.cause, words: pause.words, paused: Boolean(pause.paused) } } : {}) };
 }
 
@@ -1142,7 +1137,7 @@ export function buildBoard(snapshot) {
       items.push(workItem({
         slug, itemFile, it, order, repo, remote, base: snapshot.branch || 'main',
         prs: cardPRs(it, repo).map((p) => ({ ...p, gh: routeRecord(prs, prKeyOf(p)) || null })),
-        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null, Boolean(snapshot.commandRunning?.[worktreeOf(routeRecord(records, it.id))])), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
+        ...((agents) => ({ agents, builder: builderOf(agents, routeRecord(threads, key), now, snapshot.moved?.[worktreeOf(routeRecord(records, it.id))] ?? null, routeRecord(snapshot.alive, key) ?? null), reachedPhase: reachedPhaseOf(agents, routeRecord(threads, key)), eta: agents.map((a) => a.eta).filter(Boolean).sort().pop() || null }))(agentsOf(routeRecord(records, it.id))),
         worktree: worktreeOf(routeRecord(records, it.id)) ?? it.worktree?.path ?? null,
         thread: lines,
         events: [...inLogOrder(index, [key, ...askKeys].map((k) => index.byKey.get(k))), ...askIds.map((id) => asks.get(id))],

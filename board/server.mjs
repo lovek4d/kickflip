@@ -312,7 +312,7 @@ async function tryLogTail(here, name) {
 // Claude's replies to event <id> are data/replies/<id>.md, .html (written before markdown replies) or .json, then <id>~2.md, <id>~3.md … (store.mjs replyFilesOf).
 import { topicItems } from './review.mjs';
 import { boardWorktree, builderRepo, helperWorktree, moveQueuedLand, prWorktree } from './worktree.mjs';
-import { transcriptMovedAt, transcriptCommandRunning, readRunTranscript } from './transcript.mjs';
+import { transcriptMovedAt, readRunTranscript } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
 import { archOf, readReviews, repoName, startReview } from './arch-review.mjs';
@@ -665,13 +665,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }));
 
     const moved = Object.create(null);
-    const commandRunning = Object.create(null);
     for (const { agents } of files) {
       for (const record of Object.values(agents || {}).flatMap((byAgent) => Object.values(byAgent))) {
         const dir = record.worktree?.path;
         const at = dir && !record.done ? transcriptMovedAt(dir) : null;
         if (at !== null) moved[dir] = at;
-        if (dir && !record.done && transcriptCommandRunning(dir)) commandRunning[dir] = true;
       }
     }
 
@@ -692,7 +690,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }
 
     return {
-      ...items, moved, commandRunning, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
+      ...items, moved, alive, try: await readJSON(path.join(data, 'try.json'), null), main: await readJSON(path.join(data, 'main.json'), null), prs, events: pageEvents, askLinks: await readAskLinks(here),
       checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
       owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
       topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,

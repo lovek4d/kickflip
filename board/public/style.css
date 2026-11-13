@@ -409,13 +409,7 @@ div.status-line { padding-left: 33px; text-indent: -23px; }
 /* docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: a grill, prototype or visual's status
    line, its brief's and its agent's, is blue in every lane, after the lane colours so it wins. */
 .sub.agent.planner { color: var(--color-info); }
-/* docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a quiet builder is grey, after the
-   lane colours so it wins. */
-.sub.agent.quiet { color: var(--muted); }
 .sub.agent.waiting-gray { color: var(--muted); }
-/* A stale build's status line is grey, its dot still (ui-cards.js builderStatus). */
-.sub.agent.stale { color: var(--muted); }
-.sub.agent.stale .working-dot { animation: none; }
 /* The one class every paused status takes, gray: the card and thread line, the header, the hub banner. */
 .paused { color: var(--muted); font-weight: 600; }
 .msg.calls summary { cursor: pointer; color: var(--muted); list-style: none; }

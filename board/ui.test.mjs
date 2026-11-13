@@ -1340,20 +1340,22 @@ test("an owner's message reads its time first in the footer, then sending… or 
 });
 
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
-test('a stale builder has no badge and no nudge: its status line goes grey with its dot still, and the footer reads stale', () => {
-  const builder = { progress: 'Running tests', at: null, stale: true };
+test('a stale builder has no badge and no nudge: its status line and bars keep their colour, and only the footer reads stale', () => {
+  const builder = { progress: 'Running tests', phase: 'testing', at: null, stale: true };
   const html = ui.workLines({ ...workCard, lane: 'progress', stale: true, builder });
-  assert.match(html, /<div class="line3 sub agent in-progress stale"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/div>/);
-  assert.doesNotMatch(html, /<button[^>]*line3|data-confirm="nudge"|Stalled|tone-danger/);
+  assert.match(html, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/div>/);
+  assert.doesNotMatch(html, /<button[^>]*line3|data-confirm="nudge"|Stalled|tone-danger|phase-bars dim/);
   assert.match(html, /<span class="card-stale">stale<\/span>/);
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a builder whose process is gone
-  // reads stopped in the same grey at once, and one whose live process went quiet keeps its words in grey, with no dot.
-  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, alive: false } }), /<div class="line3 sub agent in-progress stale"><span class="working-dot" aria-hidden="true"><\/span>stopped · Running tests<\/div>/);
-  const quiet = ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, stale: false, alive: true, quiet: true } });
-  assert.match(quiet, /<div class="line3 sub agent in-progress quiet">Running tests<\/div>/);
-  assert.doesNotMatch(quiet, /working-dot|stale/);
+  // reads stopped at once, in its lane colour.
+  assert.match(ui.workLines({ ...workCard, lane: 'progress', builder: { ...builder, alive: false } }), /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>stopped · Running tests<\/div>/);
   for (const next of [{ ...builder, stale: false }, null]) assert.doesNotMatch(ui.workLines({ ...workCard, builder: next }), /stale/);
   assert.doesNotMatch(ui.workLines({ ...workCard, lane: 'done', builder }), /class="[^"]*\bstale\b/);
+  const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /\.sub\.agent\.(stale|quiet)/);
+  assert.match(css, /^\.card-stale \{ color: var\(--muted\); \}$/m);
+  assert.match(css, /^\.card-stalled \{ color: var\(--color-danger\); \}$/m);
+  assert.doesNotMatch(css, /nudg|button\.sub/);
 });
 
 test('a card the orchestrator stalled reads red stalled rightmost on the row under its footer, after its Action needed, in place of stale', () => {
@@ -1443,7 +1445,7 @@ test('every In Progress card shows its five phase bars: empty before a phase, fi
     [{ builder: { ...testing, phase: 'reading' } }, { dim: false, label: 'Reading, step 1 of 5', bars: 'now - - - -' }],
     [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ builder: { ...testing, phase: 'landing' } }, { dim: false, label: 'Landing, step 5 of 5', bars: 'done done done done now' }],
-    [{ builder: { ...testing, stale: true } }, { dim: true, label: 'Testing, step 3 of 5', bars: 'done done done - -' }],
+    [{ builder: { ...testing, stale: true } }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
     [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, step 4 of 5', bars: 'done done done now -' }],
     [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
     [{ reachedPhase: 'building', action: questions }, { dim: true, label: 'Stopped at building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
@@ -1529,7 +1531,6 @@ test("a builder line shows the progress and its age, not who is building", () =>
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'starting · 4m');
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'starting');
   assert.equal(ui.builderLine({ progress: null, at, alive: false }), 'stopped · 4m');
-  assert.equal(ui.builderLine({ progress: 'Testing · x', at, quiet: true }), 'Testing · x · 4m');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 
@@ -1722,19 +1723,17 @@ test('a bumped ready card the host holds reads held while host recovers, in grey
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
 test('a paused build reads "pausing · <cause>" in orange, then "paused · <cause>" in grey, its bars dimmed at the phase it stopped at, in place of the block it names', () => {
   const sortAt = ago(40);
-  const builder = { kind: 'claude', phase: 'building', progress: 'Building · Writing the limiter test', at: ago(3), alive: true, quiet: true, stale: false };
+  const builder = { kind: 'claude', phase: 'building', progress: 'Building · Writing the limiter test', at: ago(3), alive: true, stale: false };
   const card = { ...workCard, lane: 'progress', pr: null, prs: [], reviewers: [], next: null, sortAt, deps: ['w/B1'], blockedBy: [{ key: 'w/B1', ref: '#61' }], blocked: true };
   const pausing = ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: false } } });
   assert.match(lines(pausing).at(-1), new RegExp(`^${ui.cardTime(sortAt)} · pausing · blocked by #61 ·`));
-  assert.match(pausing, /<span class="card-pausing">pausing · blocked by #61<\/span><span class="sep"> · <\/span><span class="phase-bars dim"/);
+  assert.match(pausing, /<span class="card-pausing">pausing · blocked by #61<\/span><span class="sep"> · <\/span><span class="phase-bars"/);
   assert.match(pausing, /Building · Writing the limiter test/, 'its progress line stays');
-  assert.doesNotMatch(pausing, /working-dot/);
   const paused = ui.workLines({ ...card, builder: { ...builder, held: true, alive: null, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
   assert.match(paused, /<span class="card-paused">paused · blocked by #61<\/span>/);
   assert.match(paused, /aria-label="Building, step 2 of 5"/);
-  const awake = { ...builder, quiet: false };
-  assert.match(ui.workLines({ ...card, builder: { ...awake, pause: { cause: 'blocked', words: 'blocked by #61', paused: false } } }), /<span class="phase-bars"/, 'a pausing build runs on, its bars lit');
-  const pausedAwake = ui.workLines({ ...card, builder: { ...awake, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
+  assert.match(ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: false } } }), /<span class="phase-bars"/, 'a pausing build runs on, its bars lit');
+  const pausedAwake = ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
   assert.match(pausedAwake, /<span class="phase-bars dim"[^>]*aria-label="Building, step 2 of 5"/, 'a paused build dims its bars at the phase it stopped at');
   assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: true } } }), 'paused');
   assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: false } } }), 'pausing');

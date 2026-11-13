@@ -85,7 +85,7 @@ test('a silent builder wakes the session once per silent spell through the orche
   fs.mkdirSync(path.join(dataDir, 'threads'));
   fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(path.join(dataDir, 'items.json'), JSON.stringify({ items: [{ id: 'A1', lane: 'progress', title: 'One' }] }));
-  const started = iso(clock.at - 9 * 60000);
+  const started = iso(clock.at - 14 * 60000);
   fs.writeFileSync(agentFile, JSON.stringify({ kind: 'codex', started }));
   const waits = () => JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits;
   const wakes = () => lines(path.join(dataDir, 'events.jsonl')).filter((e) => e.kind === 'orchestrator-waits').map((e) => e.data);

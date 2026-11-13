@@ -3963,13 +3963,13 @@ test('Hold opens a sheet of the shared duration picker in place of a confirm, wh
 });
 
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
-test("a stale card's grey status line is no button, closed or open, and a stalled card's Send is the orange control that clears its Action needed", async () => {
+test("a stale card's status line is no button, closed or open, and a stalled card's Send is the orange control that clears its Action needed", async () => {
   for (const open of [[], ['w/S1']]) {
     const item = workCard('S1', { lane: 'progress', stale: true, builder: { stale: true, progress: 'Running tests', at: null } });
     const b = boardOnDom({ open, board: boardOf([item]), threads: { 'w/S1': [] } });
     await b.settle();
     const line = b.root.querySelector('summary .line3.agent');
-    assert.deepEqual([line.tagName.toLowerCase(), line.classList.contains('stale'), line.textContent], ['div', true, 'Running tests']);
+    assert.deepEqual([line.tagName.toLowerCase(), line.classList.contains('stale'), line.textContent], ['div', false, 'Running tests']);
     assert.equal(b.root.querySelector('[data-confirm="nudge"]'), null);
     b.view.unmount();
   }
