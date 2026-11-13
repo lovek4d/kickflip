@@ -32,20 +32,16 @@ test('the repo build script announces a private working hub that never runs the 
   };
   t.after(async () => {
     signal('SIGTERM');
-    let timer;
     try {
-      await Promise.race([close, new Promise((resolve) => { timer = setTimeout(resolve, 5000); })]);
-    } finally {
-      clearTimeout(timer);
-      signal('SIGKILL');
       await close;
+    } finally {
+      signal('SIGKILL');
       fs.rmSync(home, { recursive: true, force: true });
     }
   });
   child.stderr.on('data', (chunk) => { stderr += chunk; });
   const port = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`No port line within 30 seconds: ${stderr}`)), 30_000);
-    const finish = (error, value) => { clearTimeout(timer); if (error) reject(error); else resolve(value); };
+    const finish = (error, value) => { if (error) reject(error); else resolve(value); };
     child.stdout.on('data', (chunk) => {
       stdout += chunk;
       const match = /^port (\d+)\r?$/m.exec(stdout);
@@ -60,14 +56,9 @@ test('the repo build script announces a private working hub that never runs the 
   assert.equal(response.status, 200);
   await response.text();
   assert.equal(closed, false, stderr);
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  // The hub prints `hub on` only after it has initialised its tries (hub/hub.mjs awaits initializeTries before it
+  // listens), so its startup calls to tailscale are over by the port line.
   assert.equal(fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : '', '');
   signal('SIGTERM');
-  await Promise.race([
-    close,
-    new Promise((_, reject) => {
-      const timer = setTimeout(() => reject(new Error(`Build script did not stop: ${stderr}`)), 5000);
-      close.then(() => clearTimeout(timer));
-    }),
-  ]);
+  await close;
 });

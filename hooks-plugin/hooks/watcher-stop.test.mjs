@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { fakePs, freePorts } from '../../shared/test-helpers.mjs';
+import { fakePs } from '../../shared/test-helpers.mjs';
 import { watcherRunning } from '../../hub/boards.mjs';
 
 const hook = fileURLToPath(new URL('./watcher-stop.mjs', import.meta.url));
@@ -57,8 +57,8 @@ test('the Stop hook also blocks once while a message on a board the session owns
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-stop-'));
   let working = [{ id: 'e7', kind: 'ask', card: 'INT-3', since: '2026-11-02T10:00:00Z' }, { id: 'e8', kind: 'wave-triage', card: null, since: '2026-11-02T10:01:00Z' }];
   const server = http.createServer((req, res) => res.end(JSON.stringify(req.url === '/api/working' ? { working } : {})));
-  const [port] = await freePorts();
-  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
   t.after(() => { server.close(); fs.rmSync(home, { recursive: true, force: true }); });
   const dir = path.join(home, '.claude', 'kickflip', 'sites', 'orch');
   write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: { orch: { dir, port, cmd: [process.execPath, '/skill/board/server.mjs', dir], owner: { session: 's1' } } } });

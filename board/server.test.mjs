@@ -1715,7 +1715,7 @@ test("the board's version depends on its data alone: a minute later with nothing
       const later = await get();
       console.log(JSON.stringify({ versions: [first.version, later.version], times: [first.generatedAt, later.generatedAt], holdChoices: later.holdChoices }));
       process.exit(0);
-    `], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir }, encoding: 'utf8', timeout: 20000 });
+    `], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir }, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const out = JSON.parse(result.stdout);
     assert.notEqual(out.times[0], out.times[1]);
@@ -1761,7 +1761,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
       if (state()) throw new Error('turning it off kept the stretch');
       console.log(JSON.stringify({ pushes: pushes() }));
       process.exit(0);
-    `], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PREFIX: '', KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8', timeout: 60000 });
+    `], { env: { ...process.env, KICKFLIP_CLAUDE: 'true', KICKFLIP_CODEX: 'true', HOME: dir, PREFIX: '', KICKFLIP_PUSH_CMD: JSON.stringify([process.execPath, path.join(dir, 'push-stub.mjs'), 'push']), STUB_CALLS: calls }, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const out = JSON.parse(result.stdout.trim().split('\n').at(-1));
     const [push] = out.pushes;

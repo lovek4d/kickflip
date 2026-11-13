@@ -355,11 +355,12 @@ test("a reply, a build's start and a later builder start each resolve the answer
 });
 
 test('item set --install records a device build with when it was built, takes only https or an iOS manifest link, and --clear-install removes it', async () => {
+  const before = Date.now();
   const ios = 'itms-services://?action=download-manifest&url=https://mac.ts.net/orch/installs/w-A1/manifest.plist';
   assert.equal((await board('item', 'set', 'w/A1', '--site', 'orch', '--install', ios, '--install-sha', 'ABCDEF1234', '--install-label', 'Install beta')).code, 0);
   const { built_at, ...install } = read(at('waves', 'w', 'wave.json')).items[0].install;
   assert.deepEqual(install, { url: ios, label: 'Install beta', sha: 'abcdef1234' });
-  assert.ok(Math.abs(Date.parse(built_at) - Date.now()) < 60000);
+  assert.ok(Date.parse(built_at) >= before && Date.parse(built_at) <= Date.now());
   assert.equal((await board('item', 'set', 'audit/A1', '--site', 'audit', '--install', 'https://mac.ts.net/audit/installs/audit-A1/app.apk')).code, 0);
   assert.deepEqual(Object.keys(read(site('audit', 'data', 'items.json')).items[0].install), ['url', 'built_at']);
   for (const [args, err] of [

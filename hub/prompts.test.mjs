@@ -19,11 +19,10 @@ const freePort = () => new Promise((resolve, reject) => { const s = http.createS
 
 function runHook(input, port, preload) {
   return new Promise((resolve) => {
-    const t = Date.now();
     const child = spawn(process.execPath, [...(preload ? ['--import', `data:text/javascript,${encodeURIComponent(preload)}`] : []), HOOK], { env: { ...process.env, KICKFLIP_HUB_PORT: String(port) } });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
-    child.on('close', (status) => resolve({ status, out: out ? JSON.parse(out) : null, ms: Date.now() - t }));
+    child.on('close', (status) => resolve({ status, out: out ? JSON.parse(out) : null }));
     child.stdin.end(JSON.stringify(input));
   });
 }
@@ -314,17 +313,16 @@ test('the hook waits for a hub that is slow to take its prompt, rather than deny
   assert.deepEqual(decision(await runHook(bash('npm test'), 1, slowHub)), { behavior: 'allow' });
 });
 
-async function fakeHub({ answer, deadlineIn = WAIT_MS }) {
+async function fakeHub({ answer }) {
   const seen = { posted: [], deleted: [] };
   const server = http.createServer(async (req, res) => {
     let body = '';
     for await (const c of req) body += c;
     const json = (code, v) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(v)); };
-    if (req.method === 'POST' && req.url === '/_hub/prompts') { seen.posted.push(JSON.parse(body)); return json(200, { id: 'p1', deadline: new Date(Date.now() + deadlineIn).toISOString() }); }
+    if (req.method === 'POST' && req.url === '/_hub/prompts') { seen.posted.push(JSON.parse(body)); return json(200, { id: 'p1', deadline: new Date(Date.now() + WAIT_MS).toISOString() }); }
     if (req.method === 'DELETE') { seen.deleted.push(req.url); return json(200, { ok: true }); }
     if (answer === 'gone') return json(404, { state: 'gone' });
-    if (answer) return json(200, { state: 'answered', answer });
-    setTimeout(() => json(200, { state: 'pending' }), 200);
+    return json(200, { state: 'answered', answer });
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   return { port: server.address().port, seen, close: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }) };
@@ -367,26 +365,32 @@ test("an AskUserQuestion is allowed with the owner's picks as its answers, besid
   } finally { await hub.close(); }
 });
 
-test("the hook denies with a note when no answer comes by the hub's deadline, telling the hub it gave up, when the hub drops the prompt, and at once when the hub can't be reached", async (t) => {
-  // Each wait has a budget: over it warns, and only five times it fails, so a loaded host doesn't fail the run.
-  const timed = (r, budget, what) => {
-    t.diagnostic(`${what}: ${r.ms} ms`);
-    if (r.ms > budget) console.warn(`the hook ${what} in ${r.ms} ms, over its ${budget} ms budget`);
-    assert.ok(r.ms < budget * 5, `the hook ${what} in ${r.ms} ms, five times its ${budget} ms budget`);
-  };
-  const quiet = await fakeHub({ answer: null, deadlineIn: 1500 });
-  try {
-    const r = await runHook(bash('npm test'), quiet.port);
-    assert.deepEqual(decision(r), { behavior: 'deny', message: NO_ANSWER });
-    assert.ok(r.ms >= 1400, `the hook gave up at ${r.ms} ms, before the hub's 1500 ms deadline`);
-    timed(r, 2500, 'gave up at the deadline');
-    assert.deepEqual(quiet.seen.deleted, ['/_hub/prompts/p1']);
-  } finally { await quiet.close(); }
+test("the hook denies with a note when no answer comes by the hub's deadline, telling the hub it gave up, when the hub drops the prompt, and when the hub can't be reached", async () => {
+  // The hook's clock and fetch are faked by preload: each wait the hub answers pending moves the clock on by the wait it asked for.
+  const log = path.join(home, 'hook-calls.jsonl');
+  const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+  const preload = (reachable) => `import fs from 'node:fs';
+    let now = Date.parse('2026-11-13T10:00:00Z');
+    Date.now = () => now;
+    globalThis.fetch = async (url, opts = {}) => {
+      const method = opts.method ?? 'GET';
+      fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ method, path: new URL(url).pathname }) + '\\n');
+      if (!${reachable}) throw new TypeError('fetch failed');
+      const json = (v) => ({ ok: true, status: 200, json: async () => v });
+      if (method === 'POST') return json({ id: 'p1', deadline: new Date(now + 1500).toISOString() });
+      if (method === 'DELETE') return json({ ok: true });
+      now += Number(new URL(url).searchParams.get('ms'));
+      return json({ state: 'pending' });
+    };`;
+  assert.deepEqual(decision(await runHook(bash('npm test'), 1, preload(true))), { behavior: 'deny', message: NO_ANSWER });
+  const made = calls();
+  assert.deepEqual([made[0], made.at(-1)], [{ method: 'POST', path: '/_hub/prompts' }, { method: 'DELETE', path: '/_hub/prompts/p1' }]);
+  assert.ok(made.slice(1, -1).every((c) => c.method === 'GET' && c.path === '/_hub/prompts/p1/wait'));
   const gone = await fakeHub({ answer: 'gone' });
   try { assert.deepEqual(decision(await runHook(bash('npm test'), gone.port)), { behavior: 'deny', message: DROPPED }); } finally { await gone.close(); }
-  const r = await runHook(bash('npm test'), await freePort());
-  assert.deepEqual(decision(r), { behavior: 'deny', message: UNREACHABLE });
-  timed(r, 1000, 'gave up on an unreachable hub');
+  fs.rmSync(log);
+  assert.deepEqual(decision(await runHook(bash('npm test'), 1, preload(false))), { behavior: 'deny', message: UNREACHABLE });
+  assert.deepEqual(calls(), [{ method: 'POST', path: '/_hub/prompts' }]);
 });
 
 test("a pending prompt expires once its hook stops polling or never takes its answer, with the hub's downtime not counted against it", () => {

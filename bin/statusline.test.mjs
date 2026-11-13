@@ -1,5 +1,6 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -132,12 +133,8 @@ test('status line flushes output before attempting a blocked usage read', async 
   const child = spawn(process.execPath, [script], { env: env(), stdio: ['pipe', 'pipe', 'pipe'] });
   try {
     child.stdin.end(JSON.stringify({ model: { display_name: 'Opus' }, rate_limits: {} }));
-    const output = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('output waited for the usage write')), 3000);
-      child.stdout.once('data', (data) => { clearTimeout(timer); resolve(data.toString()); });
-      child.once('error', (error) => { clearTimeout(timer); reject(error); });
-    });
-    assert.equal(output, 'Opus\n');
+    const [data] = await once(child.stdout, 'data');
+    assert.equal(data.toString(), 'Opus\n');
     assert.equal(child.exitCode, null);
   } finally {
     const exited = new Promise((resolve) => child.once('exit', resolve));

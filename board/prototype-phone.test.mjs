@@ -88,14 +88,10 @@ async function phoneProbe({ header = '', probe }) {
   });
   await new Promise((ok) => server.listen(0, ok));
   try {
-    // Chrome under load can crash before it dumps the DOM, or exit non-zero at teardown after it has; its output is read either
-    // way, and a run that returned no probe is run once more.
-    let posted;
-    for (let attempt = 0; attempt < 2 && !posted; attempt++) {
-      const { stdout } = await promisify(execFile)(CHROME, ['--headless=new', '--disable-gpu', '--window-size=390,900', '--virtual-time-budget=6000', '--dump-dom',
-        `http://localhost:${server.address().port}/frame.html`], { encoding: 'utf8', timeout: 60000 }).catch((e) => ({ stdout: e.stdout || '' }));
-      posted = /<pre id="probe">(.*?)<\/pre>/s.exec(stdout)?.[1];
-    }
+    // Chrome can exit non-zero at teardown after it has dumped the DOM; its output is read on any exit.
+    const { stdout } = await promisify(execFile)(CHROME, ['--headless=new', '--disable-gpu', '--window-size=390,900', '--virtual-time-budget=6000', '--dump-dom',
+      `http://localhost:${server.address().port}/frame.html`], { encoding: 'utf8' }).catch((e) => ({ stdout: e.stdout || '' }));
+    const posted = /<pre id="probe">(.*?)<\/pre>/s.exec(stdout)?.[1];
     assert.ok(posted, 'the page reported its layout');
     return JSON.parse(posted.replace(/&quot;/g, '"'));
   } finally { server.close(); }

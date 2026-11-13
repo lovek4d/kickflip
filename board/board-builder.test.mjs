@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts } from '../shared/test-helpers.mjs';
 import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, toolUse, toolResult, stopHook, ago, onHome, pollClock } from './board-fixture.mjs';
 import * as store from './store.mjs';
 
@@ -349,8 +348,7 @@ test("builder start stores the installed link for the kickflip fallback repo, an
   git(clone, 'commit', '--quiet', '-m', 'kickflip fixture');
   const { installLinks } = await import('../bin/install.mjs');
   const [{ link }] = installLinks({ home, cloneRoot: clone });
-  const [hubPort] = await freePorts();
-  const start = (...args) => spawnSync(process.execPath, [path.join(link, 'board', 'bin', 'board.mjs'), ...args, 'builder', 'start', 'w/A1', '--worktree'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: String(hubPort) }, encoding: 'utf8' });
+  const start = (...args) => spawnSync(process.execPath, [path.join(link, 'board', 'bin', 'board.mjs'), ...args, 'builder', 'start', 'w/A1', '--worktree'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' }, encoding: 'utf8' });
   const result = start();
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(read(at('waves', 'w', 'agents', 'A1.json')).worktree, { path: worktree(), branch: 'A1', repo: link });

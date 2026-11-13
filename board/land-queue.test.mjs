@@ -130,16 +130,18 @@ test('a land asked for a card already landing joins that land: it waits for it t
   assert.deepEqual(other, [1, 2]);
 });
 
+// The waiter's 5 s recheck can never fire (setTimeout is mocked), so a waiter that finishes was woken by the watch or the
+// immediate recheck, not the timer.
+const noRecheck = (t) => t.mock.timers.enable({ apis: ['setTimeout'] });
+
 test('a land waiting for the lock wakes when it frees, not on a timer', async (t) => {
   home(t);
-  let freed = 0;
-  const first = holdingLandLock('#1', async () => { await sleep(200); freed = Date.now(); });
-  await sleep(50);
-  let woke = 0;
-  await Promise.all([first, holdingLandLock('#2', async () => { woke = Date.now(); })]);
-  const ms = woke - freed;
-  if (ms > 100) console.warn(`the waiter woke ${ms} ms after the lock freed`);
-  assert.ok(ms < 1000, `the waiter woke ${ms} ms after the lock freed`);
+  noRecheck(t);
+  let release;
+  const first = holdingLandLock('#1', () => new Promise((r) => { release = r; }));
+  let ran = false;
+  await Promise.all([first, holdingLandLock('#2', async () => { ran = true; }, { onWait: () => release() })]);
+  assert.equal(ran, true);
 });
 
 // A free the instant a waiter starts watching, while other watches in the process open and close (on macOS each one
@@ -149,52 +151,47 @@ function churnWatches(t) {
   const timer = setInterval(() => fs.watch(dir).close(), 1);
   t.after(() => { clearInterval(timer); fs.rmSync(dir, { recursive: true, force: true }); });
 }
-const woke = (ms, what) => {
-  if (ms > 100) console.warn(`the waiter woke ${ms} ms after ${what}`);
-  assert.ok(ms < 1000, `the waiter woke ${ms} ms after ${what}`);
-};
 
 test('a lock freed the moment its waiter starts watching still wakes the waiter', async (t) => {
   home(t);
   churnWatches(t);
+  noRecheck(t);
   for (let i = 0; i < 5; i++) {
     let release;
-    let freed = 0;
     const first = holdingLandLock('#1', () => new Promise((r) => { release = r; }));
-    let started = 0;
-    await Promise.all([first, holdingLandLock('#2', async () => { started = Date.now(); }, { onWait: () => { freed = Date.now(); release(); } })]);
-    woke(started - freed, 'the lock freed');
+    let ran = false;
+    await Promise.all([first, holdingLandLock('#2', async () => { ran = true; }, { onWait: () => release() })]);
+    assert.equal(ran, true);
   }
 });
 
 test('an ask ahead that leaves the moment its waiter starts watching still wakes the waiter', async (t) => {
   home(t);
   churnWatches(t);
+  noRecheck(t);
   for (let i = 0; i < 5; i++) {
     let release;
-    let left = 0;
+    let left = false;
     const hold = holdingLandLock('#0', () => new Promise((r) => { release = r; }));
     const ahead = holdingLandLock('#1', async () => {});
     // #2 waits behind #1's ask; the lock frees the moment it starts waiting, so #1 takes it and its ask leaves.
-    let started = 0;
-    await Promise.all([hold, ahead, holdingLandLock('#2', async () => { started = Date.now(); }, { onWait: () => { if (!left) { left = Date.now(); release(); } } })]);
-    woke(started - left, 'the ask ahead left');
+    let ran = false;
+    await Promise.all([hold, ahead, holdingLandLock('#2', async () => { ran = true; }, { onWait: () => { if (!left) { left = true; release(); } } })]);
+    assert.equal(ran, true);
   }
 });
 
 test('a land that ends the moment another joins it still wakes the joiner', async (t) => {
   home(t);
   churnWatches(t);
+  noRecheck(t);
   for (let i = 0; i < 5; i++) {
     let release;
     const first = joiningLand('#251', () => new Promise((r) => { release = r; }));
-    await sleep(10);
     const second = joiningLand('#251', async () => {});
-    const ended = Date.now();
     release();
     await first;
     assert.deepEqual(await second, { joined: true });
-    woke(Date.now() - ended, 'the land it joined ended');
   }
 });
 

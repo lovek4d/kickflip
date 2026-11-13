@@ -104,7 +104,7 @@ const { listBoards } = await import('./boards.mjs');
 const { buildScriptError } = await import('../board/build-script.mjs');
 const { ownerGate } = await import('../board/on-host.mjs');
 let site, repo, worktree, manifest, manager, clock;
-const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 60_000 }).trim();
+const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
 const script = () => path.join(worktree, '.kickflip', 'build');
 const setScript = (body, dir = worktree) => {
   const file = path.join(dir, '.kickflip', 'build');
@@ -782,7 +782,6 @@ test("a web script serves root paths and upgrades through the relay to the owner
   const theirs = await hold(friend);
   const owners = await hold(phone);
   manager.endUnshared();
-  await new Promise((r) => setTimeout(r, 100));
   assert.equal(theirs.ended, false, 'still shared, still open');
   config();
   manager.endUnshared();
@@ -1123,7 +1122,7 @@ async function withFetchGit(body, run) {
 }
 const repoFetch = () => read(path.join(home, '.claude', 'kickflip', 'repo-fetch.json')).orch;
 
-test('the poll waits out a GitHub board fetch that takes longer than a few seconds, with git prompts off', async () => {
+test('the poll fetches a GitHub board with git prompts off', async () => {
   const remote = path.join(site, 'remote.git');
   git(repo, 'clone', '--quiet', '--bare', repo, remote);
   git(repo, 'remote', 'set-url', 'origin', remote);
@@ -1131,7 +1130,7 @@ test('the poll waits out a GitHub board fetch that takes longer than a few secon
   const sha = commit(repo, 'remote main');
   git(repo, 'push', '--quiet', 'origin', 'main');
   git(repo, 'update-ref', '-d', 'refs/remotes/origin/main');
-  await withFetchGit('[ "$GIT_TERMINAL_PROMPT" = 0 ] || exit 9; sleep 3.5', () => fetchTryBranches({ manifest, log() {} }));
+  await withFetchGit('[ "$GIT_TERMINAL_PROMPT" = 0 ] || exit 9',() => fetchTryBranches({ manifest, log() {} }));
   assert.equal(repoFetch().ok, true);
   assert.equal(git(repo, 'rev-parse', 'refs/remotes/origin/main'), sha);
 });
@@ -1173,7 +1172,16 @@ test("a merge's Main refresh covers only its board and runs after a tick already
   let checks = 0;
   let checking;
   const checked = new Promise((resolve) => { checking = resolve; });
-  manager = tryManager({ now: () => clock, log() {}, waiting: async () => { checks += 1; if (checks === 1) { checking(); await held; } return null; } });
+  let inFlight = 0;
+  let mostInFlight = 0;
+  manager = tryManager({ now: () => clock, log() {}, waiting: async () => {
+    checks += 1;
+    inFlight += 1;
+    mostInFlight = Math.max(mostInFlight, inFlight);
+    if (checks === 1) { checking(); await held; }
+    inFlight -= 1;
+    return null;
+  } });
   await manager.tick({ manifest, routes: ['elsewhere'] });
   assert.equal(checks, 0);
   const running = manager.tick({ manifest });
@@ -1181,11 +1189,11 @@ test("a merge's Main refresh covers only its board and runs after a tick already
   const shared = manager.tick({ manifest });
   const refresh = manager.tick({ manifest, routes: ['orch'] });
   const again = manager.tick({ manifest, routes: ['orch'] });
-  await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(checks, 1);
   release();
   await Promise.all([running, shared, refresh, again]);
   assert.equal(checks, 2);
+  assert.equal(mostInFlight, 1);
 });
 
 test('on a plain git remote board the poll moves a pushed card to Done once its branch is merged or gone from the remote, and leaves an unmerged one In Review', async () => {

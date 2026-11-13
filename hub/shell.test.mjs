@@ -3,11 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import os from 'node:os';
-import path from 'node:path';
 import { pageOf, versionAppAssets } from './shell.mjs';
 import { hubStream } from './stream.mjs';
-import { until } from '../shared/test-helpers.mjs';
 
 const boards = new Set(['hub-orchestrator', 'ios']);
 const sites = new Set([...boards, 'learn']);
@@ -86,16 +83,20 @@ test("the shell's /_hub/app/ links name each file's version, and a file with non
 
 function fakeBoard(port = 0) {
   const streams = new Set();
+  const waiting = new Set();
+  const moved = () => { for (const w of waiting) if (streams.size === w.count) { waiting.delete(w); w.resolve(); } };
   const server = http.createServer((req, res) => {
     if (req.url !== '/api/stream') { res.writeHead(404).end(); return; }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write('retry: 3000\n\n');
     streams.add(res);
-    req.on('close', () => streams.delete(res));
+    moved();
+    req.on('close', () => { streams.delete(res); moved(); });
   });
   return new Promise((resolve, reject) => server.once('error', reject).listen(port, '127.0.0.1', () => resolve({
     port: server.address().port,
-    listening: () => streams.size,
+    // Resolves once the board holds exactly count streams.
+    streams: (count) => new Promise((resolve) => { waiting.add({ count, resolve }); moved(); }),
     change: () => { for (const res of streams) res.write(`event: change\ndata: {"at":"${new Date().toISOString()}"}\n\n`); },
     stop: () => new Promise((done) => { for (const res of streams) res.destroy(); server.close(done); }),
   })));
@@ -104,6 +105,8 @@ function fakeBoard(port = 0) {
 const listen = (port) => listenAt(port, '/_hub/stream');
 function listenAt(port, pathname) {
   const events = [];
+  const waiting = new Set();
+  const moved = () => { for (const w of waiting) if (w.predicate(events)) { waiting.delete(w); w.resolve(); } };
   const req = http.get({ host: '127.0.0.1', port, path: pathname }, (res) => {
     res.setEncoding('utf8');
     let buf = '';
@@ -116,13 +119,19 @@ function listenAt(port, pathname) {
         const data = /^data: (.+)$/m.exec(block)?.[1];
         if (type) events.push({ type, data: JSON.parse(data) });
       }
+      moved();
     });
   });
   req.on('error', () => {});
-  return { events, close: () => req.destroy() };
+  // Resolves once predicate(events) holds, checked as each chunk arrives.
+  return { events, close: () => req.destroy(), waitFor: (predicate) => new Promise((resolve) => { waiting.add({ predicate, resolve }); moved(); }) };
 }
 
-test("a board's change reaches /_hub/stream as change {route} with the sidebar's new data, and the stream recovers after the board restarts", async () => {
+// The relay's retry and settle timers run under t.mock.timers, which the test ticks; the pages and boards are awaited by their events.
+const mockTimers = (t) => t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+
+test("a board's change reaches /_hub/stream as change {route} with the sidebar's new data, and the stream recovers after the board restarts", async (t) => {
+  mockTimers(t);
   let board = await fakeBoard();
   const port = board.port;
   let waiting = 0;
@@ -131,23 +140,32 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const page = listen(hub.address().port);
   try {
-    await until(() => board.listening() === 1 && page.events.some((e) => e.type === 'sidebar'), 'the hub connects to the board and sends the initial sidebar');
+    await Promise.all([board.streams(1), page.waitFor((events) => events.some((e) => e.type === 'sidebar'))]);
     assert.deepEqual(page.events, [{ type: 'sidebar', data: { waiting: 0, fresh: [] } }]);
 
     waiting = 1;
     board.change();
-    await until(() => page.events.length === 3, 'the board change and refreshed sidebar reach the page');
+    await page.waitFor((events) => events.some((e) => e.type === 'change'));
+    t.mock.timers.tick(10);
+    await page.waitFor((events) => events.length === 3);
     assert.deepEqual(page.events.slice(1), [{ type: 'change', data: { route: 'ios' } }, { type: 'sidebar', data: { waiting: 1, fresh: ['ios'] } }]);
 
     await board.stop();
     board = await fakeBoard(port);
-    await until(() => board.listening() === 1 && page.events.some((e, i) => i > 2 && e.type === 'change'), 'the hub reconnects after the board restarts');
+    // The hub's retry finds the board's stream gone and connects again: tick it until the restarted board has a stream.
+    let reconnected = false;
+    board.streams(1).then(() => { reconnected = true; });
+    while (!reconnected) {
+      t.mock.timers.tick(30);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await page.waitFor((events) => events.filter((e) => e.type === 'change').length === 2);
     board.change();
-    await until(() => page.events.filter((e) => e.type === 'change').length === 3, 'the restarted board sends its next change');
+    await page.waitFor((events) => events.filter((e) => e.type === 'change').length === 3);
     assert.deepEqual(page.events.filter((e) => e.type === 'change').map((e) => e.data), [{ route: 'ios' }, { route: 'ios' }, { route: 'ios' }]);
 
     page.close();
-    await until(() => board.listening() === 0, 'the hub lets go of the board once no page listens');
+    await board.streams(0);
   } finally {
     page.close();
     relay.close();
@@ -156,37 +174,36 @@ test("a board's change reaches /_hub/stream as change {route} with the sidebar's
   }
 });
 
-test("a watcher file written or removed in a board's data folder sends the sidebar at once, without a board change", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stream-watch-'));
-  fs.mkdirSync(path.join(dir, 'data'));
+test("a watcher file written or removed in a board's data folder sends the sidebar at once, without a board change", async (t) => {
+  mockTimers(t);
+  const dir = '/boards/ios';
+  const watching = [];
+  const watch = (folder, onEvent) => { watching.push({ folder, onEvent }); return { on() {}, close() {} }; };
   let listening = false;
-  let reads = 0;
-  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], sidebar: async () => { reads++; return { listening }; }, retryMs: 30, settleMs: 10, sidebarMs: 60_000 });
+  const relay = hubStream({ targets: () => [], watched: () => [{ route: 'ios', dir }], watch, sidebar: async () => ({ listening }), retryMs: 30, settleMs: 10, sidebarMs: 60_000 });
   const hub = http.createServer((req, res) => relay.handle(req, res));
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const page = listen(hub.address().port);
   try {
-    await until(() => page.events.length === 1, 'the initial sidebar');
-    // A Mac's file watch goes live a moment after fs.watch returns, and under load misses a write made before then. So the
-    // test writes the watcher file, the sidebar unchanged, until the hub reads the sidebar for it.
-    const before = reads;
-    await until(() => { fs.writeFileSync(path.join(dir, 'data', 'watcher.json'), '{}'); return reads > before; }, 'the hub watching the data folder');
+    await page.waitFor((events) => events.length === 1);
+    assert.deepEqual(watching.map((w) => w.folder), ['/boards/ios/data']);
+    const fire = () => { watching[0].onEvent('rename', 'watcher.json'); t.mock.timers.tick(10); };
     listening = true;
-    fs.writeFileSync(path.join(dir, 'data', 'watcher.json'), '{"pid":1}');
-    await until(() => page.events.some((e) => e.data.listening), 'the sidebar after the watcher starts');
+    fire();
+    await page.waitFor((events) => events.some((e) => e.data.listening));
     listening = false;
-    fs.rmSync(path.join(dir, 'data', 'watcher.json'));
-    await until(() => page.events.at(-1).data.listening === false && page.events.length === 3, 'the sidebar after the watcher goes');
+    fire();
+    await page.waitFor((events) => events.at(-1).data.listening === false && events.length === 3);
   } finally {
     page.close();
     relay.close();
     await new Promise((r) => hub.close(r));
-    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 // docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
-test("a shared person's stream carries only their boards' changes and their view of the sidebar", async () => {
+test("a shared person's stream carries only their boards' changes and their view of the sidebar", async (t) => {
+  mockTimers(t);
   const ios = await fakeBoard();
   const web = await fakeBoard();
   let waiting = 0;
@@ -194,16 +211,21 @@ test("a shared person's stream carries only their boards' changes and their view
   const hub = http.createServer((req, res) => relay.handle(req, res, req.url.endsWith('?shared') ? { routes: new Set(['web']), view: (data) => ({ routes: data.routes.filter((r) => r === 'web') }) } : null));
   await new Promise((resolve, reject) => hub.once('error', reject).listen(0, '127.0.0.1', resolve));
   const owner = listen(hub.address().port);
+  const changeOf = (route) => (events) => events.some((e) => e.type === 'change' && e.data.route === route);
   try {
-    await until(() => owner.events.length === 1 && ios.listening() === 1 && web.listening() === 1, 'the owner stream holds both boards');
+    await Promise.all([owner.waitFor((events) => events.length === 1), ios.streams(1), web.streams(1)]);
     const shared = listenAt(hub.address().port, '/_hub/stream?shared');
-    await until(() => shared.events.length === 1, "the shared person's first sidebar");
+    await shared.waitFor((events) => events.length === 1);
     assert.deepEqual(shared.events, [{ type: 'sidebar', data: { routes: ['web'] } }]);
     waiting = 1;
+    // The owner hearing the ios change means the hub has handled it; a web change sent after it is the marker on the
+    // shared stream, which delivers in order, so an ios change meant for it would already be there.
     ios.change();
+    await owner.waitFor(changeOf('ios'));
     web.change();
-    await until(() => owner.events.filter((e) => e.type === 'change').length === 2 && shared.events.length >= 2, 'both changes');
-    await new Promise((r) => setTimeout(r, 100));
+    await shared.waitFor(changeOf('web'));
+    t.mock.timers.tick(10);
+    await shared.waitFor((events) => events.filter((e) => e.type === 'sidebar').length === 2);
     assert.deepEqual(shared.events.filter((e) => e.type === 'change').map((e) => e.data), [{ route: 'web' }]);
     assert.ok(shared.events.filter((e) => e.type === 'sidebar').every((e) => JSON.stringify(e.data) === '{"routes":["web"]}'));
     shared.close();

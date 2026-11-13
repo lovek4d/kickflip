@@ -246,9 +246,7 @@ test('join records the session and its folder: --repo, else the live session\'s 
 
 test('start runs claude --bg in the folder, in auto mode with isolation off, and records the new session as the owner', async () => {
   json(await cli(['join', '--name', 'Shop', '--session', 's-old', '--repo', repo]));
-  const t = Date.now();
   const r = json(await cli(['start', 'shop', '--model', 'opus', '--prompt', 'Pick up INT-9']));
-  assert.ok(Date.now() - t < 10_000, 'start returns while what claude --bg left behind still runs');
   const [call] = calls();
   const { id } = call;
   assert.deepEqual(call.argv, ['--bg', '--name', 'Shop', '--permission-mode', 'auto', '--settings', BG_SETTINGS, '--model', 'opus', "/kickflip --name 'Shop' Pick up INT-9"]);

@@ -12,9 +12,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // targets() → [{route, port}], the boards to hold; sidebar({fresh}) → the sidebar data, fresh naming the routes whose
-// waiting counts to refetch; watched() → [{route, dir}], the boards whose data/watcher.json to watch.
+// waiting counts to refetch; watched() → [{route, dir}], the boards whose data/watcher.json to watch; watch is fs.watch, which a test replaces.
 // → {handle(req, res, viewer), close(), changed(route), refresh()}; viewer is null for the owner, or {routes: Set, view(sidebar data) → data}
-export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000, sidebarMs = 15_000, pingMs = 25_000, settleMs = 300, log = () => {} }) {
+export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000, sidebarMs = 15_000, pingMs = 25_000, settleMs = 300, watch = fs.watch, log = () => {} }) {
   const clients = new Map(); // res → viewer
   const upstreams = new Map(); // route → {port, req}
   const watchers = new Map(); // dir → fs.FSWatcher on dir/data
@@ -102,7 +102,7 @@ export function hubStream({ targets, watched = () => [], sidebar, retryMs = 2000
     for (const dir of want) {
       if (watchers.has(dir)) continue;
       try {
-        const w = fs.watch(path.join(dir, 'data'), (_, name) => { if (name === 'watcher.json') sidebarSoon(); });
+        const w = watch(path.join(dir, 'data'), (_, name) => { if (name === 'watcher.json') sidebarSoon(); });
         w.on('error', () => { w.close(); watchers.delete(dir); });
         watchers.set(dir, w);
       } catch {}

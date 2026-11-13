@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { boardWith, home, at, site, write, read, run, runAsync, itemOf, threadOf, record, onHome, pollClock } from './board-fixture.mjs';
 import * as store from './store.mjs';
 import { bumpOut } from './stop.mjs';
@@ -18,9 +19,10 @@ const onOrch = (...args) => boardWith(['--site', 'orch', ...args]);
 const texts = () => threadOf().filter((l) => l.kind !== 'status').map((l) => l.text);
 
 // A headless builder as the board launches one: a detached process leading its own group.
-function fakeBuilder(t) {
+async function fakeBuilder(t) {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
   t.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
+  await once(child, 'spawn');
   return child.pid;
 }
 const tree = () => ({ path: path.join(home, 'tree'), branch: 'A1', repo: path.join(home, 'repo') });
@@ -30,8 +32,7 @@ function building(pid = null) {
 }
 
 test("blocking a card In Progress asks its builder to pause: the card stays In Progress, its builder runs on and its record stays open", async (t) => {
-  const pid = fakeBuilder(t);
-  await new Promise((r) => setTimeout(r, 200));
+  const pid = await fakeBuilder(t);
   building(pid);
   const r = await runAsync('board.mjs', ['--site', 'orch', 'item', 'set', 'w/A1', '--deps', 'ENG-1']);
   assert.equal(r.code, 0, r.err);
@@ -118,8 +119,7 @@ test('a pause whose cause clears before the builder stops is dropped with no lin
 
 test('a bump-out pauses the build In Progress, naming the bump, and its record stays open', async (t) => {
   onHome(t);
-  const pid = fakeBuilder(t);
-  await new Promise((r) => setTimeout(r, 200));
+  const pid = await fakeBuilder(t);
   building(pid);
   const lines = await bumpOut(site('orch'), 'w/A1', 'w/ENG-1');
   assert.deepEqual(lines, ['A1 pauses: bumped out by ENG-1']);

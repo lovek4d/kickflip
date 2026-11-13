@@ -57,6 +57,7 @@ test('a test that runs past the per-test limit fails as timed out, and the rest 
   fs.writeFileSync(path.join(tree, 'slow.test.mjs'), "import test from 'node:test';\ntest('slow', () => new Promise((r) => setTimeout(r, 4000)));\n");
   fs.writeFileSync(path.join(tree, 'after.test.mjs'), "import test from 'node:test';\ntest('after', () => {});\n");
   // The limit is long enough for the other file to start under load: on Node 22 it covers the file's start too.
+  assert.ok(testArgs(2000, ['slow.test.mjs']).includes('--test-timeout=2000'));
   const r = await nodeTests(tree, { testLimit: 2000 });
   assert.equal(r.ok, false);
   assert.equal(r.pass, 1);
