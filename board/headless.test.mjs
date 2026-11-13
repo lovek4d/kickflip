@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until, untilHeard, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
+import { freePorts, until, untilHeard, boardListening, untilTestEnds, killAndWait } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
@@ -316,7 +316,7 @@ test("the server launches the builder for a tap and a pull instead of waking the
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.deepEqual([launches(/builder done t\/H3 --text/), launches(/builder done t\/H4 --text/)], [1, 1], 'each verification gets one lander');
   } finally {
-    child.kill();
+    await killAndWait(child);
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -394,7 +394,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(runs().length, 2, 'each conflict gets one run');
   } finally {
-    child.kill();
+    await killAndWait(child);
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -452,7 +452,7 @@ test('a lander whose process is gone while its builder record is open (the usage
     await untilHeard(() => runs() === 2, 'the stopped lander launches again', path.join(data, 'nudge'));
     assert.ok(handedBackAgain(), JSON.stringify(record()));
     // The one command does the same by hand, with the server stopped so its own pass cannot relaunch first.
-    await new Promise((resolve) => { child.once('exit', resolve); child.kill(); });
+    await killAndWait(child);
     building();
     const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'board.mjs');
     fs.mkdirSync(path.join(home, '.claude', 'kickflip', 'sites'), { recursive: true });
@@ -464,7 +464,7 @@ test('a lander whose process is gone while its builder record is open (the usage
     child = await serve();
     await until(() => runs() === 3, 'the relaunched lander launches');
   } finally {
-    child.kill();
+    await killAndWait(child);
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
@@ -557,7 +557,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   const fake = path.join(home, 'claude');
   // The relaunched builder stays alive a while, so the 50ms check leaves its entry at relaunched instead of handing it back.
   // It names its session as Claude's init event does, which the launch records on the card's builder record and thread line.
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), pid: process.pid }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-R1' }));\nsetTimeout(() => {}, 5000);\n${untilTestEnds()}.unref();\n`);
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), pid: process.pid }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-R1' }));\n${untilTestEnds()};\n`);
   fs.chmodSync(fake, 0o755);
   const setup = path.join(home, 'setup.mjs');
   fs.writeFileSync(setup, `
@@ -578,7 +578,7 @@ test("the server's minute check relaunches a tracked headless builder whose proc
     const logged = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.call === 'relaunch');
     assert.deepEqual({ ...logged, at: undefined }, { at: undefined, call: 'relaunch', key: 't/R1', result: 'relaunched', reason: 'Its builder exited with its record open, for the first time.', inputs: { model: 'opus', pid: dead.pid, relaunched: false } });
   } finally {
-    child.kill();
+    await killAndWait(child);
     stopFakeBuilders(seen);
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -606,7 +606,7 @@ test("a restarted server launches the builder of an In Progress card whose recor
   fs.writeFileSync(path.join(data, 'headless-builders.json'), JSON.stringify({ 't/C3': { model: 'opus', pid: process.pid, relaunched: false } }));
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), pid: process.pid }) + '\\n');\nsetTimeout(() => {}, 5000);\n${untilTestEnds()}.unref();\n`);
+  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), pid: process.pid }) + '\\n');\n${untilTestEnds()};\n`);
   fs.chmodSync(fake, 0o755);
   const [port] = await freePorts();
   const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
@@ -618,7 +618,7 @@ test("a restarted server launches the builder of an In Progress card whose recor
     assert.equal(runs.length, 1);
     assert.match(runs[0].argv[1], /builder start t\/C1 --kind build/);
   } finally {
-    child.kill();
+    await killAndWait(child);
     stopFakeBuilders(seen);
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -650,7 +650,7 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
   const seen = path.join(home, 'claude-runs.jsonl');
   const fake = bin ?? path.join(home, 'claude');
   if (!bin) {
-    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n${init ? "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }));\n" : ''}// Stays running, as a planner does until its own done: the board closes the record of a planner whose process is gone (docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md).\nsetTimeout(() => {}, 20000);\n`);
+    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n${init ? "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }));\n" : ''}// Stays running, as a planner does until its own done: the board closes the record of a planner whose process is gone (docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md).\n${untilTestEnds()};\n`);
     fs.chmodSync(fake, 0o755);
   }
   const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
@@ -919,7 +919,7 @@ test('a stale lander entry for an archived Done card is dropped, and the card st
     assert.deepEqual((await readArchive(site)).map((a) => a.key), ['t/D1']);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items.map((i) => i.id), ['T1']);
   } finally {
-    child.kill();
+    await killAndWait(child);
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
