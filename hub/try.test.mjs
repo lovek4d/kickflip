@@ -53,6 +53,7 @@ fs.chmodSync(path.join(bin, 'tailscale'), 0o700);
 const calls = () => fs.readFileSync(path.join(home, 'tailscale.calls'), 'utf8').trim().split('\n').filter((call) => call && call !== 'status --json');
 const relayOf = (port) => calls().filter((call) => call.startsWith(`serve --bg --https=${port} `)).at(-1)?.split(' ').at(-1);
 process.env.PATH = `${bin}:${process.env.PATH}`;
+process.env.KICKFLIP_TAILSCALE = path.join(bin, 'tailscale');
 const { createTryManager, installWorktree, fetchTryBranches } = await import('./try.mjs');
 const { listBoards } = await import('./boards.mjs');
 const { buildScriptError } = await import('../board/build-script.mjs');

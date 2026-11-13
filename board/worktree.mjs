@@ -161,7 +161,8 @@ function testFiles(dir) {
 }
 
 // The full suite of the worktree, as a promise. NODE_TEST_CONTEXT is dropped, since a run started from inside a test
-// would otherwise report to that test's runner instead of exiting with its own result. Each test fails once it runs past
+// would otherwise report to that test's runner instead of exiting with its own result. KICKFLIP_TAILSCALE is a failing
+// stub, so a test's hub never reaches the host's Tailscale; a test with its own stub names it. Each test fails once it runs past
 // testLimit, and the whole run is cut off at limit: its process group is killed, so a hung file's child dies with it, and
 // → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
 // (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md). Whatever the run's tests left
@@ -169,7 +170,8 @@ function testFiles(dir) {
 export function nodeTests(dir, { limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000 } = {}) {
   const files = testFiles(dir);
   if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
-  const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+  const { NODE_TEST_CONTEXT: _, ...rest } = process.env;
+  const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false' };
   const child = spawn(nodeBin(), ['--test', '--test-reporter=tap', `--test-timeout=${testLimit}`, ...files], { cwd: dir, env, detached: true });
   // macOS answers EPERM, not ESRCH, for a group whose processes have all died but aren't yet reaped.
   child.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH' && e.code !== 'EPERM') throw e; } });

@@ -19,7 +19,7 @@ const claudeConfig = path.join(home, 'claude-config');
 const fakeTmux = path.join(bin, 'tmux');
 const tmuxLog = path.join(home, 'tmux-calls.jsonl');
 const tmuxCalls = () => (fs.existsSync(tmuxLog) ? fs.readFileSync(tmuxLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
-const env = { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: claudeConfig, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: fakeTmux, TMUX: '', PATH: `${bin}:${process.env.PATH}` };
+const env = { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: claudeConfig, KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false', KICKFLIP_TMUX: fakeTmux, KICKFLIP_TAILSCALE: path.join(bin, 'tailscale'), TMUX: '', PATH: `${bin}:${process.env.PATH}` };
 // A stand-in claude for kickflip join: it logs each call, and a --bg start prints its id and leaves a session record.
 const fakeClaude = path.join(bin, 'claude');
 const claudeLog = path.join(home, 'claude-calls.jsonl');

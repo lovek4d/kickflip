@@ -93,3 +93,15 @@ test('leaves a child running', () => {
   const child = Number(fs.readFileSync(pidFile, 'utf8'));
   await until(() => !alive(child), 'the child the test left never died');
 });
+
+test("a suite's tests get a failing tailscale stub, so no hub they start reaches the host's Tailscale", async (t) => {
+  const dir = home(t);
+  const tree = path.join(dir, 'tree');
+  fs.mkdirSync(tree);
+  fs.writeFileSync(path.join(tree, 'env.test.mjs'), `import test from 'node:test';
+import assert from 'node:assert/strict';
+import { tailscaleBin } from ${JSON.stringify(new URL('../shared/tailscale.mjs', import.meta.url).href)};
+test('stub', () => assert.equal(tailscaleBin(), '/usr/bin/false'));
+`);
+  assert.deepEqual(await nodeTests(tree), { ok: true, pass: 1, fail: 0 });
+});

@@ -173,7 +173,7 @@ function doctorCLI(name, { healthy = false, installed = false } = {}) {
   return {
     scratch,
     calls: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [],
-    run: (...args) => cli(args, { entry: doctorClone(), env: { HOME: scratch, PATH: path.join(scratch, 'doctor-bin'), KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' }, preload: 'data:text/javascript,' + encodeURIComponent(source) }),
+    run: (...args) => cli(args, { entry: doctorClone(), env: { HOME: scratch, PATH: path.join(scratch, 'doctor-bin'), KICKFLIP_TAILSCALE: '', KICKFLIP_HUB_PORT: String(port), KICKFLIP_CLAUDE: '/usr/bin/false' }, preload: 'data:text/javascript,' + encodeURIComponent(source) }),
   };
 }
 
