@@ -288,8 +288,8 @@
   // docs/adr/2026-11-11-1200-every-lane-has-phases.md
   // A Todo, In Review or Done card's phase as a word, toned by who acts next: grey while a machine waits, blue while
   // Claude works, orange while it waits on the owner, green once it can go and purple once merged. In Progress shows its
-  // phase only as its progress bar, a New card has none (its footer line says it), and a card In Review for an owner wait other than the merge has none. Ready reads
-  // only on a card that can start (domain.mjs ready), so a blocked one shows what blocks it instead.
+  // phase only as its progress bar, a New card has none (its footer line says it), and a card In Review for an owner wait other than the merge has none. The word shows
+  // whether the card is held or blocked; those words follow it.
   const PHASE_LOOK = {
     new: ['new', 'quiet'], discussing: ['discussing', 'info'], grilling: ['grilling', 'info'], prototyping: ['prototyping', 'info'], staging: ['staging', 'notice'], ready: ['ready', 'success'],
     draft: ['draft', 'quiet'], reviewers: ['pending review', 'notice'], merge: ['pending merge', 'notice'], stale: ['stale', 'quiet'],
@@ -299,7 +299,7 @@
   // owner's turn and grey while the orchestrator owes the reply.
   const TURN_LOOK = { owner: ['discussing', 'info'], claude: ['discussing', 'quiet'] };
   function phaseWord(it) {
-    if (it.kind !== 'work' || it.lane === 'progress' || !it.phase || it.phase === 'new' || (it.phase === 'ready' && !it.ready)) return '';
+    if (it.kind !== 'work' || it.lane === 'progress' || !it.phase || it.phase === 'new') return '';
     const [word, tone] = it.phase === 'discussing' ? TURN_LOOK[it.turn] : PHASE_LOOK[it.phase];
     return `<span class="card-phase ph-${tone}">${word}</span>`;
   }
@@ -308,8 +308,8 @@
   // orange while its builder runs on to its stopping point, then "paused · blocked by #61" in grey.
   const pauseOf = (it) => (it.lane === 'progress' ? it.builder?.pause ?? null : null);
   const pauseWords = (pause) => pause && `<span class="card-${pause.paused ? 'paused' : 'pausing'}">${pause.paused ? 'paused' : 'pausing'} · ${esc(pause.words)}</span>`;
-  // A card's last two rows. The footer: the time its lane sorts by (domain.mjs sortAt), then its hold and what blocks it,
-  // or its phase word (phaseWord) when neither shows, then a build's stale in grey, held while host recovers on a bumped
+  // A card's last two rows. The footer: the time its lane sorts by (domain.mjs sortAt), then its phase word (phaseWord),
+  // then its hold and what blocks it, then a build's stale in grey, held while host recovers on a bumped
   // ready card a busy host holds, in grey (docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md),
   // a paused build's words (pauseWords), then an In Progress card's phase bars
   // (docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md). The row under it, drawn only when it has
@@ -324,7 +324,7 @@
     const iso = it.sortAt;
     const pause = pauseOf(it);
     const holdBlock = [pause?.cause !== 'held' && holdWords(it), pause?.cause !== 'blocked' && blockedWords(it)].filter(Boolean);
-    const footer = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, ...(holdBlock.length ? holdBlock : [phaseWord(it)]),
+    const footer = [iso && `<time datetime="${esc(iso)}">${esc(cardTime(iso))}</time>`, phaseWord(it), ...holdBlock,
       it.hostHeld && '<span class="card-host-held">held while host recovers</span>',
       !it.stalled && it.stale && it.phase !== 'stale' && '<span class="card-stale">stale</span>', pauseWords(pause), bars].filter(Boolean);
     const news = newWords(unread, 'message');

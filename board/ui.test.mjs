@@ -1728,7 +1728,7 @@ test("a ready card's time line reads ready in green after its hold and before it
   const sortAt = ago(24 * 2);
   const card = { ...workCard, lane: 'todo', pr: null, prs: [], reviewers: [], next: null, sortAt };
   const html = ui.workLines({ ...card, held: true, ready: true, phase: 'ready' }, { unread: 2 });
-  assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · held`, '2 new messages']);
+  assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · ready · held`, '2 new messages']);
   const open = ui.workLines({ ...card, ready: true, phase: 'ready' }, { unread: 2 });
   assert.deepEqual(lines(open).slice(-2), [`${ui.cardTime(sortAt)} · ready`, '2 new messages']);
   assert.match(open, /<span class="card-phase ph-success">ready<\/span><\/div><div class="line6 sub card-alert"><span class="card-unread">/);
@@ -1793,7 +1793,7 @@ test("a staging card's time line reads staging in orange where ready reads, and 
   const html = ui.workLines(card, { unread: 1 });
   assert.deepEqual(lines(html).slice(-2), [`${ui.cardTime(sortAt)} · staging`, '1 new message']);
   assert.match(html, /<span class="card-phase ph-notice">staging<\/span><\/div>/);
-  assert.doesNotMatch(ui.workLines({ ...card, held: true }), /card-phase/);
+  assert.match(lines(ui.workLines({ ...card, held: true })).slice(-1)[0], /^.* · staging · held/);
   assert.doesNotMatch(html, /ph-success/);
   assert.equal(ui.statusWord(card), 'staging');
   assert.equal(ui.statusWord({ ...card, staging: false, ready: true, phase: 'ready' }), 'ready');
