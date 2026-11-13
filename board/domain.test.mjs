@@ -999,7 +999,7 @@ test("a card-done moves a card to Done and unblocks dependents at once, unless t
   ];
   const events = [close('w/A1', '2026-10-23T11:00:00Z'), close('w/A2', '2026-10-23T11:10:00Z'), close('w/A4', '2026-10-23T11:10:00Z')];
   const snapshot = { fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [{ slug: 'w', agents: runningBuilders('A1', 'A2'), itemFile: { items } }] };
-  assert.deepEqual(buildBoard(snapshot).items.find((i) => i.id === 'A5').blockedBy, [{ key: 'w/A1', ref: 'A1' }]);
+  assert.deepEqual(buildBoard(snapshot).items.find((i) => i.id === 'A5').blockedBy, [{ key: 'w/A1', ref: 'A1', lane: 'progress' }]);
   const b = buildBoard({ ...snapshot, events });
   const cards = Object.fromEntries(b.items.map((i) => [i.id, [i.lane, i.finishable]]));
   assert.deepEqual(cards, {
@@ -1307,13 +1307,13 @@ test('a card lists each unfinished dep it is blocked by, a Done one none; one on
   const agents = { ...runningBuilders('S11', 'INT-15'), 'INT-20': finished('prototype'), 'INT-27': finished('opus'), 'INT-28': finished('opus') };
   const b = buildBoard({ fromWaves: false, owner, events, working, prototypes, files: [{ slug: 'site', agents, itemFile: { internal: true, items } }] });
   const card = (id) => b.items.find((i) => i.id === id);
-  assert.deepEqual(card('INT-15').blockedBy, [{ key: 'site/S11', ref: 'INT-11' }, { key: 'site/INT-14', ref: 'INT-14' }]);
+  assert.deepEqual(card('INT-15').blockedBy, [{ key: 'site/S11', ref: 'INT-11', lane: 'progress' }, { key: 'site/INT-14', ref: 'INT-14', lane: 'todo' }]);
   assert.equal(card('INT-15').lane, 'progress');
   assert.deepEqual([card('INT-16').blockedBy, card('INT-16').lane], [[], 'todo']);
   assert.deepEqual([card('INT-17').blockedBy, card('S11').lane], [[], 'progress']);
-  assert.deepEqual([card('INT-18').blockedBy, card('INT-18').lane], [[{ key: 'site/S11', ref: 'INT-11' }], 'todo']);
+  assert.deepEqual([card('INT-18').blockedBy, card('INT-18').lane], [[{ key: 'site/S11', ref: 'INT-11', lane: 'progress' }], 'todo']);
   assert.deepEqual([card('INT-19').lane, card('INT-20').lane], ['todo', 'todo']);
-  assert.deepEqual([card('INT-27').blockedBy, card('INT-27').lane, card('INT-28').lane], [[{ key: 'site/S11', ref: 'INT-11' }], 'progress', 'todo']);
+  assert.deepEqual([card('INT-27').blockedBy, card('INT-27').lane, card('INT-28').lane], [[{ key: 'site/S11', ref: 'INT-11', lane: 'progress' }], 'progress', 'todo']);
   assert.deepEqual([card('INT-21').blockedBy, card('INT-21').lane], [[], 'done']);
   assert.deepEqual(['INT-22', 'INT-23', 'INT-24', 'INT-25', 'INT-26'].map((id) => card(id).lane), ['todo', 'todo', 'todo', 'todo', 'todo']);
   assert.deepEqual([card('INT-22').working, card('INT-23').buildable], [true, true]);
@@ -1334,7 +1334,7 @@ test("a checking card sits in In Progress waiting on Claude's check, with no bui
   const card = (key) => b.items.find((i) => i.key === key);
   const one = card('site/S1');
   assert.deepEqual([one.lane, one.waitsOn, one.builder, one.next, one.bumpable], ['progress', 'checking', null, null, true]);
-  assert.deepEqual(card('site/S2').blockedBy, [{ key: 'site/S1', ref: 'INT-1' }]);
+  assert.deepEqual(card('site/S2').blockedBy, [{ key: 'site/S1', ref: 'INT-1', lane: 'progress' }]);
   assert.deepEqual([card('w/A1').lane, card('w/A1').waitsOn, card('w/A2').lane], ['progress', 'checking', 'progress']);
   assert.equal(b.itemFiles[0].finished, false);
 });
@@ -1589,7 +1589,7 @@ test('a card links to its Parent, lists its Children and its Related to cards on
   const b = buildBoard({ fromWaves: false, now: Date.parse('2026-11-03T12:00:00Z'), tickets: { source: 'github' }, files: [{ slug: 'w', itemFile }] });
   const card = (id) => b.items.find((i) => i.id === id);
   const refs = (list) => list.map((l) => l.ref);
-  assert.deepEqual(card('GH-93').parent, { key: 'w/GH-53', ref: '#53' });
+  assert.deepEqual(card('GH-93').parent, { key: 'w/GH-53', ref: '#53', lane: 'todo' });
   assert.deepEqual(refs(card('GH-53').children), ['#87', '#93']);
   assert.deepEqual(refs(card('GH-53').related), ['#75']);
   assert.deepEqual(refs(card('GH-75').related), ['#53', '#93']);
@@ -2823,8 +2823,8 @@ test("a wave:<slug> dep waits on every card the wave holds now until each is Don
   ];
   const snapshot = (waveCards) => ({ fromWaves: false, now: Date.parse('2026-10-23T12:00:00Z'), files: [{ slug: 'w', agents: {}, itemFile: { items, waves: [{ slug: 'mon', title: 'Monitor', goal: 'G', items: waveCards }] } }] });
   const card = (s, id) => buildBoard(s).items.find((i) => i.id === id);
-  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'B1').blockedBy, [{ key: 'w/A2', ref: 'A2' }, { key: 'w/A3', ref: 'A3' }]);
-  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'B2').blockedBy, [{ key: 'w/A2', ref: 'A2' }, { key: 'w/A3', ref: 'A3' }]);
+  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'B1').blockedBy, [{ key: 'w/A2', ref: 'A2', lane: 'todo' }, { key: 'w/A3', ref: 'A3', lane: 'todo' }]);
+  assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'B2').blockedBy, [{ key: 'w/A2', ref: 'A2', lane: 'todo' }, { key: 'w/A3', ref: 'A3', lane: 'todo' }]);
   assert.deepEqual(card(snapshot(['A1', 'A2', 'A3']), 'A3').waitsOnIt.map((c) => c.ref), ['B1', 'B2']);
   assert.deepEqual(card(snapshot(['A1']), 'B1').blockedBy, []);
   assert.equal(card(snapshot(['A1']), 'B1').blocked, false);

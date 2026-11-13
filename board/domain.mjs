@@ -1379,7 +1379,7 @@ export function withHub(built, { listen, prompts } = {}) {
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
 // A card's links name other cards by {key, ref}. An item file entry stores its Parent and Related to as keys, a bare id
 // naming a card of its own item file, as deps do.
-const linkOf = (card) => ({ key: card.key, ref: card.ref });
+const linkOf = (card) => ({ key: card.key, ref: card.ref, lane: card.lane });
 const linkKey = (slug, k) => (String(k).includes('/') ? String(k) : `${slug}/${k}`);
 const byRef = (a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true });
 // Each work card's Parent (one card or none; a Parent no longer on the board reads as its stored id), its Children
@@ -1394,11 +1394,16 @@ function linkCards(items, byKey, stored) {
     if (links.parent) add(children, links.parent, key);
     for (const r of links.related) if (r !== key) { add(related, key, r); add(related, r, key); }
   }
-  for (const it of items) for (const d of it.blockedBy || []) add(waits, d.key, it.key);
+  for (const it of items) {
+    for (const d of it.blockedBy || []) {
+      add(waits, d.key, it.key);
+      d.lane = byKey.get(d.key).lane;
+    }
+  }
   const cards = (keys = []) => [...new Set(keys)].map((k) => byKey.get(k)).filter(Boolean).map(linkOf).sort(byRef);
   for (const it of items) {
     const parent = stored.get(it.key)?.parent;
-    it.parent = parent ? { key: parent, ref: byKey.get(parent)?.ref || parent.slice(parent.indexOf('/') + 1) } : null;
+    it.parent = parent ? (byKey.has(parent) ? linkOf(byKey.get(parent)) : { key: parent, ref: parent.slice(parent.indexOf('/') + 1) }) : null;
     it.children = cards(children.get(it.key));
     it.related = cards(related.get(it.key));
     it.waitsOnIt = cards(waits.get(it.key));

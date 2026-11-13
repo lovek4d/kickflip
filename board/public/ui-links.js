@@ -75,11 +75,13 @@
 
   // The card row's lane ring (style.css .status), at the link's text size, after the id.
   const laneRing = (lane) => (lane ? `<span class="status link-lane ${esc(lane)}"></span>` : '');
+  // Every task reference is this: a link to its card, ending with its lane ring, after any lead words
+  // (docs/adr/2026-11-13-1120-every-task-reference-links-and-shows-its-lane-ring.md).
+  const taskLink = (key, ref, lane, { base = '', cls = '', lead = '', title = '', attrs = '' } = {}) => `<a${cls ? ` class="${cls}"` : ''} href="${esc(`${base}#selectedCard=${encodeURIComponent(key)}`)}"${title ? ` title="${esc(title)}"` : ''}${attrs}>${esc(lead)}${esc(ref)}${laneRing(lane)}</a>`;
   const cardLink = (ref, ctx) => {
     const key = record(ctx.refs, ref);
     const shown = record(ctx.current || {}, key) || ref;
-    const was = shown === ref ? '' : ` title="${esc(`was ${ref}`)}"`;
-    return `<a href="${esc(`${ctx.base || ''}#selectedCard=${encodeURIComponent(key)}`)}"${was}>${esc(shown)}${laneRing(record(ctx.lanes || {}, key))}</a>`;
+    return taskLink(key, shown, record(ctx.lanes || {}, key), { base: ctx.base, title: shown === ref ? '' : `was ${ref}` });
   };
 
   // The longest hyphen-prefix of a word that is a known ref or a Linear id, then the rest as text.
@@ -158,5 +160,5 @@
     return res + (keep ? tail : linkRun(tail, ctx));
   }
 
-  Object.assign(globalThis.BoardUI, { linkContext, laneRing, linkText, linkHtml, opensHere, anyLink });
+  Object.assign(globalThis.BoardUI, { linkContext, laneRing, taskLink, linkText, linkHtml, opensHere, anyLink });
 })();

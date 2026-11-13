@@ -3,7 +3,7 @@
 // while a review runs. Needs app-core.js.
 BoardView.part((B) => {
   const { $, state } = B;
-  const { esc, LINK_ARROW } = BoardUI;
+  const { esc } = BoardUI;
   const bulb = $('#archBulb');
   const sheet = $('#archSheet');
   const day = (iso) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -16,7 +16,7 @@ BoardView.part((B) => {
         + `<button type="button" class="arch-run" data-arch-open="${esc(last.key)}">Open ${esc(last.ref)}</button>`;
     }
     const lastHtml = last ? `<div class="arch-last"><span>Last review: <b>${esc(last.wave)}</b> · ${esc(day(last.at))}</span>`
-      + `<span class="muted">${B.plural(last.findings, 'finding')}, ${last.built} built · <a href="#selectedCard=${encodeURIComponent(last.key)}" data-arch-open="${esc(last.key)}">${esc(last.ref)} ${LINK_ARROW}</a></span></div>` : '';
+      + `<span class="muted">${B.plural(last.findings, 'finding')}, ${last.built} built · ${BoardUI.taskLink(last.key, last.ref, state.board.items.find((i) => i.key === last.key)?.lane, { attrs: ` data-arch-open="${esc(last.key)}"` })}</span></div>` : '';
     const waits = a.waits ? `<p class="arch-waits" role="status">${esc(a.waits)}</p>` : '';
     return `${lastHtml}${waits}<button type="button" class="primary arch-run" data-arch-run${starting ? BoardUI.BUSY : a.waits ? ' disabled' : ''}>Run a review of ${esc(a.repo)}</button>`
       + '<p class="muted">Claude reads the repo and makes a wave. Its first card asks you one question per finding.</p>';

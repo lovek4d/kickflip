@@ -177,7 +177,7 @@ BoardView.part((B) => {
     const notes = band.kind === 'wave' ? `<span class="wb-links external-link"><a href="notes.html?wave=${encodeURIComponent(band.slug)}">Notes</a></span>` : '';
     const pop = goalShown === band.slug && band.goal ? `<div class="wb-pop" role="tooltip">${esc(band.goal)}</div>` : '';
     const head = `<span class="wb-label">${name}</span>` + notes + waveCounts(band, 'todo') + pop;
-    const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => `<a class="card-link" href="#selectedCard=${encodeURIComponent(i.key)}">${esc(i.ref)}${BoardUI.laneRing(i.lane)}</a>`).join(', ')}</div>` : '';
+    const doneRow = done.length ? `<div class="wb-done">${done.length} done · ${done.map((i) => BoardUI.taskLink(i.key, i.ref, i.lane, { cls: 'card-link' })).join(', ')}</div>` : '';
     return groupHtml('todo', band.slug, open, head, doneRow + todo.map((it) => B.card(it)).join(''));
   }
 

@@ -1180,6 +1180,29 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   assert.doesNotMatch(app.BoardUI.workLines(card), /follow-up/);
 });
 
+// docs/adr/2026-11-13-1120-every-task-reference-links-and-shows-its-lane-ring.md
+test('every task reference the board draws is a link ending with its lane ring: the footer, the open card rows and the Done list', () => {
+  const app = vm.createContext({ document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
+  for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
+  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  app.BoardView = { part: (fn) => fn(B) };
+  vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
+  const link = (ref, lane) => ({ key: `w/GH-${ref.slice(1)}`, ref, lane });
+  const card = { ...workCard, pr: null, prs: [], reviewers: [], key: 'w/GH-93', ref: '#93', lane: 'todo', action: null, wave: { slug: 'w1', title: 'W' }, storedLane: 'todo', next: null, deps: ['GH-80'], manualSteps: [], holdable: true,
+    parent: link('#53', 'done'), children: [link('#94', 'progress')], related: [link('#75', 'review')], blockedBy: [link('#80', 'progress'), link('#81', 'todo')], waitsOnIt: [link('#99', 'todo')] };
+  // Each anchor to a card is followed, inside it, by that card's ring.
+  const anchors = (html) => [...html.matchAll(/<a\b[^>]*href="#selectedCard=[^"]*"[^>]*>(.*?)<\/a>/g)].map(([, inner]) => inner);
+  const bare = (html) => anchors(html).filter((inner) => !/<span class="status link-lane \w+"><\/span>$/.test(inner));
+  const detail = B.detail(card);
+  const footer = app.BoardUI.workLines(card);
+  assert.deepEqual(anchors(footer).map(text), ['blocked by #80', '#81']);
+  assert.deepEqual(anchors(detail).map(text), ['#53', '#94', '#75', '#80', '#81', '#99']);
+  assert.deepEqual(bare(footer), []);
+  assert.deepEqual(bare(detail), []);
+  assert.match(footer, /blocked by #80<span class="status link-lane progress"><\/span><\/a><span class="sep">, <\/span><a class="card-blocked" href="#selectedCard=w%2FGH-81">#81<span class="status link-lane todo">/);
+  assert.match(app.BoardUI.taskLink('w/A1', 'A1', 'done', { cls: 'card-link' }), /^<a class="card-link" href="#selectedCard=w%2FA1">A1<span class="status link-lane done"><\/span><\/a>$/);
+});
+
 test('the side pages wait out a board restart: a failed request, a 5xx or a body that is not JSON shows Board restarting… and retries with a growing backoff, until about limit ms', async () => {
   const answers = (list) => { const calls = []; return { calls, fetch: async (url) => { calls.push(url); const a = list.shift(); if (a instanceof Error) throw a; return { ok: a.status < 400, status: a.status, headers: new Headers({ 'x-kickflip-hub': '1' }), text: async () => a.body }; } }; };
   const waits = [];
