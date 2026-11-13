@@ -16,6 +16,7 @@ import { nodeBin, storedPath } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { squashMessage, subjectFault } from './commit-message.mjs';
 import { releaseTag, tagRelease } from './release-tag.mjs';
+import { affectedTests } from './affected.mjs';
 
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
 export const skillRepo = cloneRoot;
@@ -164,18 +165,18 @@ function testFiles(dir) {
 // files up on a loaded Mac (docs/adr/2026-11-12-1600-the-test-runner-caps-concurrency-to-half-the-cores.md).
 export const testConcurrency = () => Math.max(1, Math.floor(os.availableParallelism() / 2));
 
-// The `node --test` arguments of a full suite run over files.
+// The `node --test` arguments of a run over files.
 export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', `--test-concurrency=${testConcurrency()}`, `--test-timeout=${testLimit}`, ...files];
 
-// The full suite of the worktree, as a promise. NODE_TEST_CONTEXT is dropped, since a run started from inside a test
+// The worktree's tests, as a promise: files, repo-relative, else every *.test.mjs file in it. NODE_TEST_CONTEXT is dropped, since a run started from inside a test
 // would otherwise report to that test's runner instead of exiting with its own result. KICKFLIP_TAILSCALE is a failing
 // stub, so a test's hub never reaches the host's Tailscale; a test with its own stub names it. Each test fails once it runs past
 // testLimit, and the whole run is cut off at limit: its process group is killed, so a hung file's child dies with it, and
 // → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
 // (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md). Whatever the run's tests left
 // running in its process group is killed as the run exits.
-export function nodeTests(dir, { limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000 } = {}) {
-  const files = testFiles(dir);
+export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000 } = {}) {
+  const files = chosen ? chosen.map((f) => path.join(dir, f)) : testFiles(dir);
   if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
   const { NODE_TEST_CONTEXT: _, ...rest } = process.env;
   const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false' };
@@ -278,7 +279,7 @@ export function restartRunner(what, route) {
 // Brings a checked worktree's branch into the live repo's base branch (builderRepo's base), saying each step: refuses
 // unless the repo has base checked out, naming it, or while the worktree has uncommitted changes or the branch adds
 // nothing; squashes it into one commit and rebases that onto base when base moved, refusing on a conflict with the
-// rebase undone; runs the worktree's full suite unless that commit passed it already (prepareLand); fast-forwards base
+// rebase undone; runs the tests the change affects unless that commit passed them already (prepareLand); fast-forwards base
 // (landPrepared); when repo is the running kickflip clone,
 // restarts the hub when its code changed, else the board servers when board/ changed (a hub restart restarts every
 // site), test files aside; removes the worktree and branch.
@@ -494,7 +495,14 @@ export function syncBase(repo, base) {
   if (!moved.ok) fail(`${base} in ${repo} doesn't fast-forward to origin's (${moved.err}); bring it level with origin/${base} and land again`);
 }
 
-// Runs the worktree's full suite, refusing on a failure with each failing test, or on a run cut off at its time limit
+// The tests the change in a worktree since base affects (affected.mjs), as passTests' runTests, saying which run.
+export const affectedRun = (base, say = console.log) => (dir) => {
+  const { files, full } = affectedTests(dir, base);
+  say(full ? `testing every test file, as ${full}` : `testing the ${files.length} test files the change affects`);
+  return nodeTests(dir, { files });
+};
+
+// Runs the worktree's tests (runTests, else the full suite), refusing on a failure with each failing test, or on a run cut off at its time limit
 // with the files still running, and outcome, what the refusal left undone.
 export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome }) {
   const tests = await runTests(dir);
@@ -510,10 +518,11 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
 
 // docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md
 // The part of a land that runs outside the land lock: the checks, the squash of the branch into one commit (squash),
-// the rebase of that commit onto base when base moved, a release's check (release-tag.mjs releaseTag), and the suite.
+// the rebase of that commit onto base when base moved, a release's check (release-tag.mjs releaseTag), and the tests
+// the change affects (affectedRun).
 // title is the builder's --title, the squash commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
 // still it, with base not moved past it, is not tested again.
-export async function prepareLand({ path: dir, branch, repo, base, ref, title }, { say = console.log, runTests = nodeTests } = {}) {
+export async function prepareLand({ path: dir, branch, repo, base, ref, title }, { say = console.log, runTests = affectedRun(base, say) } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);

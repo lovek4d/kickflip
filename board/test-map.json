@@ -1,0 +1,42 @@
+{
+  "core": [
+    "board/affected.test.mjs",
+    "board/suite-run.test.mjs"
+  ],
+  "full": [
+    "board/board-fixture.mjs",
+    "shared/test-helpers.mjs"
+  ],
+  "paths": {
+    "board/board-fixture.mjs": [
+      "board/bin/"
+    ],
+    "board/server.mjs": [
+      "board/public/",
+      "starter/public/",
+      "shared/colors.css"
+    ],
+    "hub/shell.mjs": [
+      "board/public/",
+      "shared/colors.css",
+      "hub/sw.js",
+      "hub/icon-180.png",
+      "hub/icon-192.png",
+      "hub/icon-512.png"
+    ],
+    "hub/sessions.mjs": [
+      "hub/permission-hook.mjs",
+      "hub/permission-denied-hook.mjs",
+      "bin/wait-events.mjs"
+    ],
+    "bin/install.mjs": [
+      "hooks-plugin/hooks/"
+    ],
+    "hooks-plugin/hooks/watcher-stop.mjs": [
+      "bin/wait-events.mjs"
+    ],
+    "board/board-questions.test.mjs": [
+      "board/public/prototype-switcher.js"
+    ]
+  }
+}

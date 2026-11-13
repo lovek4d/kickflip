@@ -15,7 +15,7 @@ import { launchAgent } from './agents.mjs';
 import { processStarts, ps } from '../hub/live.mjs';
 import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
-import { builderRepo, testConcurrency } from './worktree.mjs';
+import { builderRepo } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
 import { appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
 import { HELPER, plans, VISUAL } from './domain.mjs';
@@ -39,7 +39,7 @@ const threadLine = (thread) => `The card's thread, which holds the owner's messa
 
 // docs/adr/2026-11-04-1611-finishing-a-build-is-one-step.md: builder done finishes the card.
 const finishSteps = ({ route, key, worktree, base }) => [
-  `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the full test suite, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead, titled by \`--title "<type>(<scope>): <what the PR does>"\`, a Conventional subject of at most 100 characters written from the whole diff, else the card's title; with Auto-merge off it stops before the fast-forward, and the card waits for the owner's Merge).`,
+  `- With no unverified calls, done finishes the card itself: it rebases onto ${base}, reruns the tests the change affects, fast-forwards ${base} and closes the card (on a board with pull requests it pushes the branch and opens a draft PR instead, titled by \`--title "<type>(<scope>): <what the PR does>"\`, a Conventional subject of at most 100 characters written from the whole diff, else the card's title; with Auto-merge off it stops before the fast-forward, and the card waits for the owner's Merge).`,
   `- On a conflict it undoes its rebase and names the files: run \`${rebase(base)}\` in ${worktree}, resolve each conflict keeping both sides' intent, continue with \`git -c core.commentChar=';' rebase --continue\`, rerun the tests, and run done again.`,
   '- On failing tests, fix them, commit, and run done again.',
   '- While another card is landing, done waits its turn and then lands; leave it running.',
@@ -63,7 +63,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     `2. Report progress with \`${b} builder progress ${key} --phase reading|building|testing|checking|landing "<plain, 80 characters or fewer>"\`, at least every 10 minutes. The board adds the phase word; don't start the text with it. The phases:`,
     '   - reading: the notes and the code, until the first test is written.',
     '   - building: the tests and the code, the ADR and docs, and the commit.',
-    '   - testing: the full suite run before you finish.',
+    '   - testing: the run of the tests your change affects, before you finish.',
     "   - checking: your own review of the diff before you hand back; the Orchestrator's review of your calls continues on the same 4th bar.",
     '   - landing: set by the finish step itself; you never report it.',
     `3. Decide, record the call (step 4) and carry on: the orchestrator reviews your calls after the build. Ask it only when you are blocked, meaning every way forward would likely be thrown away: the spec contradicts itself or the code, a rule needs the owner's go before code is written, or the answer is a fact only the orchestrator has. Then run \`${b} builder ask ${key} "<question>"\`, do any work the answer can't change, and wait with \`${b} builder asks ${key} --wait\`, which returns within 10 minutes, so run it again while it says still waiting. If no answer comes in 30 minutes, record the question as a call, "Question: <question>", and hand back.`,
@@ -75,7 +75,7 @@ export function builderBrief({ route, key, ref, title, notes, thread, worktree, 
     '',
     ...linkLines(links),
     ...ruleLines(rules),
-    `Write tests first, and run the full suite once, in the foreground, at the end, as \`node --test --test-concurrency=${testConcurrency()}\`. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.`,
+    `Write tests first, and run the tests your change affects once, in the foreground, at the end, as \`${b} test --dir ${worktree} --base ${base}\`. Where the repo keeps ADRs, write one named with a timestamp: docs/adr/YYYY-MM-DD-HHMM-<slug>.md.`,
     `Commit with \`git -c core.commentChar=';' commit -F <file>\`: ${standardWords(ref)}. Land refuses any other shape.`,
     '',
     `To finish, run ${finishCommand({ route, key })}.`,
@@ -124,7 +124,7 @@ export function rebaseBrief({ route, key, ref, title, thread, worktree, base, pr
     '',
     `1. Run \`${b} builder start ${key} --kind build --label Rebase --phase building --progress "Rebase run started · fetching ${base}"\`. If it refuses, stop.`,
     `2. Run \`git fetch origin\`, then \`${rebase(`origin/${base}`)}\`. Resolve each conflict keeping both sides' intent, \`git add\` it and continue with \`git -c core.commentChar=';' rebase --continue\`. Report each step with \`${b} builder progress ${key} --phase building "<line>"\`, the board adds the phase word, in these words: "Rebasing onto ${base} · resolving <n> files", then "Rebasing onto ${base} · suite running".`,
-    "3. Run the full test suite once, in the foreground. Fix what the rebase broke, and commit each fix with `git -c core.commentChar=';' commit -F <file>`. A push with commits of its own is no longer rebase-only, so a merge after an approval won't count it as trivial.",
+    `3. Run the tests the change affects once, in the foreground, as \`${b} test --dir ${worktree} --base origin/${base}\`.` + " Fix what the rebase broke, and commit each fix with `git -c core.commentChar=';' commit -F <file>`. A push with commits of its own is no longer rebase-only, so a merge after an approval won't count it as trivial.",
     `4. If a conflict or a failing test is past what you can resolve with confidence, run \`git -c core.commentChar=';' rebase --abort\` if a rebase is under way, record it with \`${b} builder call ${key} "Rebase failed in <the files or tests> · <why>"\`, and run the finish step: with the call it hands the card to the orchestrator.`,
     '',
     threadLine(thread),

@@ -9,3 +9,5 @@ The suite run (`nodeTests` in board/worktree.mjs) gets two limits, folded in fro
 - the whole run is cut off at 15 minutes. The run is its own process group, so the cut-off kills the hung file's children with it. The land refuses with "tests hung past 15 minutes in <files>; nothing landed", naming the test files still running, and the land log (`~/.claude/kickflip/logs/land-*.tap`) keeps the partial output and the processes still running at the cut-off, so the next hang leaves its evidence.
 
 The run is asynchronous (`spawn`, not `spawnSync`), since a blocked event loop could fire no cut-off timer.
+
+Superseded in part by [lands and builders run only the tests a change affects](2026-11-12-2104-lands-and-builders-run-only-the-tests-a-change-affects.md): a land and a builder run the test files the change affects, not the full suite.

@@ -43,7 +43,9 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
     'ENG-1', 'Make it go', '/s/waves/w/a1.md', 'Work only in /wt/A1', 'Use Node 22+',
     `${b} builder start w/A1 --kind build`, `${b} builder progress w/A1 --phase`, `${b} builder call w/A1`, `${b} builder ask w/A1`,
     `${b} builder asks w/A1`, `${b} builder done w/A1 --text`, "git -c core.commentChar=';' rebase main", 'Never push',
+    `run the tests your change affects once, in the foreground, at the end, as \`${b} test --dir /wt/A1 --base main\``,
   ]) assert.ok(brief.includes(want), `the brief has ${want}`);
+  assert.ok(!brief.includes('node --test'), 'the brief runs the affected tests, not the full suite');
   for (const phase of ['reading', 'building', 'testing', 'checking', 'landing']) assert.ok(brief.includes(`- ${phase}:`), `the brief says what ${phase} means`);
   assert.ok(brief.includes("don't start the text with it"), 'the brief says not to lead with the phase word');
   assert.ok(!brief.includes(`${b} land`), 'done finishes the card, so the brief never runs land');
@@ -58,7 +60,7 @@ test("a rebase run's brief takes up the card, rebases its PR's branch onto origi
   for (const want of [
     `${b} builder start w/A1 --kind build --label Rebase --phase building --progress "Rebase run started · fetching main"`,
     'PR #31', 'Work only in /wt/A1', 'git fetch origin', "git -c core.commentChar=';' rebase origin/main", "keeping both sides' intent",
-    '"Rebasing onto main · resolving', `${b} builder call w/A1 "Rebase failed in`, `${b} builder done w/A1 --text`, '--force-with-lease', 'Never push',
+    '"Rebasing onto main · resolving', `${b} test --dir /wt/A1 --base origin/main`,`${b} builder call w/A1 "Rebase failed in`, `${b} builder done w/A1 --text`, '--force-with-lease', 'Never push',
   ]) assert.ok(brief.includes(want), `the rebase brief has ${want}`);
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'a failure is a call, before the finishing step');
 });

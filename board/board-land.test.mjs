@@ -348,7 +348,7 @@ test('a local board whose recorded branch is trunk branches from trunk and lands
   const landed = landTrunk();
   assert.equal(landed.code, 0, landed.err);
   const tip = git(project, 'rev-parse', '--short', 'trunk');
-  assert.deepEqual(landed.out.trim().split('\n').slice(0, 3), [`rebased A1 onto trunk (${moved})`, 'tests passed: 0', `trunk fast-forwarded to ${tip} in ${project}`]);
+  assert.deepEqual(landed.out.trim().split('\n').slice(0, 4), [`rebased A1 onto trunk (${moved})`, 'testing every test file, as card.txt reaches no test', 'tests passed: 0', `trunk fast-forwarded to ${tip} in ${project}`]);
   assert.equal(fs.readFileSync(path.join(project, 'card.txt'), 'utf8'), 'card');
   assert.equal(git(project, 'rev-parse', 'trunk~1'), git(project, 'rev-parse', moved));
 });
@@ -392,7 +392,8 @@ test('land rebases onto a moved main, fast-forwards main, and removes the worktr
   assert.equal(r.code, 0, r.err);
   const main = git(repo, 'rev-parse', '--short', 'main');
   assert.deepEqual(r.out.trim().split('\n'), [
-    `rebased A1 onto main (${moved})`, 'tests passed: 1', `main fast-forwarded to ${main} in ${repo}`,
+    `rebased A1 onto main (${moved})`, 'testing every test file, as board/server.mjs reaches no test', 'tests passed: 1',
+    `main fast-forwarded to ${main} in ${repo}`,
     `worktree removed: ${worktree()}`, 'branch deleted: A1',
   ]);
   assert.equal(git(repo, 'rev-parse', 'main~1'), git(repo, 'rev-parse', moved));

@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ghSync, limitWords } from '../shared/gh.mjs';
 import * as store from './store.mjs';
-import { builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
+import { affectedRun, builderRepo, git, joiningLand, landInTurn, passTests, syncBase, worktreesDir } from './worktree.mjs';
 import { readPermissions } from './permissions.mjs';
 import { pushRelease } from './release-tag.mjs';
 import { landByBuilder } from './headless.mjs';
@@ -133,7 +133,7 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   const title = given ?? (opens ? await store.cardTitleOf(site, key) : undefined);
   const fault = opens && subjectFault(title);
   if (fault) fail(`${given === undefined ? "the card's title" : '--title'} "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 100 characters`);
-  await passTests(dir, { outcome: 'nothing was pushed' });
+  await passTests(dir, { runTests: affectedRun(`refs/remotes/origin/${base}`), outcome: 'nothing was pushed' });
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
   // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is.
   const from = open ? git(dir, 'rev-parse', `refs/remotes/origin/${branch}`).out : null;

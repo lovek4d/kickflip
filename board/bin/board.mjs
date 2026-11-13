@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
-import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, worktreesDir } from '../worktree.mjs';
+import { affectedRun, boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, passTests, worktreesDir } from '../worktree.mjs';
 import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
@@ -616,6 +616,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          didn't launch
   land queue                                             the host's land queue in order: the land running, then each
                                                          waiting, "(bumped)" on one a bump moved
+  test [--dir <dir>] [--base <branch>]                   runs the tests the change in the worktree at --dir (else the
+                                                         current folder) affects since its merge base with --base
+                                                         (else main): its commits, uncommitted edits and untracked
+                                                         files. Says how many test files it runs, or that it runs
+                                                         every one and why; fails naming each failing test and
+                                                         saving the TAP output under ~/.claude/kickflip/logs
   item bump <file>/<id>                                  the card's bump, as the owner's bump icon sends it (card-bump;
   item unbump <file>/<id>                                card-unbump). A bumped card's land goes ahead in the land queue
                                                          of every land not bumped since, the latest bump first, without
@@ -700,7 +706,8 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          standard or a "# Conflicts:" note, or commits that change
                                                          nothing; rebases that commit onto the branch when it
                                                          moved, refusing on a conflict with the rebase undone; refuses
-                                                         unless its full node --test suite passes, naming each failing
+                                                         unless the node --test files the change affects pass, as
+                                                         test runs them, naming each failing
                                                          test and saving the TAP output under ~/.claude/kickflip/logs;
                                                          fast-forwards the branch in the repo;
                                                          restarts the hub when its code changed, else each board
@@ -1054,6 +1061,10 @@ const COMMANDS = {
   'item stall': [['file/id'], ['reason'], (site, [key], f) => stallCard(needSite(site, 'item stall'), key, f.reason)],
   'land stop': [['file/id'], [], (site, [key]) => stopLand(needSite(site, 'land stop'), key)],
   'land queue': [[], [], () => queueLines()],
+  test: [[], ['dir', 'base'], async (site, args, f) => {
+    const say = (line) => console.log(line);
+    await passTests(path.resolve(f.dir ?? '.'), { say, runTests: affectedRun(f.base ?? 'main', say), outcome: 'fix them and run board.mjs test again' });
+  }],
   'item bump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item bump'), key, true)],
   'item unbump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],
   lander: [['file/id'], [], async (site, [key]) => {

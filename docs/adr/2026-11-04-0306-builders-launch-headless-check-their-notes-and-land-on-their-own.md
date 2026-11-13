@@ -17,3 +17,5 @@ Considered:
 - the session landing a build once it verified its calls: that sends conflicts back to the orchestrator, which the owner ruled out;
 - a smaller parallel cap for headless builders: the notes left the number open, and Maximum parallel implementers already caps them;
 - launching codex headless too: its CLI takes other flags and a brief that this change doesn't need to settle, so the session still launches it.
+
+Superseded in part by [lands and builders run only the tests a change affects](2026-11-12-2104-lands-and-builders-run-only-the-tests-a-change-affects.md): a land and a builder run the test files the change affects, not the full suite.

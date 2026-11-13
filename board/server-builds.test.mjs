@@ -9,14 +9,15 @@ import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening } from '../shared/test-helpers.mjs';
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
-// Each board build reads the wave file once, so the server's reads of it count its builds. run(ctx) gets the server's
-// port, the site, how many builds so far, settled(), and a page holding the stream that reloads on each signal, its
-// signals and loads counted since the last settled().
+// Each board build reads the wave file once, so the server's reads of it count its builds; the names its watch reports
+// are recorded too. run(ctx) gets the server's port, the site, how many builds so far, settled(), and a page holding the
+// stream that reloads on each signal, its signals and loads counted since the last settled().
 async function withBoard(run) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'board-builds-'));
   const site = path.join(dir, 'site');
   const wave = path.join(site, 'data', 'items.json');
   const reads = path.join(dir, 'reads');
+  const heard = path.join(dir, 'heard');
   const setup = path.join(dir, 'setup.mjs');
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.mkdirSync(path.join(site, 'data', 'replies'));
@@ -30,6 +31,12 @@ async function withBoard(run) {
       if (String(file) === ${JSON.stringify(wave)}) fs.appendFileSync(${JSON.stringify(reads)}, '.');
       return read.call(this, file, ...rest);
     };
+    const watch = fs.watch;
+    fs.watch = function (...args) {
+      const listener = args.pop();
+      return watch.call(this, ...args, (event, name) => { fs.appendFileSync(${JSON.stringify(heard)}, name + '\\n'); listener(event, name); });
+    };
+    (await import('node:module')).syncBuiltinESMExports();
   `);
   const count = () => (fs.existsSync(reads) ? fs.readFileSync(reads, 'utf8').length : 0);
   const [port] = await freePorts();
@@ -47,6 +54,10 @@ async function withBoard(run) {
     await new Promise((resolve) => {
       page = http.get(`http://127.0.0.1:${port}/api/stream`, (res) => { res.on('data', (c) => { if (String(c).includes('event: change')) { ctx.signals++; load(); } }); resolve(); });
     });
+    // macOS's watch can report nothing for seconds after the server starts, then the writes since in batches, setup's
+    // included. Once the server's watch has reported a write made after it started, it reports writes as they come.
+    fs.writeFileSync(path.join(site, 'data', 'probe'), '1');
+    await until(() => fs.existsSync(heard) && fs.readFileSync(heard, 'utf8').split('\n').some((name) => name.endsWith('probe')), "the server's watch reports a write");
     await ctx.settled();
     ctx.signals = 0;
     ctx.loads = 0;
