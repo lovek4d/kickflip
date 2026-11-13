@@ -212,6 +212,17 @@ test('only a run that can change its code moves an In Review card to In Progress
   assert.equal(lane({ main: { kind: 'claude', label: 'Lander', started: at } }, null, { lane: 'progress' }), 'progress');
 });
 
+// docs/adr/2026-11-13-2030-a-test-run-reports-live-lines-the-thread-does-not-show.md
+test('a live status line sets the card line and keeps a running build from reading stale, but the thread does not show it', () => {
+  const started = '2026-10-30T10:00:00Z';
+  const start = { ts: '2026-10-30T10:01:00Z', who: 'claude', kind: 'status', phase: 'testing', text: 'Testing: 12 affected test files' };
+  const update = { ts: '2026-10-30T10:08:00Z', who: 'claude', kind: 'status', phase: 'testing', live: true, text: 'Testing: 5 tests run, 0 failing' };
+  const card = board({ now: Date.parse('2026-10-30T10:15:00Z'), agents: { A1: { main: { kind: 'codex', started } } }, threads: { 'w/A1': [start, update] } }).items.find((i) => i.key === 'w/A1');
+  assert.deepEqual([card.builder.progress, card.builder.phase, card.builder.stale], ['Testing · 5 tests run, 0 failing', 'testing', false]);
+  const shown = threadOf('w/A1', { lines: [start, update] }).filter((m) => m.kind === 'status').map((m) => m.text);
+  assert.deepEqual(shown, [start.text]);
+});
+
 test('a builder goes stale after 15 minutes without progress or transcript movement, clears on either or done, and ignores ordinary thread lines', () => {
   const started = '2026-10-30T10:00:00Z';
   const record = { kind: 'codex', started };

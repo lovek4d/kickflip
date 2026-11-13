@@ -175,9 +175,18 @@ export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', 
 // → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
 // (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md). Whatever the run's tests left
 // running in its process group is killed as the run exits.
-export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000 } = {}) {
+export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimit = 5 * 60 * 1000, report, every = REPORT_EVERY } = {}) {
   const files = chosen ? chosen.map((f) => path.join(dir, f)) : testFiles(dir);
   if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
+  const began = Date.now();
+  const said = [report?.start(chosen ? `${files.length} affected test files` : `full suite, ${files.length} test files`)];
+  // The runner's TAP lists every test of every file at the top level, each with its own "ok" or "not ok" line, and
+  // names no total before the run ends, so progress counts the tests that have run.
+  const testsDone = (tap) => [...tap.matchAll(/^(not )?ok \d+ /gm)].map((m) => Boolean(m[1]));
+  const ticker = report && setInterval(() => {
+    const done = testsDone(stdout);
+    said.push(report.update(`${done.length} tests run, ${done.filter(Boolean).length} failing`));
+  }, every);
   const { NODE_TEST_CONTEXT: _, ...rest } = process.env;
   const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false' };
   const child = spawn(nodeBin(), testArgs(testLimit, files), { cwd: dir, env, detached: true });
@@ -196,10 +205,16 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     const release = () => { child.stdout.destroy(); child.stderr.destroy(); };
     if (child.exitCode === null && child.signalCode === null) child.once('exit', release); else release();
   }, limit);
-  return new Promise((resolve) => child.on('close', (status, signal) => {
+  return new Promise((resolve, reject) => child.on('close', async (status, signal) => {
     clearTimeout(cutoff);
+    clearInterval(ticker);
     const count = (name) => Number(stdout.match(new RegExp(`^# ${name} (\\d+)$`, 'm'))?.[1] ?? 0);
     const result = { ok: status === 0, pass: count('pass'), fail: count('fail') };
+    const seconds = Math.round((Date.now() - began) / 1000);
+    try {
+      said.push(report?.end(`${result.pass} passed, ${result.fail} failed in ${Math.floor(seconds / 60)}m ${seconds % 60}s`));
+      await Promise.all(said);
+    } catch (e) { reject(e); return; }
     if (result.ok) { resolve(result); return; }
     const logs = path.join(os.homedir(), '.claude', 'kickflip', 'logs');
     try {
@@ -217,6 +232,8 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     resolve(result);
   }));
 }
+// How often a run's progress is reported.
+const REPORT_EVERY = 2 * 60 * 1000;
 const duration = (ms) => ms % 60000 ? `${ms / 1000} seconds` : `${ms / 60000} minutes`;
 
 function tapFailures(tap) {
@@ -496,16 +513,17 @@ export function syncBase(repo, base) {
 }
 
 // The tests the change in a worktree since base affects (affected.mjs), as passTests' runTests, saying which run.
-export const affectedRun = (base, say = console.log) => (dir) => {
+export const affectedRun = (base, say = console.log) => (dir, { report } = {}) => {
   const { files, full } = affectedTests(dir, base);
   say(full ? `testing every test file, as ${full}` : `testing the ${files.length} test files the change affects`);
-  return nodeTests(dir, { files });
+  return nodeTests(dir, { files, report });
 };
 
 // Runs the worktree's tests (runTests, else the full suite), refusing on a failure with each failing test, or on a run cut off at its time limit
 // with the files still running, and outcome, what the refusal left undone.
-export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome }) {
-  const tests = await runTests(dir);
+// report, when given, is told the run's start, progress and result ({start, update, end}, each taking words; nodeTests).
+export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report }) {
+  const tests = await runTests(dir, { report });
   const log = tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : [];
   if (tests.hung) fail([`tests hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}; ${outcome}`, ...log].join('\n'));
   if (!tests.ok) fail([
@@ -522,7 +540,7 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
 // the change affects (affectedRun).
 // title is the builder's --title, the squash commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
 // still it, with base not moved past it, is not tested again.
-export async function prepareLand({ path: dir, branch, repo, base, ref, title }, { say = console.log, runTests = affectedRun(base, say) } = {}) {
+export async function prepareLand({ path: dir, branch, repo, base, ref, title }, { say = console.log, runTests = affectedRun(base, say), report } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
@@ -549,7 +567,7 @@ export async function prepareLand({ path: dir, branch, repo, base, ref, title },
     say(`${branch} was tested on ${base} as it is now; not testing it again`);
     return head;
   }
-  await passTests(dir, { say, runTests, outcome: 'nothing landed' });
+  await passTests(dir, { say, runTests, outcome: 'nothing landed', report });
   git(repo, 'update-ref', testedRef(branch), head);
   return head;
 }

@@ -626,7 +626,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          (else main): its commits, uncommitted edits and untracked
                                                          files. Says how many test files it runs, or that it runs
                                                          every one and why; fails naming each failing test and
-                                                         saving the TAP output under ~/.claude/kickflip/logs
+                                                         saving the TAP output under ~/.claude/kickflip/logs. With
+                                                         --site, for the card whose open build keeps that worktree, it
+                                                         writes the card's status line: its start and result in the
+                                                         thread, its progress every 2 minutes on the live line only
   item bump <file>/<id>                                  the card's bump, as the owner's bump icon sends it (card-bump;
   item unbump <file>/<id>                                card-unbump). A bumped card's land goes ahead in the land queue
                                                          of every land not bumped since, the latest bump first, without
@@ -1058,7 +1061,8 @@ const COMMANDS = {
       await store.checkCallsVerified(site, key, { dir: f.dir });
       const recorded = await store.recordedWorktree(site, key, { dir: f.dir });
       const { repo, base } = builderRepo(site, { repo: f.repo ?? recorded?.repo });
-      await landInTurn({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref });
+      const report = site ? await store.testReport(site, key, { phase: 'landing' }) : undefined;
+      await landInTurn({ path: recorded?.path ?? path.join(worktreesDir(), id), branch: recorded?.branch ?? id, repo: path.resolve(repo), base, ref }, { report });
       return site ? store.setItem(site, key, { done: true, text: f.text, ownerStep: f['owner-step'], check: f.check }) : { lines: [] };
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
@@ -1069,7 +1073,10 @@ const COMMANDS = {
   'land queue': [[], [], () => queueLines()],
   test: [[], ['dir', 'base'], async (site, args, f) => {
     const say = (line) => console.log(line);
-    await passTests(path.resolve(f.dir ?? '.'), { say, runTests: affectedRun(f.base ?? 'main', say), outcome: 'fix them and run board.mjs test again' });
+    const dir = path.resolve(f.dir ?? '.');
+    const card = site ? await store.cardOfWorktree(site, dir) : null;
+    const report = card ? await store.testReport(site, card, { phase: 'testing' }) : undefined;
+    await passTests(dir, { say, runTests: affectedRun(f.base ?? 'main', say), outcome: 'fix them and run board.mjs test again', report });
   }],
   'item bump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item bump'), key, true)],
   'item unbump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],

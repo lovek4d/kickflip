@@ -63,7 +63,8 @@ async function landCard(site, key, { tree, ref, base, remote, repo, settings, te
   // and base is brought up to origin's again under it.
   // docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md: a bumped card's land goes ahead in the queue.
   const queue = { site, key, first: await store.landFirst(site, key) };
-  const landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, queue, sync: () => remote && syncBase(tree.repo, base) });
+  const report = await store.testReport(site, key, { phase: 'landing' });
+  const landed = await landInTurn({ ...tree, ref }, { hold: !go, onWait, queue, report, sync: () => remote && syncBase(tree.repo, base) });
   if (!go) {
     const set = await store.setItem(site, key, { mergeReady: tree.branch, ownerStep, check });
     await store.appendMessage(site, key, { text });
@@ -133,7 +134,8 @@ async function sendForReview(site, key, { path: dir, branch, base, title: given,
   const title = given ?? (opens ? await store.cardTitleOf(site, key) : undefined);
   const fault = opens && subjectFault(title);
   if (fault) fail(`${given === undefined ? "the card's title" : '--title'} "${title}" ${fault}; pass --title "<type>(<scope>): <summary>", at most 100 characters`);
-  await passTests(dir, { runTests: affectedRun(`refs/remotes/origin/${base}`), outcome: 'nothing was pushed' });
+  const report = await store.testReport(site, key, { phase: 'landing' });
+  await passTests(dir, { runTests: affectedRun(`refs/remotes/origin/${base}`), outcome: 'nothing was pushed', report });
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: to a card's open PR, a rebased
   // branch goes with a lease on origin's branch as the worktree last fetched it, and the PR stays as it is.
   const from = open ? git(dir, 'rev-parse', `refs/remotes/origin/${branch}`).out : null;

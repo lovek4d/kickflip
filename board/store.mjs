@@ -4192,7 +4192,7 @@ const forAgent = (line, planner, name) => {
 // A planner's line is marked planner and led by its kind's word, whichever agent it runs as ("Prototyping: …")
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
-async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts) {
+async function statusToThread(site, key, agent = 'main', builder, { phase, detail }, ts, { live = false } = {}) {
   const planner = plans(builder);
   const who = planner || agent === 'main' ? '' : builder.kind === HELPER ? agent : modelName(builder) || builder.kind || agent;
   const head = planner ? PLANNER_WORD[builder.kind] : [who, phase].filter(Boolean).join(' ');
@@ -4200,7 +4200,36 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
   const body = head ? `${head[0].toUpperCase()}${head.slice(1)}: ${detail.replace(repeat, '')}` : detail;
   const file = threadFile(site, key);
   if ((await readLines(file)).filter((m) => m.kind === 'status').pop()?.text === body) return;
-  await appendLine(file, { ts, who: 'claude', kind: 'status', run: builder.started, ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), text: body });
+  await appendLine(file, { ts, who: 'claude', kind: 'status', run: builder.started, ...(phase ? { phase } : {}), ...(planner ? { planner: true } : {}), ...(live ? { live: true } : {}), text: body });
+}
+
+// docs/adr/2026-11-13-2030-a-test-run-reports-live-lines-the-thread-does-not-show.md
+// A test run's words for a card, under phase (testing for a builder's run, landing for a land's): {start, update, end},
+// each taking words and writing them as the card's newest status line, as `builder progress` does for the card's open
+// build (or its newest, once handed back). The start and the result stay in the thread; an update is a live line, which sets the card's line and keeps a
+// running build from reading stale but is not shown in the thread (domain.mjs threadOf).
+export async function testReport(site, key, { phase }) {
+  const { source } = await loadItem(site, key);
+  // Like the landing line, it joins the section of the card's newest build, which is closed once the build handed back.
+  const records = await Promise.all((await builderFiles(source.dir, parseKey(key).id)).map((f) => readJSON(f, null)));
+  const record = records.filter((r) => r?.started && builds(r) && r.label !== LANDER).sort((a, b) => String(b.started).localeCompare(String(a.started)))[0] ?? {};
+  const say = (live) => async (words) => {
+    const line = progressLine(site, phase, words, 'a test report');
+    await statusToThread(site, key, 'main', record, line, new Date().toISOString(), { live });
+  };
+  return { start: say(false), update: say(true), end: say(false) };
+}
+
+// The key of the card whose open build keeps the worktree at dir, or null.
+export async function cardOfWorktree(site, dir) {
+  for (const source of await itemSources(site)) {
+    const itemFile = await readJSON(source.file, null);
+    for (const it of itemFile?.items ?? []) {
+      const records = await Promise.all((await builderFiles(source.dir, it.id)).map((f) => readJSON(f, null)));
+      if (records.some((r) => r?.started && !r.done && r.worktree?.path === path.resolve(dir))) return `${source.slug}/${it.id}`;
+    }
+  }
+  return null;
 }
 
 // The model a planner runs without --model (owner, #111's grill).
