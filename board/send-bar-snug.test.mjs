@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromeInstalled, dumpProbe } from '../shared/test-helpers.mjs';
+import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
+
+const chrome = sharedChrome();
 
 const pub = fileURLToPath(new URL('./public/', import.meta.url));
 
@@ -24,7 +26,7 @@ for (const [width, bodyClass, expected] of [[390, 'has-sidebar', '53px'],[1280, 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snug-'));
     const file = path.join(dir, 'page.html');
     fs.writeFileSync(file, FIXTURE(bodyClass));
-    const got = await dumpProbe(file, width);
+    const got = await chrome.probe(`file://${file}`, width);
     assert.equal(got.pad, expected, `main pads ${got.pad} (--app-bottom ${got.app})`);
   });
 }

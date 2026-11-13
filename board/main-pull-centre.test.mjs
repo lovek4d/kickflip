@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromeInstalled, dumpProbe } from '../shared/test-helpers.mjs';
+import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
+
+const chrome = sharedChrome();
 
 const pub = fileURLToPath(new URL('./public/', import.meta.url));
 const ICON = '<svg width="14" height="14" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/></svg>';
@@ -28,7 +30,7 @@ for (const theme of ['dark', 'light']) {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mainpull-'));
       const file = path.join(dir, 'page.html');
       fs.writeFileSync(file, FIXTURE(theme));
-      const got = await dumpProbe(file, width);
+      const got = await chrome.probe(`file://${file}`, width);
       assert.ok(Math.abs(got.icon - got.text) <= 1, `icon centre ${got.icon} vs text centre ${got.text}`);
     });
   }

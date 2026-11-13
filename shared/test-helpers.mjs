@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
-import { execFile, execFileSync } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
+import { before, after } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { lockWaits, withFileLock } from '../hub/locks.mjs';
+import { chromePath, openTab, startChrome } from './chrome.mjs';
 
 export async function freePorts(count = 1) {
   const servers = [];
@@ -330,15 +332,37 @@ export async function putWave(file, text) {
   });
 }
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-export const chromeInstalled = fs.existsSync(CHROME);
+export const chromeInstalled = fs.existsSync(chromePath());
 
-// Loads a page file at `width`px in headless Chrome and returns the JSON its inline script wrote into <pre id="probe"> as it
-// parsed (no timer, so every dump holds it). Chrome can exit non-zero after it has dumped: its output is read on any exit.
-export async function dumpProbe(file, width) {
-  const { stdout } = await promisify(execFile)(CHROME, ['--headless=new', '--disable-gpu', '--allow-file-access-from-files', `--window-size=${width},900`,
-    '--dump-dom', `file://${file}`], { encoding: 'utf8' }).catch((e) => ({ stdout: e.stdout || '' }));
-  const posted = /<pre id="probe">(.*?)<\/pre>/s.exec(stdout)?.[1];
-  assert.ok(posted, 'the page reported its layout');
-  return JSON.parse(posted.replace(/&quot;/g, '"'));
+// docs/adr/2026-11-13-1030-render-and-layout-tests-share-one-chrome-per-file.md
+// One headless Chrome for the calling test file, started before its tests and stopped after them; each page a test loads
+// gets a tab of its own. → {probe(url, width), port}
+export function sharedChrome() {
+  let dir;
+  let chrome;
+  const result = { get port() { return chrome.port; } };
+  before(async () => {
+    if (!chromeInstalled) return;
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-chrome-'));
+    chrome = await startChrome(dir, ['--allow-file-access-from-files']);
+  });
+  after(async () => {
+    await chrome?.stop();
+    if (dir) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
+  });
+  // Loads url at `width`px and returns the JSON the page writes into <pre id="probe">, once it is there.
+  result.probe = async (url, width) => {
+    const tab = await openTab(chrome.port);
+    try {
+      await tab.cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+      await tab.cdp('Page.navigate', { url });
+      let posted;
+      await until(async () => {
+        posted = (await tab.cdp('Runtime.evaluate', { expression: `document.getElementById('probe')?.textContent`, returnByValue: true })).result.value;
+        return posted;
+      }, 'the page reported its layout', 10000);
+      return JSON.parse(posted);
+    } finally { await tab.close(); }
+  };
+  return result;
 }

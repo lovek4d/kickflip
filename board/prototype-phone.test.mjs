@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
+import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
 
+const chrome = sharedChrome();
 const read = (file) => fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8');
 
 test('at phone width every box in the stage is capped to the stage, so a fixed-width panel stacks and is not cut off', () => {
@@ -51,7 +51,6 @@ test('every input, select and textarea in the stage is 16px', () => {
 
 // Loads the real prototype page at 390px in headless Chrome (an iframe, since a headless window is never narrower than 500px)
 // with one made-up take, and reports where its panels landed.
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const TAKE = `
 export const render = (stage) => {
   stage.innerHTML = '<style>'
@@ -88,16 +87,11 @@ async function phoneProbe({ header = '', probe }) {
   });
   await new Promise((ok) => server.listen(0, ok));
   try {
-    // Chrome can exit non-zero at teardown after it has dumped the DOM; its output is read on any exit.
-    const { stdout } = await promisify(execFile)(CHROME, ['--headless=new', '--disable-gpu', '--window-size=390,900', '--virtual-time-budget=6000', '--dump-dom',
-      `http://localhost:${server.address().port}/frame.html`], { encoding: 'utf8' }).catch((e) => ({ stdout: e.stdout || '' }));
-    const posted = /<pre id="probe">(.*?)<\/pre>/s.exec(stdout)?.[1];
-    assert.ok(posted, 'the page reported its layout');
-    return JSON.parse(posted.replace(/&quot;/g, '"'));
+    return await chrome.probe(`http://localhost:${server.address().port}/frame.html`, 390);
   } finally { server.close(); }
 }
 
-test('at phone width a take that pairs panels with grid or a non-wrapping flex row stacks them, and a 720px mock scrolls in its box without cutting the page off', { skip: !fs.existsSync(CHROME) }, async () => {
+test('at phone width a take that pairs panels with grid or a non-wrapping flex row stacks them, and a 720px mock scrolls in its box without cutting the page off', { skip: !chromeInstalled }, async () => {
   const got = await phoneProbe({ probe: PROBE });
   assert.equal(got.gridStacked, true, 'the grid pair stacks');
   assert.equal(got.flexStacked, true, 'the non-wrapping flex pair stacks');
@@ -107,7 +101,7 @@ test('at phone width a take that pairs panels with grid or a non-wrapping flex r
 });
 
 // The page's header bar is hidden, so nothing is below the footer: its bottom is the window's.
-test('at phone width the viewer footer sits on the bottom edge with no gap below it, though the page has a hidden header bar', { skip: !fs.existsSync(CHROME) }, async () => {
+test('at phone width the viewer footer sits on the bottom edge with no gap below it, though the page has a hidden header bar', { skip: !chromeInstalled }, async () => {
   const probe = `<script>addEventListener('load', () => setTimeout(() => {
   parent.postMessage(JSON.stringify({ footerBottom: document.querySelector('.ps-switch').getBoundingClientRect().bottom, innerHeight,
     appBottom: getComputedStyle(document.documentElement).getPropertyValue('--app-bottom').trim() }), '*');

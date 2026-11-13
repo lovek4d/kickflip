@@ -5,7 +5,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromeInstalled, dumpProbe } from '../shared/test-helpers.mjs';
+import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
+
+const chrome = sharedChrome();
 
 const pub = fileURLToPath(new URL('./public/', import.meta.url));
 
@@ -23,7 +25,7 @@ for (const [width, same] of [[390, true], [1280, false]]) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tbox-'));
     const file = path.join(dir, 'page.html');
     fs.writeFileSync(file, FIXTURE);
-    const got = await dumpProbe(file, width);
+    const got = await chrome.probe(`file://${file}`, width);
     if (same) assert.ok(Math.abs(got.reply - got.ask) < 1, `reply ${got.reply}px vs ask ${got.ask}px`);
     else assert.ok(got.reply < got.ask, `reply ${got.reply}px vs ask ${got.ask}px`);
   });

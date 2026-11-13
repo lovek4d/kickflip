@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+import { chromePath, ChromeStartError, openTab, startChrome } from '../shared/chrome.mjs';
 import { BoardError, readPrototypes } from './store.mjs';
 import { prototypePage } from './prototype-page.mjs';
 import { BASE_KEY, baseWorktreeOf } from './prototype-base.mjs';
@@ -21,7 +22,6 @@ import { boardAt } from '../hub/boards.mjs';
 
 const board = path.dirname(fileURLToPath(import.meta.url));
 export const WIDTHS = [390, 1280];
-const chromePath = () => process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const PORT_MS = 120_000;
 // Resolves once the page has drawn, read after its load event: a take page once the kit's first take has drawn
@@ -57,55 +57,6 @@ function serve(site, proto) {
     }
     res.writeHead(p === '/favicon.ico' ? 204 : 404).end();
   });
-}
-
-async function launchOnce(dir) {
-  if (!fs.existsSync(chromePath())) throw new BoardError(`the render check needs Chrome; none at ${chromePath()}, set CHROME to its path`);
-  const chrome = spawn(chromePath(), ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', 'about:blank'],
-    // The account's own home, not a $HOME a caller pointed elsewhere: Chrome's network stack stalls on a home without its keychain.
-    { stdio: 'ignore', env: { ...process.env, HOME: os.userInfo().homedir } });
-  const portFile = path.join(dir, 'DevToolsActivePort');
-  for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(100);
-  if (!fs.existsSync(portFile)) { chrome.kill(); throw new BoardError('the render check could not start Chrome'); }
-  const port = fs.readFileSync(portFile, 'utf8').split('\n')[0];
-  let target;
-  for (let i = 0; i < 100 && !target; i++) {
-    target = (await fetch(`http://127.0.0.1:${port}/json`).then((r) => r.json(), () => [])).find((p) => p.type === 'page');
-    if (!target) await sleep(100);
-  }
-  if (!target) { chrome.kill(); throw new BoardError('the render check could not start Chrome'); }
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
-  try { await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; }); } catch { chrome.kill(); throw new BoardError('the render check could not start Chrome'); }
-  let id = 0;
-  const waiting = new Map();
-  const listeners = [];
-  ws.onmessage = ({ data }) => {
-    const m = JSON.parse(data);
-    if (m.id) waiting.get(m.id)?.(m);
-    else listeners.forEach((fn) => fn(m));
-  };
-  const cdp = (method, params = {}) => new Promise((resolve, reject) => {
-    const n = ++id;
-    waiting.set(n, (m) => (m.error ? reject(new Error(m.error.message)) : resolve(m.result)));
-    ws.send(JSON.stringify({ id: n, method, params }));
-  });
-  const close = async () => {
-    ws.close();
-    const exited = new Promise((resolve) => chrome.once('exit', resolve));
-    chrome.kill();
-    await exited;
-  };
-  return { cdp, on: (fn) => { listeners.push(fn); return () => listeners.splice(listeners.indexOf(fn), 1); }, close };
-}
-
-// A busy host can leave Chrome without a port, a page or a socket, so a launch that fails is tried once more in a fresh profile.
-export async function launch(dir, start = launchOnce) {
-  try { return await start(dir); } catch (e) {
-    if (!(e instanceof BoardError) || !/could not start Chrome/.test(e.message)) throw e;
-    await fsp.rm(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
-    await fsp.mkdir(dir);
-    return start(dir);
-  }
 }
 
 const described = (ex) => ex.exception?.description?.split('\n')[0] || ex.text;
@@ -177,18 +128,30 @@ async function serveBase(site) {
   return { origin: `http://127.0.0.1:${port}`, dir, stop };
 }
 
+// Runs fn on a tab of the Chrome that KICKFLIP_RENDER_CHROME_PORT names, which its caller owns (a test file shares one
+// across its checks), else of a Chrome of its own.
 async function withChrome(fn) {
-  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'render-check-'));
+  const shared = process.env.KICKFLIP_RENDER_CHROME_PORT;
+  if (!shared && !fs.existsSync(chromePath())) throw new BoardError(`the render check needs Chrome; none at ${chromePath()}, set CHROME to its path`);
+  const dir = shared ? null : await fsp.mkdtemp(path.join(os.tmpdir(), 'render-check-'));
   let chrome;
+  let tab;
   try {
-    chrome = await launch(dir);
-    await chrome.cdp('Runtime.enable');
-    await chrome.cdp('Log.enable');
-    await chrome.cdp('Page.enable');
-    return await fn(chrome);
+    try {
+      chrome = shared ? { port: shared, stop: async () => {} } : await startChrome(dir);
+      tab = await openTab(chrome.port);
+    } catch (e) {
+      if (e instanceof ChromeStartError) throw new BoardError(`the render check ${e.message}`);
+      throw e;
+    }
+    await tab.cdp('Runtime.enable');
+    await tab.cdp('Log.enable');
+    await tab.cdp('Page.enable');
+    return await fn(tab);
   } finally {
-    await chrome?.close();
-    await fsp.rm(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
+    await tab?.close();
+    await chrome?.stop();
+    if (dir) await fsp.rm(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
   }
 }
 

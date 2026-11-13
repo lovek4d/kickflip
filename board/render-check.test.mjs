@@ -5,15 +5,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { BoardError } from './store.mjs';
-import { launch } from './render-check.mjs';
+import { ChromeStartError, startChrome } from '../shared/chrome.mjs';
+import { sharedChrome } from '../shared/test-helpers.mjs';
 import { boardWith, home, at, site, write, read, run, question, takePath, recordPrototype } from './board-fixture.mjs';
 
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const skip = !fs.existsSync(CHROME) && 'no Chrome';
+// One Chrome for the file; each check opens a tab in it. The tests of a Chrome that fails to start launch their own.
+const chrome = sharedChrome();
+const checkEnv = (env = {}) => ({ KICKFLIP_RENDER_CHECK: 'on', ...(skip ? {} : { KICKFLIP_RENDER_CHROME_PORT: chrome.port }), ...env });
 const add = async (options, env = {}) => {
   write(path.join(home, 'q.json'), question('q1', { url: 'prototype-site.html?q=q1', options: options.map((id) => ({ id, label: `Take ${id}` })) }));
-  return await boardWith(['question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')], { KICKFLIP_RENDER_CHECK: 'on', ...env });
+  return await boardWith(['question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')], checkEnv(env));
 };
 
 // A Chrome stand-in that exits at once on its first `failures` launches, then runs the real one: Chrome failing to start under load.
@@ -28,21 +31,21 @@ const flakyChrome = (failures) => {
 test('a Chrome that fails to start once is launched again in a fresh profile', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launch-test-'));
   const dirs = [];
-  const chrome = { cdp() {}, close() {} };
-  const start = async (d) => {
+  const started = { port: '1', stop() {} };
+  const once = async (d) => {
     dirs.push(d);
-    if (dirs.length === 1) { fs.writeFileSync(path.join(d, 'stale'), 'x'); throw new BoardError('the render check could not start Chrome'); }
+    if (dirs.length === 1) { fs.writeFileSync(path.join(d, 'stale'), 'x'); throw new ChromeStartError('could not start Chrome'); }
     assert.deepEqual(fs.readdirSync(d), [], 'the retry profile is empty');
-    return chrome;
+    return started;
   };
-  try { assert.equal(await launch(dir, start), chrome); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  try { assert.equal(await startChrome(dir, [], once), started); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   assert.equal(dirs.length, 2);
 });
 
 test('a Chrome that fails to start twice is refused naming it, not a raw TypeError', { skip }, async () => {
   await recordPrototype('site', ['A:Plain'], false);
   write(takePath('site', 'A'), 'export function render(stage, kit) { stage.innerHTML = `<p>${kit.esc("hello")}</p>`; }');
-  const r = await add(['A'], { CHROME: flakyChrome(2) });
+  const r = await add(['A'], { CHROME: flakyChrome(2), KICKFLIP_RENDER_CHROME_PORT: '' });
   assert.notEqual(r.code, 0);
   assert.match(r.err, /could not start Chrome/);
   assert.doesNotMatch(r.err, /TypeError/);
@@ -113,7 +116,7 @@ server.listen(0, process.env.HOST, () => console.log('port ' + server.address().
   const r0 = await boardWith(['prototype', 'add', 'look', '--site', 'orch', '--title', 'Look', '--served', '/proto/look', '--take', 'A:Chips', '--take', 'B:Stepper', '--state', 'empty:None', '--state', 'busy:Ten']);
   assert.equal(r0.code, 0, r0.err);
   write(path.join(home, 'q.json'), question('q1', { url: 'prototype-look.html?q=q1', options: [{ id: 'A', label: 'Chips' }, { id: 'B', label: 'Stepper' }] }));
-  const ask = () => boardWith(['question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')], { KICKFLIP_RENDER_CHECK: 'on' });
+  const ask = () => boardWith(['question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')], checkEnv());
   serve(['B/empty', 'A/busy']);
   const refused = await ask();
   assert.equal(refused.code, 1);

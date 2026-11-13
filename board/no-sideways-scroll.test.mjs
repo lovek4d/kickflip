@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromeInstalled, dumpProbe } from '../shared/test-helpers.mjs';
+import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
+
+const chrome = sharedChrome();
 
 const pub = fileURLToPath(new URL('./public/', import.meta.url));
 const long = 'x'.repeat(400);
@@ -33,7 +35,7 @@ for (const width of [390, 1280]) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sideways-'));
     const file = path.join(dir, 'page.html');
     fs.writeFileSync(file, FIXTURE);
-    const widths = await dumpProbe(file, width);
+    const widths = await chrome.probe(`file://${file}`, width);
     for (const [sel, [scroll, client]] of Object.entries(widths)) assert.equal(scroll, client, `${sel} scrolls sideways: ${scroll} in ${client}`);
   });
 }
