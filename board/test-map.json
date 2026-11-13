@@ -1,7 +1,8 @@
 {
   "core": [
     "board/affected.test.mjs",
-    "board/suite-run.test.mjs"
+    "board/suite-run.test.mjs",
+    "board/timer-free.test.mjs"
   ],
   "full": [
     "board/board-fixture.mjs",
