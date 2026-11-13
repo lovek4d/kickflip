@@ -866,7 +866,7 @@ test("the owner's Hold pauses the card's running builder at its next progress re
     assert.equal(b.thread('H1').at(-1).text, 'Paused at building: held. It resumes once you unhold it.');
     process.kill(pid, 'SIGKILL');
     await send('card-hold', { key: 't/H1', hold: false });
-    await until(() => b.record('H1').session?.pid && b.record('H1').session.pid !== pid, 'the resume launches its session again');
+    await untilHeard(() => b.record('H1').session?.pid && b.record('H1').session.pid !== pid, 'the resume launches its session again', path.join(b.data, 'nudge'));
     resumed = b.record('H1').session.pid;
     const [, again] = runs();
     assert.deepEqual(again.argv.slice(0, 2), ['--resume', session]);
@@ -983,7 +983,7 @@ test("the owner's visual request owes the orchestrator's visual brief, which lau
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 1, 'the second waits while the first runs');
     fs.writeFileSync(path.join(b.data, 'agents', `V1@${agent}.json`), JSON.stringify({ ...b.record(`V1@${agent}`), done: new Date().toISOString() }));
-    await until(() => b.runs().length === 2, 'the second launches once the first is done');
+    await untilHeard(() => b.runs().length === 2, 'the second launches once the first is done', path.join(b.data, 'nudge'));
     assert.doesNotMatch(b.runs()[1].argv[1], new RegExp(`--agent ${agent}\\b`));
     assert.match(b.runs()[1].argv[1], /Now the review lane\./);
   } finally {

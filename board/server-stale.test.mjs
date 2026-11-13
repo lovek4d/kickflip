@@ -732,7 +732,7 @@ test('an idle board with auto review on sends pr-review for one incoming PR at a
   await tick();
   assert.equal(sent().length, 1, 'one at a time, across a restart');
   put(path.join(dataDir, 'reviews.json'), JSON.stringify({ 442: { ...pr(442, true), state: 'posted', text: 'Fine.', at: iso(now + 1000) } }));
-  await until(() => sent().length === 2, 'the next PR follows the recorded review');
+  await untilHeard(() => sent().length === 2, 'the next PR follows the recorded review', path.join(dataDir, 'nudge'));
   assert.equal(sent()[1].pr, 440);
 });
 

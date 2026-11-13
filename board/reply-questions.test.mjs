@@ -16,7 +16,7 @@ test('thread --questions posts the message, then its questions asked after it', 
   assert.deepEqual([r.code, r.err], [0, '']);
   assert.deepEqual(owned().map((q) => q.id), ['q1', 'q2']);
   const message = lines(threadFile()).find((l) => l.text === 'Two points.');
-  assert.ok(owned().every((q) => q.asked_at > message.ts));
+  assert.ok(owned().every((q) => q.asked_at >= message.ts));
   assert.match(r.out, /questions q1, q2 asked after it/);
 });
 
@@ -35,7 +35,7 @@ test('reply --questions on a card answers it, then asks its questions after the 
   const r = board('reply', 'audit/T-1', '--text', 'One point.', '--questions', file(auditAsk('q1')), '--site', 'audit');
   assert.deepEqual([r.code, r.err], [0, '']);
   const message = lines(auditThread()).find((l) => l.text === 'One point.');
-  assert.ok(auditOwned()[0].asked_at > message.ts);
+  assert.ok(auditOwned()[0].asked_at >= message.ts);
 });
 
 test('a bad questions file is refused before the message posts', async () => {

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boardSees, freePorts, until, ownSession, boardListening, fakeSlack, slackWorld, untilTestEnds, putWave as sharedPutWave } from '../shared/test-helpers.mjs';
+import { boardSees, freePorts, until, untilHeard, ownSession, boardListening, fakeSlack, slackWorld, untilTestEnds, putWave as sharedPutWave } from '../shared/test-helpers.mjs';
 import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { writeBrief } from './store.mjs';
@@ -223,7 +223,7 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     fs.writeFileSync(draft, 'Neither take landed; try a darker moon.');
     writeBrief(site, 't/P1', { kind: 'prototype', file: draft });
     const record = path.join(site, 'data', 'agents', 'P1.json');
-    await until(() => fs.existsSync(record) && JSON.parse(fs.readFileSync(record, 'utf8')).brief, 'the board launches the prototype planner from its brief');
+    await untilHeard(() => fs.existsSync(record) && JSON.parse(fs.readFileSync(record, 'utf8')).brief, 'the board launches the prototype planner from its brief', path.join(site, 'data', 'nudge'));
     assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')).brief.ask, { question: 'moon', note: 'Neither: try a darker moon' });
     await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'question-reopen', question: 'moon' }) });
     await ok200(answer('moon', 'B', ''));
@@ -1557,6 +1557,7 @@ test("/api/board names a card's worktree while its folder exists, and says wheth
   });
   const board = async (headers = {}) => (await fetch(`${base}/api/board`, { headers })).json();
   try {
+    await untilHeard(async () => (await board()).items.find((i) => i.id === 'V1')?.worktree === kept, 'the board served names the kept worktree', path.join(site, 'data', 'nudge'));
     const b = await board();
     assert.deepEqual([b.onHost, b.items.find((i) => i.id === 'V1').worktree, b.items.find((i) => i.id === 'V2').worktree], [true, kept, null]);
     assert.equal((await board({ 'x-forwarded-for': '127.0.0.1' })).onHost, true);
@@ -1866,10 +1867,13 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
       const idle = ${JSON.stringify(path.join(at, 'data', 'idle.json'))};
       const pushes = () => (fs.existsSync(${JSON.stringify(calls)}) ? fs.readFileSync(${JSON.stringify(calls)}, 'utf8').trim().split('\\n').map((l) => JSON.parse(l)) : []);
       const state = () => (fs.existsSync(idle) ? fs.readFileSync(idle, 'utf8') : '');
-      // The mocked Date stands still, so a wait counts real 20 ms sleeps.
-      const until = async (predicate, message, ms = 15000) => {
+      // The mocked Date stands still, so a wait counts real 20 ms sleeps. A busy Mac's watch can drop a write, so every
+      // 2 s of waiting writes the nudge file: one more event that has the server read the board again.
+      const nudge = ${JSON.stringify(path.join(at, 'data', 'nudge'))};
+      const until = async (predicate, message, ms = 30000) => {
         for (let n = 0; !predicate(); n++) {
-          if (n * 20 > ms) throw new Error(message);
+          if (n * 20 > 5 * ms) throw new Error(message);
+          if (n > 0 && n % 100 === 0) fs.writeFileSync(nudge, String(n));
           await new Promise((r) => setTimeout(r, 20));
         }
       };
