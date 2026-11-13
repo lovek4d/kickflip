@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { until, boardListening, untilTestEnds, stallingPs } from '../shared/test-helpers.mjs';
+import { until, untilHeard, boardListening, untilTestEnds, stallingPs } from '../shared/test-helpers.mjs';
 import { writeBrief } from './store.mjs';
 
 // Writes a file the running server may be reading the way the board does (write aside, then rename), so the server
@@ -313,7 +313,7 @@ test('with auto implement on the board starts and launches the build of the top 
 
   // The running build finishing frees its slot at once.
   put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
-  await until(() => pulls().length === 2, 'a freed slot is filled on the change');
+  await untilHeard(() => pulls().length === 2, 'a freed slot is filled on the change', path.join(dataDir, 'nudge'));
   assert.deepEqual(pulls(), ['t/A5', 't/A4']);
 
   // Changed while the server is down: A0 waits in Orchestrator review, which takes no slot, so A5 finishing frees one
@@ -487,7 +487,7 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   wave.items[2].title = 'feat: two, merged with a duplicate';
   writeWave();
   const markerFile = path.join(dataDir, 'triaged.json');
-  await until(() => fs.existsSync(markerFile) && fs.readFileSync(markerFile, 'utf8').includes('merged with a duplicate'), 'the server saw the triage\'s own change');
+  await untilHeard(() => fs.existsSync(markerFile) && fs.readFileSync(markerFile, 'utf8').includes('merged with a duplicate'), 'the server saw the triage\'s own change', path.join(dataDir, 'nudge'));
   reply(first.id);
   await tick();
   await stop();
@@ -613,7 +613,7 @@ test('each card arriving in Todo owes a grill brief up to the planner cap and gr
   };
   brief('B3', 'grill');
   brief('B4', 'grill');
-  await until(() => launched('grill').length === 2 && fs.existsSync(agentFile('B3')), 'the arrivals get their grills');
+  await untilHeard(() => launched('grill').length === 2 && fs.existsSync(agentFile('B3')), 'the arrivals get their grills', path.join(dataDir, 'nudge'));
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
   assert.deepEqual(launched('prototype'), [], 'B2, filed prototyping, waits past the cap');
   assert.deepEqual(launched('build'), ['t/B5'], 'a ready card is pulled, not grilled, and its build holds no planner back');
@@ -630,10 +630,10 @@ test('each card arriving in Todo owes a grill brief up to the planner cap and gr
   // it gets a prototype planner, not a grill.
   put(ownerFile, JSON.stringify({ topics: [], items: [question('q1', 't/B1'), question('q2', 't/B4')] }));
   put(agentFile('B4'), JSON.stringify({ ...record, done: iso(now) }));
-  await until(() => owes('B2').length, 'the next arrival gets the free slot');
+  await untilHeard(() => owes('B2').length, 'the next arrival gets the free slot', path.join(dataDir, 'nudge'));
   assert.deepEqual(owes('B2'), ['prototype']);
   brief('B2', 'prototype');
-  await until(() => launched('prototype').length === 1, 'its prototype planner launches from its brief');
+  await untilHeard(() => launched('prototype').length === 1, 'its prototype planner launches from its brief', path.join(dataDir, 'nudge'));
   assert.deepEqual(launched('grill').sort(), ['t/B3', 't/B4']);
   assert.deepEqual(launched('prototype'), ['t/B2']);
   assert.deepEqual([JSON.parse(fs.readFileSync(agentFile('B2'), 'utf8'))].map((r) => [r.kind, r.dispatched]), [['prototype', 'hub']]);

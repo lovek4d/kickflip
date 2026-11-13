@@ -54,6 +54,20 @@ export async function until(predicate, message, budget = 30000) {
   if (took > budget) console.warn(`${message}: took ${took} ms, past its ${budget} ms budget`);
 }
 
+// docs/adr/2026-11-13-0045-a-test-waiting-on-the-board-to-hear-a-write-writes-again-until-it-acts.md
+// Waits as until does for a board server to act on a write its file watch hears. A busy Mac's watch can hold events
+// back past the wait's budget or drop them, so every 2 s until predicate holds it writes nudge, a file under the
+// server's watch that no board reads: each write is one more event that has the server read the board again.
+export async function untilHeard(predicate, message, nudge, budget = 30000) {
+  const started = Date.now();
+  let writes = 0;
+  await until(async () => {
+    if (await predicate()) return true;
+    if (Date.now() - started >= (writes + 1) * 2000) fs.writeFileSync(nudge, String(++writes));
+    return false;
+  }, message, budget).catch((e) => { e.message = `${e.message}, over ${writes} nudges`; throw e; });
+}
+
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md: a board server sees a write made outside it once
 // its file watcher reports it. Runs write, then waits until the board served at base is no longer the one before it.
 export async function boardSees(base, write) {

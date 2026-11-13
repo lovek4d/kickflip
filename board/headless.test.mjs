@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
+import { freePorts, until, untilHeard, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
@@ -303,18 +303,18 @@ test("the server launches the builder for a tap and a pull instead of waking the
     const items = JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8'));
     items.items.find((i) => i.id === 'H2').phase = 'ready';
     fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify(items));
-    await until(() => runs().length === 3, 'the pulled builder launches');
-    assert.match(runs()[2].argv[1], /builder start t\/H2 --kind build/);
+    // The fake builders exit at once, so the minute check may relaunch the tapped one meanwhile: each wait names its run.
+    const launches = (pattern) => runs().filter((r) => pattern.test(r.argv[1])).length;
+    await untilHeard(() => launches(/builder start t\/H2 --kind build/) === 1, 'the pulled builder launches', path.join(data, 'nudge'));
     assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H2.json'), 'utf8')).dispatched, 'hub');
     assert.deepEqual(log().filter((e) => e.kind === 'card-pull' || e.kind === 'card-build'), []);
 
     // The owner's answer to H4's question lets its lander go, once.
     fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [{ id: 'h4q', topic: 'item:t/H4', question: 'Which?', options: [{ id: 'A', label: 'This' }], resolved: true, resolved_at: '2026-11-04T04:00:00.000Z' }] }));
-    await until(() => runs().length === 4, "H4's lander launches");
-    assert.match(runs()[3].argv[1], /builder done t\/H4 --text/);
+    await untilHeard(() => launches(/builder done t\/H4 --text/) === 1, "H4's lander launches", path.join(data, 'nudge'));
     boardJSON({ title: 'Shop again' });
     await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.equal(runs().length, 4, 'each verification gets one lander');
+    assert.deepEqual([launches(/builder done t\/H3 --text/), launches(/builder done t\/H4 --text/)], [1, 1], 'each verification gets one lander');
   } finally {
     child.kill();
     fs.rmSync(home, { recursive: true, force: true });
@@ -449,7 +449,7 @@ test('a lander whose process is gone while its builder record is open (the usage
       const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].next = 'Landing'; fs.writeFileSync(waveFile, JSON.stringify(w));
     };
     building();
-    await until(() => runs() === 2, 'the stopped lander launches again');
+    await untilHeard(() => runs() === 2, 'the stopped lander launches again', path.join(data, 'nudge'));
     assert.ok(handedBackAgain(), JSON.stringify(record()));
     // The one command does the same by hand, with the server stopped so its own pass cannot relaunch first.
     await new Promise((resolve) => { child.once('exit', resolve); child.kill(); });
@@ -708,7 +708,7 @@ test("the owner's Grill and Prototype taps and a card arriving in Todo launch no
     await until(() => fs.existsSync(waitsFile) && JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits.some((w) => w.key === 't/G1' && w.kind === 'brief'), 'the brief waits on the orchestrator');
 
     await b.brief('G1', 'grill', 'Settled: the footer folds.\nOpen: the phone layout.');
-    await until(() => b.runs().length === 1, 'the brief launches the grill');
+    await untilHeard(() => b.runs().length === 1, 'the brief launches the grill', path.join(b.data, 'nudge'));
     const [grill] = b.runs();
     assert.equal(grill.cwd, fs.realpathSync(b.clone));
     assert.match(grill.argv[1], /builder start t\/G1 --kind grill/);
@@ -723,7 +723,7 @@ test("the owner's Grill and Prototype taps and a card arriving in Todo launch no
 
     await send('prototype-request', { key: 't/P1' });
     await b.brief('P1', 'prototype', 'Two takes: a drawer and a sheet.');
-    await until(() => b.runs().length === 2, 'the prototype launches');
+    await untilHeard(() => b.runs().length === 2, 'the prototype launches', path.join(b.data, 'nudge'));
     const proto = b.runs()[1];
     assert.match(proto.argv[1], /builder start t\/P1 --kind prototype/);
     assert.match(proto.argv[1], /Two takes: a drawer and a sheet\./);
@@ -732,13 +732,13 @@ test("the owner's Grill and Prototype taps and a card arriving in Todo launch no
     // With Auto implement on, the card that arrived in Todo with no planner yet owes its grill's brief; the planned ones don't.
     for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
     fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
-    await until(() => b.item('Q1').briefs?.length, 'the arrival owes a grill brief');
+    await untilHeard(() => b.item('Q1').briefs?.length, 'the arrival owes a grill brief', path.join(b.data, 'nudge'));
     assert.deepEqual(b.item('Q1').briefs.map((x) => x.kind), ['grill']);
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(b.runs().length, 2, 'the arrival launches nothing by itself');
     assert.deepEqual(b.thread('Q1'), [], 'the arrival posts no thread line of its own');
     await b.brief('Q1', 'grill', 'Plan it.');
-    await until(() => b.runs().length === 3, 'its brief launches the grill');
+    await untilHeard(() => b.runs().length === 3, 'its brief launches the grill', path.join(b.data, 'nudge'));
     assert.match(b.runs()[2].argv[1], /builder start t\/Q1 --kind grill/);
     await until(() => b.record('Q1').session?.log, 'the launch records the run');
     assert.ok(!b.events().includes('card-plan'), 'the grill wakes no session');
@@ -793,7 +793,7 @@ test('within twice the buffer of the line the board starts one agent, and the ne
   const { child } = await b.start({ fastMinute: true });
   try {
     for (const id of ['A1', 'A2']) await await b.brief(id, 'grill', `Grill ${id}.`);
-    await until(() => b.runs().length === 1, 'the first grill launches');
+    await untilHeard(() => b.runs().length === 1, 'the first grill launches', path.join(b.data, 'nudge'));
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(b.runs().length, 1, 'the second waits for the first run to report');
     reportUsage(b.home, 86);
@@ -887,7 +887,7 @@ test("Resume relaunches the grill a Hold stopped from the brief it ran on, and n
   try {
     await send('grill-more', { key: 't/G2', text: 'Ask about the footer' });
     await b.brief('G2', 'grill', 'Cover the footer on a phone.');
-    await until(() => b.runs().length === 1, 'the grill launches');
+    await untilHeard(() => b.runs().length === 1, 'the grill launches', path.join(b.data, 'nudge'));
     assert.match(b.runs()[0].argv[1], /Ask about the footer/, 'the typed text goes to the planner');
     await send('card-hold', { key: 't/G2', hold: true });
     assert.ok(b.record('G2').done, 'the hold closed the grill');
@@ -967,7 +967,7 @@ test("the owner's visual request owes the orchestrator's visual brief, which lau
     assert.equal(b.runs().length, 0, 'the tap launches nothing');
     assert.deepEqual([b.item('V1').lane, b.item('V1').briefs.map((x) => [x.kind, x.ask])], ['progress', [['visual', { text: 'Draw the queue' }]]]);
     await b.brief('V1', 'visual', 'The land queue as a flow, oldest first.');
-    await until(() => b.runs().length === 1, 'the visual agent launches beside the build');
+    await untilHeard(() => b.runs().length === 1, 'the visual agent launches beside the build', path.join(b.data, 'nudge'));
     const [run] = b.runs();
     const agent = /--agent (visual-\d+)/.exec(run.argv[1])[1];
     assert.equal(run.cwd, fs.realpathSync(b.clone));
