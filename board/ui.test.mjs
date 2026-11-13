@@ -2651,16 +2651,15 @@ test('a ↗ written in a question, its context and its options draws as the arro
   assert.equal(html.split('class="link-arrow"').length - 1, 4);
 });
 
-test("a Todo thread message's footer leads with an icon for Reply and Implement, and a bare Implement's line with Implement's", () => {
+test("a Todo thread message's footer leads with an icon for Implement, a Reply's has none, and a bare Implement's line with Implement's", () => {
   const html = ui.threadMessages([
-    { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'hello', status: 'Reply', eventId: 'm1', state: 'waiting', files: [] },
+    { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'hello', eventId: 'm1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'go', status: 'Implement', eventId: 'm2', state: 'waiting', files: [] },
     { ts: ago(0.5), who: 'love', kind: 'command', command: 'implement', request: true, mark: 'Implementation requested', text: 'Implementation requested' },
   ]);
-  for (const words of ['Reply', 'Implement']) {
-    assert.match(ui.MARK_ICONS[words], /^<svg class="mark-icon"/);
-    assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS[words]}</span>${words}</span>`), words);
-  }
+  assert.equal(html.split('class="foot-status"').length - 1, 1);
+  assert.match(ui.MARK_ICONS.Implement, /^<svg class="mark-icon"/);
+  assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implement</span>`));
   assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS.Implement);
   assert.ok(html.includes(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implementation requested`));
 });

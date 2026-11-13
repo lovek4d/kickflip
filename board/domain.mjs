@@ -863,7 +863,7 @@ export const ANSWERS_SUBMITTED = 'answers submitted';
 // A Todo card's thread box sends with Reply (intent: 'reply') or Implement (intent: 'build'), and its message's footer
 // names that button. A bare Implement records no event: the board server writes its status line. A one-button box's
 // message carries no intent and has no footer.
-export const INTENT_LABELS = { reply: 'Reply', build: 'Implement' };
+export const INTENT_LABELS = { build: 'Implement' };
 const intentLabel = (e) => INTENT_LABELS[e.data.intent];
 const actionText = (e, asked) => {
   if (e.kind !== 'prototype-request' || !asked.has(e.data.question)) return e.data.text || (e.data.files?.length ? '' : routeRecord(ACTION_LABELS, e.kind)) || '';

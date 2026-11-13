@@ -639,7 +639,7 @@ test("an Implement message stages a Todo card where it is, its words in the note
 
     const replied = await post({ kind: 'item-message', key: 't/IMPR1', text: 'Why blue?', intent: 'reply' });
     assert.deepEqual([replied.board.items.find((i) => i.id === 'IMPR1').lane, item('IMPR1').phase], ['todo', 'grilling']);
-    assert.deepEqual(await footer('t/IMPR1'), [['Why blue?', 'Reply']]);
+    assert.deepEqual(await footer('t/IMPR1'), [['Why blue?', undefined]]);
     const back = await post({ kind: 'item-message', key: 't/IMPR2', text: 'Also the weekend', intent: 'reply' });
     assert.deepEqual([back.board.items.find((i) => i.id === 'IMPR2').staging, item('IMPR2').phase], [true, 'staging']);
     assert.match(notes('IMPR2'), /## Reply \(owner, .*\), verbatim\nAlso the weekend\n$/);

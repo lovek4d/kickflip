@@ -2033,11 +2033,11 @@ test("a card's bare Grill and Prototype taps are muted request entries in its th
 });
 
 // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
-test("a thread message's footer names the button that sent it: Reply or Implement; a one-button box's message has none", () => {
+test("a thread message's footer names Implement when that sent it; a Reply, being the default message, and a one-button box's message have none", () => {
   const ev = (id, data) => ({ id, ts: `2026-10-23T10:0${id.slice(1)}:00Z`, kind: 'item-message', data: { key: 'w/A1', ...data }, reply: null });
   const events = [ev('m1', { text: 'Use the blue', intent: 'build' }), ev('m2', { text: 'Just a reply', intent: 'reply' }), ev('m3', { text: 'Sent' })];
   const shown = (opts) => threadOf('w/A1', { events, ...opts }).map((m) => [m.text, m.status || null, Boolean(m.request)]);
-  assert.deepEqual(shown({}), [['Use the blue', 'Implement', false], ['Just a reply', 'Reply', false], ['Sent', null, false]]);
+  assert.deepEqual(shown({}), [['Use the blue', 'Implement', false], ['Just a reply', null, false], ['Sent', null, false]]);
 });
 
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
