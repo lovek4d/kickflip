@@ -24,8 +24,11 @@ export class BuildError extends Error {
   constructor(message, status = 400, ask) { super(message); this.status = status; if (ask) this.ask = ask; }
 }
 
+// The commands the try manager and the poll run: run(command, args, options) → {stdout}, as execFile's, which a test
+// replaces. A local git has no time limit: only a slow host makes it slow
+// (docs/adr/2026-11-13-2215-the-try-manager-settles-and-takes-a-runner.md).
 const execFileAsync = promisify(execFile);
-const git = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 3000 })).stdout.trim();
+const gitBy = (run) => async (dir, ...args) => (await run('git', ['-C', dir, ...args], { encoding: 'utf8' })).stdout.trim();
 const KEYCHAIN = /errSecInternalComponent|keychain[^\n]*\blocked\b|\blocked\b[^\n]*keychain/i;
 export const TRY_PORTS = { first: 8500, last: 8599 };
 export const isTryPort = (port) => /^\d+$/.test(String(port)) && Number(port) >= TRY_PORTS.first && Number(port) <= TRY_PORTS.last;
@@ -69,26 +72,26 @@ const probe = (port) => new Promise((resolve) => {
 });
 const signalGroup = (pgid, signal) => { try { process.kill(-pgid, signal); } catch {} };
 const groupUp = (pgid) => { try { process.kill(-pgid, 0); return true; } catch { return false; } };
-// SIGTERM to a process group, SIGKILL after 4s, then up to 1s more until the kernel has removed it.
-const endGroup = (pgid) => new Promise((resolve) => {
+// SIGTERM to a process group, SIGKILL after grace ms, then up to 1s more until the kernel has removed it.
+const endGroup = (pgid, grace) => new Promise((resolve) => {
   const finish = () => { clearTimeout(timer); clearInterval(check); resolve(); };
   signalGroup(pgid, 'SIGTERM');
-  let timer = setTimeout(() => { signalGroup(pgid, 'SIGKILL'); timer = setTimeout(finish, 1000); }, 4000);
+  let timer = setTimeout(() => { signalGroup(pgid, 'SIGKILL'); timer = setTimeout(finish, 1000); }, grace);
   const check = setInterval(() => { if (!groupUp(pgid)) finish(); }, 20);
 });
 // The pids of a process group, each with its command and its working directory.
-async function groupMembers(pgid) {
-  const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,pgid=,command='], { encoding: 'utf8', timeout: 5000 });
+async function groupMembers(pgid, run) {
+  const { stdout } = await run('ps', ['-axo', 'pid=,pgid=,command='], { encoding: 'utf8', timeout: 5000 });
   const members = stdout.split('\n').map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)).filter((m) => m && Number(m[2]) === pgid)
     .map((m) => ({ pid: m[1], command: m[3], cwd: '' }));
   if (!members.length) return members;
-  await readCwds(members, ['-a', '-d', 'cwd', '-Fpn', '-p', members.map((m) => m.pid).join(',')]);
+  await readCwds(members, ['-a', '-d', 'cwd', '-Fpn', '-p', members.map((m) => m.pid).join(',')], run);
   return members;
 }
 // Fills each process's cwd from lsof; lsof exits 1 when it can't read some process, so its output is read either way.
-async function readCwds(processes, args) {
+async function readCwds(processes, args, run) {
   let out = '';
-  try { out = (await execFileAsync('lsof', args, { encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 * 1024 })).stdout; }
+  try { out = (await run('lsof', args, { encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 * 1024 })).stdout; }
   catch (e) { out = e.stdout || ''; }
   const byPid = new Map(processes.map((p) => [p.pid, p]));
   let current;
@@ -103,17 +106,18 @@ async function readCwds(processes, args) {
   }
 }
 // Every process whose working directory or command line is inside dir, each with its process group.
-async function processesIn(dir) {
-  const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,pgid=,command='], { encoding: 'utf8', timeout: 5000, maxBuffer: 64 * 1024 * 1024 });
+async function processesIn(dir, run) {
+  const { stdout } = await run('ps', ['-axo', 'pid=,pgid=,command='], { encoding: 'utf8', timeout: 5000, maxBuffer: 64 * 1024 * 1024 });
   const all = stdout.split('\n').map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)).filter(Boolean)
     .map((m) => ({ pid: m[1], pgid: Number(m[2]), command: m[3], cwd: '' }));
-  await readCwds(all, ['-d', 'cwd', '-Fpn']);
+  await readCwds(all, ['-d', 'cwd', '-Fpn'], run);
   return all.filter((p) => inWorktree(p, dir));
 }
 const insideDir = (value, dir) => value === dir || value.startsWith(dir + path.sep);
 const inWorktree = (member, worktree) => insideDir(member.cwd, worktree) || member.command.includes(worktree + path.sep) || member.command.endsWith(worktree);
 
-export async function installWorktree(board, key, manifest) {
+export async function installWorktree(board, key, manifest, { run = execFileAsync } = {}) {
+  const git = gitBy(run);
   const record = await recordedWorktree(board.dir, key);
   const [slug, id] = key.split('/');
   const itemFile = board.files.find((w) => w.slug === slug)?.itemFile;
@@ -147,7 +151,10 @@ export async function installWorktree(board, key, manifest) {
   } catch { return ''; }
 }
 
-export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy' } = {}) {
+// run: the commands it runs (git, ps, lsof, tailscale); grace: how long a stopped run's process group has after SIGTERM
+// before SIGKILL.
+export function createTryManager({ now = Date.now, answers = probe, lingers = probe, log = console.log, waiting = async () => null, event = appendEvent, gate = hubGate, busy = () => readMachineState().state === 'busy', run: exec = execFileAsync, grace = 4000 } = {}) {
+  const git = gitBy(exec);
   const boards = new Map();
   const runs = new Map();
   // Main's old run, still serving its port while its successor builds: board.dir → run
@@ -168,6 +175,34 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   let ticking = null;
   let queued = null;
   let initializing = null;
+  // What a caller awaits instead of reading try.json again and again: settled() once every run is ready or has ended and
+  // no start, kill, tick, pull, probe, stop or run's end is under way; next(key, state) once key's entry next moves into
+  // state on any board. Each waiter is checked as try.json is written and as work under way ends.
+  let underWay = 0;
+  const waiters = new Set();
+  const track = (promise) => {
+    underWay += 1;
+    return promise.finally(() => { underWay -= 1; notify(); });
+  };
+  function notify(board) {
+    for (const waiter of waiters) if (waiter.check(board)) { waiters.delete(waiter); waiter.resolve(); }
+  }
+  const isSettled = () => !underWay && live().every((run) => run.ready || run.finished);
+  function settled() {
+    if (isSettled()) return Promise.resolve();
+    return new Promise((resolve) => waiters.add({ check: isSettled, resolve }));
+  }
+  function next(key, wanted) {
+    const seen = new Map([...boards].map(([dir, { state }]) => [dir, entryOf(state, key)?.state]));
+    const check = (board) => {
+      if (!board) return false;
+      const at = entryOf(boards.get(board.dir).state, key)?.state;
+      if (at === seen.get(board.dir)) return false;
+      seen.set(board.dir, at);
+      return at === wanted;
+    };
+    return new Promise((resolve) => waiters.add({ check, resolve }));
+  }
   const stamp = () => new Date(now()).toISOString();
   function stateOf(board) {
     if (boards.has(board.dir)) return boards.get(board.dir);
@@ -205,6 +240,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     if (value === record.written) return;
     saveJSON(record.file, record.state);
     record.written = value;
+    notify(board);
   }
   // Each live run's process group, so a hub that died hard can stop what it left running at its next startup.
   function recordGroup(run) {
@@ -229,9 +265,9 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     for (const group of recorded) {
       if (!groupUp(group.pgid)) continue;
       let members = [];
-      try { members = await groupMembers(group.pgid); } catch (e) { log(`try startup sweep: could not read group ${group.pgid}: ${e.message}`); }
+      try { members = await groupMembers(group.pgid, exec); } catch (e) { log(`try startup sweep: could not read group ${group.pgid}: ${e.message}`); }
       if (!members.some((member) => inWorktree(member, group.worktree))) continue;
-      await endGroup(group.pgid);
+      await endGroup(group.pgid, grace);
       log(`stopped leftover try /${board.route} ${group.key} (pgid ${group.pgid})`);
       await checkQuiet(board, group.key, group.port);
     }
@@ -282,7 +318,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   const tailscale = async (args) => {
     const bin = tailscaleBin();
     if (!bin) throw new Error("Tailscale isn't installed on this host");
-    return execFileAsync(bin, args, { encoding: 'utf8', timeout: 10_000 });
+    return exec(bin, args, { encoding: 'utf8', timeout: 10_000 });
   };
   async function removePort(port) {
     try { await tailscale(['serve', `--https=${port}`, 'off']); }
@@ -420,7 +456,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
   }
   function terminate(run) {
     if (run.ending) return run.ending;
-    run.ending = endGroup(run.child.pid);
+    run.ending = endGroup(run.child.pid, grace);
     return run.ending;
   }
   async function halt(run, keepPort = false) {
@@ -517,11 +553,11 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       const probeFrom = () => {
         if (run.stopped) return;
         until = now() + 60_000;
-        run.poll = setInterval(() => check().catch((e) => fail(e.message)), 250);
-        check().catch((e) => fail(e.message));
+        run.poll = setInterval(() => track(check()).catch((e) => fail(e.message)), 250);
+        track(check()).catch((e) => fail(e.message));
       };
       // A build on Main's old server's port can't overlap it: the old server stops first, so the probe hears the new one.
-      if (key === 'main' && serving.get(board.dir)?.port === port) retire(board).then(probeFrom, (e) => fail(e.message));
+      if (key === 'main' && serving.get(board.dir)?.port === port) track(retire(board)).then(probeFrom, (e) => fail(e.message));
       else probeFrom();
     });
     run.deadline = setTimeout(() => fail('No port line within 60 minutes.'), 60 * 60_000);
@@ -532,7 +568,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       clearInterval(run.poll);
       lines.close();
       fs.closeSync(fd);
-      (async () => {
+      track((async () => {
         await terminate(run);
         // A card's serve that was up and exits on its own starts again on the same port while its budget lasts.
         const again = isCard(key) && run.ready && !run.stopped && !stopping && restartsLeft(id);
@@ -579,7 +615,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       })().catch((e) => log(`build /${board.route} ${key}: ${e.message}`)).finally(() => {
         if (runs.get(id) === run) runs.delete(id);
         resolve();
-      });
+      }));
     }));
     log(`build /${board.route} ${key}: started; log ${logFile}`);
     return { status: 'started' };
@@ -624,9 +660,9 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     if (!sweptLegacy.has(board.dir)) {
       sweptLegacy.add(board.dir);
       try {
-        const found = await processesIn(dir);
+        const found = await processesIn(dir, exec);
         for (const pgid of new Set(found.map((p) => p.pgid))) {
-          await endGroup(pgid);
+          await endGroup(pgid, grace);
           for (const p of found.filter((p) => p.pgid === pgid)) log(`${prefix} stopped pid ${p.pid} (pgid ${pgid}) in the old main worktree ${dir}`);
         }
       } catch (e) { log(`${prefix} could not stop the processes in the old main worktree ${dir}: ${e.message}`); }
@@ -707,7 +743,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const resuming = interrupted.delete(id);
     try {
       if (runs.has(id)) await stopRun(runs.get(id), true);
-      const worktree = key === BASE_KEY ? baseWorktree(board) : await installWorktree(board, key, manifest);
+      const worktree = key === BASE_KEY ? baseWorktree(board) : await installWorktree(board, key, manifest, { run: exec });
       return await launch(board, key, worktree);
     } catch (e) {
       cardPorts.delete(id);
@@ -823,7 +859,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
           if (item.lane === 'done' || (states.length && states.every((pr) => ['MERGED', 'CLOSED'].includes(pr?.state)))) continue;
           try {
             const id = runKey(board, key);
-            const worktree = await installWorktree(board, key, manifest);
+            const worktree = await installWorktree(board, key, manifest, { run: exec });
             if (worktree) {
               open.add(key);
               const head = await git(worktree, 'rev-parse', 'HEAD');
@@ -896,7 +932,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
       state.pull = { ...state.pull, running: true };
       persist(board);
       let pulled, error;
-      try { pulled = await (source.local ? pullBranch : resetBranch)(source.repo, branch); }
+      try { pulled = await (source.local ? pullBranch : resetBranch)(source.repo, branch, { run: originGitBy(exec) }); }
       catch (e) { error = e.message; }
       if (pulled === null) delete state.pull;
       else state.pull = { at: stamp(), ...(error ? { error } : {}) };
@@ -937,7 +973,7 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const source = boardRepo(board.route, manifest);
     const result = await pullMain(board, manifest);
     if (!result) throw new BuildError('This board’s folder has no origin to pull from.', 409);
-    if (result.commits || !source.local) tick({ manifest, routes: [board.route] }).catch((e) => log(`try /${board.route} main: ${e.message}`));
+    if (result.commits || !source.local) track(tick({ manifest, routes: [board.route] })).catch((e) => log(`try /${board.route} main: ${e.message}`));
     return result;
   }
   async function stop() {
@@ -947,14 +983,17 @@ export function createTryManager({ now = Date.now, answers = probe, lingers = pr
     const stopped = Promise.all([...runs.values()].map((run) => run.ready && !isCard(run.key) ? stopRun(run) : halt(run)).concat([...serving.values()].map((old) => halt(old))));
     await Promise.all([stopped, ticking, ...pulls.values()]);
   }
-  return { start, kill, tick, stop, lookup, initialize, pull, pullMains, endUnshared };
+  const tracked = (work) => (...args) => track(work(...args));
+  return { start: tracked(start), kill: tracked(kill), tick: tracked(tick), stop: tracked(stop), lookup, initialize, pull: tracked(pull),
+    pullMains: tracked(pullMains), endUnshared, settled, next };
 }
 
 // Git that reaches a board repo's origin, GitHub or a remote board's: git's own credential with its prompts off
 // (repos.mjs remoteGitEnv), so a credential it can't get fails with git's error instead of waiting, and 10 s for a
 // fetch from a private https origin, which waits on two round trips and the keychain.
 const ORIGIN_TIMEOUT_MS = 10_000;
-const originGit = async (dir, ...args) => (await execFileAsync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: ORIGIN_TIMEOUT_MS, env: remoteGitEnv() })).stdout;
+const originGitBy = (run) => async (dir, ...args) => (await run('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: ORIGIN_TIMEOUT_MS, env: remoteGitEnv() })).stdout;
+const originGit = originGitBy(execFileAsync);
 
 // Makes branch in repo, a clone kickflip owns (repos.mjs), exactly origin's: fetched first with originGit, then checked
 // out forced onto it and cleaned, so a clone never diverges. Throws "can’t pull: <reason>" when the fetch or the reset fails.
@@ -1007,8 +1046,10 @@ export async function pullBranch(repo, branch, { run = originGit } = {}) {
 // Fetches the branch of each board that isn't local (board-repo.mjs boardRepo) and writes repo-fetch.json {<route>: {at, ok, error?, hint?}} for the boards it
 // fetched, which boards.mjs linksOf reads as each board's repo-fetch link. On a board whose repo is a plain git
 // remote, it then moves each pushed card to Done once its branch is merged or gone (settlePushed). routes: only these
-// boards, keeping the other boards' records.
-export async function fetchTryBranches({ manifest = readManifest(), log = console.log, routes } = {}) {
+// boards, keeping the other boards' records. run: the commands it runs, as createTryManager's.
+export async function fetchTryBranches({ manifest = readManifest(), log = console.log, routes, run = execFileAsync } = {}) {
+  const git = gitBy(run);
+  const originGit = originGitBy(run);
   const fetched = routes ? readJSON(repoFetchFile(), {}) : {};
   for (const board of listBoards(manifest)) {
     if (routes && !routes.includes(board.route)) continue;
@@ -1029,7 +1070,7 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
         continue;
       }
       if (board.remote) {
-        try { await settlePushed(board, source.repo, branch, log); }
+        try { await settlePushed(board, source.repo, branch, log, run); }
         catch (e) { log(`pushed branches /${board.route}: ${e.message}`); }
       }
     } catch (e) { log(`fetch /${board.route} failed: ${e.message}`); }
@@ -1040,7 +1081,9 @@ export async function fetchTryBranches({ manifest = readManifest(), log = consol
 // docs/adr/2026-11-02-1850-a-board-can-work-on-any-git-remote.md: a pushed card (board.mjs item set --pushed) is Done once its
 // branch's tip is in the board's branch, or once the branch is gone from the remote, its line saying which, since a
 // squash merge leaves no trace of the branch.
-async function settlePushed(board, repo, branch, log) {
+async function settlePushed(board, repo, branch, log, run) {
+  const git = gitBy(run);
+  const originGit = originGitBy(run);
   const open = board.files.flatMap(({ slug, itemFile }) => itemFile.items
     .filter((it) => it.pushed?.branch && !hasPR(it) && it.lane !== 'done')
     .map((it) => ({ key: `${slug}/${it.id}`, branch: it.pushed.branch })));

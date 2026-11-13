@@ -57,7 +57,7 @@ const TIMED = {
   'hub/sessions.test.mjs': 2,
   'hub/shell.test.mjs': 13,
   'hub/stale-board.test.mjs': 10,
-  'hub/try.test.mjs': 89,
+  'hub/try.test.mjs': 5,
   'hub/views.test.mjs': 1,
   'shared/test-helpers.test.mjs': 4,
 };

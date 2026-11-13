@@ -131,6 +131,8 @@ Converts: boards.test (setup, 300, 383, 396, 534, 693, 804, 870, 996), gate.test
 
 ### F4. The try manager settles (S3t, S1, S4) — L
 
+Built in #657: docs/adr/2026-11-13-2215-the-try-manager-settles-and-takes-a-runner.md, which says why the probe interval stays real.
+
 `createTryManager` (hub/try.mjs:150) gains `settled()` / `next(key, state)` resolved in `update()`, a `run` for git / ps / lsof (ends the 3 s git limit and the real `ps` + `lsof` at 858, 881, 1562, 1577), a `grace` for `endGroup` (today a fixed 4 s, try.mjs:76; test 1303), and its 250 ms probe interval under `t.mock.timers`. `fetchTryBranches` and `pullMains` pass `run` through as `pullBranch` already takes it (955–1172). Converts hub/try.test.mjs: its `until(state()…)` waits become `await manager.next(…)`. 1172's race becomes a fake git that blocks until released (S5). 1218 waits for F2.
 
 ### F5. wait-events runs in process (S1, S5) — M
