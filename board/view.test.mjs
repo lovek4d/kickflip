@@ -1349,6 +1349,37 @@ test("out of reach, Board Settings shows each part's last answer here, read only
   view.unmount();
 });
 
+// docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
+test("an open card's thread that answers before its board waits for that board to land, so a Created ticket line and the ticket badge draw together", async () => {
+  const page = fakePage(memoryStorage().localStorage);
+  const site = 'https://mac.ts.net/board-a';
+  const item = (ticket) => ({ key: 'hub/T-2', id: 'T-2', ref: ticket || 'T-2', ticket: ticket ? { id: ticket } : null, lane: 'todo', title: 'Two', kind: 'work' });
+  const boardOf = (version, ticket) => ({ title: 'A', version, generatedAt: `2026-11-12T23:3${version}:00.000Z`, items: [item(ticket)], files: [], needs: [], answers: [], owner: [], ownerTopics: [] });
+  const made = [{ ts: '2026-11-12T23:34:09.229Z', who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', words: 'Created ticket', card: 'hub/T-2', text: 'Created ticket #631', link: '#selectedCard=hub%2FT-2' }];
+  const answer = (body) => ({ ok: true, status: 200, json: async () => body });
+  page.win.fetch = async (url) => answer(url.includes('/api/thread') ? [] : boardOf(1));
+  const view = page.win.BoardView.create(new page.El(), site);
+  view.mount();
+  await drain(() => view.B.state.board?.version === 1, 'the first board lands');
+  view.B.state.openItems.add('hub/T-2');
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let threadAnswered = false;
+  page.win.fetch = async (url) => {
+    if (url.includes('/api/thread')) { threadAnswered = true; return answer(made); }
+    await held;
+    return answer(boardOf(2, '#631'));
+  };
+  const loading = view.B.loadBoard({ via: 'signal' });
+  await drain(() => threadAnswered, 'the thread answered');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.notDeepEqual(view.B.state.threadCache.get('hub/T-2'), made, 'the line waits for its board');
+  release();
+  await loading;
+  assert.deepEqual([view.B.state.board.items[0].ref, view.B.state.threadCache.get('hub/T-2')], ['#631', made]);
+  view.unmount();
+});
+
 test("where IndexedDB refuses or is missing, the board view loads the whole board and paints nothing until it lands", async () => {
   for (const indexedDB of [memoryIndexedDB({ broken: true }), undefined]) {
     const page = fakePage(memoryStorage().localStorage);

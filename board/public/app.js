@@ -314,7 +314,10 @@ window.BoardView = (function () {
       const load = B.boardLoad = (B.boardLoad || 0) + 1;
       const started = boot;
       boot = null;
-      const threads = [...state.openItems].map((k) => B.loadThread(k, { from: started?.threads.get(k) || null, force: via !== 'poll' }));
+      // The open threads draw once this load's board has landed or failed (app-threads.js loadThread's after).
+      let boardIn;
+      const after = new Promise((resolve) => { boardIn = resolve; });
+      const threads = [...state.openItems].map((k) => B.loadThread(k, { from: started?.threads.get(k) || null, force: via !== 'poll', after }));
       let landed = false;
       try {
         // A reload names the change number of the board on screen: an unchanged board answers 304 with no body
@@ -327,12 +330,14 @@ window.BoardView = (function () {
           .then((r) => (r.status === 304 ? null : r.ok ? r.json().catch(() => { throw unanswered(r); }) : Promise.reject(unanswered(r))))
           .finally(stopTimer));
         if (board) land(board, load); else B.linkUp();
+        boardIn();
         landed = true;
         if (!preloaded) {
           preloaded = true;
           for (const key of preloadKeys(state.board.items, state.openItems)) B.loadThread(key);
         }
       } catch (e) {
+        boardIn();
         B.linkDown();
         if (state.view !== 'fresh' && B.alive()) await showDown(BoardUI.downOf(e.answer || null));
       }

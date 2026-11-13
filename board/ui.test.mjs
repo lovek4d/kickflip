@@ -1145,7 +1145,9 @@ test("a card with a worktree opens it in VS Code from its Links line, live on th
 test("the open card's details list shows Parent, Children, Related to, Blocked by and Waits on it as rows of tappable labels, leaving out empty rows; the workflow row has no follow-up Build", () => {
   const app = vm.createContext({ Date: PageDate, document: { addEventListener() {} }, CSS: { escape: (s) => s }, matchMedia: () => ({ matches: false }) });
   for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js']) vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), app);
-  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: [] } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext([], key) };
+  // The linked cards are on the board, so each label reads the ref its card has now.
+  const onBoard = [53, 75, 80, 94, 95, 99].map((n) => ({ key: `w/GH-${n}`, id: `GH-${n}`, ref: `#${n}`, file: 'w' }));
+  const B = { $: () => ({}), on() {}, store: {}, state: { board: { items: onBoard } }, seen: {}, thread: () => '', links: (key) => app.BoardUI.linkContext(onBoard, key) };
   app.BoardView = { part: (fn) => fn(B) };
   vm.runInContext(fs.readFileSync(new URL('./public/app-cards.js', import.meta.url), 'utf8'), app);
   const link = (ref) => ({ key: `w/GH-${ref.slice(1)}`, ref });
@@ -2161,7 +2163,8 @@ test("a run's fold ends its summary at its status (running or finished) and its 
 });
 
 test("an ask's link line opens the work it became, and a thread line opens a linked card on the board", () => {
-  assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'ask-link', text: 'Became INT-21', link: '#selectedCard=site%2FS21' }]), /<a href="#selectedCard=site%2FS21">Became INT-21 →<\/a>/);
+  const became = ui.linkContext([{ key: 'site/S21', id: 'S21', ref: 'INT-21', file: 'site', lane: 'progress' }], 'ask:e0');
+  assert.match(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'ask-link', words: 'Became', text: 'Became INT-21', card: 'site/S21', link: '#selectedCard=site%2FS21' }], became), /Became <a href="#selectedCard=site%2FS21">INT-21<span class="status link-lane progress"><\/span><\/a>/);
   const html = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Asked to keep it', link: '#selectedCard=ask:e1' }]);
   assert.match(html, /<a href="#selectedCard=ask:e1">Open the task →<\/a>/);
   assert.doesNotMatch(html, /target="_blank"/);
@@ -2789,7 +2792,7 @@ test('every kind of thread status or system line leads with an icon, so a new ki
   // Each system line kind renders a mark holding an icon, or the dot of a builder or agent that is running.
   const sample = { ts: ago(1), who: 'claude', text: 'x', link: '#selectedCard=a', calls: ['c'], verified: null };
   for (const kind of ui.SYSTEM_KINDS) {
-    const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'command' ? { command: 'hold', mark: COMMANDS.hold, text: 'Held until Fri', request: true } : {}), ...(kind === 'hub' ? { mark: 'Held' } : {}) }]);
+    const html = ui.threadMessages([{ ...sample, kind, ...(kind === 'command' ? { command: 'hold', mark: COMMANDS.hold, text: 'Held until Fri', request: true } : {}), ...(kind === 'hub' ? { mark: 'Held' } : {}), ...(kind === 'ask-link' ? { words: 'Became', card: 'w/a' } : {}) }]);
     assert.match(html, /<span class="mark" aria-hidden="true">(<svg class="mark-icon|<span class="(working|agent)-dot")/, `${kind} line has a mark`);
   }
   // A request line with no icon for its words renders an empty mark, which this catches.
@@ -2799,11 +2802,37 @@ test('every kind of thread status or system line leads with an icon, so a new ki
   }
 });
 
-test("a link's thread line is one link icon and a plain link to the other card, and is never unread", () => {
-  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'followup', request: true, mark: 'Follow-up', text: 'Follow-up #12: Tidy', link: '#selectedCard=w%2FA2', card: 'w/A2' }], { seenAt: ago(5) });
+test("a link's thread line is one link icon, its words and the other card's ref linked with its lane ring, and is never unread", () => {
+  const links = ui.linkContext([{ key: 'w/A2', id: 'A2', ref: '#12', file: 'w', lane: 'progress' }], 'w/A1');
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'command', command: 'followup', request: true, mark: 'Follow-up', words: 'Follow-up', text: 'Follow-up #12', link: '#selectedCard=w%2FA2', card: 'w/A2' }], links, { seenAt: ago(5) });
   assert.match(html, /^<div class="msg status-line request"><span class="mark" aria-hidden="true"><svg class="mark-icon"/);
-  assert.ok(html.includes('<a href="#selectedCard=w%2FA2">Follow-up #12: Tidy</a>'));
+  assert.ok(html.includes('Follow-up <a href="#selectedCard=w%2FA2">#12<span class="status link-lane progress"></span></a>'));
   assert.doesNotMatch(html, /unread/);
+});
+
+// docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
+test("one helper draws every card reference: its current ref, linked to the card, with its lane ring; a card off the board reads by its id, never its key", () => {
+  const links = ui.linkContext([{ key: 'hub/T-1', id: 'T-1', ref: '#620', file: 'hub', lane: 'todo' }, { key: 'hub/T-2', id: 'T-2', ref: '#631', file: 'hub', lane: 'progress' }], 'hub/T-2');
+  assert.equal(ui.cardRef('hub/T-1', links), '<a href="#selectedCard=hub%2FT-1">#620<span class="status link-lane todo"></span></a>');
+  assert.equal(ui.cardRef('hub/T-9', links), '<a href="#selectedCard=hub%2FT-9">T-9</a>');
+  assert.equal(ui.cardRef('hub/T-1', { ...links, base: './' }, { className: 'card-link' }), '<a class="card-link" href="./#selectedCard=hub%2FT-1">#620<span class="status link-lane todo"></span></a>');
+  // A ref in written text links through the same helper.
+  assert.ok(ui.linkText('See #620.', links).includes(ui.cardRef('hub/T-1', links)));
+  // Every line naming a card draws it with the helper, at the ref the card has now, whatever the line's stored text read.
+  const named = [
+    { ts: ago(3), who: 'claude', kind: 'command', command: 'created-from', request: true, mark: 'Created from', words: 'Created from', text: 'Created from hub/T-1', card: 'hub/T-1', link: '#selectedCard=hub%2FT-1' },
+    { ts: ago(2), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', words: 'Created ticket', text: 'Created ticket #5', card: 'hub/T-2', link: '#selectedCard=hub%2FT-2', fault: false },
+    { ts: ago(1), who: 'claude', kind: 'ask-link', words: 'Became', text: 'Became T-2', card: 'hub/T-2', link: '#selectedCard=hub%2FT-2' },
+  ];
+  const html = ui.threadMessages(named, links);
+  assert.ok(html.includes(`Created from ${ui.cardRef('hub/T-1', links)}`));
+  assert.ok(html.includes(`Created ticket ${ui.cardRef('hub/T-2', links)}`));
+  assert.ok(html.includes(`Became ${ui.cardRef('hub/T-2', links)}`));
+  assert.match(html, /class="msg status-line request hub created"/);
+  assert.doesNotMatch(text(html), /hub\/T-\d|#5\b/);
+  // A ref in the words of the board's own line links through it too.
+  const blocked = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'build-paused', mark: 'Held', text: 'Paused: blocked by #620', fault: false }], links);
+  assert.ok(blocked.includes(`blocked by ${ui.cardRef('hub/T-1', links, { was: '#620' })}`));
 });
 
 // docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
@@ -2855,9 +2884,9 @@ test('every status line kind line() draws carries its time, a folded run its new
   const at = (h) => ui.time(ago(h));
   const run = { agent: 'Claude main', run: 'main' };
   const lines = [
-    { ts: ago(1), who: 'claude', kind: 'ask-link', text: 'Became INT-21', link: '#selectedCard=site%2FS21' },
+    { ts: ago(1), who: 'claude', kind: 'ask-link', words: 'Became', card: 'site/S21', text: 'Became S21', link: '#selectedCard=site%2FS21' },
     { ts: ago(1), who: 'claude', kind: 'visual', link: 'visuals/A1/x.html', text: 'Page' },
-    { ts: ago(1), who: 'claude', request: true, card: 'A-1', link: '#selectedCard=A-1', mark: 'move', text: 'Made A-1' },
+    { ts: ago(1), who: 'claude', request: true, words: 'Made', card: 'w/A-1', link: '#selectedCard=w%2FA-1', mark: 'move', text: 'Made A-1' },
     { ts: ago(1), who: 'love', request: true, text: 'Grill requested', by: 'Dana Reyes' },
     { ts: ago(1), who: 'claude', kind: 'hub', line: 'serve-failed', mark: 'Held', text: 'Serve failed', detail: 'boom', fault: true },
     { ts: ago(1), who: 'claude', kind: 'hub', line: 'pulled', mark: 'Held', text: 'Pulled in' },

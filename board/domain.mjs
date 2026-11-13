@@ -927,12 +927,16 @@ function routedLine(e) {
 }
 // A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
-// A link's line (store.mjs postLinkLines) names the other card by its stored key; its words are the command's, then that
-// card's ref and title as they stand now, and it links to the card.
-const linkLine = (m, cards) => {
-  const other = cards.get(m.card);
-  return { ...m, text: `${COMMANDS[m.command]} ${other ? `${other.ref}: ${other.title}` : m.card}`, link: `#selectedCard=${encodeURIComponent(m.card)}` };
-};
+// docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
+// A line that names a card carries its key (card) and the words before it (words); board/public/ui-links.js cardRef
+// draws the reference when the line shows, at the ref the card has then, linked, with its lane ring. Its text reads the
+// same words and the card's ref from cards (by key, {ref}), or its id once it has left the board, never its key.
+const refText = (key, cards) => cards.get(key)?.ref ?? key.slice(key.indexOf('/') + 1);
+const naming = (m, words, key, cards) => ({ ...m, card: key, words, text: `${words} ${refText(key, cards)}`, link: `#selectedCard=${encodeURIComponent(key)}` });
+// A link's line (store.mjs postLinkLines) names the other card by its stored key, under the command's words. A card's
+// Created ticket line (hub-lines.mjs ticket-made) names the card itself, so it reads the ticket the card has now.
+const namedLine = (m, key, cards) => (m.card ? naming(m, COMMANDS[m.command], m.card, cards)
+  : m.kind === HUB && m.line === 'ticket-made' ? naming(m, hubLineOf(m).mark, key, cards) : m);
 // A thread line a button wrote: its words can vary (Held until a time), so it names its mark.
 const commandLine = (command) => ({ kind: 'command', command, request: true, mark: COMMANDS[command] });
 const requestOf = (e, asked) => {
@@ -1024,7 +1028,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.filter((m) => !m.live).map(withLog).map((m) => (m.card ? linkLine(m, cards) : m)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen) } : {}) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card } : {}),
+    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen) } : {}) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.
@@ -1039,7 +1043,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       .flatMap((e) => [...routedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
         ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', ...commandLine('implement'), text: COMMANDS.implement }] : []),
-        ...links.map((l) => ({ ts: e.ts, who: 'claude', kind: 'ask-link', text: l.folded ? `Moved to ${l.ref}: ${l.title}` : `${l.became ? 'Became' : 'Added to'} ${l.ref}`, link: `#selectedCard=${encodeURIComponent(l.key)}`, html: null, via: null }))]),
+        ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
   // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: the orchestrator's last action on the card, or the card's
   // close (clearedAt), ends the working of the messages before it, as a later Claude line does.
@@ -1150,8 +1154,8 @@ export function buildBoard(snapshot) {
   const tickets = snapshot.tickets;
   const cardHolds = new Map(events.filter((e) => e.kind === 'card-hold').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((e) => [e.data?.key, e]));
   const madeFrom = new Map();
-  // Every work card's ref and title by key, for the lines that name another card.
-  const cards = new Map(snapshot.files.flatMap(({ slug, itemFile }) => itemFile.items.map((it) => [`${slug}/${it.id}`, { ref: refOf(itemFile, it, tickets), title: it.title }])));
+  // Every work card's ref by key, for the lines that name a card.
+  const cards = new Map(snapshot.files.flatMap(({ slug, itemFile }) => itemFile.items.map((it) => [`${slug}/${it.id}`, { ref: refOf(itemFile, it, tickets) }])));
   const askLinks = snapshot.askLinks || {};
   // The asks folded into each work item (docs/adr/2026-10-29-1639-the-plus-makes-a-new-card.md).
   const foldedInto = new Map();

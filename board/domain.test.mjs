@@ -762,7 +762,7 @@ test("an ask that became work or was folded into a card has no row of its own: t
     files: [{ slug: 'site', agents: runningBuilders('S4'), itemFile: { internal: true, items: [{ id: 'S4', title: 'Four', lane: 'progress' }] } }] });
   assert.deepEqual([related.items.map((i) => [i.key, i.lane, i.threadCount]), related.moved, related.unfiled, related.working], [[['site/S4', 'progress', 2]], { 'ask:a3': 'site/S4' }, [], 0]);
   assert.deepEqual(threadOf('ask:a3', { events: [folded, later], links: [{ key: 'site/S4', ref: 'S4', title: 'Four', became: false, folded: true }] })
-    .filter((m) => m.kind === 'ask-link').map((m) => [m.text, m.link]), [['Moved to S4: Four', '#selectedCard=site%2FS4']]);
+    .filter((m) => m.kind === 'ask-link').map((m) => [m.text, m.link]), [['Moved to S4', '#selectedCard=site%2FS4']]);
   const movedIn = threadOf('site/S4', { events: [folded, later], moved: ['a3'], lines: [{ ts: '2026-10-23T09:20:00Z', who: 'claude', text: 'Folded in.' }] });
   assert.deepEqual(movedIn.map(({ kind, text, moved, state }) => [kind, text, moved, state]), [['ask', 'a3 first line\nmore', true, 'answered'], ['item-message', 'And the footer', undefined, 'answered'], [undefined, 'Folded in.', undefined, undefined]]);
   const lines = [{ ts: '2026-10-23T09:05:00Z', who: 'claude', text: 'Building it.' }];
@@ -2077,10 +2077,10 @@ test("a thread-file line a button wrote is a request line carrying its command k
   assert.deepEqual(threadOf('w/A1', { lines }).map((m) => [m.kind ?? null, m.command ?? null, Boolean(m.request), m.mark ?? null, m.by ?? null]), [
     ['command', 'implement', true, 'Implementation requested', null], ['command', 'hold', true, 'Held', 'Dana Reyes'], [null, null, false, null, null],
   ]);
-  // A link's line names the other card by key, drawn with its ref and title as they stand, and links to it.
-  const cards = new Map([['w/A2', { ref: '#12', title: 'Renamed' }]]);
+  // A link's line names the other card by key, drawn with its ref as it stands, and links to it.
+  const cards = new Map([['w/A2', { ref: '#12' }]]);
   const linked = threadOf('w/A1', { lines: [{ ts: '2026-11-06T10:00:00Z', who: 'claude', text: 'Related to', command: 'related', card: 'w/A2' }], cards });
-  assert.deepEqual(linked.map((m) => [m.text, m.link, m.card, m.mark]), [['Related to #12: Renamed', '#selectedCard=w%2FA2', 'w/A2', 'Related to']]);
+  assert.deepEqual(linked.map((m) => [m.text, m.words, m.link, m.card, m.mark]), [['Related to #12', 'Related to', '#selectedCard=w%2FA2', 'w/A2', 'Related to']]);
   assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done', 'reopened', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of', 'created', 'created-from']);
 });
 
@@ -2998,4 +2998,41 @@ test("a message's working ends at the orchestrator's next command on its card or
   // T-115: the owner's own close after their message.
   assert.equal(card({ lane: 'done', closed_at: '2026-10-23T10:10:00Z' }).working, false, 'a close after it');
   assert.equal(card({}, {}, [msg, { id: 'd1', ts: '2026-10-23T10:10:00Z', kind: 'card-done', data: { key: 'w/A1' } }]).working, false, "the owner's Done tap after it");
+});
+
+// docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
+test("every thread line that names a card carries its key and words, reads its current ref, never its <file>/T-n key, and links to it", () => {
+  const itemFile = { items: [
+    { id: 'T-1', title: 'Parent', ticket: '#620', lane: 'todo' },
+    { id: 'T-2', title: 'Child', ticket: '#631', lane: 'progress', parent: 'T-1' },
+    { id: 'T-3', title: 'No ticket yet', lane: 'todo' },
+  ] };
+  const at = (n) => `2026-11-12T22:0${n}:00Z`;
+  const named = (command, card, n) => ({ ts: at(n), who: 'claude', text: COMMANDS[command], command, card });
+  const threads = {
+    'hub/T-2': [named('created-from', 'hub/T-1', 1), named('related', 'hub/T-3', 2), named('unrelated', 'hub/T-3', 3), named('followup-of', 'hub/T-1', 4),
+      // A card that left the board reads by its id.
+      named('related', 'hub/T-9', 5),
+      { ts: at(6), who: 'claude', kind: 'hub', line: 'ticket-made', text: 'Created ticket #631' }],
+    'hub/T-1': [named('created', 'hub/T-2', 1), named('followup', 'hub/T-2', 2)],
+  };
+  const b = buildBoard({ fromWaves: false, tickets: { source: 'github' }, threads, files: [{ slug: 'hub', itemFile }] });
+  const cards = new Map(b.items.map((i) => [i.key, { ref: i.ref }]));
+  const naming = (key) => threadOf(key, { lines: threads[key] || [], cards }).filter((m) => m.card);
+  assert.deepEqual(naming('hub/T-2').map((m) => [m.words, m.card, m.text, m.link]), [
+    ['Created from', 'hub/T-1', 'Created from #620', '#selectedCard=hub%2FT-1'],
+    ['Related to', 'hub/T-3', 'Related to T-3', '#selectedCard=hub%2FT-3'],
+    ['Unrelated from', 'hub/T-3', 'Unrelated from T-3', '#selectedCard=hub%2FT-3'],
+    ['Follow-up of', 'hub/T-1', 'Follow-up of #620', '#selectedCard=hub%2FT-1'],
+    ['Related to', 'hub/T-9', 'Related to T-9', '#selectedCard=hub%2FT-9'],
+    // The card's own Created ticket line names the card itself, so it reads the ticket the card has now.
+    ['Created ticket', 'hub/T-2', 'Created ticket #631', '#selectedCard=hub%2FT-2'],
+  ]);
+  assert.deepEqual(naming('hub/T-1').map((m) => m.text), ['Created ticket #631', 'Follow-up #631']);
+  // An ask's links name their cards the same way.
+  const ask = { id: 'a1', ts: at(0), kind: 'ask', data: { text: 'Fix it' }, reply: null };
+  const asked = threadOf('ask:a1', { events: [ask], links: [{ key: 'hub/T-2', ref: '#631', became: true }, { key: 'hub/T-3', ref: 'T-3', title: 'No ticket yet', became: false, folded: true }] }).filter((m) => m.card);
+  assert.deepEqual(asked.map((m) => [m.words, m.card, m.text]), [['Became', 'hub/T-2', 'Became #631'], ['Moved to', 'hub/T-3', 'Moved to T-3']]);
+  // No line the board draws, in any thread, names a card by its key.
+  for (const m of [...b.items.flatMap((i) => threadOf(i.key, { lines: threads[i.key] || [], cards })), ...asked]) assert.doesNotMatch(m.text, /\b[\w-]+\/[A-Z]+-\d+\b/, m.text);
 });

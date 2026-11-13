@@ -78,11 +78,15 @@
   // Every task reference is this: a link to its card, ending with its lane ring, after any lead words
   // (docs/adr/2026-11-13-1120-every-task-reference-links-and-shows-its-lane-ring.md).
   const taskLink = (key, ref, lane, { base = '', cls = '', lead = '', title = '', attrs = '' } = {}) => `<a${cls ? ` class="${cls}"` : ''} href="${esc(`${base}#selectedCard=${encodeURIComponent(key)}`)}"${title ? ` title="${esc(title)}"` : ''}${attrs}>${esc(lead)}${esc(ref)}${laneRing(lane)}</a>`;
-  const cardLink = (ref, ctx) => {
-    const key = record(ctx.refs, ref);
-    const shown = record(ctx.current || {}, key) || ref;
-    return taskLink(key, shown, record(ctx.lanes || {}, key), { base: ctx.base, title: shown === ref ? '' : `was ${ref}` });
+  // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
+  // A card named by key (a ref in text, a thread line naming a card): the ref the card has now (its ticket once it has
+  // one, else its id), as a taskLink. A card off the board reads by its id, never its <file>/<id> key. was: the ref the
+  // text named, as the link's title when the card reads otherwise now.
+  const cardRef = (key, ctx = {}, { className = '', was = null } = {}) => {
+    const shown = record(ctx.current || {}, key) || key.slice(key.indexOf('/') + 1);
+    return taskLink(key, shown, record(ctx.lanes || {}, key), { base: ctx.base || '', cls: className, title: was && was !== shown ? `was ${was}` : '' });
   };
+  const cardLink = (ref, ctx) => cardRef(record(ctx.refs, ref), ctx, { was: ref });
 
   // The longest hyphen-prefix of a word that is a known ref or a Linear id, then the rest as text.
   function wordLink(word, ctx) {
@@ -160,5 +164,5 @@
     return res + (keep ? tail : linkRun(tail, ctx));
   }
 
-  Object.assign(globalThis.BoardUI, { linkContext, laneRing, taskLink, linkText, linkHtml, opensHere, anyLink });
+  Object.assign(globalThis.BoardUI, { linkContext, laneRing, taskLink, cardRef, linkText, linkHtml, opensHere, anyLink });
 })();

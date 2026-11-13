@@ -1,7 +1,7 @@
 // A card's thread: the orchestrator's lines (who claude, named Orchestrator), the board's status lines, its builders'
 // asks, the owner's messages and their replies. Needs ui.js, ui-links.js, ui-enums.js and ui-markdown.js.
 (function () {
-  const { esc, escText, time, etaLine, replyBody, attachments, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark } = globalThis.BoardUI;
+  const { esc, escText, time, etaLine, replyBody, attachments, sendButton, thinkingLine, linkText, linkHtml, anyLink, mark, statusMark, cardRef } = globalThis.BoardUI;
   const VIA = { slack: ' · Slack', github: ' · GitHub' };
   // ui-markdown.js loads after this file, so markdown is looked up when a thread draws.
   const markdown = (src, links) => globalThis.BoardUI.markdown(src, links);
@@ -65,18 +65,20 @@
       : `<details class="msg status-line ${cls}"><summary${summary}>${words}</summary>${rest}</details>`;
   };
   const linked = (link, text) => `<a href="${esc(link)}">${text}</a>`;
+  // A line naming a card (domain.mjs namedLine): its words, then the card's reference as it stands (ui-links.js cardRef).
+  const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}`;
   const line = (m, links) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div></div>`
-    : m.kind === 'ask-link' ? statusLine('link', statusMark('ask-link') + linked(m.link, `${escText(m.text)} →`), m.ts)
+    : m.kind === 'ask-link' ? statusLine('link', statusMark('ask-link') + named(m, links), m.ts)
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
     : m.kind === 'visual' ? statusLine('link visual', statusMark('visual') + linked(m.link, `${escText(m.text)} →`), m.ts)
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
-    : m.request && m.card ? statusLine(`request${tone(m)}`, statusMark(m.mark) + linked(m.link, escText(m.text)), m.ts)
+    : m.request && m.card ? statusLine(`request${tone(m)}`, statusMark(m.mark) + named(m, links), m.ts)
     : m.request ? statusLine(`request${tone(m)}`, statusMark(m.mark || m.text) + escText(m.text), m.ts, { by: m.by })
     // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
     // own line, its kind's mark and words, red for a fault.
     : m.kind === 'hub' && m.detail ? statusLine(`request hub fault-detail${tone(m)}`, statusMark(m.mark) + escText(m.text), m.ts, { rest: `<pre class="fault-error">${esc(m.detail)}</pre>` })
-    : m.kind === 'hub' ? statusLine(`request hub${tone(m)}`, statusMark(m.mark) + (m.link ? linked(m.link, escText(m.text)) : escText(m.text)), m.ts)
+    : m.kind === 'hub' ? statusLine(`request hub${tone(m)}`, statusMark(m.mark) + (m.card ? named(m, links) : m.link ? linked(m.link, escText(m.text)) : linkText(m.text, links)), m.ts)
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? statusLine('request move', statusMark('move') + escText(m.text), m.ts)
     : m.folded ? foldedRun(m, links)

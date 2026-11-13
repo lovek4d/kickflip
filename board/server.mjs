@@ -943,7 +943,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const lines = (await Promise.all([...keys].map((k) => readLines(threadFile(k))))).flat();
     const clearedAt = [routeRecord(await readActedOn(here), key), item?.lane === 'done' ? item.closed_at : null].filter(Boolean).map(String).sort().pop() || '';
     return threadOf(key, { lines, events: await Promise.all(mine.map(withReply)), owner, working: await readWorking(here), clearedAt, fromAsk: askId,
-      links: own ? await askLinksOf(askId) : [], agents, moved });
+      links: own ? await askLinksOf(askId) : [], agents, moved, cards: new Map((await sharedBoard()).items.map((i) => [i.key, { ref: i.ref }])) });
   }
 
 

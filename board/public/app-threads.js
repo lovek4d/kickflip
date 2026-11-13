@@ -119,16 +119,20 @@ BoardView.part((B) => {
   // A load while one for the same thread runs shares it, so a card the page inserts open isn't fetched twice; force
   // starts a new one, after a send. maxAge skips a thread that loaded that recently. from is a load already started
   // (app.html BoardBoot). A response older than the one shown is dropped. A failed load keeps the previous render.
+  // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md: after is the board load
+  // fetched beside it, which settles once its board has landed; the thread draws then, so a line and the card change it
+  // tells of (Created ticket and the header's ticket badge) show in one update.
   const inflight = new Map();
   const loadedAt = new Map();
   const shown = new Map();
   let seq = 0;
-  function loadThread(key, { force = false, maxAge = 0, from = null } = {}) {
+  function loadThread(key, { force = false, maxAge = 0, from = null, after = null } = {}) {
     if (!force && inflight.has(key)) return inflight.get(key);
     if (maxAge && Date.now() - (loadedAt.get(key) || 0) < maxAge) return Promise.resolve();
     const n = ++seq;
     const p = (from || fetch(B.site.url('api/thread?key=' + encodeURIComponent(key)), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`thread ${r.status}`)))))
+      .then((msgs) => (after ? after.then(() => msgs) : msgs))
       .then((msgs) => {
         if ((shown.get(key) || 0) > n) return;
         shown.set(key, n);
