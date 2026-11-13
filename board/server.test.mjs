@@ -704,6 +704,28 @@ test("a thread message sent again with the same send id records once: the resend
   assert.equal(log().length, 2);
 });
 
+// docs/adr/2026-11-13-2045-an-exact-repeat-within-30-seconds-is-skipped.md
+test("an exact repeat of a message within 30 seconds is skipped, and one later, on another card or by another author is kept", async () => {
+  await putWave(JSON.stringify({ items: [{ id: 'RP1', title: 'One' }, { id: 'RP2', title: 'Two' }] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const eventsFile = path.join(site, 'data', 'events.jsonl');
+  const log = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === 'item-message' && /^t\/RP/.test(e.data.key));
+  const first = await post({ kind: 'item-message', key: 't/RP1', text: 'Bump' });
+  const again = await post({ kind: 'item-message', key: 't/RP1', text: 'Bump' });
+  assert.equal(again.id, first.id);
+  assert.ok(again.board);
+  assert.equal(log().length, 1);
+  await post({ kind: 'item-message', key: 't/RP2', text: 'Bump' });
+  assert.equal(log().length, 2);
+  const lines = fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  for (const e of lines) if (e.id === first.id) e.ts = new Date(Date.now() - 31_000).toISOString();
+  fs.writeFileSync(eventsFile, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const later = await post({ kind: 'item-message', key: 't/RP1', text: 'Bump' });
+  assert.notEqual(later.id, first.id);
+  const ask = await post({ kind: 'ask', text: 'Release it' });
+  assert.equal((await post({ kind: 'ask', text: 'Release it' })).id, ask.id);
+});
+
 test("a hidden thread message leaves the item's thread", async () => {
   await putWave(JSON.stringify({ items: [{ id: 'A1', title: 'One' }] }));
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
@@ -1373,7 +1395,9 @@ test('the watcher prints the hub rules, then the board rules, the board settings
   fs.writeFileSync(path.join(web, 'manifest.json'), JSON.stringify({ sites: { t: { dir: site } } }));
   fs.writeFileSync(path.join(web, 'settings.json'), JSON.stringify({ polling: {}, rules: [{ id: 'h1', text: 'Screenshots in every PR', by: 'owner', at: 'x' }] }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...cfg, rules: [{ id: 'b1', text: 'Ask before\ntouching main', by: 'claude', at: 'x' }, { text: 'no id' }] }));
-  const ask = () => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/A1', text: 'Wake' }) });
+  // Each wake says something new: an exact repeat inside 30 seconds is skipped and would wake nothing.
+  let wakes = 0;
+  const ask = () => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'item-message', key: 't/A1', text: `Wake ${++wakes}` }) });
   const watch = async (session, wake = ask) => {
     const watcher = await watching(session);
     await wake(watcher);

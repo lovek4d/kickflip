@@ -99,7 +99,8 @@
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
 //                                item-message may carry sendId, the page's id for it: one whose sendId is recorded
-//                                answers with the recorded event's id and records nothing.
+//                                answers with the recorded event's id and records nothing. So does an item-message or ask
+//                                with no sendId whose text, author and card match one recorded in the last 30 seconds.
 //                                Implement with no text or files on a Todo or ready card writes no line of its own
 //                                and stages the card for the orchestrator's review, with no event
 //                                (store.mjs implementAsIs). One with text or files on a Todo card stages it
@@ -445,6 +446,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
   const sameTag = (header, etag) => String(header || '').split(',').map((t) => t.trim().replace(/^W\//, '')).includes(etag.replace(/^W\//, ''));
   const readJSON = async (f, fallback) => { try { return JSON.parse(await fs.readFile(f, 'utf8')); } catch { return fallback; } };
+  const REPEAT_WINDOW_MS = 30_000;
   const readLines = async (f) => { try { return (await fs.readFile(f, 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
   const threadFile = (key) => siteThreadFile(here, key);
   // Hidden events leave every list a page reads (docs/adr/2026-10-29-1639-dismissals-hide-on-the-server.md).
@@ -1103,6 +1105,15 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           const full = !pullOf((await sharedBoard()).items, { cap: settingsOf(await config()).max_implementers, pulled: await sentOf(PULL) }).free;
           const started = await startTappedBuild(here, key, (opts) => boardWorktree(here, key.split('/')[1], opts), 'tap', { full });
           return json(res, 200, { id: await handOff(started), board: await answerBoard(req, since) });
+        }
+        // docs/adr/2026-11-13-2045-an-exact-repeat-within-30-seconds-is-skipped.md: a message whose text, author and card
+        // match one recorded in the last 30 seconds answers as recorded, and writes nothing. A message with a sendId is a
+        // distinct send of the page's, which its sendId already guards, so it is not compared.
+        if (kind === 'item-message' || kind === 'ask') {
+          const text = String(body.text || '');
+          const repeat = text.trim() && !body.sendId && (await readLines(events)).reverse().find((e) => e.kind === kind && Date.now() - Date.parse(e.ts) <= REPEAT_WINDOW_MS
+            && String(e.data?.text || '') === text && String(e.data?.key || '') === String(body.key || '') && JSON.stringify(e.data?.shared_by ?? null) === JSON.stringify(body.shared_by ?? null));
+          if (repeat) return json(res, 200, { id: repeat.id, board: await answerBoard(req, since) });
         }
         // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md, docs/adr/2026-11-07-0700-staging-then-ready.md
         if (kind === 'item-message') {
