@@ -938,7 +938,8 @@ test("a builder's, a lander's and a writing helper's brief give the commit stand
   assert.ok(build.includes(`--title "<type>(<scope>): <what the PR does>"`), build);
 });
 
-test('a writing helper waits while the board has no implementer slot free, launches once its spawner waits on it, in its own worktree off the card branch', async (t) => {
+// docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
+test('a writing helper launches at once, its card In Progress already holding the slot, in its own worktree off the card branch', async (t) => {
   const b = oneLaunchBoard(t, [{ id: 'V1', title: 'Split me', lane: 'progress' }]);
   fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', max_implementers: 1 }));
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
@@ -951,11 +952,7 @@ test('a writing helper waits while the board has no implementer slot free, launc
   const { board } = await b.start();
   write('V1@tests', { label: 'tests', kind: 'helper', task: 'Write the split tests', writes: true, model: 'sonnet', requested: new Date().toISOString() });
   await wrote(board, path.join(b.data, 'agents', 'V1@tests.json'));
-  assert.equal(b.runs.length, 0, 'the build holds the one slot, so the helper waits');
-  assert.equal(b.record('V1@tests').started, undefined);
-  write('V1', { ...main, waits: 'tests' });
-  await wrote(board, path.join(b.data, 'agents', 'V1.json'));
-  assert.equal(b.runs.length, 1, 'the build waiting on its helper frees the slot');
+  assert.equal(b.runs.length, 1, 'the helper launches with the one slot full');
   const [run] = b.runs;
   const tree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1-tests');
   assert.equal(fs.realpathSync(run.cwd), fs.realpathSync(tree));

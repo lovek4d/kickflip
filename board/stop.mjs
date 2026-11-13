@@ -48,20 +48,9 @@ export async function stopBuilder(site, key, runner = {}) {
   return { lines: await stopAgent(site, key, ref, await launchedBuild(site, key, ref, runner), runner) };
 }
 
-// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md,
-// docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
-// The pull's bump-out of the card at key for bumped card by, past the cap: its build pauses at its next stopping point
-// and the card stays In Progress (store.mjs requestPause), resuming ahead of the pull once a slot frees. pullOf's
-// bumpOuts names only a card whose one run the board launched. → its lines
-export async function bumpOut(site, key, by) {
-  const words = `bumped out by ${await store.cardName(site, by)}`;
-  await store.requestPause(site, key, { cause: 'bumped', words, by });
-  return [`${await store.cardName(site, key)} pauses: ${words}`];
-}
-
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 // The orchestrator's stall of a card it can't restart (item stall): the card is flagged with the reason, each open build
-// record is marked stopped so nothing relaunches it and its slot frees, and its board-launched run stops as builder stop
+// record is marked stopped so nothing relaunches it (the card keeps its slot), and its board-launched run stops as builder stop
 // stops it. A run already gone, or one a session runs, has nothing the board can stop. Its worktree stays. → its lines
 export async function stallCard(site, key, reason, runner = {}) {
   const ref = await store.cardName(site, key);

@@ -38,7 +38,7 @@
   </div>
   <h2>Auto</h2>
   <label class="who" for="maxImplementers"><span><span>Maximum parallel implementers</span>
-    <span class="muted small sub">Each agent that builds or runs tests counts, a card’s helpers included. Grills, read-only helpers and cards waiting in Orchestrator review or on you don’t.</span></span>
+    <span class="muted small sub">The number of cards In Progress: each counts from its build starting until it lands, whatever it waits on. Cards in Todo and In Review don’t.</span></span>
     <input type="number" class="count" id="maxImplementers" min="1" max="99" step="1" inputmode="numeric" disabled></label>
   <p class="muted small" id="maxImplementersStatus" role="status"></p>
   <label class="who" for="maxPlanners"><span><span>Maximum parallel planners</span>
@@ -638,7 +638,7 @@
         status.textContent = e.message || 'Could not save. Is the host awake?';
       }
     });
-    capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 agent builds' : `${n} agents build`} at once.`);
+    capInput('maxImplementers', 'max_implementers', (n) => `Saved. Up to ${n === 1 ? '1 card' : `${n} cards`} In Progress at once.`);
     capInput('maxPlanners', 'max_planners', (n) => `Saved. Up to ${n === 1 ? '1 grill or prototype runs' : `${n} grills or prototypes run`} at once.`);
     capInput('maxServes', 'max_serves', (n) => `Saved. Up to ${n === 1 ? '1 serve stays' : `${n} serves stay`} up at once.`);
     autoToggle('autoReview', 'auto_review', (on) => (on ? 'Saved. When idle, Claude reviews incoming PRs that touch this board’s work.' : 'Saved. Claude leaves incoming PRs alone.'));

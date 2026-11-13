@@ -664,7 +664,9 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null, comman
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
 // What each cause of a card pause says once the builder has stopped ("It resumes once …") and when it resumes
-// ("Resumed: …").
+// ("Resumed: …"). A bump-out (bumped) was a pause a bump past the cap made before the implementer limit counted cards
+// In Progress; a record left with one resumes on the next pass
+// (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
 export const PAUSE_CLEARS = {
   blocked: ['nothing blocks it', 'nothing blocks it'],
   held: ['you unhold it', 'unheld'],
@@ -676,13 +678,13 @@ export const PAUSE_HARD_STOP = 15 * 60_000;
 // The card's open main build, the one a pause rides on, or null.
 const mainBuild = (it) => (it.agents || []).find((a) => a.name === 'main' && a.started && !a.done && builds(a)) ?? null;
 // Whether anything still pauses the card's build: a block, a hold, or a usage pause on its kind (usageHeld(kind)) or a
-// usage limit that hasn't reset. A bump-out never clears by itself; it waits for a free slot.
+// usage limit that hasn't reset.
 const stillPaused = (it, pause, kind, { now, usageHeld }) => it.blocked || it.held || usageHeld(kind ?? 'claude')
   || Boolean(pause.until && now < Date.parse(pause.until));
 // One pass of the board's card pauses over built items. → {ask, drop, stop, resume}, each a list of keys: ask the
 // running builds a usage pause on their kind (usageHeld(kind)) now holds, neither pausing already nor landing; drop
 // the pauses whose cause cleared before their builder stopped; stop the builds still running PAUSE_HARD_STOP after
-// they were asked; resume the paused builds nothing pauses any more, oldest pause first, for the free slots to take.
+// they were asked; resume the paused builds nothing pauses any more, oldest pause first, each on its card's own slot.
 export function pauseWork(items, { now = Date.now(), usageHeld }) {
   const out = { ask: [], drop: [], stop: [], resume: [] };
   const resumes = [];
@@ -697,7 +699,7 @@ export function pauseWork(items, { now = Date.now(), usageHeld }) {
     }
     const still = stillPaused(it, pause, run.kind, { now, usageHeld });
     if (pause.paused) { if (!still) resumes.push({ key: it.key, at: pause.paused }); continue; }
-    if (!still && pause.cause !== 'bumped') out.drop.push(it.key);
+    if (!still) out.drop.push(it.key);
     else if (now - Date.parse(pause.at) >= PAUSE_HARD_STOP) out.stop.push(it.key);
   }
   out.resume = resumes.sort((a, b) => String(a.at).localeCompare(String(b.at))).map((r) => r.key);
@@ -1493,68 +1495,39 @@ const pullableCard = (i) => i.buildable && i.phase === 'ready' && !i.held && !i.
 export const MAX_IMPLEMENTERS = 10;
 
 // docs/adr/2026-11-02-1754-an-idle-board-pulls-in-its-top-todo-card.md
-// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
+// docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
 // For built items in board order, cap the board's Maximum parallel implementers and pulled the cards the pull started
-// builds on: implementers counts the running implementer agents on open cards, each one slot: a build, a rebase run, a
-// lander and a helper that writes, but no planner, no read-only helper and no agent blocked on its own helper
-// (agent wait's waits mark, while that helper is open). A card waiting in Orchestrator review or on the owner takes
-// none, but a card in review keeps the board from idle, as a running implementer does
-// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
+// builds on: each open card In Progress takes one slot until it lands, whatever runs on it, building, in Orchestrator
+// review, landing, waiting on the owner, paused or stalled, and however many agents. A card in any other lane takes none.
 // pullable lists the cards ready to build no message a session is working on, in board order, so bumped first and the
 // rest newest first (docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md, docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md).
 // waiting lists the pulled cards not yet started that still hold a slot: pullable, or still in Todo with a session
-// working on them. helpers lists the requested helpers to launch now, {key, name}: every read-only one, then the
-// writing ones in board order up to the free slots, the cap less the implementers and waiting. Every writing helper
-// requested comes ahead of the pull, so pulls lists the pullable cards not pulled that fit the slots the helpers leave,
-// and every bumped one, past the cap (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md, docs/adr/2026-11-05-0802-todo-has-no-queue.md).
-// taken is the slots the server's pass already filled with landers and rebase runs. free is the slots left before the
-// helpers and the pull; pastCap the bumped pulls past the cap, and bumpOuts [{key, by}] the builds to stop for them.
-// hold lists the cards an unanswered overnight triage names, which the pull leaves. retitle lists the cards ready to
-// build whose title isn't a Conventional subject, which are left out of pullable until retitled.
-export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [], taken = 0 } = {}) {
+// working on them. free is the slots left, the cap less the cards In Progress and waiting. pulls lists the pullable
+// cards not pulled that fit them, the bumped ones first (docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md,
+// docs/adr/2026-11-05-0802-todo-has-no-queue.md). helpers lists every requested helper, {key, name}: a card's helpers
+// run on its slot. hold lists the cards an unanswered overnight triage names, which the pull leaves. retitle lists the
+// cards ready to build whose title isn't a Conventional subject, which are left out of pullable until retitled. idle
+// says no implementer agent is running and no card waits in Orchestrator review
+// (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md).
+export function pullOf(items, { cap = MAX_IMPLEMENTERS, pulled = [], hold = [] } = {}) {
   const open = items.filter((i) => !closedLane(i));
-  // A paused build frees its slot (docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md).
-  const counts = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes) && !a.pause?.paused
+  const inProgress = open.filter((i) => i.lane === 'progress').length;
+  // A running implementer: no planner, no read-only helper, no paused build and none blocked on its own open helper
+  // (agent wait's waits mark), on a card the orchestrator hasn't stalled.
+  const running = (a, agents) => a.started && !a.done && builds(a) && !(a.kind === HELPER && !a.writes) && !a.pause?.paused
     && !(a.waits && agents.some((h) => h.name === a.waits && !h.done));
-  // A card the orchestrator stalled frees its slot, its stopped run still open
-  // (docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md).
-  const implementers = open.filter((i) => !i.stalled).reduce((n, i) => n + (i.agents || []).filter((a, _, all) => counts(a, all)).length, 0);
+  const busy = open.some((i) => !i.stalled && (i.agents || []).some((a, _, all) => running(a, all)));
   // docs/adr/2026-11-12-0800-a-cards-title-is-its-pr-title.md: a card whose title its PR can't take waits to be retitled.
   const ready = open.filter((i) => pullableCard(i) && !i.working);
   const retitle = ready.filter((i) => startTitleFault(i.key, i.title)).map((i) => i.key);
   const pullable = ready.map((i) => i.key).filter((k) => !retitle.includes(k));
   const waiting = open.filter((i) => pulled.includes(i.key) && (pullable.includes(i.key) || (i.buildable && i.working))).map((i) => i.key);
-  const requested = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name, writes: a.writes })));
-  const free = Math.max(0, cap - implementers - waiting.length - taken);
-  const writing = requested.filter((h) => h.writes);
-  const helpers = [...requested.filter((h) => !h.writes), ...writing.slice(0, free)].map(({ key, name }) => ({ key, name }));
-  // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md: a bumped card starts past the cap, and
-  // each one past it bumps out a build (bumpOutsOf).
-  const room = Math.max(0, free - writing.length);
+  const helpers = open.flatMap((i) => (i.agents || []).filter((a) => a.kind === HELPER && !a.started && !a.done).map((a) => ({ key: i.key, name: a.name })));
+  const free = Math.max(0, cap - inProgress - waiting.length);
   const bumped = new Set(open.filter((i) => i.bumpedAt).map((i) => i.key));
   const fresh = pullable.filter((k) => !waiting.includes(k) && !hold.includes(k));
-  const first = fresh.filter((k) => bumped.has(k));
-  const pulls = [...first, ...fresh.filter((k) => !bumped.has(k)).slice(0, Math.max(0, room - first.length))];
-  const pastCap = first.slice(room);
-  const bumpOuts = bumpOutsOf(open, counts).slice(0, pastCap.length).map((key, n) => ({ key, by: pastCap[n] }));
-  return { idle: !implementers && !open.some((i) => i.waitsOn === 'checking'), pullable, retitle, waiting, pulls, helpers, bumpOuts, pastCap, free };
-}
-// The open cards a bump past the cap may bump out, newest build first: an In Progress card not bumped or stalled, with
-// no PR, pushed branch or held Merge, whose one running implementer is a build the board launched and not already
-// pausing, neither landing nor a lander, nor checking (stop.mjs bumpOut pauses it). A session's own builder is out of the
-// pause's hard stop, so its slot might never free, and a card with a helper running would lose that work too. counts is
-// pullOf's test of a slot-taking agent.
-function bumpOutsOf(open, counts) {
-  const newest = (i) => {
-    const agents = i.agents || [];
-    const running = agents.filter((a) => counts(a, agents));
-    const [run] = running;
-    const fits = i.lane === 'progress' && !i.bumpedAt && !i.stalled && i.waitsOn !== 'checking' && i.builder?.phase !== 'landing'
-      && !(i.prs || []).length && !i.pushed && !i.mergeReady && running.length === 1 && run.kind !== HELPER && run.pid && run.label !== LANDER && !run.pause
-      && !agents.some((a) => a.kind === HELPER && a.started && !a.done);
-    return fits ? String(run.started) : null;
-  };
-  return open.map((i) => ({ key: i.key, at: newest(i) })).filter((c) => c.at).sort((a, b) => b.at.localeCompare(a.at)).map((c) => c.key);
+  const pulls = [...fresh.filter((k) => bumped.has(k)), ...fresh.filter((k) => !bumped.has(k))].slice(0, free);
+  return { idle: !busy && !open.some((i) => i.waitsOn === 'checking'), pullable, retitle, waiting, pulls, helpers, free };
 }
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md

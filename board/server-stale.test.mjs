@@ -235,19 +235,20 @@ test('with auto implement on the board starts and launches the build of the top 
   assert.deepEqual(pulls(), ['t/A5'], 'a started build holds its slot without the marker');
   assert.equal(thread('A8').length, 1, 'the refusal is not posted again while it is the newest line');
 
-  // The running build finishing frees its slot at once.
-  put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now) }));
+  // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md: A0's build handing back leaves the
+  // card In Progress, waiting in Orchestrator review, so it keeps its slot until it lands.
+  put(agentFile, JSON.stringify({ kind: 'codex', started: iso(now - 60000), done: iso(now), handed_back: iso(now) }));
   await board.changed(agentFile);
-  assert.deepEqual(pulls(), ['t/A5', 't/A4'], 'a freed slot is filled on the change');
+  assert.deepEqual(pulls(), ['t/A5'], 'a card waiting in Orchestrator review holds its slot');
+  closeCard('A0');
+  await board.changed(waveFile);
+  assert.deepEqual(pulls(), ['t/A5', 't/A4'], 'a card landing frees its slot on the change');
 
-  // Changed while the server is down: A0 waits in Orchestrator review, which takes no slot, so A5 finishing frees one
-  // (docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md).
+  // Changed while the server is down: A5 landing frees its slot.
   await board.stop();
-  record('A0', { handed_back: iso(now) });
   finish('A5');
   await board.start();
-  assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6'], 'a card in review holds no slot');
-  closeCard('A0');
+  assert.deepEqual(pulls(), ['t/A5', 't/A4', 't/A6'], 'a card closed while the server was down frees its slot');
 
   put(usageFile, JSON.stringify({ claude: { at: iso(now), five_hour: { used_percentage: 95, resets_at: iso(now + 3600000) }, seven_day: { used_percentage: 40, resets_at: iso(now + 86400000) } } }));
   finish('A4');
@@ -298,7 +299,9 @@ test('with auto-triage on, a board sends overnight-triage once a night from the 
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.mkdirSync(path.dirname(usageFile), { recursive: true });
   const boardFile = path.join(siteDir, 'board.json');
-  const boardJSON = (on) => put(boardFile, JSON.stringify({ items: 'data/items.json', slug: 't', auto_triage: on, max_implementers: 1 }));
+  // A0 In Progress holds one slot (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md), the
+  // day's pull takes the other.
+  const boardJSON = (on) => put(boardFile, JSON.stringify({ items: 'data/items.json', slug: 't', auto_triage: on, max_implementers: 2 }));
   boardJSON(false);
   const wave = { items: [
     { id: 'A0', title: 'feat: running', lane: 'progress' },

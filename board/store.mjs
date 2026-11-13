@@ -4305,14 +4305,17 @@ async function keepPastRun(file, before) {
 // of kind BUILD_REFUSED, which the Todo card shows while it is the card's newest line. worktree makes the worktree, as
 // builder start's does (board/worktree.mjs boardWorktree). → {key, ref, kind, reason, worktree}, or null when refused
 // (docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md).
-// A card an unfinished dep blocks is bumped instead, with no record and no worktree (bumpBlocked). → {key, ref, bumped:
-// [blocker names], line} (docs/adr/2026-11-05-0802-todo-has-no-queue.md).
-// dispatch 'hub' is a pull the board server starts itself.
-export async function startTappedBuild(site, key, worktree, dispatch = 'tap') {
+// A card an unfinished dep blocks is bumped instead, with no record and no worktree (bumpBlocked), and so is a tap with
+// every implementer slot taken (full, domain.mjs pullOf), for the pull to take first once one frees. → {key, ref, bumped:
+// [what it waits on], line} (docs/adr/2026-11-05-0802-todo-has-no-queue.md,
+// docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
+// dispatch 'hub' is a pull the board server starts itself, or a resume on a card already In Progress.
+export async function startTappedBuild(site, key, worktree, dispatch = 'tap', { full = false } = {}) {
   try {
     const { held, blockers } = await tapRefusals(site, key);
     if (held) await recordOwnerTap(site, 'card-hold', { key, hold: false });
     if (blockers.length) return await bumpBlocked(site, key, blockers);
+    if (full) return await bumpBlocked(site, key, ['a free implementer slot']);
     try {
       const started = await startBuilder(site, key, { kind: 'build', worktree, dispatch });
       return { key, ref: await cardName(site, key), kind: started.kind, ...(started.model ? { model: started.model } : {}), reason: started.reason, worktree: started.worktree };
@@ -4624,8 +4627,8 @@ async function cardWorktree(site, key) {
 }
 
 // `agent launch <file/id> --name <n> --task <t> [--writes] [--model opus|sonnet]`: any session asks for a helper on an
-// open card, which the board server launches headless (server.mjs launchHelpers) once domain.mjs pullOf lets it: a
-// read-only one at once, one that writes when an implementer slot is free, ahead of the pull. Its record,
+// open card, which the board server launches headless (server.mjs launchHelpers) at once, on its card's implementer
+// slot (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md). Its record,
 // agents/<id>@<name>.json, opens requested: {kind: helper, label: name, task, writes, model?, requested}, with no
 // start until the server's. --model is a Claude model, refused when the hub's Claude model rules it out; without one
 // the server takes builder pick's, as a build does. A helper that writes needs the card's worktree, since its own
@@ -4644,7 +4647,7 @@ export async function requestHelper(site, key, { name, task, writes, model }) {
   if (writes && !(await cardWorktree(site, key))) fail(`a helper that writes branches from ${key}'s worktree, and the card has none; start its build first, or drop --writes`);
   await writeJSON(file, { label: agent, kind: HELPER, task: job, writes: Boolean(writes), ...(model ? { model } : {}), requested: new Date().toISOString() });
   await appendStatus(site, key, 'helper-asked', { agent, writes });
-  return { lines: [`helper ${agent} requested: the board launches it ${writes ? 'once an implementer slot is free' : 'now'}`, `wait for it with agent wait ${key} --name ${agent}`] };
+  return { lines: [`helper ${agent} requested: the board launches it now`, `wait for it with agent wait ${key} --name ${agent}`] };
 }
 
 // The board server's start of helper name on the card, which domain.mjs pullOf let launch: its record opens dispatched
@@ -4678,7 +4681,7 @@ export async function helperOf(site, key, name) {
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
 // `agent wait <file/id> --name <n> [--agent <spawner>] [--timeout <minutes>]`: blocks until helper name is done, then
 // prints its hand-back, and for one that writes its branch to merge. While it waits, the spawner's open record carries
-// waits: name, so the limit counts the spawner free (domain.mjs pullOf) and a full board can't deadlock on it. It
+// waits: name, so the spawner doesn't count as running (domain.mjs pullOf idle). It
 // gives up after timeout minutes (9, under a Bash tool call's 10), saying what the helper is doing, and refuses once
 // the helper's process has gone without its done. alive(pid) says whether a process runs. It polls every ms, its
 // deadline read off now(). → {lines}
@@ -4707,7 +4710,7 @@ export async function waitHelper(site, key, { name, agent = 'main', timeout = 9,
       // A helper's name is never reused, so the session on its record is its own launch's.
       const pid = helper.session?.pid ?? null;
       if (pid && !alive(pid)) fail(`helper ${name}'s process exited without builder done; do its task yourself`);
-      if (now() >= deadline) fail(`helper ${name} is still ${helper.started ? 'running' : helper.writes ? 'waiting for an implementer slot' : 'waiting to launch'} after ${minutes} minutes; run agent wait again`);
+      if (now() >= deadline) fail(`helper ${name} is still ${helper.started ? 'running' : 'waiting to launch'} after ${minutes} minutes; run agent wait again`);
       await new Promise((resolve) => setTimeout(resolve, every));
     }
   } finally {

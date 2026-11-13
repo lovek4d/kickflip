@@ -470,10 +470,9 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          .kickflip/build-<target>, or .kickflip/build with
                                                          default (unset). Board Settings' Build target picks it
   settings set max-implementers <1..99>                  Maximum parallel implementers, 10 by default: the cards
-                                                         building or waiting in Orchestrator review the pull fills
-                                                         up to. Planners and cards waiting on the owner don't count.
-                                                         It limits the pull only: an Implement the owner asks for
-                                                         starts past it.
+                                                         In Progress the pull fills up to, each counting until it
+                                                         lands, whatever it waits on. A tap or a bump waits for a
+                                                         slot too.
                                                          Only on the owner's word
   settings set max-planners <1..99>                      Maximum parallel planners, 3 by default: the grills and
                                                          prototypes running at once; arrivals past it wait in board
@@ -604,7 +603,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          "stalled: <why>" with one push, waiting on nobody else; its
                                                          run stops as builder stop stops it (nothing to stop when it
                                                          is gone), its record stays open and stopped and its worktree
-                                                         stays, and it frees its implementer slot. Its thread reads
+                                                         stays, and it keeps its implementer slot. Its thread reads
                                                          "stalled by orchestrator: <why>". A message on the card
                                                          clears it
   land stop <file>/<id>                                  the orchestrator's stop of the card's land and its suite: one a
@@ -646,18 +645,15 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   agent launch <file>/<id> --name <n> --task <t>         any session's helper on an open card, an agent the board server
          [--writes] [--model <opus|sonnet>]              launches headless with the task as its brief, under its own
                                                          name (lowercase, "-", not main or visual-…), its record
-                                                         <id>@<name> requested until then. A read-only helper launches
-                                                         at once and takes no implementer slot; one with --writes
-                                                         takes one, waits while Maximum parallel implementers is
-                                                         reached, ahead of the pull and the topmost card's first,
-                                                         and works in its own worktree, branch <id>-<name> from the
+                                                         <id>@<name> requested until then. It launches at once,
+                                                         on its card's implementer slot; one with --writes works
+                                                         in its own worktree, branch <id>-<name> from the
                                                          card's, so it needs the card's worktree. --model else
                                                          builder pick's Claude model. Its lines carry its name
   agent wait <file>/<id> --name <n> [--agent <me>]       blocks until the helper's builder done, then prints its
-         [--timeout <minutes>]                           --text and, for one that writes, its branch. Meanwhile
-                                                         --agent's record (main by default) takes no slot. Refuses
+         [--timeout <minutes>]                           --text and, for one that writes, its branch. Refuses
                                                          after --timeout (9) minutes, saying whether it runs or waits
-                                                         for a slot, and once its process is gone without done
+                                                         to launch, and once its process is gone without done
   agent merge <file>/<id> --name <n>                     merges a done helper's branch into the card's worktree and
                                                          removes the helper's worktree and branch; on a conflict it
                                                          names the files: resolve, commit and run it again

@@ -510,6 +510,7 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     { id: 'B5', title: 'feat: held and blocked', lane: 'todo', deps: ['B4'], held: true }, { id: 'B6', title: 'feat: leftover worktree', lane: 'todo' }, { id: 'B7', title: 'feat: leftover work', lane: 'todo' },
     { id: 'B8', title: 'feat: held and unstarted', lane: 'todo', held: true }, { id: 'B9', title: 'feat: held and waiting', lane: 'todo', held: true }, { id: 'B10', title: 'Held and grilled', lane: 'todo', held: true },
     { id: 'B11', title: 'Ready', lane: 'todo', phase: 'ready' }, { id: 'B12', title: 'Grilling', lane: 'todo', phase: 'grilling', unfiled: true }, { id: 'B13', title: 'Leftover work, prototyping', lane: 'todo', phase: 'prototyping' },
+    { id: 'B14', title: 'feat: waits for a slot', lane: 'todo' },
   ] }));
   const wave = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8'));
   const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -588,6 +589,21 @@ test("a Build tap starts the build in the board server, moving the card to In Pr
     await ok200(post({ kind: 'card-build', key: 't/B7' }));
     const kept = await card('B7');
     assert.deepEqual([kept.lane, kept.storedLane, kept.refusal], ['todo', 'todo', "Couldn't start implementing: --worktree: …/B7 holds 1 changed file; land or remove it first"]);
+
+    // docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md: with every slot taken by a card In
+    // Progress, the tap starts nothing: the card stays in Todo, bumped to the top for the pull.
+    const cfg = fs.readFileSync(path.join(site, 'board.json'), 'utf8');
+    const inProgress = (await (await fetch(`${base}/api/board`)).json()).items.filter((i) => i.lane === 'progress').length;
+    fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ ...JSON.parse(cfg), max_implementers: inProgress }));
+    try {
+      await ok200(post({ kind: 'card-build', key: 't/B14' }));
+      const waits = await card('B14');
+      assert.deepEqual([waits.lane, waits.storedLane, Boolean(waits.bumpedAt), waits.refusal], ['todo', 'todo', true, null]);
+      assert.deepEqual(thread('B14').map((m) => [m.who, m.text]), [['claude', 'Can’t start yet: waits on a free implementer slot. Bumped to the top of Todo.']]);
+      assert.equal(fs.existsSync(path.join(site, 'data', 'agents', 'B14.json')), false);
+    } finally {
+      fs.writeFileSync(path.join(site, 'board.json'), cfg);
+    }
 
     // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: an empty Implement, on a ready
     // card or one still grilling, writes its keyed status line and stages the card, with no

@@ -7,7 +7,6 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { boardWith, home, at, site, write, read, run, runAsync, itemOf, threadOf, record, onHome, pollClock } from './board-fixture.mjs';
 import * as store from './store.mjs';
-import { bumpOut } from './stop.mjs';
 import { pullOf, pauseWork, confirmedDrops, PAUSE_HARD_STOP } from './domain.mjs';
 
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
@@ -117,17 +116,6 @@ test('a pause whose cause clears before the builder stops is dropped with no lin
   assert.equal(texts().filter((l) => /Paused|Resumed/.test(l)).length, 0);
 });
 
-test('a bump-out pauses the build In Progress, naming the bump, and its record stays open', async (t) => {
-  onHome(t);
-  const pid = await fakeBuilder(t);
-  building(pid);
-  const lines = await bumpOut(site('orch'), 'w/A1', 'w/ENG-1');
-  assert.deepEqual(lines, ['A1 pauses: bumped out by ENG-1']);
-  assert.ok(alive(pid));
-  assert.deepEqual([itemOf().lane, itemOf().bumped_out], ['progress', undefined]);
-  assert.deepEqual([record().pause.cause, record().pause.words, record().pause.by], ['bumped', 'bumped out by ENG-1', 'w/ENG-1']);
-});
-
 test('the hard stop after 15 minutes marks the build paused at its phase', async (t) => {
   onHome(t);
   building();
@@ -172,13 +160,14 @@ test("a pause the auto pass would drop stands unless a fresh read drops it too: 
   assert.deepEqual(confirmedDrops(pauseWork(stale, { usageHeld }).drop, fresh, { usageHeld }), ['w/B'], 'A is held on the fresh read, so its pause stays');
 });
 
-test('a paused build frees its implementer slot, and a build already pausing is never bumped out again', async () => {
+// docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
+test('a paused build keeps its card\'s implementer slot, since the card stays In Progress', () => {
   const paused = card('w/A', {}, { pause: { cause: 'blocked', at: now(), paused: now() } });
-  const pausing = card('w/B', {}, { pause: { cause: 'bumped', at: now() } });
-  const running = card('w/C', {}, { started: '2026-11-09T09:00:00.000Z' });
-  const bumped = { key: 'w/T', title: 'feat: bumped', lane: 'todo', kind: 'work', phase: 'ready', ready: true, buildable: true, bumpedAt: now(), agents: [] };
-  const pull = pullOf([paused, pausing, running, bumped], { cap: 2 });
-  assert.equal(pull.free, 0, 'the pausing build still holds its slot until it stops');
-  assert.deepEqual(pull.bumpOuts.map((b) => b.key), ['w/C']);
-  assert.equal(pullOf([paused], { cap: 1 }).free, 1);
+  const pausing = card('w/B', {}, { pause: { cause: 'held', at: now() } });
+  assert.equal(pullOf([paused, pausing], { cap: 2 }).free, 0);
+});
+
+test('a bump-out pause from before slots counted cards drops once nothing else pauses it', () => {
+  const pausing = card('w/B', {}, { pause: { cause: 'bumped', at: '2026-11-09T11:59:00.000Z' } });
+  assert.deepEqual(pauseWork([pausing], { now: Date.parse('2026-11-09T12:00:00.000Z'), usageHeld: () => false }).drop, ['w/B']);
 });

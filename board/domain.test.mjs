@@ -1714,38 +1714,17 @@ test('a bump stays through In Review and ends when the card closes, merged or Do
   assert.equal(card({ ...done, events: [bump(1), msg, bump(7)] }).bumpedAt, '2026-11-03T10:07:00.000Z');
 });
 
-// docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
-test('a bumped ready card starts past the cap, bumping out the newest unbumped build, never a bumped one, a lander, one with a PR or a helper, or a session\'s own', () => {
-  const run = (started, more = {}) => ({ name: 'main', kind: 'claude', pid: 1, started, done: null, ...more });
+// docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
+test('a bumped ready card goes first in the pull but waits for a slot like any other, and bumps no build out', () => {
   const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], bumpedAt: null, ...more });
-  const progress = (key, agent, more) => card(key, { lane: 'progress', buildable: false, state: null, agents: [agent], ...more });
-  const old = progress('w/P1', run('2026-11-06T10:00:00Z'));
-  const newest = progress('w/P2', run('2026-11-06T10:30:00Z'));
-  const bumped = progress('w/P3', run('2026-11-06T10:40:00Z'), { bumpedAt: '2026-11-06T09:00:00Z' });
-  const lander = progress('w/P4', run('2026-11-06T10:50:00Z', { label: 'Lander' }));
-  const rebase = progress('w/P5', run('2026-11-06T10:50:00Z', { label: 'Rebase' }), { prs: [{ number: 9 }] });
-  const helped = card('w/P8', { lane: 'progress', buildable: false, state: null, agents: [run('2026-11-06T10:50:00Z'), { name: 'tests', kind: 'helper', writes: false, started: '2026-11-06T10:51:00Z', done: null }] });
-  const session = progress('w/P6', run('2026-11-06T10:50:00Z', { pid: undefined }));
-  const landing = progress('w/P7', run('2026-11-06T10:50:00Z'), { builder: { phase: 'landing' } });
-  const top = card('w/T1', { bumpedAt: '2026-11-06T11:00:00Z' });
-  const next = card('w/T2', { bumpedAt: '2026-11-06T11:01:00Z' });
-  const plain = card('w/T3');
-  const full = [old, newest, bumped, lander, rebase, session, landing, helped];
-  const out = pullOf([...full, top, next, plain], { cap: 8 });
-  assert.deepEqual([out.pulls, out.pastCap, out.bumpOuts], [['w/T1', 'w/T2'], ['w/T1', 'w/T2'], [{ key: 'w/P2', by: 'w/T1' }, { key: 'w/P1', by: 'w/T2' }]], 'each bump past the cap bumps out the newest build left');
-  const room = pullOf([...full, top, plain], { cap: 9 });
-  assert.deepEqual([room.pulls, room.pastCap, room.bumpOuts], [['w/T1'], [], []], 'a free slot takes the bump with no bump-out, and the plain card waits');
-  const none = pullOf([bumped, lander, top], { cap: 2 });
-  assert.deepEqual([none.pulls, none.bumpOuts], [['w/T1'], []], 'with no build to bump out it still starts');
-  assert.deepEqual(pullOf([old, plain], { cap: 1 }).pulls, [], 'an unbumped card still waits for a slot');
-  assert.equal(pullOf([old, top], { cap: 1 }).free, 0);
-
-  // On a built board, a build the board launched carries its session's pid; a session's own build has none.
-  const launched = { started: '2026-11-06T10:00:00Z', kind: 'claude', session: { id: 's1', pid: 42, at: '2026-11-06T10:00:00Z' } };
-  const built = (record) => buildBoard({ fromWaves: false, events: [{ id: 'cb', ts: '2026-11-06T11:00:00Z', kind: 'card-bump', data: { key: 'w/T1' } }],
-    files: [{ slug: 'w', agents: { P1: { main: record } }, itemFile: { internal: true, items: [{ id: 'P1', title: 'Running', lane: 'progress' }, { id: 'T1', title: 'feat: bumped', phase: 'ready' }] } }] }).items;
-  assert.deepEqual(pullOf(built(launched), { cap: 1 }).bumpOuts, [{ key: 'w/P1', by: 'w/T1' }]);
-  assert.deepEqual(pullOf(built({ ...launched, session: undefined }), { cap: 1 }).bumpOuts, []);
+  const running = card('w/P1', { lane: 'progress', buildable: false, state: null, agents: [{ name: 'main', kind: 'claude', pid: 1, started: '2026-11-06T10:00:00Z', done: null }] });
+  const plain = card('w/T1');
+  const top = card('w/T2', { bumpedAt: '2026-11-06T11:00:00Z' });
+  const full = pullOf([running, plain, top], { cap: 1 });
+  assert.deepEqual([full.pulls, full.free], [[], 0], 'a full In Progress starts nothing, bumped or not');
+  assert.deepEqual(Object.keys(full).filter((k) => ['bumpOuts', 'pastCap'].includes(k)), [], 'nothing is bumped out');
+  assert.deepEqual(pullOf([running, plain, top], { cap: 2 }).pulls, ['w/T2'], 'one free slot takes the bump first');
+  assert.deepEqual(pullOf([running, plain, top], { cap: 3 }).pulls, ['w/T2', 'w/T1']);
 });
 
 // docs/adr/2026-11-06-1700-a-bump-marks-the-priority-through-every-lane.md
@@ -2063,59 +2042,57 @@ test('only a running build keeps the board from being idle: a running planner le
   assert.equal(pullOf([card([{ kind: 'claude', started: '2026-10-23T10:00:00Z', done: null }])]).idle, false);
 });
 
-// docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
-test('the pull fills every free implementer slot with the top ready cards; builds take a slot, Orchestrator review, planners and owner waits do not, and a card pulled but not started keeps its slot', () => {
-  const run = (kind) => [{ kind, started: '2026-11-04T10:00:00Z', done: null }];
+// docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
+test('every card In Progress takes one implementer slot until it lands, whatever runs on it; the pull fills the rest, bumped first, and a card pulled but not started keeps its slot', () => {
+  const at = '2026-11-13T10:00:00Z';
+  const run = (kind, more = {}) => ({ name: 'main', kind, started: at, done: null, ...more });
   const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const progress = (key, more) => card(key, { lane: 'progress', buildable: false, state: null, ...more });
-  const todo = ['w/T1', 'w/T2', 'w/T3', 'w/T4'].map((k) => card(k));
-  const busy = [progress('w/P1', { agents: run('claude') }), progress('w/P2', { waitsOn: 'checking' }), progress('w/P3', { waitsOn: 'owner' }), progress('w/P4', { agents: run('grill') })];
-  assert.deepEqual(pullOf([...busy, ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3', 'w/T4'], 'the default cap leaves room for every ready card');
-  assert.deepEqual(pullOf([...busy, ...todo], { cap: 3 }).pulls, ['w/T1', 'w/T2'], 'a build takes one of three slots, a card in review none');
-  assert.deepEqual(pullOf([...busy, ...todo], { cap: 1 }).pulls, [], 'a cap already reached pulls nothing');
-  assert.equal(pullOf([...busy, ...todo]).idle, false, 'the pull no longer waits for idle, but idle still means nothing building');
+  const todo = ['w/T1', 'w/T2', 'w/T3'].map((k) => card(k));
+  const bumped = card('w/T4', { bumpedAt: at });
+  const lane = [
+    progress('w/P1', { agents: [run('claude')] }),
+    progress('w/P2', { waitsOn: 'checking', agents: [run('claude', { done: at })] }),
+    progress('w/P3', { builder: { phase: 'landing' }, agents: [run('claude', { label: 'Lander' })] }),
+    progress('w/P4', { waitsOn: 'owner' }),
+    progress('w/P5', { agents: [run('claude', { pause: { cause: 'usage', at, paused: at } })] }),
+    progress('w/P6', { stalled: 'Crashed twice', agents: [run('claude', { stopped: { run: 'build', at } })] }),
+    progress('w/P7', { agents: [run('claude', { waits: 'tests' }), { name: 'tests', kind: 'helper', writes: true, started: at, done: null }] }),
+  ];
+  const others = [card('w/R1', { lane: 'review', buildable: false, agents: [run('claude', { label: 'Rebase' })] }), card('w/G1', { phase: 'grilling', grilling: true, agents: [{ kind: 'grill', started: at, done: null }] })];
+  const full = pullOf([...lane, ...others, ...todo, bumped], { cap: 7 });
+  assert.deepEqual([full.free, full.pulls], [0, []], 'building, checking, landing, waiting on the owner, paused, stalled or helped: each card In Progress is one slot');
+  assert.deepEqual(pullOf([...lane, ...others, ...todo, bumped], { cap: 9 }).pulls, ['w/T4', 'w/T1'], 'a card In Review or Todo takes none, and the bumped card goes first');
+  const landed = pullOf([...lane.filter((i) => i.key !== 'w/P2'), { ...lane[1], lane: 'done' }, ...todo, bumped], { cap: 7 });
+  assert.deepEqual(landed.pulls, ['w/T4'], 'once one lands, the next starts, bumped first');
+  assert.deepEqual(pullOf([...lane, ...todo]).pulls, ['w/T1', 'w/T2', 'w/T3'], 'the default cap leaves room for every ready card');
+  assert.equal(pullOf([lane[1]]).idle, false, 'a card in Orchestrator review keeps the board from idle');
+  assert.equal(pullOf([lane[3]]).idle, true, 'a card waiting on the owner leaves it idle');
 
-  assert.equal(pullOf([busy[1], ...todo]).idle, false, 'a card in review takes no slot, but the board is not idle while it waits');
-  const sent = pullOf([...busy, ...todo], { cap: 3, pulled: ['w/T1'] });
+  const sent = pullOf([lane[0], ...todo], { cap: 3, pulled: ['w/T1'] });
   assert.deepEqual([sent.waiting, sent.pulls], [['w/T1'], ['w/T2']], 'a pulled card not yet started keeps its slot and is not pulled again');
-  const working = pullOf([busy[0], card('w/T1', { working: true }), ...todo.slice(1)], { cap: 3, pulled: ['w/T1'] });
+  const working = pullOf([lane[0], card('w/T1', { working: true }), ...todo.slice(1)], { cap: 3, pulled: ['w/T1'] });
   assert.deepEqual([working.waiting, working.pulls], [['w/T1'], ['w/T2']], 'while the session works on the pull the card keeps its slot');
-  const started = pullOf([progress('w/T1', { agents: run('claude') }), ...todo.slice(1)], { cap: 2, pulled: ['w/T1'] });
-  assert.deepEqual([started.waiting, started.pulls], [[], ['w/T2']], 'once it builds it counts as an implementer instead');
+  const started = pullOf([progress('w/T1', { agents: [run('claude')] }), ...todo.slice(1)], { cap: 2, pulled: ['w/T1'] });
+  assert.deepEqual([started.waiting, started.pulls], [[], ['w/T2']], 'once it is In Progress it counts as a card in the lane instead');
   const asked = pullOf([card('w/T1', { phase: 'staging' }), ...todo.slice(1)], { cap: 1, pulled: ['w/T1'] });
   assert.deepEqual([asked.waiting, asked.pulls], [[], ['w/T2']], 'a pulled card that stops being pullable frees its slot');
 });
 
-// docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
-test('the limit counts running implementer agents, not cards: a helper that writes takes a slot, a read-only one none, and an agent waiting on its helper none', () => {
+// docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md
+test('every helper a card asks for launches at once, whatever the cap, and a read-only helper alone leaves the board idle', () => {
   const at = '2026-11-06T10:00:00Z';
   const card = (key, more = {}) => ({ key, title: 'feat: card', lane: 'todo', kind: 'work', buildable: true, phase: 'ready', blockedBy: [], questions: null, grilling: false, working: false, held: false, agents: [], ...more });
   const progress = (key, agents) => card(key, { lane: 'progress', buildable: false, state: null, agents });
   const main = (more = {}) => ({ name: 'main', kind: 'claude', started: at, done: null, ...more });
   const helper = (name, more = {}) => ({ name, kind: 'helper', writes: true, started: at, done: null, ...more });
-  const todo = ['w/T1', 'w/T2', 'w/T3'].map((k) => card(k));
-
-  const two = progress('w/P1', [main(), helper('tests')]);
-  assert.deepEqual(pullOf([two, ...todo], { cap: 3 }).pulls, ['w/T1'], 'a card with a build and a writing helper takes two slots');
-  const reader = progress('w/P1', [main(), helper('survey', { writes: false })]);
-  assert.deepEqual(pullOf([reader, ...todo], { cap: 3 }).pulls, ['w/T1', 'w/T2'], 'a read-only helper takes none');
-  const waiting = progress('w/P1', [main({ waits: 'tests' }), helper('tests')]);
-  assert.deepEqual(pullOf([waiting, ...todo], { cap: 3 }).pulls, ['w/T1', 'w/T2'], 'a build blocked on its open helper takes none');
-  const stale = progress('w/P1', [main({ waits: 'tests' }), helper('tests', { done: at })]);
-  assert.deepEqual(pullOf([stale, ...todo], { cap: 3 }).pulls, ['w/T1', 'w/T2'], 'once its helper is done the build counts again');
-  assert.equal(pullOf([reader]).idle, false);
-  assert.equal(pullOf([progress('w/P1', [helper('survey', { writes: false })])]).idle, true, 'a read-only helper alone leaves the board idle, as a planner does');
-
-  // A requested helper (no start yet) waits for a slot ahead of the pull, the topmost card's first.
   const asked = (name, writes = true) => helper(name, { started: null, requested: at, writes });
-  const top = progress('w/P1', [main(), asked('a')]);
-  const lower = progress('w/P2', [main(), asked('b'), asked('look', false)]);
-  const full = pullOf([top, lower, ...todo], { cap: 3 });
-  assert.deepEqual([full.helpers, full.pulls], [[{ key: 'w/P2', name: 'look' }, { key: 'w/P1', name: 'a' }], []], 'one free slot: the top card\'s helper takes it, the next waits, and so does the pull; a read-only helper launches at once');
-  const room = pullOf([top, lower, ...todo], { cap: 5 });
-  assert.deepEqual([room.helpers.map((h) => h.name), room.pulls], [['look', 'a', 'b'], ['w/T1']], 'with room, every helper launches and the pull takes what is left');
-  assert.deepEqual(pullOf([progress('w/P1', [main(), asked('a', true)])], { cap: 1 }).helpers, [], 'a full board holds a writing helper');
+  const top = progress('w/P1', [main(), asked('a'), asked('look', false)]);
+  const out = pullOf([top, card('w/T1')], { cap: 1 });
+  assert.deepEqual([out.helpers, out.pulls], [[{ key: 'w/P1', name: 'a' }, { key: 'w/P1', name: 'look' }], []]);
   assert.deepEqual(pullOf([{ ...top, lane: 'done' }], { cap: 5 }).helpers, [], 'a closed card launches none');
+  assert.equal(pullOf([progress('w/P1', [main(), helper('survey', { writes: false })])]).idle, false);
+  assert.equal(pullOf([progress('w/P1', [helper('survey', { writes: false })])]).idle, true, 'a read-only helper alone leaves the board idle, as a planner does');
 });
 
 // docs/adr/2026-11-03-1631-the-idle-pull-takes-ready-cards-first.md
@@ -2510,7 +2487,7 @@ test('the board lists each card idle on the orchestrator, In Progress then Todo,
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
-test("a card whose PR a rebase run fixes stays in In Review with the run's line, takes an implementer slot, and reads done or handed to the orchestrator after it", () => {
+test("a card whose PR a rebase run fixes stays in In Review with the run's line, keeps the board from idle, and reads done or handed to the orchestrator after it", () => {
   const conflicting = { ...greenDraft, isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'CONFLICTING', headRefOid: 'aaaaaaaaaa1111' };
   const run = { pr: 7, base: 'main', conflict: 'aaaaaaaaaa1111@main', at: '2026-11-05T10:00:00Z' };
   const rebasing = { kind: 'claude', model: 'opus', label: 'Rebase', started: '2026-11-05T10:00:00Z' };
@@ -2518,7 +2495,7 @@ test("a card whose PR a rebase run fixes stays in In Review with the run's line,
   const running = board({ pr: conflicting, now: Date.parse('2026-11-05T10:05:00Z'), item: { lane: 'progress', rebase_run: run }, agents: { A1: { main: rebasing } }, threads: { 'w/A1': [line] } });
   const card = running.items.find((i) => i.key === 'w/A1');
   assert.deepEqual([card.lane, card.waitsOn, card.builder.progress, card.next], ['review', 'builder', 'Rebasing onto main · resolving 2 files', null]);
-  assert.equal(pullOf(running.items, { cap: 1 }).idle, false, 'the run holds an implementer slot');
+  assert.equal(pullOf(running.items, { cap: 1 }).idle, false, 'the run keeps the board from idle');
   assert.equal(card.orchestrator, null);
   // A run gone silent past the stale limit waits on the orchestrator, the card still In Review.
   const silent = board({ pr: conflicting, now: Date.parse('2026-11-05T10:30:00Z'), item: { lane: 'progress', rebase_run: run }, agents: { A1: { main: rebasing } }, threads: { 'w/A1': [line] } });
@@ -2750,7 +2727,7 @@ test("answers written together (one ts) are one thread message with one status; 
 });
 
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
-test("a run gone silent reads stale and waits on the orchestrator; one the orchestrator stalls stays in its lane, reads stalled as an Action needed with one push, waits on nobody else and frees its slot", () => {
+test("a run gone silent reads stale and waits on the orchestrator; one the orchestrator stalls stays in its lane, reads stalled as an Action needed with one push, waits on nobody else and keeps its slot", () => {
   const now = Date.parse('2026-11-06T12:00:00Z');
   const open = { A1: { main: { kind: 'claude', started: '2026-11-06T10:00:00Z' } } };
   const stopped = { A1: { main: { kind: 'claude', started: '2026-11-06T10:00:00Z', stopped: { run: 'build', at: '2026-11-06T11:00:00Z' } } } };
@@ -2769,7 +2746,7 @@ test("a run gone silent reads stale and waits on the orchestrator; one the orche
   assert.deepEqual(it.action, { kind: 'stalled', url: '#selectedCard=w%2FA1', label: 'stalled: Crashed twice on the same test' });
   assert.equal(it.orchestrator, null);
   assert.deepEqual(orchestratorWaits(stalled), []);
-  assert.deepEqual(pullOf(stalled.items, { cap: 1 }).pulls, ['w/T1'], 'a stalled card frees its slot');
+  assert.deepEqual(pullOf(stalled.items, { cap: 1 }).pulls, [], 'a stalled card In Progress keeps its slot');
   const [push] = ownerActions(stalled).filter((a) => a.tag === 'item-w/A1');
   assert.deepEqual([push.kind, push.title.endsWith(': stalled: Crashed twice on the same test'), push.now], ['stalled', true, true]);
   assert.ok(stalled.needs.some((line) => line.key === 'w/A1' && line.text.endsWith('stalled: Crashed twice on the same test')));

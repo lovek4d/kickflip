@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-13-1126-the-implementer-limit-counts-cards-in-progress
+---
+
 # A bump marks the priority through every lane
+
+Superseded in part by [the implementer limit counts cards In Progress](2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md): a bumped card waits for a free implementer slot like any other, only going first, and nothing is bumped out, so "Past the cap" (for builds, landers and rebase runs) and "A bump-out, not a pause" no longer hold.
 
 Card #327. A bump counted only in Todo and In Progress: one made before the first build cleared when that build started, and In Review dropped it. The owner (11/05): "Keep bump tied to a work item. So when it moves to in progress, it maintains its bumped status. This is effectively saying a given item is a priority, and it should push through all lanes as first priority." Answers on the card (11/06) settled the rest; a paused-build state was prototyped and dropped for a bump-out (gh327-look), and the bumped-out card's look is take B of gh327-bump-out-3b.
 

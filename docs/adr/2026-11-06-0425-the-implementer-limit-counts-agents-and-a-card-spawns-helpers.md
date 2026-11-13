@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-13-1126-the-implementer-limit-counts-cards-in-progress
+---
+
 # The implementer limit counts agents, and any agent on a card can ask the board for helpers
+
+Superseded in part by [the implementer limit counts cards In Progress](2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md): the limit counts cards In Progress, one slot each until they land, and every helper launches at once on its card's slot, so "What the limit counts" and "Waiting for a slot" no longer hold.
 
 The owner wants parallel agents on a work item more often. In their words, "if the orchestrator wants, it should be able to spawn whatever agents it needs to under a given work item. The limit on implementers is more to reduce machine resource load, especially if they are like building code or running tests" (a note on #298, filed as #354). Until now Maximum parallel implementers counted cards: a card with a running build or waiting in Orchestrator review took one slot. Helpers ran as in-process Agent-tool subagents, which the board never saw or counted. The grill on #354 settled the shape (gh354-spawn, gh354-count, gh354-review-slot, gh354-full, gh354-worktree, gh354-handback). The owner answered no to a prototype round (gh354-proto), since #353 owns how the thread looks.
 
