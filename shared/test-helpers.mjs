@@ -5,7 +5,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
-import { withFileLock } from '../hub/locks.mjs';
+import { lockWaits, withFileLock } from '../hub/locks.mjs';
 
 export async function freePorts(count = 1) {
   const servers = [];
@@ -169,12 +169,12 @@ export function ownSession(home, session, pid = process.pid) {
   fs.writeFileSync(path.join(home, '.claude', 'sessions', `${pid}-${session}.json`), JSON.stringify({ pid, sessionId: session, cwd: home, procStart, kind: 'bg' }));
 }
 
-// A ps on a PATH of its own that answers as /bin/ps does, and while stall(true) hangs for 10 s, past live.mjs's ps
-// timeout, as ps does on a heavily loaded Mac; a test sets KICKFLIP_PS_TIMEOUT_MS short to wait out that timeout fast.
-// Given standIn {lstart, ppid}, it answers live.mjs's start-time and parent queries itself, without ps: every running
-// pid started at lstart (ps -o lstart= text) with parent ppid, so a test's own load can't push a real ps past that
-// timeout. → {bin: the folder to put first on PATH, stall(on), stalls(): how many
-// calls have hung so far}
+// A ps on a PATH of its own, for code a test runs in another process, that answers as /bin/ps does, and while
+// stall(true) gives no answer at once (it kills itself), which live.mjs's ps() reads as it reads a ps that timed out on
+// a heavily loaded Mac. Given standIn {lstart, ppid}, it answers live.mjs's start-time and parent queries itself,
+// without ps: every running pid started at lstart (ps -o lstart= text) with parent ppid, so a test's own load can't
+// push a real ps past that timeout. → {bin: the folder to put first on PATH, stall(on), stalls(): how many calls have
+// given no answer so far}
 export function stallingPs(dir, standIn = null) {
   const bin = path.join(dir, 'stalling-ps');
   const flag = path.join(dir, 'ps-stalls');
@@ -189,11 +189,36 @@ export function stallingPs(dir, standIn = null) {
     'fi',
   ] : [];
   const stalled = path.join(dir, 'ps-stalled');
-  fs.writeFileSync(path.join(bin, 'ps'), ['#!/bin/sh', `[ -e '${flag}' ] && { echo >> '${stalled}'; exec sleep 10; }`, ...answers, 'exec /bin/ps "$@"', ''].join('\n'), { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'ps'), ['#!/bin/sh', `[ -e '${flag}' ] && { echo >> '${stalled}'; kill -9 $$; }`, ...answers, 'exec /bin/ps "$@"', ''].join('\n'), { mode: 0o755 });
   return {
     bin,
     stall: (on) => (on ? fs.writeFileSync(flag, '') : fs.rmSync(flag, { force: true })),
     stalls: () => (fs.existsSync(stalled) ? fs.readFileSync(stalled, 'utf8').length : 0),
+  };
+}
+
+// Resolves the next time a withFileLock in this process finds file's lock held and waits for it (hub/locks.mjs
+// lockWaits). Call it before the step that makes the writer wait.
+export const lockWaited = (file) => new Promise((resolve) => {
+  const heard = (waited) => { if (waited === file) { lockWaits.off('wait', heard); resolve(); } };
+  lockWaits.on('wait', heard);
+});
+
+// A ps for the ps option of hub/live.mjs and board/headless.mjs stopRuns, answering from rows, each {pid, ppid, pgid,
+// args, start (ms)}, as /bin/ps answers with TZ=UTC: the rows -p names (every row for -A), one line each holding the
+// -o fields asked for. rows is read at each call, so a test can add to it as it starts processes.
+export function fakePs(rows) {
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const lstart = (ms) => {
+    const d = new Date(ms);
+    return `${DAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${String(d.getUTCDate()).padStart(2)} ${d.toISOString().slice(11, 19)} ${d.getUTCFullYear()}`;
+  };
+  const field = (row, name) => (name === 'lstart' ? lstart(row.start) : name === 'command' ? row.args : row[name]);
+  return (argv) => {
+    const fields = argv[argv.indexOf('-o') + 1].split(',').map((f) => f.replace(/=$/, ''));
+    const pids = argv.includes('-A') ? null : argv[argv.indexOf('-p') + 1].split(',').map(Number);
+    return rows.filter((r) => !pids || pids.includes(r.pid)).map((r) => `${fields.map((f) => field(r, f)).join(' ')}\n`).join('');
   };
 }
 

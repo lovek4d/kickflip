@@ -4663,8 +4663,9 @@ export async function helperOf(site, key, name) {
 // prints its hand-back, and for one that writes its branch to merge. While it waits, the spawner's open record carries
 // waits: name, so the limit counts the spawner free (domain.mjs pullOf) and a full board can't deadlock on it. It
 // gives up after timeout minutes (9, under a Bash tool call's 10), saying what the helper is doing, and refuses once
-// the helper's process has gone without its done. alive(pid) says whether a process runs. → {lines}
-export async function waitHelper(site, key, { name, agent = 'main', timeout = 9, every = 2000, alive }) {
+// the helper's process has gone without its done. alive(pid) says whether a process runs. It polls every ms, its
+// deadline read off now(). → {lines}
+export async function waitHelper(site, key, { name, agent = 'main', timeout = 9, every = 2000, now = Date.now, alive }) {
   needSite(site);
   const minutes = Number(timeout);
   if (!(minutes > 0)) fail('--timeout takes minutes, a number above 0');
@@ -4676,7 +4677,7 @@ export async function waitHelper(site, key, { name, agent = 'main', timeout = 9,
     const { waits: _, ...rest } = spawner;
     await writeJSON(spawnerFile, waits ? { ...rest, waits } : rest);
   };
-  const deadline = Date.now() + minutes * 60_000;
+  const deadline = now() + minutes * 60_000;
   await mark(name);
   try {
     for (;;) {
@@ -4689,7 +4690,7 @@ export async function waitHelper(site, key, { name, agent = 'main', timeout = 9,
       // A helper's name is never reused, so the session on its record is its own launch's.
       const pid = helper.session?.pid ?? null;
       if (pid && !alive(pid)) fail(`helper ${name}'s process exited without builder done; do its task yourself`);
-      if (Date.now() >= deadline) fail(`helper ${name} is still ${helper.started ? 'running' : helper.writes ? 'waiting for an implementer slot' : 'waiting to launch'} after ${minutes} minutes; run agent wait again`);
+      if (now() >= deadline) fail(`helper ${name} is still ${helper.started ? 'running' : helper.writes ? 'waiting for an implementer slot' : 'waiting to launch'} after ${minutes} minutes; run agent wait again`);
       await new Promise((resolve) => setTimeout(resolve, every));
     }
   } finally {
@@ -4886,12 +4887,13 @@ export async function answerBuilder(site, key, id, reply, { deferred = false } =
 
 // → {lines}: each ask, then its answer, deferral or "waiting on the orchestrator". With wait it blocks until no ask is
 // waiting on the orchestrator, giving up after timeout minutes (9, under a Bash tool call's 10) so the builder runs it again.
-// A builder waiting is at a stopping point, so a pause asked meanwhile ends the wait with its reply (pauseReply).
-export async function listAsks(site, key, { wait = false, timeout = 9, every = 2000 } = {}) {
+// It polls every ms, its deadline read off now(). A builder waiting is at a stopping point, so a pause asked meanwhile
+// ends the wait with its reply (pauseReply).
+export async function listAsks(site, key, { wait = false, timeout = 9, every = 2000, now = Date.now } = {}) {
   needSite(site);
   const minutes = Number(timeout);
   if (!(minutes > 0)) fail('--timeout takes minutes, a number above 0');
-  const deadline = Date.now() + minutes * 60_000;
+  const deadline = now() + minutes * 60_000;
   for (;;) {
     const asks = await builderAsks(site, key);
     if (!asks.length) return { lines: ['no asks yet'] };
@@ -4900,7 +4902,7 @@ export async function listAsks(site, key, { wait = false, timeout = 9, every = 2
     if (!wait || !waiting.length) return { lines };
     const paused = await pauseReply(site, key, {});
     if (paused.length) return { lines: [...lines, ...paused] };
-    if (Date.now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on the orchestrator after ${minutes} minutes; run builder asks ${key} --wait again`);
+    if (now() >= deadline) fail(`${waiting.map((a) => a.id).join(', ')} still waiting on the orchestrator after ${minutes} minutes; run builder asks ${key} --wait again`);
     await new Promise((resolve) => setTimeout(resolve, every));
   }
 }

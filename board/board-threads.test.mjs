@@ -198,13 +198,13 @@ test("a Claude thread line or reply rewrites its item's queued push to the lates
   assert.deepEqual(read(queueFile).items, []);
 });
 
-test('a push without an allowed kind is refused with one line, board.mjs allowing only a fault, and nothing goes', async () => withDevice(async (b, received) => {
+test('a push without an allowed kind is refused with one line, board.mjs allowing only a fault, and nothing goes', async () => {
   const webTs = (...args) => runAsync(path.join('..', '..', 'bin', 'kickflip.mjs'), ['push', ...args], { KICKFLIP_HUB_PORT: '9' });
   for (const r of [
-    await b('push', '--site', 'orch', '--title', 'Answered: keep it?', '--now'),
-    await b('push', '--site', 'orch', '--kind', 'info', '--title', '2 PRs merged'),
-    await b('push', '--site', 'orch', '--kind', 'action', '--title', 'A1 asks: Which layout?', '--tag', 'item-w/A1'),
-    await b('push', '--site', 'orch', '--kind', 'prompt', '--title', 'Orch wants to run tests'),
+    await board('push', '--site', 'orch', '--title', 'Answered: keep it?', '--now'),
+    await board('push', '--site', 'orch', '--kind', 'info', '--title', '2 PRs merged'),
+    await board('push', '--site', 'orch', '--kind', 'action', '--title', 'A1 asks: Which layout?', '--tag', 'item-w/A1'),
+    await board('push', '--site', 'orch', '--kind', 'prompt', '--title', 'Orch wants to run tests'),
   ]) {
     assert.equal(r.code, 2, r.err);
     assert.match(r.err, /a session pushes only --kind fault/);
@@ -218,10 +218,9 @@ test('a push without an allowed kind is refused with one line, board.mjs allowin
     assert.match(r.err, /a push needs --kind action\|prompt\|fault/);
     assert.equal(r.err.trim().split('\n').length, 1, r.err);
   }
-  assert.deepEqual(received, []);
   assert.equal(fs.existsSync(at('kickflip', 'push', 'queue.json')), false);
   assert.equal(fs.existsSync(site('orch', 'data', 'push-state.json')), false);
-}));
+});
 
 test("after a thread's push has gone, Claude's lines and replies there push nothing; a card whose action changes pushes again under its tag", async () => withDevice(async (b, received) => {
   fs.appendFileSync(site('orch', 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', ts: '2026-10-23T10:05:00Z', kind: 'item-message', data: { key: 'w/A1' } }) + '\n');

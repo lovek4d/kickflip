@@ -19,6 +19,8 @@ test('merge3 lets mine win a field both changed, and drops a card mine removed',
   assert.deepEqual(merge3(base, { items: [{ id: 'A', n: 2 }] }, { items: [{ id: 'A', n: 3 }, { id: 'B' }] }), { items: [{ id: 'A', n: 2 }] });
 });
 
+// The processes contend for the item file's lock with no deadline: load decides how long each waits, not whether it
+// fails.
 test('many processes running item set on different cards lose none', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'board-'));
   const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'board.mjs');
@@ -28,7 +30,7 @@ test('many processes running item set on different cards lose none', async () =>
   fs.writeFileSync(file, JSON.stringify({ title: 'W', items: ids.map((id) => ({ id, title: id })) }));
   try {
     const codes = await Promise.all(ids.map((id) => new Promise((resolve) => {
-      const child = spawn(process.execPath, [bin, 'item', 'set', `w/${id}`, '--next', `next ${id}`], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
+      const child = spawn(process.execPath, [bin, 'item', 'set', `w/${id}`, '--next', `next ${id}`], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1', KICKFLIP_LOCK_TIMEOUT_MS: 'Infinity' } });
       child.on('close', resolve);
     })));
     assert.deepEqual(codes, ids.map(() => 0));

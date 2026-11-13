@@ -187,6 +187,29 @@ export const record = (id = 'A1') => read(at('waves', 'w', 'agents', `${id}.json
 export const itemOf = (id = 'A1') => read(at('waves', 'w', 'wave.json')).items.find((i) => i.id === id);
 export const threadOf = (id = 'A1') => lines(site('orch', 'data', 'threads', `w__${id}.jsonl`));
 
+// Points the store, called in process, at this test's HOME until the test ends.
+export function onHome(t) {
+  const old = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { process.env.HOME = old; });
+}
+
+// The poll loop of store.listAsks or store.waitHelper on the test's clock: t.mock.timers holds Date and the loop's
+// setTimeout, and pass now to the call. The loop's first now() sets its deadline; each later one checks it, after the
+// loop has read the files and right before it sets its timer, so checked() resolves when the loop is about to sleep
+// and the test ticks from there. → {now, checked}
+export function pollClock(t) {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  let reads = 0;
+  let wake = () => {};
+  const now = () => {
+    if (reads++) wake();
+    return Date.now();
+  };
+  const checked = () => new Promise((resolve) => { wake = resolve; });
+  return { now, checked };
+}
+
 // A shared clone of origin (the scratch repo), on a board whose repo is origin's GitHub project, or a plain git remote.
 export function remoteBoard(fields) {
   const origin = scratchRepo();

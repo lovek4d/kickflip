@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { ownSession } from '../shared/test-helpers.mjs';
+import { lockWaited, ownSession } from '../shared/test-helpers.mjs';
 
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'close-board-')));
 process.env.HOME = home;
@@ -232,8 +232,12 @@ test('failed reopen keeps the session lock until rollback so a queued resume can
     launches++;
     return { status: 0, stdout: 'backgrounded · 12345678 · Shop' };
   } }).then(() => null, (error) => error);
+  // The failed reopen waits for the manifest lock to roll back, and the queued resume, trying the session lock after
+  // that, still finds it held.
+  const rollingBack = lockWaited(web('manifest.json'));
   fail();
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await rollingBack;
+  await Promise.race([lockWaited(web('session-locks', 'shop')), queued.then(() => assert.fail('the queued resume ran before the rollback'))]);
   const launchedBeforeRollback = launches;
   release();
   await writer;

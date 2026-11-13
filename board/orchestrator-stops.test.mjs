@@ -5,8 +5,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { home, at, site, write, read, lines, runAsync, board } from './board-fixture.mjs';
-import { until } from '../shared/test-helpers.mjs';
+import { once } from 'node:events';
+import readline from 'node:readline';
+import { home, at, site, write, read, lines, board } from './board-fixture.mjs';
+import { fakePs, until } from '../shared/test-helpers.mjs';
 import { stopRuns, reviveBuilders } from './headless.mjs';
 import { holdingLandLock, moveQueuedLand, landQueue } from './worktree.mjs';
 import { buildBoard, stoppedWords } from './domain.mjs';
@@ -14,23 +16,36 @@ import { buildBoard, stoppedWords } from './domain.mjs';
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const kick = (...p) => at('kickflip', ...p);
 
+// What ps answers in this file: the processes of each fakeRun, as fakePs rows.
+const procs = [];
+const ps = fakePs(procs);
+
 // A run as the board starts one: a detached process (its own group) whose land, run in it (nested) or as the run itself,
-// starts a detached suite in a group of its own, as worktree.mjs nodeTests does. → {root, land, suite}
+// starts a detached suite in a group of its own, as worktree.mjs nodeTests does. Its processes join procs while the
+// test runs, each started when the run was. → {root, land, suite}
 async function fakeRun(t, { nested = false } = {}) {
   const script = path.join(home, 'run.mjs');
   write(script, [
     "import { spawn } from 'node:child_process';",
-    "import fs from 'node:fs';",
-    'const [out, role] = process.argv.slice(2);',
-    "if (role === 'agent') spawn(process.execPath, [process.argv[1], out, 'land'], { stdio: 'ignore' });",
-    "else { const suite = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' }); fs.writeFileSync(out, JSON.stringify({ land: process.pid, suite: suite.pid })); }",
+    'const [role] = process.argv.slice(2);',
+    "if (role === 'agent') spawn(process.execPath, [process.argv[1], 'land'], { stdio: ['ignore', 'inherit', 'ignore'] });",
+    "else { const suite = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' }); console.log(JSON.stringify({ land: process.pid, suite: suite.pid })); }",
     'setInterval(() => {}, 1000);',
   ].join('\n'));
-  const out = path.join(home, `pids-${Math.random().toString(36).slice(2)}.json`);
-  const root = spawn(process.execPath, [script, out, nested ? 'agent' : 'land'], { detached: true, stdio: 'ignore' });
-  await until(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8').endsWith('}'), 'the fake run starts its suite');
-  const pids = { root: root.pid, ...JSON.parse(fs.readFileSync(out, 'utf8')) };
-  t.after(() => { for (const pid of Object.values(pids)) try { process.kill(pid, 'SIGKILL'); } catch {} });
+  const start = Math.floor(Date.now() / 1000) * 1000;
+  const root = spawn(process.execPath, [script, nested ? 'agent' : 'land'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  const [line] = await once(readline.createInterface({ input: root.stdout }), 'line');
+  const pids = { root: root.pid, ...JSON.parse(line) };
+  const rows = [
+    { pid: pids.root, ppid: process.pid, pgid: pids.root, args: `node run.mjs ${nested ? 'agent' : 'land'}`, start },
+    ...(nested ? [{ pid: pids.land, ppid: pids.root, pgid: pids.root, args: 'node run.mjs land', start }] : []),
+    { pid: pids.suite, ppid: pids.land, pgid: pids.suite, args: 'node -e setInterval(() => {}, 1000)', start },
+  ];
+  procs.push(...rows);
+  t.after(() => {
+    for (const pid of Object.values(pids)) try { process.kill(pid, 'SIGKILL'); } catch {}
+    for (const row of rows) procs.splice(procs.indexOf(row), 1);
+  });
   return pids;
 }
 
@@ -39,42 +54,51 @@ const waveFile = () => at('waves', 'w', 'wave.json');
 const setA1 = (fields) => { const w = read(waveFile()); Object.assign(w.items.find((i) => i.id === 'A1'), fields); write(waveFile(), w); };
 const recordFile = () => at('waves', 'w', 'agents', 'A1.json');
 const thread = () => (fs.existsSync(site('orch', 'data', 'threads', 'w__A1.jsonl')) ? lines(site('orch', 'data', 'threads', 'w__A1.jsonl')) : []);
-const cli = (...args) => runAsync('board.mjs', ['--site', 'orch', ...args]);
+// board.mjs run in process with this file's ps, and a grace with no end, so a stop returns only once all it stopped
+// is gone. → {code, out, err}
+async function cli(...args) {
+  const { main } = await import('./bin/board.mjs');
+  const env = { HOME: process.env.HOME, KICKFLIP_HUB_PORT: process.env.KICKFLIP_HUB_PORT };
+  Object.assign(process.env, { HOME: home, KICKFLIP_HUB_PORT: '1' });
+  const out = [];
+  const err = [];
+  const { log, error } = console;
+  console.log = (...a) => out.push(`${a.join(' ')}\n`);
+  console.error = (...a) => err.push(`${a.join(' ')}\n`);
+  try { return { code: await main(['--site', 'orch', ...args], { ps, grace: Infinity }), out: out.join(''), err: err.join('') }; } finally {
+    Object.assign(console, { log, error });
+    for (const [name, value] of Object.entries(env)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
+  }
+}
 
 test('stopRuns stops each run with every process group under it, a detached suite too, and names what it stopped', async (t) => {
   const run = await fakeRun(t, { nested: true });
-  const stopped = await stopRuns([run.root]);
+  const stopped = await stopRuns([run.root], { ps, grace: Infinity });
   assert.deepEqual(new Set(stopped.map((p) => p.pid)), new Set([run.root, run.land, run.suite]));
   assert.ok(stopped.every((p) => typeof p.args === 'string' && p.args.length));
-  await until(() => !alive(run.land) && !alive(run.suite), 'the land and its suite are gone');
+  assert.ok(![run.root, run.land, run.suite].some(alive), 'the run, its land and its suite are gone');
 });
 
-// A ps on PATH that gets no answer (it kills itself) for its first `failures` calls and is the real ps after.
-function stallingPs(t, failures) {
-  const dir = path.join(home, `fake-ps-${Math.random().toString(36).slice(2)}`);
-  const count = path.join(dir, 'count');
-  write(path.join(dir, 'ps'), `#!/bin/sh\nn=$(cat ${count} 2>/dev/null || echo 0)\necho $((n + 1)) > ${count}\n[ "$n" -lt ${failures} ] && kill -9 $$\nexec /bin/ps "$@"\n`);
-  fs.chmodSync(path.join(dir, 'ps'), 0o755);
-  const path0 = process.env.PATH;
-  process.env.PATH = `${dir}:${path0}`;
-  t.after(() => { process.env.PATH = path0; });
-  return () => Number(fs.readFileSync(count, 'utf8'));
+// This file's ps, giving no answer for its first `failures` calls. → {ask: the ps, calls(): how many it took}
+function silentPs(failures) {
+  let calls = 0;
+  return { ask: (argv) => (++calls <= failures ? null : ps(argv)), calls: () => calls };
 }
 
 test('stopRuns asks ps again once when it gives no answer, and stops the run on the second', async (t) => {
   const run = await fakeRun(t, { nested: true });
-  const calls = stallingPs(t, 1);
-  const stopped = await stopRuns([run.root]);
-  assert.equal(calls(), 2);
+  const silent = silentPs(1);
+  const stopped = await stopRuns([run.root], { ps: silent.ask, grace: Infinity });
+  assert.equal(silent.calls(), 2);
   assert.ok(stopped.some((p) => p.pid === run.root));
-  await until(() => !alive(run.land) && !alive(run.suite), 'the land and its suite are gone');
+  assert.ok(![run.land, run.suite].some(alive), 'the land and its suite are gone');
 });
 
 test('stopRuns refuses, stopping nothing, when ps gives no answer twice', async (t) => {
   const run = await fakeRun(t, { nested: true });
-  const calls = stallingPs(t, 2);
-  await assert.rejects(stopRuns([run.root]), /ps gave no answer, so nothing was stopped/);
-  assert.equal(calls(), 2);
+  const silent = silentPs(2);
+  await assert.rejects(stopRuns([run.root], { ps: silent.ask }), /ps gave no answer, so nothing was stopped/);
+  assert.equal(silent.calls(), 2);
   assert.ok(alive(run.root) && alive(run.land) && alive(run.suite));
 });
 
@@ -84,7 +108,7 @@ test('stopRuns kills what ignores the stop once the grace period ends', async (t
   // The stop comes once the process says it ignores SIGTERM, not after a fixed delay a loaded host can outlast.
   await new Promise((resolve) => stubborn.stdout.once('data', resolve));
   const gone = new Promise((resolve) => stubborn.once('exit', (code, signal) => resolve(signal)));
-  await stopRuns([stubborn.pid], { grace: 300 });
+  await stopRuns([stubborn.pid], { ps: fakePs([{ pid: stubborn.pid, ppid: process.pid, pgid: stubborn.pid, args: 'node -e', start: 0 }]), grace: 300 });
   assert.equal(await gone, 'SIGKILL');
 });
 
@@ -98,7 +122,7 @@ test("the orchestrator's builder stop stops the card's headless builder with eve
   assert.match(r.out, /^A1: build stopped by orchestrator\n/);
   assert.match(r.out, new RegExp(`stopped ${run.root} `));
   assert.match(r.out, new RegExp(`stopped ${run.suite} `));
-  await until(() => ![run.root, run.land, run.suite].some(alive), 'the builder and its suite are gone');
+  assert.ok(![run.root, run.land, run.suite].some(alive), 'the builder and its suite are gone');
   const record = read(recordFile());
   assert.equal(record.stopped.run, 'build');
   assert.ok(record.stopped.at >= started);
@@ -147,7 +171,7 @@ test("land stop on the Merge tap's land stops it and its suite, takes it out of 
   const r = await cli('land', 'stop', 'w/A1');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^A1: land stopped by orchestrator\n/);
-  await until(() => !alive(run.land) && !alive(run.suite), 'the land and its suite are gone');
+  assert.ok(![run.land, run.suite].some(alive), 'the land and its suite are gone');
   assert.equal(fs.existsSync(kick('landing', 'A1')), false);
   assert.deepEqual(fs.readdirSync(kick('land.queue')), []);
   const item = read(waveFile()).items.find((i) => i.id === 'A1');
@@ -179,7 +203,7 @@ test("land stop on a headless builder's land stops that builder, and refuses a l
   const r = await cli('land', 'stop', 'w/A1');
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^A1: land stopped by orchestrator\n/);
-  await until(() => ![run.root, run.land, run.suite].some(alive), 'the builder, its land and its suite are gone');
+  assert.ok(![run.root, run.land, run.suite].some(alive), 'the builder, its land and its suite are gone');
   assert.equal(read(recordFile()).stopped.run, 'land');
 });
 
@@ -276,7 +300,7 @@ test("item stall stops the card's run with everything under it, keeps its record
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /^A1 stalled: Crashed twice on the same test\n/);
   assert.match(r.out, new RegExp(`stopped ${run.root} `));
-  await until(() => ![run.root, run.land, run.suite].some(alive), 'the builder and its suite are gone');
+  assert.ok(![run.root, run.land, run.suite].some(alive), 'the builder and its suite are gone');
   const record = read(recordFile());
   assert.deepEqual([record.stopped.run, record.done, record.worktree.path], ['build', undefined, '/w/A1']);
   const item = read(waveFile()).items.find((i) => i.id === 'A1');

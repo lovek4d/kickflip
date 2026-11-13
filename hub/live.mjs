@@ -39,21 +39,20 @@ const running = (pid) => {
 };
 
 // ps's answer for argv, or null when ps gave none: it timed out (a loaded Mac takes seconds) or didn't run. ps exits
-// 1 when a pid it was asked about doesn't run, and that is still its answer. The timeout is 3 s, or
-// KICKFLIP_PS_TIMEOUT_MS, which tests of a stalled ps set short.
+// 1 when a pid it was asked about doesn't run, and that is still its answer. Each function here that asks ps takes
+// its ps as an option, this one by default, so a test answers for it in process.
 export function ps(argv) {
-  const timeout = Number(process.env.KICKFLIP_PS_TIMEOUT_MS) || 3000;
-  try { return execFileSync('ps', argv, { encoding: 'utf8', timeout, env: { ...process.env, TZ: 'UTC' } }); }
+  try { return execFileSync('ps', argv, { encoding: 'utf8', timeout: 3000, env: { ...process.env, TZ: 'UTC' } }); }
   catch (e) { return typeof e.status === 'number' && !e.signal ? e.stdout || '' : null; }
 }
 
 // pids → Map pid → start time (ms) for those still running, from one ps call over the pids that still run, or null
 // when ps gave no answer, which leaves every pid's liveness unknown.
-export function processStarts(pids) {
+export function processStarts(pids, { ps: ask = ps } = {}) {
   const starts = new Map();
   const alive = pids.filter(running);
   if (!alive.length) return starts;
-  const text = ps(['-o', 'pid=,lstart=', '-p', alive.join(',')]);
+  const text = ask(['-o', 'pid=,lstart=', '-p', alive.join(',')]);
   if (text === null) return null;
   for (const line of text.split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(.+)$/);
@@ -72,15 +71,15 @@ export function verifiedProcess(record, starts = processStarts) {
 
 // → Map sessionId → its live record, or null when ps gave no answer and which sessions run is unknown. session limits
 // it to that session's records, so ps is asked about its pid alone.
-export function liveSessions({ dir = sessionsDir(), starts = processStarts, session = null } = {}) {
+export function liveSessions({ dir = sessionsDir(), ps: ask = ps, starts = (pids) => processStarts(pids, { ps: ask }), session = null } = {}) {
   const records = sessionRecords(dir).filter((r) => !session || r.sessionId === session);
   const found = starts([...new Set(records.map((r) => r.pid))]);
   return found && new Map(liveOf(records, found).map((r) => [r.sessionId, r]));
 }
 
 // pid's parent pid, null once pid no longer runs, or undefined when ps gave no answer.
-export function parentOf(pid) {
-  const text = ps(['-o', 'ppid=', '-p', String(pid)]);
+export function parentOf(pid, { ps: ask = ps } = {}) {
+  const text = ask(['-o', 'ppid=', '-p', String(pid)]);
   return text === null ? undefined : Number(text.trim()) || null;
 }
 

@@ -186,14 +186,14 @@ test("a watcher keeps waiting while ps can't answer whether its session runs, an
   ownSession(home, 's1');
   const ps = stallingPs(home);
   t.after(() => ps.stall(false));
-  const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...env, PATH: `${ps.bin}:${env.PATH}`, KICKFLIP_PS_TIMEOUT_MS: '200' } });
+  const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...env, PATH: `${ps.bin}:${env.PATH}` } });
   t.after(() => child.kill('SIGKILL'));
   let stdout = '';
   child.stdout.on('data', (d) => { stdout += d; });
   const done = new Promise((resolve) => child.on('close', (code) => resolve(code)));
   await until(() => watcherRecord()?.pid === child.pid, 'the watcher started');
   ps.stall(true);
-  // Each check waits out ps's timeout twice, for the shell's parent and for the session; this waits out two checks.
+  // Each check finds ps giving no answer twice, for the shell's parent and for the session; this waits out two checks.
   await until(() => ps.stalls() >= 4, 'two checks found ps stalled');
   assert.equal(child.exitCode, null, 'the watcher still waits');
   assert.equal(stdout, '');

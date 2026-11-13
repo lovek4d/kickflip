@@ -3,25 +3,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { liveOf, liveSessions, parentOf, processStarts, sessionGone } from './live.mjs';
-import { stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
+import { fakePs } from '../shared/test-helpers.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
-// ps is the stand-in for the whole file: each sleeper, a child of this process, started at START.
+// ps answers for this process and its parent, both started at START; a pid that no longer runs is never asked about.
 const START = 'Thu Nov  5 00:00:00 2026';
-const ps = stallingPs(dir, { lstart: START, ppid: process.pid });
-process.env.PATH = `${ps.bin}:${process.env.PATH}`;
-const sleepers = [];
-const sleeper = async () => {
-  const c = spawn(process.execPath, ['-e', `process.send('ready'); ${untilTestEnds()}`], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
-  sleepers.push(c);
-  await new Promise((resolve, reject) => { c.once('message', resolve); c.once('error', reject); c.once('exit', (code) => reject(new Error(`sleeper exited ${code}`))); });
-  return c;
-};
+const started = Date.parse(`${START} UTC`);
+const ps = fakePs([{ pid: process.pid, ppid: process.ppid, start: started }, { pid: process.ppid, ppid: 1, start: started }]);
+const silent = () => null;
+const GONE = 0x7ffffffe;
 const record = (pid, sessionId, extra = {}) => fs.writeFileSync(path.join(dir, `${pid}.json`), JSON.stringify({ pid, sessionId, cwd: '/repo', kind: 'bg', ...extra }));
 
-after(() => { for (const c of sleepers) c.kill(); fs.rmSync(dir, { recursive: true, force: true }); });
+after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 test('a record is live while its pid runs and that process started when the record says', () => {
   const start = Date.parse('2026-10-29T21:35:54Z');
@@ -34,21 +28,16 @@ test('a record is live while its pid runs and that process started when the reco
   assert.deepEqual(ids([{ pid: 2, sessionId: 'd' }]), ['d']);
 });
 
-test('liveSessions reads the session records and checks each pid and its start time with ps', async () => {
-  const running = await sleeper();
-  const reused = await sleeper();
-  const gone = await sleeper();
-  record(running.pid, 'live-one', { procStart: START });
-  record(reused.pid, 'reused-pid', { procStart: 'Thu Oct 01 00:00:00 2026' });
-  record(gone.pid, 'exited', { procStart: START });
+test('liveSessions reads the session records and checks each pid and its start time with ps', () => {
+  record(process.pid, 'live-one', { procStart: START });
+  record(process.ppid, 'reused-pid', { procStart: 'Thu Oct 01 00:00:00 2026' });
+  record(GONE, 'exited', { procStart: START });
   fs.writeFileSync(path.join(dir, 'broken.json'), '{');
-  const exited = new Promise((resolve) => gone.once('exit', resolve));
-  gone.kill();
-  await exited;
-  const live = liveSessions({ dir });
+  const live = liveSessions({ dir, ps });
   assert.deepEqual([...live.keys()], ['live-one']);
   assert.equal(live.get('live-one').cwd, '/repo');
-  assert.equal(liveSessions({ dir: path.join(dir, 'none') }).size, 0);
+  assert.deepEqual([...liveSessions({ dir, ps, session: 'live-one' }).keys()], ['live-one']);
+  assert.equal(liveSessions({ dir: path.join(dir, 'none'), ps }).size, 0);
 });
 
 test("a watcher's session is gone once its shell or the shell's parent changes, or the session stops running", () => {
@@ -66,26 +55,18 @@ test("a watcher's session is gone once its shell or the shell's parent changes, 
   assert.equal(sessionGone('s1', [20, undefined], { ...at, ppid: 1 }), true);
 });
 
-test("a ps that times out leaves every liveness unknown, so a live session's watcher isn't told it is gone", { timeout: 60000 }, async (t) => {
-  const running = await sleeper();
-  record(running.pid, 'stalled', { procStart: START });
-  t.after(() => { ps.stall(false); delete process.env.KICKFLIP_PS_TIMEOUT_MS; });
-  assert.deepEqual([...liveSessions({ dir, session: 'stalled' }).keys()], ['stalled'], 'the stand-in ps answers before it stalls');
-  assert.equal(parentOf(running.pid), process.pid);
-  process.env.KICKFLIP_PS_TIMEOUT_MS = '200';
-  ps.stall(true);
-  assert.equal(processStarts([running.pid]), null);
-  assert.equal(liveSessions({ dir }), null);
-  assert.equal(parentOf(running.pid), undefined);
-  assert.equal(sessionGone('stalled', [running.pid, process.pid], { ppid: running.pid, live: (o) => liveSessions({ dir, ...o }) }), false);
-  assert.equal(processStarts([0x7ffffffe]).size, 0, 'a pid that no longer runs is known gone without asking ps');
+test("a ps that gives no answer leaves every liveness unknown, so a live session's watcher isn't told it is gone", () => {
+  record(process.pid, 'stalled', { procStart: START });
+  assert.deepEqual([...liveSessions({ dir, ps, session: 'stalled' }).keys()], ['stalled'], 'ps answers for it');
+  assert.equal(processStarts([process.pid], { ps: silent }), null);
+  assert.equal(liveSessions({ dir, ps: silent }), null);
+  assert.equal(parentOf(process.pid, { ps: silent }), undefined);
+  const live = (o) => liveSessions({ dir, ps: silent, ...o });
+  assert.equal(sessionGone('stalled', [process.ppid, 1], { ppid: process.ppid, parent: (pid) => parentOf(pid, { ps: silent }), live }), false);
+  assert.equal(processStarts([GONE], { ps: () => assert.fail('asked ps') }).size, 0, 'a pid that no longer runs is known gone without asking ps');
 });
 
-test('parentOf reads a running process\'s parent with ps, and null once it has exited', async () => {
-  const c = await sleeper();
-  assert.equal(parentOf(c.pid), process.pid);
-  const exited = new Promise((resolve) => c.once('exit', resolve));
-  c.kill();
-  await exited;
-  assert.equal(parentOf(c.pid), null);
+test("parentOf reads a running process's parent with ps, and null once it no longer runs", () => {
+  assert.equal(parentOf(process.pid, { ps }), process.ppid);
+  assert.equal(parentOf(GONE, { ps }), null);
 });

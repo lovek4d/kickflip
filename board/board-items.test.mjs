@@ -294,7 +294,8 @@ test("a draft that is any card's notes file, live, done or archived, is refused 
 
 test("appends from several commands at once each survive, under the card's lock", async () => {
   const drafts = [1, 2, 3, 4].map((n) => { const f = path.join(home, `d${n}.md`); write(f, `Line ${n}.`); return f; });
-  const runs = await Promise.all(drafts.map((f, i) => runAsync('board.mjs', ['item', 'notes', 'w/A1', '--site', 'orch', '--heading', `Part ${i + 1}`, '--file', f], { KICKFLIP_RENDER_CHECK: 'off' })));
+  // No lock deadline: load decides how long each waits for the card's lock, not whether it fails.
+  const runs = await Promise.all(drafts.map((f, i) => runAsync('board.mjs', ['item', 'notes', 'w/A1', '--site', 'orch', '--heading', `Part ${i + 1}`, '--file', f], { KICKFLIP_RENDER_CHECK: 'off', KICKFLIP_LOCK_TIMEOUT_MS: 'Infinity' })));
   assert.deepEqual(runs.map((r) => r.code), [0, 0, 0, 0], runs.map((r) => r.err).join(''));
   const notes = fs.readFileSync(notesOf('A1'), 'utf8');
   for (const n of [1, 2, 3, 4]) assert.match(notes, new RegExp(`## Part ${n}\nLine ${n}\.\n`));

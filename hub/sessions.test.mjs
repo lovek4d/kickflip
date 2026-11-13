@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { installLinks, installClaudeSettings, nodeBin } from '../bin/install.mjs';
 import { hubService } from '../shared/service.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
-import { stallingPs, until, untilTestEnds } from '../shared/test-helpers.mjs';
+import { fakePs, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
@@ -721,7 +721,7 @@ test("a tap on an asleep board's page wakes its session at once with no event, o
   fs.rmSync(web('resume-state.json'), { force: true });
 });
 
-test("while ps can't answer whether a session runs, the wake, the deaf push and the compact check wait for the next check, and start, resume, stop and hub refuse", { timeout: 90000 }, async () => {
+test("while ps can't answer whether a session runs, the wake, the deaf push and the compact check wait for the next check, and start, resume, stop and hub refuse", async () => {
   const { stopSession, hubSession, compactFullContexts } = await import('./sessions.mjs');
   const { checkListening, listenState } = await import('./boards.mjs');
   const dir = path.join(home, 'unknown-board');
@@ -743,10 +743,13 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
   assert.deepEqual(read(web('deaf-state.json')), {});
   assert.deepEqual(await compactFullContexts({ manifest: m, running: null, tmux: () => assert.fail('ran tmux') }), { compacted: [], failed: [] });
   assert.equal(listenState(board, { running: null, wakes: {} }), 'asleep', 'with no watcher, an unknown session reads asleep, which pushes nothing');
-  const watcher = spawn(process.execPath, ['-e', untilTestEnds(), 'wait-events.mjs'], { stdio: 'ignore' });
-  sleepers.push(watcher);
-  write(path.join(dir, 'data', 'watcher.json'), { pid: watcher.pid, since: new Date().toISOString() });
-  await until(() => listenState(board, { running: null, wakes: {} }) === 'listening', 'a running watcher vouches for its session');
+  // This process stands for the watcher: its pid runs, and ps names it wait-events.mjs, or gives no answer, which
+  // leaves it counted as the watcher.
+  write(path.join(dir, 'data', 'watcher.json'), { pid: process.pid, since: new Date().toISOString() });
+  const named = fakePs([{ pid: process.pid, args: 'node wait-events.mjs unknown s-unknown' }]);
+  assert.equal(listenState(board, { running: null, wakes: {}, ps: named }), 'listening', 'a running watcher vouches for its session');
+  assert.equal(listenState(board, { running: null, wakes: {}, ps: () => null }), 'listening', 'one ps gives no answer for still vouches');
+  assert.equal(listenState(board, { running: null, wakes: {}, ps: fakePs([{ pid: process.pid, args: 'node other.mjs' }]) }), 'asleep', 'a reused pid does not');
   fs.rmSync(path.join(dir, 'data', 'watcher.json'));
   await assert.rejects(stopSession({ session: 's-unknown' }, { live: () => null, stop: async () => assert.fail('stopped') }), { reason: 'unknown' });
   await assert.rejects(hubSession({ manifest: hubManifest({ session: 's-hub', repo }), tmux: () => ({ status: 1 }), attach: async () => assert.fail('attached'), live: () => null }), { reason: 'unknown' });
@@ -754,7 +757,6 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
 
   // ps is asked only about a pid that runs.
   const session = liveRecord('s-unknown', repo);
-  process.env.KICKFLIP_PS_TIMEOUT_MS = '200';
   ps.stall(true);
   try {
     const before = calls().length;
@@ -767,7 +769,7 @@ test("while ps can't answer whether a session runs, the wake, the deaf push and 
     assert.match(listed.stdout, /^\/unknown  s-unknown  live unknown \(ps gave no answer\)  /m);
     delete m.sites.unknown;
     write(web('manifest.json'), { ...manifest(), sites: Object.fromEntries(Object.entries(manifest().sites).filter(([route]) => route !== 'unknown')) });
-  } finally { ps.stall(false); delete process.env.KICKFLIP_PS_TIMEOUT_MS; session.kill(); }
+  } finally { ps.stall(false); session.kill(); }
 });
 
 test("the hub board's wake resumes its session in its tmux session, keeping its id, and refuses while that tmux session is open", async () => {

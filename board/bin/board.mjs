@@ -1057,9 +1057,9 @@ const COMMANDS = {
     });
     return ran.joined ? { lines: [`joined the land already running for ${ref ?? key}`] } : ran;
   }],
-  'builder stop': [['file/id'], [], (site, [key]) => stopBuilder(needSite(site, 'builder stop'), key)],
-  'item stall': [['file/id'], ['reason'], (site, [key], f) => stallCard(needSite(site, 'item stall'), key, f.reason)],
-  'land stop': [['file/id'], [], (site, [key]) => stopLand(needSite(site, 'land stop'), key)],
+  'builder stop': [['file/id'], [], (site, [key], f, { ps, grace }) => stopBuilder(needSite(site, 'builder stop'), key, { ps, grace })],
+  'item stall': [['file/id'], ['reason'], (site, [key], f, { ps, grace }) => stallCard(needSite(site, 'item stall'), key, f.reason, { ps, grace })],
+  'land stop': [['file/id'], [], (site, [key], f, { ps, grace }) => stopLand(needSite(site, 'land stop'), key, { ps, grace })],
   'land queue': [[], [], () => queueLines()],
   test: [[], ['dir', 'base'], async (site, args, f) => {
     const say = (line) => console.log(line);

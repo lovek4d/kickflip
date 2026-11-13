@@ -5,6 +5,7 @@ import { at, site, write, read, lines, board, wave } from './board-fixture.mjs';
 import { moveCard, migrateStatuses } from './store.mjs';
 import { buildBoard, movesOf } from './domain.mjs';
 import { withFileLock } from '../hub/locks.mjs';
+import { lockWaited } from '../shared/test-helpers.mjs';
 
 const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items.find((i) => i.id === id);
 const auditThread = (id = 'A1') => { try { return lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)); } catch { return []; } };
@@ -146,8 +147,9 @@ test("a settle move checks its snapshot under the item file's lock, so a tap wri
   assert.deepEqual([move.key, move.to, move.phase, move.from], ['audit/T3', 'todo', 'new', { lane: null, phase: null }]);
   let moved;
   await withFileLock(file, async () => {
+    const waiting = lockWaited(file);
     moved = moveCard(dir, move.key, move.to, move.why, move.phase, move.from);
-    await new Promise((r) => setTimeout(r, 300));
+    await waiting;
     // The owner's Implement, as store.mjs stage writes it.
     write(file, { ...wave(), items: [{ id: 'T3', title: 'New', phase: 'staging', staged_at: '2026-11-09T22:11:49.491Z' }] });
   });

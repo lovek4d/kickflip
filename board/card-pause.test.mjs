@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { boardWith, home, at, site, write, read, run, runAsync, itemOf, threadOf, record } from './board-fixture.mjs';
+import { boardWith, home, at, site, write, read, run, runAsync, itemOf, threadOf, record, onHome, pollClock } from './board-fixture.mjs';
 import * as store from './store.mjs';
 import { bumpOut } from './stop.mjs';
 import { pullOf, pauseWork, confirmedDrops, PAUSE_HARD_STOP } from './domain.mjs';
@@ -22,11 +22,6 @@ function fakeBuilder(t) {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
   t.after(() => { try { process.kill(child.pid, 'SIGKILL'); } catch {} });
   return child.pid;
-}
-function onHome(t) {
-  const old = process.env.HOME;
-  process.env.HOME = home;
-  t.after(() => { process.env.HOME = old; });
 }
 const tree = () => ({ path: path.join(home, 'tree'), branch: 'A1', repo: path.join(home, 'repo') });
 function building(pid = null) {
@@ -87,15 +82,17 @@ test('a call or an ask is a stopping point too, and the call or ask is still rec
   assert.match(ask.out, /Paused: held\. Commit/);
 });
 
-test("a builder waiting on its ask is already at a stopping point, so builder asks --wait returns the pause at once", async () => {
+test("a builder waiting on its ask is already at a stopping point, so builder asks --wait returns the pause at once", async (t) => {
+  onHome(t);
   building();
   assert.equal((await onOrch('builder', 'ask', 'w/A1', 'Which name?')).code, 0);
-  const waiting = runAsync('board.mjs', ['--site', 'orch', 'builder', 'asks', 'w/A1', '--wait', '--timeout', '1']);
-  await new Promise((r) => setTimeout(r, 800));
+  const { now, checked } = pollClock(t);
+  const waiting = store.listAsks(site('orch'), 'w/A1', { wait: true, now });
+  await checked();
   assert.equal((await onOrch('item', 'set', 'w/A1', '--deps', 'ENG-1')).code, 0);
-  const r = await waiting;
-  assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /Paused: blocked by ENG-1/);
+  t.mock.timers.tick(2000);
+  const { lines } = await waiting;
+  assert.match(lines.join('\n'), /Paused: blocked by ENG-1/);
   assert.ok(record().pause.paused);
 });
 

@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until } from '../shared/test-helpers.mjs';
-import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, toolUse, toolResult, stopHook, ago } from './board-fixture.mjs';
+import { freePorts } from '../shared/test-helpers.mjs';
+import { boardWith, home, at, site, write, read, lines, run, runAsync, board, onOrch, threadOf, wave, question, git, commit, scratchRepo, worktree, land, branches, record, toolUse, toolResult, stopHook, ago, onHome, pollClock } from './board-fixture.mjs';
+import * as store from './store.mjs';
 
 test('agent.mjs still writes builder records, beside the wave file it names', async () => {
   assert.equal(run('agent.mjs', ['start', 'w/A1', '--label', 'Opus builder']).code, 0);
@@ -138,11 +139,17 @@ test('builder call appends a one-line call to the open record, calls prints them
   assert.deepEqual(['calls' in read(main), 'verified' in read(main), 'worktree' in read(main)], [false, false, false]);
 });
 
-test('builder asks --wait returns once every ask is answered and fails after its timeout while one waits', async () => {
+test('builder asks --wait returns once every ask is answered and fails after its timeout while one waits', async (t) => {
+  onHome(t);
   const orch = (...args) => board('--site', 'orch', ...args);
   assert.equal((await orch('builder', 'start', 'w/A1', '--kind', 'claude', '--model', 'opus')).code, 0);
   assert.equal((await orch('builder', 'ask', 'w/A1', 'Spec contradicts the probe?')).code, 0);
-  assert.match((await orch('builder', 'asks', 'w/A1', '--wait', '--timeout', '0.001')).err, /ask1 still waiting on the orchestrator after 0.001 minutes; run builder asks w\/A1 --wait again/);
+  const { now, checked } = pollClock(t);
+  const waiting = store.listAsks(site('orch'), 'w/A1', { wait: true, now });
+  await checked();
+  t.mock.timers.tick(9 * 60_000);
+  await assert.rejects(waiting, { message: 'ask1 still waiting on the orchestrator after 9 minutes; run builder asks w/A1 --wait again' });
+  t.mock.timers.reset();
   assert.equal((await orch('builder', 'answer', 'w/A1', 'ask1', '--text', 'Follow the probe.')).code, 0);
   assert.deepEqual((await orch('builder', 'asks', 'w/A1', '--wait')).out.trim().split('\n'), ['ask1. Spec contradicts the probe?', '  answered: Follow the probe.']);
 });
@@ -703,7 +710,7 @@ test('builder done on a record with judgment calls hands the card back, its reco
 });
 
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
-test('agent launch asks for a helper on an open card, which then starts, reports and hands back as its own agent; agent wait prints its hand-back and agent merge brings in its branch', async () => {
+test('agent launch asks for a helper on an open card, which then starts, reports and hands back as its own agent; agent wait prints its hand-back and agent merge brings in its branch', async (t) => {
   const repo = scratchRepo();
   write(at('kickflip', 'manifest.json'), { sites: { orch: { dir: site('orch'), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', site('orch')], owner: { repo } } } });
   const main = await onOrch('builder', 'start', 'w/A1', '--kind', 'build');
@@ -730,8 +737,13 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   assert.match((await onOrch('agent', 'launch', 'w/A1', '--name', 'tests', '--task', 'Again')).err, /already has an agent named tests/);
   assert.match((await onOrch('agent', 'launch', 'w/ENG-1', '--name', 'tests', '--task', 'x', '--writes')).err, /branches from w\/ENG-1's worktree, and the card has none/);
   assert.equal((await onOrch('agent', 'launch', 'w/ENG-1', '--name', 'survey', '--task', 'Read the scroll code')).code, 0, 'a read-only helper needs no worktree');
-  const wait = await onOrch('agent', 'wait', 'w/ENG-1', '--name', 'survey', '--timeout', '0.0001');
-  assert.deepEqual([wait.code, wait.err], [1, 'helper survey is still waiting to launch after 0.0001 minutes; run agent wait again\n']);
+  onHome(t);
+  const { now, checked } = pollClock(t);
+  const wait = store.waitHelper(site('orch'), 'w/ENG-1', { name: 'survey', now });
+  await checked();
+  t.mock.timers.tick(9 * 60_000);
+  await assert.rejects(wait, { message: 'helper survey is still waiting to launch after 9 minutes; run agent wait again' });
+  t.mock.timers.reset();
 
   // The board server opens the record in the helper's own worktree off the card's branch (store.mjs startHelper);
   // here the test stands in for it.
@@ -764,18 +776,22 @@ test('agent launch asks for a helper on an open card, which then starts, reports
   assert.deepEqual(branches(repo), ['A1', 'main']);
 });
 
-test("agent wait marks its spawner waiting while the helper is open, and refuses once the helper's process is gone without its done", async () => {
+test("agent wait marks its spawner waiting while the helper is open, and refuses once the helper's process is gone without its done", async (t) => {
+  onHome(t);
   assert.equal((await onOrch('builder', 'start', 'w/A1', '--kind', 'claude')).code, 0);
   assert.equal((await onOrch('agent', 'launch', 'w/A1', '--name', 'look', '--task', 'Read the code')).code, 0);
   const helperFile = at('waves', 'w', 'agents', 'A1@look.json');
   // The helper's own builder start, after its launch recorded the session, keeps that session.
   const launched = new Date(Date.now() - 2000).toISOString();
-  write(helperFile, { ...read(helperFile), started: new Date().toISOString(), session: { id: 's', pid: process.pid, at: launched } });
-  const waiting = runAsync('board.mjs', ['--site', 'orch', 'agent', 'wait', 'w/A1', '--name', 'look']);
-  await until(() => record().waits === 'look', 'the spawner reads waiting on its helper');
-  write(helperFile, { ...read(helperFile), session: { id: 's', pid: 2 ** 22 + 12345, at: launched } });
-  const gone = await waiting;
-  assert.deepEqual([gone.code, gone.err], [1, "helper look's process exited without builder done; do its task yourself\n"]);
+  write(helperFile, { ...read(helperFile), started: new Date().toISOString(), session: { id: 's', pid: 4242, at: launched } });
+  let running = true;
+  const { now, checked } = pollClock(t);
+  const waiting = store.waitHelper(site('orch'), 'w/A1', { name: 'look', now, alive: (pid) => pid === 4242 && running });
+  await checked();
+  assert.equal(record().waits, 'look', 'the spawner reads waiting on its helper');
+  running = false;
+  t.mock.timers.tick(2000);
+  await assert.rejects(waiting, { message: "helper look's process exited without builder done; do its task yourself" });
   assert.equal('waits' in record(), false);
 });
 
