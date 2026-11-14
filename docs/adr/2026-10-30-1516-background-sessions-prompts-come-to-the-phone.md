@@ -19,3 +19,5 @@ Considered:
 - only reading `claude agents --json`'s `waitingFor` to show that a session waits, with no way to answer from the phone.
 
 Superseded in part by [the board has no Needs you deck or pane](2026-11-12-0700-the-board-has-no-needs-you-deck-or-pane.md): every pending prompt, a board session's included, is answered on the hub page, and its push opens the hub page.
+
+Superseded in part by [a headless board session asks on the board](2026-11-14-0646-a-headless-board-session-asks-on-the-board.md): a board session's `AskUserQuestion` is refused at once by a PreToolUse hook and asked on the board; only a background session that owns no board brings it to the phone.

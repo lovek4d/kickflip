@@ -67,6 +67,15 @@
             "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/board-data-gate.mjs\""
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion|EnterPlanMode|ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/ask-gate.mjs\""
+          }
+        ]
       }
     ]
   }
