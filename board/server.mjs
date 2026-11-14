@@ -312,7 +312,7 @@ async function tryLogTail(here, name) {
 // Routes that parse JSON require application/json; /api/upload keeps the file's content type.
 // Claude's replies to event <id> are data/replies/<id>.md, .html (written before markdown replies) or .json, then <id>~2.md, <id>~3.md … (store.mjs replyFilesOf).
 import { topicItems } from './review.mjs';
-import { boardWorktree, builderRepo, helperWorktree, moveQueuedLand, prWorktree } from './worktree.mjs';
+import { boardWorktree, builderRepo, git, helperWorktree, moveQueuedLand, prWorktree } from './worktree.mjs';
 import { transcriptMovedAt, readRunTranscript } from './transcript.mjs';
 import { fromHost } from './on-host.mjs';
 import { readSync, writeSync, stamp, patchSince } from './sync.mjs';
@@ -337,7 +337,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -1455,6 +1455,18 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }
   }
 
+  // docs/adr/2026-11-14-1700-a-ready-task-unpulled-a-day-re-stages-when-main-has-moved.md
+  // Each minute, a ready card unpulled for a day goes back to staging when the base branch has moved since its ready.
+  async function checkReadyExpiry() {
+    try {
+      const { repo, base } = builderRepo(here);
+      const main = git(repo, 'rev-parse', base);
+      if (main.ok && (await restageStaleReady(here, main.out, now())).length) dataVersion++;
+    } catch (err) {
+      console.error('Ready expiry check failed:', err.message);
+    }
+  }
+
   // docs/adr/2026-11-04-0057-auto-implement-fills-in-progress-up-to-a-cap.md
   // The Auto jobs, run on every board change and once at start: the landers, rebase runs and resumes on cards already
   // holding their slot, the arrivals' grills, triage, then the pull, then a review. The pull fills the free implementer
@@ -2332,6 +2344,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md
     track(publishUnscreened(here).then((keys) => { if (keys.length) dataVersion++; }, (err) => console.error('Screen publish failed:', err.message)));
     track(checkPickUps());
+    track(checkReadyExpiry());
     // A pause standing, or a usage pause or Pause board or hub starting, runs the pause pass (checkPauses).
     const gate = readUsageGate({ dir: here });
     if ((heldByPause && !launchHeld(gate, 'claude')) || pausesLive || (!heldByPause && pausesRunning(gate, 'claude'))) track(checkAuto());

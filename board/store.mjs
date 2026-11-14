@@ -2196,9 +2196,43 @@ async function stage(site, key, sendId) {
   Object.assign(item, { phase: 'staging', staged_at: new Date().toISOString() });
   delete item.unfiled;
   delete item.filed_held;
+  delete item.ready_at;
+  delete item.ready_main;
   spendNext(item);
   await writeJSON(source.file, itemFile);
   await appendCommand(site, key, { command: 'staged', sendId });
+}
+// docs/adr/2026-11-14-1700-a-ready-task-unpulled-a-day-re-stages-when-main-has-moved.md
+// How long a card may sit ready and unpulled before main's moving sends it back to staging.
+export const READY_EXPIRES_MS = 24 * 60 * 60 * 1000;
+// A ready card in Todo has ready_at, the time of its ready, and ready_main, the base branch's commit then. main is that
+// commit now: a card with no ready_main yet records it (and a ready_at, for a card readied before the record), and one
+// ready for READY_EXPIRES_MS whose main differs from its ready_main, held or not, goes back to staging with a line,
+// its notes kept, for the orchestrator's usual staging re-check. → the keys it re-staged
+export async function restageStaleReady(site, main, now = new Date()) {
+  const restaged = [];
+  for (const source of await itemSources(site)) {
+    const itemFile = await readJSON(source.file, null);
+    let changed = false;
+    for (const item of itemFile?.items || []) {
+      if (item.phase !== 'ready' || leftTodo(item) || closed(item)) continue;
+      if (!item.ready_main) {
+        item.ready_main = main;
+        item.ready_at ??= now.toISOString();
+        changed = true;
+      } else if (item.ready_main !== main && now - Date.parse(item.ready_at) >= READY_EXPIRES_MS) {
+        Object.assign(item, { phase: 'staging', staged_at: now.toISOString() });
+        delete item.ready_at;
+        delete item.ready_main;
+        delete item.recheck_at;
+        changed = true;
+        restaged.push(`${source.slug}/${item.id}`);
+      }
+    }
+    if (changed) await writeJSON(source.file, itemFile);
+  }
+  for (const key of restaged) await appendStatus(site, key, 'ready-expired');
+  return restaged;
 }
 // Returns the card to its conversation, with a "Marked as discussing" status line when it newly moves there.
 async function discuss(site, key) {
@@ -3046,6 +3080,8 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
     delete item.staged_at;
     delete item.unfiled;
     delete item.filed_held;
+    delete item.ready_main;
+    if (phase === 'ready') item.ready_at = new Date().toISOString(); else delete item.ready_at;
   }
   // docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md: a Next never asks for the phase the card is in.
   if (item.phase === 'ready' && ASKS_READY.test(item.next ?? '')) fail(`${key} would read ready with Next "${item.next}", which asks for the phase it is already in; pass --next with what happens next, or --clear-next`);

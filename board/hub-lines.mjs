@@ -48,6 +48,7 @@ export const HUB_LINES = {
   'land-waiting': { mark: HELD, text: ({ card }) => fit('Waiting for ', card, ' to land') },
   // Resumes and unblocks.
   resumed: { mark: RESUMED, text: ({ clear }) => `Resumed: ${clear}.`, longest: { clear: 'the usage pause lifted' } },
+  'ready-expired': { mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },
   'hold-ended': { mark: RESUMED, text: ({ at }) => `Resumed: its hold until ${at} ended.`, longest: { at: AT } },
   unblocked: { mark: RESUMED, text: ({ lifted }) => fit('Unblocked: ', lifted, '.') },
   'unblocked-done': { mark: RESUMED, text: ({ card }) => fit('Unblocked: ', card, ' is done.') },
