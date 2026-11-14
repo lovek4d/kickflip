@@ -928,6 +928,9 @@ button[aria-busy="true"]:is([data-card-bump]) svg { fill: currentColor; }
 @keyframes reader-pulse { 50% { opacity: .35; } }
 .reader-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: 6px 0 max(12px, env(safe-area-inset-bottom)); }
 .reader-body > .muted { padding: 8px 14px; margin: 0; }
+/* The questions sheet (app-questions-sheet.js) draws Waiting on you's question cards in the reader sheet's frame. */
+.qs-body { padding: 0 14px; }
+.qs-round { margin: 14px 0 0; font-size: 13px; font-weight: 600; }
 .reader-row { padding: 5px 14px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .reader-row.text { padding-top: 9px; }
 .reader-row.end { margin: 6px 14px 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); }

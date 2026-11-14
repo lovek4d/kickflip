@@ -46,7 +46,7 @@ const lastTopic = new Map();
     const { $, site } = B;
     const scroll = (y) => { if (!ctx.embedded) scrollTo(0, y); };
     const setHash = (id) => { if (!ctx.embedded) history.replaceState(history.state, '', '#' + encodeURIComponent(id)); };
-    const { esc, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, questionCard, roundChip, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, downLanding } = BoardUI;
+    const { esc, getDraft, setDraft, choiceOf, noteOf, isSent, questionCard, roundChip, linkContext, badge, topicName, cardTopics, topicRow, nextQuestion, sentNotice, fetchJSON, downLanding } = BoardUI;
     const hashId = () => { if (ctx.embedded) return ''; const h = location.hash.slice(1); try { return decodeURIComponent(h); } catch { return h; } };
 
     let all = [];
@@ -115,19 +115,7 @@ const lastTopic = new Map();
     // suggested option pre-checked and never answered, are sent; a sent one is read-only.
     const filesOf = (q) => BoardAttach.files('q:' + q.id, site.root);
     const uploading = (qs) => qs.some((q) => BoardAttach.busy('q:' + q.id, site.root));
-    function pending(qs) {
-      return qs.filter((q) => q.state === 'open').filter((q) => {
-        const d = getDraft(q.id);
-        if (filesOf(q).length) return true;
-        const last = q.answers[q.answers.length - 1];
-        // A cleared pick sends only with a note.
-        if ('choice' in d && d.choice === null) return Boolean(d.note);
-        if (!last && q.suggested) return true;
-        if (q.reopened && choiceOf(q, d) !== null) return true;
-        if (!('choice' in d) && !d.note) return false;
-        return !last || (d.choice ?? last.choice) !== last.choice || (d.note || '') !== (last.note || '');
-      });
-    }
+    const pending = (qs) => BoardUI.pendingAnswers(qs, filesOf);
 
     function visible() {
       if (soloId) return [byId(soloId)].filter(Boolean);
@@ -327,7 +315,16 @@ const lastTopic = new Map();
       else if (soloId && byId(soloId)?.state !== 'open') pick('');
       else if (!topics.some((t) => t.id === topicId)) pick('');
       loaded = true;
+      if (first && !ctx.embedded) toSheet(hashId());
       return true;
+    }
+    // A push tap on an open question of a card opens that card on the board with its questions sheet, in place of this
+    // page, which stays for every other way here (app-questions-sheet.js,
+    // docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md). A prototype's question stays here.
+    function toSheet(id) {
+      const q = history.state?.pushed === true && byId(id);
+      if (!q || q.state !== 'open' || !q.topic?.startsWith('item:') || BoardUI.isPrototype(q.url)) return;
+      AppShell.open(new URL(`./#selectedCard=${encodeURIComponent(q.topic.slice(5))}&questions=${encodeURIComponent(id)}`, location.href).href, { replace: true });
     }
     // Draws what changed: an arrival in place (arrive), else the whole page, unless the owner is typing a note.
     function repaint(first) {
@@ -449,32 +446,7 @@ const lastTopic = new Map();
         if (ctx.embedded) openOnBoard(topicId);
       }
     });
-    B.on(root, 'change', (ev) => {
-      const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio') return;
-      const d = getDraft(sec.dataset.q); d.choice = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
-    });
-    // A radio can't be unchecked natively: a pointer or Space press on a checked radio is noted, and its click clears it.
-    let pressed = null;
-    const radioOf = (el) => (el.type === 'radio' ? el : el.closest?.('label.opt')?.querySelector('input[type=radio]'));
-    B.on(root, 'pointerdown', (ev) => { const r = radioOf(ev.target); pressed = r?.checked ? r : null; });
-    B.on(root, 'keydown', (ev) => { if (ev.key === ' ' && ev.target.type === 'radio') pressed = ev.target.checked ? ev.target : null; });
-    B.on(root, 'click', (ev) => {
-      const sec = ev.target.closest('section.q'); if (!sec || ev.target.type !== 'radio' || pressed !== ev.target) return;
-      pressed = null;
-      ev.target.checked = false;
-      const d = getDraft(sec.dataset.q); d.choice = null; setDraft(sec.dataset.q, d); updateBar();
-    });
-    B.on(root, 'input', (ev) => {
-      const sec = ev.target.closest('section.q'); if (!sec || ev.target.tagName !== 'TEXTAREA') return;
-      const d = getDraft(sec.dataset.q); d.note = ev.target.value; setDraft(sec.dataset.q, d); updateBar();
-    });
-    B.on(root, 'keydown', (ev) => {
-      if (ev.target.tagName !== 'TEXTAREA') return;
-      const form = ev.target.closest('#qform');
-      if (!form || !BoardUI.keyedSend(ev, form)) return;
-      ev.preventDefault();
-      form.requestSubmit();
-    });
+    BoardUI.wireAnswerForm(B.on, root, updateBar);
     B.on(root, 'submit', async (ev) => {
       if (ev.target.id !== 'qform') return;
       ev.preventDefault();
@@ -485,12 +457,7 @@ const lastTopic = new Map();
       st.textContent = '';
       const at = leaving();
       // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md: one request, recorded all or none. Send waits meanwhile.
-      const answers = list.map((q) => {
-        const d = getDraft(q.id);
-        const choice = choiceOf(q, d);
-        const files = filesOf(q);
-        return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: noteOf(q, d).trim(), ...(files.length ? { files } : {}) };
-      });
+      const answers = list.map((q) => BoardUI.answerOf(q, filesOf(q)));
       // Send waits until the page has moved on (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
       await BoardUI.waitOn($('#send'), BoardUI.pending.within((async () => {
         let out;

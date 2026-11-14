@@ -558,10 +558,12 @@ test("a board's fragment names the focused card and the selected open-items pill
   const routerContext = vm.createContext({ Date: PageDate, URL });
   vm.runInContext(fs.readFileSync(new URL('./public/router.js', import.meta.url), 'utf8'), routerContext);
   const { fragmentOf, hashWith, viewOf } = routerContext.AppRouter;
-  const base = { review: null, reply: false };
+  const base = { review: null, questions: null, reply: false };
   assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA2')), { selectedCard: 'w/A1', openItemsCard: 'item:w/A2', ...base });
-  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { selectedCard: 'w/A1', openItemsCard: null, review: null, reply: true });
-  assert.deepEqual(plain(fragmentOf('#review=12')), { selectedCard: null, openItemsCard: null, review: 12, reply: false });
+  assert.deepEqual(plain(fragmentOf('#item=w%2FA1&reply')), { selectedCard: 'w/A1', openItemsCard: null, review: null, questions: null, reply: true });
+  assert.deepEqual(plain(fragmentOf('#review=12')), { selectedCard: null, openItemsCard: null, review: 12, questions: null, reply: false });
+  assert.deepEqual(plain(fragmentOf('#selectedCard=w%2FA1&questions=q1')), { selectedCard: 'w/A1', openItemsCard: null, review: null, questions: 'q1', reply: false });
+  assert.equal(hashWith('#selectedCard=w%2FA1&questions=q1', {}), '#selectedCard=w%2FA1', 'a questions key is spent by the next write');
   assert.deepEqual(plain(fragmentOf('')), { selectedCard: null, openItemsCard: null, ...base });
   assert.equal(hashWith('#item=w%2FA1&reply', { openItemsCard: 'q-1' }), '#selectedCard=w%2FA1&openItemsCard=q-1');
   assert.equal(hashWith('#selectedCard=w%2FA1&openItemsCard=q-1', { selectedCard: 'w/B' }), '#selectedCard=w%2FB&openItemsCard=q-1');
@@ -2091,11 +2093,11 @@ test("a request with text, a question's prototype request and an answer are the 
 });
 
 // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md
-test("a Questions added line is orange while its batch has an open question and blue once none has, with a plain question mark, linking to its first", () => {
-  const added = (open) => ({ ts: '2026-11-04T12:00:00Z', who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', fault: false, text: '2 questions added', link: 'questions.html#q1', open });
-  const lead = `<span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q1">2 questions added</a>`;
+test("a Questions added line keeps its words, orange while its batch has an open question and gray (not blue) once none has, with a plain question mark, linking to its first and opening the questions sheet from it", () => {
+  const added = (open) => ({ ts: '2026-11-04T12:00:00Z', who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', fault: false, text: '2 questions added', link: 'questions.html#q1', questions: ['q1', 'q2'], open });
+  const lead = `<span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q1" data-questions="q1">2 questions added</a>`;
   assert.match(ui.threadMessages([added(true)]), new RegExp(`^<div class="msg status-line request hub asking">${lead}`));
-  assert.match(ui.threadMessages([added(false)]), new RegExp(`^<div class="msg status-line request hub created">${lead}`));
+  assert.match(ui.threadMessages([added(false)]), new RegExp(`^<div class="msg status-line request hub">${lead}`));
   assert.ok(!('newQuestionsLine' in ui));
   assert.match(ui.MARK_ICONS.questions, /class="mark-icon big"/);
   assert.doesNotMatch(ui.MARK_ICONS.questions, /<circle/);

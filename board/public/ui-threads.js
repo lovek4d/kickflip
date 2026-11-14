@@ -51,9 +51,9 @@
   };
   // A request or board line's one tone, by the colour rule (red fault > orange staged or asking > green readied > blue
   // created > gray); style.css colours its icon, words and link from this class alone. A questions-added line is asking
-  // while its batch has an open question and created once none has
+  // while its batch has an open question and gray once none has
   // (docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md).
-  const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.line === 'questions-added' ? (m.open ? ' asking' : ' created')
+  const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.line === 'questions-added' ? (m.open ? ' asking' : '')
     : m.command === 'readied' ? ' readied'
     : ['created', 'created-from'].includes(m.command) || ['ticket-made', 'ask-routed', 'handed-from'].includes(m.line) ? ' created' : '');
   // Every status line's shell: its classes, its mark and words (head), then " · " and its time, with `by` before the time
@@ -66,6 +66,9 @@
       : `<details class="msg status-line ${cls}"><summary${summary}>${words}</summary>${rest}</details>`;
   };
   const linked = (link, text) => `<a href="${esc(link)}">${text}</a>`;
+  // A questions-added line's words, as written, open the card's questions sheet (app-questions-sheet.js) from its first
+  // question; the link to the questions page stays under it for a page that has no sheet.
+  const questionsLink = (m) => `<a href="${esc(m.link)}" data-questions="${esc(m.questions[0])}">${escText(m.text)}</a>`;
   // A line naming a card (domain.mjs namedLine): its words, then the card's reference as it stands (ui-links.js cardRef).
   const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}`;
   const line = (m, links) => (m.kind === 'reply'
@@ -81,7 +84,7 @@
     // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
     // own line, its kind's mark and words, red for a fault.
     : m.kind === 'hub' && m.detail ? statusLine(`request hub fault-detail${tone(m)}`, statusMark(m.mark) + escText(m.text), m.ts, { rest: `<pre class="fault-error">${esc(m.detail)}</pre>` })
-    : m.kind === 'hub' ? statusLine(`request hub${tone(m)}`, statusMark(m.mark) + (m.card ? named(m, links) : m.link ? linked(m.link, escText(m.text)) : linkText(m.text, links)), m.ts)
+    : m.kind === 'hub' ? statusLine(`request hub${tone(m)}`, statusMark(m.mark) + (m.card ? named(m, links) : m.line === 'questions-added' && m.link && m.questions?.length ? questionsLink(m) : m.link ? linked(m.link, escText(m.text)) : linkText(m.text, links)), m.ts)
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
     : m.kind === 'move' ? statusLine('request move', statusMark('move') + escText(m.text), m.ts)
     : m.folded ? foldedRun(m, links)

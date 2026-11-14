@@ -218,8 +218,11 @@ window.BoardView = (function () {
     // The pane's pill the fragment names opens once the pane has loaded (app-selection.js replayTopic); a phone has no
     // pane, its pill is the Waiting on you page (shell.js go). pill: false when the caller has just set the pill itself.
     function readHash({ pill = true } = {}) {
-      const { selectedCard, openItemsCard, review, reply } = AppRouter.fragmentOf(location.hash);
+      const { selectedCard, openItemsCard, review, questions, reply } = AppRouter.fragmentOf(location.hash);
       if (review && state.board) { B.openReview(review); return; }
+      // A question link from the phone's questions page (view-questions.js) opens its card's sheet once, then the fragment
+      // is the card alone.
+      if (questions && state.board) { B.openQuestionsSheet(questions); B.saveFragment({}); }
       if (pill) B.replayTopic(openItemsCard);
       if (!selectedCard) return;
       focusKey = BoardUI.record(state.board?.moved, selectedCard) || selectedCard;
@@ -538,6 +541,10 @@ ${BoardNewTask.markup()}
   <div class="reader-head"><h2 id="readerTitle"></h2><span class="reader-ref"></span><span class="reader-tools"></span><button type="button" class="ghost" data-reader="close" aria-label="Close">✕</button></div>
   <div class="reader-body" tabindex="0"></div>
   <button type="button" class="reader-new" data-reader="end" hidden></button>
+</dialog>
+<dialog id="questionsSheet" class="sheet reader-sheet" aria-labelledby="questionsTitle">
+  <div class="reader-head"><h2 id="questionsTitle">questions</h2><span class="reader-ref"></span><button type="button" class="ghost" data-qs="close" aria-label="Close">✕</button></div>
+  <div class="reader-body" tabindex="0"></div>
 </dialog>
 <dialog id="linksSheet" class="sheet" aria-labelledby="linksTitle">
   <div class="sheet-body">

@@ -21,7 +21,7 @@ function boardPatch(from, to, threads = { from: {}, to: {} }) {
 }
 
 const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-banner.js', 'app-snapshot.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-questions-sheet.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 // The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
@@ -4587,8 +4587,10 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'an ingested task joining Todo takes the tint');
 });
 
-function questionsOnDom({ topics, questions, at, next, gate = null, items = [], embedded = false, queue = [] }) {
+function questionsOnDom({ topics, questions, at, next, gate = null, items = [], embedded = false, queue = [], pushed = false, opened = null }) {
   const page = fakePage(memoryStorage().localStorage);
+  // pushed: the entry came from a push tap (router.js); opened collects the hrefs the shell is asked to open.
+  if (opened) page.win.AppShell = { open: (href, opts) => { opened.push([href, opts]); return true; } };
   const { Element } = miniDom(page.Target, page.win.document);
   const base = 'https://mac.ts.net/board-a';
   const server = { questions: structuredClone(questions) };
@@ -4645,7 +4647,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
   Object.assign(page.win, { scrollTo() {}, scrollY: 0, sessionStorage: memoryStorage().localStorage });
   page.win.BoardAttach.paintAll = () => {};
   page.win.location.hash = `#${at}`;
-  page.win.history = { state: { idx: 1, up: 1 }, replaceState: (state, _, url) => { page.win.location.hash = url; } };
+  page.win.history = { state: { idx: 1, up: 1, ...(pushed ? { pushed: true } : {}) }, replaceState: (state, _, url) => { page.win.location.hash = url; } };
   const shell = { root: page.win.document.body.appendChild(new Element('div')), board: null };
   const view = { kind: 'questions', route: 'board-a', id: at };
   const decisions = [];
@@ -4811,6 +4813,23 @@ test("a Send's move on is skipped when you switched topics while it was recorded
   assert.deepEqual([v.shown().pills, v.shown().questions, v.shown().hash],
     [[['item:w/T1', 'false'], ['item:w/T2', 'false'], ['item:w/T3', 'true']], ['q3'], '#q3']);
   assert.equal(v.page.win.document.body.querySelector('.toast')?.textContent, 'Sent 1 answer to INT-1.');
+});
+
+// docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md
+test("on a phone a push tap on an open question of a card opens that card's board with its questions sheet in place of the page, while any other way to the same question shows the page", async () => {
+  const question = (id, topic, extra = {}) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }, { id: 'B', label: 'No' }], answers: [], state: 'open', ...extra });
+  const run = async (opts, id = 'q1', questions = [question('q1', 'item:w/T1'), question('q2', 'plain')]) => {
+    const opened = [];
+    const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'INT-1: Search' }, { id: 'plain', title: 'Plain' }], questions, at: id, opened, ...opts });
+    await v.settle();
+    v.unmount();
+    return opened.map(([href, o]) => [new URL(href).hash, { ...o }]);
+  };
+  assert.deepEqual(await run({ pushed: true }), [['#selectedCard=w%2FT1&questions=q1', { replace: true }]]);
+  assert.deepEqual(await run({}), [], 'a link inside the app shows the page');
+  assert.deepEqual(await run({ pushed: true }, 'q2'), [], 'a question on a topic that is no card shows the page');
+  assert.deepEqual(await run({ pushed: true }, 'item:w/T1'), [], "a topic's link shows the page");
+  assert.deepEqual(await run({ pushed: true }, 'q1', [question('q1', 'item:w/T1', { url: 'prototype-x2.html?q=q1' })]), [], "a prototype's question stays on the page");
 });
 
 test('on a phone, a tap on a pill only picks the topic, the topic title opens its card on the board, and the pill reads the whole title', async () => {
@@ -6190,6 +6209,98 @@ test('a topic picked in the questions pane, by a pill or a questions URL, closes
   await pick('item:w/P1');
   assert.equal(r.root.querySelector('#boardPane .pane-viewer'), null, 'a pill tap closes the prototype viewer');
   r.view.unmount();
+});
+
+// docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md
+// Card A1 asked qa, then qb; card B1 asked qc; the thread's two Questions added lines name qa and qb.
+function sheetOnDom({ width = 390, board = null } = {}) {
+  const added = (ts, ids) => ({ ts, who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', text: `${ids.length} question added`, link: `questions.html#${ids[0]}`, questions: ids, open: true });
+  const base = questionsBoard([openQuestion('qa', 'item:w/A1'), openQuestion('qb', 'item:w/A1'), openQuestion('qc', 'item:w/B1')], []);
+  const b = boardOnDom({ open: ['w/A1'], width, board: board || { ...base, items: [workCard('A1', { lane: 'progress', questions: { topic: 'item:w/A1', first: 'qa', open: 2, state: 'open' } }), workCard('B1')] },
+    threads: { 'w/A1': [added('2026-11-14T09:00:00.000Z', ['qa']), added('2026-11-14T10:00:00.000Z', ['qb'])] } });
+  const moves = [];
+  const { replaceState } = b.page.win.history;
+  b.page.win.history = { state: { idx: 3 }, pushState(state, _, url) { moves.push(['push', state, url]); this.state = state; }, replaceState, back() { moves.push(['back']); } };
+  const sheet = () => b.root.querySelector('#questionsSheet');
+  const line = () => b.root.querySelector('a[data-questions]');
+  const ids = () => sheet().querySelectorAll('section.q').map((s) => s.dataset.q);
+  const pick = (id, option = 'B') => {
+    const input = sheet().querySelector(`section.q[data-q="${id}"] input[value="${option}"]`);
+    input.type = 'radio';
+    b.page.fire(sheet(), 'change', { target: input });
+  };
+  return { ...b, moves, sheet, line, ids, pick };
+}
+
+test("a thread's Questions added line keeps its words, orange while a question of its batch is open and gray once none is, and its tap opens the card's questions sheet instead of the page", async () => {
+  const s = sheetOnDom();
+  await s.settle();
+  assert.equal(s.line().textContent, '1 question added', 'the words stay as posted');
+  assert.equal(s.line().getAttribute('href'), 'questions.html#qa', 'the page link stays under it');
+  assert.equal(s.sheet().open, false);
+  let prevented = false;
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0, preventDefault: () => { prevented = true; } });
+  assert.deepEqual([prevented, s.sheet().open, s.sheet().modal], [true, true, true], 'a phone gets the modal sheet');
+  assert.deepEqual(s.ids(), ['qb', 'qa'], "only card A1's open questions, the newest batch first");
+  assert.equal(s.sheet().querySelectorAll('h3.qs-round').length, 2, 'two batches each get a heading');
+  assert.equal(s.sheet().querySelector('#readerTitle'), null);
+  assert.equal(s.sheet().querySelectorAll('[data-proto]').length, 0, 'the sheet has no prototype eye');
+  assert.deepEqual(s.moves.map(([kind]) => kind), ['push'], 'Back has an entry to close it with');
+  s.view.unmount();
+});
+
+test("the questions sheet's Send sends the answers as Waiting on you does, closes the sheet and leaves the page where it was", async () => {
+  const s = sheetOnDom();
+  await s.settle();
+  s.page.fire(s.root, 'click', { target: s.line(), button: 0 });
+  assert.equal(s.sheet().querySelector('#send').disabled, true, 'nothing picked yet');
+  s.pick('qb');
+  assert.equal(s.sheet().querySelector('#send').disabled, false);
+  s.page.win.scrollY = 700;
+  s.page.fire(s.sheet(), 'submit', { target: s.sheet().querySelector('form') });
+  await s.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(s.sent.map(([kind, data]) => [kind, data.answers]))), [['owner-answers', [{ id: 'qb', question: 'Question qb?', choice: 'B', label: 'B. No', note: '' }]]]);
+  assert.equal(s.sheet().open, false, 'Send hides the sheet');
+  assert.equal(s.page.win.scrollY, 700, 'the page did not move');
+  assert.deepEqual(s.moves.map(([kind]) => kind), ['push', 'back'], 'its history entry is spent');
+  s.view.unmount();
+});
+
+test('a line whose card has no open question outside a prototype opens nothing, and from 900px the sheet is not modal and closes when the pane picks a topic', async () => {
+  const none = sheetOnDom({ board: { ...questionsBoard([openQuestion('qp', 'item:w/A1', { url: 'prototype-x2.html?q=qp' })], []), items: [workCard('A1', { lane: 'progress' })] } });
+  await none.settle();
+  assert.equal(none.view.B.openQuestionsSheet('qp'), false, 'a prototype question is answered from the questions page');
+  none.view.unmount();
+  const wide = sheetOnDom({ width: 1280 });
+  await wide.settle();
+  wide.page.fire(wide.root, 'click', { target: wide.line(), button: 0 });
+  assert.deepEqual([wide.sheet().open, wide.sheet().modal], [true, false]);
+  wide.page.fire(wide.root.querySelector('#boardPane .pane-questions'), 'click', { target: wide.root.querySelector('#boardPane button[data-topic="item:w/B1"]') });
+  await wide.settle();
+  assert.equal(wide.sheet().open, false, "a pane topic's pick closes it");
+  wide.view.unmount();
+});
+
+test("a push tap on a question of a card opens the card with its questions sheet open, and a question the board has no card for only shows the pane's topic", async () => {
+  const s = sheetOnDom({ width: 1280 });
+  await s.settle();
+  assert.equal(s.view.B.focusQuestion('qb', { sheet: true }), true);
+  assert.deepEqual([s.sheet().open, s.ids(), s.page.win.location.hash], [true, ['qb', 'qa'], '#selectedCard=w%2FA1&openItemsCard=item%3Aw%2FA1']);
+  s.view.B.focusQuestion('qc');
+  assert.equal(s.sheet().open, false, 'a pick that asks for no sheet closes it');
+  assert.equal(s.view.B.openQuestionsSheet('nope'), false);
+  s.view.unmount();
+});
+
+test("a questions fragment on the phone's board opens the card's sheet once and leaves only the card in the URL", async () => {
+  const board = (() => { const base = questionsBoard([openQuestion('qa', 'item:w/A1')], []); return { ...base, items: [workCard('A1', { lane: 'progress' })] }; })();
+  const s = sheetOnDom({ board });
+  await s.settle();
+  s.page.win.location.hash = '#selectedCard=w%2FA1&questions=qa';
+  s.page.fire(vm.runInContext('window', s.page.win), 'hashchange');
+  await s.settle();
+  assert.deepEqual([s.sheet().open, s.page.win.location.hash], [true, '#selectedCard=w%2FA1']);
+  s.view.unmount();
 });
 
 // docs/adr/2026-11-07-2030-on-desktop-the-prototype-viewer-opens-in-the-right-pane.md

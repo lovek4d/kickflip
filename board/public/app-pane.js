@@ -22,8 +22,8 @@ BoardView.part((B) => {
   function openOnBoard(id) {
     if (id.startsWith('item:')) B.select({ card: id.slice(5) }, { pane: false });
   }
-  // What can cover the pane: each closes itself. A new overlay over the pane (the thread's questions modal) joins this list.
-  const paneOverlays = [() => B.closeReader?.(), () => closeViewer()];
+  // What can cover the pane: each closes itself.
+  const paneOverlays = [() => B.closeReader?.(), () => B.closeQuestionsSheet?.(), () => closeViewer()];
   // The pane shows its topic: a pill tap or a questions URL (focusQuestion) both land here.
   function showTopic(id) {
     for (const close of paneOverlays) close();
@@ -42,8 +42,12 @@ BoardView.part((B) => {
   // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question
   // or topic id, or null for none. The selection sets the topic in the pane and its card on the board (app-selection.js)
   // → false while there is no pane or it hasn't loaded, so the shell asks again.
-  function focusQuestion(id) {
-    return B.select({ question: id });
+  // sheet: a question link or a push (shell.js) also opens the questions sheet on a question of a card, in place of the
+  // questions page (docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md).
+  function focusQuestion(id, { sheet = false } = {}) {
+    const shown = B.select({ question: id });
+    if (shown && sheet) B.openQuestionsSheet(id);
+    return shown;
   }
   // The pane opens the topic id, resolved or not, and focuses its pill → false while there is no pane or it hasn't loaded.
   function openPaneTopic(id) {

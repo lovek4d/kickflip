@@ -24,14 +24,66 @@
   // prototype viewer's Choose this (prototype-switcher.js) write it.
   const getDraft = (id) => { try { return JSON.parse(localStorage.getItem('qdraft:' + id) || '{}'); } catch { return {}; } };
   const setDraft = (id, v) => { try { localStorage.setItem('qdraft:' + id, JSON.stringify(v)); } catch {} };
+  // docs/adr/2026-11-15-0030-a-threads-questions-open-in-a-sheet-from-their-line.md
+  // The open questions among qs the owner has changed since their last answer, with files attached, reopened with a pick,
+  // or with a suggested option pre-checked and never answered: the ones a Send sends. A sent one is read-only.
+  function pendingAnswers(qs, filesOf) {
+    return qs.filter((q) => q.state === 'open').filter((q) => {
+      const d = getDraft(q.id);
+      if (filesOf(q).length) return true;
+      const last = q.answers[q.answers.length - 1];
+      // A cleared pick sends only with a note.
+      if ('choice' in d && d.choice === null) return Boolean(d.note);
+      if (!last && q.suggested) return true;
+      if (q.reopened && choiceOf(q, d) !== null) return true;
+      if (!('choice' in d) && !d.note) return false;
+      return !last || (d.choice ?? last.choice) !== last.choice || (d.note || '') !== (last.note || '');
+    });
+  }
+  // A question's answer as an owner-answers event sends it.
+  function answerOf(q, files) {
+    const choice = choiceOf(q, getDraft(q.id));
+    return { id: q.id, question: q.question, choice, label: choiceLabel(q, choice), note: noteOf(q, getDraft(q.id)).trim(), ...(files.length ? { files } : {}) };
+  }
+  // The handlers that write a question's draft as the owner picks and types in root's forms, shared by Waiting on you and
+  // the thread's questions sheet (on is a view's B.on); changed runs after each write. A radio can't be unchecked natively:
+  // a pointer or Space press on a checked radio is noted, and its click clears it.
+  function wireAnswerForm(on, root, changed) {
+    const draftOf = (el) => { const sec = el.closest('section.q'); return sec && { id: sec.dataset.q, d: getDraft(sec.dataset.q) }; };
+    let pressed = null;
+    const radioOf = (el) => (el.type === 'radio' ? el : el.closest?.('label.opt')?.querySelector('input[type=radio]'));
+    on(root, 'change', (ev) => {
+      const at = ev.target.type === 'radio' && draftOf(ev.target); if (!at) return;
+      at.d.choice = ev.target.value; setDraft(at.id, at.d); changed();
+    });
+    on(root, 'pointerdown', (ev) => { const r = radioOf(ev.target); pressed = r?.checked ? r : null; });
+    on(root, 'keydown', (ev) => { if (ev.key === ' ' && ev.target.type === 'radio') pressed = ev.target.checked ? ev.target : null; });
+    on(root, 'click', (ev) => {
+      const at = ev.target.type === 'radio' && pressed === ev.target && draftOf(ev.target); if (!at) return;
+      pressed = null;
+      ev.target.checked = false;
+      at.d.choice = null; setDraft(at.id, at.d); changed();
+    });
+    on(root, 'input', (ev) => {
+      const at = ev.target.tagName === 'TEXTAREA' && draftOf(ev.target); if (!at) return;
+      at.d.note = ev.target.value; setDraft(at.id, at.d); changed();
+    });
+    on(root, 'keydown', (ev) => {
+      if (ev.target.tagName !== 'TEXTAREA') return;
+      const form = ev.target.closest('form');
+      if (!form || !globalThis.BoardUI.keyedSend(ev, form)) return;
+      ev.preventDefault();
+      form.requestSubmit();
+    });
+  }
   const suggestedLine = (q, o, links) => q.suggested?.option === o.id ? linkText(q.suggested.reason ?? `you answered this on ${q.suggested.card}: "${q.suggested.answer}"`, links) : '';
 
   const SPIN = '<span class="try-spin" aria-hidden="true"></span>';
   // A question's eye sends `prototype-request {key?, question, note, choice}` for that question alone, which then reads
   // requested until its prototype round arrives (view-questions.js).
   const questionEye = (q) => protoButton('q:' + q.id, { label: 'Ask for a prototype instead' });
-  const noteComposer = (q, note) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`)}
-      <div class="note-tools">${questionEye(q)}<div class="pending-files" data-files></div></div></div>`;
+  const noteComposer = (q, note, eye) => `<div class="composer" data-composer="${esc('q:' + q.id)}">${dropZone(`<textarea class="note" rows="2" placeholder="Note (optional)">${esc(note || '')}</textarea>`)}
+      <div class="note-tools">${eye ? questionEye(q) : ''}<div class="pending-files" data-files></div></div></div>`;
 
   const QUESTION_STATE = {
     open: { label: 'open', tone: 'normal' },
@@ -118,7 +170,8 @@
   // A question waiting on the prototype the owner asked for is locked at the pick and note the request sent until its
   // round arrives (docs/adr/2026-11-04-2130-a-prototype-request-waits-for-its-prototype.md).
   // A requested question takes the accent tint, as a sent one takes the green.
-  function questionCard(q, { n = 0, draft = {}, links = {} } = {}) {
+  // eye: false leaves out the note's prototype eye, which only Waiting on you answers (the questions sheet has none).
+  function questionCard(q, { n = 0, draft = {}, links = {}, eye = true } = {}) {
     if (isSent(q)) return resolvedCard(q, links, n);
     const locked = q.state === 'requested';
     const chosen = locked ? q.request.choice : choiceOf(q, draft);
@@ -129,7 +182,7 @@
       ${questionLink(q.confirm_of && isPrototype(q.url) ? withParam(q.url, 'variant', q.options[0].id) : q.url)}
       ${confirmLine(q)}
       ${drawn(q) ? takes(q, chosen, links, locked) : q.options.map((o) => option(o, { name: 'c-' + q.id, checked: chosen === o.id, locked, suggested: suggestedLine(q, o, links), links })).join('')}
-      ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, noteOf(q, draft))}
+      ${locked ? (q.request.note ? `<div class="ans"><div class="muted small">You · ${esc(time(q.request.ts))}</div><div>${linkText(q.request.note, links)}</div></div>` : '') : noteComposer(q, noteOf(q, draft), eye)}
       ${answerHistory(q, links)}
     </section>`;
   }
@@ -213,5 +266,5 @@
     return `<div class="ps-sheet" role="dialog" aria-label="Rounds"><h3>Rounds on ${esc(ref)}</h3>${rows.join('')}</div>`;
   }
 
-  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, option, answerHistory, questionCard, roundChip, roundPill, roundSheet, topicName, cardTopics, topicRow, queueRows, tapRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, pendingAnswers, answerOf, wireAnswerForm, option, answerHistory, questionCard, roundChip, roundPill, roundSheet, topicName, cardTopics, topicRow, queueRows, tapRow, nextQuestion, sentNotice });
 })();

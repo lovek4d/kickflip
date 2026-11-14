@@ -251,7 +251,8 @@ window.AppShell = (function () {
     const inPane = (view) => wide.matches && (view?.kind === 'questions' || AppRouter.isPrototype(view, boards()));
     // ask(B) → true once the board's pane did what the view asks. A board just shown takes a moment to fill its pane, so
     // the pane is asked again until it has.
-    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openViewer?.(href));
+    // A push tap (from=push) on a question of a card also opens its questions sheet (app-questions-sheet.js).
+    const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id, { sheet: AppRouter.entryOf(href).pushed }) : (B) => B.openViewer?.(href));
     // A newer ask drops the retries of an older one, so a late retry never sets an earlier pick over the later one.
     let asked = 0;
     function askPane(ask, tries = 50, mine = ++asked) {
