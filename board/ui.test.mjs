@@ -2050,10 +2050,10 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   const requests = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'grill-more', request: true, text: 'Grill requested', eventId: 'g1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'Prototype requested', eventId: 'p1', state: 'waiting', files: [] },
-    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging', by: 'Dana Reyes' },
+    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging', tone: 'orange', by: 'Dana Reyes' },
   ]);
   assert.match(requests, new RegExp(`^<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+ · <span>waiting…</span></span></div><div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
-  assert.ok(requests.includes(`<div class="msg status-line request staged"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">· Dana Reyes · `));
+  assert.ok(requests.includes(`<div class="msg status-line request tone-orange"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">· Dana Reyes · `));
   // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md: a reopened question's line
   // varies with its number, so it names its mark.
   const reopened = ui.threadMessages([{ ts: ago(0.2), who: 'love', kind: 'question-reopen', request: true, mark: 'question reopened', text: 'Question 2 was reopened' }]);
@@ -2094,9 +2094,9 @@ test("a request with text, a question's prototype request and an answer are the 
 
 // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md
 test("a Questions added line keeps its words, orange while its batch has an open question and gray (not blue) once none has, with a plain question mark, linking to its first and opening the questions sheet from it", () => {
-  const added = (open) => ({ ts: '2026-11-04T12:00:00Z', who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', fault: false, text: '2 questions added', link: 'questions.html#q1', questions: ['q1', 'q2'], open });
+  const added = (open) => ({ ts: '2026-11-04T12:00:00Z', who: 'claude', kind: 'hub', line: 'questions-added', mark: 'questions', fault: false, ...(open ? { tone: 'orange' } : {}), text: '2 questions added', link: 'questions.html#q1', questions: ['q1', 'q2'], open });
   const lead = `<span class="mark" aria-hidden="true">${ui.MARK_ICONS.questions}</span><a href="questions.html#q1" data-questions="q1">2 questions added</a>`;
-  assert.match(ui.threadMessages([added(true)]), new RegExp(`^<div class="msg status-line request hub asking">${lead}`));
+  assert.match(ui.threadMessages([added(true)]), new RegExp(`^<div class="msg status-line request hub tone-orange">${lead}`));
   assert.match(ui.threadMessages([added(false)]), new RegExp(`^<div class="msg status-line request hub">${lead}`));
   assert.ok(!('newQuestionsLine' in ui));
   assert.match(ui.MARK_ICONS.questions, /class="mark-icon big"/);
@@ -2239,10 +2239,10 @@ test("an ask's link line opens the work it became, and a thread line opens a lin
   assert.match(moved, /<a href="\/audit\/#selectedCard=ask%3Ab1">Open the task →<\/a>/);
   // A handed ask's source is its thread's Handed from line (blue, as created), so its message carries only the note.
   const arrived = ui.threadMessages([
-    { ts: ago(2), who: 'claude', kind: 'hub', line: 'handed-from', mark: 'ask-link', text: 'Handed from /orch · A1', link: '/orch/#selectedCard=w%2FA1' },
+    { ts: ago(2), who: 'claude', kind: 'hub', line: 'handed-from', mark: 'ask-link', tone: 'blue', text: 'Handed from /orch · A1', link: '/orch/#selectedCard=w%2FA1' },
     { ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Fix the header', note: 'Yours now', from: { words: '/orch · A1', link: '/orch/#selectedCard=w%2FA1' }, eventId: 'b1', reply: null, state: 'waiting' },
   ]);
-  assert.match(arrived, /class="msg status-line request hub created"><span[^]*<a href="\/orch\/#selectedCard=w%2FA1">Handed from \/orch · A1<\/a>/);
+  assert.match(arrived, /class="msg status-line request hub tone-blue"><span[^]*<a href="\/orch\/#selectedCard=w%2FA1">Handed from \/orch · A1<\/a>/);
   assert.match(arrived, /<blockquote class="quote">Yours now<\/blockquote>/);
   assert.doesNotMatch(text(arrived), /Moved from/);
 });
@@ -2792,14 +2792,14 @@ test("a Todo thread message's footer leads with an icon for Implement, a Reply's
   const html = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'hello', eventId: 'm1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'go', status: 'Implement', eventId: 'm2', state: 'waiting', files: [] },
-    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging' },
+    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging', tone: 'orange' },
   ]);
   assert.equal(html.split('class="foot-status"').length - 1, 1);
   assert.match(ui.MARK_ICONS.Implement, /^<svg class="mark-icon"/);
   assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implement</span>`));
   assert.equal(ui.MARK_ICONS['Marked as staging'], ui.MARK_ICONS.Implement);
   assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS['Marked as staging']);
-  assert.ok(html.includes(`<div class="msg status-line request staged"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Marked as staging`));
+  assert.ok(html.includes(`<div class="msg status-line request tone-orange"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Marked as staging`));
 });
 
 test('a ↗ in a card title, a card details line, a thread line and a question draws as the arrow icon, never the character', () => {
@@ -2829,24 +2829,24 @@ test("a bare visual request is a request line led by the image mark, and the age
 
 // docs/adr/2026-11-08-0900-ready-and-staging-moves-are-bare-status-lines.md
 test('a "Marked as staging" line is a bare orange status line and a "Marked as ready" line is the same in green', () => {
-  const line = (command, text) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: text, text });
-  const html = ui.threadMessages([line('staged', 'Marked as staging'), line('readied', 'Marked as ready')]);
-  assert.deepEqual([...html.matchAll(/<div class="msg status-line ([^"]*)">/g)].map((m) => m[1]), ['request staged', 'request readied'], 'bare status lines, each in its own tone');
+  const line = (command, text, tone) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: text, text, tone });
+  const html = ui.threadMessages([line('staged', 'Marked as staging', 'orange'), line('readied', 'Marked as ready', 'green')]);
+  assert.deepEqual([...html.matchAll(/<div class="msg status-line ([^"]*)">/g)].map((m) => m[1]), ['request tone-orange', 'request tone-green'], 'bare status lines, each in its own tone');
   for (const words of ['Marked as staging', 'Marked as ready']) assert.ok(html.includes(ui.MARK_ICONS[words]), words);
   assert.doesNotMatch(html, /class="who"/);
 });
 
 // Every Created line is blue (--accent); Related to and Unrelated from stay gray.
 test('a Created ticket, a Created from and a ticket-made line are blue; a Related to line is gray', () => {
-  const link = (command, words) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: words, text: `${words} #12: Tidy`, link: '#selectedCard=w%2FA2', card: 'w/A2' });
+  const link = (command, words) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark: words, text: `${words} #12: Tidy`, link: '#selectedCard=w%2FA2', card: 'w/A2', tone: command === 'related' ? 'grey' : 'blue' });
   const html = ui.threadMessages([link('created', 'Created ticket'), link('created-from', 'Created from'), link('related', 'Related to')]);
-  assert.equal(html.match(/msg status-line request created/g).length, 2);
+  assert.equal(html.match(/msg status-line request tone-blue/g).length, 2);
   assert.equal(html.match(/<div class="msg status-line request">/g).length, 1);
-  const made = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', text: 'Created ticket #5', fault: false }]);
-  assert.match(made, /class="msg status-line request hub created"/);
+  const made = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', text: 'Created ticket #5', fault: false, tone: 'blue' }]);
+  assert.match(made, /class="msg status-line request hub tone-blue"/);
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: the router's line is info the owner reads.
-  const routed = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ask-routed', mark: 'ask-link', text: 'Routed here from Slack: the shop', link: 'https://slack.com/x', fault: false }]);
-  assert.match(routed, /class="msg status-line request hub created"><span class="mark" aria-hidden="true"><svg[^]*<a href="https:\/\/slack.com\/x">Routed here from Slack: the shop<\/a>/);
+  const routed = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'ask-routed', mark: 'ask-link', text: 'Routed here from Slack: the shop', link: 'https://slack.com/x', fault: false, tone: 'blue' }]);
+  assert.match(routed, /class="msg status-line request hub tone-blue"><span class="mark" aria-hidden="true"><svg[^]*<a href="https:\/\/slack.com\/x">Routed here from Slack: the shop<\/a>/);
 });
 
 // docs/adr/2026-11-12-2000-a-status-line-has-one-tone-for-its-icon-words-and-link.md
@@ -2854,13 +2854,13 @@ test('a status line draws icon, words and link in one tone; Created gets its own
   assert.equal(ui.MARK_ICONS['Created ticket'], ui.MARK_ICONS['Created from']);
   assert.notEqual(ui.MARK_ICONS['Created ticket'], ui.MARK_ICONS['Related to']);
   assert.match(ui.MARK_ICONS['Created ticket'], /<rect x="3" y="3" width="18" height="18" rx="2"\/>/);
-  const card = (command, mark) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark, text: `${mark} #12: Tidy`, link: '#selectedCard=w%2FA2', card: 'w/A2' });
+  const card = (command, mark, tone) => ({ ts: ago(1), who: 'claude', kind: 'command', command, request: true, mark, text: `${mark} #12: Tidy`, link: '#selectedCard=w%2FA2', card: 'w/A2', tone });
   const tone = (html) => html.match(/class="msg status-line ([^"]*)"/)[1];
-  assert.equal(tone(ui.threadMessages([card('created', 'Created ticket')])), 'request created');
-  assert.equal(tone(ui.threadMessages([card('related', 'Related to')])), 'request');
+  assert.equal(tone(ui.threadMessages([card('created', 'Created ticket', 'blue')])), 'request tone-blue');
+  assert.equal(tone(ui.threadMessages([card('related', 'Related to', 'grey')])), 'request');
   const hub = (extra) => ({ ts: ago(1), who: 'claude', kind: 'hub', text: 'x', mark: 'Fault', ...extra });
-  assert.equal(tone(ui.threadMessages([hub({ fault: true, link: '#a' })])), 'request hub fault');
-  assert.equal(tone(ui.threadMessages([hub({ line: 'ticket-made', mark: 'Created ticket' })])), 'request hub created');
+  assert.equal(tone(ui.threadMessages([hub({ tone: 'red', link: '#a' })])), 'request hub tone-red');
+  assert.equal(tone(ui.threadMessages([hub({ line: 'ticket-made', mark: 'Created ticket', tone: 'blue' })])), 'request hub tone-blue');
   assert.ok(ui.threadMessages([hub({ line: 'ticket-made', mark: 'Created ticket' })]).includes(ui.MARK_ICONS['Created ticket']));
 });
 
@@ -2902,14 +2902,14 @@ test("one helper draws every card reference: its current ref, linked to the card
   // Every line naming a card draws it with the helper, at the ref the card has now, whatever the line's stored text read.
   const named = [
     { ts: ago(3), who: 'claude', kind: 'command', command: 'created-from', request: true, mark: 'Created from', words: 'Created from', text: 'Created from hub/T-1', card: 'hub/T-1', link: '#selectedCard=hub%2FT-1' },
-    { ts: ago(2), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', words: 'Created ticket', text: 'Created ticket #5', card: 'hub/T-2', link: '#selectedCard=hub%2FT-2', fault: false },
+    { ts: ago(2), who: 'claude', kind: 'hub', line: 'ticket-made', mark: 'Created ticket', tone: 'blue', words: 'Created ticket', text: 'Created ticket #5', card: 'hub/T-2', link: '#selectedCard=hub%2FT-2', fault: false },
     { ts: ago(1), who: 'claude', kind: 'ask-link', words: 'Became', text: 'Became T-2', card: 'hub/T-2', link: '#selectedCard=hub%2FT-2' },
   ];
   const html = ui.threadMessages(named, links);
   assert.ok(html.includes(`Created from ${ui.cardRef('hub/T-1', links)}`));
   assert.ok(html.includes(`Created ticket ${ui.cardRef('hub/T-2', links)}`));
   assert.ok(html.includes(`Became ${ui.cardRef('hub/T-2', links)}`));
-  assert.match(html, /class="msg status-line request hub created"/);
+  assert.match(html, /class="msg status-line request hub tone-blue"/);
   assert.doesNotMatch(text(html), /hub\/T-\d|#5\b/);
   // A ref in the words of the board's own line links through it too.
   const blocked = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'build-paused', mark: 'Held', text: 'Paused: blocked by #620', fault: false }], links);
@@ -2934,11 +2934,11 @@ test("a run's section reads finished or running by its newest line, so a finishe
 // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md
 test("the board's line is a status line with its mark, never an Orchestrator message, and only a fault is red and unread", () => {
   const quiet = { ts: ago(1), who: 'claude', kind: 'hub', line: 'host-busy', mark: 'Held', fault: false, text: 'Host is busy, work will resume when the host recovers' };
-  const fault = { ts: ago(1), who: 'claude', kind: 'hub', line: 'relaunch-failed', mark: 'Fault', fault: true, text: "Couldn't relaunch the builder headless: spawn ENOENT" };
+  const fault = { ts: ago(1), who: 'claude', kind: 'hub', line: 'relaunch-failed', mark: 'Fault', fault: true, tone: 'red', text: "Couldn't relaunch the builder headless: spawn ENOENT" };
   const html = ui.threadMessages([quiet]);
   assert.match(html, /<div class="msg status-line request hub"><span class="mark" aria-hidden="true"><svg class="mark-icon/);
   assert.doesNotMatch(html, /Orchestrator/);
-  assert.match(ui.threadMessages([fault]), /<div class="msg status-line request hub fault">/);
+  assert.match(ui.threadMessages([fault]), /<div class="msg status-line request hub tone-red">/);
   assert.match(ui.MARK_ICONS.Blocked, /circle/);
   assert.match(ui.MARK_ICONS.Fault, /mark-icon/);
   // The window opens from the oldest unread line: a fault reaches past the last three messages, a quiet line doesn't.
@@ -2997,8 +2997,8 @@ test('a task wears a Task badge where a ticket would be, and a ticketed card its
 
 test('a fault line with an error draws as a closed section: its title shows, the whole error sits in a monospace block, escaped', () => {
   const why = 'Warning: client version "1.104.5" != tailscaled server version "1.96.2"\nCouldn\'t open try port 8504 <denied>';
-  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'run-failed', mark: 'Fault', fault: true, text: 'Serve failed (exit 1)', detail: why }]);
-  assert.match(html, /<details class="msg status-line request hub fault-detail fault"><summary>.*Serve failed \(exit 1\).*<\/summary><pre class="fault-error">/s);
+  const html = ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'run-failed', mark: 'Fault', fault: true, tone: 'red', text: 'Serve failed (exit 1)', detail: why }]);
+  assert.match(html, /<details class="msg status-line request hub fault-detail tone-red"><summary>.*Serve failed \(exit 1\).*<\/summary><pre class="fault-error">/s);
   assert.ok(html.includes('&lt;denied&gt;') && html.includes('client version &quot;1.104.5&quot;'));
   assert.doesNotMatch(html, /<details[^>]* open/);
   assert.doesNotMatch(ui.threadMessages([{ ts: ago(1), who: 'claude', kind: 'hub', line: 'exited-twice', mark: 'Fault', fault: true, text: 'x' }]), /<details/);

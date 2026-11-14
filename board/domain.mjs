@@ -934,6 +934,12 @@ export const COMMANDS = {
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
   created: 'Created ticket', 'created-from': 'Created from', 'blocked-by': 'Blocked by', unblocks: 'Unblocks',
 };
+// Each tap command's tone (hub-lines.mjs TONES): a request for a planner is blue like a planner's own lines.
+export const COMMAND_TONES = {
+  prototype: 'blue', grill: 'blue', visual: 'blue', reask: 'blue', hold: 'grey', resume: 'orange', done: 'green', reopened: 'grey',
+  discussing: 'grey', staged: 'orange', readied: 'green', related: 'grey', unrelated: 'grey', followup: 'grey', 'followup-of': 'grey',
+  created: 'blue', 'created-from': 'blue', 'blocked-by': 'grey', unblocks: 'grey',
+};
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'reask-request': 'reask' };
 export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };
 const REQUESTS = ['grill-more', 'prototype-request', 'visual-request'];
@@ -996,7 +1002,7 @@ const naming = (m, words, key, cards) => ({ ...m, card: key, words, text: `${wor
 const namedLine = (m, key, cards) => (m.card ? naming(m, COMMANDS[m.command], m.card, cards)
   : m.kind === HUB && m.line === 'ticket-made' ? naming(m, hubLineOf(m).mark, key, cards) : m);
 // A thread line a button wrote: its words can vary (Held until a time), so it names its mark.
-const commandLine = (command) => ({ kind: 'command', command, request: true, mark: COMMANDS[command] });
+const commandLine = (command) => ({ kind: 'command', command, request: true, mark: COMMANDS[command], tone: COMMAND_TONES[command] });
 const requestOf = (e, asked) => {
   if (e.kind === 'item-message') return INTENT_LABELS[e.data.intent] ? { status: intentLabel(e) } : {};
   const command = { request: true, command: REQUEST_COMMANDS[e.kind] };
@@ -1091,7 +1097,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
+    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen), ...(m.questions.some(isOpen) ? { tone: 'orange' } : {}) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}), ...(m.script ? { script: scriptView(m.script) } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.

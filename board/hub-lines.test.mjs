@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HUB_LINES, BRIEF_LINE_LIMIT, MESSAGE_LIMIT, hubText, detailOf, fit, lineFault } from './hub-lines.mjs';
+import { HUB_LINES, TONES, hubLineOf, BRIEF_LINE_LIMIT, MESSAGE_LIMIT, hubText, detailOf, fit, lineFault } from './hub-lines.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 
 // Every input a kind doesn't bound in its longest is as long as an error, a path or a title can be. unbounded, when
@@ -79,4 +79,22 @@ test('a fault line with an error keeps the whole error as its detail, up to MESS
   assert.equal(long.length, MESSAGE_LIMIT);
   assert.ok(long.startsWith('…') && long.endsWith('END'));
   for (const [name, kind] of Object.entries(HUB_LINES)) if (kind.fault && kind.detail) assert.ok(kind.detail(longestInputs(kind)), name);
+});
+
+// docs/adr/2026-11-15-0010-every-thread-status-line-takes-its-colour-from-one-tone-map.md
+test('every status line kind has a tone: a fault is red from its fault flag, every other kind names one of the five others, so a new kind fails until it has a colour', () => {
+  for (const [name, kind] of Object.entries(HUB_LINES)) {
+    if (kind.fault) assert.equal(kind.tone, undefined, `${name} is red from its fault flag`);
+    else assert.ok(TONES.includes(kind.tone) && kind.tone !== 'red', `${name} has no tone`);
+    assert.equal(hubLineOf({ line: name }).tone, kind.fault ? 'red' : kind.tone, name);
+  }
+  assert.deepEqual(Object.fromEntries(['merged', 'ci-passed', 'pulled', 'new-question', 'paused', 'merge-blocked', 'host-busy', 'prs-closed', 'build-refused', 'notes-shared'].map((k) => [k, hubLineOf({ line: k }).tone])),
+    { merged: 'purple', 'ci-passed': 'green', pulled: 'orange', 'new-question': 'blue', paused: 'grey', 'merge-blocked': 'grey', 'host-busy': 'grey', 'prs-closed': 'grey', 'build-refused': 'red', 'notes-shared': 'red' });
+  assert.equal(hubLineOf({ line: 'gone-kind' }).tone, undefined);
+});
+
+test('style.css colours every tone a status line can take, merged purple from the shared colour constant', () => {
+  const css = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'public', 'style.css'), 'utf8');
+  for (const tone of TONES.filter((t) => t !== 'grey')) assert.match(css, new RegExp(`\\.msg\\.request\\.tone-${tone}\\s*\\{[^}]*color:`), tone);
+  assert.match(css, /\.msg\.request\.tone-purple\s*\{[^}]*var\(--color-merged\)/);
 });

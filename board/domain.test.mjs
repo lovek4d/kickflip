@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, COMMAND_TONES, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -3096,4 +3096,17 @@ test("a New card's ask carries the send id the page gave it, so the page's sendi
   const b = askBoard([askAt('a1', '2026-10-23T09:00:00Z', { data: { text: 'Fix the header', sendId: 's1' } }), askAt('a2', '2026-10-23T09:05:00Z', { data: { text: 'From Slack' } })],
     { items: [{ id: 'T-1', title: 'Fix the header', from_ask: 'a1' }, { id: 'T-2', title: 'From Slack', from_ask: 'a2' }] });
   assert.deepEqual(['w/T-1', 'w/T-2'].map((key) => b.items.find((i) => i.key === key).ask.sendId), ['s1', undefined]);
+});
+
+test('every tap command has a tone, and a thread line carries its kind\'s tone; a questions-added line is orange while a question is open', () => {
+  assert.deepEqual(Object.keys(COMMAND_TONES), Object.keys(COMMANDS));
+  assert.ok(Object.values(COMMAND_TONES).every((t) => ['orange', 'blue', 'green', 'grey'].includes(t)));
+  const at = (n) => `2026-11-06T10:0${n}:00Z`;
+  const lines = Object.keys(COMMANDS).map((command, n) => ({ ts: at(n), who: 'claude', text: COMMANDS[command], command }));
+  const tones = Object.fromEntries(threadOf('w/A1', { lines }).map((m) => [m.command, m.tone]));
+  assert.deepEqual(tones, COMMAND_TONES);
+  assert.equal(COMMAND_TONES.staged, 'orange');
+  assert.equal(COMMAND_TONES.prototype, 'blue');
+  assert.equal(COMMAND_TONES.readied, 'green');
+  assert.equal(COMMAND_TONES.hold, 'grey');
 });

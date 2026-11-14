@@ -49,13 +49,9 @@
     out.sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i || a.part - b.part);
     return out.map(({ m, of, quoted, later }, n) => (of ? { ...m, quote: later || out[n - 1]?.m === of && !(of.answers?.length > 1) ? '' : quoted || '' } : m));
   };
-  // A request or board line's one tone, by the colour rule (red fault > orange staged or asking > green readied > blue
-  // created > gray); style.css colours its icon, words and link from this class alone. A questions-added line is asking
-  // while its batch has an open question and gray once none has
-  // (docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md).
-  const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.line === 'questions-added' ? (m.open ? ' asking' : '')
-    : m.command === 'readied' ? ' readied'
-    : ['created', 'created-from'].includes(m.command) || ['ticket-made', 'ask-routed', 'handed-from'].includes(m.line) ? ' created' : '');
+  // A request or board line's one tone, from its kind or command (hub-lines.mjs HUB_LINES, domain.mjs COMMAND_TONES); style.css
+  // colours its icon, words and link from this class alone. Grey and a kind with no tone take the line's own colour.
+  const tone = (m) => (m.tone && m.tone !== 'grey' ? ` tone-${m.tone}` : '');
   // Every status line's shell: its classes, its mark and words (head), then " · " and its time, with `by` before the time
   // and `after` behind it, so no kind can leave its time out
   // (docs/adr/2026-11-13-1959-every-status-line-shows-its-time-from-one-shell.md). A line with `rest` is a closed details

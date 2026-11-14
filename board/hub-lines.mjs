@@ -37,67 +37,73 @@ const BUILD = 'Implementation requested', PROTOTYPE = 'Prototype requested', DON
 // The longest of a few inputs several kinds take: a planner kind, a PR in another repo and a time.
 const KIND = 'prototype', PR = 'owner/a-long-repo-name#10000', AT = 'Wed, 11/30, 12:00 PM';
 
+// A line's tone, by the colour rule (AGENTS.md): red a fault, orange build work, blue for the owner to read or a planner,
+// green done, purple merged, grey idle, held or a relation. A fault kind has no tone of its own: its fault flag is red,
+// and red outranks every other. The thread draws the line's icon, words and link in it (ui-threads.js tone).
+// docs/adr/2026-11-15-0010-every-thread-status-line-takes-its-colour-from-one-tone-map.md
+export const TONES = ['red', 'orange', 'blue', 'green', 'purple', 'grey'];
+
 export const HUB_LINES = {
   // Holds and waits.
-  'host-busy': { mark: HELD, text: () => 'Host is busy, work will resume when the host recovers' },
-  'planner-held': { mark: HELD, text: ({ kind }) => `The ${kind} waits and starts when the hold lifts.`, longest: { kind: KIND } },
-  paused: { mark: HELD, text: ({ phase, words, clear }) => fit(`Paused${phase ? ` at ${phase}` : ''}: `, words, `. It resumes once ${clear}.`), longest: { phase: 'building', clear: 'the usage pause lifts' } },
-  'run-stopped': { mark: HELD, text: ({ words }) => words, longest: { words: 'build stopped by orchestrator' } },
-  'land-moved-first': { mark: MOVE, text: ({ words }) => words, longest: { words: 'land moved first by orchestrator' } },
-  'builder-stopped': { mark: HELD, text: () => 'Stopped its builder.' },
-  'land-waiting': { mark: HELD, text: ({ card }) => fit('Waiting for ', card, ' to land') },
+  'host-busy': { tone: 'grey', mark: HELD, text: () => 'Host is busy, work will resume when the host recovers' },
+  'planner-held': { tone: 'grey', mark: HELD, text: ({ kind }) => `The ${kind} waits and starts when the hold lifts.`, longest: { kind: KIND } },
+  paused: { tone: 'grey', mark: HELD, text: ({ phase, words, clear }) => fit(`Paused${phase ? ` at ${phase}` : ''}: `, words, `. It resumes once ${clear}.`), longest: { phase: 'building', clear: 'the usage pause lifts' } },
+  'run-stopped': { tone: 'grey', mark: HELD, text: ({ words }) => words, longest: { words: 'build stopped by orchestrator' } },
+  'land-moved-first': { tone: 'orange', mark: MOVE, text: ({ words }) => words, longest: { words: 'land moved first by orchestrator' } },
+  'builder-stopped': { tone: 'grey', mark: HELD, text: () => 'Stopped its builder.' },
+  'land-waiting': { tone: 'orange', mark: HELD, text: ({ card }) => fit('Waiting for ', card, ' to land') },
   // Resumes and unblocks.
-  resumed: { mark: RESUMED, text: ({ clear }) => `Resumed: ${clear}.`, longest: { clear: 'the usage pause lifted' } },
-  'ready-expired': { mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },
-  'hold-ended': { mark: RESUMED, text: ({ at }) => `Resumed: its hold until ${at} ended.`, longest: { at: AT } },
-  unblocked: { mark: RESUMED, text: ({ lifted }) => fit('Unblocked: ', lifted, '.') },
-  'unblocked-done': { mark: RESUMED, text: ({ card }) => fit('Unblocked: ', card, ' is done.') },
+  resumed: { tone: 'orange', mark: RESUMED, text: ({ clear }) => `Resumed: ${clear}.`, longest: { clear: 'the usage pause lifted' } },
+  'ready-expired': { tone: 'grey', mark: MOVE, text: () => 'Ready expired after a day unpulled: re-checking against what landed since' },
+  'hold-ended': { tone: 'orange', mark: RESUMED, text: ({ at }) => `Resumed: its hold until ${at} ended.`, longest: { at: AT } },
+  unblocked: { tone: 'orange', mark: RESUMED, text: ({ lifted }) => fit('Unblocked: ', lifted, '.') },
+  'unblocked-done': { tone: 'orange', mark: RESUMED, text: ({ card }) => fit('Unblocked: ', card, ' is done.') },
   // Blocks.
-  'blocked-pausing': { mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': its builder pauses at its next stopping point and it stays In Progress.') },
-  'blocked-stays': { mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': it stays In Progress.') },
-  'cant-start-yet': { mark: BLOCKED, text: ({ names }) => fit('Can’t start yet: waits on ', names, '. Bumped to the top of Todo.') },
-  'split-moved': { mark: BLOCKED, text: ({ card, to }) => fit('Split: ', `${card} became ${to}`, ', so it waits on those now.') },
-  'merge-blocked': { mark: BLOCKED, text: ({ blocked }) => fit('Not merged: blocked ', blocked, '.') },
+  'blocked-pausing': { tone: 'grey', mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': its builder pauses at its next stopping point and it stays In Progress.') },
+  'blocked-stays': { tone: 'grey', mark: BLOCKED, text: ({ blocked }) => fit('Blocked ', blocked, ': it stays In Progress.') },
+  'cant-start-yet': { tone: 'grey', mark: BLOCKED, text: ({ names }) => fit('Can’t start yet: waits on ', names, '. Bumped to the top of Todo.') },
+  'split-moved': { tone: 'grey', mark: BLOCKED, text: ({ card, to }) => fit('Split: ', `${card} became ${to}`, ', so it waits on those now.') },
+  'merge-blocked': { tone: 'grey', mark: BLOCKED, text: ({ blocked }) => fit('Not merged: blocked ', blocked, '.') },
   // Launches, requests and moves.
-  pulled: { mark: BUILD, text: () => 'Pulled in: an implementer slot was free.' },
-  'helper-asked': { mark: BUILD, text: ({ agent, writes }) => fit('Asked for helper ', agent, writes ? ', which writes code' : ''), longest: { writes: true } },
-  'arch-review': { mark: BUILD, text: ({ card }) => fit('Started an architecture review of ', card, '; its report becomes the notes') },
-  'prototype-after': { mark: PROTOTYPE, text: () => 'Prototype round asked: it moves to prototyping once every question is answered.' },
-  'prototype-round': { mark: PROTOTYPE, text: () => 'You asked for a prototype round, so the board moved the task to prototyping.' },
-  'ticket-made': { mark: 'Created ticket', text: ({ ticket }) => fit('Created ticket ', ticket, '') },
+  pulled: { tone: 'orange', mark: BUILD, text: () => 'Pulled in: an implementer slot was free.' },
+  'helper-asked': { tone: 'orange', mark: BUILD, text: ({ agent, writes }) => fit('Asked for helper ', agent, writes ? ', which writes code' : ''), longest: { writes: true } },
+  'arch-review': { tone: 'orange', mark: BUILD, text: ({ card }) => fit('Started an architecture review of ', card, '; its report becomes the notes') },
+  'prototype-after': { tone: 'blue', mark: PROTOTYPE, text: () => 'Prototype round asked: it moves to prototyping once every question is answered.' },
+  'prototype-round': { tone: 'blue', mark: PROTOTYPE, text: () => 'You asked for a prototype round, so the board moved the task to prototyping.' },
+  'ticket-made': { tone: 'blue', mark: 'Created ticket', text: ({ ticket }) => fit('Created ticket ', ticket, '') },
   // docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md: one per batch published on a
-  // card, holding its question ids; orange while any of them is open, blue once none is (domain.mjs threadOf).
-  'questions-added': { mark: QUESTIONS, text: ({ count }) => `${count} question${count === 1 ? '' : 's'} added`, longest: { count: 1000 } },
-  'new-question': { mark: QUESTIONS, text: () => 'A new question on it, so it is grilling until you answer.' },
-  'screen-timeout': { mark: QUESTIONS, text: () => 'Questions passed to you unscreened: the orchestrator didn’t screen them in 15 minutes.' },
-  'ask-moved': { mark: MOVE, text: ({ board }) => fit('Moved to ', board, '.') },
+  // card, holding its question ids; orange while any of them is open (domain.mjs threadOf), grey once none is.
+  'questions-added': { tone: 'grey', mark: QUESTIONS, text: ({ count }) => `${count} question${count === 1 ? '' : 's'} added`, longest: { count: 1000 } },
+  'new-question': { tone: 'blue', mark: QUESTIONS, text: () => 'A new question on it, so it is grilling until you answer.' },
+  'screen-timeout': { tone: 'blue', mark: QUESTIONS, text: () => 'Questions passed to you unscreened: the orchestrator didn’t screen them in 15 minutes.' },
+  'ask-moved': { tone: 'grey', mark: MOVE, text: ({ board }) => fit('Moved to ', board, '.') },
   // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md: on a handed ticket's
   // thread, grey, linking the task it became on the other board (store.mjs handoff); and drawn from a handed ask's own
   // event (domain.mjs threadOf), never written, above the ask on the receiving board; blue, as created.
-  'handed-to': { mark: MOVE, text: ({ route, ref }) => fit('Handed to ', `/${route} · ${ref}`) },
-  'handed-from': { mark: 'ask-link', text: ({ source }) => fit('Handed from ', source) },
+  'handed-to': { tone: 'grey', mark: MOVE, text: ({ route, ref }) => fit('Handed to ', `/${route} · ${ref}`) },
+  'handed-from': { tone: 'blue', mark: 'ask-link', text: ({ source }) => fit('Handed from ', source) },
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: drawn from a routed ask's own
   // event (domain.mjs threadOf), never written, above the ask; blue, as the owner reads it and may move the ask.
-  'ask-routed': { mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'Slack' } },
+  'ask-routed': { tone: 'blue', mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'Slack' } },
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: on the ask's thread, the card it
   // became merged into another (store.mjs relateAsk), which hides the ask's own row and feeds the top banner.
-  'card-merged': { mark: MOVE, text: ({ card }) => fit('Merged into ', card, '.') },
-  'pr-found': { mark: MOVE, text: ({ pr, branch }) => fit(`Found PR #${pr} on branch `, branch, '.'), longest: { pr: 100000 } },
-  'ci-passed': { mark: DONE, text: ({ pr }) => `CI passed, so PR #${pr} is marked ready for review.`, longest: { pr: 100000 } },
-  'worktree-remade': { mark: MOVE, text: () => 'Remade its leftover worktree: it held no commits or changes.' },
-  merged: { mark: DONE, text: ({ words }) => fit('', words) },
-  'already-merged': { mark: DONE, text: ({ prs, many }) => fit(`PR${many ? 's' : ''} `, prs, ` ${many ? 'were' : 'was'} already merged.`), longest: { many: true } },
-  'ask-moved-closed': { mark: DONE, text: ({ board }) => fit('Closed: its ask moved to ', board, '.') },
-  'handed-closed': { mark: DONE, text: ({ route, ref }) => fit('Closed: handed to ', `/${route} · ${ref}`, '.') },
-  'check-passed': { mark: DONE, text: ({ found }) => fit('Check passed: ', found, '. Closed.') },
-  'findings-settled': { mark: DONE, text: ({ filed }) => fit('Every finding is settled: ', filed ? `filed ${filed}` : 'none filed', '.') },
-  'branch-merged': { mark: DONE, text: ({ branch, into, host }) => fit('', `${branch} is merged into ${into} on ${host}`, ', so this task is Done.') },
-  'branch-gone': { mark: DONE, text: ({ branch, host }) => fit('', `${branch} is gone from ${host}`, ', so this task is Done.') },
-  'prs-closed': { mark: DONE, text: ({ prs }) => fit('Closed: ', prs, ' closed unmerged.'), longest: { prs: `${PR}, ${PR}` } },
-  'landed-on-merge': { mark: DONE, text: ({ base }) => fit('Landed on ', base, ' on your Merge.') },
+  'card-merged': { tone: 'grey', mark: MOVE, text: ({ card }) => fit('Merged into ', card, '.') },
+  'pr-found': { tone: 'blue', mark: MOVE, text: ({ pr, branch }) => fit(`Found PR #${pr} on branch `, branch, '.'), longest: { pr: 100000 } },
+  'ci-passed': { tone: 'green', mark: DONE, text: ({ pr }) => `CI passed, so PR #${pr} is marked ready for review.`, longest: { pr: 100000 } },
+  'worktree-remade': { tone: 'grey', mark: MOVE, text: () => 'Remade its leftover worktree: it held no commits or changes.' },
+  merged: { tone: 'purple', mark: DONE, text: ({ words }) => fit('', words) },
+  'already-merged': { tone: 'green', mark: DONE, text: ({ prs, many }) => fit(`PR${many ? 's' : ''} `, prs, ` ${many ? 'were' : 'was'} already merged.`), longest: { many: true } },
+  'ask-moved-closed': { tone: 'green', mark: DONE, text: ({ board }) => fit('Closed: its ask moved to ', board, '.') },
+  'handed-closed': { tone: 'green', mark: DONE, text: ({ route, ref }) => fit('Closed: handed to ', `/${route} · ${ref}`, '.') },
+  'check-passed': { tone: 'green', mark: DONE, text: ({ found }) => fit('Check passed: ', found, '. Closed.') },
+  'findings-settled': { tone: 'green', mark: DONE, text: ({ filed }) => fit('Every finding is settled: ', filed ? `filed ${filed}` : 'none filed', '.') },
+  'branch-merged': { tone: 'green', mark: DONE, text: ({ branch, into, host }) => fit('', `${branch} is merged into ${into} on ${host}`, ', so this task is Done.') },
+  'branch-gone': { tone: 'green', mark: DONE, text: ({ branch, host }) => fit('', `${branch} is gone from ${host}`, ', so this task is Done.') },
+  'prs-closed': { tone: 'grey', mark: DONE, text: ({ prs }) => fit('Closed: ', prs, ' closed unmerged.'), longest: { prs: `${PR}, ${PR}` } },
+  'landed-on-merge': { tone: 'green', mark: DONE, text: ({ base }) => fit('Landed on ', base, ' on your Merge.') },
   // A land a lander takes over: the card still reads merging (domain.mjs workItem).
-  'lander-handoff': { mark: BUILD, text: ({ why }) => fit('Not merged yet: ', why, '. Its builder resumes to fix it and land it.') },
-  'builder-resumed': { mark: BUILD, text: () => 'Builder resumed' },
+  'lander-handoff': { tone: 'orange', mark: BUILD, text: ({ why }) => fit('Not merged yet: ', why, '. Its builder resumes to fix it and land it.') },
+  'builder-resumed': { tone: 'orange', mark: BUILD, text: () => 'Builder resumed' },
   // Faults.
   // brief, when the refusal has one, is its reason in a line's room (commit-message.mjs startTitleBrief); why is whole.
   'build-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why, brief }) => fit("Couldn't start implementing: ", brief ?? why) },
@@ -139,6 +145,6 @@ export function detailOf(line, inputs = {}) {
   return whole.length > MESSAGE_LIMIT ? `…${whole.slice(-(MESSAGE_LIMIT - 1))}` : whole;
 }
 // A stored line's mark and fault from its kind; a kind no longer in the table draws no mark.
-export const hubLineOf = (m) => ({ mark: HUB_LINES[m.line]?.mark || '', fault: Boolean(HUB_LINES[m.line]?.fault) });
+export const hubLineOf = (m) => ({ mark: HUB_LINES[m.line]?.mark || '', fault: Boolean(HUB_LINES[m.line]?.fault), tone: HUB_LINES[m.line]?.fault ? 'red' : HUB_LINES[m.line]?.tone });
 // The thread line kind of every line store.mjs appendStatus writes.
 export const HUB = 'hub';
