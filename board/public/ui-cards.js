@@ -1,6 +1,6 @@
 // Work card renderers: the lines and chips of a card in a lane, on the board page. Needs ui.js, ui-enums.js and ui-progress-bar.js.
 (function () {
-  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, PAUSED, badge, cardBumpButton, editButton, withdrawButton, dropZone, sendButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
+  const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, withCount, PAUSED, badge, cardBumpButton, editButton, withdrawButton, dropZone, sendButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
   // The PR badge is the one place a PR's state and CI show: its mark and tone, with the state and the CI in its title
   // (docs/adr/2026-11-14-1600-a-prs-one-badge-shows-draft-ready-by-ci-or-merged.md): draft grey ●, ready by CI orange ●,
@@ -192,8 +192,8 @@
   // is silent keeps its words and colour (domain.mjs builderOf; docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
   // One the orchestrator stopped reads the stop's words and how long ago it stopped
   // (docs/adr/2026-11-05-1809-the-orchestrator-stops-the-boards-own-runs.md).
-  const builderLine = (b) => (b.stopped ? `${b.stopped} · ${lasted(b.silentSince)}`
-    : [b.alive === false && 'stopped', b.progress || (b.alive === false ? null : 'starting'), b.at && lasted(b.at)].filter(Boolean).join(' · '));
+  const builderLine = (b) => (b.stopped ? withCount(b.stopped, b.silentSince)
+    : withCount([b.alive === false && 'stopped', b.progress || (b.alive === false ? null : 'starting')].filter(Boolean).join(' · '), b.at));
   // Five bars at the end of an In Progress card's time row: reached phases filled, a running one marked. The phases are
   // store.mjs PHASES (docs/adr/2026-11-03-0128-a-builder-status-line-is-a-phase-and-a-short-detail.md,
   // docs/adr/2026-11-03-1519-a-building-cards-phase-bars-end-its-time-row.md).
@@ -240,7 +240,7 @@
   // review with its dot once the session picks it up, each with how long ago.
   function orchestratorStatus(it) {
     const { since, picked } = it.orchestrator;
-    const words = picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`;
+    const words = picked ? `${DOT}${esc(withCount('orchestrator review', picked))}` : esc(withCount('waiting for orchestrator', since));
     return `<div class="line3 sub agent${tone(it)}${picked ? '' : ' waiting-gray'}">${words}</div>`;
   }
   // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
@@ -439,7 +439,7 @@
       : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
       : it.builder ? builderStatus(it)
       : it.refusal ? `<div class="line3 sub refused">${escText(it.refusal)}</div>`
-      : it.landStopped ? `<div class="line3 sub">${escText(`${it.landStopped.words} · ${lasted(it.landStopped.at)}`)}</div>`
+      : it.landStopped ? `<div class="line3 sub">${escText(withCount(it.landStopped.words, it.landStopped.at))}</div>`
       : it.working ? `<div class="line3 sub agent">${thinkingLine()}</div>`
       : it.next ? `<div class="line3 sub next${it.lane === 'todo' || it.lane === 'done' || it.held ? ' idle' : ''}">Next: ${escText(it.next)}</div>` : '';
     const eta = it.eta && it.builder ? `<div class="line3 sub eta">${escText(etaLine(it.eta))}</div>` : '';

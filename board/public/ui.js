@@ -148,14 +148,10 @@
     : `<button class="ghost icon" data-card-bump="${esc(key)}" aria-pressed="false" aria-label="Bump to top" title="Bump to top">${BUMP}</button>`);
   const workingLine = '<span class="thinking"><span class="working-dot" aria-hidden="true"></span>thinking…</span>';
   // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
-  // The count after a working word: nothing under a minute, then "3m", "1h 5m", "2h". Each element drawn with it holds
-  // the time it counts from (data-since) and its word (data-word), and app-header.js repaints their text each
-  // half-minute, so a repaint of the board is no part of the count.
-  const countOf = (since, now = Date.now()) => {
-    const m = Math.floor((now - new Date(since).getTime()) / 60000);
-    return m < 1 ? '' : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`;
-  };
-  const withCount = (word, since, now) => [word, countOf(since, now)].filter(Boolean).join(' ');
+  // The count after a working word is liveFor (ui-icon-text.js). Each element drawn with it holds the time it counts
+  // from (data-since) and its word (data-word), and app-header.js repaints their text each half-minute, so a repaint
+  // of the board is no part of the count.
+  const withCount = (word, since, now) => [word, globalThis.BoardUI.liveFor(since, now)].filter(Boolean).join(' ');
   const thinkingFor = (since, now) => withCount('thinking…', since, now);
   const counted = (cls, word, since) => `<span class="${cls}" data-since="${esc(since)}" data-word="${word}"><span class="working-dot" aria-hidden="true"></span>${withCount(word, since)}</span>`;
   const recount = (root, now = Date.now()) => {
@@ -534,6 +530,6 @@
   globalThis.BoardUI = {
     LINK_ARROW, escText, onBackdrop, swipeToDismiss, swipeVerdict,
     esc, record, time, ago, lasted, since, clock, etaLine, cardTime, replyBody, setHTML, closeDetails, BUSY, waitOn, pending, fetchJSON, WAITING, RESTARTING, restartNotice, downOf, downLanding, drawLanding, copyNote, SENDS, holdSends,
-    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, counted, recount, PAUSED, BADGE_TONES, badge,
+    attachments, attachButton, dropZone, sendButton, keyedSend, pendingFiles, protoButton, grillButton, visualButton, mark, statusMark, MARK_ICONS, withdrawButton, editButton, cardBumpButton, workingLine, thinkingLine, thinkingFor, withCount, counted, recount, PAUSED, BADGE_TONES, badge,
   };
 })();

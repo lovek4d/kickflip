@@ -277,7 +277,7 @@
     // (docs/adr/2026-11-06-1305-a-busy-host-shows-only-on-the-hub-row-and-the-logo-dot.md).
     const busy = hubBusy(data, now);
     const busyBanner = busy && now - Date.parse(data.pause.machine.since) > BUSY_BANNER_MINUTES * 60_000
-      ? `<button type="button" class="sb-busy-banner" data-load-sheet aria-haspopup="dialog">${iconText('dot', HUB_COLOURS.wait, `Host busy for ${busyMinutes(data, now)}m${data.pause.machine.reason ? `: ${esc(data.pause.machine.reason)}` : ''}`)}</button>`
+      ? `<button type="button" class="sb-busy-banner" data-load-sheet aria-haspopup="dialog">${iconText('dot', HUB_COLOURS.wait, `Host busy ${globalThis.BoardUI.liveFor(data.pause.machine.since, now)}${data.pause.machine.reason ? `: ${esc(data.pause.machine.reason)}` : ''}`)}</button>`
       : '';
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     // A red fault on a board row keeps its word, and a down or degraded hub keeps the Hub row: red and orange beat the grey pause (AGENTS.md).
@@ -299,7 +299,7 @@
       : device === 'install' ? row({ href: '/_hub/#notifications', icon: tile('bell', 'var(--accent)'), title: 'Add Claude to your Home Screen', sub: 'Notifications come only to the Home Screen app', cls: 'sb-turnon' })
       : '';
     const usage = sidebarUsage(data?.usage, data?.pause?.pause_at);
-    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: `${busyMinutes(data, now)}m`, sheet: true } : data?.hub;
+    const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: globalThis.BoardUI.liveFor(data.pause.machine.since, now), sheet: true } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
     // Notifications that can't reach the owner need them now: red (AGENTS.md).

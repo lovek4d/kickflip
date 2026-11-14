@@ -22,7 +22,18 @@
     if (!PULSES.has(ev.animationName)) return;
     for (const a of ev.target.getAnimations()) if (a.animationName === ev.animationName) a.startTime = 0;
   }
-  Object.assign(globalThis.BoardUI ||= {}, { progressBar, onePulse });
+  // How long a live status has been going, in brackets after its word: "(3m)", "(1h 5m)", "(2h)", "(1d 2h)", and nothing
+  // under a minute or with no start. Every live status line draws its duration through this; a time of day isn't a
+  // duration. It lives here since this file is on every page that draws a status, and in the hub's vm context.
+  const liveFor = (since, now = Date.now()) => {
+    const m = since ? Math.floor((now - new Date(since).getTime()) / 60000) : 0;
+    if (m < 1) return '';
+    if (m < 60) return `(${m}m)`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `(${h}h${m % 60 ? ` ${m % 60}m` : ''})`;
+    return `(${Math.floor(h / 24)}d${h % 24 ? ` ${h % 24}h` : ''})`;
+  };
+  Object.assign(globalThis.BoardUI ||= {}, { progressBar, onePulse, liveFor });
   // hub/hub.mjs runs this with no document, only to render the sidebar.
   globalThis.document?.addEventListener('animationstart', onePulse);
 })();

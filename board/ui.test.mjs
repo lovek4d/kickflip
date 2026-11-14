@@ -1374,18 +1374,21 @@ test('thinking… counts up from when the message was marked: bare under a minut
   const marked = (min) => new Date(NOW - min * 60000).toISOString();
   const foot = (since) => text(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', since }]).match(/<span class="thinking"[^>]*>.*?thinking…[^<]*<\/span>/s)[0]);
   assert.equal(foot(marked(0.5)), 'thinking…');
-  assert.equal(foot(marked(3)), 'thinking… 3m');
-  assert.equal(foot(marked(65)), 'thinking… 1h 5m');
-  assert.equal(foot(marked(120)), 'thinking… 2h');
+  assert.equal(foot(marked(3)), 'thinking… (3m)');
+  assert.equal(foot(marked(65)), 'thinking… (1h 5m)');
+  assert.equal(foot(marked(120)), 'thinking… (2h)');
+  assert.equal(ui.liveFor(marked(0.5), NOW), '');
+  assert.equal(ui.liveFor(marked(26 * 60), NOW), '(1d 2h)');
+  assert.equal(ui.liveFor(marked(48 * 60), NOW), '(2d)');
   assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'x', eventId: 'e1', reply: null, state: 'working', since: marked(3) }]), new RegExp(`<span class="thinking" data-since="${ui.esc(marked(3))}" data-word="thinking…">`));
-  assert.equal(ui.thinkingFor(marked(7), NOW), 'thinking… 7m');
+  assert.equal(ui.thinkingFor(marked(7), NOW), 'thinking… (7m)');
 });
 
 test('the New strip counts processing... up the same way', () => {
   const since = new Date(NOW - 4 * 60000).toISOString();
   const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: ago(1), ask: { eventId: 'a1', askedAt: ago(1), canEdit: true, text: 'Fix', files: [], state: 'working', ...extra } });
   const strip = (extra) => ui.newStrip(ui.newEntries({ items: [ask(extra)], merges: [] }, {}), new Map());
-  assert.match(strip({ since }), /<span class="processing" data-since="[^"]+" data-word="processing\.\.\."><span class="working-dot" aria-hidden="true"><\/span>processing\.\.\. 4m<\/span>/);
+  assert.match(strip({ since }), /<span class="processing" data-since="[^"]+" data-word="processing\.\.\."><span class="working-dot" aria-hidden="true"><\/span>processing\.\.\. \(4m\)<\/span>/);
   assert.match(strip({}), /<span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing\.\.\.<\/span>/);
 });
 
@@ -1466,11 +1469,11 @@ test('a card the orchestrator stalled reads red stalled rightmost on the row und
 test("a run the orchestrator stopped reads the stop's words as its status, plain, with no dot, and a stopped Merge land reads them in In Review", () => {
   const builder = { progress: 'Running tests', at: ago(1), stale: true, alive: false, silentSince: ago(0.05), stopped: 'build stopped by orchestrator' };
   const html = ui.workLines({ ...workCard, lane: 'progress', builder });
-  assert.match(html, /<div class="line3 sub agent in-progress">build stopped by orchestrator · \d+m<\/div>/);
+  assert.match(html, /<div class="line3 sub agent in-progress">build stopped by orchestrator \(\d+m\)<\/div>/);
   assert.doesNotMatch(html, /working-dot|Running tests/);
   assert.equal(ui.statusWord({ ...workCard, lane: 'progress', builder }), 'build stopped by orchestrator');
   const review = ui.workLines({ ...workCard, lane: 'review', builder: null, next: 'Verified: tap Merge to land it on main', landStopped: { words: 'land stopped by orchestrator', at: ago(0.05) } });
-  assert.match(review, /<div class="line3 sub">land stopped by orchestrator · \d+m<\/div>/);
+  assert.match(review, /<div class="line3 sub">land stopped by orchestrator \(\d+m\)<\/div>/);
 });
 
 test("a refused Implement's reason takes the card's status line, in place of its next step", () => {
@@ -1589,25 +1592,25 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   const minutes = (n) => new Date(NOW - n * 60000).toISOString();
   const status = (it) => /<div class="line3 sub agent ([\w -]+)">(.*?)<\/div>/.exec(ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', ...it }))?.slice(1);
   const waiting = { kind: 'calls', since: minutes(14), picked: null, next: 'x' };
-  assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: waiting }), ['in-progress waiting-gray', 'waiting for orchestrator · 14m']);
+  assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: waiting }), ['in-progress waiting-gray', 'waiting for orchestrator (14m)']);
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
-    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review · 3m']);
+    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review (3m)']);
   // The browser never reads the usage pause: the orchestrator's marks read the same under it.
   ui.usagePause = () => ({ state: 'paused' });
   assert.deepEqual(status({ lane: 'progress', waitsOn: 'checking', orchestrator: { ...waiting, picked: minutes(3) } }),
-    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review · 3m']);
+    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>orchestrator review (3m)']);
   assert.doesNotMatch(ui.threadMessages([{ ts: '2020-01-01T10:00:00Z', who: 'love', kind: 'item-message', text: 'x', eventId: 'e1', state: 'working' }]), /paused/);
   ui.usagePause = null;
-  assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo waiting-gray', 'waiting for orchestrator · 14m']);
+  assert.deepEqual(status({ lane: 'todo', refusal: 'Couldn’t start', orchestrator: { ...waiting, kind: 'refused' } }), ['in-todo waiting-gray', 'waiting for orchestrator (14m)']);
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: an Implement message's card waits like any other.
-  assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress waiting-gray', 'waiting for orchestrator · 14m']);
+  assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress waiting-gray', 'waiting for orchestrator (14m)']);
   // A running builder keeps its own line while its ask waits.
   assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Building · x', phase: 'building', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
-    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Building · x · 2m']);
+    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Building · x (2m)']);
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: a rebase run's hand-back, In
   // Review, reads its own failure line above the wait.
   const failed = ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'review', waitsOn: 'checking', orchestrator: waiting, rebaseFailed: 'Rebase failed in 2 files · <both sides>' });
-  assert.match(failed, /<div class="line3 sub">Rebase failed in 2 files · &lt;both sides&gt;<\/div><div class="line3 sub agent in-review waiting-gray">waiting for orchestrator · 14m<\/div>/);
+  assert.match(failed, /<div class="line3 sub">Rebase failed in 2 files · &lt;both sides&gt;<\/div><div class="line3 sub agent in-review waiting-gray">waiting for orchestrator \(14m\)<\/div>/);
 });
 
 // docs/adr/2026-11-06-0145-every-run-takes-its-lanes-colour.md
@@ -1622,10 +1625,10 @@ test("a run's line, dot and bar take its card's lane colour: grey in Todo, orang
 
 test("a builder line shows the progress and its age, not who is building", () => {
   const at = new Date(NOW - 4 * 60000).toISOString();
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter · 4m');
-  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'starting · 4m');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: 'Testing · the limiter', at }), 'Testing · the limiter (4m)');
+  assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at }), 'starting (4m)');
   assert.equal(ui.builderLine({ label: 'Opus builder', progress: null, at: null }), 'starting');
-  assert.equal(ui.builderLine({ progress: null, at, alive: false }), 'stopped · 4m');
+  assert.equal(ui.builderLine({ progress: null, at, alive: false }), 'stopped (4m)');
   assert.equal(ui.builderLine({ label: null, progress: 'Making changes', at: null }), 'Making changes');
 });
 
@@ -2591,7 +2594,7 @@ test('a busy host reads busy on the Hub row and the logo dot, not on a board or 
   const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: working }, { route: 'p', title: 'P', board: false, icon: '', sub: null }];
   const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.equal([...busy.matchAll(/it-orange"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">busy/g)].length, 1, 'the Hub row alone');
-  assert.match(text(busy), /busy 42m/);
+  assert.match(text(busy), /busy \(42m\)/);
   assert.doesNotMatch(text(busy), /the host is busy/);
   const fresh = { state: 'busy', reason: 'load high', since: new Date(NOW - 59_000).toISOString() };
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: fresh }, sites, hub: { tone: 'ok', word: 'healthy', detail: '' } }), />busy</, 'busy under a minute reads as not busy');
@@ -3066,7 +3069,7 @@ test('a host busy for more than 30 minutes adds a banner at the sidebar top that
   const banner = busyFor(31).match(/<button[^>]*sb-busy-banner[^>]*>.*?<\/button>/s)?.[0];
   assert.ok(banner, 'a banner at 31 minutes');
   assert.match(banner, /data-load-sheet/, 'it opens the load sheet');
-  assert.match(text(banner), /Host busy for 31m: load high/);
+  assert.match(text(banner), /Host busy \(31m\): load high/);
   assert.ok(busyFor(31).indexOf('sb-busy-banner') < busyFor(31).indexOf('sb-utility'), 'it sits above the Hub section');
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /sb-busy-banner/, 'gone when idle');
   assert.doesNotMatch(busyFor(31, { pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine: { state: 'busy', reason: 'load high', since: new Date(NOW - 31 * 60_000).toISOString() } } }), /sb-busy-banner/, 'a usage pause reads first');
@@ -3076,7 +3079,7 @@ test('a host busy for more than 30 minutes adds a banner at the sidebar top that
 test("the Hub row's busy word opens what's loading the host: the load now and over the hour, then collapsed groups with orphans open and Stop on orphans alone", () => {
   const machine = { state: 'busy', reason: 'load high', since: new Date(NOW - 42 * 60_000).toISOString() };
   const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } });
-  assert.match(busy, /<span class="sb-status sb-busy" data-load-sheet role="button" tabindex="0" aria-label="busy 42m, what's loading the host" aria-haspopup="dialog">/);
+  assert.match(busy, /<span class="sb-status sb-busy" data-load-sheet role="button" tabindex="0" aria-label="busy \(42m\), what's loading the host" aria-haspopup="dialog">/);
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /data-load-sheet/);
 
   assert.match(text(ui.loadSheet(null)), /What's loading the host ✕ Reading the host…/);
