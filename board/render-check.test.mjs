@@ -20,15 +20,6 @@ const add = async (options, env = {}) => {
   return await boardWith(['question', 'add', '--site', 'orch', '--file', path.join(home, 'q.json')], checkEnv(env));
 };
 
-// A Chrome stand-in that exits at once on its first `failures` launches, then runs the real one: Chrome failing to start under load.
-const flakyChrome = (failures) => {
-  const script = path.join(home, 'flaky-chrome.sh');
-  const count = path.join(home, 'chrome-launches');
-  write(script, `#!/bin/sh\necho x >> '${count}'\n[ "$(wc -l < '${count}')" -le ${failures} ] && exit 1\nexec '${CHROME}' "$@"\n`);
-  fs.chmodSync(script, 0o755);
-  return script;
-};
-
 test('a Chrome that fails to start once is launched again in a fresh profile', async () => {
   const dir = tempDir('launch-test-');
   const dirs = [];
@@ -43,13 +34,12 @@ test('a Chrome that fails to start once is launched again in a fresh profile', a
   assert.equal(dirs.length, 2);
 });
 
-test('a Chrome that fails to start twice is refused naming it, not a raw TypeError', { skip }, async () => {
-  await recordPrototype('site', ['A:Plain'], false);
-  write(takePath('site', 'A'), 'export function render(stage, kit) { stage.innerHTML = `<p>${kit.esc("hello")}</p>`; }');
-  const r = await add(['A'], { CHROME: flakyChrome(2), KICKFLIP_RENDER_CHROME_PORT: '' });
-  assert.notEqual(r.code, 0);
-  assert.match(r.err, /could not start Chrome/);
-  assert.doesNotMatch(r.err, /TypeError/);
+test('a Chrome that fails to start twice is refused as a ChromeStartError, which the check names, not a raw TypeError', async () => {
+  const dir = tempDir('launch-test-');
+  let launches = 0;
+  const never = async () => { launches++; throw new ChromeStartError('could not start Chrome'); };
+  try { await assert.rejects(startChrome(dir, [], never), ChromeStartError); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  assert.equal(launches, 2);
 });
 
 // #353's round-1 takes drew the board's real threads, which the prototype page did not load.

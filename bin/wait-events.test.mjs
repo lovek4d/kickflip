@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { until, ownSession, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
 import { watch as watchInProcess } from './wait-events.mjs';
+import { sessionGone as sessionGoneFor } from '../hub/live.mjs';
 import { tempDir } from '../shared/temp-dir.mjs';
 
 const write = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data)); };
@@ -160,57 +161,42 @@ function shop(t) {
   return { home, dir, pids, env, add, watcherRecord, lookalike, watch };
 }
 
-test("a watcher whose session dies exits without taking the next event, so the resumed session's watcher gets it", { timeout: 60000 }, async (t) => {
-  const { home, dir, pids, env, add, watcherRecord, watch } = shop(t);
-  // A stand-in Claude session runs a stand-in shell, which runs the watcher, as Claude Code runs a background task.
-  const out = path.join(home, 'watcher.out');
-  const shell = `const c = require('node:child_process').spawn(process.execPath, ${JSON.stringify([WATCHER, 'shop', 's1'])}, { stdio: ['ignore', require('node:fs').openSync(${JSON.stringify(out)}, 'w'), 'inherit'] }); ${untilTestEnds()};`;
-  const claude = spawn(process.execPath, ['-e', `const s = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(shell)}], { stdio: 'ignore' }); process.send(s.pid); ${untilTestEnds()};`], { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
-  pids.push(claude.pid);
-  pids.push(await new Promise((resolve) => claude.once('message', resolve)));
-  ownSession(home, 's1', claude.pid);
-  await until(() => Number.isInteger(watcherRecord()?.pid), 'the watcher started');
-  const orphan = watcherRecord().pid;
-  pids.push(orphan);
-  await until(() => watcherRecord()?.checks >= 1, 'the watcher checked once');
-  assert.ok(running(orphan), 'the watcher waits while its session runs');
-  const died = new Promise((resolve) => claude.once('exit', resolve));
-  claude.kill('SIGKILL');
-  await died;
+test("a watcher whose session dies exits without taking the next event, so the resumed session's watcher gets it", async (t) => {
+  const { home, dir, add, watcherRecord } = shop(t);
+  let died = false;
+  // The shell's parent and the session as the watcher saw them at start; the session dying changes the parent.
+  const gone = () => sessionGoneFor('s1', [100, 200], { ppid: 100, parent: () => (died ? 1 : 200), live: () => new Set(['s1']) });
+  const orphan = inProcess(t, home, { pid: 900001, gone });
+  await orphan.pass(2);
+  assert.equal(orphan.finished(), false, 'the watcher waits while its session runs');
+  assert.ok(watcherRecord().checks >= 1);
+  died = true;
   add('ask');
-  await until(() => !running(orphan), 'the orphaned watcher exits');
-  assert.equal(fs.readFileSync(out, 'utf8'), '');
+  assert.equal(await orphan.run(), 0);
+  assert.equal(orphan.out(), '');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', '.watch-cursor-s1.json'), 'utf8')), { 'data/events.jsonl': 0 });
   assert.ok(watcherRecord().exited_at, 'the board reads the watcher as exited');
-  ownSession(home, 's1');
-  const resumed = await watch().done;
-  assert.equal(resumed.code, 0);
-  assert.match(resumed.stdout, /^event data\/events.jsonl .*"kind":"ask"/);
+  const resumed = inProcess(t, home, { pid: 900002 });
+  assert.equal(await resumed.run(), 0);
+  assert.match(resumed.out(), /^event data\/events.jsonl .*"kind":"ask"/);
 });
 
-test("a watcher keeps waiting while ps can't answer whether its session runs, and takes the next event", { timeout: 90000 }, async (t) => {
-  const { home, env, add, watcherRecord } = shop(t);
-  ownSession(home, 's1');
-  const ps = stallingPs(home);
-  t.after(() => ps.stall(false));
-  const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...env, PATH: `${ps.bin}:${env.PATH}` } });
-  t.after(() => child.kill('SIGKILL'));
-  let stdout = '';
-  child.stdout.on('data', (d) => { stdout += d; });
-  const done = new Promise((resolve) => child.on('close', (code) => resolve(code)));
-  await until(() => watcherRecord()?.pid === child.pid, 'the watcher started');
-  ps.stall(true);
-  // Each check finds ps giving no answer twice, for the shell's parent and for the session; this waits out two checks.
-  await until(() => ps.stalls() >= 4, 'two checks found ps stalled');
-  assert.equal(child.exitCode, null, 'the watcher still waits');
-  assert.equal(stdout, '');
-  ps.stall(false);
+test("a watcher keeps waiting while ps can't answer whether its session runs, and takes the next event", async (t) => {
+  const { home, add } = shop(t);
+  // ps gives no answer for the parent (undefined) or the live sessions (null) until the test lets it.
+  let answering = false;
+  const gone = () => sessionGoneFor('s1', [100, 200], { ppid: 100, parent: () => (answering ? 200 : undefined), live: () => (answering ? new Set(['s1']) : null) });
+  const w = inProcess(t, home, { pid: 900001, gone });
+  await w.pass(4);
+  assert.equal(w.finished(), false, 'the watcher still waits');
+  assert.equal(w.out(), '');
+  answering = true;
   add('ask');
-  assert.equal(await done, 0);
-  assert.match(stdout, /^event data\/events.jsonl .*"kind":"ask"/);
+  assert.equal(await w.run(), 0);
+  assert.match(w.out(), /^event data\/events.jsonl .*"kind":"ask"/);
 });
 
-test('a new watcher for the same session stops the one watcher.json records, and no other process', { timeout: 60000 }, async (t) => {
+test('a new watcher for the same session stops the one watcher.json records, and no other process', async (t) => {
   const { home, add, watcherRecord, lookalike, watch } = shop(t);
   ownSession(home, 's1');
   const record = (pid, extra = {}) => write(path.join(home, 'site', 'data', 'watcher.json'), { pid, since: new Date().toISOString(), ...extra });
@@ -218,23 +204,27 @@ test('a new watcher for the same session stops the one watcher.json records, and
   record(other.pid);
   const first = watch();
   await until(() => watcherRecord()?.pid === first.child.pid, 'the first watcher started');
-  const second = watch();
+  // The next watchers run in this process: only the first, a real process, has something to stop.
+  const second = inProcess(t, home, { pid: 900002 });
   const stopped = await first.done;
   assert.equal(stopped.signal, 'SIGTERM');
   assert.equal(stopped.stdout, '');
-  await until(() => watcherRecord()?.pid === second.child.pid, 'the second watcher records itself');
+  await second.pass();
+  assert.equal(watcherRecord().pid, 900002);
   assert.equal(watcherRecord().exited_at, undefined);
-  second.child.kill();
-  await second.done;
+  add('ask');
+  assert.equal(await second.run(), 0);
+  assert.equal(typeof watcherRecord().exited_at, 'string');
   // A watcher that exited on an event recorded exited_at; its pid, even if something like it runs there now, is left alone.
   const exited = lookalike('shop', 's1');
   record(exited.pid, { exited_at: new Date().toISOString() });
-  const third = watch();
-  await until(() => watcherRecord()?.pid === third.child.pid, 'the third watcher started');
+  const third = inProcess(t, home, { pid: 900003 });
+  await third.pass();
+  assert.equal(watcherRecord().pid, 900003);
   assert.ok(running(other.pid) && running(exited.pid), "another session's watcher and an exited watcher's pid are left alone");
   add('ask');
-  const woke = await third.done;
-  assert.match(woke.stdout, /^event data\/events.jsonl .*"kind":"ask"/);
+  assert.equal(await third.run(), 0);
+  assert.match(third.out(), /^event data\/events.jsonl .*"kind":"ask"/);
 });
 
 test('a watcher stopped by SIGTERM leaves its exit time in watcher.json, and ends by the signal', async (t) => {
@@ -248,24 +238,19 @@ test('a watcher stopped by SIGTERM leaves its exit time in watcher.json, and end
   assert.equal(watcherRecord().pid, w.child.pid);
 });
 
-test('record-only events and pings do not wake the session: a ping is acked at once, and the held lines print on the next wake ahead of the new events', { timeout: 60000 }, async (t) => {
-  const { home, dir, add } = shop(t);
+test('record-only events and pings do not wake the session: a ping is acked at once, and the held lines print on the next wake ahead of the new events', async (t) => {
+  const { home, dir } = shop(t);
   const events = path.join(dir, 'data', 'events.jsonl');
   const cursor = path.join(dir, 'data', '.watch-cursor-s1.json');
   write(path.join(dir, 'board.json'), { title: 'Shop' });
-  ownSession(home, 's1');
-  const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
-  t.after(() => { if (child.exitCode === null) child.kill(); });
-  let stdout = '';
-  child.stdout.on('data', (d) => { stdout += d; });
-  const exited = new Promise((resolve) => child.once('exit', resolve));
-  await until(() => fs.existsSync(path.join(dir, 'data', 'watcher.json')), 'watcher started');
+  const w = inProcess(t, home, { pid: 900001 });
   const line = (id, kind, data) => fs.appendFileSync(events, JSON.stringify({ id, kind, ts: new Date().toISOString(), data }) + '\n');
   for (const kind of ['main-pulled', 'settings', 'reviewers-removed', 'reviewers-added', 'repo-changed']) line(kind, kind, {});
   line('p1', 'ping', { title: 'Shop' });
-  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 6,'held lines moved the cursor');
-  assert.equal(child.exitCode, null);
-  assert.equal(stdout, '');
+  await w.pass();
+  assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'], 6, 'held lines moved the cursor');
+  assert.equal(w.finished(), false);
+  assert.equal(w.out(), '');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'handshake.json'), 'utf8')).ack.id, 'p1');
   // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md: a button tap changes the card or starts
   // an agent in the board server, so it wakes nobody; text typed with Grill, Prototype or Visual goes to that agent.
@@ -277,12 +262,13 @@ test('record-only events and pings do not wake the session: a ping is acked at o
   line('b6', 'grill-more', { key: 'w/A1', text: 'Ask about the footer' });
   line('b7', 'prototype-request', { key: 'w/A1' });
   line('b8', 'visual-request', { key: 'w/A1', text: 'Draw it' });
-  await until(() => JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'] === 14, 'tap lines moved the cursor');
-  assert.equal(child.exitCode, null);
-  assert.equal(stdout, '');
+  await w.pass();
+  assert.equal(JSON.parse(fs.readFileSync(cursor, 'utf8'))['data/events.jsonl'], 14, 'tap lines moved the cursor');
+  assert.equal(w.finished(), false);
+  assert.equal(w.out(), '');
   line('w1', 'item-message', { key: 'w/A1', text: 'Wake' });
-  assert.equal(await exited, 0);
-  const lines = stdout.split('\n');
+  assert.equal(await w.run(), 0);
+  const lines = w.out().split('\n');
   const at = (kind) => lines.findIndex((l) => l.includes(`"kind":"${kind}"`));
   assert.ok(at('main-pulled') >= 0 && at('main-pulled') < at('settings') && at('settings') < at('reviewers-removed') && at('reviewers-removed') < at('reviewers-added') && at('reviewers-added') < at('repo-changed') && at('repo-changed') < at('ping') && at('ping') < at('card-hold'));
   assert.ok(lines.includes('ping p1 from the hub answered'));
@@ -293,46 +279,41 @@ test('record-only events and pings do not wake the session: a ping is acked at o
 });
 
 // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
-test('on a board a new task wakes the session with its sort line and reads Working on it', { timeout: 60000 }, async (t) => {
+test('on a board a new task wakes the session with its sort line and reads Working on it', async (t) => {
   const { home, dir } = shop(t);
   const events = path.join(dir, 'data', 'events.jsonl');
   write(path.join(dir, 'board.json'), { title: 'Shop' });
-  ownSession(home, 's1');
-  const child = spawn(process.execPath, [WATCHER, 'shop', 's1'], { env: { ...process.env, HOME: home, KICKFLIP_HUB_PORT: '1' } });
-  t.after(() => { if (child.exitCode === null) child.kill(); });
-  let stdout = '';
-  child.stdout.on('data', (d) => { stdout += d; });
-  const exited = new Promise((resolve) => child.once('exit', resolve));
-  await until(() => fs.existsSync(path.join(dir, 'data', 'watcher.json')), 'watcher started');
+  const w = inProcess(t, home, { pid: 900001 });
+  await w.pass();
   fs.appendFileSync(events, JSON.stringify({ id: 'a1', kind: 'ask', ts: new Date().toISOString(), data: { text: 'New task' } }) + '\n');
-  assert.equal(await exited, 0);
+  assert.equal(await w.run(), 0);
+  const stdout = w.out();
   assert.ok(stdout.split('\n').includes('new task a1 received as task a1: sort that New task: link a ticket it names with item set <its key> --ticket <id>; discuss it with reply <its key>, which reads it discussing; item notes, then item set <its key> --phase ready, with --size, for an Implement ask, or --phase grilling or prototyping only when the ask asks for one; or merge it into a task with item relate-ask a1 <task> --summary'), stdout);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events), ['a1']);
 });
 
 // docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md
-test('a wake prints a message the PostToolUse hook already showed again, its plain line tagged already shown', { timeout: 30000 }, async (t) => {
-  const { home, dir, add, watch } = shop(t);
-  ownSession(home, 's1');
+test('a wake prints a message the PostToolUse hook already showed again, its plain line tagged already shown', async (t) => {
+  const { home, dir, add } = shop(t);
   write(path.join(dir, 'board.json'), { title: 'Shop' });
   fs.appendFileSync(path.join(dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'm1', kind: 'item-message', ts: new Date().toISOString(), data: { key: 'w/A1', text: 'Blue' } }) + '\n');
   add('ask');
   write(path.join(dir, 'data', '.shown-s1.json'), { ids: ['m1'] });
-  const { code, stdout } = await watch().done;
-  assert.equal(code, 0);
+  const w = inProcess(t, home, { pid: 900001 });
+  assert.equal(await w.run(), 0);
+  const stdout = w.out();
   assert.match(stdout, /^event data\/events.jsonl .*"kind":"item-message".*\nalready shown: message received from A1's thread: reply in its thread; ask open points with reply --questions <json>, not in prose$/m);
   assert.match(stdout, /^event data\/events.jsonl .*"kind":"ask".*\nnew task ask received/m);
 });
 
 // docs/adr/2026-11-12-1300-sorting-an-ask-refuses-an-edit-the-orchestrator-hasnt-read.md
-test('a wake that prints an ask edit moves the ask\'s working mark to now, so sorting it goes through', { timeout: 30000 }, async (t) => {
-  const { home, dir, watch } = shop(t);
-  ownSession(home, 's1');
+test('a wake that prints an ask edit moves the ask\'s working mark to now, so sorting it goes through', async (t) => {
+  const { home, dir } = shop(t);
   write(path.join(dir, 'board.json'), { title: 'Shop' });
   write(path.join(dir, 'data', 'working.json'), { events: { a1: '2026-11-12T09:38:03.000Z', m0: '2026-11-12T09:00:00.000Z' } });
   fs.appendFileSync(path.join(dir, 'data', 'events.jsonl'), JSON.stringify({ id: 'x1', kind: 'ask-edited', ts: new Date().toISOString(), data: { id: 'a1', text: 'Edited' } }) + '\n');
   const before = Date.now();
-  assert.equal((await watch().done).code, 0);
+  assert.equal(await inProcess(t, home, { pid: 900001 }).run(), 0);
   const marks = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'working.json'), 'utf8')).events;
   assert.ok(Date.parse(marks.a1) >= before, marks.a1);
   assert.deepEqual([marks.m0, marks.x1], ['2026-11-12T09:00:00.000Z', undefined]);
