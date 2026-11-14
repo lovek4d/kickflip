@@ -43,6 +43,8 @@ export const PLAIN = {
     ? `${e.data.from === 'owner' ? 'the owner' : e.data?.reviewer} wrote to the board in ${e.data?.reviewer}'s Slack review thread: slack thread ${e.id}, then, only if it asks something, answer about this board alone with slack answer ${e.id} --text (250 characters at most), or file a request for work with slack task ${e.id} <file>; a thanks gets no reply`
     : `the owner wrote in ${e.data?.reviewer}'s Slack review thread without @kickflip: slack thread ${e.id} for context; no reply`),
 };
+// A script result's output as one line: its last 500 characters, its line breaks as " | ".
+const outputTail = (output = '') => String(output).trimEnd().slice(-500).replace(/\n+/g, ' | ') || '(none)';
 // The kinds whose line names the card the event is on.
 export const ON_CARD = {
   // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md
@@ -64,6 +66,10 @@ export const ON_CARD = {
   'builder-resume': (c, e) => `${c}'s pause cleared (${e.data?.cleared}): tell its builder in your session to carry on where it stopped`,
   'builder-ask': (c, e) => `${e.data?.ask} from ${c}'s builder: ${e.data?.text} (builder answer it, or builder defer it)`,
   'owner-check-broken': (c, e) => `${c}'s owner-step check can't run: ${e.data?.error}; fix it with item set --check, or drop it`,
+  // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
+  'script-run': (c) => `the owner ran the script you offered on ${c}: its script-result event follows when it ends; nothing to do until then`,
+  'script-result': (c, e) => `the script you offered on ${c} ${e.data?.exit === 0 ? 'finished' : 'failed'}: exit ${e.data?.exit}${e.data?.timedOut ? ', stopped at its time limit' : ''}; output tail: ${outputTail(e.data?.output)}; the whole output is in log ${e.data?.log}; carry on from it in its thread`,
+  'script-decline': (c) => `the owner declined the script you offered on ${c}: don't run it another way; ask in its thread what they want instead`,
   'card-added': (c) => `${c} added by an agent: link it and file it: item notes, then item set --relate and --phase`,
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md,
   // docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md: c is the New card the board filed

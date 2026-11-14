@@ -69,6 +69,28 @@
   // A questions-added line's words, as written, open the card's questions sheet (app-questions-sheet.js) from its first
   // question; the link to the questions page stays under it for a page that has no sheet.
   const questionsLink = (m) => `<a href="${esc(m.link)}" data-questions="${esc(m.questions[0])}">${escText(m.text)}</a>`;
+
+  // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
+  // A script offer under the orchestrator's message (domain.mjs threadOf's script): where it runs, the whole script, and
+  // by its state Run, held to confirm, and Decline (app-threads.js); running with a link to its live log; finished, its
+  // output folded; failed in red with its output's tail; declined; or replaced by a newer offer. A shared person sees
+  // it without its buttons (style.css .shared-view).
+  const TAIL_LINES = 20;
+  const seconds = (ms) => (ms == null ? '' : ` · ${(ms / 1000).toFixed(1)} s`);
+  const logLink = (log, words) => (log ? `<a class="small" href="log.html?file=${encodeURIComponent(log)}">${words}</a>` : '');
+  const linesOf = (output) => output.replace(/\n$/, '').split('\n');
+  const SCRIPT_TAIL = {
+    waiting: (s) => `<div class="script-actions"><button type="button" class="script-run resolves" data-script-run="${esc(s.id)}" data-sha="${esc(s.sha)}"><span class="script-hold" aria-hidden="true"></span>Hold to run</button><button type="button" data-script-decline="${esc(s.id)}">Decline</button></div>
+      <div class="small muted script-note">Nothing runs until you hold Run.</div><div class="small muted script-shared">Only the board’s owner can run it.</div>`,
+    running: (s) => `<div class="script-status work"><span class="working-dot"></span>Running on ${esc(s.host)}… ${logLink(s.log, 'Live output')}</div>`,
+    finished: (s) => `<div class="script-status ok">✓ Finished · exit 0${seconds(s.ms)}</div>${s.output ? `<details class="script-fold"><summary>Output · ${linesOf(s.output).length} lines</summary><pre class="script-pre">${esc(s.output)}</pre></details>` : ''}${logLink(s.log, 'Full output')}`,
+    failed: (s) => `<div class="script-status bad">✕ Failed · exit ${esc(s.exit)}${seconds(s.ms)}${s.timedOut ? ' · stopped at its time limit' : ''}</div>${s.output ? `<pre class="script-pre script-out">${esc(linesOf(s.output).slice(-TAIL_LINES).join('\n'))}</pre>` : ''}${logLink(s.log, 'Full output')}`,
+    declined: () => '<div class="script-status mute">Declined · nothing ran</div>',
+    replaced: () => '<div class="script-status mute">Replaced by a newer script · nothing ran</div>',
+  };
+  const scriptCard = (s) => `<div class="script-offer ${esc(s.state)}" data-script="${esc(s.id)}">
+      <div class="script-warn">⚠ Runs on ${esc(s.host)} as ${esc(s.user)}</div>
+      <div class="small muted">Shell script · ${linesOf(s.body).length} lines</div><pre class="script-pre">${esc(s.body)}</pre>${SCRIPT_TAIL[s.state](s)}</div>`;
   // A line naming a card (domain.mjs namedLine): its words, then the card's reference as it stands (ui-links.js cardRef).
   const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}`;
   const line = (m, links) => (m.kind === 'reply'
@@ -96,7 +118,7 @@
     })
     : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark('<span class="agent-dot"></span>') + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
         <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}</div>
-        <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${m.note ? `<blockquote class="quote">${linkText(m.note, links)}</blockquote>` : ''}${attachments(m.files)}
+        <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${m.note ? `<blockquote class="quote">${linkText(m.note, links)}</blockquote>` : ''}${attachments(m.files)}${m.script ? scriptCard(m.script) : ''}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
         ${msgFooter(m, [VIA[m.via]?.slice(3), m.moved && 'Moved', m.edited && 'Edited'].filter(Boolean))}

@@ -22,6 +22,7 @@ import { checkWords, parseCheck } from '../shared/owner-check.mjs';
 import { buildScriptOf } from './build-script.mjs';
 import { HUB, hubLineOf, hubText } from './hub-lines.mjs';
 import { startTitleFault } from './commit-message.mjs';
+import { scriptLogName } from './scripts.mjs';
 // The ask thread's line that says its card merged into another (hub-lines.mjs, store.mjs relateAsk).
 const MERGED_LINE = 'card-merged';
 
@@ -32,6 +33,25 @@ export const { BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES } = enums.Boa
 const { laneOrder, isMessage } = enums.BoardUI;
 
 export const ITEM_EVENTS = ['item-message', 'mark-ready', 'grill-more', 'prototype-request', 'visual-request', 'reask-request'];
+// docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
+// The events of a script offer on a card, each {key, id}: the owner's Run (with the script's sha), its result (exit,
+// output, timedOut, log, ms), written when the run ends, and the owner's Decline.
+export const SCRIPT_EVENTS = Object.freeze({ run: 'script-run', result: 'script-result', decline: 'script-decline' });
+const SCRIPT_VALUES = Object.values(SCRIPT_EVENTS);
+// An offer's state from its events and the newest offer on its card (live): finished or failed once its result is in,
+// declined, running from the Run tap, waiting while it is the card's newest offer, else replaced by a newer one.
+// → {state, exit?, output?, timedOut?, log?, ms?}
+export function scriptStateOf(offer, events, live) {
+  const mine = events.filter((e) => e.data?.id === offer.id);
+  const result = mine.find((e) => e.kind === SCRIPT_EVENTS.result);
+  if (result) {
+    const { exit, output, timedOut, log, ms } = result.data;
+    return { state: exit === 0 ? 'finished' : 'failed', exit, output: output ?? '', timedOut: Boolean(timedOut), log: log ?? null, ms: ms ?? null };
+  }
+  if (mine.some((e) => e.kind === SCRIPT_EVENTS.decline)) return { state: 'declined' };
+  if (mine.some((e) => e.kind === SCRIPT_EVENTS.run)) return { state: 'running', log: scriptLogName(offer.id) };
+  return { state: offer.id === live ? 'waiting' : 'replaced' };
+}
 // The owner's tap on a sent question's Resolved badge, {key?, question}: the question opens again (ownerQuestion), and
 // its card's thread reads "Question N was reopened". A record-only event, which wakes no session.
 export const QUESTION_REOPEN = 'question-reopen';
@@ -455,13 +475,15 @@ const mergeable = (pr, needsApproval) => !mergeBlockers(pr, { needsApproval }).l
 // question), questions, ready (a draft's review, then Ready on GitHub), done (an ask's Done in its thread), steps (manual
 // steps on an approved PR, which the session never merges on its own) or merge (the open card's Merge, while the board's
 // auto-merge is off, and always on a verified branch held for it), or, ahead of all of them, stalled (a card the
-// orchestrator stalled, cleared by a message in its thread). A held card waits on nobody, and a reopened card
+// orchestrator stalled, cleared by a message in its thread), then script (an offered script waiting on the owner's Run
+// or Decline in its thread). A held card waits on nobody, and a reopened card
 // waiting only on its Done has no action. Held only stops the automatic pull, so a held card has actions like any other
 // (docs/adr/2026-11-05-0500-held-only-stops-the-automatic-pull.md).
 function actionOf(it, questionById, autoMerge) {
   if (closedLane(it)) return null;
   const thread = `#selectedCard=${encodeURIComponent(it.key)}`;
   if (it.stalled) return { kind: ACTION_KIND.stalled, url: thread, label: `stalled: ${it.stalled}` };
+  if (it.scriptWaiting) return { kind: ACTION_KIND.script, url: thread, label: 'Run or decline the script' };
   if (asking(it)) {
     const q = questionById.get(it.questions.first);
     if (PROTOTYPE_URL.test(q?.url || '')) return { kind: ACTION_KIND.pick, url: `questions.html#${q.id}`, label: 'Prototypes ready: pick a take' };
@@ -521,10 +543,10 @@ export function noTakePicked(questions, key) {
 export const PROTOTYPE_AGAIN = 'Prototype again';
 
 // The open card's button that resolves each action kind, which the board page colours orange: an action button, the
-// PR's Review on GitHub, or Merge.
+// PR's Review on GitHub, Merge, or a script offer's Run in its thread (public/ui-threads.js scriptCard).
 const RESOLVED_BY = Object.freeze({
   [ACTION_KIND.pick]: BUTTON.openQuestions, [ACTION_KIND.questions]: BUTTON.openQuestions, [ACTION_KIND.ready]: BUTTON.github,
-  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.stalled]: BUTTON.reply, [ACTION_KIND.implement]: BUTTON.implement, [ACTION_KIND.close]: BUTTON.done,
+  [ACTION_KIND.steps]: BUTTON.github, [ACTION_KIND.merge]: BUTTON.merge, [ACTION_KIND.stalled]: BUTTON.reply, [ACTION_KIND.implement]: BUTTON.implement, [ACTION_KIND.close]: BUTTON.done, [ACTION_KIND.script]: BUTTON.run,
 });
 
 // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md
@@ -994,10 +1016,11 @@ export function threadIndex(events, owner = {}) {
   const questions = new Map();
   const topicOf = new Map();
   for (const q of owner.items || []) { add(questions, q.topic, q); topicOf.set(q.id, q.topic); }
-  const byKey = new Map(), answers = new Map(), reopens = new Map(), asks = new Map(), edits = new Map(), editFiles = new Map(), order = new Map();
+  const byKey = new Map(), answers = new Map(), reopens = new Map(), asks = new Map(), edits = new Map(), editFiles = new Map(), order = new Map(), scripts = new Map();
   events.forEach((e, i) => {
     order.set(e, i);
     if (e.data?.key && ITEM_EVENTS.includes(e.kind)) add(byKey, e.data.key, e);
+    if (e.data?.key && SCRIPT_VALUES.includes(e.kind)) add(scripts, e.data.key, e);
     if (e.kind === 'owner-answer' && topicOf.has(e.data?.id)) add(answers, topicOf.get(e.data.id), e);
     if (e.kind === QUESTION_REOPEN && topicOf.has(e.data?.question)) add(reopens, topicOf.get(e.data.question), e);
     if (e.kind === 'ask') asks.set(e.id, e);
@@ -1006,7 +1029,7 @@ export function threadIndex(events, owner = {}) {
     edits.set(e.data?.id, e.data?.text);
     for (const f of e.data?.files || []) add(editFiles, e.data?.id, f);
   }
-  return { byKey, answers, reopens, asks, edits, editFiles, questions, order };
+  return { byKey, answers, reopens, asks, edits, editFiles, questions, order, scripts };
 }
 // The events of several of an index's lists in the log's order.
 const inLogOrder = (index, lists) => {
@@ -1054,6 +1077,10 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
   // open while any question it holds is.
   const reopens = index.reopens.get(`item:${key}`) || [];
   const isOpen = (id) => asked.has(id) && ownerQuestion(asked.get(id), answers, [], [], reopens).state === 'open';
+  // A script offer carries its state (scriptStateOf); the card's newest offer is the one that can still wait.
+  const scriptEvents = index.scripts.get(key) || [];
+  const liveScript = lines.filter((m) => m.script).at(-1)?.script.id;
+  const scriptView = (s) => ({ id: s.id, body: s.body, sha: s.sha, host: s.host, user: s.user, ...scriptStateOf(s, scriptEvents, liveScript) });
   const msgs = [
     // First, so a start sorts above the status line `builder start` writes at the same moment.
     // A planner's lines are marked planner, which the thread draws in the owner's blue.
@@ -1065,7 +1092,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
     ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
-      ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
+      ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}), ...(m.script ? { script: scriptView(m.script) } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.
       .map((e) => ({ ts: e.ts, who: e.data.who === 'claude' ? 'claude' : 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies,
@@ -1197,6 +1224,8 @@ export function buildBoard(snapshot) {
         mergeAt: cardMerges.get(key), autoMerge, skipDraft: snapshot.skipDraft === true, tickets, landers: snapshot.landers || {}, landHeld: snapshot.landHeld || {}, landSkips: snapshot.landSkips || {}, plannerQueued: routeRecord(snapshot.queuedPlanners || {}, key) !== undefined,
       }));
       const card = items[items.length - 1];
+      // An offered script waits on the owner's Run or Decline (actionOf).
+      card.scriptWaiting = msgs.some((m) => m.script?.state === 'waiting');
       // A card filed from an ask takes the ask's place: Todo sorts it by when the ask was sent
       // (docs/adr/2026-11-10-1200-an-ask-is-titled-in-place-and-wears-an-ask-badge.md).
       if (asks.has(it.from_ask)) card.created = asks.get(it.from_ask).ts;
@@ -1502,7 +1531,7 @@ function needsOf(items, topics, questions) {
 // order (oldest first), a prompt and a held review left out, which show on the hub page and in the Auto Review lane
 // (docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md). Every entry has kind and
 // since; a question is its topic's id, a tap its key, title, word (what the owner does) and label (its action's words).
-const TAP_WORDS = { [ACTION_KIND.implement]: 'Implement', [ACTION_KIND.close]: 'Done' };
+const TAP_WORDS = { [ACTION_KIND.implement]: 'Implement', [ACTION_KIND.close]: 'Done', [ACTION_KIND.script]: 'Run' };
 function queueOf(needs) {
   return needs.filter((line) => !line.prompt && !line.review).map((line) => {
     const { since, progress } = line;

@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, SCRIPT_EVENTS, scriptStateOf, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -22,6 +22,7 @@ import { validateBranch } from '../hub/repos.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { merge3 } from './merge3.mjs';
+import { SCRIPT_LIMIT, runsAs, scriptLogName, scriptSha } from './scripts.mjs';
 import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText, detailOf, lineFault } from './hub-lines.mjs';
 import { fetchPR, prSize, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
@@ -457,19 +458,44 @@ export async function appendBuilderResumed(site, key) {
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 // A message holds at most MESSAGE_LIMIT characters; a longer one is refused for the orchestrator to rewrite shorter or
 // move into a page it links. A comment brought in from GitHub or Slack is kept whole.
-export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by, close, implement }) {
+// script: a file whose text the message offers for the owner to run on a work card
+// (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md), stored whole on the line with
+// its id, hash, and the host and user the board server runs it as.
+export async function appendMessage(site, key, { text: body, link, log, who = 'claude', via, by, close, implement, script: scriptFile }) {
   needSite(site);
   if (close && implement) fail('thread takes --implement or --close, not both');
   if ((close || implement) && (who !== 'claude' || via !== undefined)) fail(`thread --${close ? 'close' : 'implement'} is the orchestrator marking a task: it takes no --who or --via`);
+  if (scriptFile !== undefined && (who !== 'claude' || via !== undefined)) fail("--script is the orchestrator's offer: it takes no --who or --via");
+  if (scriptFile !== undefined && String(key).startsWith('ask:')) fail('--script goes on a task: name it <file>/<id>');
   await checkThreadKey(site, key);
   if (!/^[^\n]{1,40}$/.test(who.trim())) fail('--who takes claude, love or a reviewer\'s name');
   if (via !== undefined && !VIA.includes(via)) fail(`--via takes ${VIA.join(' or ')}`);
   const words = via === undefined ? messageText(body) : text(body, '--text');
-  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: optional(link, (v) => pageUrl(v, '--link')), log, via, by };
+  const script = scriptFile === undefined ? undefined : scriptOf(scriptFile);
+  const line = { ts: new Date().toISOString(), who: who.trim(), text: words, link: optional(link, (v) => pageUrl(v, '--link')), log, via, by, script };
   const file = threadFile(site, key);
   if (close || implement) await markWaiting(site, key, close ? 'close' : 'implement');
   await appendLine(file, line);
   return { file, lines: line.who === 'claude' && !via ? await freshenPush(site, key, line.text) : [] };
+}
+function scriptOf(file) {
+  const body = readFileSync(String(file), 'utf8');
+  if (!body.trim()) fail(`--script ${file} is empty: offer the script the owner should run`);
+  if (body.length > SCRIPT_LIMIT) fail(`--script runs to ${body.length} characters, past a script's ${SCRIPT_LIMIT}: offer a shorter one`);
+  return { id: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, body, sha: scriptSha(body), ...runsAs() };
+}
+// The script offer id on card key as the board reads it (domain.mjs scriptStateOf): {offer: the line's script, state}.
+export async function readScriptOffer(site, key, id) {
+  const offers = (await readLines(threadFile(site, key))).filter((m) => m.script);
+  const offer = offers.find((m) => m.script.id === id)?.script;
+  if (!offer) fail(`${key} has no script ${id}`);
+  const events = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.data?.key === key && e.data?.id === id);
+  return { offer, state: scriptStateOf(offer, events, offers.at(-1).script.id).state };
+}
+// A finished run of script id on card key ({exit, output, timedOut, ms}) as its script-result event, through the board
+// server so it wakes the watcher (hub/boards.mjs appendEvent).
+export async function recordScriptResult(site, key, id, result) {
+  return appendEvent(boardTarget(site), SCRIPT_EVENTS.result, { key, id, ...result, log: scriptLogName(id) });
 }
 // A message's words, refused past MESSAGE_LIMIT, which a command checks before it changes anything.
 export function messageText(body) {

@@ -187,6 +187,12 @@
 //                                file couldn't be written, or whose card is merged or dropped, → 400 or 500 {error}
 //                                and no event (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
 //                                ask-withdrawn {id, key?} also hides that event (POST /api/hide), in the one request.
+//                                script-run {key, id, sha} and script-decline {key, id} are the owner's Run and Decline
+//                                on a card's waiting script offer, never a shared person's; one of an offer that isn't
+//                                waiting → 400, a Run whose sha isn't the offer's → 409, and nothing recorded. A Run
+//                                starts bin/script-run.mjs detached, which posts script-result
+//                                {key, id, exit, output, timedOut, ms, log} when the script ends
+//                                (docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md).
 //                                An owner-answer goes into its card's notes verbatim, and one that leaves an unstarted
 //                                card with nothing open stages it (store.mjs settleAnswers).
 //                                Each new or changed Action needed, and each topic's new open questions, push the
@@ -337,7 +343,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { SCRIPT_EVENTS, BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -347,7 +353,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { readScriptOffer, restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -370,6 +376,14 @@ import { SlackError, SLACK_NEEDS_TOKEN, savedSlack, slackStatus } from '../hub/s
 import { collaborators, githubUser } from '../hub/pr-report.mjs';
 
 const template = path.dirname(fileURLToPath(import.meta.url));
+// Starts the runner of card key's offered script id on the board at site, detached in cwd, the board's repo folder
+// (bin/script-run.mjs), so a restart of the server doesn't stop it; the runner posts its script-result event when it
+// ends. → the child process
+export function startScriptRunner(site, key, id, cwd) {
+  const child = spawn(nodeBin(), [path.join(template, 'bin', 'script-run.mjs'), site, key, id, cwd], { detached: true, stdio: 'ignore' });
+  child.unref();
+  return child;
+}
 // The hub's Home Screen icon, versioned by mtime the way hub/hub.mjs iconUrl() does, so iOS refetches a replaced icon.
 async function touchIcon() {
   const st = await fs.stat(path.join(template, '..', 'hub', 'icon-180.png')).catch(() => null);
@@ -388,14 +402,15 @@ async function pageHeaders(html) {
 // time it stamps or compares; watch(changed), when given, starts the file watch that reports each write to changed,
 // before the start's last passes run; launch starts each agent the board launches, a builder, lander, planner, visual
 // agent or helper, taking agents.mjs launchAgent's arguments and answering as it does (launchAgent itself unless a test
-// passes its own). → {server, changed(file), minute(), settled(), close()}:
+// passes its own); startScript starts an offered script's run, taking startScriptRunner's arguments (itself unless a
+// test passes its own). → {server, changed(file), minute(), settled(), close()}:
 // - changed(file) stands for the watch reporting a write to file (a path, relative to site or absolute), or with no
 //   file a change it can't name.
 // - minute() runs the minute's checks, which the script runs every 60 s.
 // - settled() resolves once every pass a change, a minute or a request started has finished, the passes those
 //   started included.
 // - close() waits for settled(), then stops listening and drops every connection, the page streams included.
-export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), watch, launch = launchAgent } = {}) {
+export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), watch, launch = launchAgent, startScript = startScriptRunner } = {}) {
   const here = path.resolve(site);
   const roots = [path.join(here, 'public'), path.join(template, 'public'), path.join(template, '..', 'starter', 'public'), path.join(template, '..', 'shared')];
   const data = path.join(here, 'data');
@@ -1150,6 +1165,25 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           delete body.for;
           if (end !== FOREVER) body.until = end.toISOString();
         }
+        // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md: a Run or Decline only of the
+        // card's waiting offer, a Run only of the text the page drew (its sha); a Run starts the script once.
+        if (kind === SCRIPT_EVENTS.run || kind === SCRIPT_EVENTS.decline) {
+          const key = String(body.key || '');
+          const id = String(body.id || '');
+          let read, cwd;
+          try {
+            read = await readScriptOffer(here, key, id);
+            if (kind === SCRIPT_EVENTS.run) cwd = builderRepo(here).repo;
+          } catch (e) { if (e instanceof BoardError) return json(res, 400, { error: e.message }); throw e; }
+          if (read.state !== 'waiting' || scriptTaps.has(id)) return json(res, 400, { error: `That script is ${scriptTaps.has(id) ? 'running' : read.state}, so it takes no ${kind === SCRIPT_EVENTS.run ? 'Run' : 'Decline'}.` });
+          if (kind === SCRIPT_EVENTS.run && body.sha !== read.offer.sha) return json(res, 409, { error: 'This script changed since the page drew it. Read it again before you run it.' });
+          scriptTaps.add(id);
+          try {
+            const eventId = await appendEvent(kind, { key, id, ...(kind === SCRIPT_EVENTS.run ? { sha: read.offer.sha } : {}), ...(sendId ? { sendId } : {}) });
+            if (kind === SCRIPT_EVENTS.run) runOfferedScript(key, id, cwd);
+            return json(res, 200, { id: eventId, board: await answerBoard(req, since) });
+          } finally { scriptTaps.delete(id); }
+        }
         // docs/adr/2026-11-03-0219-a-build-tap-starts-the-build-in-the-board-server.md
         if (kind === 'card-build') {
           const key = String(body.key || '');
@@ -1886,6 +1920,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     } finally {
       revivingHeadless = false;
     }
+  }
+
+  // The script offers whose Run or Decline is being recorded, so two taps at once record one.
+  const scriptTaps = new Set();
+  // Starts card key's offered script id in cwd (startScript), a runner that couldn't start going in the audit log.
+  function runOfferedScript(key, id, cwd) {
+    startScript(here, key, id, cwd).on('error', (e) => logCall({ call: 'script-run', key, result: 'failed', reason: e.message, inputs: { id } }));
   }
 
   // The land a held card's Merge tap starts: `board.mjs merge <key>`, detached so a land that restarts this server

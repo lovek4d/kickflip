@@ -345,6 +345,44 @@ BoardView.part((B) => {
     if (ev.target.matches?.('form[data-reply]')) for (const b of ev.target.querySelectorAll('button[data-proto], button[data-grill], button[data-visual]')) b.disabled = BoardAttach.busy(ev.detail.id, B.site.root);
   });
 
+  // docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
+  // A script offer's Run sends only after a hold of HOLD_MS, its bar filling meanwhile; letting go sooner sends nothing.
+  // From the keyboard, which can't hold, Run asks a confirm instead. Run names the script's id and the sha of the text the
+  // page drew; Decline confirms first. Neither goes through the outbox, so a reload never sends one again.
+  const HOLD_MS = 900;
+  let holding = null;
+  const scriptTap = async (button, kind, data) => {
+    const key = button.closest('[data-thread]')?.dataset.thread;
+    if (!key) return;
+    try { await BoardUI.waitOn(button, B.send(kind, { key, ...data })); } catch (e) { B.failed(e); }
+    loadThread(key, { force: true });
+  };
+  const runOf = (b) => scriptTap(b, 'script-run', { id: b.dataset.scriptRun, sha: b.dataset.sha });
+  const letGo = () => {
+    if (!holding) return;
+    clearTimeout(holding.timer);
+    holding.button.classList.remove('holding');
+    holding = null;
+  };
+  B.on(B.root, 'pointerdown', (ev) => {
+    const b = ev.target.closest('[data-thread] button[data-script-run]');
+    if (!b || ev.button !== 0) return;
+    ev.preventDefault();
+    letGo();
+    b.style.setProperty('--hold-ms', `${HOLD_MS}ms`);
+    b.classList.add('holding');
+    holding = { button: b, timer: setTimeout(() => { const held = holding.button; letGo(); runOf(held); }, HOLD_MS) };
+  });
+  for (const type of ['pointerup', 'pointercancel']) B.on(document, type, letGo);
+  B.on(B.root, 'pointerout', (ev) => { if (holding && ev.target.closest('button[data-script-run]') === holding.button && !holding.button.contains(ev.relatedTarget)) letGo(); });
+  B.on(B.root, 'contextmenu', (ev) => { if (ev.target.closest('button[data-script-run]')) ev.preventDefault(); });
+  B.on(B.root, 'click', async (ev) => {
+    const run = ev.target.closest('[data-thread] button[data-script-run]');
+    if (run && ev.detail === 0 && await B.confirm('Run this script on the host? It can’t be undone.') && B.alive()) runOf(run);
+    const decline = ev.target.closest('[data-thread] button[data-script-decline]');
+    if (decline && await B.confirm('Decline this script? Nothing runs.') && B.alive()) scriptTap(decline, 'script-decline', { id: decline.dataset.scriptDecline });
+  });
+
   Object.assign(B, {
     thread, renderThread, loadThread, takeThreads, fillThreads, resendOutbox, enqueue, unsentAsks,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },

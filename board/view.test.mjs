@@ -4334,7 +4334,9 @@ test("every owner action kind the board derives makes exactly one of the open ca
       { id: 'X', title: 'Stalled', lane: 'progress', stalled: { reason: 'Crashed twice', at: '2026-10-30T09:00:00Z' } },
       { id: 'I', title: 'Implement', phase: 'discussing', waits_on_owner: { on: 'implement', at: '2026-10-30T09:00:00Z' } },
       { id: 'C', title: 'Close', waits_on_owner: { on: 'close', at: '2026-10-30T09:00:00Z' } },
+      { id: 'Z', title: 'Script', lane: 'progress' },
     ] } }],
+    threads: { 'w/Z': [{ ts: '2026-10-30T09:00:00Z', who: 'claude', text: 'Kills the stuck builder.', script: { id: 's1', body: 'kill 1', sha: 'abc', host: 'mac', user: 'love' } }] },
   });
   assert.deepEqual(built.items.filter((i) => i.action).map((i) => i.action.kind).sort(), Object.values(ACTION_KIND).sort());
   for (const i of built.items) {
@@ -4343,10 +4345,10 @@ test("every owner action kind the board derives makes exactly one of the open ca
   }
 
   const mounted = async (items) => {
-    const b = boardOnDom({ open: items.map((i) => i.key), board: { ...built, items, title: 'A', generatedAt: '2026-10-30T10:00:00.000Z' }, threads: {} });
+    const b = boardOnDom({ open: items.map((i) => i.key), board: { ...built, items, title: 'A', generatedAt: '2026-10-30T10:00:00.000Z' }, threads: { 'w/Z': built.threadViews['w/Z'] } });
     await b.settle();
     const row = (key) => b.root.querySelector(`details.item[data-key="${key}"] .detail`);
-    const counts = Object.fromEntries(items.map((i) => [i.key, [row(i.key)?.querySelectorAll('.action-row.workflow a, .action-row.workflow button').length ?? 0, row(i.key)?.querySelectorAll('.actions .resolves, .external-links .resolves, form[data-reply] .resolves').length ?? 0]]));
+    const counts = Object.fromEntries(items.map((i) => [i.key, [row(i.key)?.querySelectorAll('.action-row.workflow a, .action-row.workflow button').length ?? 0, row(i.key)?.querySelectorAll('.actions .resolves, .external-links .resolves, form[data-reply] .resolves, [data-thread] .script-run.resolves').length ?? 0]]));
     return { counts, ui: b.page.win.BoardUI };
   };
   const shown = await mounted(built.items);
@@ -4365,6 +4367,30 @@ test("every owner action kind the board derives makes exactly one of the open ca
     }
   }
   assert.throws(() => { BUTTON.merge = 'done'; }, TypeError);
+});
+
+// docs/adr/2026-11-14-2359-the-orchestrator-offers-a-script-and-the-owner-holds-run.md
+test("a script offer's Run sends only after a full hold, naming the script and its sha; letting go sooner sends nothing, and Decline confirms first", async () => {
+  const offer = { ts: '2026-11-13T10:00:00Z', who: 'claude', text: 'Kills the stuck builder.', script: { id: 's1', body: 'kill 1', sha: 'abc', host: 'mac', user: 'love', state: 'waiting' } };
+  const b = boardOnDom({ open: ['w/Z'], board: boardOf([workCard('Z', { lane: 'progress' })]), threads: { 'w/Z': [offer] } });
+  await b.settle();
+  const run = () => b.root.querySelector('[data-thread="w/Z"] button[data-script-run]');
+  b.page.fire(b.root, 'pointerdown', { target: run(), button: 0 });
+  assert.equal(run().classList.contains('holding'), true);
+  b.page.fire(b.page.win.document, 'pointerup', { target: run() });
+  b.page.runTimers(900);
+  await b.settle();
+  assert.deepEqual([b.sent, run().classList.contains('holding')], [[], false]);
+
+  b.page.fire(b.root, 'pointerdown', { target: run(), button: 0 });
+  b.page.runTimers(900);
+  await b.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['script-run', { key: 'w/Z', id: 's1', sha: 'abc' }]]);
+
+  b.page.fire(b.root, 'click', { target: b.root.querySelector('[data-thread="w/Z"] button[data-script-decline]'), detail: 1 });
+  await b.settle();
+  assert.deepEqual([b.confirms, b.sent.length], [['Decline this script? Nothing runs.'], 1]);
+  b.view.unmount();
 });
 
 test("a card opened with more than 3 unread messages shows them all, and once closed reopens at its newest 3; Show more adds 3 older ones, and a new message adds below without hiding any until the card closes", async () => {
