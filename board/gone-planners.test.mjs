@@ -65,14 +65,38 @@ test('a live planner, one the card has a question from, and a record with no pro
   assert.equal(asked.thread().some((l) => l.line === 'planner-unasked'), false);
 });
 
-test('a gone visual agent closes its record with no unasked line, and a builder is never touched', async () => {
+test('a gone visual agent that placed no page closes with visual-unplaced, and a builder is never touched', async () => {
   const w = world();
   w.open('visual', 'A1@visual-1.json');
   w.open('builder');
   assert.deepEqual(await closeGonePlanners(w.site, gone), [{ key: 't/A1', kind: 'visual', failed: null }]);
   assert.ok(w.record('A1@visual-1.json').done);
   assert.equal(w.record().done, undefined);
-  assert.equal(w.thread().length, 0);
+  assert.deepEqual(w.thread().map((l) => l.line), ['visual-unplaced']);
+});
+
+test('a gone visual agent whose page is on the thread closes quietly', async () => {
+  const w = world();
+  w.open('visual', 'A1@visual-1.json');
+  fs.mkdirSync(path.join(w.data, 'threads'), { recursive: true });
+  fs.writeFileSync(path.join(w.data, 'threads', 't__A1.jsonl'), JSON.stringify({ ts: new Date(Date.now() + 1000).toISOString(), who: 'claude', kind: 'visual', text: 'Page', link: 'https://x/y' }) + '\n');
+  await closeGonePlanners(w.site, gone);
+  assert.ok(w.record('A1@visual-1.json').done);
+  assert.deepEqual(w.thread().map((l) => l.line), [undefined]);
+});
+
+test('a planner or visual agent the usage limit stopped closes with no line and comes back for the server to relaunch after the reset', async () => {
+  const until = new Date(Date.now() + 3600e3).toISOString();
+  for (const [kind, file, phase] of [['grill', 'A1.json', 'grilling'], ['visual', 'A1@visual-1.json', 'grilling']]) {
+    const w = world(phase);
+    w.open(kind, file);
+    const rec = w.record(file);
+    fs.writeFileSync(path.join(w.data, 'agents', file), JSON.stringify({ ...rec, brief: { kind, at: 'b', brief: { heading: 'h' } } }));
+    const closed = await closeGonePlanners(w.site, { alive: () => false, failure: () => 'Limit reached', limited: () => until });
+    assert.deepEqual(closed, [{ key: 't/A1', kind, failed: null, limited: { until, brief: { kind, at: 'b', brief: { heading: 'h' } } } }]);
+    assert.ok(w.record(file).done);
+    assert.equal(w.thread().length, 0, kind);
+  }
 });
 
 test('runFailure reads a run log: null after a clean result, the error text after an error result, and a words of its own with no result', () => {

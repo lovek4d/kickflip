@@ -2467,6 +2467,12 @@ async function dropBrief(site, key, kind) {
   if (!item.briefs.length) delete item.briefs;
   await writeJSON(source.file, itemFile);
 }
+// A brief put back on the card for its agent to launch from again (a visual agent the usage limit stopped).
+export async function restoreBrief(site, key, entry) {
+  const { source, itemFile, item } = await loadItem(site, key);
+  item.briefs = [...(item.briefs || []), entry];
+  await writeJSON(source.file, itemFile);
+}
 // The oldest written brief of kind on the card, left on it, or null.
 const briefOn = async (site, key, kind) => ((await loadItem(site, key)).item.briefs || []).find((b) => b.kind === kind && b.brief) ?? null;
 const noBrief = async (site, key, kind) => fail(`${await cardName(site, key)} has no ${kind} brief; the orchestrator writes it with item brief ${key} --kind ${kind} --file <draft.md>`);
@@ -5269,8 +5275,17 @@ export async function stopBuilder(site, key, { dir, agent, startedBetween, note,
 // keeps its prototype answer (gates.prototype) may have nothing to ask: that card moves on instead (moveOnAnswered).
 // → {file, lines}
 export async function stopPlanner(site, key, flags) {
-  const kind = (await readJSON(await builderFile(site, key, undefined, flags.agent), null))?.kind;
+  const record = await readJSON(await builderFile(site, key, undefined, flags.agent), null);
+  const kind = record?.kind;
   const file = await stopBuilder(site, key, flags);
+  // docs/adr/2026-11-14-2015-a-clean-visual-end-with-no-page-reads-unplaced.md: a visual agent's page is a visual thread line since its record started.
+  if (kind === VISUAL) {
+    if (!record.started || record.done) return { file, lines: [] };
+    const placed = (await readLines(threadFile(site, key))).some((m) => m.kind === VISUAL && String(m.ts) >= record.started);
+    if (placed) return { file, lines: [] };
+    const { line, lines } = await appendStatus(site, key, 'visual-unplaced', {});
+    return { file, lines: [line.text, ...lines] };
+  }
   const { phase, gates } = (await loadItem(site, key)).item;
   const asked = await hasOpenQuestion(site, key) || Boolean((await readJSON(stagedFile(site), {}))[key]);
   if (phase !== { grill: 'grilling', prototype: 'prototyping' }[kind] || asked) return { file, lines: [] };
@@ -5282,9 +5297,11 @@ export async function stopPlanner(site, key, flags) {
 // docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md
 // Each open planner record (grill, prototype, visual) of a process the board launched, which alive(record) says is gone,
 // closes now. failure(record) is the words its run failed with, or null for a clean end: a failure closes as
-// planner-failed (abandonPlanner); a clean grill or prototype as `builder done` closes it (stopPlanner, so
-// planner-unasked when no question came); a clean visual quietly. → [{key, kind, failed}]
-export async function closeGonePlanners(site, { alive, failure }) {
+// planner-failed (abandonPlanner); a clean grill, prototype or visual as `builder done` closes it (stopPlanner, so
+// planner-unasked when no question came, visual-unplaced when no page did). A run the usage limit stopped, which
+// limited(record) says with the limit's reset (else null), closes with no line, for the server to relaunch after the
+// reset. → [{key, kind, failed, limited?: {until, brief}}]
+export async function closeGonePlanners(site, { alive, failure, limited = () => null }) {
   const closed = [];
   for (const source of await itemSources(site)) {
     // The records' file names carry the card ids, so a pass with no planner open reads no item file.
@@ -5296,9 +5313,14 @@ export async function closeGonePlanners(site, { alive, failure }) {
       if (!record?.started || record.done || !plans(record) || !record.session?.pid || alive(record)) continue;
       const key = `${source.slug}/${id}`;
       const agent = named.join('@') || 'main';
+      const until = limited(record);
+      if (until) {
+        await stopBuilder(site, key, { agent });
+        closed.push({ key, kind: record.kind, failed: null, limited: { until, brief: record.brief ?? null } });
+        continue;
+      }
       const failed = failure(record);
       if (failed) await abandonPlanner(site, key, ['planner-failed', { kind: record.kind === VISUAL ? 'visual agent' : record.kind, error: failed }], agent);
-      else if (record.kind === VISUAL) await stopBuilder(site, key, { agent });
       else await stopPlanner(site, key, { agent });
       closed.push({ key, kind: record.kind, failed });
     }

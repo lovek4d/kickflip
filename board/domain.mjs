@@ -417,6 +417,8 @@ function waitFactsOf(it, { agents, thread, events, refusedAt, replyAt }) {
   return {
     handedBackAt: handedBackAt(agents), next: it.next || null, ask: ask ? { at: ask.ts, text: ask.text } : null,
     unasked: thread.filter((m) => m.line === 'planner-unasked').sort((a, b) => String(a.ts).localeCompare(String(b.ts))).map((m) => ({ at: m.ts, kind: m.detail })).pop() || null,
+    unplaced: thread.filter((m) => m.line === 'visual-unplaced').map((m) => m.ts).sort().pop() || null,
+    pages: thread.filter((m) => m.kind === VISUAL).map((m) => m.ts),
     grillAt: requestAt('grill'), prototypeAt: requestAt('prototype'), refusedAt, replyAt, unblockedAt: it.unblocked_at || null,
     unverified: unverifiedOf(agents),
     writes: [...lines, ...agents.flatMap((a) => [a.verified?.at, a.started])].filter(Boolean).map(String).sort(),
@@ -1833,6 +1835,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
   const lastBuild = [it.progressSince, ...it.agents.map((a) => a.done)].filter(Boolean).map(String).sort().pop() || null;
   const unasked = facts.unasked && it.storedPhase === { grill: 'grilling', prototype: 'prototyping' }[facts.unasked.kind]
     && !it.agents.some((a) => a.kind === facts.unasked.kind && a.started && (!a.done || String(a.started) > facts.unasked.at)) ? facts.unasked : null;
+  const unplaced = facts.unplaced && !facts.pages.some((t) => String(t) > facts.unplaced)
+    && !it.agents.some((a) => a.kind === VISUAL && a.started && (!a.done || String(a.started) > facts.unplaced)) ? facts.unplaced : null;
   const waits = [
     facts.ask && { kind: 'ask', since: facts.ask.at, next: `Answer the builder's ask: ${facts.ask.text}` },
     it.staging && { kind: 'staging', since: it.stagedAt, next: STAGING_NEXT },
@@ -1858,6 +1862,8 @@ function orchestratorWaitsOf(it, facts, { answeredAt, workingSince }) {
       // docs/adr/2026-11-11-1300-a-planner-that-ends-without-its-question-waits-on-the-orchestrator.md: held until the card
       // has a question (the owner's answer it owes, above), a planner of that kind running or started since, or a new phase.
       unasked && { kind: 'unasked', since: unasked.at, next: `Its ${unasked.kind} planner ended without its question: read its log, then post the question, start the planner again, or move the task's phase` },
+      // docs/adr/2026-11-14-2015-a-clean-visual-end-with-no-page-reads-unplaced.md: held until a page lands or a newer visual agent starts.
+      unplaced && { kind: 'visual', since: unplaced, next: 'Its visual agent ended without placing its page: read its log, then place the page with visual add, or ask for the visual again' },
       // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a ready Todo card whose block ended waits
       // for the re-check that releases it to the pull.
       it.recheckAt && it.lane === 'todo' && it.phase === 'ready' && !it.blocked && { kind: 'recheck', since: it.recheckAt, next: RECHECK_NEXT },

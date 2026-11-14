@@ -347,7 +347,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { restageStaleReady, replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, restoreBrief, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -1520,8 +1520,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const gone = await closeGonePlanners(here, {
       alive: (record) => agentMayRun({ pid: record.session.pid, at: record.session.at }),
       failure: (record) => runFailure(path.join(home, '.claude', 'kickflip', 'logs', record.session.log ?? '')),
+      limited: (record) => (record.session.log ? runLimit(path.join(home, '.claude', 'kickflip', 'logs', record.session.log)) : null),
     });
-    for (const c of gone) logCall({ call: 'planner-gone', key: c.key, result: c.failed ? 'failed' : 'closed', reason: `Its ${c.kind} planner's process was gone with its record open.`, inputs: c });
+    for (const c of gone) {
+      if (c.limited) await saveQueuedPlanners({ ...(await readJSON(queuedPlanners, {})), [c.key]: { kind: c.kind, kept: c.limited.brief, until: c.limited.until } });
+      logCall({ call: 'planner-gone', key: c.key, result: c.limited ? 'queued' : c.failed ? 'failed' : 'closed', reason: c.limited ? `Its ${c.kind} run stopped at the usage limit, which resets at ${c.limited.until}; it relaunches then.` : `Its ${c.kind} planner's process was gone with its record open.`, inputs: c });
+    }
     if (gone.length) dataVersion++;
     const log = await readLines(events);
     const { items, reviews } = await sharedBoard();
@@ -1791,12 +1795,14 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // The planners launchPlanner queued during a hold, oldest asked first, each once, until a launch is held again.
   async function launchQueuedPlanners() {
-    for (const [key, { kind, kept }] of Object.entries(await readJSON(queuedPlanners, {}))) {
+    for (const [key, { kind, kept, until }] of Object.entries(await readJSON(queuedPlanners, {}))) {
       if (launchHeldNow()) return;
+      if (until && Date.parse(until) > Date.now()) continue;
       const { [key]: _, ...rest } = await readJSON(queuedPlanners, {});
       await saveQueuedPlanners(rest);
       logCall({ call: 'planner-queued', key, result: 'launching', reason: 'The hold it waited on has lifted.', inputs: { kind } });
-      await launchPlanner(key, kind, kept);
+      if (kind === 'visual') await restoreBrief(here, key, kept);
+      else await launchPlanner(key, kind, kept);
       dataVersion++;
     }
   }

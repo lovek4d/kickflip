@@ -2471,6 +2471,19 @@ test("a planner's unasked line is an orchestrator wait on a card still in its ph
   assert.deepEqual(waits({ phase: 'prototyping', kind: 'grill' }), [], 'another phase than its planner kind');
 });
 
+// docs/adr/2026-11-14-2015-a-clean-visual-end-with-no-page-reads-unplaced.md
+test("a visual-unplaced line is an orchestrator wait held until a page lands or a newer visual agent starts", () => {
+  const at = '2026-11-04T10:00:00Z';
+  const line = { ts: at, who: 'claude', kind: 'hub', line: 'visual-unplaced', text: 'Its visual agent ended without placing its page, so it waits on the orchestrator.' };
+  const page = { ts: '2026-11-04T10:10:00Z', who: 'claude', kind: 'visual', text: 'Page', link: 'https://x/y' };
+  const waits = ({ thread = [line], agents = {} }) => orchestratorWaits(buildBoard({ now: Date.parse('2026-11-04T11:00:00Z'), owner: {}, events: [], threads: { 'w/A1': thread }, working: {},
+    files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'todo', phase: 'ready' }] } }] })).map(({ kind, since }) => [kind, since]);
+  const visual = (started, done) => ({ A1: { 'visual-1': { kind: 'visual', started, ...(done ? { done } : {}) } } });
+  assert.deepEqual(waits({ agents: visual('2026-11-04T09:00:00Z', '2026-11-04T09:59:00Z') }), [['visual', at]]);
+  assert.deepEqual(waits({ thread: [line, page], agents: visual('2026-11-04T09:00:00Z', '2026-11-04T09:59:00Z') }), [], 'a page clears it');
+  assert.deepEqual(waits({ agents: visual('2026-11-04T10:30:00Z') }), [], 'a newer visual agent clears it');
+});
+
 // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
 test('the board lists each card idle on the orchestrator, In Progress then Todo, with since and when it was picked up', () => {
   const at = '2026-11-04T10:00:00Z';
