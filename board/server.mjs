@@ -1024,7 +1024,10 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }, Math.max(0, Math.min(CHANGE_QUIET, changeFirst + CHANGE_MAX - at)));
   }
 
-  const server = http.createServer((req, res) => track(answer(req, res)));
+  // Requests that come in while the startup passes run wait for them (ready), so none reads the board half-migrated.
+  let started;
+  const ready = new Promise((resolve) => { started = resolve; });
+  const server = http.createServer((req, res) => track(ready.then(() => answer(req, res))));
   async function answer(req, res) {
     try {
       if (req.method !== 'GET' && req.method !== 'HEAD') dataVersion++;
@@ -2216,6 +2219,14 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (moved.length) console.log(`Done archive: ${moved.length} card${moved.length === 1 ? '' : 's'} moved`);
   }
 
+  // The server holds its port before any startup side effect: a process that loses the port to another one on the
+  // same board rejects here having written and launched nothing
+  // (docs/adr/2026-11-14-0730-a-board-server-holds-its-port-before-it-launches-anything.md).
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+  });
+
   // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md
   try { for (const line of await migrateFollowups(here)) console.log(line); } catch (e) { console.error('follow-up migration:', e.message); }
   try { for (const line of await migrateStatuses(here)) console.log(line); } catch (e) { console.error('status migration:', e.message); }
@@ -2236,7 +2247,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   track(checkActions());
   track(checkWaits());
   track(checkIdle());
-  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
+  started();
 
   // The minute's checks.
   function minute() {

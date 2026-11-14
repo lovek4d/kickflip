@@ -3,6 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import path from 'node:path';
 import { freePorts } from '../shared/test-helpers.mjs';
 
@@ -111,4 +114,35 @@ test('with KICKFLIP_CODE_RESTARTS=off, as a try run\'s demo hub runs, a board se
   await hub.reconcile();
   assert.equal(await pid(), first);
   assert.ok(!hub.lines.some((l) => /older code than its files/.test(l)));
+});
+
+// docs/adr/2026-11-14-0730-a-board-server-holds-its-port-before-it-launches-anything.md
+test("a stray copy of a board's server holding its port is stopped, and the hub starts the board once, after the port frees", async (t) => {
+  const signal = await signals(t);
+  const { dir, shopPort } = await shopSite(signal.port);
+  const { sites: { shop } } = JSON.parse(fs.readFileSync(path.join(web, 'manifest.json'), 'utf8'));
+  // A server the hub has no record of, as a hub that died hard leaves with its pid file gone.
+  const stray = spawn(shop.cmd[0], shop.cmd.slice(1), { cwd: dir, env: { ...process.env, PORT: String(shopPort), SIGNALS: String(signal.port) }, stdio: 'ignore' });
+  t.after(() => stray.kill('SIGKILL'));
+  assert.equal(await signal.up(), stray.pid);
+  const exited = once(stray, 'exit');
+  const hub = await inProcessHub(t, { codeRestarts: false });
+  assert.equal(await hub.logged(/^stopped stray shop/), `stopped stray shop on port ${shopPort} (pid ${stray.pid})`);
+  await exited;
+  const started = await signal.up();
+  assert.notEqual(started, stray.pid);
+  assert.equal(hub.lines.filter((l) => l.startsWith('started shop')).length, 1, 'one start');
+  assert.ok(!hub.lines.some((l) => l.startsWith('shop exited')), 'no start lost the port');
+});
+
+test("a port held by a process that isn't the board's server keeps the board from starting, and the hub says who holds it", async (t) => {
+  const signal = await signals(t);
+  const { shopPort } = await shopSite(signal.port);
+  const other = net.createServer();
+  await new Promise((resolve) => other.listen(shopPort, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => other.close(resolve)));
+  const hub = await inProcessHub(t, { codeRestarts: false });
+  await hub.reconcile();
+  assert.ok(hub.lines.some((l) => l.startsWith(`shop not started: port ${shopPort} is held by pid ${process.pid} `)), hub.lines.join('\n'));
+  assert.ok(!hub.lines.some((l) => l.startsWith('started shop')));
 });

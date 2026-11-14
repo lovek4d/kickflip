@@ -4816,7 +4816,10 @@ export async function addVisual(site, key, { file, title }) {
 
 // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
 // The builds the board server started (a pull, a Build tap, a queued start) whose launch it never made: a card not done
-// whose main build record is open with dispatched still set, since a builder's own `builder start` clears that mark.
+// whose main build record is open with dispatched still 'tap' or 'hub', since a builder's own `builder start` clears
+// that mark. Those records keep the pick's kind and model and the worktree the start made, which the launch's brief
+// names. A session's dispatch ('session') is left alone: the session launches that agent itself
+// (docs/adr/2026-11-14-0730-a-board-server-holds-its-port-before-it-launches-anything.md).
 // → [{key, kind, model}], launchBuilder's card for each.
 export async function cutOffBuilds(site) {
   const out = [];
@@ -4825,7 +4828,7 @@ export async function cutOffBuilds(site) {
     for (const item of itemFile?.items || []) {
       if (closed(item)) continue;
       const record = await readJSON(path.join(source.dir, 'agents', `${item.id}.json`), null);
-      if (!record?.started || record.done || !record.dispatched || plans(record)) continue;
+      if (!record?.started || record.done || !['tap', 'hub'].includes(record.dispatched) || plans(record)) continue;
       out.push({ key: `${source.slug}/${item.id}`, kind: providerOf(record.kind), model: record.model });
     }
   }

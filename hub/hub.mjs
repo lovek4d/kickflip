@@ -242,6 +242,14 @@ const stampedLog = (...a) => console.log(new Date().toISOString(), ...a);
 
 // Whether something listens on the port, within PROBE_TIMEOUT.
 const PROBE_TIMEOUT = 2000;
+// The process listening on 127.0.0.1's port, {pid, command}, as lsof and ps name it; null when neither can.
+function portHolder(port) {
+  try {
+    const pid = Number(execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' }).trim().split('\n')[0]);
+    return { pid, command: execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim() };
+  } catch { return null; }
+}
+
 function tcpProbe(port) {
   return new Promise((resolve) => {
     const s = net.connect({ port, host: '127.0.0.1' });
@@ -330,6 +338,32 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       if (cmdline && cmdline.includes(site.cmd[site.cmd.length - 1])) { process.kill(-pid, 'SIGTERM'); log(`stopped stale ${route} (pgid ${pid})`); }
     } catch {}
     try { fs.unlinkSync(pidFile(route)); } catch {}
+  }
+
+  // docs/adr/2026-11-14-0730-a-board-server-holds-its-port-before-it-launches-anything.md
+  // Whether a site's port is free for the hub to start its server. A process the hub has no child for that runs the
+  // site's command (one a hub that died hard left, its pid file gone) is stopped, and the start waits for the port it
+  // held, so one start follows rather than a run of starts each losing the port. A port held by anything else is left
+  // alone: the site waits a backoff step and says who holds it.
+  async function portFree(route, site) {
+    if (!(await probe(site.port))) return true;
+    const holder = portHolder(site.port);
+    if (holder?.command.includes(site.cmd[site.cmd.length - 1])) {
+      log(`stopped stray ${route} on port ${site.port} (pid ${holder.pid})`);
+      try { process.kill(holder.pid, 'SIGTERM'); } catch {}
+      const deadline = Date.now() + KILL_AFTER;
+      while (await probe(site.port)) {
+        if (Date.now() >= deadline) { try { process.kill(holder.pid, 'SIGKILL'); } catch {} }
+        if (Date.now() >= deadline + KILL_AFTER) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!(await probe(site.port))) return true;
+    }
+    const p = procs.get(route) || { restarts: 0 };
+    Object.assign(p, { child: null, key: keyOf(site), state: 'crashed', exitCode: null, nextStart: clock() + backoff(p.restarts++) });
+    procs.set(route, p);
+    log(`${route} not started: port ${site.port} is held by ${holder ? `pid ${holder.pid} (${holder.command})` : 'a process the hub can’t name'}`);
+    return false;
   }
 
   function start(route, site) {
@@ -444,7 +478,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
         if (p.waitedOn !== onDisk) log(`${route} runs older code than its files; restarts once no builder runs`);
         p.waitedOn = onDisk;
       }
-      if (!p || (!p.child && clock() >= (p.nextStart || 0))) start(route, site);
+      if ((!p || (!p.child && clock() >= (p.nextStart || 0))) && await portFree(route, site)) start(route, site);
     }
     first = false;
     for (const [route, p] of procs) {

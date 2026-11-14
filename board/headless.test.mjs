@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
-import { startBoard } from '../shared/test-helpers.mjs';
+import { freePorts, startBoard } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
@@ -593,19 +593,54 @@ test("a restarted server launches the builder of an In Progress card whose recor
   fs.mkdirSync(path.dirname(manifest), { recursive: true });
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
-  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: ['C1', 'C2', 'C3', 'C4'].map((id) => ({ id, title: id, lane: 'progress' })) }));
-  const record = (extra) => JSON.stringify({ started: '2026-11-05T04:42:41.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'x', repo: wt }, ...extra });
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: ['C1', 'C2', 'C3', 'C4', 'C5'].map((id) => ({ id, title: id, lane: 'progress' })) }));
+  const record = (extra) => JSON.stringify({ started: '2026-11-05T04:42:41.000Z', kind: 'claude', model: 'sonnet', worktree: { path: wt, branch: 'x', repo: wt }, ...extra });
   fs.writeFileSync(path.join(data, 'agents', 'C1.json'), record({ dispatched: 'hub' }));
   fs.writeFileSync(path.join(data, 'agents', 'C2.json'), record({ dispatched: 'hub', kind: 'grill' }));
   fs.writeFileSync(path.join(data, 'agents', 'C3.json'), record({ dispatched: 'hub' }));
   fs.writeFileSync(path.join(data, 'agents', 'C4.json'), record({}));
+  // A session's dispatch opens the record for an agent the session launches itself, with no kind, model or worktree.
+  fs.writeFileSync(path.join(data, 'agents', 'C5.json'), JSON.stringify({ started: '2026-11-05T04:42:41.000Z', label: 'Builder', dispatched: 'session' }));
   fs.writeFileSync(path.join(data, 'headless-builders.json'), JSON.stringify({ 't/C3': { model: 'opus', pid: process.pid, relaunched: false } }));
   const { runs, launch } = launcher(t);
   const board = await startBoard(t, { site, launch });
   await board.settled();
   assert.equal(runs.length, 1, 'the cut-off builder launches, and only it');
   assert.match(runs[0].prompt, /builder start t\/C1 --kind build/);
+  // It runs as its record's pick, in its record's worktree, which its brief names.
+  assert.deepEqual([runs[0].kind, runs[0].model, runs[0].cwd], ['claude', 'sonnet', wt]);
+  assert.ok(runs[0].prompt.includes(`Work only in ${wt}`));
   assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/C1']?.relaunched, false, 'the launch is tracked');
+});
+
+// A board server holds its port before any startup side effect: of two started on one site at once, only the one that
+// binds launches the cut-off build, and the other rejects on EADDRINUSE having written nothing.
+test('of two board servers started on one site at once, one launches each cut-off build and the other fails on its port having done nothing', async (t) => {
+  const home = emptyHome();
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(data, 'threads'));
+  const wt = path.join(home, 'wt');
+  fs.mkdirSync(wt);
+  const manifest = path.join(home, '.claude', 'kickflip', 'manifest.json');
+  fs.mkdirSync(path.dirname(manifest), { recursive: true });
+  fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: wt } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'C1', title: 'C1', lane: 'progress' }] }));
+  fs.writeFileSync(path.join(data, 'agents', 'C1.json'), JSON.stringify({ started: '2026-11-05T04:42:41.000Z', kind: 'claude', model: 'opus', dispatched: 'hub', worktree: { path: wt, branch: 'x', repo: wt } }));
+  const { runs, launch } = launcher(t);
+  const [port] = await freePorts(1);
+  const { startServer } = await import('./server.mjs');
+  const starts = await Promise.allSettled([startServer({ site, port, launch }), startServer({ site, port, launch })]);
+  const won = starts.filter((s) => s.status === 'fulfilled').map((s) => s.value);
+  t.after(() => Promise.all(won.map((b) => b.close())));
+  const lost = starts.filter((s) => s.status === 'rejected').map((s) => s.reason.code);
+  assert.deepEqual([won.length, lost], [1, ['EADDRINUSE']]);
+  await won[0].settled();
+  assert.equal(runs.length, 1, 'one builder launches');
+  const audit = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(audit.filter((e) => e.call === 'launch-cut-off').length, 1, 'one launch-cut-off line');
 });
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
