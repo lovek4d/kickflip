@@ -69,6 +69,15 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/skills/kickflip/hooks-plugin/hooks/builder-guard.mjs\""
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion|EnterPlanMode|ExitPlanMode",
         "hooks": [
           {
