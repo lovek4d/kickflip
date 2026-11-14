@@ -203,6 +203,7 @@ import { RuleError, applyRules, changed, readHubRules, writeHubRules } from './r
 import { siteIcon } from './icons.mjs';
 import { readNeeds, sidebarSites, startRoute, hubHealth, holdNeeds } from './home.mjs';
 import { checkSessions, compactFullContexts, startingBoards } from './sessions.mjs';
+import { checkLoggedOut, loggedOutRoutes } from './logged-out.mjs';
 import { repoService, repoLookupRoute } from './repos.mjs';
 import { boardRepo, changeBoardRepo, migrateBoardRepos, migrateHubBoard } from './board-repo.mjs';
 import { requestBoard, retryBoard, dismissBoard, clonePercent, settleStarts } from './new-board.mjs';
@@ -600,7 +601,11 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
       // docs/adr/2026-11-03-1823-a-board-session-compacts-before-its-context-fills.md
       .then(() => compactFullContexts({ manifest: loadManifest() })).then((r) => {
         if (r.compacted.length || r.failed.length) log(`context full: sent /compact to ${r.compacted.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
-      }).catch((e) => log('context full check failed:', e.message)).finally(() => { sessionCheck.running = null; });
+      }).catch((e) => log('context full check failed:', e.message))
+      // docs/adr/2026-11-14-1500-a-logged-out-claude-shows-red-and-pushes-once.md
+      .then(() => checkLoggedOut({ manifest: loadManifest() })).then((r) => {
+        if (r.pushed.length || r.failed.length) log(`logged out: pushed ${r.pushed.join(', ') || 'none'}${r.failed.length ? `; ${r.failed.join('; ')}` : ''}`);
+      }).catch((e) => log('logged-out check failed:', e.message)).finally(() => { sessionCheck.running = null; });
     return track(sessionCheck.running);
   }
 
@@ -795,9 +800,10 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
     const links = new Map();
     const listens = new Map();
     const ctx = { running: liveSessions(), wakes: readJSON(resumeStateFile(), {}) };
+    const loggedOut = loggedOutRoutes();
     for (const b of boards) {
       try {
-        const listen = listenState(b, ctx);
+        const listen = loggedOut.has(b.route) ? 'logged-out' : listenState(b, ctx);
         listens.set(b.route, listen);
         let c = linksCache.get(b.route);
         if (!c || c.listen !== listen || clock() - c.at >= NEEDS_TTL) {

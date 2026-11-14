@@ -27,6 +27,7 @@ export function readNeeds(body) {
 // site that isn't a board.
 export function siteStatus({ state, working, building, listen } = {}) {
   if (state === 'down') return { tone: 'down', word: 'down' };
+  if (listen === 'logged-out') return { tone: 'down', word: 'logged out: run /login' };
   if (listen === 'full') return { tone: 'down', word: 'context full' };
   if (listen === 'deaf') return { tone: 'down', word: 'not listening' };
   if (state === 'starting') return { tone: 'starting', word: 'starting' };
