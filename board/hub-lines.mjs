@@ -71,6 +71,11 @@ export const HUB_LINES = {
   'new-question': { mark: QUESTIONS, text: () => 'A new question on it, so it is grilling until you answer.' },
   'screen-timeout': { mark: QUESTIONS, text: () => 'Questions passed to you unscreened: the orchestrator didn’t screen them in 15 minutes.' },
   'ask-moved': { mark: MOVE, text: ({ board }) => fit('Moved to ', board, '.') },
+  // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md: on a handed ticket's
+  // thread, grey, linking the task it became on the other board (store.mjs handoff); and drawn from a handed ask's own
+  // event (domain.mjs threadOf), never written, above the ask on the receiving board; blue, as created.
+  'handed-to': { mark: MOVE, text: ({ route, ref }) => fit('Handed to ', `/${route} · ${ref}`) },
+  'handed-from': { mark: 'ask-link', text: ({ source }) => fit('Handed from ', source) },
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md: drawn from a routed ask's own
   // event (domain.mjs threadOf), never written, above the ask; blue, as the owner reads it and may move the ask.
   'ask-routed': { mark: 'ask-link', text: ({ via, reason }) => fit(`Routed here from ${via}: `, reason), longest: { via: 'Slack' } },
@@ -83,6 +88,7 @@ export const HUB_LINES = {
   merged: { mark: DONE, text: ({ words }) => fit('', words) },
   'already-merged': { mark: DONE, text: ({ prs, many }) => fit(`PR${many ? 's' : ''} `, prs, ` ${many ? 'were' : 'was'} already merged.`), longest: { many: true } },
   'ask-moved-closed': { mark: DONE, text: ({ board }) => fit('Closed: its ask moved to ', board, '.') },
+  'handed-closed': { mark: DONE, text: ({ route, ref }) => fit('Closed: handed to ', `/${route} · ${ref}`, '.') },
   'check-passed': { mark: DONE, text: ({ found }) => fit('Check passed: ', found, '. Closed.') },
   'findings-settled': { mark: DONE, text: ({ filed }) => fit('Every finding is settled: ', filed ? `filed ${filed}` : 'none filed', '.') },
   'branch-merged': { mark: DONE, text: ({ branch, into, host }) => fit('', `${branch} is merged into ${into} on ${host}`, ', so this task is Done.') },

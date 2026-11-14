@@ -55,7 +55,7 @@
   // (docs/adr/2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md).
   const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.line === 'questions-added' ? (m.open ? ' asking' : ' created')
     : m.command === 'readied' ? ' readied'
-    : ['created', 'created-from'].includes(m.command) || ['ticket-made', 'ask-routed'].includes(m.line) ? ' created' : '');
+    : ['created', 'created-from'].includes(m.command) || ['ticket-made', 'ask-routed', 'handed-from'].includes(m.line) ? ' created' : '');
   // Every status line's shell: its classes, its mark and words (head), then " · " and its time, with `by` before the time
   // and `after` behind it, so no kind can leave its time out
   // (docs/adr/2026-11-13-1959-every-status-line-shows-its-time-from-one-shell.md). A line with `rest` is a closed details
@@ -93,10 +93,10 @@
     })
     : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark('<span class="agent-dot"></span>') + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
         <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}</div>
-        <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${attachments(m.files)}
+        <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${m.note ? `<blockquote class="quote">${linkText(m.note, links)}</blockquote>` : ''}${attachments(m.files)}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
-        ${msgFooter(m, [VIA[m.via]?.slice(3), m.moved && 'Moved', m.from && `Moved from ${esc(m.from)}`, m.edited && 'Edited'].filter(Boolean))}
+        ${msgFooter(m, [VIA[m.via]?.slice(3), m.moved && 'Moved', m.edited && 'Edited'].filter(Boolean))}
       </div>`);
 
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one

@@ -798,16 +798,13 @@ async function copyUpload(from, to, f) {
 // of its uploads and `from {route, title, id}`, which wakes that board's session; here, an ask-moved line in the ask's
 // thread linking to its card there, which says it lives there now (movedLine). Cards the ask became, none of them started, are dropped, leaving
 // no Done row (docs/adr/2026-11-09-1900-every-ask-is-a-task-card-from-the-moment-it-arrives.md).
-export async function moveAsk(site, eventId, route) {
+// note, from handoff, is the sender's words, which the other board quotes under the ask.
+export async function moveAsk(site, eventId, route, { note, command = 'ask move' } = {}) {
   needSite(site);
   domId(eventId, 'the event id');
-  if (typeof route !== 'string' || !route.trim()) fail('ask move needs --to <route>, the board to move it to');
+  const target = targetBoard(site, route, command);
   const events = await readLines(path.join(site, 'data', 'events.jsonl'));
   const ask = events.find((e) => e.id === eventId && e.kind === 'ask') || fail(`no ask "${eventId}" in this site's data/events.jsonl`);
-  const boards = listBoards();
-  const target = boards.find((b) => b.route === route)
-    || fail(`--to ${route}: no board at /${route} in the hub's manifest; the boards are ${boards.map((b) => b.route).join(', ') || 'none'}`);
-  if (samePath(target.dir, site)) fail(`--to ${route}: that is this board`);
   const state = await askNotNew(site, eventId, events);
   if (state?.why) fail(state.why);
   const edits = events.filter((e) => e.kind === 'ask-edited' && e.data?.id === eventId && typeof e.data?.text === 'string')
@@ -817,7 +814,7 @@ export async function moveAsk(site, eventId, route) {
   for (const f of [...(ask.data?.files || []), ...edits.flatMap((e) => e.data.files || [])]) files.push(await copyUpload(site, target.dir, f));
   const from = { route: path.basename(site), title: (await boardConfig(site)).title, id: eventId };
   const body = edited ? edited.data.text : ask.data?.text || '';
-  const id = await appendEvent(target, 'ask', { text: body, ...(files.length ? { files } : {}), from });
+  const id = await appendEvent(target, 'ask', { text: body, ...(files.length ? { files } : {}), from, ...noteOf(note) });
   const link = `/${route}/#selectedCard=${encodeURIComponent(`ask:${id}`)}`;
   await appendStatus(site, `ask:${eventId}`, 'ask-moved', { board: target.title }, { link });
   for (const key of state?.items || []) {
@@ -825,6 +822,44 @@ export async function moveAsk(site, eventId, route) {
     await ticketWrite(site, () => dropCard(site, { source, itemFile, item, key }));
   }
   return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`moved to ${link}`, ...(state?.items || []).map((k) => `dropped: ${k}`)] };
+}
+// The board at route in the hub's manifest, other than this one, that command sends work to.
+function targetBoard(site, route, command) {
+  if (typeof route !== 'string' || !route.trim()) fail(`${command} needs --to <route>, the board to move it to`);
+  const boards = listBoards();
+  const target = boards.find((b) => b.route === route)
+    || fail(`--to ${route}: no board at /${route} in the hub's manifest; the boards are ${boards.map((b) => b.route).join(', ') || 'none'}`);
+  if (samePath(target.dir, site)) fail(`--to ${route}: that is this board`);
+  return target;
+}
+const noteOf = (note) => (String(note ?? '').trim() ? { note: String(note).trim() } : {});
+
+// docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md
+// Hands ref, a card's key or an ask's event id, to the board at route. A New ask, or a card still New from one, moves as
+// moveAsk does. Any other card is filed there as an ask, its title and a link to its notes here, with `from {route,
+// title, key, ref}` and note, and filed into its task there at once; here its thread gets a grey Handed to line linking
+// that task, and it stays open as a pointer, unless done, a full handoff, closes it with the existing done.
+export async function handoff(site, ref, { to, note, done } = {}) {
+  needSite(site);
+  if (!String(ref).includes('/')) return moveAsk(site, ref, to, { note, command: 'handoff' });
+  const target = targetBoard(site, to, 'handoff');
+  const { item } = await loadItem(site, ref);
+  const events = await readLines(path.join(site, 'data', 'events.jsonl'));
+  if (item.from_ask && (await askNotNew(site, item.from_ask, events))?.items?.includes(ref)) return moveAsk(site, item.from_ask, to, { note, command: 'handoff' });
+  // Refused here, before anything is sent, when the other board has nowhere to file the task.
+  await askFile(target.dir);
+  const route = path.basename(site);
+  const notes = item.plan ? `\n\nNotes: /${route}/notes.html?item=${encodeURIComponent(ref)}` : '';
+  const from = { route, title: (await boardConfig(site)).title, key: ref, ref: await cardName(site, ref) };
+  const id = await appendEvent(target, 'ask', { text: `${item.title}${notes}`, from, ...noteOf(note) });
+  // A running board files the ask as it takes the event; one that is down, here.
+  await fileAsk(target.dir, id);
+  const made = await askCardOf(target.dir, id);
+  const handed = { route: to, ref: await cardName(target.dir, made.key) };
+  const link = `/${to}/#selectedCard=${encodeURIComponent(made.key)}`;
+  await appendStatus(site, ref, 'handed-to', handed, { link });
+  const closed = done ? await setItem(site, ref, { done: true, closing: ['handed-closed', handed] }) : null;
+  return { file: path.join(target.dir, 'data', 'events.jsonl'), lines: [`handed to ${link}`, ...(closed?.lines || [])] };
 }
 
 // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md

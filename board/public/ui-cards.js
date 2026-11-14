@@ -361,7 +361,7 @@
   // added to another card (the board's merges). Oldest sent first. seen is each card's read mark (app-core.js).
   const unreadSince = (seen, key, at) => String(at) > String(seen[key] || '');
   function newEntries(d, seen) {
-    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, sent: it.created, ask: it.ask, text: it.ask.text, files: it.ask.files }));
+    const asks = d.items.filter((it) => it.isNew).map((it) => ({ id: it.ask.eventId, key: it.key, sent: it.created, ask: it.ask, text: it.ask.text, note: it.ask.note, files: it.ask.files }));
     const made = d.items.filter((it) => it.ingested && unreadSince(seen, it.key, it.ingested.at))
       .map((it) => ({ id: it.fromAsk, key: it.key, sent: it.created, at: it.ingested.at, text: it.ingested.text, made: it, lane: it.lane }));
     const added = (d.merges || []).filter((m) => unreadSince(seen, m.key, m.at))
@@ -374,7 +374,9 @@
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting…</span>';
   const PROCESSING = `<span class="processing">${DOT}processing...</span>`;
   const processing = (since) => (since ? globalThis.BoardUI.counted('processing', 'processing...', since) : PROCESSING);
-  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
+  // A handed ask's source line links the card it came from
+  // (docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md).
+  const askLine = (ask) => [ask.from && `<a class="new-source" href="${esc(ask.from.link)}">From ${esc(ask.from.words)}</a>`, ask.edited && 'Edited', ask.state === 'working' ? processing(ask.since) : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
   // An entry waiting or processing edits and deletes its ask, its edit box in place of its text (edit, from
   // app-asks.js's state.edits); an ingested one links to its card, in blue, and dismisses with no confirm. The link and
   // Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the entry too.
@@ -400,7 +402,7 @@
     const line = e.made ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Ticket created: <b>${esc(e.made.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)} · ${esc(e.made.title)}</a>`
       : e.into ? `<a class="new-link" href="${cardHref(e.key)}" ${readsAt(e)}>Added to <b>${esc(e.into.ref)}</b>${globalThis.BoardUI.laneRing(e.lane)}</a>`
       : askLine(e.ask);
-    const body = edit ? editForm(e.id, edit.text) : `<div class="new-msg">${esc(e.text)}</div>${globalThis.BoardUI.attachments(e.files)}`;
+    const body = edit ? editForm(e.id, edit.text) : `<div class="new-msg">${esc(e.text)}</div>${e.note ? `<blockquote class="quote new-note">${esc(e.note)}</blockquote>` : ''}${globalThis.BoardUI.attachments(e.files)}`;
     return `<div class="new-entry" data-new="${esc(e.id)}" data-key="${esc(e.key)}"><div class="ask-actions">${actions}</div>${body}<div class="new-line sub${done ? ' new-done' : ''}">${[newTime(e.sent), line].filter(Boolean).join(' · ')}</div></div>`;
   }
   // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md

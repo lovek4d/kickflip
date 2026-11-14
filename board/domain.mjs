@@ -944,6 +944,21 @@ function routedLine(e) {
   const m = { ts: r.at, who: 'claude', kind: HUB, line: 'ask-routed', text: hubText('ask-routed', { via: VIA_NAMES[r.via] || r.via, reason: r.reason }) };
   return [{ ...m, ...hubLineOf(m), html: null, link: r.link || null, via: null }];
 }
+// docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md
+// A handed ask's source, from its event's `from {route, key?, ref?, id?}` (store.mjs handoff, moveAsk): its words,
+// "/<route> · <ref>" or "/<route>" for a moved ask, and a link to the card it came from there; or null.
+function sourceOf(e) {
+  const from = e.data?.from;
+  if (typeof from?.route !== 'string') return null;
+  return { words: `/${from.route}${from.ref ? ` · ${from.ref}` : ''}`, link: `/${from.route}/#selectedCard=${encodeURIComponent(from.key || `ask:${from.id}`)}` };
+}
+// A handed ask's Handed from line, a moment before the ask so it opens the thread.
+function handedLine(e) {
+  const source = sourceOf(e);
+  if (!source) return [];
+  const m = { ts: new Date(Date.parse(e.ts) - 1).toISOString(), who: 'claude', kind: HUB, line: 'handed-from', text: hubText('handed-from', { source: source.words }) };
+  return [{ ...m, ...hubLineOf(m), html: null, link: source.link, via: null }];
+}
 // A Full person's event names them in the thread, by name, else login (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
 const byOf = (e) => (e.data?.shared_by?.login ? { by: e.data.shared_by.name || e.data.shared_by.login } : {});
 // docs/adr/2026-11-13-0230-a-card-reference-is-drawn-by-one-helper-with-its-lane-ring.md
@@ -1059,8 +1074,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     }),
     ...(index.reopens.get(`item:${key}`) || []).map((e) => ({ ts: e.ts, who: 'love', kind: e.kind, request: true, mark: REOPENED, text: `Question ${numberOf(asked, e.data.question)} was reopened`, ...byOf(e) })),
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
-      .flatMap((e) => [...routedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
-        ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
+      .flatMap((e) => [...routedLine(e), ...handedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(e.data?.sendId ? { sendId: e.data.sendId } : {}), ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
+        ...(sourceOf(e) ? { from: sourceOf(e) } : {}), ...(typeof e.data?.note === 'string' ? { note: e.data.note } : {}) },
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
   // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: the orchestrator's last action on the card, or the card's
@@ -1301,7 +1316,7 @@ export function buildBoard(snapshot) {
       delete it.askMsg;
       if (it.unsorted && m) {
         it.isNew = true;
-        it.ask = { eventId: m.eventId, ...(m.sendId ? { sendId: m.sendId } : {}), state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null };
+        it.ask = { eventId: m.eventId, ...(m.sendId ? { sendId: m.sendId } : {}), state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null, note: m.note || null };
       }
     }
     // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a card whose block ended waits for the

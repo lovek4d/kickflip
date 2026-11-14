@@ -1640,7 +1640,13 @@ test("an ask in the New strip reads the owner's whole message, then whether it w
   assert.match(strip([ask({ state: 'waiting' })]), /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div>/);
   assert.match(strip([ask({ state: 'waiting' })]), /<span class="pickup-wait"><span class="working-dot" aria-hidden="true"><\/span>waiting…<\/span>/);
   assert.match(strip([ask({ state: 'working', edited: true })]), /<div class="new-line sub"><span class="new-time">[^<]+<\/span> · Edited · <span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing...<\/span><\/div>/);
-  assert.match(entryText(strip([ask({ state: 'waiting', from: 'Orch' })])), /Moved from Orch · waiting…$/);
+  // docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md: a handed ask's source
+  // line links the card it came from, and the sender's note is quoted under the message.
+  const handed = strip([ask({ state: 'waiting', from: { words: '/orch · A1', link: '/orch/#selectedCard=w%2FA1' }, note: 'Yours <now>' })]);
+  assert.match(entryText(handed), /From \/orch · A1 · waiting…$/);
+  assert.match(handed, /<a class="new-source" href="\/orch\/#selectedCard=w%2FA1">From \/orch · A1<\/a>/);
+  assert.match(handed, /<div class="new-msg">Fix &lt;it&gt;\nand more<\/div><blockquote class="quote new-note">Yours &lt;now&gt;<\/blockquote>/);
+  assert.doesNotMatch(strip([ask({ state: 'waiting' })]), /new-note|new-source/);
   // The processing line is info, blue (AGENTS.md colour priority), dot and word.
   const style = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
   assert.match(style, /\.new-entry \.processing \{ color: var\(--color-info\);/);
@@ -2228,8 +2234,14 @@ test("an ask's link line opens the work it became, and a thread line opens a lin
   assert.doesNotMatch(html, /target="_blank"/);
   const moved = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Moved to Audit.', link: '/audit/#selectedCard=ask%3Ab1' }]);
   assert.match(moved, /<a href="\/audit\/#selectedCard=ask%3Ab1">Open the task →<\/a>/);
-  const arrived = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Fix the header', from: 'Orch', eventId: 'b1', reply: null, state: 'waiting' }]);
-  assert.match(text(arrived), /^You Fix the header \S.* · Moved from Orch · waiting…$/);
+  // A handed ask's source is its thread's Handed from line (blue, as created), so its message carries only the note.
+  const arrived = ui.threadMessages([
+    { ts: ago(2), who: 'claude', kind: 'hub', line: 'handed-from', mark: 'ask-link', text: 'Handed from /orch · A1', link: '/orch/#selectedCard=w%2FA1' },
+    { ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Fix the header', note: 'Yours now', from: { words: '/orch · A1', link: '/orch/#selectedCard=w%2FA1' }, eventId: 'b1', reply: null, state: 'waiting' },
+  ]);
+  assert.match(arrived, /class="msg status-line request hub created"><span[^]*<a href="\/orch\/#selectedCard=w%2FA1">Handed from \/orch · A1<\/a>/);
+  assert.match(arrived, /<blockquote class="quote">Yours now<\/blockquote>/);
+  assert.doesNotMatch(text(arrived), /Moved from/);
 });
 
 test("a thread's links to this hub's pages open in place, and only other origins open a new window", () => {

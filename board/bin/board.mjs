@@ -340,7 +340,7 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
   ask unfold <eventId>                                   moves a folded ask back out to a task of its own
   ask move <eventId> --to <route>                        sends a New ask to another board in the hub's manifest:
                                                          a New task there with the owner's text, attachments and
-                                                         "Moved from <this board>", which wakes its session; here
+                                                         "From /<this board>", which wakes its session; here
                                                          the task the ask became is dropped, leaving a line in the
                                                          ask's thread linking to that task. Refuses an ask whose
                                                          task is no longer New.
@@ -348,6 +348,16 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          that isn't New
                                                          Then sends the queued pushes, each on its own, unless
                                                          pushes are held (overnight, snoozed, the weekend or off)
+  handoff (<file>/<id> | <eventId>) --to <route>         hands work to another board in the hub's manifest. A New
+         [--note <t>] [--done]                           ask, or a task still New from one, moves as ask move
+                                                         does. Any other task becomes a New task there: its title
+                                                         and a link to its notes here, "From /<this board> ·
+                                                         <ref>" linking back, and --note quoted under it, its
+                                                         thread opening "Handed from". Here it gets a grey
+                                                         "Handed to /<route> · <ref>" line linking that task and
+                                                         stays open as a pointer; --done, only for a full
+                                                         handoff, closes it as item set --done does. Prints
+                                                         "handed to <link>"
   reviewers set --file <json>                            the board's reviewers in board.json, replacing them:
                                                          [{name, slack_user, dm, github}], as in an item file.
                                                          The settings page lists them; new item files copy them
@@ -925,6 +935,10 @@ const COMMANDS = {
   }],
   'ask unfold': [['eventId'], [], (site, [id]) => store.unfoldAsk(site, id)],
   'ask move': [['eventId'], ['to'], (site, [id], f) => store.moveAsk(site, id, f.to)],
+  handoff: [['file/id|eventId'], ['to', 'note', 'done'], async (site, [ref], f) => {
+    if (f.done && site && ref.includes('/')) await store.checkNotReopened(site, ref);
+    return store.handoff(site, ref, { to: f.to, note: f.note, done: f.done });
+  }],
   slack: [[], [], () => ({ lines: [JSON.stringify(readSlack())] })],
   'slack set': [[], ['self-dm', 'user', 'domain', 'timezone'], async (site, _, f) => {
     const fields = { 'self-dm': 'self_dm', user: 'owner_slack_user', domain: 'slack_domain', timezone: 'timezone' };

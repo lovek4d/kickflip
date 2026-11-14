@@ -834,8 +834,23 @@ test("a New card asked whether to move waits on the owner in Todo, then a move d
   assert.deepEqual(threadOf('ask:a1', { events: [ask], lines: [line] }).map(({ who, text, link: l }) => [who, text, l]), [['love', 'a1 first line\nmore', undefined], ['claude', 'Moved to Audit.', link]]);
   const arrived = askAt('b1', '2026-10-23T09:40:00Z', { data: { text: 'Fix the header', from: { route: 'orch', title: 'Orch', id: 'a1' } } });
   const there = buildBoard({ fromWaves: false, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'Fix the header', from_ask: 'b1' }] } }], events: [arrived] }).items[0];
-  assert.deepEqual([there.lane, there.isNew, there.title, there.ask.from], ['todo', true, 'Fix the header', 'Orch']);
-  assert.equal(threadOf('w/T-1', { events: [arrived], fromAsk: 'b1' })[0].from, 'Orch');
+  assert.deepEqual([there.lane, there.isNew, there.title, there.ask.from], ['todo', true, 'Fix the header', { words: '/orch', link: '/orch/#selectedCard=ask%3Aa1' }]);
+  assert.deepEqual(threadOf('w/T-1', { events: [arrived], fromAsk: 'b1' }).map(({ line, text, link }) => [line, text, link]), [['handed-from', 'Handed from /orch', '/orch/#selectedCard=ask%3Aa1'], [undefined, 'Fix the header', undefined]]);
+});
+
+// docs/adr/2026-11-14-2340-handoff-moves-a-ticket-to-another-board-and-leaves-a-pointer.md
+test("a handed ticket's thread opens with a blue line naming its source board and ticket, linked there, and its ask carries the sender's note", () => {
+  const from = { route: 'paddock-web', title: 'Paddock Web', key: 'pad/PAD-3359', ref: 'PAD-3359' };
+  const arrived = askAt('b1', '2026-10-23T09:40:00Z', { data: { text: 'fix: checkout 500s', from, note: 'Yours: the hub owns checkout' } });
+  const msgs = threadOf('w/T-1', { events: [arrived], fromAsk: 'b1' });
+  const link = '/paddock-web/#selectedCard=pad%2FPAD-3359';
+  assert.deepEqual(msgs.map(({ who, kind, line, text, link: l, ts, note }) => [who, kind, line, text, l, ts, note]), [
+    ['claude', 'hub', 'handed-from', 'Handed from /paddock-web · PAD-3359', link, '2026-10-23T09:39:59.999Z', undefined],
+    ['love', 'ask', undefined, 'fix: checkout 500s', undefined, '2026-10-23T09:40:00Z', 'Yours: the hub owns checkout'],
+  ]);
+  assert.equal(msgs[0].mark, 'ask-link');
+  const card = buildBoard({ fromWaves: false, files: [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'fix: checkout 500s', from_ask: 'b1' }] } }], events: [arrived] }).items[0];
+  assert.deepEqual([card.ask.from, card.ask.note], [{ words: '/paddock-web · PAD-3359', link }, 'Yours: the hub owns checkout']);
 });
 
 // docs/adr/2026-11-12-2345-a-haiku-router-files-each-incoming-request-on-a-board.md
