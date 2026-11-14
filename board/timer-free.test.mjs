@@ -35,7 +35,7 @@ const TIMED = {
   'board/server-stale.test.mjs': 1,
   'board/server.test.mjs': 1,
   'board/suite-run.test.mjs': 3,
-  'board/view.test.mjs': 2,
+  'board/view.test.mjs': 1,
   'hub/boards.test.mjs': 2,
   'hub/close-board.test.mjs': 1,
   'hub/locks.test.mjs': 1,

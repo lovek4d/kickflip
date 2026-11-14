@@ -1,4 +1,10 @@
+---
+status: superseded in part by 2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place
+---
+
 # A thread message shows at once, and the browser keeps it until it is sent
+
+Superseded in part by [every reply-box tap shows its line at once and retries in place](2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md): no button under the reply box waits now, Implement included; every one of its taps goes through this outbox, and the board server's `sendId` check covers every kind.
 
 Supersedes, for thread messages, [a tap spins until the board shows its change](2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md) (thread Send and quick replies waited through `loadThread`) and the thread half of [a pending ask or thread message can be deleted or edited](2026-10-29-1639-a-pending-ask-can-be-deleted-or-bumped.md).
 

@@ -1,7 +1,7 @@
 // A card's thread on the board view: loading and rendering it, and its reply box. Needs app-core.js.
 BoardView.part((B) => {
   const { $, store, state, quieted, sendDraft, links } = B;
-  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, waitOn, BUTTON } = BoardUI;
+  const { esc, setHTML, threadMessages, dropZone, sendButton, protoButton, grillButton, visualButton, attachButton, doneButton, doneTone, BUTTON } = BoardUI;
 
   const REQUEST_EVENT = { prototype: 'prototype-request', grill: 'grill-more', visual: 'visual-request' };
   // A /prototype, /grill or /visual word in a message, the last one winning, and the message without it.
@@ -73,14 +73,38 @@ BoardView.part((B) => {
     B.repaintThread(key);
   });
 
-  // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
-  // The outbox: the messages typed into a thread box that the board hasn't recorded yet, in send order, kept in this
-  // browser under the board's own keys, so a reload keeps them. Each is {sendId, key, text, files, intent?, ts,
-  // failed?}; the board records a sendId once (server.mjs item-message), so a resend never doubles a message.
+  // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md,
+  // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
+  // The outbox: the taps of a card's reply box that the board hasn't recorded yet, in send order, kept in this browser
+  // under the board's own keys, so a reload keeps them. Each is {sendId, key, kind?, text, files, intent?, fields?, ts,
+  // failed?}: kind is its event (item-message when absent), fields the rest of its event's data (a Hold's hold and for).
+  // The board records a sendId once (server.mjs), so a resend never doubles a tap.
   const outbox = () => store.get('outbox', []);
   const queuedFor = (key) => outbox().filter((m) => m.key === key);
   const setOutbox = (list) => store.set('outbox', list);
-  const unsent = (m) => ({ ts: m.ts, who: 'love', kind: 'item-message', text: m.text, files: m.files, sendId: m.sendId, state: m.failed ? 'failed' : 'sending' });
+  const eventOf = (m) => m.kind || 'item-message';
+  const bodyOf = (m) => ({ key: m.key, ...(m.text || !m.kind ? { text: m.text } : {}), ...(m.files.length ? { files: m.files } : {}), ...(m.intent ? { intent: m.intent } : {}), ...m.fields, sendId: m.sendId });
+  // The line a tap draws until the board's own takes its place, in the board's words (domain.mjs COMMANDS, ACTION_LABELS,
+  // INTENT_LABELS): with text or files the owner's message with the tap in its footer, else the tap's status line. waits:
+  // whether a session picks the board's line up, so it reads waiting… once the board has it; the board applies a Hold,
+  // Resume, Done, Reopen and bare Implement itself.
+  const REQUESTED = { 'prototype-request': 'Prototype requested', 'grill-more': 'Grill requested', 'visual-request': 'Visual requested' };
+  const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Held' : 'Resumed'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened' };
+  function tapOf(m) {
+    if (m.text || m.files.length) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
+    return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Implementation requested', waits: Boolean(REQUESTED[m.kind]) };
+  }
+  // landed: the board has it and the thread hasn't loaded its own line yet.
+  const unsent = (m, landed = false) => {
+    const { words, status, waits } = tapOf(m);
+    const state = landed ? (waits ? 'waiting' : null) : m.failed ? 'failed' : 'sending';
+    return words ? { ts: m.ts, who: 'love', kind: 'command', request: true, mark: words, text: words, sendId: m.sendId, state }
+      : { ts: m.ts, who: 'love', kind: 'item-message', text: m.text, files: m.files, ...(status ? { status } : {}), sendId: m.sendId, state };
+  };
+  // The taps the board has recorded whose thread hasn't loaded since, by sendId: {m, at}, at the thread load count when
+  // the board answered. A thread load started after that has the board's line, and takes the tap's place in the same draw.
+  const landed = new Map();
+  const landedFor = (key) => [...landed.values()].filter((l) => l.m.key === key).map((l) => unsent(l.m, true));
 
   function renderThread(key, msgs) {
     const el = $(`[data-thread="${CSS.escape(key)}"]`);
@@ -90,8 +114,8 @@ BoardView.part((B) => {
     // The window's top edge is fixed when the card first draws, so a hidden message never pulls an older one in.
     if (!topEdge.has(key) && msgs.length) topEdge.set(key, BoardUI.threadFrom(msgs, viewOf(key)) || '');
     const view = viewOf(key);
-    // The outbox's messages follow everything the board has, in the order they were sent.
-    const lines = [...msgs, ...queuedFor(key).map(unsent)];
+    // The landed taps and then the outbox's follow everything the board has, in the order they were sent.
+    const lines = [...msgs, ...landedFor(key), ...queuedFor(key).map((m) => unsent(m))];
     const sig = JSON.stringify([lines, view]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
@@ -136,6 +160,7 @@ BoardView.part((B) => {
       .then((msgs) => {
         if ((shown.get(key) || 0) > n) return;
         shown.set(key, n);
+        for (const [sendId, l] of landed) if (l.m.key === key && l.at < n) landed.delete(sendId);
         loadedAt.set(key, Date.now());
         state.threadCache.set(key, msgs);
         renderThread(key, msgs);
@@ -154,42 +179,36 @@ BoardView.part((B) => {
     if (quieted('draft:' + f.dataset.reply, ev.target)) return;
     store.set('draft:' + f.dataset.reply, ev.target.value);
   });
-  // A message's send ends, sent or failed; Implement's button waits on its own message's (post).
-  const ended = new Map();
-  const end = (sendId) => { ended.get(sendId)?.(); ended.delete(sendId); };
   // Sends key's outbox in order, one at a time: each leaves the outbox once the board has it, and the thread loads
   // with it in place while the next one goes. A failed one stays as not sent and holds the ones behind it until Retry
-  // or X, so the board gets them in the order they were written.
+  // or X, so the board gets them in the order they were written. A Done closes its card once the board answers
+  // (app-cards.js closeCard); a card tap's change of lane or hold changes the box's send buttons.
   const flushing = new Set();
   async function flush(key) {
     if (flushing.has(key)) return;
     flushing.add(key);
     try {
       for (let m = queuedFor(key)[0]; m && !m.failed && B.alive(); m = queuedFor(key)[0]) {
-        const data = { key, text: m.text, ...(m.files.length ? { files: m.files } : {}), ...(m.intent ? { intent: m.intent } : {}), sendId: m.sendId };
-        try { await B.sentHere(key, () => B.send('item-message', data)); }
+        try { await B.sentHere(key, () => B.send(eventOf(m), bodyOf(m), m.kind === 'card-done' ? () => B.closeCard(key) : null)); }
         catch (e) {
           setOutbox(outbox().map((o) => (o.sendId === m.sendId ? { ...o, failed: true } : o)));
           B.repaintThread(key);
           B.failed(e);
           continue;
         }
+        landed.set(m.sendId, { m, at: seq });
         setOutbox(outbox().filter((o) => o.sendId !== m.sendId));
-        const sendId = m.sendId;
-        loadThread(key, { force: true }).then(() => end(sendId));
+        if (CARD_TAPS[m.kind]) B.syncSends(key);
+        loadThread(key, { force: true });
       }
-      // Held behind a failed send, the rest end their wait: Implement's button rests while its message reads sending….
-      if (queuedFor(key)[0]?.failed) for (const o of queuedFor(key)) end(o.sendId);
     } finally { flushing.delete(key); }
   }
-  // A message goes into the outbox and shows at once, and the box clears for the next.
-  function enqueue(key, text, files, intent) {
-    const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, text, files, ...(intent ? { intent } : {}), ts: new Date().toISOString() };
+  // A tap goes into the outbox and shows at once, and its button is free for the next.
+  function enqueue(key, { kind, text = '', files = [], intent, fields } = {}) {
+    const m = { sendId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, key, ...(kind ? { kind } : {}), text, files, ...(intent ? { intent } : {}), ...(fields ? { fields } : {}), ts: new Date().toISOString() };
     setOutbox([...outbox(), m]);
     B.repaintThread(key);
-    const sent = new Promise((resolve) => ended.set(m.sendId, resolve));
     flush(key);
-    return sent;
   }
   // Whatever a reload left in the outbox goes out again, a failed send included, once the board first lands (app.js land).
   function resendOutbox() {
@@ -198,14 +217,17 @@ BoardView.part((B) => {
     for (const key of new Set(left.map((m) => m.key))) { B.repaintThread(key); flush(key); }
   }
 
-  // Retry and X on a failed send, each after a confirm: Retry sends it again; X drops it and puts its text back in the
-  // box, before whatever is typed there.
+  // Retry and X on a failed send, each after a confirm: Retry sends it again in place; X drops it and puts its text
+  // back in the box, before whatever is typed there. A bare tap's confirm names its line.
   B.on(B.root, 'click', async (ev) => {
     const b = ev.target.closest('[data-thread] button[data-resend], [data-thread] button[data-unsend]');
     if (!b) return;
     const retry = b.hasAttribute('data-resend');
     const sendId = retry ? b.dataset.resend : b.dataset.unsend;
-    if (!(await B.confirm(retry ? 'Send this message again?' : 'Dismiss this message? Its text goes back in the box.')) || !B.alive()) return;
+    const tapped = outbox().find((o) => o.sendId === sendId);
+    const words = tapped && tapOf(tapped).words;
+    const ask = words ? (retry ? `Send “${words}” again?` : `Dismiss “${words}”?`) : retry ? 'Send this message again?' : 'Dismiss this message? Its text goes back in the box.';
+    if (!(await B.confirm(ask)) || !B.alive()) return;
     const m = outbox().find((o) => o.sendId === sendId);
     if (!m) return;
     if (retry) setOutbox(outbox().map((o) => (o.sendId === sendId ? { ...o, failed: false } : o)));
@@ -223,16 +245,10 @@ BoardView.part((B) => {
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-quick]');
     if (!b) return;
-    enqueue(b.closest('form').dataset.reply, b.dataset.quick, []);
+    enqueue(b.closest('form').dataset.reply, { text: b.dataset.quick });
   });
-  // A spinUntil shows for a tap that writes to key's thread: a line the thread didn't have when tapped.
-  function newLine(key) {
-    const had = new Set((state.threadCache.get(key) || []).map((m) => m.ts));
-    return () => (state.threadCache.get(key) || []).some((m) => !had.has(m.ts));
-  }
-  // Sends the composer's draft: a request, when flag names one, spins its button until the thread has it; a message
-  // goes through the outbox, and only Implement's button waits, until the thread shows the message and the card's
-  // staging after it.
+  // Sends the composer's draft through the outbox, as a request when flag names one, else as a message with the tapped
+  // button's intent; no button waits.
   async function post(f, flag, button) {
     const ta = f.querySelector('textarea');
     ta.blur();
@@ -244,24 +260,9 @@ BoardView.part((B) => {
     const intent = flag ? null : button.dataset.intent || null;
     if ((!flag && !text && !files.length && intent !== 'build') || BoardAttach.busy(id, B.site.root)) return;
     const key = f.dataset.reply;
-    if (!flag && (text || files.length)) {
-      let sent;
-      await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`), async () => { sent = enqueue(key, text, files, intent); });
-      BoardAttach.clear(id, B.site.root);
-      if (intent === 'build') await waitOn(button, BoardUI.pending.within(sent, B.stillWaiting));
-      return;
-    }
-    const data = { key, ...(text || !flag ? { text } : {}), ...(files.length ? { files } : {}), ...(intent ? { intent } : {}) };
-    // An empty Implement spins until the thread shows its line; a request until the thread shows a new line, though
-    // its POST is still out (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md).
-    const sending = async () => {
-      await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
-        () => B.sentHere(key, () => B.send(REQUEST_EVENT[flag] || 'item-message', data)));
-      BoardAttach.clear(id, B.site.root);
-      await loadThread(key, { force: true });
-    };
-    if (flag) { try { await B.spinUntil(button, { send: sending, shows: newLine(key) }); } catch (e) { B.failed(e); } return; }
-    try { await waitOn(button, BoardUI.pending.within(sending(), B.stillWaiting)); } catch (e) { B.failed(e); }
+    await sendDraft('draft:' + key, ta, () => $(`form[data-reply="${CSS.escape(key)}"] textarea`),
+      async () => enqueue(key, { ...(flag ? { kind: REQUEST_EVENT[flag] } : {}), text, files, ...(intent ? { intent } : {}) }));
+    BoardAttach.clear(id, B.site.root);
   }
   B.on(B.root, 'click', (ev) => {
     const b = ev.target.closest('form[data-reply] button[data-proto], form[data-reply] button[data-grill], form[data-reply] button[data-visual]');
@@ -282,7 +283,7 @@ BoardView.part((B) => {
   });
 
   Object.assign(B, {
-    thread, renderThread, loadThread, resendOutbox,
+    thread, renderThread, loadThread, resendOutbox, enqueue,
     repaintThread: (key) => { if (state.threadCache.has(key)) renderThread(key, state.threadCache.get(key)); },
     syncSends: (key) => { const el = $(`[data-thread="${CSS.escape(key)}"]`); if (el) syncSends(el, key); },
   });

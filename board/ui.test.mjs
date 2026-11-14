@@ -1371,6 +1371,26 @@ test("an owner's message reads its time first in the footer, then sending… or 
   assert.doesNotMatch(pending, /data-edit|data-withdraw|ask-actions/);
 });
 
+// docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
+test("a bare tap's line reads its words and time, then sending…, waiting… or thinking… after a dot, plain once picked up and for a line no session acts on; a failed one reads not sent in red with Retry then X", () => {
+  const sent = ago(3);
+  const at = ui.time(sent);
+  const words = (html) => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const queued = (extra) => ({ ts: sent, who: 'love', kind: 'command', request: true, mark: 'Prototype requested', text: 'Prototype requested', sendId: 's1', state: 'sending', ...extra });
+  const board = (extra) => ({ ts: sent, who: 'love', via: 'site', kind: 'prototype-request', text: 'Prototype requested', request: true, command: 'prototype', eventId: 'e1', reply: null, state: 'waiting', ...extra });
+  assert.equal(words(ui.threadMessages([queued()])), `Prototype requested · ${at} · sending…`);
+  assert.match(ui.threadMessages([queued()]), /<div class="msg status-line request" data-send="s1">/);
+  assert.equal(words(ui.threadMessages([board()])), `Prototype requested · ${at} · waiting…`);
+  assert.ok(ui.threadMessages([board({ state: 'working' })]).includes(`· ${ui.esc(at)} · ${ui.workingLine}`));
+  assert.equal(words(ui.threadMessages([board({ state: 'answered' })])), `Prototype requested · ${at}`);
+  // A Hold, Resume, Done, Reopen or bare Implement's line is the board's own, which no session picks up.
+  assert.equal(words(ui.threadMessages([{ ts: sent, who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Held', text: 'Held until 3:00 PM' }])), `Held until 3:00 PM · ${at}`);
+  const failed = ui.threadMessages([queued({ state: 'failed' })]);
+  assert.equal(words(failed), `Prototype requested · ${at} · not sent`);
+  assert.match(failed, /<span class="not-sent">not sent<\/span><span class="send-again">/);
+  assert.deepEqual([...failed.matchAll(/data-(resend|unsend)="(\w+)" aria-label="([^"]+)"/g)].map((m) => [m[1], m[2], m[3]]), [['resend', 's1', 'Retry'], ['unsend', 's1', 'Dismiss']]);
+});
+
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 test('a stale builder has no badge and no nudge: its status line and bars keep their colour, and only the footer reads stale', () => {
   const builder = { progress: 'Running tests', phase: 'testing', at: null, stale: true };
@@ -1989,20 +2009,23 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   assert.match(planner, /<div class="msg status-line builder-status planner"><span class="mark" aria-hidden="true"><span class="working-dot"><\/span><\/span>Reading: the notes/);
   // A bare Grill or Prototype tap, and a New task sent with Implement, are a muted request entry, not a message from the
   // owner, led by its icon in the same box as the dots; a Full person's names them
-  // (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md).
+  // (docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md). A request's event line reads
+  // waiting… after its time until a session picks it up; the board's own Implement line has no state
+  // (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md).
   const requests = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'grill-more', request: true, text: 'Grill requested', eventId: 'g1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'Prototype requested', eventId: 'p1', state: 'waiting', files: [] },
     { ts: ago(0.5), who: 'love', kind: 'command', command: 'implement', request: true, mark: 'Implementation requested', text: 'Implementation requested', by: 'Dana Reyes' },
   ]);
-  assert.match(requests, new RegExp(`^<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+</span></div><div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
+  assert.match(requests, new RegExp(`^<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+ · <span>waiting…</span></span></div><div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
   assert.ok(requests.includes(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Implementation requested']}</span>Implementation requested <span class="muted">· Dana Reyes · `));
   // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md: a reopened question's line
   // varies with its number, so it names its mark.
   const reopened = ui.threadMessages([{ ts: ago(0.2), who: 'love', kind: 'question-reopen', request: true, mark: 'question reopened', text: 'Question 2 was reopened' }]);
   assert.ok(ui.MARK_ICONS['question reopened']);
   assert.ok(reopened.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['question reopened']}</span>Question 2 was reopened <span class="muted">`));
-  assert.doesNotMatch(requests, /class="who"|waiting…|data-event/);
+  assert.doesNotMatch(requests, /class="who"|data-event/);
+  assert.match(requests, /Implementation requested <span class="muted">· Dana Reyes · [^<]+<\/span><\/div>$/);
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md

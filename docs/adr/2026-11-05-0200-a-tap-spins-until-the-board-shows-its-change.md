@@ -1,6 +1,8 @@
 ---
-status: superseded in part by 2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent
+status: superseded in part by 2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent and 2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place
 ---
+
+Superseded in part by [every reply-box tap shows its line at once and retries in place](2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md): no button under a card's reply box spins any more. Prototype, Grill, Visual, Implement, and the box's Hold, Resume, Done and Reopen show their line in the thread at once and retry in place. The rest below holds for the buttons outside the reply box.
 
 # A tap spins until the board shows its change
 

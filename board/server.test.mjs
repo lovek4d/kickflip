@@ -704,6 +704,20 @@ test("a thread message sent again with the same send id records once: the resend
   assert.equal(log().length, 2);
 });
 
+// docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
+test("a reply-box tap sent again with the same send id records once, whatever its kind: a request and a Hold answer with the first event's id", async () => {
+  await putWave(JSON.stringify({ items: [{ id: 'SID2', title: 'Tapped' }] }));
+  const post = (body) => fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const log = (kind) => fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.kind === kind && e.data.key === 't/SID2');
+  for (const body of [{ kind: 'prototype-request', key: 't/SID2', sendId: 'p-1' }, { kind: 'card-hold', key: 't/SID2', hold: true, for: 'forever', sendId: 'h-1' }]) {
+    const first = await post(body);
+    const again = await post(body);
+    assert.ok(first.id, body.kind);
+    assert.equal(again.id, first.id, body.kind);
+    assert.equal(log(body.kind).length, 1, body.kind);
+  }
+});
+
 // docs/adr/2026-11-13-2045-an-exact-repeat-within-30-seconds-is-skipped.md
 test("an exact repeat of a message within 30 seconds is skipped, and one later, on another card or by another author is kept", async () => {
   await putWave(JSON.stringify({ items: [{ id: 'RP1', title: 'One' }, { id: 'RP2', title: 'Two' }] }));

@@ -23,7 +23,8 @@
   // An owner's message's footer: its time, then the tap it came from (m.status, such as "answers submitted"), then where
   // it is: sending… until the board has it, waiting… until Claude picks it up, thinking… while Claude works on it
   // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md). A send that failed reads not sent,
-  // with Retry and X (app-threads.js [data-resend], [data-unsend]).
+  // with Retry and X (app-threads.js [data-resend], [data-unsend]). A bare tap's status line reads the same after its
+  // time (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md).
   const PICK_UP = {
     sending: () => '<span>sending…</span>',
     waiting: () => '<span>waiting…</span>',
@@ -56,9 +57,9 @@
   // and `after` behind it, so no kind can leave its time out
   // (docs/adr/2026-11-13-1959-every-status-line-shows-its-time-from-one-shell.md). A line with `rest` is a closed details
   // line whose summary is the shell's words and whose body is rest; `summary` is the summary's own attributes.
-  const statusLine = (cls, head, ts, { by, after, rest, summary = '' } = {}) => {
+  const statusLine = (cls, head, ts, { by, after, rest, summary = '', sendId } = {}) => {
     const words = `${head} <span class="muted">· ${by ? `${esc(by)} · ` : ''}${esc(time(ts))}${after ? ` · ${after}` : ''}</span>`;
-    return rest === undefined ? `<div class="msg status-line ${cls}">${words}</div>`
+    return rest === undefined ? `<div class="msg status-line ${cls}"${sendId ? ` data-send="${esc(sendId)}"` : ''}>${words}</div>`
       : `<details class="msg status-line ${cls}"><summary${summary}>${words}</summary>${rest}</details>`;
   };
   const linked = (link, text) => `<a href="${esc(link)}">${text}</a>`;
@@ -71,7 +72,9 @@
     : m.kind === 'visual' ? statusLine('link visual', statusMark('visual') + linked(m.link, `${escText(m.text)} →`), m.ts)
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
     : m.request && m.card ? statusLine(`request${tone(m)}`, statusMark(m.mark) + named(m, links), m.ts)
-    : m.request ? statusLine(`request${tone(m)}`, statusMark(m.mark || m.text) + escText(m.text), m.ts, { by: m.by })
+    // A bare tap's line, the outbox's or its event's, carries where it is after its time, as a message's footer does; the
+    // board's own lines (a Hold's, a bare Implement's) have no state, as no session picks them up.
+    : m.request ? statusLine(`request${tone(m)}`, statusMark(m.mark || m.text) + escText(m.text), m.ts, { by: m.by, after: m.state && PICK_UP[m.state]?.(m), sendId: m.sendId })
     // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
     // own line, its kind's mark and words, red for a fault.
     : m.kind === 'hub' && m.detail ? statusLine(`request hub fault-detail${tone(m)}`, statusMark(m.mark) + escText(m.text), m.ts, { rest: `<pre class="fault-error">${esc(m.detail)}</pre>` })

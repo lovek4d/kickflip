@@ -8,4 +8,6 @@ The owner, on #207 (prototype rounds `request-flags` 1 to 6, round 6 the final l
 - **New questions are a thread line.** (Superseded by [a Questions added line is stored and stays in the thread](2026-11-13-0130-a-questions-added-line-is-stored-and-stays-in-the-thread.md).) The open card's thread shows its open questions asked since it was last seen as one blue planner line, "N new questions", led by a plain question mark a size up from the other icons, linking to the first (`ui-threads.js` `newQuestionsLine`). The card's time line drops its "N new questions" chip; the questions count as one unread message there.
 - **One mark box.** Every thread status line's leading mark, the request icons, the dots of builder and agent lines and the question mark, is centred in one 18px box (`.mark`), so the text always starts at the same place.
 
+Since [every reply-box tap shows its line at once and retries in place](2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md), a bare tap's line also reads where it is after its time, "· sending…", "· waiting…" or "· thinking…", as a message footer does, and the line shows the moment it is tapped.
+
 Considered: keeping a separate gray "answers submitted" line before the answers' message (round 2). The owner chose the footer, so a tap that carries content is one entry.

@@ -154,7 +154,10 @@ BoardView.part((B) => {
     holdSheet.classList.add('closing');
     B.later(180, () => { holdSheet.classList.remove('closing'); holdSheet.close(); });
   }
-  function openHold(it) {
+  // Whether the open sheet came from the card's reply box, whose Hold goes through the thread's outbox.
+  let holdInBox = false;
+  function openHold(it, inBox) {
+    holdInBox = inBox;
     $('#holdTitle').textContent = `Hold ${it.ref}`;
     $('#holdLede').textContent = `${it.lane === 'todo' ? 'It won’t start' : 'Claude stops work on it'} until then. Forever holds it until you unhold it.`;
     const now = Date.now();
@@ -167,9 +170,12 @@ BoardView.part((B) => {
     holdSheet.showModal();
     $('#holdTitle').focus({ preventScroll: true });
   }
-  // The card's Hold waits while the server records the hold (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
+  // The reply box's Hold shows its line in the thread at once
+  // (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md); the action row's
+  // waits while the server records the hold (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
   async function hold(key, choice) {
     closeHold();
+    if (holdInBox) { B.enqueue(key, { kind: 'card-hold', fields: { hold: true, for: choice } }); return; }
     const button = $(`button[data-confirm="hold"][data-key="${CSS.escape(key)}"]`);
     const holdFace = () => { const it = cardOf(key); return JSON.stringify([it?.held, it?.heldUntil]); };
     const before = holdFace();
@@ -495,24 +501,25 @@ BoardView.part((B) => {
     confirmTap(b);
   });
   // A data-confirm button's tap: Hold's sheet, or its confirm, then its event. The thread box's Hold, Resume, Done and
-  // Reopen come here on ⌥↵ too.
+  // Reopen come here on ⌥↵ too; theirs go through the thread's outbox, their line in the thread at once and their button
+  // free (docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md).
   async function confirmTap(b) {
     const { key, confirm: act } = b.dataset;
     const it = state.board.items.find((i) => i.key === key);
-    if (it && act === 'hold') { openHold(it); return; }
+    const inBox = Boolean(b.closest('form[data-reply]'));
+    if (it && act === 'hold') { openHold(it, inBox); return; }
     if (!it || !(await B.confirm(CONFIRM[act](it, it.ref)))) return;
+    if (inBox) {
+      B.enqueue(key, { resume: { kind: 'card-hold', fields: { hold: false } }, finish: { kind: 'card-done' }, reopen: { kind: 'card-reopen' } }[act]);
+      return;
+    }
     // Unhold, Merge (docs/adr/2026-10-29-1752-auto-merge-is-a-board-setting-off-by-default.md), Implement, Done and Reopen
     // wait while the server records them (docs/adr/2026-11-03-1850-a-tap-waits-for-the-server-to-record-it.md).
     const sent = { resume: ['card-hold', { key, hold: false }], merge: ['card-merge', { key }], 'card-build': ['card-build', { key }],
       finish: ['card-done', { key }], reopen: ['card-reopen', { key }] }[act];
     // Done closes its card once the server answers, before the answer's board lands, or app-core.js steady would
     // anchor it and scroll the page after it into Done (docs/adr/2026-11-02-0009-the-board-applies-the-owners-hold-resume-and-done-at-once.md).
-    const close = act === 'finish' ? () => {
-      const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
-      if (card) BoardUI.closeDetails(card);
-      state.openItems.delete(key);
-      store.set('openItems', [...state.openItems]);
-    } : null;
+    const close = act === 'finish' ? () => closeCard(key) : null;
     // Each spins until a board shows its change (docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md):
     // Unhold the card unheld; Done and Reopen the card in another lane; Merge the card merging, which its markup draws
     // busy (docs/adr/2026-11-04-2320-a-merge-tap-waits-its-turn-to-land.md), or gone from In Review. Implement is T-234's.
@@ -523,7 +530,14 @@ BoardView.part((B) => {
     if (act === 'finish' || act === 'reopen') B.syncSends(key);
   }
 
+  function closeCard(key) {
+    const card = $(`details.item[data-key="${CSS.escape(key)}"]`);
+    if (card) BoardUI.closeDetails(card);
+    state.openItems.delete(key);
+    store.set('openItems', [...state.openItems]);
+  }
+
   function cardOf(key) { return state.board.items.find((i) => i.key === key); }
 
-  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap });
+  Object.assign(B, { captureStrips, moveStrips, detail, card, confirmTap, closeCard });
 });

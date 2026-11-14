@@ -98,8 +98,8 @@
 //                                ?board=0, as the hub posts, answers with no board, so the answer builds nothing after the line is written
 //                                ask, item-message and owner-answer may carry files: [upload]
 //                                item-message may carry intent: 'reply' or 'build', a Todo card's Reply or Implement.
-//                                item-message may carry sendId, the page's id for it: one whose sendId is recorded
-//                                answers with the recorded event's id and records nothing. So does an item-message or ask
+//                                any kind may carry sendId, the page's id for a reply-box tap: one whose kind and sendId
+//                                are recorded answers with the recorded event's id and records nothing. So does an item-message or ask
 //                                with no sendId whose text, author and card match one recorded in the last 30 seconds.
 //                                Implement with no text or files on a Todo or ready card writes no line of its own
 //                                and stages the card for the orchestrator's review, with no event
@@ -1116,6 +1116,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           delete d.shared_by;
           if (shared) d.shared_by = shared.by;
         }
+        // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md,
+        // docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md: the page resends a
+        // reply-box tap whose answer it never saw, so one already recorded under its sendId answers as recorded.
+        const sendId = body.sendId ? String(body.sendId) : null;
+        const recorded = sendId && (await readLines(events)).find((e) => e.kind === kind && e.data?.sendId === sendId);
+        if (recorded) return json(res, 200, { id: recorded.id, board: await answerBoard(req, since) });
         if (kind === 'card-hold' && body.hold && body.for !== undefined) {
           const end = durationEnd(now(), body.for);
           if (!end) return json(res, 400, { error: 'That hold ends in the past or more than 30 days on. Pick another time.' });
@@ -1141,11 +1147,6 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         // docs/adr/2026-11-05-0300-implement-in-the-thread-queues-the-card-for-the-orchestrator.md, docs/adr/2026-11-07-0700-staging-then-ready.md
         if (kind === 'item-message') {
           const key = String(body.key || '');
-          // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md: the page
-          // resends a message whose answer it never saw, so one already recorded under its sendId answers as recorded.
-          const sendId = body.sendId ? String(body.sendId) : null;
-          const recorded = sendId && (await readLines(events)).find((e) => e.kind === 'item-message' && e.data?.sendId === sendId);
-          if (recorded) return json(res, 200, { id: recorded.id, board: await answerBoard(req, since) });
           const card = (await sharedBoard()).items.find((i) => i.key === key && i.kind === 'work');
           const bare = !String(body.text || '').trim() && !(Array.isArray(body.files) && body.files.length);
           // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md: a message on a card the

@@ -2944,6 +2944,14 @@ test('the New task sheet has two buttons and no Send: Discuss (⌘↵) sends the
 // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
 const OUTBOX = 'site:board-a:outbox';
 const footOf = (el) => el.querySelector('.msg-foot').textContent.replace(/^[^·]*· ?/, '');
+// A thread's lines as read: a status line's words and what follows its time, a message's body and its footer after the time.
+const dotted = (text) => text.split('·').map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean);
+function threadLines(b, key) {
+  return b.root.querySelectorAll(`[data-thread="${key}"] .msgs > *`).map((el) => {
+    if (el.matches('.status-line')) { const [words, , ...rest] = dotted(el.textContent); return [words, ...rest].join(' · '); }
+    return `${el.querySelector('.body').textContent.trim()} (${dotted(el.querySelector('.msg-foot').textContent).slice(1).join(' · ')})`;
+  });
+}
 test("Reply clears the box and shows the message at once as sending…, its button never waiting; messages go one at a time in order, a failed one reads not sent and holds the ones behind it, Retry resends it under the same send id and X puts its text back in the box, each after a confirm", async () => {
   const sends = heldSends();
   const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send, confirm: true });
@@ -3015,18 +3023,19 @@ test("a message the board never recorded survives a reload: the page shows it as
   b.view.unmount();
 });
 
-test("Implement with text shows the message at once as sending… and its button waits until the thread shows Marked as staging after it; an empty box's Implement waits as before", async () => {
+// docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
+test("Implement shows its line at once and its button never waits: with text the message's footer reads Implement · sending…, an empty box's line reads Implementation requested · sending…, and the board's line takes each one's place", async () => {
   const sends = heldSends();
   const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
   await b.settle();
   const form = () => b.root.querySelector('form[data-reply="w/T1"]');
   const implement = () => form().querySelector('button[data-intent="build"]');
-  form().querySelector('textarea').value = 'Use the blue';
-  b.page.fire(b.root, 'submit', { target: form(), submitter: implement() });
-  await b.settle();
-  const lines = () => b.root.querySelectorAll('[data-thread="w/T1"] .msgs > *').map((el) => el.matches('[data-send]') ? `${el.querySelector('.body').textContent} (${footOf(el)})` : el.textContent.replace(/\s*·.*$/s, '').trim());
-  assert.deepEqual([form().querySelector('textarea').value, lines(), waitState(implement())], ['', ['Use the blue (sending…)'], WAITING]);
+  const tap = async (text) => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: implement() }); await b.settle(); };
+  await tap('Use the blue');
+  assert.deepEqual([form().querySelector('textarea').value, threadLines(b, 'w/T1'), waitState(implement())], ['', ['Use the blue (Implement · sending…)'], IDLE]);
   assert.equal(b.sent[0][1].intent, 'build');
+  await tap('');
+  assert.deepEqual([threadLines(b, 'w/T1'), waitState(implement())], [['Use the blue (Implement · sending…)', 'Implementation requested · sending…'], IDLE]);
   const at = '2026-10-30T10:05:00.000Z';
   b.server.threads['w/T1'] = [
     { ts: at, who: 'love', via: 'site', kind: 'item-message', text: 'Use the blue', eventId: 'e1', reply: null, state: 'waiting', status: 'Implement' },
@@ -3034,24 +3043,12 @@ test("Implement with text shows the message at once as sending… and its button
   ];
   sends.answer();
   await b.settle();
-  assert.deepEqual([b.root.querySelector('[data-thread="w/T1"] .msg[data-event="e1"] .body').textContent, b.root.querySelector('[data-thread="w/T1"] .status-line.staged').textContent.replace(/\s*·.*$/s, '').trim(), waitState(implement())], ['Use the blue', 'Marked as staging', IDLE]);
-  b.page.fire(b.root, 'submit', { target: form(), submitter: implement() });
-  await b.settle();
-  assert.deepEqual([waitState(implement()), b.root.querySelectorAll('[data-thread="w/T1"] .msg[data-send]').length], [WAITING, 0]);
+  assert.deepEqual(threadLines(b, 'w/T1'), ['Use the blue (Implement · waiting…)', 'Marked as staging', 'Implementation requested · sending…']);
+  b.server.threads['w/T1'] = [...b.server.threads['w/T1'], { ts: '2026-10-30T10:06:00.000Z', who: 'love', kind: 'command', command: 'implement', request: true, mark: 'Implementation requested', text: 'Implementation requested' }];
   sends.answer();
   await b.settle();
-  assert.deepEqual([waitState(implement()), JSON.parse(JSON.stringify(b.sent.at(-1)))], [IDLE, ['item-message', { key: 'w/T1', text: '', intent: 'build' }]]);
-
-  // Behind a failed send, Implement's message waits as sending… and its button rests.
-  form().querySelector('textarea').value = 'First';
-  b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-intent="reply"]') });
-  await b.settle();
-  sends.answer(false);
-  await b.settle();
-  form().querySelector('textarea').value = 'Then build';
-  b.page.fire(b.root, 'submit', { target: form(), submitter: implement() });
-  await b.settle();
-  assert.deepEqual([waitState(implement()), lines().slice(-2)], [IDLE, ['First (not sent)', 'Then build (sending…)']]);
+  assert.deepEqual(threadLines(b, 'w/T1'), ['Use the blue (Implement · waiting…)', 'Marked as staging', 'Implementation requested']);
+  assert.deepEqual(sentNoIds(b).at(-1), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   b.view.unmount();
 });
 
@@ -3077,10 +3074,10 @@ test("a Todo card's thread box has Reply (⌘↵) and Implement (⌥↵), which 
   ]);
   // An empty box still sends Implement, bare, on a card ready or not: the board server readies it and builds at once.
   await send('w/T1', '', 'build');
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
+  assert.deepEqual(sentNoIds(b).at(-1), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   await b.change({ board: boardOf([workCard('T1', { ready: true }), workCard('P1', { lane: 'progress' })]) });
   await send('w/T1', '', 'build');
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent.at(-1))), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
+  assert.deepEqual(sentNoIds(b).at(-1), ['item-message', { key: 'w/T1', text: '', intent: 'build' }]);
   const pressed = [];
   for (const key of ['w/T1', 'w/P1']) form(key).requestSubmit = (s) => pressed.push([key, s?.dataset.intent ?? s?.dataset.confirm ?? null]);
   const key = (k, ev) => { const box = form(k).querySelector('textarea'); return b.page.fire(b.root, 'keydown', { key: 'Enter', target: box, ...ev }).defaultPrevented; };
@@ -3182,7 +3179,7 @@ test("an In Progress card's quiet Hold opens the Hold sheet and its orange Resum
     await b.settle();
   }
   assert.deepEqual(b.confirms.slice(-2), ['Unhold H1? It can start again once nothing blocks it.', 'Reopen D1? It moves back to Todo, discussing, for you to talk it through again.']);
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [['card-hold', { key: 'w/H1', hold: false }], ['card-reopen', { key: 'w/D1' }]]);
+  assert.deepEqual(sentNoIds(b), [['card-hold', { key: 'w/H1', hold: false }], ['card-reopen', { key: 'w/D1' }]]);
   form('w/D1').querySelector('textarea').value = 'One more thing';
   b.page.fire(b.root, 'submit', { target: form('w/D1'), submitter: form('w/D1').querySelector('button[data-intent="reply"]') });
   await b.settle();
@@ -5653,91 +5650,70 @@ test("the reader sheet wraps long lines in monospace and never scrolls sideways"
   assert.match(css, /\.reader-sheet \{[^}]*height: 85dvh/);
 });
 
-// docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md
-// docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md: of a thread's sends,
-// only Implement still spins.
-test('Implement with text spins until the thread shows the message, a refusal rests it with the reason in a toast, and 60 seconds without it reloads once and rests', async () => {
-  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] } });
+// docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
+test("Prototype, Grill and Visual show their line at once as sending…, their button never waiting; the board's line takes its place, a failed one reads not sent, and Retry resends it in place under its send id", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] }, send: sends.send, confirm: true });
   await b.settle();
   const form = () => b.root.querySelector('form[data-reply="w/A1"]');
-  const submit = () => form().querySelector('button[data-intent="build"]');
-  const state = () => [submit().disabled, submit().getAttribute('aria-busy')];
-  const timers = [];
-  const real = { setTimeout: b.page.win.setTimeout, clearTimeout: b.page.win.clearTimeout };
-  b.page.win.setTimeout = (fn, ms) => (ms === 60000 ? timers.push({ fn }) : real.setTimeout(fn, ms));
-  b.page.win.clearTimeout = (id) => { if (timers[id - 1]) timers[id - 1].fn = null; else real.clearTimeout(id); };
-  const fetched = b.page.win.fetch;
-  let hold = null;
-  b.page.win.fetch = async (url, opts) => { if (hold && String(url).includes('/api/thread')) await hold; return fetched(url, opts); };
-  const tap = async (text) => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'submit', { target: form(), submitter: submit() }); await b.settle(); };
-
-  let release;
-  hold = new Promise((resolve) => { release = resolve; });
-  b.server.threads['w/A1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'item-message', text: 'Use the blue', eventId: 'e1', state: 'waiting' }];
-  await tap('Use the blue');
-  assert.equal(b.sent.length, 1);
-  assert.deepEqual(state(), [true, 'true'], 'the POST answered, but the thread does not show the message yet');
-  assert.equal(b.root.querySelector('[data-thread="w/A1"] .msg[data-event="e1"]'), null);
-  release();
+  const button = (sel) => form().querySelector(sel);
+  const tap = async (sel, text = '') => { form().querySelector('textarea').value = text; b.page.fire(b.root, 'click', { target: button(sel) }); await b.settle(); };
+  await tap('button[data-proto]');
+  assert.deepEqual([waitState(button('button[data-proto]')), threadLines(b, 'w/A1')], [IDLE, ['Prototype requested · sending…']]);
+  await tap('button[data-grill]', 'Ask about the colours');
+  await tap('button[data-visual]');
+  assert.deepEqual([waitState(button('button[data-grill]')), waitState(button('button[data-visual]')), threadLines(b, 'w/A1')],
+    [IDLE, IDLE, ['Prototype requested · sending…', 'Ask about the colours (Grill requested · sending…)', 'Visual requested · sending…']]);
+  assert.equal(b.sent.length, 1, 'one at a time, in order');
+  b.server.threads['w/A1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', via: 'site', kind: 'prototype-request', text: 'Prototype requested', request: true, command: 'prototype', eventId: 'e1', reply: null, state: 'waiting' }];
+  sends.answer();
   await b.settle();
-  assert.deepEqual(state(), [false, null]);
-  assert.ok(b.root.querySelector('[data-thread="w/A1"] .msg[data-event="e1"]'));
-  assert.equal(timers.at(-1).fn, null, 'the 60 second timer is cancelled');
-
-  // A load that never answers: after 60 seconds the thread and board load once more and the button rests.
-  hold = new Promise(() => {});
-  const gets = b.gets.length;
-  await tap('Anything?');
-  assert.deepEqual(state(), [true, 'true']);
-  timers.at(-1).fn();
-  hold = null;
-  await b.settle();
-  assert.deepEqual(state(), [false, null]);
-  assert.equal(b.root.querySelector('.toast').textContent, 'Still waiting on the board');
-  assert.ok(b.gets.slice(gets).some((p) => p.endsWith('/api/board')), 'the board reloads once');
-  b.view.unmount();
-
-  // A refusal rests the button with the server's reason in a toast.
-  const refused = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [] }, send: () => { throw Object.assign(new Error('send failed: 400'), { status: 400, reason: 'w/A1 is not open.' }); } });
-  await refused.settle();
-  const f = refused.root.querySelector('form[data-reply="w/A1"]');
-  f.querySelector('textarea').value = 'Hello';
-  refused.page.fire(refused.root, 'submit', { target: f, submitter: f.querySelector('button[data-intent="build"]') });
-  await refused.settle();
-  assert.deepEqual([f.querySelector('button[data-intent="build"]').disabled, refused.root.querySelector('.toast').textContent], [false, 'w/A1 is not open.']);
-  assert.match(refused.root.querySelector('[data-thread="w/A1"] .msg[data-send] .msg-foot').textContent, /not sent/);
-  refused.view.unmount();
-});
-
-// docs/adr/2026-11-05-0200-a-tap-spins-until-the-board-shows-its-change.md
-test("Prototype, Grill and Visual spin until the thread shows a new line, while their POST is still out, and a send that fails afterwards still toasts its reason", async () => {
-  const sends = heldSends();
-  const before = { ts: '2026-10-30T09:00:00.000Z', who: 'claude', text: 'Created ticket A1' };
-  const b = boardOnDom({ open: ['w/A1'], board: boardOf([workCard('A1')]), threads: { 'w/A1': [before] }, send: sends.send });
-  await b.settle();
-  const button = (sel) => b.root.querySelector(`form[data-reply="w/A1"] ${sel}`);
-  let n = 0;
-  const line = () => ({ ts: `2026-10-30T10:00:0${n++}.000Z`, who: 'claude', command: 'prototype', text: 'Prototype requested' });
-  for (const sel of ['button[data-proto]', 'button[data-grill]', 'button[data-visual]']) {
-    b.page.fire(b.root, 'click', { target: button(sel) });
-    await b.settle();
-    assert.deepEqual(waitState(button(sel)), WAITING, sel);
-    await b.change({ board: { ...b.server.board, title: `A ${n}` } });
-    assert.deepEqual(waitState(button(sel)), WAITING, `${sel}: a load with the thread as it was keeps the spinner`);
-    await b.change({ threads: { 'w/A1': [...b.server.threads['w/A1'], line()] } });
-    assert.deepEqual(waitState(button(sel)), IDLE, `${sel}: the line shows, though the POST is still out`);
-    sends.answer();
-    await b.settle();
-  }
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)).map(([kind]) => kind), ['prototype-request', 'grill-more', 'visual-request']);
-
-  b.page.fire(b.root, 'click', { target: button('button[data-proto]') });
-  await b.settle();
-  await b.change({ threads: { 'w/A1': [...b.server.threads['w/A1'], line()] } });
-  assert.deepEqual(waitState(button('button[data-proto]')), IDLE);
+  assert.deepEqual(threadLines(b, 'w/A1'), ['Prototype requested · waiting…', 'Ask about the colours (Grill requested · sending…)', 'Visual requested · sending…']);
   sends.answer(false, REFUSED);
   await b.settle();
-  assert.equal(b.root.querySelector('.toast').textContent, REFUSED, 'the refusal after the spinner rested still says why');
+  assert.deepEqual(threadLines(b, 'w/A1'), ['Prototype requested · waiting…', 'Ask about the colours (Grill requested · not sent)', 'Visual requested · sending…']);
+  assert.equal(b.root.querySelector('.toast').textContent, REFUSED);
+  const grillId = b.sent[1][1].sendId;
+  b.page.fire(b.root, 'click', { target: b.root.querySelector(`[data-thread="w/A1"] button[data-resend="${grillId}"]`) });
+  await b.settle();
+  assert.deepEqual([b.confirms.at(-1), b.sent.at(-1)[0], b.sent.at(-1)[1].sendId], ['Send this message again?', 'grill-more', grillId]);
+  assert.deepEqual(sentNoIds(b), [['prototype-request', { key: 'w/A1' }], ['grill-more', { key: 'w/A1', text: 'Ask about the colours' }], ['grill-more', { key: 'w/A1', text: 'Ask about the colours' }]]);
+  b.view.unmount();
+});
+
+// docs/adr/2026-11-14-0530-every-reply-box-tap-shows-its-line-at-once-and-retries-in-place.md
+test("a reply box's Hold, after its sheet, and Resume, Done and Reopen, after their confirm, show their line at once as sending…, their button never waiting, end plain once the board has them, and a failed one retries in place", async () => {
+  const cards = [
+    workCard('P1', { lane: 'progress', holdable: true }),
+    workCard('H1', { lane: 'progress', holdable: true, held: true }),
+    workCard('R1', { lane: 'review' }),
+    workCard('D1', { lane: 'done' }),
+  ];
+  const sends = heldSends();
+  const b = boardOnDom({ open: cards.map((c) => c.key), board: { ...boardOf(cards), holdChoices: HOLD_CHOICES }, threads: Object.fromEntries(cards.map((c) => [c.key, []])), send: sends.send, confirm: true });
+  await b.settle();
+  const form = (key) => b.root.querySelector(`form[data-reply="${key}"]`);
+  const second = (key) => form(key).querySelector('[data-confirm]');
+  const tap = async (key) => { b.page.fire(b.root, 'submit', { target: form(key), submitter: second(key) }); await b.settle(); };
+  await tap('w/P1');
+  b.page.fire(b.root.querySelector('#holdSheet'), 'click', { target: b.root.querySelector('#holdSheet [data-hold-for]') });
+  await b.settle();
+  for (const key of ['w/H1', 'w/R1', 'w/D1']) await tap(key);
+  assert.deepEqual(cards.map((c) => [threadLines(b, c.key), waitState(second(c.key))]), [
+    [['Held · sending…'], IDLE], [['Resumed · sending…'], IDLE], [['Marked done · sending…'], IDLE], [['Reopened · sending…'], IDLE],
+  ]);
+  assert.deepEqual(sentNoIds(b), [['card-hold', { key: 'w/P1', hold: true, for: '1h' }], ['card-hold', { key: 'w/H1', hold: false }], ['card-done', { key: 'w/R1' }], ['card-reopen', { key: 'w/D1' }]]);
+  b.server.threads['w/P1'] = [{ ts: '2026-10-30T10:00:00.000Z', who: 'love', kind: 'command', command: 'hold', request: true, mark: 'Held', text: 'Held until 11:00 AM' }];
+  sends.answer();
+  await b.settle();
+  assert.deepEqual(threadLines(b, 'w/P1'), ['Held until 11:00 AM']);
+  sends.answer(false, REFUSED);
+  await b.settle();
+  assert.deepEqual(threadLines(b, 'w/H1'), ['Resumed · not sent']);
+  const resumeId = b.sent[1][1].sendId;
+  b.page.fire(b.root, 'click', { target: b.root.querySelector(`[data-thread="w/H1"] button[data-resend="${resumeId}"]`) });
+  await b.settle();
+  assert.deepEqual([b.confirms.at(-1), threadLines(b, 'w/H1'), b.sent.at(-1)[1].sendId], ['Send “Resumed” again?', ['Resumed · sending…'], resumeId]);
   b.view.unmount();
 });
 
@@ -6347,7 +6323,7 @@ test("the thread's image button, after the eye and fire and before attach, asks 
   box().value = '/visual Compare the two takes';
   b.page.fire(b.root, 'submit', { target: form(), submitter: form().querySelector('button[data-nth="0"]') });
   await b.settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(b.sent)), [
+  assert.deepEqual(sentNoIds(b), [
     ['visual-request', { key: 'w/A1' }], ['visual-request', { key: 'w/A1', text: 'Draw the land queue' }], ['visual-request', { key: 'w/A1', text: 'Compare the two takes' }],
   ]);
   b.view.unmount();
