@@ -6,13 +6,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { addItem, addQuestions, briefFacts, migrateGates, settleAnswers, stopPlanner } from './store.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const yesNo = [{ id: 'yes', label: 'Yes', recommended: true }, { id: 'no', label: 'No' }];
 const other = (id = 'q-other') => ({ id, topic: 'item:t/A1', question: 'Which?', options: [{ id: 'a', label: 'A' }] });
 const gate = (id = 'q-gate') => ({ id, topic: 'item:t/A1', question: 'Prototype round first?', options: yesNo, prototype_gate: true });
 
 function world(fields = {}, more = []) {
-  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'gates-'));
+  const site = tempDir('gates-');
   const data = path.join(site, 'data');
   fs.mkdirSync(data);
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));

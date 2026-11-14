@@ -6,12 +6,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import { linearClient, linearStatus, readLinearKey, removeLinearKey, saveLinearKey, savedClient, stateFor, stageOf } from './linear.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 function withHome(t) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'linear-'));
+  const home = tempDir('linear-');
   const old = process.env.HOME;
   process.env.HOME = home;
-  t.after(() => { if (old === undefined) delete process.env.HOME; else process.env.HOME = old; fs.rmSync(home, { recursive: true, force: true }); });
+  t.after(() => { if (old === undefined) delete process.env.HOME; else process.env.HOME = old; });
   return path.join(home, '.claude', 'kickflip', 'secrets.json');
 }
 const linearIn = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).linear; } catch { return undefined; } };

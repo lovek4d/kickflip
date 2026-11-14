@@ -8,6 +8,7 @@ import os from 'node:os';
 import { ChromeStartError, startChrome } from '../shared/chrome.mjs';
 import { sharedChrome } from '../shared/test-helpers.mjs';
 import { boardWith, home, at, site, write, read, run, question, takePath, recordPrototype } from './board-fixture.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const skip = !fs.existsSync(CHROME) && 'no Chrome';
@@ -29,7 +30,7 @@ const flakyChrome = (failures) => {
 };
 
 test('a Chrome that fails to start once is launched again in a fresh profile', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launch-test-'));
+  const dir = tempDir('launch-test-');
   const dirs = [];
   const started = { port: '1', stop() {} };
   const once = async (d) => {

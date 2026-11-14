@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { until, ownSession, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
 import { watch as watchInProcess } from './wait-events.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const write = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data)); };
 
@@ -41,14 +42,13 @@ function inProcess(t, home, { pid, session = 's1', gone = () => false } = {}) {
 }
 
 test('paused watchers hold hub work through owner wakes and restarts, and report it after reset', { timeout: 120000 }, async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'paused-watch-'));
+  const home = tempDir('paused-watch-');
   const dir = path.join(home, 'site');
   const state = path.join(home, '.claude', 'kickflip');
   const events = path.join(dir, 'data', 'events.jsonl');
   const cursor = path.join(dir, 'data', '.watch-cursor-s1.json');
   const reset = new Date(Date.now() + 3600_000).toISOString();
   const usage = (resets_at) => ({ claude: { at: new Date().toISOString(), five_hour: { used_percentage: 91, resets_at } } });
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   write(path.join(state, 'manifest.json'), { sites: { shop: { dir, watch: ['data/events.jsonl'], owner: { session: 's1' } } } });
   write(path.join(dir, 'board.json'), { title: 'Shop', rules: [{ id: 'b1', text: 'Board rule' }] });
   write(path.join(state, 'settings.json'), { rules: [{ id: 'h1', text: 'Hub rule' }] });
@@ -101,12 +101,11 @@ test('paused watchers hold hub work through owner wakes and restarts, and report
 
 // docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md
 test("a board's own pause holds its hub work as a usage pause does and names itself, until it is lifted", { timeout: 60000 }, async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'board-pause-watch-'));
+  const home = tempDir('board-pause-watch-');
   const dir = path.join(home, 'site');
   const state = path.join(home, '.claude', 'kickflip');
   const events = path.join(dir, 'data', 'events.jsonl');
   const until = new Date(Date.now() + 3600_000).toISOString();
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   write(path.join(state, 'manifest.json'), { sites: { shop: { dir, watch: ['data/events.jsonl'], owner: { session: 's1' } } } });
   write(path.join(dir, 'board.json'), { title: 'Shop', paused_until: until });
   write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 0 });
@@ -134,10 +133,10 @@ const WATCHER = new URL('./wait-events.mjs', import.meta.url).pathname;
 const running = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 // A home with one board `shop` owned by session s1, its events file and cursor at 0.
 function shop(t) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orphan-watch-'));
+  const home = tempDir('orphan-watch-');
   const dir = path.join(home, 'site');
   const pids = [];
-  t.after(() => { for (const pid of pids) if (running(pid)) process.kill(pid, 'SIGKILL'); fs.rmSync(home, { recursive: true, force: true }); });
+  t.after(() => { for (const pid of pids) if (running(pid)) process.kill(pid, 'SIGKILL'); });
   write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: { shop: { dir, watch: ['data/events.jsonl'], owner: { session: 's1' } } } });
   write(path.join(dir, 'data', 'events.jsonl'), '');
   write(path.join(dir, 'data', '.watch-cursor-s1.json'), { 'data/events.jsonl': 0 });

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import { pathToFileURL } from 'node:url';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const listeners = [];
 const capture = (opts) => opts === true || Boolean(opts?.capture);
@@ -39,7 +40,7 @@ Object.assign(globalThis, {
   setInterval: () => { timers.add(++timerIds); return timerIds; }, clearInterval: (id) => timers.delete(id),
   PrototypeSwitcher: { mount: (opts) => { mounted = { ...opts, first: opts.render(opts.initial) }; return {}; } },
 });
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kit-'));
+const dir = tempDir('kit-');
 globalThis.location = { href: pathToFileURL(path.join(dir, 'prototype-x.html')).href };
 const load = (file) => vm.runInThisContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), { importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER });
 for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-hub.js', 'prototype-kit.js']) load(file);

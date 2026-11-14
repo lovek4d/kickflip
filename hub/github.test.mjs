@@ -8,14 +8,15 @@ import { fakeGh, prView, writePR, writeReady, writeUser, writeIssueComments, wri
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
 import { storedPRs } from '../shared/card-prs.mjs';
 import { readAudit, hubAudit } from '../shared/audit.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'github-'));
+const home = tempDir('github-');
 process.env.HOME = home;
 const priorPath = process.env.PATH;
 process.env.PATH = `${fakeGh(home)}:${priorPath}`;
 writeUser(home, { login: 'owner' });
 const { summarize, changesBetween, carry, checkGitHub } = await import('./github.mjs');
-after(() => { process.env.PATH = priorPath; fs.rmSync(home, { recursive: true, force: true }); });
+after(() => { process.env.PATH = priorPath; });
 
 const gh = (over = {}) => ({
   pr: 7, state: 'OPEN', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', mergeable: 'MERGEABLE', mergeStateStatus: 'BLOCKED',

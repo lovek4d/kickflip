@@ -6,8 +6,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'new-board-')));
+const home = fs.realpathSync(tempDir('new-board-'));
 process.env.HOME = home;
 process.env.CLAUDE_CONFIG_DIR = path.join(home, 'claude-config');
 const claudeConfig = path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
@@ -66,7 +67,6 @@ const claude = (answer) => {
   };
   return { calls, run };
 };
-after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 test('new repo requests clone before starting a session and store the board branch independently of the clone', async () => {
   saveJSON(manifestFile, { sites });

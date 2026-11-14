@@ -1,4 +1,4 @@
-import { test, beforeEach, afterEach } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import fs from 'node:fs';
@@ -8,11 +8,11 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { statusLine } from './statusline.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const script = fileURLToPath(new URL('./statusline.mjs', import.meta.url));
 let home;
-beforeEach(() => { home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-statusline-'))); });
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+beforeEach(() => { home = fs.realpathSync(tempDir('kickflip-statusline-')); });
 const env = () => ({ ...process.env, HOME: home, GIT_CONFIG_NOSYSTEM: '1' });
 const usageFile = () => path.join(home, '.claude', 'kickflip', 'usage.json');
 const run = (input, overrides = {}) => {

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'incoming-'));
+const home = tempDir('incoming-');
 process.env.HOME = home;
 const { incomingFor, checkIncoming } = await import('./incoming.mjs');
-after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const open = (number, over = {}) => ({ number, title: `PR ${number}`, author: 'quinn', url: `https://github.com/o/r/pull/${number}`, head: `h${number}`, draft: false, files: [], requested: [], ...over });
 

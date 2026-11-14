@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { freePorts } from '../shared/test-helpers.mjs';
 import { SNOOZE_REFUSED } from './views.mjs';
 import { ruleText, rulesOf, addRule, editRule, removeRule, applyRules, changed, ruleLines, RULE_MAX, RuleError } from './rules.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const HUB_DIR = path.dirname(fileURLToPath(import.meta.url));
 const NOW = new Date('2026-10-24T12:00:00Z');
@@ -83,7 +84,7 @@ function inHome(home, code) {
 }
 
 test('writing the hub rules keeps every other key of settings.json, and a settings.json that does not parse is refused', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rules-'));
+  const home = tempDir('rules-');
   try {
     const file = path.join(home, '.claude', 'kickflip', 'settings.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -100,7 +101,7 @@ test('writing the hub rules keeps every other key of settings.json, and a settin
 });
 
 test('codex-share prints the setting in effect, refuses a change while Codex is not installed or logged in, and sets values preserving the other hub settings', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-share-'));
+  const home = tempDir('codex-share-');
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
   const env = { ...process.env, HOME: home, PATH: bin };

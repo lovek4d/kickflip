@@ -5,10 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 test('the repo build script announces a private working hub that never runs the host\'s tailscale, and stops with its process group', async (t) => {
   const root = fileURLToPath(new URL('../', import.meta.url));
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'build-test-'));
+  const home = tempDir('build-test-');
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
   for (const name of ['claude', 'gh', 'codex', 'launchctl', 'systemctl', 'loginctl', 'osascript']) {

@@ -6,11 +6,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { usageReader, checkUsagePause, contextReading, runLimit } from './usage.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const originalHome = process.env.HOME;
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-'));
+const home = tempDir('usage-');
 process.env.HOME = home;
-after(() => { process.env.HOME = originalHome; fs.rmSync(home, { recursive: true, force: true }); });
+after(() => { process.env.HOME = originalHome; });
 const NOW = Date.parse('2026-11-01T21:00:00Z');
 const HOUR = 3600_000;
 const iso = (time) => new Date(time).toISOString();
@@ -261,7 +262,7 @@ test('Pause hub starts and lifts as the usage pause does, waking every board, an
 });
 
 test('a session\'s context reading is its saved percent and time, null without one', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-'));
+  const dir = tempDir('context-');
   try {
     fs.mkdirSync(path.join(dir, '.claude', 'kickflip', 'context'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.claude', 'kickflip', 'context', 's-1.json'), JSON.stringify({ percent: 62, at: '2026-11-03T10:00:00.000Z' }));

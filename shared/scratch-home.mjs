@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tempDir } from './temp-dir.mjs';
 
-export const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'home-')));
+export const home = fs.realpathSync(tempDir('home-'));
 process.env.HOME = home;
-process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));

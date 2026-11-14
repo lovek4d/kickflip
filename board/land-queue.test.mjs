@@ -5,13 +5,14 @@ import path from 'node:path';
 import test from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { holdingLandLock, joiningLand, landInTurn } from './worktree.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function home(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'land-queue-'));
+  const dir = tempDir('land-queue-');
   const old = process.env.HOME;
   process.env.HOME = dir;
-  t.after(() => { process.env.HOME = old; fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { process.env.HOME = old; });
   return dir;
 }
 
@@ -147,9 +148,9 @@ test('a land waiting for the lock wakes when it frees, not on a timer', async (t
 // A free the instant a waiter starts watching, while other watches in the process open and close (on macOS each one
 // restarts the process's shared directory-watch stream), still wakes the waiter.
 function churnWatches(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'land-churn-'));
+  const dir = tempDir('land-churn-');
   const timer = setInterval(() => fs.watch(dir).close(), 1);
-  t.after(() => { clearInterval(timer); fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { clearInterval(timer); });
 }
 
 test('a lock freed the moment its waiter starts watching still wakes the waiter', async (t) => {

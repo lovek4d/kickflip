@@ -7,6 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { BoardError, opensPRs, settingsOf } from './store.mjs';
 import { boardAt, hubCode, listBoards, readJSON, readManifest, samePath } from '../hub/boards.mjs';
@@ -17,6 +18,7 @@ import { hubService } from '../shared/service.mjs';
 import { squashMessage, subjectFault } from './commit-message.mjs';
 import { releaseTag, tagRelease } from './release-tag.mjs';
 import { affectedTests } from './affected.mjs';
+import { readMachineState } from '../shared/machine-gate.mjs';
 
 const KICKFLIP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'kickflip.mjs');
 export const skillRepo = cloneRoot;
@@ -161,6 +163,8 @@ function testFiles(dir) {
   return found.sort();
 }
 
+const EXIT_WITH_RUN = path.join(path.dirname(fileURLToPath(import.meta.url)), 'exit-with-run.mjs');
+
 // The test files a run starts at once: half the host's cores, at least one, so several suites at a time don't pile their
 // files up on a loaded Mac (docs/adr/2026-11-12-1600-the-test-runner-caps-concurrency-to-half-the-cores.md).
 export const testConcurrency = () => Math.max(1, Math.floor(os.availableParallelism() / 2));
@@ -170,7 +174,8 @@ export const testArgs = (testLimit, files) => ['--test', '--test-reporter=tap', 
 
 // The worktree's tests, as a promise: files, repo-relative, else every *.test.mjs file in it. NODE_TEST_CONTEXT is dropped, since a run started from inside a test
 // would otherwise report to that test's runner instead of exiting with its own result. KICKFLIP_TAILSCALE is a failing
-// stub, so a test's hub never reaches the host's Tailscale; a test with its own stub names it. Each test fails once it runs past
+// stub, so a test's hub never reaches the host's Tailscale; a test with its own stub names it. Every node process of the
+// run loads exit-with-run.mjs, which exits it once this process is gone. Each test fails once it runs past
 // testLimit, and the whole run is cut off at limit: its process group is killed, so a hung file's child dies with it, and
 // → {hung: {after, files}} naming the files still running, with the partial output and those processes saved to the log
 // (docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md). Whatever the run's tests left
@@ -188,7 +193,10 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     said.push(report.update(`${done.length} tests run, ${done.filter(Boolean).length} failing`));
   }, every);
   const { NODE_TEST_CONTEXT: _, ...rest } = process.env;
-  const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false' };
+  // A run started from inside a run's test has the import already, and watches its own starter.
+  const exitWithRun = `--import=${JSON.stringify(EXIT_WITH_RUN)}`;
+  const options = rest.NODE_OPTIONS?.includes(exitWithRun) ? rest.NODE_OPTIONS : [rest.NODE_OPTIONS, exitWithRun].filter(Boolean).join(' ');
+  const env = { ...rest, KICKFLIP_TAILSCALE: '/usr/bin/false', KICKFLIP_TEST_RUN: String(process.pid), NODE_OPTIONS: options };
   const child = spawn(nodeBin(), testArgs(testLimit, files), { cwd: dir, env, detached: true });
   // macOS answers EPERM, not ESRCH, for a group whose processes have all died but aren't yet reaped.
   child.once('exit', () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH' && e.code !== 'EPERM') throw e; } });
@@ -537,13 +545,27 @@ export async function failingOnBase(repo, base, files) {
   }
 }
 
-// Runs the worktree's tests (runTests, else the full suite), refusing on a failure with each failing test, or on a run cut off at its time limit
+// docs/adr/2026-11-14-1217-test-runs-wait-while-the-host-is-busy-and-leave-nothing-behind.md
+// Resolves once the host doesn't read busy by the rule that holds new work (shared/machine-gate.mjs readMachineState:
+// the sidebar's busy dot and a launch's hold), saying HOST_BUSY once, to say and to report's live line, when it has to
+// wait. wait(ms) is the pause between reads.
+export const HOST_BUSY = 'waiting: the host is busy';
+const HOST_RECHECK_MS = 30_000;
+export async function untilHostEases({ say = console.log, report, wait = sleep } = {}) {
+  if (readMachineState().state !== 'busy') return;
+  say(HOST_BUSY);
+  await report?.update(HOST_BUSY);
+  do await wait(HOST_RECHECK_MS); while (readMachineState().state === 'busy');
+}
+
+// Runs the worktree's tests (runTests, else the full suite) once the host eases (untilHostEases), refusing on a failure with each failing test, or on a run cut off at its time limit
 // with the files still running, and outcome, what the refusal left undone.
 // report, when given, is told the run's start, progress and result ({start, update, end}, each taking words; nodeTests).
 // onUntouchedFailure, when given, is told the failing test files when none of them is one the change reaches (the run's
 // touched) and answers which of them fail on base too; when all do, the run passes and the land goes on, the failure
 // left to a Found: call, not the card.
-export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report, onUntouchedFailure }) {
+export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report, onUntouchedFailure, wait }) {
+  await untilHostEases({ say, report, wait });
   const tests = await runTests(dir, { report });
   if (!tests.ok && !tests.hung && onUntouchedFailure && tests.failedFiles?.length && tests.failedFiles.every((f) => tests.touched && !tests.touched.includes(f))) {
     const onBase = await onUntouchedFailure(tests.failedFiles);

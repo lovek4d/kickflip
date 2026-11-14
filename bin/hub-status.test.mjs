@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const KICKFLIP = fileURLToPath(new URL('./kickflip.mjs', import.meta.url));
 
@@ -25,7 +26,7 @@ function kickflip(home, preload, ...args) {
 
 // docs/adr/2026-11-13-2230-kickflip-waits-for-a-slow-hub.md
 test('kickflip reads a hub slower than any time limit as running, and one that refuses as not running', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-status-'));
+  const home = tempDir('hub-status-');
   try {
     fs.mkdirSync(path.join(home, 'page'));
     // A hub slower than any time limit: a status read that carries one is cut off before the hub answers.

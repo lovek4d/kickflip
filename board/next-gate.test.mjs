@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { addQuestions, settleAnswers, stageImplement, stopPlanner } from './store.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const choices = [{ id: 'implement', label: 'Implement', recommended: true }, { id: 'prototype', label: 'Prototype first' }, { id: 'discuss', label: 'Keep discussing' }];
 const other = (id = 'q-other') => ({ id, topic: 'item:t/A1', question: 'Which?', options: [{ id: 'a', label: 'A' }] });
@@ -13,7 +14,7 @@ const next = (id = 'q-next') => ({ id, topic: 'item:t/A1', question: 'What next,
 const oldGate = (id = 'q-gate') => ({ id, topic: 'item:t/A1', question: 'Prototype round first?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], prototype_gate: true });
 
 function world(fields = {}) {
-  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'next-'));
+  const site = tempDir('next-');
   const data = path.join(site, 'data');
   fs.mkdirSync(data);
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));

@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { lockWaits, withFileLock } from './locks.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'locks-')), 'data.json');
+const tmp = () => path.join(tempDir('locks-'), 'data.json');
 const noWait = () => assert.fail('waited for the lock');
 
 // docs/adr/2026-11-09-2200-a-file-lock-records-its-holder-and-a-gone-holder-loses-it.md

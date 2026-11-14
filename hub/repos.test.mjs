@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'repo-reuse-')));
+const home = fs.realpathSync(tempDir('repo-reuse-'));
 process.env.HOME = home;
 process.env.KICKFLIP_CLAUDE = '/usr/bin/false';
 process.env.CLAUDE_CONFIG_DIR = home;
@@ -35,7 +36,6 @@ function contents(dir) {
   }));
 }
 
-after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 test('GitHub input parsing accepts clone and browser links and refuses other hosts and unsafe identities', () => {
   const accepted = [

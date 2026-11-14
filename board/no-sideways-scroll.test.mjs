@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const chrome = sharedChrome();
 
@@ -32,7 +33,7 @@ const FIXTURE = `<!doctype html><html><head>
 
 for (const width of [390, 1280]) {
   test(`at ${width}px the sidebar and each pane's scrollWidth equals its clientWidth`, { skip: !chromeInstalled }, async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sideways-'));
+    const dir = tempDir('sideways-');
     const file = path.join(dir, 'page.html');
     fs.writeFileSync(file, FIXTURE);
     const widths = await chrome.probe(`file://${file}`, width);

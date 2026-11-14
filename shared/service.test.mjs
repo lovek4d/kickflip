@@ -1,4 +1,4 @@
-import { test, beforeEach, afterEach } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,17 +6,17 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { hubService } from './service.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 let home;
 let bin;
 let log;
 beforeEach(() => {
-  home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-service-')));
+  home = fs.realpathSync(tempDir('kickflip-service-'));
   bin = path.join(home, 'bin');
   log = path.join(home, 'calls.log');
   fs.mkdirSync(bin);
 });
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const stub = (name, cases = '') => fs.writeFileSync(path.join(bin, name),
   `#!/bin/sh\nprintf '%s\\n' "${name} $*" >> "${log}"\ncase "$*" in\n${cases}\nesac\nexit 0\n`, { mode: 0o755 });

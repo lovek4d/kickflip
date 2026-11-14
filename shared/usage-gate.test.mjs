@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { usageGate, readUsageGate, setPauseAt, setKeepGoing, setHubPause, heldUsageEvent, builderPick, heldFor, holdsWork, launchHeld, pauseReasonFor, pauseReason, pausedLine } from './usage-gate.mjs';
 import { readClaudeModel, setClaudeModel } from '../hub/push.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const now = Date.parse('2026-11-01T21:00:00Z');
 const until = new Date(now + 3600_000).toISOString();
@@ -15,12 +16,11 @@ const reading = (five = 90, seven = 40) => ({ five_hour: win(five), seven_day: w
 const gate = (extra = {}) => usageGate({ now, claude: reading(), ...extra });
 
 function fixture(t) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-gate-'));
+  const home = tempDir('usage-gate-');
   const dir = path.join(home, '.claude', 'kickflip');
   fs.mkdirSync(dir, { recursive: true });
   const write = (name, data) => fs.writeFileSync(path.join(dir, name), JSON.stringify(data));
   const settings = () => JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   return { home, dir, write, settings };
 }
 

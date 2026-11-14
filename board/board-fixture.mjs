@@ -1,7 +1,7 @@
 // The setup and helpers the board-*.test.mjs files share, split from one file by command: a scratch HOME per test
 // with the orch and audit boards, and helpers that run board.mjs and its sibling scripts there. home is a live
 // binding, reassigned before each test.
-import { after, beforeEach, afterEach } from 'node:test';
+import { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { main } from './bin/board.mjs';
 import { startFakeDevice } from '../hub/fake-device.mjs';
 import { fakeLinear, linearWorld } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 export const bin = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', name);
 export let home;
@@ -75,7 +76,7 @@ export const wave = () => ({ title: 'W', items: [{ id: 'A1', title: 'feat: one',
 export const question = (id, extra = {}) => ({ id, topic: 'site', question: 'Keep it?', options: [{ id: 'A', label: 'Keep', recommended: true }, { id: 'B', label: 'Drop' }], ...extra });
 
 beforeEach(() => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), 'board-'));
+  home = tempDir('board-');
   write(at('waves', 'w', 'wave.json'), wave());
   write(site('orch', 'board.json'), { title: 'Orch', items: 'waves' });
   write(site('orch', 'data', 'owner.json'), { topics: [{ id: 'site', title: 'Site' }], items: [] });
@@ -83,7 +84,6 @@ beforeEach(() => {
   write(site('audit', 'board.json'), { title: 'Audit', items: 'data/items.json', slug: 'audit' });
   write(site('audit', 'data', 'items.json'), wave());
 });
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 export async function ticketCli(t) {
   const { saveBoardSettings } = await import('./store.mjs');
@@ -143,9 +143,8 @@ export const git = (cwd, ...args) => {
 export const commit = (dir, file, text, subject = `change ${file}`) => { write(path.join(dir, file), text); git(dir, 'add', '-A'); git(dir, 'commit', '--quiet', '-m', subject); };
 // The scratch repo's one base commit, made once per test file and copied into each test that asks for it.
 let baseRepo;
-after(() => { if (baseRepo) fs.rmSync(path.dirname(baseRepo), { recursive: true, force: true }); });
 function makeBaseRepo() {
-  const repo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'board-repo-')), 'repo');
+  const repo = path.join(tempDir('board-repo-'), 'repo');
   fs.mkdirSync(repo);
   git(repo, 'init', '--quiet', '-b', 'main');
   git(repo, 'config', 'user.name', 'Test');

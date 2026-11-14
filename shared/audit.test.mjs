@@ -4,14 +4,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { audit, readAudit, auditLines, boardAudit, hubAudit, AUDIT_DAYS } from './audit.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const DAY = 86400_000;
 const now = new Date('2026-11-05T12:00:00Z');
 const ago = (days) => new Date(now.getTime() - days * DAY);
 
 function fixture(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir('audit-');
   return { dir, file: path.join(dir, 'data', 'audit.jsonl') };
 }
 const lines = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));

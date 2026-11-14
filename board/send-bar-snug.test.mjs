@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const chrome = sharedChrome();
 
@@ -23,7 +24,7 @@ const FIXTURE = (bodyClass) => `<!doctype html><html><head><meta name="viewport"
 
 for (const [width, bodyClass, expected] of [[390, 'has-sidebar', '53px'],[1280, 'has-sidebar', '0px']]) {
   test(`at ${width}px (${bodyClass || 'standalone'}) the page ends at Send: main pads only the nav under it`, { skip: !chromeInstalled }, async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snug-'));
+    const dir = tempDir('snug-');
     const file = path.join(dir, 'page.html');
     fs.writeFileSync(file, FIXTURE(bodyClass));
     const got = await chrome.probe(`file://${file}`, width);

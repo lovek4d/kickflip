@@ -14,6 +14,7 @@ import { fakeGh, writeGithubUser } from '../shared/fake-gh.mjs';
 import { withFileLock } from '../hub/locks.mjs';
 import { writeBrief } from './store.mjs';
 import { watch as watchEvents } from '../bin/wait-events.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // docs/adr/2026-11-14-0013-server-test-runs-its-board-and-watchers-in-process.md
 // One board server for the file, in this process with no file watch: a test that writes a file the server would hear
@@ -1777,7 +1778,7 @@ test("a card's question topic in the page's board carries no title of its own: t
 });
 
 test("the board's version depends on its data alone: a minute later with nothing changed it is the same, and the Hold choices carry their lengths, not clock words", () => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-version-')));
+  const dir = fs.realpathSync(tempDir('board-version-'));
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
   fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'V', items: 'data/items.json', slug: 'v' }));
@@ -1812,7 +1813,7 @@ test("the board's version depends on its data alone: a minute later with nothing
 // docs/adr/2026-11-04-0257-an-idle-board-pushes-once-when-it-has-gone-idle.md
 // When an idle stretch pushes is domain.test.mjs's (idleStep, idleSummary); this checks the server's wiring.
 test('with Idle notification on, the board pushes "<board> has gone idle" 15 minutes into an idle stretch, with what closed since, and turning it off forgets the stretch', () => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-idle-')));
+  const dir = fs.realpathSync(tempDir('board-idle-'));
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
   fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'Idle board', items: 'data/items.json', slug: 'i', idle_notification: true }));
@@ -1856,7 +1857,7 @@ test('with Idle notification on, the board pushes "<board> has gone idle" 15 min
 
 // docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md
 test("data/sync.json keeps the change numbers across a restart: the counter carries on, and a page holding a number from before catches up with a patch", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'board-sync-'));
+  const dir = tempDir('board-sync-');
   const at = path.join(dir, 'site');
   fs.mkdirSync(path.join(at, 'data'), { recursive: true });
   fs.writeFileSync(path.join(at, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 's' }));

@@ -6,8 +6,9 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { lockWaited, ownSession } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'close-board-')));
+const home = fs.realpathSync(tempDir('close-board-'));
 process.env.HOME = home;
 const { boardClosure, closeBoard, closedBoards, reopenBoard } = await import('./close-board.mjs');
 const { readManifest, saveJSON, listBoards, hubBoard, withManifestLock } = await import('./boards.mjs');
@@ -37,7 +38,6 @@ function fixture({ hub = false, waves = false } = {}) {
   saveJSON(web('manifest.json'), { version: 1, migrated: ['hub-flag'], sites: { shop: site, page: { dir: home, cmd: ['echo'], port: 49002 } } });
   return { dir, data, site };
 }
-after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 test('close and reopen retain the folder and complete manifest entry, stop the session and builders, and resume the recorded session, the hub board like any other', async () => {
   for (const waves of [false, true]) {

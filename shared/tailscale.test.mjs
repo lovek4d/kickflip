@@ -1,13 +1,13 @@
-import { test, beforeEach, afterEach } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { tailscaleBin, tailscaleSkipped, daemonRunning, tailscaleInstallCommand, tailscaleInstallHint } from './tailscale.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 let home;
-beforeEach(() => { home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-tailscale-'))); });
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+beforeEach(() => { home = fs.realpathSync(tempDir('kickflip-tailscale-')); });
 
 const executable = (file, mode = 0o755) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });

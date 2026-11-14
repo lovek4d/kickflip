@@ -1,4 +1,4 @@
-import { test, beforeEach, afterEach } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,19 +8,19 @@ import { runInstall, installLinks, installClaudeSettings, uninstallStatusLine, s
 import { hubService } from '../shared/service.mjs';
 import { cloneRoot } from '../shared/repos.mjs';
 import { doctorReport, doctorLines, runDoctor } from './doctor.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 let home;
 let root;
 let skills;
 beforeEach(() => {
-  home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-install-')));
+  home = fs.realpathSync(tempDir('kickflip-install-'));
   root = path.join(home, 'dev', 'kickflip clone');
   skills = path.join(home, '.claude', 'skills');
   fs.mkdirSync(path.join(root, 'hooks-plugin'), { recursive: true });
   fs.mkdirSync(path.join(root, 'bin'));
   fs.writeFileSync(path.join(root, 'bin', 'statusline.mjs'), '#!/usr/bin/env node\n', { mode: 0o755 });
 });
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const install = (options = {}) => installLinks({ home, cloneRoot: root, ...options });
 const targets = () => [root, path.join(skills, 'kickflip', 'hooks-plugin'), path.join(skills, 'kickflip', 'bin', 'statusline.mjs')];

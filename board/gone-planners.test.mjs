@@ -7,9 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { addQuestions, closeGonePlanners } from './store.mjs';
 import { runFailure } from './headless.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 function world(phase = 'grilling') {
-  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'gone-'));
+  const site = tempDir('gone-');
   const data = path.join(site, 'data');
   fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
@@ -75,7 +76,7 @@ test('a gone visual agent closes its record with no unasked line, and a builder 
 });
 
 test('runFailure reads a run log: null after a clean result, the error text after an error result, and a words of its own with no result', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'log-'));
+  const dir = tempDir('log-');
   const write = (name, events) => { const f = path.join(dir, name); fs.writeFileSync(f, events.map((e) => JSON.stringify(e)).join('\n') + '\n'); return f; };
   assert.equal(runFailure(write('ok.log', [{ type: 'system' }, { type: 'result', is_error: false, result: 'done' }])), null);
   assert.equal(runFailure(write('bad.log', [{ type: 'result', is_error: true, result: 'Credit balance is too low' }])), 'Credit balance is too low');

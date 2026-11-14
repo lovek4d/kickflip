@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { liveOf, liveSessions, parentOf, processStarts, sessionGone } from './live.mjs';
 import { fakePs } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'live-'));
+const dir = tempDir('live-');
 // ps answers for this process and its parent, both started at START; a pid that no longer runs is never asked about.
 const START = 'Thu Nov  5 00:00:00 2026';
 const started = Date.parse(`${START} UTC`);
@@ -15,7 +16,6 @@ const silent = () => null;
 const GONE = 0x7ffffffe;
 const record = (pid, sessionId, extra = {}) => fs.writeFileSync(path.join(dir, `${pid}.json`), JSON.stringify({ pid, sessionId, cwd: '/repo', kind: 'bg', ...extra }));
 
-after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 test('a record is live while its pid runs and that process started when the record says', () => {
   const start = Date.parse('2026-10-29T21:35:54Z');

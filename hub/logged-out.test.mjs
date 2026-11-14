@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'logged-out-')));
+const home = fs.realpathSync(tempDir('logged-out-'));
 process.env.HOME = home;
 const { loggedOutText, checkLoggedOut, loggedOutRoutes } = await import('./logged-out.mjs');
 const { siteStatus } = await import('./home.mjs');

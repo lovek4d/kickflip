@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { restarter } from './self-restart.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'self-restart-'));
-after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+const scratch = tempDir('self-restart-');
 let n = 0;
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' });
 function clone() {

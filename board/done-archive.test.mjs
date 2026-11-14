@@ -8,6 +8,7 @@ import path from 'node:path';
 import { startBoard } from '../shared/test-helpers.mjs';
 import { buildBoard, archivedOf, slimDone, DONE_KEPT } from './domain.mjs';
 import { archiveCards, readArchive, appendMessage, setItem, stripDeadFields } from './store.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const at = (n) => new Date(Date.parse('2026-11-04T10:00:00Z') - n * 60000).toISOString();
 // count Done cards D0 (newest) … D<count-1>, then O1, an open card depending on D<count-2>, and O2, an open card
@@ -48,7 +49,7 @@ test('a slim Done card keeps what the page draws and leaves the rest out', () =>
 });
 
 function siteOf(count) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'done-archive-'));
+  const home = tempDir('done-archive-');
   const site = path.join(home, 'site');
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));
@@ -150,7 +151,6 @@ test('the server archives Done cards past the newest 100 as it starts, sends the
   Object.assign(owner.items.find((q) => q.id === 'q-other'), { push_tag: 'item-t/D0', no_change: true });
   write('owner.json', owner);
   const { base, changed, settled } = await startBoard(t, { site, home });
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   await settled();
   assert.equal((await readArchive(site)).length, count - DONE_KEPT - 3, 'the start archives every task past the newest 100 but the kept 3');
   // The server sees its archive's writes to the item file once its file watch reports them.

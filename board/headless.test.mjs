@@ -11,6 +11,7 @@ import { freePorts, startBoard } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, verifyCalls, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // The server tests run the board server in this process (shared/test-helpers.mjs startBoard), so the board reads its
 // manifest, logs and worktrees under the file's scratch HOME (shared/scratch-home.mjs), and calls no hub.
@@ -250,7 +251,7 @@ test("a builder's and a planner's brief list the card's related cards with their
 });
 
 test("briefFacts gives a card's links: Related to set on either card, its Parent and its deps, each with its ref, title, lane and notes path", async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'brief-facts-'));
+  const home = tempDir('brief-facts-');
   try {
     const site = path.join(home, 'site');
     fs.mkdirSync(path.join(site, 'data'), { recursive: true });

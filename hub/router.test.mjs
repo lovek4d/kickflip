@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'router-'));
+const home = tempDir('router-');
 process.env.HOME = home;
 const { routingBoards, routePrompt, parseRoute, routeRequest, drainRoutes, routedRows, ROUTE_QUEUE, ROUTED_LOG, ROUTE_TRIES } = await import('./router.mjs');
-after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const events = (dir) => fs.readFileSync(path.join(dir, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));

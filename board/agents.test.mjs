@@ -6,6 +6,7 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { launchAgent } from './agents.mjs';
 import { until, untilTestEnds } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // A fake agent that records how it ran, prints what it's given, and stays alive until the test process ends when stays.
 function fakeAgent(dir, name, { stdout = '', stderr = '', stays = false } = {}) {
@@ -20,7 +21,7 @@ ${stays ? untilTestEnds() : ''};
   fs.chmodSync(bin, 0o755);
   return { bin, seen: () => JSON.parse(fs.readFileSync(seen, 'utf8')) };
 }
-const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), name));
+const tmp = (name) => tempDir(name);
 
 // docs/adr/2026-11-05-0128-one-adapter-launches-claude-or-codex.md
 test('launchAgent runs claude -p in auto mode on the model in cwd, without the session’s CLAUDE_* variables, and reads the session id from its init event', async () => {

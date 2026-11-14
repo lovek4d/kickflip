@@ -8,6 +8,7 @@ import { before, after } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { lockWaits, withFileLock } from '../hub/locks.mjs';
 import { chromePath, openTab, startChrome } from './chrome.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 export async function freePorts(count = 1) {
   const servers = [];
@@ -340,18 +341,13 @@ export const chromeInstalled = fs.existsSync(chromePath());
 // One headless Chrome for the calling test file, started before its tests and stopped after them; each page a test loads
 // gets a tab of its own. → {probe(url, width), port}
 export function sharedChrome() {
-  let dir;
   let chrome;
   const result = { get port() { return chrome.port; } };
   before(async () => {
     if (!chromeInstalled) return;
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-chrome-'));
-    chrome = await startChrome(dir, ['--allow-file-access-from-files']);
+    chrome = await startChrome(tempDir('shared-chrome-'), ['--allow-file-access-from-files']);
   });
-  after(async () => {
-    await chrome?.stop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
-  });
+  after(async () => { await chrome?.stop(); });
   // Loads url at `width`px and returns the JSON the page writes into <pre id="probe">, once it is there.
   result.probe = async (url, width) => {
     const tab = await openTab(chrome.port);

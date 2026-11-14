@@ -1,10 +1,11 @@
-import { test, beforeEach, afterEach } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as push from './push.mjs';
 import { fakeDevice } from './fake-device.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 let home, device, devices;
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
@@ -34,12 +35,11 @@ const deliver = (message, opts) => push.deliver(message, { ...opts, home, fetch 
 const flushQueue = () => push.flushQueue({ home, fetch });
 
 beforeEach(() => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), 'push-'));
+  home = tempDir('push-');
   devices = [];
   device = addDevice('phone');
   write(pushFile('subs.json'), [device.subscription]);
 });
-afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 test('deliver refuses a push with no kind or an info kind, sending and queueing nothing', async () => {
   for (const opts of [{}, { kind: 'info', immediate: true }, { kind: 'info', urgent: true }]) {

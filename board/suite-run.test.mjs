@@ -3,16 +3,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { execFileSync } from 'node:child_process';
-import { failingOnBase, nodeTests, passTests, testArgs, testConcurrency } from './worktree.mjs';
+import { execFileSync, spawn } from 'node:child_process';
+import { HOST_BUSY, failingOnBase, nodeTests, passTests, testArgs, testConcurrency } from './worktree.mjs';
+import { machineFile } from '../shared/machine-gate.mjs';
 import { until } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md
 function home(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-run-'));
+  const dir = tempDir('suite-run-');
   const old = process.env.HOME;
   process.env.HOME = dir;
-  t.after(() => { process.env.HOME = old; fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { process.env.HOME = old; });
   return dir;
 }
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -122,7 +124,8 @@ test('a failing run names the test files holding a failing test', async (t) => {
   assert.deepEqual(r.failedFiles, ['bad.test.mjs']);
 });
 
-test('a land passes a run whose failing files the change never reaches and main fails too, and refuses one it touched or main passes', async () => {
+test('a land passes a run whose failing files the change never reaches and main fails too, and refuses one it touched or main passes', async (t) => {
+  home(t);
   const run = (failedFiles, touched) => () => ({ ok: false, fail: failedFiles.length, failedFiles, touched, failures: ['x'] });
   const said = [];
   const asked = [];
@@ -147,4 +150,63 @@ test('failingOnBase runs the files on the base commit in a worktree of its own, 
   git('commit', '--quiet', '-m', 'base');
   assert.deepEqual(await failingOnBase(repo, 'main', ['bad.test.mjs', 'good.test.mjs']), ['bad.test.mjs']);
   assert.equal(git('worktree', 'list').trim().split('\n').length, 1, 'the rerun worktree is removed');
+});
+
+// docs/adr/2026-11-14-1217-test-runs-wait-while-the-host-is-busy-and-leave-nothing-behind.md
+test('a test run waits while the host reads busy, saying so on its line, and starts once the host eases', async (t) => {
+  const dir = home(t);
+  const keep = (state) => { fs.mkdirSync(path.dirname(machineFile(dir)), { recursive: true }); fs.writeFileSync(machineFile(dir), JSON.stringify(state)); };
+  keep({ state: 'busy', reason: 'memory pressure critical', since: '2026-11-14T10:00:00.000Z' });
+  const steps = [];
+  const report = { start: () => {}, end: () => {}, update: async (words) => { steps.push(`line: ${words}`); } };
+  let reads = 0;
+  // The host reads busy at the first recheck too, and eased at the second.
+  const wait = async () => { steps.push('waited'); if (++reads === 2) keep({ state: 'normal' }); };
+  const runTests = async () => { steps.push('ran'); return { ok: true, pass: 1 }; };
+  await passTests('/wt', { say: (l) => steps.push(`said: ${l}`), runTests, outcome: 'nothing landed', report, wait });
+  assert.deepEqual(steps, [`said: ${HOST_BUSY}`, `line: ${HOST_BUSY}`, 'waited', 'waited', 'ran', 'said: tests passed: 1']);
+  assert.equal(HOST_BUSY, 'waiting: the host is busy');
+});
+
+test('a test run on a host that is not busy starts at once, without a waiting line', async (t) => {
+  home(t);
+  const steps = [];
+  await passTests('/wt', { say: (l) => steps.push(l), runTests: async () => ({ ok: true, pass: 1 }), outcome: 'nothing landed', wait: () => assert.fail('nothing waits') });
+  assert.deepEqual(steps, ['tests passed: 1']);
+});
+
+// docs/adr/2026-11-14-1217-test-runs-wait-while-the-host-is-busy-and-leave-nothing-behind.md
+// Every process the run's test starts holds the write end of a FIFO open and writes its pid on it; the read end sees
+// its end once every writer is gone.
+test('a run whose starter is killed mid-test leaves none of its processes running, detached or not', async (t) => {
+  const dir = home(t);
+  const tree = path.join(dir, 'tree');
+  fs.mkdirSync(tree);
+  const fifo = path.join(dir, 'held');
+  execFileSync('mkfifo', [fifo]);
+  const stand = `const fs = require('node:fs'); fs.writeSync(fs.openSync(${JSON.stringify(fifo)}, 'w'), process.pid + '\\n'); setInterval(() => {}, 1 << 30);`;
+  fs.writeFileSync(path.join(tree, 'hold.test.mjs'), `import test from 'node:test';
+import fs from 'node:fs';
+import { spawn } from 'node:child_process';
+test('holds', () => {
+  spawn(process.execPath, ['-e', ${JSON.stringify(stand)}], { detached: true, stdio: 'ignore' }).unref();
+  spawn(process.execPath, ['-e', ${JSON.stringify(stand)} + "require('node:child_process').spawn(process.execPath, ['-e', " + ${JSON.stringify(JSON.stringify(stand))} + "], { detached: true, stdio: 'ignore' });"], { stdio: 'ignore' });
+  fs.writeSync(fs.openSync(${JSON.stringify(fifo)}, 'w'), process.pid + '\\n');
+  return new Promise(() => setInterval(() => {}, 1 << 30));
+});
+`);
+  // The test's own write end keeps the read end from seeing an end before the run's writers open theirs.
+  const reader = fs.createReadStream(fifo, 'utf8');
+  const own = await fs.promises.open(fifo, 'w');
+  let heard = '';
+  const ended = new Promise((resolve) => reader.on('end', resolve));
+  const pids = new Promise((resolve) => reader.on('data', (d) => { heard += d; if (heard.split('\n').length > 4) resolve(heard.trim().split('\n').map(Number)); }));
+  const starter = spawn(process.execPath, ['--input-type=module', '-e', `import { nodeTests } from ${JSON.stringify(new URL('./worktree.mjs', import.meta.url).href)}; await nodeTests(${JSON.stringify(tree)});`], { stdio: 'ignore' });
+  // Should one survive, it is stopped, so its write end lets this file end.
+  t.after(async () => { starter.kill('SIGKILL'); for (const pid of await pids) { try { process.kill(pid, 'SIGKILL'); } catch {} } });
+  // The test file's process, the two it starts and the detached one the second starts.
+  assert.equal((await pids).length, 4);
+  starter.kill('SIGKILL');
+  await own.close();
+  await ended;
 });

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { addQuestions, resolveQuestion, settleAnswers } from './store.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md
 const yesNo = [{ id: 'yes', label: 'Yes', recommended: true }, { id: 'no', label: 'No' }];
@@ -11,7 +12,7 @@ const other = { id: 'q-other', topic: 'item:t/A1', question: 'Which?', options: 
 const gate = { id: 'q-gate', topic: 'item:t/A1', question: 'Prototype round first?', options: yesNo, prototype_gate: true };
 
 function world(phase = 'grilling') {
-  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
+  const site = tempDir('gate-');
   const data = path.join(site, 'data');
   fs.mkdirSync(data);
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));

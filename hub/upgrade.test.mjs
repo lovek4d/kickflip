@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { AWAY_MS, CHECK_MS, LATEST_URL, PULL_MS, newer, upgrader } from './upgrade.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'upgrade-unit-'));
-after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+const scratch = tempDir('upgrade-unit-');
 let n = 0;
 function install({ version = '0.3.0', clone = false } = {}) {
   const root = path.join(scratch, `kickflip-${n++}`);

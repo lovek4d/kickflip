@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { cloneRoot, reposDir } from './repos.mjs';
 import { skillRepo } from '../board/worktree.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 test('reposDir is the home state folder whether kickflip runs from a clone or an installed package', () => {
   assert.equal(reposDir(), path.join(os.homedir(), '.claude', 'kickflip', 'repos'));
@@ -14,7 +15,7 @@ test('reposDir is the home state folder whether kickflip runs from a clone or an
 });
 
 test('the clone paths and default builder repo work directly and through installed links in a temp HOME', () => {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-paths-')));
+  const home = fs.realpathSync(tempDir('kickflip-paths-'));
   const root = path.join(home, 'dev', 'kickflip clone');
   const env = { ...process.env, HOME: home };
   const run = (command, args) => {

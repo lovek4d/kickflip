@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const chrome = sharedChrome();
 
@@ -22,7 +23,7 @@ const FIXTURE = `<!doctype html><html><head><meta name="viewport" content="width
 
 for (const [width, same] of [[390, true], [1280, false]]) {
   test(`at ${width}px the thread box ${same ? 'matches' : 'is shorter than'} the New task box`, { skip: !chromeInstalled }, async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tbox-'));
+    const dir = tempDir('tbox-');
     const file = path.join(dir, 'page.html');
     fs.writeFileSync(file, FIXTURE);
     const got = await chrome.probe(`file://${file}`, width);

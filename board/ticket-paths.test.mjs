@@ -11,10 +11,10 @@ import { fileURLToPath } from 'node:url';
 import { fakeLinear, linearWorld, startBoard } from '../shared/test-helpers.mjs';
 import { fakeGh } from '../shared/fake-gh.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ticket-paths-')));
+const home = fs.realpathSync(tempDir('ticket-paths-'));
 process.env.HOME = home;
-after(() => fs.rmSync(home, { recursive: true, force: true }));
 const { main } = await import('./bin/board.mjs');
 const { saveBoardSettings } = await import('./store.mjs');
 

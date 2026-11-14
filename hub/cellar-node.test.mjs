@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cellar-node-')));
+const home = fs.realpathSync(tempDir('cellar-node-'));
 process.env.HOME = home;
 const { migrateCellarNode } = await import('./boards.mjs');
 const { saveJSON, readManifest } = await import('./boards.mjs');

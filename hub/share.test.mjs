@@ -6,8 +6,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { shareOf, shareEntries, sharedRoutes, shareReach, routeOfPath, sharedSidebar, shareTracker, validLogin } from './share.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'share-')));
+const tmp = () => fs.realpathSync(tempDir('share-'));
 const boardSite = (dir) => ({ cmd: ['node', '/x/board/server.mjs'], dir, port: 1 });
 
 test('a login is kept exactly as Tailscale sends it, and board.json share lists each once', () => {

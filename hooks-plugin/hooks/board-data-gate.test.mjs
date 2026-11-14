@@ -5,12 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from '../../shared/temp-dir.mjs';
 
 const hook = fileURLToPath(new URL('./board-data-gate.mjs', import.meta.url));
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 
 test('Edit and Write on board JSON and card notes are denied with the board.mjs command; drafts, other sites and other tools pass', () => {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'board-data-gate-')));
+  const home = fs.realpathSync(tempDir('board-data-gate-'));
   const sites = path.join(home, '.claude', 'kickflip', 'sites');
   const board = path.join(sites, 'orch');
   const page = path.join(sites, 'page');

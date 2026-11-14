@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromeInstalled, sharedChrome } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const chrome = sharedChrome();
 
@@ -27,7 +28,7 @@ const FIXTURE = (theme) => `<!doctype html><html data-theme="${theme}"><head><me
 for (const theme of ['dark', 'light']) {
   for (const width of [390, 1280]) {
     test(`${theme} at ${width}px: the refresh icon is centred on main's text`, { skip: !chromeInstalled }, async () => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mainpull-'));
+      const dir = tempDir('mainpull-');
       const file = path.join(dir, 'page.html');
       fs.writeFileSync(file, FIXTURE(theme));
       const got = await chrome.probe(`file://${file}`, width);

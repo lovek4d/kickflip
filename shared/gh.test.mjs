@@ -6,11 +6,12 @@ import path from 'node:path';
 import { fakeGh, writeLimit, writeUser, calls } from './fake-gh.mjs';
 import { PRIMARY, budgetOf, gh, ghSync, limitedUntil, limitWords } from './gh.mjs';
 import { clock } from '../hub/schedule.mjs';
+import { tempDir } from './temp-dir.mjs';
 
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kf-gh-'));
+const home = tempDir('kf-gh-');
 const priorPath = process.env.PATH;
 process.env.PATH = `${fakeGh(home)}:${priorPath}`;
-after(() => { process.env.PATH = priorPath; fs.rmSync(home, { recursive: true, force: true }); });
+after(() => { process.env.PATH = priorPath; });
 writeUser(home, { login: 'love' });
 
 const inAnHour = () => new Date(Math.floor(Date.now() / 1000 + 3600) * 1000).toISOString();

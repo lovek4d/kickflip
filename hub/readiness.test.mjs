@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readinessReader, readinessRows } from './readiness.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const now = Date.parse('2026-11-02T17:00:00Z');
 const tailscale = { installed: true, signedIn: true, pointsAtHub: true, dns: 'host.ts.net', operatorChecked: true, operator: 'love', username: 'love' };
@@ -82,8 +83,7 @@ test('only process probes are cached, fresh bypasses them, and concurrent reads 
 });
 
 test('file-backed checks see changes immediately while gh and tailscale stay cached', async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'readiness-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const home = tempDir('readiness-');
   const write = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(data)); };
   const state = path.join(home, '.claude', 'kickflip');
   const bin = path.join(home, 'bin');
@@ -136,8 +136,7 @@ test('readiness uses the extracted Tailscale checks with an asynchronous runner'
 
 // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md
 test("while GitHub's limit holds gh's account, the GitHub row reads rate limited with its reset, read fresh each time", async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'readiness-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const home = tempDir('readiness-');
   const gate = path.join(home, '.claude', 'kickflip', 'gh-limit.json');
   fs.mkdirSync(path.dirname(gate), { recursive: true });
   const reset = new Date(now + 41 * 60_000);

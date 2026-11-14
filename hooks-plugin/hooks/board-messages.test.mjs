@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from '../../shared/temp-dir.mjs';
 
 const hook = fileURLToPath(new URL('./board-messages.mjs', import.meta.url));
 // The hook runs with its Date fixed at NOW, the time the fixtures are written from
@@ -15,8 +16,7 @@ const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true 
 
 // docs/adr/2026-11-10-1056-the-owners-words-reach-the-orchestrator-after-its-next-tool-call.md
 test("the PostToolUse hook shows the owner's new thread messages, asks and ask edits to the board's session once each, with their sent time and age, and marks them working", (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'board-messages-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const home = tempDir('board-messages-');
   const dir = path.join(home, '.claude', 'kickflip', 'sites', 'orch');
   write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: {
     orch: { dir, port: 1, cmd: [process.execPath, '/skill/board/server.mjs', dir], owner: { session: 's1' } },

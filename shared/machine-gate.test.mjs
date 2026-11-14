@@ -5,12 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { machineState, pressureOf, checkMachine, readMachineState, readMachineSamples, readMachine, machineFile } from './machine-gate.mjs';
 import { hubAudit, readAudit } from './audit.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const reading = (load, pressure = 'warn', cores = 10) => ({ load, cores, pressure });
 
 function fixture(t) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'machine-gate-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const home = tempDir('machine-gate-');
   return home;
 }
 

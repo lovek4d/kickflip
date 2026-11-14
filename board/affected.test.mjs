@@ -6,6 +6,7 @@ import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { affectedTests, literalPaths, ownTests, testDependencies } from './affected.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // docs/adr/2026-11-12-2104-lands-and-builders-run-only-the-tests-a-change-affects.md
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
@@ -15,8 +16,7 @@ const put = (dir, file, text) => { fs.mkdirSync(path.dirname(path.join(dir, file
 // path, which imports lib/c.mjs; page.test.mjs reads public/page.html, which loads public/ui.js; fixture.test.mjs uses
 // a helper whose spawned scripts the map names; core.test.mjs is the always-run core; lone.test.mjs needs nothing.
 function repo(t, map = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'affected-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir('affected-');
   git(dir, 'init', '--quiet', '-b', 'main');
   git(dir, 'config', 'user.email', 't@t');
   git(dir, 'config', 'user.name', 't');

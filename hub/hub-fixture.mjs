@@ -6,8 +6,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-export const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hub-test-')));
+export const home = fs.realpathSync(tempDir('hub-test-'));
 export const web = path.join(home, '.claude', 'kickflip');
 export const bin = path.join(home, 'bin');
 process.env.HOME = home;
@@ -22,7 +23,6 @@ Object.assign(process.env, {
   KICKFLIP_TAILSCALE: path.join(bin, 'tailscale'),
   KICKFLIP_RESTART_CMD: JSON.stringify(['/usr/bin/true']),
 });
-process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));
 
 export const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { merge3 } from './merge3.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 test('merge3 keeps both sides changes to different cards, fields and additions', () => {
   const base = { title: 'W', items: [{ id: 'A', next: 'x' }, { id: 'B' }, { id: 'C' }] };
@@ -22,7 +23,7 @@ test('merge3 lets mine win a field both changed, and drops a card mine removed',
 // The processes contend for the item file's lock with no deadline: load decides how long each waits, not whether it
 // fails.
 test('many processes running item set on different cards lose none', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'board-'));
+  const home = tempDir('board-');
   const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'board.mjs');
   const file = path.join(home, '.claude', 'waves', 'w', 'wave.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });

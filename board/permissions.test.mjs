@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PERMISSIONS, permissionFor, permissionsView, readPermissions, recordRefusal, setPermission, settingsFile } from './permissions.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const scratch = () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'board-permissions-'));
+  const root = tempDir('board-permissions-');
   const folder = path.join(root, 'repo');
   const site = path.join(root, 'site');
   fs.mkdirSync(folder);

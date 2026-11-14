@@ -4,10 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { splitSharedNotes } from './store.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // docs/adr/2026-11-09-1100-the-board-owns-a-cards-notes-file.md
 function world() {
-  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'card-notes-'));
+  const site = tempDir('card-notes-');
   const data = path.join(site, 'data');
   fs.mkdirSync(data);
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));

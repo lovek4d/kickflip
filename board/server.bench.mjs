@@ -7,11 +7,12 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePorts, until, boardListening, untilTestEnds } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // The perf bench for the board server: timing and real OS file watches, run by `npm run bench`, never by the main suite.
 
 test('with thousands of folders and lock folders coming and going, the board answers at once, sends no change for the locks and still sends one for a write in a normal folder', async (t) => {
-  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'board-churn-'));
+  const own = tempDir('board-churn-');
   let server, exited, req, churn, watch;
   // An after hook, not a finally, so a run the test runner times out still stops the children and removes the folder.
   t.after(async () => {
@@ -122,7 +123,7 @@ test('with thousands of folders and lock folders coming and going, the board ans
 // Moved from server.test.mjs, whose server runs with no file watch: the real watch reports a write to a thread or a
 // wave file, also once a rename replaced the file, and in a folder made after the stream opened.
 test('the stream sends a change, uncompressed, after a write to a thread or a wave file, also once a rename replaced the file, and in a folder made after the stream opened', async (t) => {
-  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'board-stream-'));
+  const own = tempDir('board-stream-');
   const site = path.join(own, 'site');
   fs.mkdirSync(path.join(site, 'data', 'threads'), { recursive: true });
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'T', items: 'data/items.json', slug: 't' }));

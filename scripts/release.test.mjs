@@ -5,13 +5,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'release.mjs');
 
 // docs/adr/2026-11-11-1700-commits-are-conventional-and-name-their-card-in-a-refs-trailer.md
 // docs/adr/2026-11-12-1251-land-tags-a-release-commit-and-pushes-the-tag.md
 test('the release script bumps the version and commits "chore(release): X.Y.Z" listing the subjects since the last v* tag, oldest first, with its card\'s Refs trailer, and leaves the tag to land', () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'release-'));
+  const repo = tempDir('release-');
   const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
   git('init', '--quiet', '-b', 'main');
   git('config', 'user.name', 'Test');

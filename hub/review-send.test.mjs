@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fakeSlack, slackWorld } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 // boards.mjs and store.mjs read HOME as they load, so it is set before they are imported.
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'review-send-'));
+const home = tempDir('review-send-');
 process.env.HOME = home;
-process.on('exit', () => fs.rmSync(home, { recursive: true, force: true }));
 const { sendReviews } = await import('./review-send.mjs');
 const { isSignedOff } = await import('./slack.mjs');
 const { reviewDigest, reviewDue } = await import('../board/store.mjs');

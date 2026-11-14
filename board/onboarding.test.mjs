@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { hasBuildScript, onboardingItems } from './onboarding.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'onboarding-'));
+const dir = () => tempDir('onboarding-');
 
 test('onboarding cards are filed grilling as tasks keyed T-<n> with no ticket, each with a notes file', () => {
   const d = dir();

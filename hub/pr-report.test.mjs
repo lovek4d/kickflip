@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fetchPR, fetchPRs, reportOf, githubLogin, PR_VIEW_FIELDS } from './pr-report.mjs';
 import { fakeGh, prView, writePR, writeUser, writeIssueComments, writeReviewComments, writeReviews, writeRate, calls, queried } from '../shared/fake-gh.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-report-'));
+const home = tempDir('pr-report-');
 const priorHome = process.env.HOME;
 const priorPath = process.env.PATH;
 process.env.HOME = home;

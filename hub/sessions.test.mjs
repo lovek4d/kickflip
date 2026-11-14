@@ -10,9 +10,10 @@ import { installLinks, installClaudeSettings, nodeBin } from '../bin/install.mjs
 import { hubService } from '../shared/service.mjs';
 import { REVIEW_SKILLS } from '../shared/skills.mjs';
 import { fakePs, stallingPs, untilTestEnds } from '../shared/test-helpers.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sessions-')));
+const home = fs.realpathSync(tempDir('sessions-'));
 process.env.HOME = home;
 process.env.CLAUDE_CONFIG_DIR = path.join(home, 'claude-config');
 // ps is the stand-in for the whole file, here and in every CLI it runs: each live record's process started at START.

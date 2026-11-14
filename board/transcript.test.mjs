@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { transcriptMovedAt,transcriptChunk, readRunTranscript } from './transcript.mjs';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 test("a worktree's transcript movement is the newest .jsonl in its Claude projects folder, and null when there is none", () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'transcript-'));
+  const home = tempDir('transcript-');
   const worktree = '/Users/x/.claude/kickflip/worktrees/GH-1';
   const folder = path.join(home, '.claude', 'projects', '-Users-x--claude-kickflip-worktrees-GH-1');
   assert.equal(transcriptMovedAt(worktree, home), null);
@@ -20,7 +21,7 @@ test("a worktree's transcript movement is the newest .jsonl in its Claude projec
 });
 
 test("a worktree recorded through a link, as ~/.claude/skills/kickflip stores the clone, is found under its real path's projects folder, where Claude Code writes its transcript", () => {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'transcript-')));
+  const home = fs.realpathSync(tempDir('transcript-'));
   const real = path.join(home, 'dev', 'kickflip');
   fs.mkdirSync(path.join(real, '.claude', 'worktrees', 'GH-3'), { recursive: true });
   fs.mkdirSync(path.join(home, '.claude', 'skills'), { recursive: true });
@@ -79,7 +80,7 @@ test('a log with no stream lines is its lines, and not a stream', () => {
 });
 
 test("readRunTranscript reads a whole log past 256 KiB from a byte offset", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-transcript-'));
+  const dir = tempDir('run-transcript-');
   const file = path.join(dir, 'builder-A1-1.log');
   const start = line({ type: 'system', subtype: 'init', model: 'm', cwd: '/wt' });
   fs.writeFileSync(file, start + toolResult('t0', 'y'.repeat(300_000)) + line({ type: 'result', subtype: 'success', is_error: false, result: 'ok' }));

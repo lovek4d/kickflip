@@ -4,12 +4,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from '../shared/temp-dir.mjs';
 
 const SKILL = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const originalHome = process.env.HOME;
-const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'compact-')));
+const home = fs.realpathSync(tempDir('compact-'));
 process.env.HOME = home;
-after(() => { process.env.HOME = originalHome; fs.rmSync(home, { recursive: true, force: true }); });
+after(() => { process.env.HOME = originalHome; });
 const { compactFullContexts } = await import('./sessions.mjs');
 
 const web = (...p) => path.join(home, '.claude', 'kickflip', ...p);

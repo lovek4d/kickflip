@@ -8,13 +8,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fakePs } from '../../shared/test-helpers.mjs';
 import { watcherRunning } from '../../hub/boards.mjs';
+import { tempDir } from '../../shared/temp-dir.mjs';
 
 const hook = fileURLToPath(new URL('./watcher-stop.mjs', import.meta.url));
 const write = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v)); };
 
 test('the Stop hook blocks once while a board the session owns has no live watcher, with the command that relaunches it', (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-stop-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const home = tempDir('watcher-stop-');
   const dir = (route) => path.join(home, '.claude', 'kickflip', 'sites', route);
   const board = (route, session) => ({ dir: dir(route), port: 1, cmd: [process.execPath, '/skill/board/server.mjs', dir(route)], owner: { session } });
   write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: { orch: board('orch', 's1'), shop: board('shop', 's2'), notes: { dir: dir('notes'), port: 1, cmd: ['node', 'server.mjs'], owner: { session: 's1' } } } });
@@ -42,8 +42,7 @@ test('the Stop hook blocks once while a board the session owns has no live watch
 
 // The hook's watcher check, run in process on a ps that answers for this process, which stands for the watcher.
 test("a watcher counts while its pid runs and ps names it wait-events.mjs or gives no answer, and not once it exited", (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-stop-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir('watcher-stop-');
   const named = (args) => fakePs([{ pid: process.pid, args }]);
   write(path.join(dir, 'data', 'watcher.json'), { pid: process.pid, since: new Date().toISOString() });
   assert.equal(watcherRunning(dir, Date.now(), { grace: 0, ps: named('node /skill/bin/wait-events.mjs orch s1') }), true);
@@ -54,12 +53,12 @@ test("a watcher counts while its pid runs and ps names it wait-events.mjs or giv
 });
 
 test('the Stop hook also blocks once while a message on a board the session owns reads Working on it with no answer, naming each', async (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-stop-'));
+  const home = tempDir('watcher-stop-');
   let working = [{ id: 'e7', kind: 'ask', card: 'INT-3', since: '2026-11-02T10:00:00Z' }, { id: 'e8', kind: 'overnight-triage', card: null, since: '2026-11-02T10:01:00Z' }];
   const server = http.createServer((req, res) => res.end(JSON.stringify(req.url === '/api/working' ? { working } : {})));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
-  t.after(() => { server.close(); fs.rmSync(home, { recursive: true, force: true }); });
+  t.after(() => { server.close(); });
   const dir = path.join(home, '.claude', 'kickflip', 'sites', 'orch');
   write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: { orch: { dir, port, cmd: [process.execPath, '/skill/board/server.mjs', dir], owner: { session: 's1' } } } });
   const stop = (extra = {}) => new Promise((resolve) => {

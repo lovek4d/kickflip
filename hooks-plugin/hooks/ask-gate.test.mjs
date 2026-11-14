@@ -5,14 +5,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from '../../shared/temp-dir.mjs';
 
 const hook = fileURLToPath(new URL('./ask-gate.mjs', import.meta.url));
 const write = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(data)); };
 
 // docs/adr/2026-11-14-0646-a-headless-board-session-asks-on-the-board.md
 test("a headless board session's AskUserQuestion and plan mode are denied with the board's way to ask; everything else passes", (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-gate-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const home = tempDir('ask-gate-');
   write(path.join(home, '.claude', 'kickflip', 'manifest.json'), { sites: { shop: { dir: path.join(home, 'shop'), owner: { session: 's1' } }, page: { dir: path.join(home, 'page') } } });
   const run = (input, jobDir = path.join(home, 'job')) => {
     const env = { ...process.env, HOME: home };
