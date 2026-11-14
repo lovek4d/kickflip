@@ -17,7 +17,7 @@ import { boardAt } from '../hub/boards.mjs';
 import { readHubRules } from '../hub/rules.mjs';
 import { builderRepo } from './worktree.mjs';
 import { standardWords } from './commit-message.mjs';
-import { appendStatus, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
+import { appendBuilderResumed, BoardError, briefFacts, readBoardRules, recordedSession, recordSession } from './store.mjs';
 import { HELPER, plans, VISUAL } from './domain.mjs';
 
 export const BOARD_CLI = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
@@ -424,6 +424,6 @@ export async function landByBuilder(site, { key, kind = 'claude', model }, { why
     if (!session) throw e;
     launched = await resumeBuilder(site, { key, kind, model, session: null, brief, freshLaunch, launch });
   }
-  if (launched.resumed) await appendStatus(site, key, 'builder-resumed-to-land', { session: launched.sessionId ?? session.id });
+  if (launched.resumed) await appendBuilderResumed(site, key);
   return launched;
 }

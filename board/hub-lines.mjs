@@ -90,7 +90,7 @@ export const HUB_LINES = {
   'landed-on-merge': { mark: DONE, text: ({ base }) => fit('Landed on ', base, ' on your Merge.') },
   // A land a lander takes over: the card still reads merging (domain.mjs workItem).
   'lander-handoff': { mark: BUILD, text: ({ why }) => fit('Not merged yet: ', why, '. Its builder resumes to fix it and land it.') },
-  'builder-resumed-to-land': { mark: BUILD, text: ({ session }) => fit('Builder resumed to land, session ', session) },
+  'builder-resumed': { mark: BUILD, text: () => 'Builder resumed' },
   // Faults.
   // brief, when the refusal has one, is its reason in a line's room (commit-message.mjs startTitleBrief); why is whole.
   'build-refused': { mark: FAULT, fault: true, detail: ({ why }) => why, text: ({ why, brief }) => fit("Couldn't start implementing: ", brief ?? why) },

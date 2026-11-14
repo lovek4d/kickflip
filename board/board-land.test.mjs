@@ -7,7 +7,7 @@ import { land as landWorktree } from './worktree.mjs';
 import { opensPRs, settingsOf } from './store.mjs';
 import { fakeGh, prView, writePR, writeReviews, writeMerge, writeLimit, calls } from '../shared/fake-gh.mjs';
 import { clock } from '../hub/schedule.mjs';
-import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, restarts, land, branches, finishEnv, onOrch, record, itemOf, threadOf, remoteBoard, tapMerge, addEvents } from './board-fixture.mjs';
+import { boardWith, bin, home, at, site, write, read, lines, run, board, wave, question, git, commit, scratchRepo, heldBoard, worktree, restarts, land, branches, finishEnv, onOrch, record, itemOf, threadOf, remoteBoard, tapMerge, addEvents, onHome } from './board-fixture.mjs';
 
 test("merge squashes a card's PR once GitHub would merge it, with no commit after the approval unexplained and manual steps on the owner's word, and leaves its refusal off the card's thread", async () => {
   const dir = path.join(home, 'fake-gh');
@@ -1004,8 +1004,25 @@ test("a tapped Merge whose rebase conflicts resumes the card's builder session, 
   assert.deepEqual(args.slice(0, 2), ['--resume', 'sess-1']);
   assert.match(args[3], /^The board resumes you, the builder of task A1/);
   assert.match(args[3], /rebasing A1 onto main conflicts in shared\/notes\.md/);
-  assert.equal(threadOf().at(-1).line, 'builder-resumed-to-land');
-  assert.match(threadOf().at(-1).text, /^Builder resumed to land, session /);
+  assert.equal(threadOf().filter((l) => l.line === 'builder-resumed').length, 0, "the builder's section is still the thread's last thing");
+});
+
+test("Builder resumed is posted once, only when something came after the builder's section", async (t) => {
+  onHome(t);
+  heldBoard();
+  const { appendBuilderResumed } = await import('./store.mjs');
+  const orch = site('orch');
+  const file = site('orch', 'data', 'threads', 'w__A1.jsonl');
+  const add = (line) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.appendFileSync(file, JSON.stringify({ who: 'claude', ...line }) + '\n'); };
+  const resumed = () => threadOf().filter((l) => l.line === 'builder-resumed').map((l) => l.text);
+  add({ ts: '2026-11-14T10:00:00.000Z', kind: 'status', text: 'Landing: rebasing' });
+  await appendBuilderResumed(orch, 'w/A1');
+  assert.deepEqual(resumed(), [], 'right after the builder');
+  add({ ts: '2026-11-14T10:05:00.000Z', text: 'Take another look.' });
+  await appendBuilderResumed(orch, 'w/A1');
+  assert.deepEqual(resumed(), ['Builder resumed'], 'after an orchestrator line');
+  await appendBuilderResumed(orch, 'w/A1');
+  assert.deepEqual(resumed(), ['Builder resumed'], 'a second resume in a row adds none');
 });
 
 test("a tapped Merge refused for a reason no lander fixes says why in the thread and leaves the card waiting for its Merge", async () => {

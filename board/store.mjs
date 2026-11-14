@@ -10,7 +10,7 @@ import { nodeBin } from '../bin/install.mjs';
 import { gh, limitWords } from '../shared/gh.mjs';
 import { cardTitleFault, cardTitleWords, squashBody, startTitleBrief, startTitleFault, subjectFault } from './commit-message.mjs';
 import { fileURLToPath } from 'node:url';
-import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, waveItems, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
+import { BUILD_REFUSED, BUILDER_ASK, COMMANDS, LANDER, LANES, MOVE, PAUSE_CLEARS, PHASES, ITEM_EVENTS, handedBackAt, MAX_IMPLEMENTERS, MAX_PLANNERS, MAX_SERVES, builds, waveItems, mergeBlockers, modelName, noTakePicked, ownerQuestion, plans, QUESTION_REOPEN, PLANNER_WORD, providerOf, owesNext, pushTag, refOf, roundOf, roundSettledBy, HELPER, VISUAL, visualAgent } from './domain.mjs';
 import { githubStateFile, appendEvent, listBoards, readManifest, samePath, withManifestLock, writeManifest } from '../hub/boards.mjs';
 import { readUsageGate, pauseReason, pauseReasonFor, heldFor, holdsWork, builderPick, pauseEnd } from '../shared/usage-gate.mjs';
 import { reviseQueued, pushKindError, readClaudeModel } from '../hub/push.mjs';
@@ -444,6 +444,16 @@ export async function appendStatus(site, key, kind, inputs = {}, { link, questio
   const line = { ts: new Date().toISOString(), who: 'claude', kind: HUB, line: kind, text: hubText(kind, inputs), ...(detailOf(kind, inputs) ? { detail: detailOf(kind, inputs) } : {}), ...(link ? { link } : {}), ...(questions ? { questions } : {}) };
   await appendLine(threadFile(site, key), line);
   return { line, lines: hubLineOf(line).fault ? await freshenPush(site, key, line.text) : [] };
+}
+// The line a resumed builder posts, "Builder resumed", when something else came after the builder's section: a plain
+// message on the thread or an owner event on the card, newer than the newest status or hub line (the builder's, the
+// lander's, the board's). Resumes in a row, or right after the builder, post none.
+export async function appendBuilderResumed(site, key) {
+  const lines = await readLines(threadFile(site, key));
+  const events = (await readLines(path.join(site, 'data', 'events.jsonl'))).filter((e) => e.data?.key === key && ITEM_EVENTS.includes(e.kind));
+  const section = lines.filter((m) => m.kind === 'status' || m.kind === HUB).map((m) => String(m.ts)).sort().pop() ?? '';
+  const other = [...lines.filter((m) => !m.kind && !m.command), ...events].map((m) => String(m.ts));
+  if (other.some((ts) => ts > section)) await appendStatus(site, key, 'builder-resumed');
 }
 // key is <file>/<id>, or ask:<event id> for an ask's thread. by: the shared person whose tap an owner line is, by name
 // (docs/adr/2026-11-05-1912-a-shared-person-is-view-or-full.md).
