@@ -3101,3 +3101,12 @@ test("every thread line that names a card carries its key and words, reads its c
   // No line the board draws, in any thread, names a card by its key.
   for (const m of [...b.items.flatMap((i) => threadOf(i.key, { lines: threads[i.key] || [], cards })), ...asked]) assert.doesNotMatch(m.text, /\b[\w-]+\/[A-Z]+-\d+\b/, m.text);
 });
+
+test("an owner event's thread line carries the sendId of the tap that wrote it, so the page can match its own copy", () => {
+  const events = [
+    { id: 'e1', ts: '2026-10-23T10:01:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'Hi', sendId: 's-1' }, reply: null },
+    { id: 'e2', ts: '2026-10-23T10:02:00Z', kind: 'prototype-request', data: { key: 'w/A1', sendId: 'p-1' }, reply: null },
+    { id: 'e3', ts: '2026-10-23T10:03:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'No id' }, reply: null },
+  ];
+  assert.deepEqual(threadOf('w/A1', { events }).map((m) => m.sendId), ['s-1', 'p-1', undefined]);
+});

@@ -102,9 +102,10 @@ BoardView.part((B) => {
       : { ts: m.ts, who: 'love', kind: 'item-message', text: m.text, files: m.files, ...(status ? { status } : {}), sendId: m.sendId, state };
   };
   // The taps the board has recorded whose thread hasn't loaded since, by sendId: {m, at}, at the thread load count when
-  // the board answered. A thread load started after that has the board's line, and takes the tap's place in the same draw.
+  // the board answered. The board's line carries the tap's sendId, so a thread holding it takes the tap's place at once,
+  // whichever load it came from; a tap whose line has no sendId waits for a load started after the answer.
   const landed = new Map();
-  const landedFor = (key) => [...landed.values()].filter((l) => l.m.key === key).map((l) => unsent(l.m, true));
+  const landedFor = (key, have) => [...landed.values()].filter((l) => l.m.key === key && !have.has(l.m.sendId)).map((l) => unsent(l.m, true));
 
   function renderThread(key, msgs) {
     const el = $(`[data-thread="${CSS.escape(key)}"]`);
@@ -115,7 +116,8 @@ BoardView.part((B) => {
     if (!topEdge.has(key) && msgs.length) topEdge.set(key, BoardUI.threadFrom(msgs, viewOf(key)) || '');
     const view = viewOf(key);
     // The landed taps and then the outbox's follow everything the board has, in the order they were sent.
-    const lines = [...msgs, ...landedFor(key), ...queuedFor(key).map((m) => unsent(m))];
+    const have = new Set(msgs.map((m) => m.sendId).filter(Boolean));
+    const lines = [...msgs, ...landedFor(key, have), ...queuedFor(key).filter((m) => !have.has(m.sendId)).map((m) => unsent(m))];
     const sig = JSON.stringify([lines, view]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
@@ -160,7 +162,8 @@ BoardView.part((B) => {
       .then((msgs) => {
         if ((shown.get(key) || 0) > n) return;
         shown.set(key, n);
-        for (const [sendId, l] of landed) if (l.m.key === key && l.at < n) landed.delete(sendId);
+        const have = new Set(msgs.map((m) => m.sendId).filter(Boolean));
+        for (const [sendId, l] of landed) if (l.m.key === key && (have.has(sendId) || l.at < n)) landed.delete(sendId);
         loadedAt.set(key, Date.now());
         state.threadCache.set(key, msgs);
         renderThread(key, msgs);

@@ -1044,7 +1044,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.
       .map((e) => ({ ts: e.ts, who: e.data.who === 'claude' ? 'claude' : 'love', via: 'site', kind: e.kind, text: actionText(e, asked), files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies,
-        ...requestOf(e, asked), ...byOf(e) })),
+        ...(e.data.sendId ? { sendId: e.data.sendId } : {}), ...requestOf(e, asked), ...byOf(e) })),
     ...answers.map((e) => {
       const answer = [e.data.label || e.data.choice, e.data.note].filter(Boolean).join(' · ');
       return { ts: e.ts, who: 'love', via: 'questions', kind: e.kind, text: `${numbered(asked, asked.get(e.data.id))}\n→ ${answer}`, files: e.data.files || [], eventId: e.id, reply: e.reply, replies: e.replies, status: ANSWERS_SUBMITTED, ...byOf(e) };

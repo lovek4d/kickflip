@@ -3054,6 +3054,38 @@ test("Reply clears the box and shows the message at once as sending…, its butt
   b.view.unmount();
 });
 
+test("a thread load that began before the send was answered and already holds the board's line draws the message once: the line's send id takes the page's copy's place", async () => {
+  const sends = heldSends();
+  const b = boardOnDom({ open: ['w/T1'], board: boardOf([workCard('T1')]), threads: { 'w/T1': [] }, send: sends.send });
+  await b.settle();
+  const form = b.root.querySelector('form[data-reply="w/T1"]');
+  form.querySelector('textarea').value = 'Once';
+  b.page.fire(b.root, 'submit', { target: form, submitter: form.querySelector('button[data-intent="reply"]') });
+  await b.settle();
+  const { sendId } = b.sent[0][1];
+  const line = { ts: '2026-10-30T10:00:00.000Z', who: 'love', via: 'site', kind: 'item-message', text: 'Once', eventId: 'e1', sendId, reply: null, state: 'waiting' };
+  let early;
+  const started = new Promise((resolve) => { early = () => resolve([line]); });
+  b.view.B.loadThread('w/T1', { force: true, from: started });
+  b.server.threads['w/T1'] = [line];
+  // The reload the answer forces is slower than the load already running.
+  const fetched = b.page.win.fetch;
+  let release;
+  const slow = new Promise((resolve) => { release = resolve; });
+  b.page.win.fetch = async (url, opts) => { if (String(url).includes('/api/thread')) await slow; return fetched(url, opts); };
+  sends.answer();
+  await b.settle();
+  early();
+  await b.settle();
+  assert.deepEqual(threadLines(b, 'w/T1'), ['Once (waiting…)'], 'drawn once the early load lands');
+  release();
+  await b.settle();
+  await b.view.B.loadThread('w/T1', { force: true });
+  await b.settle();
+  assert.deepEqual(threadLines(b, 'w/T1'), ['Once (waiting…)'], 'and once after the reload');
+  b.view.unmount();
+});
+
 test("a message the board never recorded survives a reload: the page shows it as sending… again and resends it under its send id, a failed one included", async () => {
   const kept = { sendId: 's-kept', key: 'w/T1', text: 'Kept', files: [], ts: '2026-10-30T10:00:00.000Z', failed: true };
   const sends = heldSends();
