@@ -4217,7 +4217,7 @@ const isoTime = (v, name) => (typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(
 // (domain.mjs PHASES).
 const BUILD_PHASES = PHASES.progress;
 const DETAIL_CAP = BRIEF_LINE_LIMIT - 20;
-const PHASE_LIST = 'reading, building, testing, checking or landing';
+const PHASE_LIST = 'reading, building, checking or landing';
 // A planner's line takes no phase: it reads its kind's word, and a --phase passed for one is dropped
 // (docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
 function progressLine(site, phase, detail, name) {
@@ -4235,8 +4235,8 @@ const forAgent = (line, planner, name) => {
 };
 
 // A status line lives only in the item's thread, as {kind: 'status'} (domain.mjs builderOf reads it). A progress line
-// keeps its phase and reads "Testing: <detail>", or "Codex testing: <detail>" for an agent other than main, named by
-// its kind, or by its name for a helper ("Tests testing: <detail>"). A line that repeats the thread's last status line is skipped.
+// keeps its phase and reads "Building: <detail>", or "Codex building: <detail>" for an agent other than main, named by
+// its kind, or by its name for a helper ("Tests building: <detail>"). A line that repeats the thread's last status line is skipped.
 // A planner's line is marked planner and led by its kind's word, whichever agent it runs as ("Prototyping: …")
 // (docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
 // docs/adr/2026-11-04-0131-every-new-task-is-grilled-or-prototyped-at-once.md).
@@ -4252,7 +4252,7 @@ async function statusToThread(site, key, agent = 'main', builder, { phase, detai
 }
 
 // docs/adr/2026-11-13-2030-a-test-run-reports-live-lines-the-thread-does-not-show.md
-// A test run's words for a card, under phase (testing for a builder's run, landing for a land's): {start, update, end},
+// A test run's words for a card, under phase (building for a builder's run, landing for a land's): {start, update, end},
 // each taking words and writing them as the card's newest status line, as `builder progress` does for the card's open
 // build (or its newest, once handed back). The start and the result stay in the thread; an update is a live line, which sets the card's line and keeps a
 // running build from reading stale but is not shown in the thread (domain.mjs threadOf).

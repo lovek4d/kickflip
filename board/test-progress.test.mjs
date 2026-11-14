@@ -36,26 +36,26 @@ test('a run reports its start, updates while it runs, and its result in words', 
   assert.equal(said.at(-1)[0], 'end');
   const chosen = await nodeTests(dir, { files: ['a.test.mjs'], report });
   assert.equal(chosen.ok, true);
-  assert.equal(said.find((s, i) => i > 3 && s[0] === 'start')[1], '1 affected test files');
+  assert.equal(said.find((s, i) => i > 3 && s[0] === 'start')[1], '1 test files');
 });
 
 test("a card's test report writes live lines that replace each other: only the start and result reach the thread, and the build never reads stale", async () => {
   assert.equal((await board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude')).code, 0);
-  const report = await store.testReport(site('audit'), 'audit/A1', { phase: 'testing' });
+  const report = await store.testReport(site('audit'), 'audit/A1', { phase: 'building' });
   await report.start('full suite, 3 test files');
   await report.update('1 tests run, 0 failing');
   await report.update('2 tests run, 0 failing');
   await report.end('3 passed, 0 failed in 0m 9s');
   const thread = lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).filter((m) => m.kind === 'status');
   assert.deepEqual(thread.map((m) => [m.text, Boolean(m.live), m.phase]), [
-    ['Testing: full suite, 3 test files', false, 'testing'],
-    ['Testing: 1 tests run, 0 failing', true, 'testing'],
-    ['Testing: 2 tests run, 0 failing', true, 'testing'],
-    ['Testing: 3 passed, 0 failed in 0m 9s', false, 'testing'],
+    ['Building: full suite, 3 test files', false, 'building'],
+    ['Building: 1 tests run, 0 failing', true, 'building'],
+    ['Building: 2 tests run, 0 failing', true, 'building'],
+    ['Building: 3 passed, 0 failed in 0m 9s', false, 'building'],
   ]);
   const landing = await store.testReport(site('audit'), 'audit/A1', { phase: 'landing' });
-  await landing.start('12 affected test files');
-  assert.equal(lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).at(-1).text, 'Landing: 12 affected test files');
+  await landing.start('12 test files');
+  assert.equal(lines(site('audit', 'data', 'threads', 'audit__A1.jsonl')).at(-1).text, 'Landing: 12 test files');
 });
 
 test('a test report on a worktree finds the card whose open build keeps it', async () => {

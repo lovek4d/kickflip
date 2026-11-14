@@ -13,3 +13,5 @@ While a builder runs, its card gets a second line under the status line: five sh
 Considered:
 - the bars replacing the phase word on the status line: the owner wanted the line unchanged and the bars below it;
 - bars on every card with a builder, Orchestrator review included: the owner wanted none there.
+
+Since #695 a builder runs only the tests it writes or changes, the land runs the affected set once after its rebase, and In Progress has four steps, testing gone ([builders run only their own tests; the land runs affected once](2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md)).

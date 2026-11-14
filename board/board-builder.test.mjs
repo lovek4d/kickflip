@@ -27,12 +27,12 @@ test('builder keeps one record per agent on an item, with its kind and an ETA it
   assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Opus builder', '--kind', 'claude')).code, 0);
   assert.equal((await board('builder', 'start', 'w/A1', '--agent', 'bench', '--kind', 'bench', '--eta', '2026-10-23T16:30:00-07:00')).code, 0);
   assert.deepEqual([read(at('waves', 'w', 'agents', 'A1.json')).kind, read(at('waves', 'w', 'agents', 'A1@bench.json')).eta], ['claude', '2026-10-23T23:30:00.000Z']);
-  assert.equal((await board('builder', 'progress', 'w/A1', 'Still', 'running', '--phase', 'testing', '--site', 'orch', '--agent', 'bench', '--eta', '2026-10-24T01:00:00Z')).code, 0);
+  assert.equal((await board('builder', 'progress', 'w/A1', 'Still', 'running', '--phase', 'checking', '--site', 'orch', '--agent', 'bench', '--eta', '2026-10-24T01:00:00Z')).code, 0);
   assert.equal(read(at('waves', 'w', 'agents', 'A1@bench.json')).eta, '2026-10-24T01:00:00.000Z');
-  assert.equal((await board('builder', 'progress', 'w/A1', 'Done soon', '--phase', 'testing', '--site', 'orch', '--agent', 'bench', '--clear-eta')).code, 0);
+  assert.equal((await board('builder', 'progress', 'w/A1', 'Done soon', '--phase', 'checking', '--site', 'orch', '--agent', 'bench', '--clear-eta')).code, 0);
   assert.equal('eta' in read(at('waves', 'w', 'agents', 'A1@bench.json')), false);
-  assert.match((await board('builder', 'progress', 'w/A1', 'x', '--phase', 'testing', '--site', 'orch', '--eta', 'soon')).err, /--eta takes an ISO time/);
-  assert.equal((await board('builder', 'progress', 'w/A1', 'Benchmarking', '--phase', 'testing', '--site', 'orch', '--agent', 'bench', '--eta', '2026-10-24T01:00:00Z')).code, 0);
+  assert.match((await board('builder', 'progress', 'w/A1', 'x', '--phase', 'checking', '--site', 'orch', '--eta', 'soon')).err, /--eta takes an ISO time/);
+  assert.equal((await board('builder', 'progress', 'w/A1', 'Benchmarking', '--phase', 'checking', '--site', 'orch', '--agent', 'bench', '--eta', '2026-10-24T01:00:00Z')).code, 0);
   assert.equal((await board('builder', 'done', 'w/A1', '--agent', 'bench')).code, 0);
   const bench = read(at('waves', 'w', 'agents', 'A1@bench.json'));
   assert.deepEqual([typeof bench.done, 'eta' in bench, 'done' in read(at('waves', 'w', 'agents', 'A1.json'))], ['string', false, false]);
@@ -424,20 +424,20 @@ test('a board builder uses its shared clone and selected remote branch without c
 
 test("builder start and progress on --site write each new status line to the item's thread as its phase and detail, named by a further agent's kind", async () => {
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading', '--progress', 'the plan')).code, 0);
-  assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'claude', '--phase', 'testing', '--progress', 'the benchmark')).code, 0);
-  assert.equal((await board('builder', 'progress', 'w/A1', 'the', 'benchmark', '--phase', 'testing', '--site', 'orch', '--agent', 'bench')).code, 0);
+  assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'bench', '--kind', 'claude', '--phase', 'checking', '--progress', 'the benchmark')).code, 0);
+  assert.equal((await board('builder', 'progress', 'w/A1', 'the', 'benchmark', '--phase', 'checking', '--site', 'orch', '--agent', 'bench')).code, 0);
   assert.equal((await board('builder', 'progress', 'w/A1', '--phase', 'building', 'the', 'limiter', '--site', 'orch')).code, 0);
   assert.equal((await board('builder', 'progress', 'w/A1', '--site', 'orch', '--phase', 'checking', '--text', 'the page at phone width')).code, 0);
-  assert.equal((await board('builder', 'progress', 'w/A1', 'Twice', '--phase', 'testing', '--site', 'orch', '--text', 'Twice')).code, 2);
-  assert.equal((await board('builder', 'progress', 'w/A1', '--phase', 'testing', '--site', 'orch')).code, 2);
+  assert.equal((await board('builder', 'progress', 'w/A1', 'Twice', '--phase', 'checking', '--site', 'orch', '--text', 'Twice')).code, 2);
+  assert.equal((await board('builder', 'progress', 'w/A1', '--phase', 'checking', '--site', 'orch')).code, 2);
   assert.equal((await board('builder', 'done', 'w/A1', '--site', 'orch')).code, 0);
-  const unseen = await board('builder', 'progress', 'w/A1', 'Unseen', '--phase', 'testing', '--agent', 'bench');
+  const unseen = await board('builder', 'progress', 'w/A1', 'Unseen', '--phase', 'checking', '--agent', 'bench');
   assert.deepEqual([unseen.code, /needs --site/.test(unseen.err)], [1, true]);
-  assert.equal((await board('builder', 'start', 'w/A1', '--agent', 'lint', '--phase', 'testing', '--progress', 'Unseen')).code, 1);
+  assert.equal((await board('builder', 'start', 'w/A1', '--agent', 'lint', '--phase', 'checking', '--progress', 'Unseen')).code, 1);
   const msgs = lines(site('orch', 'data', 'threads', 'w__A1.jsonl'));
   assert.deepEqual(msgs.map(({ who, kind, phase, text }) => [who, kind, phase, text]), [
     ['claude', 'status', 'reading', 'Reading: the plan'],
-    ['claude', 'status', 'testing', 'Claude Opus testing: the benchmark'],
+    ['claude', 'status', 'checking', 'Claude Opus checking: the benchmark'],
     ['claude', 'status', 'building', 'Building: the limiter'],
     ['claude', 'status', 'checking', 'Checking: the page at phone width'],
   ]);
@@ -456,9 +456,10 @@ test("a status line drops a detail's repeat of its own phase label", async () =>
 test('builder progress and start --progress refuse a missing or unknown phase and a detail over 80 characters, writing nothing', async () => {
   const long = 'x'.repeat(81);
   for (const [args, err] of [
-    [['builder', 'progress', 'w/A1', 'the plan', '--phase', 'waiting', '--site', 'orch'], /^--phase takes reading, building, testing, checking or landing, not "waiting"$/],
-    [['builder', 'progress', 'w/A1', long, '--phase', 'testing', '--site', 'orch'], /^builder progress runs to 81 characters, past 80\. Say it shorter\.$/],
-    [['builder', 'start', 'w/A1', '--site', 'orch', '--progress', 'the plan'], /^--progress needs --phase reading, building, testing, checking or landing$/],
+    [['builder', 'progress', 'w/A1', 'the plan', '--phase', 'waiting', '--site', 'orch'], /^--phase takes reading, building, checking or landing, not "waiting"$/],
+    [['builder', 'progress', 'w/A1', 'the suite', '--phase', 'testing', '--site', 'orch'], /^--phase takes reading, building, checking or landing, not "testing"$/],
+    [['builder', 'progress', 'w/A1', long, '--phase', 'checking', '--site', 'orch'], /^builder progress runs to 81 characters, past 80\. Say it shorter\.$/],
+    [['builder', 'start', 'w/A1', '--site', 'orch', '--progress', 'the plan'], /^--progress needs --phase reading, building, checking or landing$/],
     [['builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading'], /^--phase goes with --progress "<detail>"$/],
     [['builder', 'start', 'w/A1', '--site', 'orch', '--phase', 'reading', '--progress', long], /^--progress runs to 81 characters, past 80\. Say it shorter\.$/],
   ]) {
@@ -470,7 +471,7 @@ test('builder progress and start --progress refuse a missing or unknown phase an
   assert.equal(fs.existsSync(at('waves', 'w', 'agents', 'A1.json')), false);
   assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch')).code, 0);
   const bare = await board('builder', 'progress', 'w/A1', 'the plan', '--site', 'orch');
-  assert.deepEqual([bare.code, bare.err.trim()], [1, 'builder progress needs --phase reading, building, testing, checking or landing']);
+  assert.deepEqual([bare.code, bare.err.trim()], [1, 'builder progress needs --phase reading, building, checking or landing']);
   assert.equal((await board('builder', 'progress', 'w/A1', 'x'.repeat(80), '--phase', 'landing', '--site', 'orch')).code, 0);
 });
 
@@ -699,10 +700,10 @@ test('builder start saves a planner\'s model, Sonnet for a prototype and Opus fo
   // A planner needs no --phase.
   const bare = await board('builder', 'progress', 'w/A1', '--site', 'orch', '--agent', 'prototype', 'take B');
   assert.equal(bare.code, 0, bare.err);
-  assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'fix', '--kind', 'claude', '--phase', 'testing', '--progress', 'the fix')).code, 0);
+  assert.equal((await board('builder', 'start', 'w/A1', '--site', 'orch', '--agent', 'fix', '--kind', 'claude', '--phase', 'checking', '--progress', 'the fix')).code, 0);
   assert.equal((await board('builder', 'progress', 'w/A1', '--site', 'orch', '--agent', 'fix', 'no phase')).code, 1);
   assert.deepEqual(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).map(({ text, planner, phase }) => [text, planner, phase]), [
-    ['Grilling: the notes', true, undefined], ['Prototyping: the takes', true, undefined], ['Prototyping: take B', true, undefined], ['Claude Opus testing: the fix', undefined, 'testing'],
+    ['Grilling: the notes', true, undefined], ['Prototyping: the takes', true, undefined], ['Prototyping: take B', true, undefined], ['Claude Opus checking: the fix', undefined, 'checking'],
   ]);
 });
 

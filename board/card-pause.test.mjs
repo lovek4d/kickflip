@@ -119,11 +119,11 @@ test('a pause whose cause clears before the builder stops is dropped with no lin
 test('the hard stop after 15 minutes marks the build paused at its phase', async (t) => {
   onHome(t);
   building();
-  assert.equal((await onOrch('builder', 'progress', 'w/A1', '--phase', 'testing', 'Suite')).code, 0);
+  assert.equal((await onOrch('builder', 'progress', 'w/A1', '--phase', 'checking', 'The diff')).code, 0);
   write(recordFile(), { ...record(), pause: { cause: 'usage', words: 'usage limit', at: now() } });
   await store.markPaused(site('orch'), 'w/A1');
-  assert.deepEqual([record().pause.phase, Boolean(record().pause.paused)], ['testing', true]);
-  assert.equal(texts().at(-1), 'Paused at testing: usage limit. It resumes once the usage pause lifts.');
+  assert.deepEqual([record().pause.phase, Boolean(record().pause.paused)], ['checking', true]);
+  assert.equal(texts().at(-1), 'Paused at checking: usage limit. It resumes once the usage pause lifts.');
   assert.equal(PAUSE_HARD_STOP, 15 * 60_000);
 });
 

@@ -667,8 +667,11 @@ function worktreeOf(records = {}) {
 function reachedPhaseOf(agents, lines = []) {
   const since = agents.filter(builds).map((a) => String(a.started || '')).filter(Boolean).sort().pop();
   if (since === undefined) return null;
-  return lines.filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop()?.phase || null;
+  return stepOf(lines.filter((m) => m.kind === 'status' && m.phase && !m.planner && String(m.ts) >= since).sort((a, b) => String(a.ts).localeCompare(String(b.ts))).pop()?.phase) || null;
 }
+// docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md: a line's build step,
+// a line written in the testing step, which a builder's own tests in building replaced, reading building.
+const stepOf = (phase) => (phase === 'testing' ? 'building' : phase);
 
 // A run's silence is the time since its newest progress line or movement in its worktree's Claude transcript (moved
 // {<worktree path>: ms}, server.mjs snapshot); a run with no readable transcript has its progress lines alone. alive is
@@ -703,7 +706,7 @@ function builderOf(agents, lines = [], now, movedAt = null, alive = null) {
   const held = !planner && !stop && (alive === 'held' || Boolean(pause?.paused));
   const live = planner || held ? null : stop ? false : alive;
   const stale = held ? false : live === null ? silent >= BUILDER_STALE_AFTER : !live;
-  return { progress, phase: line?.phase || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
+  return { progress, phase: stepOf(line?.phase) || null, at: quiet, kind, planner, silentSince, stale, alive: live, held, stopped: stop ? stoppedWords(stop.run) : null,
     ...(pause ? { pause: { cause: pause.cause, words: pause.words, paused: Boolean(pause.paused) } } : {}) };
 }
 

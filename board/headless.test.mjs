@@ -86,10 +86,22 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
     'ENG-1', 'Make it go', '/s/waves/w/a1.md', 'Work only in /wt/A1', 'Use Node 22+',
     `${b} builder start w/A1 --kind build`, `${b} builder progress w/A1 --phase`, `${b} builder call w/A1`, `${b} builder ask w/A1`,
     `${b} builder asks w/A1`, `${b} builder done w/A1 --risk low|medium|high --text`, "git -c core.commentChar=';' rebase main", 'Never push',
-    `run the tests your change affects once, in the foreground, at the end, as \`${b} test --dir /wt/A1 --base main\``,
   ]) assert.ok(brief.includes(want), `the brief has ${want}`);
   assert.ok(!brief.includes('node --test'), 'the brief runs the affected tests, not the full suite');
-  for (const phase of ['reading', 'building', 'testing', 'checking', 'landing']) assert.ok(brief.includes(`- ${phase}:`), `the brief says what ${phase} means`);
+  for (const phase of ['reading', 'building', 'checking', 'landing']) assert.ok(brief.includes(`- ${phase}:`), `the brief says what ${phase} means`);
+  assert.ok(!brief.includes('testing'), 'the brief has no testing step');
+});
+
+// docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md
+test("a builder's brief runs only the tests it writes or changes, as it builds, and leaves the affected set and the rebase to the land", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  for (const brief of [builderBrief(card), landerBrief(card)]) {
+    assert.ok(!/rerun the tests|run the tests your change affects/.test(brief), 'it never runs the affected set itself');
+    assert.ok(brief.includes('it rebases onto main once, runs the tests the change affects once'), 'the finish step runs them, once');
+  }
+  const brief = builderBrief(card);
+  assert.ok(brief.includes(`run only the test files you write or change, with \`${b} test --dir /wt/A1 --base main\`, as part of building`), brief);
+  assert.ok(brief.includes("don't rebase before you finish"), 'the land rebases');
   assert.ok(brief.includes("don't start the text with it"), 'the brief says not to lead with the phase word');
   assert.ok(!brief.includes(`${b} land`), 'done finishes the task, so the brief never runs land');
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'calls come before the finishing step');
@@ -100,14 +112,16 @@ test("a headless builder's brief names its card, notes, worktree and rules, and 
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
-test("a rebase run's brief takes up the card, rebases its PR's branch onto origin's base keeping both sides, reruns the suite and finishes with builder done, handing a failure back as a call", () => {
+test("a rebase run's brief takes up the card, rebases its PR's branch onto origin's base keeping both sides and finishes with builder done, which runs the affected tests once, handing a failure back as a call", () => {
   const brief = rebaseBrief({ ...card, pr: 31 });
   const b = `node ${BOARD_CLI} --site shop`;
   for (const want of [
     `${b} builder start w/A1 --kind build --label Rebase --phase building --progress "Rebase run started · fetching main"`,
     'PR #31', 'Work only in /wt/A1', 'git fetch origin', "git -c core.commentChar=';' rebase origin/main", "keeping both sides' intent",
-    '"Rebasing onto main · resolving', `${b} test --dir /wt/A1 --base origin/main`,`${b} builder call w/A1 "Rebase failed in`, `${b} builder done w/A1 --text`, '--force-with-lease', 'Never push',
+    '"Rebasing onto main · resolving', `${b} builder call w/A1 "Rebase failed in`, `${b} builder done w/A1 --text`, '--force-with-lease', 'Never push',
+    'runs the tests the change affects once before it pushes',
   ]) assert.ok(brief.includes(want), `the rebase brief has ${want}`);
+  assert.ok(!brief.includes(`${b} test`), 'its builder done runs the tests, so the run itself runs none');
   assert.ok(brief.indexOf('builder call') < brief.indexOf(`${b} builder done`), 'a failure is a call, before the finishing step');
 });
 

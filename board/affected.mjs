@@ -124,3 +124,12 @@ export function affectedTests(dir, base) {
   // A broad change runs every file, but only the files it reaches are ones it touched.
   return { files: broad ? all : [...run].sort(), full: broad, touched: [...touched].sort() };
 }
+
+// docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md
+// A builder's own tests: the test files the change in the worktree at dir adds or edits since its merge base with base,
+// committed, uncommitted or untracked, and still there. → repo-relative and sorted.
+export function ownTests(dir, base) {
+  const [since] = git(dir, 'merge-base', base, 'HEAD');
+  const changed = [...git(dir, 'diff', '--name-only', since), ...git(dir, 'ls-files', '--others', '--exclude-standard')];
+  return [...new Set(changed)].filter((f) => f.endsWith('.test.mjs') && fs.existsSync(path.join(dir, f))).sort();
+}

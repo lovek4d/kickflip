@@ -8,11 +8,12 @@
   const BUILDER_KIND = Object.freeze({ install: 'install' });
   const PR_STATE = Object.freeze({ open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' });
   // Each lane's phases, in order, which a card stores beside its lane (docs/adr/2026-11-11-1200-every-lane-has-phases.md).
-  // In Progress's are the five build steps its progress bar draws; a review's "reviewers" and "merge" read "pending review"
+  // In Progress's are the four build steps its progress bar draws, a builder's own tests being part of building and
+  // the land's run part of landing (docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md); a review's "reviewers" and "merge" read "pending review"
   // and "pending merge" on the card (ui-cards.js PHASE_LOOK).
   const PHASES = Object.freeze({
     todo: Object.freeze(['new', 'discussing', 'grilling', 'prototyping', 'staging', 'ready']),
-    progress: Object.freeze(['reading', 'building', 'testing', 'checking', 'landing']),
+    progress: Object.freeze(['reading', 'building', 'checking', 'landing']),
     review: Object.freeze(['draft', 'reviewers', 'merge', 'stale']),
     done: Object.freeze(['merged', 'closed']),
   });

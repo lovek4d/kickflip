@@ -31,7 +31,7 @@ test('the review page lays out every bar and status line the board draws, in the
   assert.doesNotMatch(drawn.grill, /phase-bars/);
   assert.match(drawn.grill, /<span class="card-phase ph-info">grilling<\/span>/);
   assert.match(drawn.build, /class="line3 sub agent in-progress"/);
-  assert.match(drawn.check, /aria-label="Orchestrator review, step 4 of 5"/);
+  assert.match(drawn.check, /aria-label="Orchestrator review, step 3 of 4"/);
   assert.match(drawn.start, /class="sb-steps"><span class="phase-bars"/);
   assert.match(drawn.rebase, /class="line3 sub agent in-review"><span class="working-dot" aria-hidden="true"><\/span>Rebasing onto main/);
   assert.doesNotMatch(drawn.rebase, /phase-bars/);
@@ -77,7 +77,7 @@ test('the page draws the lanes with their colours, opens a tapped card beneath, 
   assert.match(p.$('.item[data-entry="build"] .title').textContent, /Building/);
   await p.set('[data-step="0"]', 'planning');
   await p.fire(p.$('button[data-move="0"][value="1"]'), 'click');
-  assert.deepEqual(p.root.querySelectorAll('[data-step]').map((i) => i.value), ['building', 'planning', 'testing', 'checking', 'landing']);
+  assert.deepEqual(p.root.querySelectorAll('[data-step]').map((i) => i.value), ['building', 'planning', 'checking', 'landing']);
   assert.equal(p.$('button[data-move="0"][value="-1"]').hasAttribute('disabled'), true);
   await p.fire(p.$('.item[data-entry="rebase"] .title'), 'click');
   assert.match(p.$('.pr-editor').textContent, /A status line, no steps/);
@@ -92,7 +92,7 @@ test('the page draws the lanes with their colours, opens a tapped card beneath, 
   assert.equal(lines[0], 'Progress bar review');
   assert.ok(lines.includes('Grilling, Todo: a status line, no bar'), 'an untouched line reads with no was');
   assert.equal(lines[2], 'Lane colours: Todo #999999 (was #6b6b76), In Progress #d97706, In Review #2b6cb0');
-  assert.ok(lines.includes('Building (was Build), In Progress: building › planning › testing › checking › landing (was reading › building › testing › checking › landing)'), p.sent[0].text);
+  assert.ok(lines.includes('Building (was Build), In Progress: building › planning › checking › landing (was reading › building › checking › landing)'), p.sent[0].text);
   assert.ok(lines.includes('Rebase run, In Progress (was In Review): a status line, no bar'));
   assert.equal(p.$('[data-sent]').textContent, 'Sent. The orchestrator files it as a task.');
 });

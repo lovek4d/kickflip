@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as store from '../store.mjs';
-import { affectedRun, boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, passTests, worktreesDir } from '../worktree.mjs';
+import { boardWorktree, builderRepo, joiningLand, landInTurn, mergeHelper, nodeTests, passTests, worktreesDir } from '../worktree.mjs';
+import { ownTests } from '../affected.mjs';
 import { pidAlive } from '../headless.mjs';
 import { fileFindings } from '../arch-review.mjs';
 import { finishCard, landHeld } from '../finish.mjs';
@@ -543,13 +544,13 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          on a board makes it without --worktree when it keeps none
                                                          (a taken-up or resumed record's, or the worktree the
                                                          task's last record left while it is still there)
-  builder progress <file>/<id> --phase <phase>           one status line: a phase, reading, building, testing,
-         (<detail> | --text <d>) [--agent <name>]        checking or landing, and a present-tense detail of at most
+  builder progress <file>/<id> --phase <phase>           one status line: a phase, reading, building, checking or
+         (<detail> | --text <d>) [--agent <name>]        landing, and a present-tense detail of at most
                                                          80 characters in plain words, which the owner reads at a
                                                          glance; a longer detail is refused with its length. Hashes,
                                                          test counts and file names go in the hand-back. The thread
-                                                         line reads "Testing: <detail>", "Codex testing: <detail>"
-                                                         for another agent, and the task "Testing · <detail>"
+                                                         line reads "Building: <detail>", "Codex building: <detail>"
+                                                         for another agent, and the task "Building · <detail>"
          [--eta <ISO time> | --clear-eta]                an ETA shows as a line under the task's status
          A progress line, --progress included, needs --site: it is a status line in the item's thread, and
          the task's status shows the newest one from an agent still working. builder progress refuses
@@ -626,11 +627,12 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          didn't launch
   land queue                                             the host's land queue in order: the land running, then each
                                                          waiting, "(bumped)" on one a bump moved
-  test [--dir <dir>] [--base <branch>]                   runs the tests the change in the worktree at --dir (else the
-                                                         current folder) affects since its merge base with --base
-                                                         (else main): its commits, uncommitted edits and untracked
-                                                         files. Says how many test files it runs, or that it runs
-                                                         every one and why; fails naming each failing test and
+  test [--dir <dir>] [--base <branch>]                   runs only the test files the change in the worktree at --dir
+                                                         (else the current folder) adds or edits since its merge base
+                                                         with --base (else main): in its commits, uncommitted edits
+                                                         and untracked files; the land runs the tests the change
+                                                         affects. Says how many it runs, or that there are none, and
+                                                         passes; fails naming each failing test and
                                                          saving the TAP output under ~/.claude/kickflip/logs. With
                                                          --site, for the task whose open build keeps that worktree, it
                                                          writes the task's status line: its start and result in the
@@ -1078,12 +1080,17 @@ const COMMANDS = {
   'item stall': [['file/id'], ['reason'], (site, [key], f, { ps, grace }) => stallCard(needSite(site, 'item stall'), key, f.reason, { ps, grace })],
   'land stop': [['file/id'], [], (site, [key], f, { ps, grace }) => stopLand(needSite(site, 'land stop'), key, { ps, grace })],
   'land queue': [[], [], () => queueLines()],
+  // docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md: a builder runs only
+  // its own tests; the land runs the tests the change affects, once, after its rebase.
   test: [[], ['dir', 'base'], async (site, args, f) => {
     const say = (line) => console.log(line);
     const dir = path.resolve(f.dir ?? '.');
+    const files = ownTests(dir, f.base ?? 'main');
+    if (!files.length) return say('the change adds or edits no test file; the land runs the tests it affects');
+    say(`testing the ${files.length} test file${files.length === 1 ? '' : 's'} the change adds or edits; the land runs the tests it affects`);
     const card = site ? await store.cardOfWorktree(site, dir) : null;
-    const report = card ? await store.testReport(site, card, { phase: 'testing' }) : undefined;
-    await passTests(dir, { say, runTests: affectedRun(f.base ?? 'main', say), outcome: 'fix them and run board.mjs test again', report });
+    const report = card ? await store.testReport(site, card, { phase: 'building' }) : undefined;
+    await passTests(dir, { say, runTests: (at, opts) => nodeTests(at, { ...opts, files }), outcome: 'fix them and run board.mjs test again', report });
   }],
   'item bump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item bump'), key, true)],
   'item unbump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],

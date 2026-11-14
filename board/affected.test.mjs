@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { affectedTests, literalPaths, testDependencies } from './affected.mjs';
+import { affectedTests, literalPaths, ownTests, testDependencies } from './affected.mjs';
 
 // docs/adr/2026-11-12-2104-lands-and-builders-run-only-the-tests-a-change-affects.md
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
@@ -138,10 +138,29 @@ test('a repo with no test map runs the tests the change reaches, with no core', 
 const BOARD = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));
 const testCommand = (dir) => execFileSync(process.execPath, [BOARD, 'test', '--dir', dir, '--base', 'main'], { encoding: 'utf8' });
 
-test('board.mjs test runs the tests the worktree\'s change affects and says which', (t) => {
+// docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md
+test('a builder\'s own tests are the test files its change adds or edits, committed or not, and none it deleted', (t) => {
+  const dir = repo(t);
+  put(dir, 'a.test.mjs', "import { a } from './lib/a.mjs';\n// edited\n");
+  put(dir, 'lib/b.mjs', 'export const b = 2;\n');
+  git(dir, 'rm', '--quiet', 'spawn.test.mjs');
+  commit(dir);
+  put(dir, 'lone.test.mjs', '// edited, uncommitted\n');
+  put(dir, 'new.test.mjs', '');
+  assert.deepEqual(ownTests(dir, 'main'), ['a.test.mjs', 'lone.test.mjs', 'new.test.mjs']);
+});
+
+test('board.mjs test runs only the test files the worktree\'s change adds or edits and says so', (t) => {
   const dir = repo(t);
   put(dir, 'lib/b.mjs', 'export const b = 2;\n');
-  assert.equal(testCommand(dir), 'testing the 2 test files the change affects\ntests passed: 2\n');
+  put(dir, 'lone.test.mjs', "import test from 'node:test';\ntest('lone holds', () => {});\n");
+  assert.equal(testCommand(dir), 'testing the 1 test file the change adds or edits; the land runs the tests it affects\ntests passed: 1\n');
+});
+
+test('board.mjs test with no test file changed runs nothing and passes', (t) => {
+  const dir = repo(t);
+  put(dir, 'lib/b.mjs', 'export const b = 2;\n');
+  assert.equal(testCommand(dir), 'the change adds or edits no test file; the land runs the tests it affects\n');
 });
 
 test('board.mjs test fails naming each failing test', (t) => {
@@ -149,7 +168,7 @@ test('board.mjs test fails naming each failing test', (t) => {
   put(dir, 'a.test.mjs', "import test from 'node:test';\nimport { a } from './lib/a.mjs';\ntest('a holds', () => { throw new Error('no'); });\n");
   assert.throws(() => testCommand(dir), (e) => {
     assert.equal(e.status, 1);
-    assert.equal(e.stdout, 'testing the 2 test files the change affects\n');
+    assert.equal(e.stdout, 'testing the 1 test file the change adds or edits; the land runs the tests it affects\n');
     assert.match(e.stderr, /^tests failed in .* \(1 failing\); fix them and run board\.mjs test again\na holds\n/);
     return true;
   });

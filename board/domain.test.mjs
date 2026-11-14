@@ -224,8 +224,8 @@ test('a builder carries the phase of its newest status line, none before a phase
   const builder = (lines) => board({ now: Date.parse('2026-10-23T10:30:00Z'), agents: { A1: { main: { label: 'Opus builder', started } } }, threads: { 'w/A1': lines } }).items.find((i) => i.key === 'w/A1').builder;
   const status = (ts, text, phase) => ({ ts, who: 'claude', kind: 'status', text, ...(phase ? { phase } : {}) });
   assert.equal(builder([]).phase, null);
-  assert.equal(builder([status('2026-10-23T09:00:00Z', 'Testing: last run', 'testing')]).phase, null);
-  assert.equal(builder([status('2026-10-23T10:05:00Z', 'Reading: spec', 'reading'), status('2026-10-23T10:10:00Z', 'Testing: suite', 'testing')]).phase, 'testing');
+  assert.equal(builder([status('2026-10-23T09:00:00Z', 'Checking: last run', 'checking')]).phase, null);
+  assert.equal(builder([status('2026-10-23T10:05:00Z', 'Reading: spec', 'reading'), status('2026-10-23T10:10:00Z', 'Checking: the diff', 'checking')]).phase, 'checking');
   assert.equal(builder([status('2026-10-23T10:05:00Z', 'Reading: spec', 'reading'), status('2026-10-23T10:10:00Z', 'Done')]).phase, null);
 });
 
@@ -283,10 +283,10 @@ test('only a run that can change its code moves an In Review card to In Progress
 // docs/adr/2026-11-13-2030-a-test-run-reports-live-lines-the-thread-does-not-show.md
 test('a live status line sets the card line and keeps a running build from reading stale, but the thread does not show it', () => {
   const started = '2026-10-30T10:00:00Z';
-  const start = { ts: '2026-10-30T10:01:00Z', who: 'claude', kind: 'status', phase: 'testing', text: 'Testing: 12 affected test files' };
-  const update = { ts: '2026-10-30T10:08:00Z', who: 'claude', kind: 'status', phase: 'testing', live: true, text: 'Testing: 5 tests run, 0 failing' };
+  const start = { ts: '2026-10-30T10:01:00Z', who: 'claude', kind: 'status', phase: 'building', text: 'Building: 2 test files' };
+  const update = { ts: '2026-10-30T10:08:00Z', who: 'claude', kind: 'status', phase: 'building', live: true, text: 'Building: 5 tests run, 0 failing' };
   const card = board({ now: Date.parse('2026-10-30T10:15:00Z'), agents: { A1: { main: { kind: 'codex', started } } }, threads: { 'w/A1': [start, update] } }).items.find((i) => i.key === 'w/A1');
-  assert.deepEqual([card.builder.progress, card.builder.phase, card.builder.stale], ['Testing · 5 tests run, 0 failing', 'testing', false]);
+  assert.deepEqual([card.builder.progress, card.builder.phase, card.builder.stale], ['Building · 5 tests run, 0 failing', 'building', false]);
   const shown = threadOf('w/A1', { lines: [start, update] }).filter((m) => m.kind === 'status').map((m) => m.text);
   assert.deepEqual(shown, [start.text]);
 });

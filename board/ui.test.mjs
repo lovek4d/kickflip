@@ -1161,13 +1161,13 @@ test("the open card's details list shows Parent, Children, Related to, Blocked b
   // The Status row reads the card's lane and agent, never the wave file's stored lane
   // (docs/adr/2026-11-05-0410-a-card-status-word-comes-from-a-signal-the-board-checks.md).
   const bare = { ...card, storedLane: 'review', parent: null, children: [], related: [], blockedBy: [], waitsOnIt: [] };
-  const testing = { progress: 'Testing · x', phase: 'testing', at: null };
+  const building = { progress: 'Building · x', phase: 'building', at: null };
   for (const [extra, want] of [
-    [{ lane: 'progress', builder: testing }, 'implementing'],
-    [{ lane: 'progress', builder: { ...testing, phase: 'landing' } }, 'landing'],
-    [{ lane: 'progress', builder: { ...testing, alive: false, stale: true } }, 'stopped'],
+    [{ lane: 'progress', builder: building }, 'implementing'],
+    [{ lane: 'progress', builder: { ...building, phase: 'landing' } }, 'landing'],
+    [{ lane: 'progress', builder: { ...building, alive: false, stale: true } }, 'stopped'],
     [{ lane: 'progress', builder: null, waitsOn: 'checking' }, 'Orchestrator review'],
-    [{ lane: 'progress', builder: null, reachedPhase: 'testing' }, 'stopped at testing'],
+    [{ lane: 'progress', builder: null, reachedPhase: 'building' }, 'stopped at building'],
     [{ lane: 'todo', builder: { progress: 'Grilling · x', planner: true, kind: 'grill' } }, 'grilling'],
     [{ lane: 'todo', grilling: true, planning: 'preheating' }, 'preheating'],
     [{ lane: 'todo', prototyping: true, planning: 'planning prototype' }, 'planning prototype'],
@@ -1412,7 +1412,7 @@ test("a bare tap's line reads its words and time, then sending…, waiting… or
 
 // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
 test('a stale builder has no badge and no nudge: its status line and bars keep their colour, and only the footer reads stale', () => {
-  const builder = { progress: 'Running tests', phase: 'testing', at: null, stale: true };
+  const builder = { progress: 'Running tests', phase: 'building', at: null, stale: true };
   const html = ui.workLines({ ...workCard, lane: 'progress', stale: true, builder });
   assert.match(html, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Running tests<\/div>/);
   assert.doesNotMatch(html, /<button[^>]*line3|data-confirm="nudge"|Stalled|tone-danger|phase-bars dim/);
@@ -1502,37 +1502,37 @@ test("every pulse beats on one clock: a pulse animation starting anywhere on the
 });
 
 // docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
-test('every In Progress card shows its five phase bars: empty before a phase, filled to the phase reached, all filled in review or reopened, dimmed while it waits on something other than a builder', () => {
+test('every In Progress card shows its four phase bars: empty before a phase, filled to the phase reached, all filled in review or reopened, dimmed while it waits on something other than a builder', () => {
   const sortAt = '2020-01-01T10:00:00.000Z';
   const card = { ...workCard, lane: 'progress', sortAt, builder: null, next: null };
-  const testing = { progress: 'Testing · the limiter', phase: 'testing', at: null };
+  const building = { progress: 'Building · the limiter', phase: 'building', at: null };
   const questions = { kind: 'questions', url: 'questions.html#q1', label: 'Answer 2 questions' };
   const strip = (it) => {
-    const m = ui.workLines(it).match(/<span class="phase-bars( dim)?" role="img" aria-label="([^"]*)" title="\2">((?:<i class="\w*"><\/i>){5})<\/span>/);
+    const m = ui.workLines(it).match(/<span class="phase-bars( dim)?" role="img" aria-label="([^"]*)" title="\2">((?:<i class="\w*"><\/i>){4})<\/span>/);
     return m && { dim: Boolean(m[1]), label: m[2], bars: [...m[3].matchAll(/class="(\w*)"/g)].map((b) => b[1] || '-').join(' ') };
   };
   const cases = [
-    [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Starting, no step yet', bars: '- - - - -' }],
-    [{ builder: { ...testing, phase: 'reading' } }, { dim: false, label: 'Reading, step 1 of 5', bars: 'now - - - -' }],
-    [{ builder: testing }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
-    [{ builder: { ...testing, phase: 'landing' } }, { dim: false, label: 'Landing, step 5 of 5', bars: 'done done done done now' }],
-    [{ builder: { ...testing, stale: true } }, { dim: false, label: 'Testing, step 3 of 5', bars: 'done done now - -' }],
-    [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, step 4 of 5', bars: 'done done done now -' }],
-    [{ builder: { ...testing, phase: 'building' }, action: questions }, { dim: true, label: 'Building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
-    [{ reachedPhase: 'building', action: questions }, { dim: true, label: 'Stopped at building, step 2 of 5, waiting on your answers', bars: 'done done - - -' }],
-    [{ reopened: true, reachedPhase: 'testing' }, { dim: true, label: 'Reopened, all 5 steps done', bars: 'done done done done done' }],
-    [{ reachedPhase: 'landing', next: 'Fix the failing CI' }, { dim: true, label: 'Stopped at landing, step 5 of 5', bars: 'done done done done done' }],
-    [{}, { dim: true, label: 'No step yet', bars: '- - - - -' }],
-    [{ builder: { kind: 'install', progress: null, phase: null, at: null }, reachedPhase: 'landing' }, { dim: false, label: 'Stopped at landing, step 5 of 5', bars: 'done done done done done' }],
+    [{ builder: { progress: null, phase: null, at: null } }, { dim: false, label: 'Starting, no step yet', bars: '- - - -' }],
+    [{ builder: { ...building, phase: 'reading' } }, { dim: false, label: 'Reading, step 1 of 4', bars: 'now - - -' }],
+    [{ builder: building }, { dim: false, label: 'Building, step 2 of 4', bars: 'done now - -' }],
+    [{ builder: { ...building, phase: 'landing' } }, { dim: false, label: 'Landing, step 4 of 4', bars: 'done done done now' }],
+    [{ builder: { ...building, stale: true } }, { dim: false, label: 'Building, step 2 of 4', bars: 'done now - -' }],
+    [{ waitsOn: 'checking' }, { dim: false, label: 'Orchestrator review, step 3 of 4', bars: 'done done now -' }],
+    [{ builder: building, action: questions }, { dim: true, label: 'Building, step 2 of 4, waiting on your answers', bars: 'done done - -' }],
+    [{ reachedPhase: 'building', action: questions }, { dim: true, label: 'Stopped at building, step 2 of 4, waiting on your answers', bars: 'done done - -' }],
+    [{ reopened: true, reachedPhase: 'building' }, { dim: true, label: 'Reopened, all 4 steps done', bars: 'done done done done' }],
+    [{ reachedPhase: 'landing', next: 'Fix the failing CI' }, { dim: true, label: 'Stopped at landing, step 4 of 4', bars: 'done done done done' }],
+    [{}, { dim: true, label: 'No step yet', bars: '- - - -' }],
+    [{ builder: { kind: 'install', progress: null, phase: null, at: null }, reachedPhase: 'landing' }, { dim: false, label: 'Stopped at landing, step 4 of 4', bars: 'done done done done' }],
   ];
   for (const [extra, want] of cases) assert.deepEqual(strip({ ...card, ...extra }), want, JSON.stringify(extra));
-  for (const off of [{ lane: 'todo', builder: testing }, { lane: 'done', reopened: false }, { lane: 'review' }, { builder: { ...testing, planner: true } }]) {
+  for (const off of [{ lane: 'todo', builder: building }, { lane: 'done', reopened: false }, { lane: 'review' }, { builder: { ...building, planner: true } }]) {
     assert.doesNotMatch(ui.workLines({ ...card, ...off }), /phase-bars/, JSON.stringify(off));
   }
   assert.match(ui.workLines(card, { unread: 1 }), /<\/time><span class="sep"> · <\/span><span class="phase-bars dim"[^>]*>.*<\/span><\/div><div class="line6 sub card-alert"><span class="card-unread">1 new message<\/span><\/div>/);
-  const building = ui.workLines({ ...card, builder: testing }, { unread: 2 });
-  assert.match(building, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Testing · the limiter<\/div>/);
-  assert.equal(building.match(/phase-bars/g).length, 1);
+  const drawn = ui.workLines({ ...card, builder: building }, { unread: 2 });
+  assert.match(drawn, /<div class="line3 sub agent in-progress"><span class="working-dot" aria-hidden="true"><\/span>Building · the limiter<\/div>/);
+  assert.equal(drawn.match(/phase-bars/g).length, 1);
 });
 
 // docs/adr/2026-11-03-1551-planners-and-implementers-are-two-kinds-of-agent.md,
@@ -1578,8 +1578,8 @@ test("a card idle on the orchestrator reads waiting for orchestrator with how lo
   // docs/adr/2026-11-05-0802-todo-has-no-queue.md: an Implement message's card waits like any other.
   assert.deepEqual(status({ lane: 'progress', orchestrator: { ...waiting, kind: 'implement' } }), ['in-progress waiting-gray', 'waiting for orchestrator · 14m']);
   // A running builder keeps its own line while its ask waits.
-  assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Testing · x', phase: 'testing', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
-    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Testing · x · 2m']);
+  assert.deepEqual(status({ lane: 'progress', builder: { progress: 'Building · x', phase: 'building', at: minutes(2) }, orchestrator: { ...waiting, kind: 'ask' } }),
+    ['in-progress', '<span class="working-dot" aria-hidden="true"></span>Building · x · 2m']);
   // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md: a rebase run's hand-back, In
   // Review, reads its own failure line above the wait.
   const failed = ui.workLines({ ...workCard, sortAt: '2020-01-01T10:00:00.000Z', lane: 'review', waitsOn: 'checking', orchestrator: waiting, rebaseFailed: 'Rebase failed in 2 files · <both sides>' });
@@ -1818,10 +1818,10 @@ test('a paused build reads "pausing · <cause>" in orange, then "paused · <caus
   assert.match(pausing, /Building · Writing the limiter test/, 'its progress line stays');
   const paused = ui.workLines({ ...card, builder: { ...builder, held: true, alive: null, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
   assert.match(paused, /<span class="card-paused">paused · blocked by #61<\/span>/);
-  assert.match(paused, /aria-label="Building, step 2 of 5"/);
+  assert.match(paused, /aria-label="Building, step 2 of 4"/);
   assert.match(ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: false } } }), /<span class="phase-bars"/, 'a pausing build runs on, its bars lit');
   const pausedAwake = ui.workLines({ ...card, builder: { ...builder, pause: { cause: 'blocked', words: 'blocked by #61', paused: true } } });
-  assert.match(pausedAwake, /<span class="phase-bars dim"[^>]*aria-label="Building, step 2 of 5"/, 'a paused build dims its bars at the phase it stopped at');
+  assert.match(pausedAwake, /<span class="phase-bars dim"[^>]*aria-label="Building, step 2 of 4"/, 'a paused build dims its bars at the phase it stopped at');
   assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: true } } }), 'paused');
   assert.equal(ui.statusWord({ ...card, builder: { ...builder, pause: { paused: false } } }), 'pausing');
   const held = ui.workLines({ ...card, blockedBy: [], blocked: false, held: true, builder: { ...builder, pause: { cause: 'held', words: 'held', paused: true } } });
@@ -2645,11 +2645,11 @@ test('the Auto Review lane shows each PR with its author, cards and state, opens
 // docs/adr/2026-11-03-2024-every-in-progress-card-shows-its-phase-bars.md
 test("a card's phase bars enter as it lands in In Progress, empty or not, fill as it reaches more phases, leave as it goes, and are still otherwise", () => {
   const reached = (it) => ui.phaseStrip(it)?.done ?? null;
-  assert.equal(reached({ lane: 'progress', builder: { phase: 'testing' } }), 3);
+  assert.equal(reached({ lane: 'progress', builder: { phase: 'building' } }), 2);
   assert.equal(reached({ lane: 'progress', builder: { phase: null } }), 0);
-  assert.equal(reached({ lane: 'progress', waitsOn: 'checking' }), 4);
-  assert.equal(reached({ lane: 'todo', builder: { phase: 'testing' } }), null);
-  assert.equal(reached({ lane: 'progress', builder: { planner: true, phase: 'testing' } }), null);
+  assert.equal(reached({ lane: 'progress', waitsOn: 'checking' }), 3);
+  assert.equal(reached({ lane: 'todo', builder: { phase: 'building' } }), null);
+  assert.equal(reached({ lane: 'progress', builder: { planner: true, phase: 'building' } }), null);
   assert.equal(ui.phaseMotion(undefined, 0), 'enter');
   assert.equal(ui.phaseMotion(null, 5), 'enter');
   assert.equal(ui.phaseMotion(0, 1), 'fill');

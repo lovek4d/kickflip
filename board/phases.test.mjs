@@ -11,10 +11,12 @@ const auditItem = (id = 'A1') => read(site('audit', 'data', 'items.json')).items
 const auditThread = (id = 'A1') => { try { return lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)); } catch { return []; } };
 const moveLines = (id) => auditThread(id).filter((m) => m.kind === 'move').map((m) => m.text);
 
-test("each lane's phases, in order: Todo's, the five build steps, In Review's and Done's", async () => {
+// docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md: no testing step; a
+// builder's tests are part of building, and the land's run is part of landing.
+test("each lane's phases, in order: Todo's, the four build steps, In Review's and Done's", async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(PHASES)), {
     todo: ['new', 'discussing', 'grilling', 'prototyping', 'staging', 'ready'],
-    progress: ['reading', 'building', 'testing', 'checking', 'landing'],
+    progress: ['reading', 'building', 'checking', 'landing'],
     review: ['draft', 'reviewers', 'merge', 'stale'],
     done: ['merged', 'closed'],
   });
@@ -46,9 +48,10 @@ test('moveCard writes the lane and its phase together; a phase change inside a l
   await moveCard(dir, 'audit/A1', 'todo', 'nothing builds it');
   assert.equal(await moveCard(dir, 'audit/A1', 'progress', 'a build started', 'reading'), 'Moved to In Progress: a build started');
   assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'reading']);
-  assert.equal(await moveCard(dir, 'audit/A1', 'progress', 'a build started', 'testing'), null);
-  assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'testing']);
-  assert.equal(await moveCard(dir, 'audit/A1', 'progress', 'a build started', 'testing'), null);
+  assert.equal(await moveCard(dir, 'audit/A1', 'progress', 'a build started', 'building'), null);
+  assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'building']);
+  assert.equal(await moveCard(dir, 'audit/A1', 'progress', 'a build started', 'building'), null);
+  await assert.rejects(moveCard(dir, 'audit/A1', 'progress', 'x', 'testing'), /no In Progress phase "testing"/);
   assert.equal(await moveCard(dir, 'audit/A1', 'review', 'PR #5 opened', 'draft'), 'Moved to In Review: PR #5 opened');
   assert.equal(await moveCard(dir, 'audit/A1', 'review', 'x', 'reviewers'), null);
   assert.equal(auditItem().phase, 'reviewers');
@@ -57,13 +60,13 @@ test('moveCard writes the lane and its phase together; a phase change inside a l
 });
 
 test("the store's own moves write the phase: a build's start reads reading, a block that leaves it in place, a close merged or closed", async () => {
-  write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'A1', title: 'feat: one', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'feat: two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'feat: four', lane: 'progress', phase: 'testing' }] });
+  write(site('audit', 'data', 'items.json'), { ...wave(), items: [{ id: 'A1', title: 'feat: one', lane: 'todo', phase: 'ready' }, { id: 'A2', title: 'feat: two', lane: 'todo', phase: 'ready' }, { id: 'A4', title: 'feat: four', lane: 'progress', phase: 'checking' }] });
   assert.equal((await board('builder', 'start', 'audit/A1', '--site', 'audit', '--kind', 'claude')).code, 0);
   assert.deepEqual([auditItem().lane, auditItem().phase], ['progress', 'reading']);
   write(site('audit', 'data', 'agents', 'A4.json'), { kind: 'claude', started: '2026-11-04T09:00:00Z', done: '2026-11-04T10:00:00Z', handed_back: '2026-11-04T10:00:00Z' });
   const blocked = await board('item', 'set', 'audit/A4', '--site', 'audit', '--blocked-until', 'the API ships');
   assert.equal(blocked.code, 0, blocked.err);
-  assert.deepEqual([auditItem('A4').lane, auditItem('A4').phase], ['progress', 'testing'], 'a handed-back task stays where it is');
+  assert.deepEqual([auditItem('A4').lane, auditItem('A4').phase], ['progress', 'checking'], 'a handed-back task stays where it is');
   assert.equal((await board('item', 'set', 'audit/A2', '--site', 'audit', '--done', '--text', 'Dropped: superseded.')).code, 0);
   assert.deepEqual([auditItem('A2').lane, auditItem('A2').phase], ['done', 'closed']);
 });
@@ -108,7 +111,7 @@ test("the board gives each card its lane's phase: Todo's stored, the build's ste
     { id: 'G1', title: 'Grilling', lane: 'todo', phase: 'grilling' },
     { id: 'S1', title: 'Staging', lane: 'todo', phase: 'staging' },
     { id: 'P1', title: 'Building', lane: 'progress', phase: 'reading' },
-    { id: 'C1', title: 'Checking', lane: 'progress', phase: 'testing' },
+    { id: 'C1', title: 'Checking', lane: 'progress', phase: 'building' },
     { id: 'R1', title: 'Draft', lane: 'review', prs: [{ number: 1 }] },
     { id: 'R2', title: 'Reviewers', lane: 'review', prs: [{ number: 2 }], reviewers: [{ name: 'Quinn', github: 'quinn' }] },
     { id: 'R3', title: 'Merge', lane: 'review', prs: [{ number: 3 }] },
@@ -124,12 +127,26 @@ test("the board gives each card its lane's phase: Todo's stored, the build's ste
 });
 
 test("an In Progress card's phase is its builder's step; a review past seven days is stale; a merged PR not yet closed reads merged", async () => {
-  const thread = [{ ts: '2026-11-04T09:05:00Z', kind: 'status', who: 'claude', text: 'Running the suite', phase: 'testing' }];
+  const thread = [{ ts: '2026-11-04T09:05:00Z', kind: 'status', who: 'claude', text: 'Checking: the diff', phase: 'checking' }];
   const b = built([
-    { id: 'P1', title: 'Testing', lane: 'progress', phase: 'reading' },
+    { id: 'P1', title: 'Checking', lane: 'progress', phase: 'reading' },
     { id: 'M1', title: 'Merged', lane: 'review', prs: [{ number: 4 }] },
   ], { P1: { main: { started: '2026-11-04T09:00:00Z', kind: 'claude' } } }, { 'o/r#4': { state: 'MERGED', mergedAt: '2026-11-04T09:00:00Z' } }, { threads: { 'w/P1': thread } });
-  assert.deepEqual(phases(b), { P1: ['progress', 'testing'], M1: ['done', 'merged'] });
+  assert.deepEqual(phases(b), { P1: ['progress', 'checking'], M1: ['done', 'merged'] });
+});
+
+// docs/adr/2026-11-14-0600-builders-run-only-their-own-tests-and-the-land-runs-affected-once.md
+test("a status line written in the gone testing step reads building, as the card's step and the step it reached", async () => {
+  const thread = [{ ts: '2026-11-04T09:05:00Z', kind: 'status', who: 'claude', text: 'Testing: the suite', phase: 'testing' }];
+  const open = { started: '2026-11-04T09:00:00Z', kind: 'claude' };
+  const done = { ...open, done: '2026-11-04T10:00:00Z' };
+  const b = built([
+    { id: 'P1', title: 'Running', lane: 'progress', phase: 'reading' },
+    { id: 'P2', title: 'Stopped', lane: 'progress', phase: 'reading' },
+  ], { P1: { main: open }, P2: { main: done } }, {}, { threads: { 'w/P1': thread, 'w/P2': thread } });
+  assert.deepEqual(phases(b), { P1: ['progress', 'building'], P2: ['progress', 'building'] });
+  const card = (id) => b.items.find((i) => i.id === id);
+  assert.deepEqual([card('P1').builder.phase, card('P1').reachedPhase, card('P2').builder, card('P2').reachedPhase], ['building', 'building', null, 'building']);
 });
 
 test('the settle pass writes each In Progress and In Review phase change quietly, carries the phase on a lane move, and leaves Todo and Done phases to their writers', async () => {

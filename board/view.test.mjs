@@ -4313,7 +4313,7 @@ test("a mark made on another device reaches the page with the board, taking away
 test("opening a building card takes away its unread count and keeps the phase bars, which then end its time line", async () => {
   const at = (n) => `2020-01-01T10:${String(n).padStart(2, '0')}:00.000Z`;
   const b = boardOnDom({ seen: { 'w/A1': at(2) },
-    board: boardOf([workCard('A1', { lane: 'progress', sortAt: at(6), othersAt: [at(5)], builder: { progress: 'Testing · the limiter', phase: 'testing', at: null } })]) });
+    board: boardOf([workCard('A1', { lane: 'progress', sortAt: at(6), othersAt: [at(5)], builder: { progress: 'Checking · the limiter', phase: 'checking', at: null } })]) });
   await b.settle();
   const card = b.root.querySelector('details.item[data-key="w/A1"]');
   const row = () => card.querySelector('summary .card-time');
@@ -4322,7 +4322,7 @@ test("opening a building card takes away its unread count and keeps the phase ba
   const alert = () => card.querySelector('summary .card-alert');
   assert.equal(row().textContent, `${time} · `);
   assert.equal(alert().textContent, '1 new message');
-  assert.equal(row().querySelector('.phase-bars').getAttribute('aria-label'), 'Testing, step 3 of 5');
+  assert.equal(row().querySelector('.phase-bars').getAttribute('aria-label'), 'Checking, step 3 of 4');
   card.open = true; b.page.fire(b.root, 'toggle', { target: card });
   await b.settle();
   assert.equal(row().textContent, `${time} · `);

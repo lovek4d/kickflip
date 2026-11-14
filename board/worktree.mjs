@@ -179,7 +179,7 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
   const files = chosen ? chosen.map((f) => path.join(dir, f)) : testFiles(dir);
   if (!files.length) return Promise.resolve({ ok: true, pass: 0, fail: 0 });
   const began = Date.now();
-  const said = [report?.start(chosen ? `${files.length} affected test files` : `full suite, ${files.length} test files`)];
+  const said = [report?.start(chosen ? `${files.length} test files` : `full suite, ${files.length} test files`)];
   // The runner's TAP lists every test of every file at the top level, each with its own "ok" or "not ok" line, and
   // names no total before the run ends, so progress counts the tests that have run.
   const testsDone = (tap) => [...tap.matchAll(/^(not )?ok \d+ /gm)].map((m) => Boolean(m[1]));
@@ -521,7 +521,6 @@ export const affectedRun = (base, say = console.log) => (dir, { report } = {}) =
   say(full ? `testing every test file, as ${full}` : `testing the ${files.length} test files the change affects`);
   return nodeTests(dir, { files, report }).then((tests) => ({ ...tests, touched }));
 };
-
 // docs/adr/2026-11-14-1530-a-land-reruns-an-untouched-failing-test-on-main.md
 // Runs test files on base's commit in a worktree of its own beside the repo, removed after. → the files among them that
 // fail there too.
