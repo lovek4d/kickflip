@@ -172,7 +172,7 @@ const lastTopic = new Map();
         ? `<div class="solo">${badge('notice', 'needs you first')}<button class="ghost" id="showAll">All questions</button></div>`
         : `${topicBar()}${topicHead(t)}`;
       el.innerHTML = `${head}<form id="qform">
-        ${done.length ? `<details class="done resolved-group"><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span></summary>${done.map((q) => questionCard(q, { n: numberOf(q), links: links(q) })).join('')}</details>` : ''}
+        ${done.length ? `<details class="done resolved-group"${live.length ? '' : ' open'}><summary><span class="caret" aria-hidden="true">›</span><span>resolved (${done.length})</span></summary>${done.map((q) => questionCard(q, { n: numberOf(q), links: links(q) })).join('')}</details>` : ''}
         ${live.map((q) => questionCard(q, { n: numberOf(q), draft: getDraft(q.id), links: links(q) })).join('')}
         <div class="bar"><span class="muted small${sentLine ? ' sent' : ''}" id="qstatus" role="status">${statusHtml(sentLine)}</span>${BoardUI.sendButton('Send', 0, ' id="send"')}</div>
       </form>`;

@@ -4877,6 +4877,7 @@ test("Waiting on you with no open question shows only the hub's moon, centred, w
   const linked = questionsOnDom({ topics, questions, at: 'r1' });
   await linked.settle();
   assert.deepEqual(linked.root.querySelectorAll('details.resolved-group section.q').map((s) => s.dataset.q), ['r1'], "a link to a resolved question, as a work item's Questions button sends, still opens its topic");
+  assert.equal(linked.root.querySelector('details.resolved-group').hasAttribute('open'), true, 'a topic with only resolved questions opens its group expanded');
   linked.unmount();
 });
 
@@ -4921,7 +4922,7 @@ test("Waiting on you folds a topic's sent and resolved questions under a collaps
   await v.settle();
   const $ = (sel) => v.root.querySelector(sel);
   const group = $('details.done.resolved-group');
-  assert.equal(group.hasAttribute('open'), false);
+  assert.equal(group.hasAttribute('open'), false, 'a topic with a live question keeps it closed');
   assert.deepEqual(group.querySelector('summary').querySelectorAll('span').map((s) => s.textContent), ['›', 'resolved (3)']);
   assert.deepEqual(group.querySelectorAll('section.q').map((s) => s.dataset.q), ['r1', 's1', 'r2']);
   assert.equal(group.querySelectorAll('textarea').length, 0);
