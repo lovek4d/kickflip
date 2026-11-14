@@ -1693,6 +1693,13 @@ test('a work card reads its title, then its next step or builder, its chips, and
   assert.deepEqual(lines(ui.workLines(fromAsk)), ['Task Fix it', 'thinking…']);
   assert.deepEqual(lines(ui.workLines(fromAsk, { unread: 2 })), ['Task Fix it', 'thinking…', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...internal, waitsOn: 'checking', working: true, next: 'Verify it' })), ['INT-3 Five', 'Orchestrator review']);
+  // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md: a verified card reads its land step, over
+  // the orchestrator's wait: a hold in grey, a fault in red.
+  const landing = (step, words) => ui.workLines({ ...internal, lane: 'progress', waitsOn: 'checking', land: { step, words }, orchestrator: { kind: 'checking', since: ago(5), picked: ago(4), next: 'x' } });
+  assert.deepEqual(lines(landing('held', 'Landing held: host busy')).slice(0, 2), ['INT-3 Five', 'Landing held: host busy']);
+  assert.match(landing('held', 'Landing held: host busy'), /class="line3 sub agent waiting-gray">Landing held/);
+  assert.match(landing('fault', 'Lander exited twice without landing'), /class="line3 sub refused">Lander exited twice/);
+  assert.match(landing('running', 'Lander running'), /class="line3 sub agent in-progress"><span class="working-dot"[^>]*><\/span>Lander running/);
   const followup = { ...workCard, key: 'w/ENG-7', id: 'ENG-7', ref: 'ENG-7', linear: [{ id: 'ENG-7', url: 'u' }], pr: null, prs: [], reviewers: [], next: null, lane: 'todo', deps: [], blockedBy: [] };
   assert.deepEqual(lines(ui.workLines(followup)), ['ENG-7 Five']);
   assert.doesNotMatch(ui.workLines(followup), /follow-up/);

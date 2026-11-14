@@ -868,6 +868,25 @@ test("a builder start over a finished record keeps that run as a past record wit
   assert.equal(pasts().length, 1);
 });
 
+// docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
+test("a lander's start over a verified record keeps the verification it lands; another start over it doesn't", async () => {
+  write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });
+  const main = at('waves', 'w', 'agents', 'A1.json');
+  assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Builder', '--kind', 'claude')).code, 0);
+  assert.equal((await board('builder', 'call', 'w/A1', 'Kept the name')).code, 0);
+  assert.equal((await board('builder', 'done', 'w/A1', '--site', 'orch')).code, 0);
+  const verified = await board('builder', 'verified', 'w/A1', '--site', 'orch');
+  assert.equal(verified.code, 0, verified.err);
+  const { verified: was } = read(main);
+  assert.ok(was?.at);
+  assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Lander', '--kind', 'claude')).code, 0);
+  assert.deepEqual(read(main).verified, was, 'the lander keeps it, so a lander that stops partway hands the card back still verified');
+  assert.equal(read(main).done, undefined);
+  write(main, { ...read(main), done: '2026-11-14T04:31:08.304Z', handed_back: '2026-11-14T04:31:08.304Z' });
+  assert.equal((await board('builder', 'start', 'w/A1', '--label', 'Builder', '--kind', 'claude')).code, 0);
+  assert.equal(read(main).verified, undefined, 'a new build is checked again');
+});
+
 // docs/adr/2026-11-07-2100-a-cards-past-runs-keep-their-records-so-they-fold.md
 test("a past run's record is no agent of the card: builder list and a later done see only the live record", async () => {
   write(at('waves', 'w', 'wave.json'), { ...wave(), items: [{ id: 'A1', title: 'One', lane: 'progress' }] });

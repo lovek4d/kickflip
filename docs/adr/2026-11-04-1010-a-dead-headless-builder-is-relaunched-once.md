@@ -6,4 +6,4 @@ The pause check at the pull and the one in `builder start` are already the same 
 
 - A launch that finds usage paused is held (pid null) and goes out once the pause lifts.
 - Once a minute, while not paused, a tracked build whose process has exited with its record still open launches again once. If that one dies too, the card gets a thread line and a `card-build` event, so the orchestrator launches it.
-- A lander's launch drops the card's entry, since the lander now owns the open record.
+- A lander's launch drops the card's entry, since the lander now owns the open record. A lander, and a rebase run, keep their own relaunch-once count in data/landers.json and data/rebases.json ([one land step decides a verified card's land](2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md)).

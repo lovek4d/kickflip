@@ -97,7 +97,8 @@ export const HUB_LINES = {
   'planner-unasked': { mark: FAULT, fault: true, detail: ({ kind }) => kind, text: ({ kind }) => `Its ${kind} planner ended without posting a question, so it waits on the orchestrator.`, longest: { kind: 'prototype' } },
   'planner-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ kind, error }) => fit(`Couldn't start the ${kind}: `, error), longest: { kind: 'visual agent' } },
   'helper-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ name, error }) => fit(`Couldn't start helper ${name}: `, error), longest: { name: 'a-helper-name-of-24-char' } },
-  'exited-twice': { mark: FAULT, fault: true, text: () => 'Its builder exited twice unfinished; it reads stopped until the orchestrator takes it up.' },
+  // run names what exited: the builder, the lander or the rebase run (server.mjs reviveHeadless, launchLanders, launchRebases).
+  'exited-twice': { mark: FAULT, fault: true, text: ({ run = 'builder' }) => `Its ${run} exited twice unfinished; it waits on the orchestrator.`, longest: { run: 'rebase run' } },
   'resume-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't resume the builder headless: ", error) },
   'relaunch-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't relaunch the builder headless: ", error) },
   'lander-failed': { mark: FAULT, fault: true, detail: ({ error }) => error, text: ({ error }) => fit("Couldn't launch the lander; land it by hand: ", error) },

@@ -327,7 +327,7 @@ import vm from 'node:vm';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import { BUILD_REFUSED, PAUSE_CLEARS, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
+import { BUILD_REFUSED, LANDER, PAUSE_CLEARS, landStep, pauseWork, confirmedDrops, plans, providerOf, archivedOf, buildBoard, movesOf, briefsDue, withHub, DONE_KEPT, ORCHESTRATOR_PUSH_AFTER, orchestratorWaits, triageWaitOf, waitsStep, PROTOTYPE_WAIT, prototypeWaits, idleStep, idleSummary, ITEM_EVENTS, QUESTION_REOPEN, slimDone, needsAnswer, ownerActions, picksNoTake, pullOf, arrivalsOf, rebasesDue, refOf, strictlyIdle, threadOf, triageOf } from './domain.mjs';
 import { localDay, quietAt, quietMiddleOf, quietOf } from '../hub/schedule.mjs';
 import { startTitleBrief, startTitleFault } from './commit-message.mjs';
 import { hubText } from './hub-lines.mjs';
@@ -337,7 +337,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSy
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
 import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
-import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
+import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, REBASE_LABEL, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readActedOn, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
 import { limitedUntil } from '../shared/gh.mjs';
@@ -348,7 +348,7 @@ import { CHOICES, FOREVER, durationEnd } from '../hub/duration.mjs';
 import { VIEW_PAGES, shellHtml } from '../hub/shell.mjs';
 import { crossSite, isJSON } from '../starter/cross-site.mjs';
 import { shareEntries } from '../hub/share.mjs';
-import { readUsageGate, launchHeld, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
+import { readUsageGate, launchHeld, launchHeldWords, pauseReasonFor, pausedWords, pausesRunning, boardPausedUntil } from '../shared/usage-gate.mjs';
 import { runLimit } from '../hub/usage.mjs';
 import { audit, boardAudit } from '../shared/audit.mjs';
 import { reviewWaits } from '../shared/skills.mjs';
@@ -600,9 +600,22 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   async function outsideData() {
     const self = boardAt(here);
     // hostBusy: whether the host holds new work (docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md), which a bumped
-    // ready card reads (domain.mjs hostHeld).
+    // ready card reads (domain.mjs hostHeld). landHeld {<kind>: words or null}: what holds the server's launches of each
+    // kind, which a verified card's land step reads (domain.mjs landStep).
+    const gate = readUsageGate({ dir: here });
     return { cfg: await config(), github: self?.github, local: self?.local, hub: self?.hub, remote: self?.remote, branch: self?.branch, topicItems: topicItems(),
-      hostBusy: readUsageGate({ dir: here }).machine.state === 'busy' };
+      hostBusy: gate.machine.state === 'busy', landHeld: { claude: launchHeldWords(gate, 'claude'), codex: launchHeldWords(gate, 'codex') } };
+  }
+
+  // data/landers.json {<key>: {verified, pid, log, relaunched, handedBack?}}, each entry read with whether its process
+  // lives (alive) and, once gone, whether its run ended on the usage limit (limited), as landStep reads them. An entry
+  // from before landers kept their pid is a verification alone.
+  async function readLanders() {
+    return Object.fromEntries(Object.entries(await readJSON(path.join(data, 'landers.json'), {})).map(([key, v]) => {
+      const entry = typeof v === 'string' ? { verified: v, pid: null } : v;
+      const alive = Number.isInteger(entry.pid) && pidAlive(entry.pid);
+      return [key, { ...entry, alive, limited: !alive && (Boolean(entry.limited) || (Boolean(entry.log) && Boolean(runLimit(entry.log)))) }];
+    }));
   }
 
   // The item files the board reads, each with its builder records.
@@ -679,11 +692,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     // alive {<key>: whether its headless process lives}: a card's tracked builder, else its lander (domain.mjs builderOf).
     // A gone process reads false only once the board has stopped relaunching it (handedBack, reviveHeadless); before that
     // the next minute's pass relaunches it, as launchLanders does a lander, so it reads as untracked. A builder whose launch
-    // a usage pause holds (pid null, handOff) reads 'held' until reviveHeadless launches it.
+    // a usage pause holds (pid null, handOff) reads 'held' until reviveHeadless launches it. A rebase run reads the same
+    // way from data/rebases.json (launchRebases).
     const alive = Object.create(null);
     const headless = await readJSON(path.join(data, 'headless-builders.json'), {});
-    const landers = await readJSON(path.join(data, 'landers.json'), {});
-    for (const [key, entry] of [...Object.entries(landers), ...Object.entries(headless)]) {
+    const landers = await readLanders();
+    const rebases = await readJSON(path.join(data, 'rebases.json'), {});
+    for (const [key, entry] of [...Object.entries(landers), ...Object.entries(rebases), ...Object.entries(headless)]) {
       if (entry?.pid === null && routeRecord(headless, key) === entry) alive[key] = 'held';
       if (!Number.isInteger(entry?.pid)) continue;
       if (pidAlive(entry.pid)) alive[key] = true;
@@ -696,7 +711,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       checked: await readJSON(path.join(data, 'checked.json'), null), watcher: await readJSON(path.join(data, 'watcher.json'), null), replyAt: await latestReply(),
       owner: ((owner) => ({ ...owner, items: [...(owner.items || []), ...archived.flatMap((a) => a.questions || [])] }))(await readJSON(path.join(data, 'owner.json'), { items: [] })),
       topicItems: outside.topicItems, prSlack: await readJSON(path.join(data, 'pr-slack.json'), {}), hostBusy: outside.hostBusy,
-      screening: await readScreening(here),
+      screening: await readScreening(here), landers, landHeld: outside.landHeld,
     };
   }
 
@@ -1478,7 +1493,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     if (!heldByPause) await launchQueuedPlanners();
     if (!heldByPause) await launchBriefs(items);
     if (!heldByPause) await launchLanders(items, stoppedKeys(items));
-    if (!heldByPause) await launchRebases(items);
+    if (!heldByPause) await launchRebases(items, stoppedKeys(items));
     const resumes = await checkPauses(items, gate);
     if (!heldByPause) for (const key of resumes) await resumeBuild(key);
     const { idle, pullable, retitle, waiting, pulls, helpers } = pullOf(items, { cap, pulled, hold });
@@ -1838,59 +1853,65 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     child.unref();
   }
 
-  // data/landers.json {<key>: {verified, pid}}: the verification each launched lander was for, so each gets one lander,
-  // and its process. A card whose verified build waits to land (store.mjs landable) gets a headless lander. A lander whose
-  // process has gone while its card still has a builder open stopped partway (the usage pause ends a headless run): its
-  // card is handed back again (store.mjs relaunchLander) and gets a fresh lander in this pass. A lander is only ever due
-  // on a handed-back card, so with none handed back (anyChecking false) and none sent back, landable's read of the wave
-  // files is skipped. A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor
-  // relaunched. A dead lander whose card is neither building nor handed back (landed, or archived) has its entry dropped;
-  // relaunchLander would restore an archived card from the archive. Bumped cards' landers go first; each runs on its
-  // card's own slot (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
+  // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
+  // data/landers.json (readLanders): the lander launched for each card's verification, its process and log, and how many
+  // times it was relaunched for that verification. Each card whose verified build waits to land (store.mjs landable)
+  // takes the one step domain.mjs landStep gives it: running leaves it, held waits for the hold to clear (the minute check
+  // brings in the next pass), launch lands it through its builder (headless.mjs landByBuilder: the first launch resumes
+  // the builder, a relaunch is a fresh lander), and fault, the first time, puts the exited-twice line on the card and marks
+  // the entry handedBack, so the orchestrator's wait on it is a stale one. A lander whose process has gone while its own
+  // record is still open stopped partway: its card is handed back again (store.mjs relaunchLander) and takes its step in
+  // this pass. A lander the orchestrator stopped (stopped, the keys whose card reads it) is neither sent back nor
+  // relaunched. A dead lander whose card has no lander open and isn't handed back (landed, archived, or built again) has
+  // its entry dropped; relaunchLander would restore an archived card from the archive. A lander is only ever due on a
+  // handed-back card, so with none handed back (anyChecking false) and none sent back, landable's read of the wave files
+  // is skipped. Bumped cards' landers go first; each runs on its card's own slot
+  // (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
   async function launchLanders(items, stopped) {
     const anyChecking = items.some((i) => i.waitsOn === 'checking');
     const status = Object.fromEntries(items.map((i) => [i.key, i.waitsOn === 'checking' ? 'checking'
-      : i.lane !== 'done' && i.agents?.some((a) => a.started && !a.done) ? 'building' : null]));
+      : i.lane !== 'done' && i.agents?.some((a) => a.started && !a.done && a.label === LANDER) ? 'landing' : null]));
     const file = path.join(data, 'landers.json');
-    const sent = Object.fromEntries(Object.entries(await readJSON(file, {})).map(([k, v]) => [k, typeof v === 'string' ? { verified: v, pid: null } : v]));
-    const pidGone = new Set();
-    const dropped = new Set();
-    const retry = {};
-    for (const [key, entry] of Object.entries(sent)) {
-      if (!entry.pid || pidAlive(entry.pid) || stopped.has(key)) continue;
-      if (status[key] === 'checking') {
-        // A resumed builder that exited without taking the land up goes fresh on the next pass, not resumed again.
-        if (entry.resumed) {
-          retry[key] = { verified: null, pid: null, fresh: true };
-          logCall({ call: 'lander', key, result: 'fresh next', reason: 'Its resumed builder exited without taking the land up.', inputs: entry });
-        }
-        continue;
-      }
-      if (status[key] !== 'building') { dropped.add(key); continue; }
-      await relaunchLander(here, key);
-      pidGone.add(key);
-      logCall({ call: 'lander', key, result: 'handed back again', reason: 'Its lander exited with its builder still open.', inputs: entry });
-    }
-    const kept = { ...Object.fromEntries(Object.entries(sent).filter(([k]) => !pidGone.has(k) && !dropped.has(k))), ...retry };
+    const sent = await readLanders();
+    // A run seen ending on the usage limit keeps that mark, since the limit's reset clears what runLimit reads.
+    const kept = Object.fromEntries(Object.entries(sent).map(([key, { alive: _, limited, ...entry }]) => [key, { ...entry, ...(limited ? { limited } : {}) }]));
+    const was = JSON.stringify(await readJSON(file, {}));
     const save = async () => {
+      if (JSON.stringify(kept) === was) return;
       await fs.writeFile(file + '.tmp', JSON.stringify(kept) + '\n');
       await fs.rename(file + '.tmp', file);
+      // The cards' land steps read it.
+      dataVersion++;
     };
-    if (dropped.size) await save();
-    if (!anyChecking && !pidGone.size) return;
-    const due = byBump(items, (await landable(here)).filter((c) => kept[c.key]?.verified !== c.verified));
-    if (!due.length) return;
-    for (const c of due) {
-      if (launchHeldNow(c.kind ?? 'claude')) break;
-      const entry = { call: 'lander', key: c.key, reason: 'Its build was verified and waits to land.', inputs: { verified: c.verified, before: kept[c.key] ?? null } };
+    let sentBack = false;
+    for (const [key, entry] of Object.entries(sent)) {
+      if (!entry.pid || entry.alive || stopped.has(key) || status[key] === 'checking') continue;
+      if (status[key] !== 'landing') { delete kept[key]; continue; }
+      await relaunchLander(here, key);
+      sentBack = true;
+      logCall({ call: 'lander', key, result: 'handed back again', reason: 'Its lander exited with its record still open.', inputs: kept[key] });
+    }
+    if (!anyChecking && !sentBack) return save();
+    const gate = readUsageGate({ dir: here });
+    for (const c of byBump(items, await landable(here))) {
+      const step = landStep({ verified: c.verified, entry: sent[c.key], alive: sent[c.key]?.alive, limited: sent[c.key]?.limited, held: launchHeldWords(gate, c.kind ?? 'claude') });
+      const inputs = { verified: c.verified, before: kept[c.key] ?? null };
+      if (step.step === 'held') heldByPause = true;
+      if (step.step === 'fault' && !kept[c.key].handedBack) {
+        logCall({ call: 'lander', key: c.key, result: 'handed back', reason: 'Its lander was relaunched and exited again without landing.', inputs });
+        await appendStatus(here, c.key, 'exited-twice', { run: 'lander' });
+        kept[c.key] = { ...kept[c.key], handedBack: true };
+      }
+      if (step.step !== 'launch') continue;
+      const entry = { call: 'lander', key: c.key, reason: step.relaunched ? 'Its lander exited without landing, the first time.' : 'Its build was verified and waits to land.', inputs };
       try {
-        const { pid, resumed } = await landByBuilder(here, c, { fresh: kept[c.key]?.fresh, launch });
-        kept[c.key] = { verified: c.verified, pid, ...(resumed ? { resumed } : {}) };
+        const { pid, log, resumed } = await landByBuilder(here, c, { fresh: step.fresh, launch });
+        kept[c.key] = { verified: c.verified, pid, log, relaunched: step.relaunched };
         logCall({ ...entry, result: resumed ? 'resumed its builder' : 'launched' });
         await trackLaunch(c.key, null);
       } catch (e) {
         logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });
-        kept[c.key] = { verified: c.verified, pid: null };
+        kept[c.key] = { verified: c.verified, pid: null, relaunched: step.relaunched };
         await appendStatus(here, c.key, 'lander-failed', { error: e.message });
       }
     }
@@ -1908,12 +1929,52 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // rebase run in its worktree, or one made from the PR's branch (store.mjs startRebase). A start or launch that fails
   // leaves a thread line and keeps its conflict, so it isn't retried until the PR's head or base moves. A run takes no
   // implementer slot (docs/adr/2026-11-13-1126-the-implementer-limit-counts-cards-in-progress.md).
-  async function launchRebases(items) {
+  // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md: a run whose process has gone with its
+  // record still open takes landStep's step for its conflict, as a lander does for its verification: relaunched once as
+  // a fresh run when no hold stands, then, exiting again, the exited-twice line and handedBack, so its card reads stopped
+  // (snapshot alive). A run the orchestrator stopped (stopped) is neither.
+  async function launchRebases(items, stopped) {
     const file = path.join(data, 'rebases.json');
     const sent = await readJSON(file, {});
+    const was = JSON.stringify(sent);
     const { base } = builderRepo(here);
+    const gate = readUsageGate({ dir: here });
+    for (const [key, run] of Object.entries(sent)) {
+      if (!Number.isInteger(run.pid) || run.handedBack || stopped.has(key) || pidAlive(run.pid)) continue;
+      const open = items.find((i) => i.key === key)?.agents?.find((a) => a.started && !a.done && a.label === REBASE_LABEL);
+      if (!open) continue;
+      const limited = Boolean(run.limited) || (Boolean(run.log) && Boolean(runLimit(run.log)));
+      // landStep reads a run's conflict where it reads a lander's verification.
+      const step = landStep({ verified: run.conflict, entry: { ...run, verified: run.conflict }, limited, held: launchHeldWords(gate, open.kind ?? 'claude') });
+      const inputs = { conflict: run.conflict, before: run };
+      if (step.step === 'fault') {
+        logCall({ call: 'rebase-run', key, result: 'handed back', reason: 'Its rebase run was relaunched and exited again with its record open.', inputs });
+        await appendStatus(here, key, 'exited-twice', { run: 'rebase run' });
+        sent[key] = { ...run, handedBack: true };
+      } else if (step.step === 'held') {
+        heldByPause = true;
+        if (limited) sent[key] = { ...run, limited };
+      } else {
+        try {
+          const { pid, log } = await landByBuilder(here, { key, kind: open.kind ?? 'claude', model: open.model }, { fresh: step.fresh, launch });
+          sent[key] = { conflict: run.conflict, pid, log, relaunched: step.relaunched };
+          logCall({ call: 'rebase-run', key, result: 'relaunched', reason: 'Its rebase run exited with its record open, the first time.', inputs });
+        } catch (e) {
+          logCall({ call: 'rebase-run', key, result: 'failed', reason: `Its rebase run exited with its record open. The launch failed: ${e.message}`, inputs });
+          await appendStatus(here, key, 'rebase-launch-failed', { error: e.message });
+          sent[key] = { conflict: run.conflict, pid: null, relaunched: step.relaunched };
+        }
+      }
+    }
     const due = byBump(items, rebasesDue(items, Object.fromEntries(Object.entries(sent).map(([k, v]) => [k, v.conflict])), base));
-    if (!due.length) return;
+    if (!due.length) {
+      if (JSON.stringify(sent) === was) return;
+      await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
+      await fs.rename(file + '.tmp', file);
+      // A card's alive reads it (snapshot).
+      dataVersion++;
+      return;
+    }
     try {
       for (const d of due) {
         if (launchHeldNow()) break;
@@ -1930,7 +1991,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           continue;
         } finally { dataVersion++; }
         try {
-          sent[d.key].pid = (await landByBuilder(here, started, { launch })).pid;
+          const { pid, log } = await landByBuilder(here, started, { launch });
+          sent[d.key] = { ...sent[d.key], pid, log };
           logCall({ ...entry, result: 'launched' });
         } catch (e) {
           logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });

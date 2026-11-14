@@ -400,7 +400,7 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
     'owner/project#6': view(6, { mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }),
     'owner/project#7': view(7, { headRefOid: 'c'.repeat(40) }),
   } }));
-  const { runs, launch } = launcher(t);
+  const { runs, launch, gone } = launcher(t);
   const read = (file) => JSON.parse(fs.readFileSync(path.join(data, file), 'utf8'));
   const board = await startBoard(t, { site, launch });
   await board.settled();
@@ -422,6 +422,23 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
   boardJSON({ title: 'Shop again' });
   await wrote(board, path.join(site, 'board.json'));
   assert.equal(runs.length, 2, 'each conflict gets one run');
+
+  // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md: a run that exits with its record open is
+  // relaunched once, then is a fault.
+  await gone(byCard.R1.pid);
+  await wrote(board);
+  assert.equal(runs.length, 3, 'the dead run is relaunched');
+  assert.ok(runs[2].prompt.includes('builder start t/R1 --kind build --label Rebase'), 'as the rebase run');
+  assert.equal(read('rebases.json')['t/R1'].relaunched, 1);
+  await gone(runs[2].pid);
+  await wrote(board);
+  await wrote(board);
+  assert.equal(runs.length, 3, 'not relaunched twice');
+  assert.equal(read('rebases.json')['t/R1'].handedBack, true);
+  const lines = fs.readFileSync(threadFile(site, 't/R1'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((m) => m.line === 'exited-twice');
+  assert.deepEqual(lines.map((m) => m.text), ['Its rebase run exited twice unfinished; it waits on the orchestrator.'], 'one fault line');
+  const { items: after } = await fetch(`${board.base}/api/board`).then((r) => r.json());
+  assert.equal(after.find((c) => c.key === 't/R1').orchestrator?.kind, 'stale', 'its card waits on the orchestrator');
 });
 
 // docs/adr/2026-11-04-2230-a-lander-the-pause-stopped-starts-again.md
@@ -458,7 +475,7 @@ test('a lander whose process is gone while its builder record is open (the usage
   await gone(runs[0].pid);
   const building = () => {
     const { done: _, handed_back: __, ...open } = handedBack;
-    fs.writeFileSync(recordFile, JSON.stringify({ ...open, started: new Date().toISOString() }));
+    fs.writeFileSync(recordFile, JSON.stringify({ ...open, label: 'Lander', started: new Date().toISOString() }));
     const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].next = 'Landing'; fs.writeFileSync(waveFile, JSON.stringify(w));
   };
   building();
@@ -478,6 +495,54 @@ test('a lander whose process is gone while its builder record is open (the usage
   board = await startBoard(t, { site, launch });
   await board.settled();
   assert.equal(runs.length, 3, 'the restarted server launches the lander again');
+});
+
+// docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
+test('a lander that exited without landing on a checked card is relaunched once the host eases, and exiting again is a fault', async (t) => {
+  const home = emptyHome();
+  const site = path.join(home, 'site');
+  const data = path.join(site, 'data');
+  fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
+  const clone = path.join(home, 'clone');
+  fs.mkdirSync(clone);
+  execFileSync('git', ['-C', clone, 'init', '--quiet', '-b', 'main']);
+  const kickflip = path.join(home, '.claude', 'kickflip');
+  fs.mkdirSync(kickflip, { recursive: true });
+  fs.writeFileSync(path.join(kickflip, 'manifest.json'), JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], github: 'owner/project', branch: 'main', owner: { repo: clone } } } }));
+  fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  const worktree = path.join(home, 'wt');
+  fs.mkdirSync(worktree);
+  const verified = '2026-11-14T03:54:50.052Z';
+  // Verified and handed back; its lander was launched and has gone (builder start refused it on a busy host).
+  fs.writeFileSync(path.join(data, 'agents', 'H4.json'), JSON.stringify({ started: '2026-11-13T20:00:00.000Z', done: '2026-11-13T21:00:00.000Z', kind: 'claude', model: 'opus', calls: [{ at: '2026-11-13T20:30:00.000Z', text: 'Kept it small' }], handed_back: '2026-11-13T21:00:00.000Z', verified: { at: verified }, worktree: { path: worktree, branch: 'H4', repo: clone } }));
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'H4', title: 'fix: verified', lane: 'progress' }] }));
+  const landersFile = path.join(data, 'landers.json');
+  fs.writeFileSync(landersFile, JSON.stringify({ 't/H4': { verified, pid: 2 ** 22 + 12345 } }));
+  const busy = path.join(kickflip, 'machine-state.json');
+  fs.writeFileSync(busy, JSON.stringify({ state: 'busy', reason: 'load high' }));
+  const landers = () => JSON.parse(fs.readFileSync(landersFile, 'utf8'));
+  const card = async () => (await fetch(`${board.base}/api/board`).then((r) => r.json())).items.find((c) => c.key === 't/H4');
+  const { runs, launch, gone } = launcher(t);
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 0, 'none launches while the host is busy');
+  assert.deepEqual(landers()['t/H4'], { verified, pid: 2 ** 22 + 12345 }, 'and the card stays due');
+  assert.equal((await card()).land.words, 'Landing held: host busy');
+  fs.writeFileSync(busy, JSON.stringify({ state: 'normal', reason: null }));
+  await wrote(board);
+  assert.equal(runs.length, 1, 'the host eased: a lander launches');
+  assert.match(runs[0].prompt, /You are the headless lander/, 'a fresh lander, not the builder resumed again');
+  assert.deepEqual([landers()['t/H4'].pid, landers()['t/H4'].relaunched], [runs[0].pid, 1]);
+  assert.equal((await card()).land.step, 'running');
+  await gone(runs[0].pid);
+  await wrote(board);
+  await wrote(board);
+  assert.equal(runs.length, 1, 'the relaunched lander exited too: no third launch');
+  assert.equal(landers()['t/H4'].handedBack, true);
+  const faults = fs.readFileSync(threadFile(site, 't/H4'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((m) => m.line === 'exited-twice');
+  assert.deepEqual(faults.map((m) => m.text), ['Its lander exited twice unfinished; it waits on the orchestrator.']);
+  const faulted = await card();
+  assert.deepEqual([faulted.land.step, faulted.orchestrator.kind], ['fault', 'stale']);
 });
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md

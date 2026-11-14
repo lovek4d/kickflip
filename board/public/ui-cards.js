@@ -242,6 +242,15 @@
     const words = isPaused() ? `${PAUSED} · ${esc(lasted(picked || since))}` : picked ? `${DOT}orchestrator review · ${esc(lasted(picked))}` : `waiting for orchestrator · ${esc(lasted(since))}`;
     return `<div class="line3 sub agent${tone(it)}${picked && !isPaused() ? '' : ' waiting-gray'}">${words}</div>`;
   }
+  // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
+  // A verified card's land step (domain.mjs landStep) in its words: a fault in red, a hold in grey, a lander starting or
+  // running in its lane's colour with the dot.
+  function landStatus(it) {
+    const { step, words } = it.land;
+    if (step === 'fault') return `<div class="line3 sub refused">${escText(words)}</div>`;
+    if (step === 'held') return `<div class="line3 sub agent waiting-gray">${escText(words)}</div>`;
+    return `<div class="line3 sub agent${tone(it)}">${DOT}${escText(words)}</div>`;
+  }
   // docs/adr/2026-11-06-1252-stale-is-automatic-stalled-is-the-orchestrators-flag.md
   // A stale build's status line and bars keep their lane colour: stale shows only as the footer word. One the
   // orchestrator stopped has no dot.
@@ -413,6 +422,7 @@
     // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md: preheating, planning prototype
     // or planning visual while the orchestrator writes the brief, generating visual while a visual agent draws, in blue.
     const status = it.planning && !it.builder ?`<div class="line3 sub agent planner">${DOT}${esc(it.planning)}</div>`
+      : it.land ? landStatus(it)
       : it.orchestrator && !it.builder ? `${it.rebaseFailed ? `<div class="line3 sub">${escText(it.rebaseFailed)}</div>` : ''}${orchestratorStatus(it)}`
       : it.waitsOn === 'checking' ? `<div class="line3 sub agent${tone(it)}">${DOT}Orchestrator review</div>`
       : it.builder ? builderStatus(it)

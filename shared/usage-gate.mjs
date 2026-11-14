@@ -176,6 +176,10 @@ export const heldFor = (gate, kind) => Boolean(gate.manual) || gate.machine.stat
 // Whether the board server holds a launch of kind it makes itself: heldFor's holds, and for any kind but Codex a Claude
 // start near the line still waiting on its first reading. A start the owner or a session makes isn't held by that wait.
 export const launchHeld = (gate, kind) => heldFor(gate, kind) || (kind !== 'codex' && Boolean(gate.near?.waiting));
+// What holds the board server's launch of kind, in a card line's room: its pause, a busy host, the usage line, or a
+// start near the line waiting on its first reading. → the words, or null when launchHeld doesn't hold it.
+export const launchHeldWords = (gate, kind) => (!launchHeld(gate, kind) ? null : gate.manual ? `${gate.manual} paused`
+  : gate.machine.state === 'busy' ? 'host busy' : heldFor(gate, kind) ? 'usage paused' : 'waiting on a usage reading');
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
 // Whether gate pauses a running build of kind at its next stopping point: the pause line on its usage, Pause board or
 // Pause hub. A busy Mac holds only new work, and lets running work finish. pausedWords names it on the card.

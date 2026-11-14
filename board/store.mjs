@@ -4303,6 +4303,9 @@ export async function startBuilder(site, key, { label, phase, progress, dir, age
     label: label === undefined ? 'Builder' : text(label, '--label'), ...(k ? { kind: k } : {}), ...(claude ? { model: claude } : {}), started: now,
     ...(eta === undefined ? {} : { eta: isoTime(eta, '--eta') }), ...(dispatch ? { dispatched: dispatch } : {}),
     ...(resumed ? { calls: resumed.calls, ...(resumed.verified ? { verified: resumed.verified } : {}) } : {}),
+    // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md: a lander's record keeps the verification
+    // it lands, so a lander that stops partway hands the card back still verified (relaunchLander).
+    ...(!resumed && label === LANDER && before?.verified ? { verified: before.verified } : {}),
     ...(launchedSession(before) ? { session: before.session } : {}),
     // A planner's or visual agent's record keeps the brief the board launched it from (startPlanner, startVisual).
     ...((brief ?? takeUp?.brief) && plans({ kind: k }) ? { brief: brief ?? takeUp.brief } : {}),
@@ -4408,7 +4411,8 @@ export async function startRebase(site, key, { pr, conflict, base }, worktree) {
     throw e;
   }
 }
-const REBASE_LABEL = 'Rebase';
+// The label a rebase run's builder record carries.
+export const REBASE_LABEL = 'Rebase';
 async function endRebaseRun(site, key) {
   const { source, itemFile, item } = await loadItem(site, key);
   delete item.rebase_run;
@@ -5080,17 +5084,24 @@ export async function landable(site) {
   return out;
 }
 
-// data/landers.json {<key>: {verified, pid}}: the verification each launched lander was for and its process. A card
-// whose lander stopped partway (the usage pause ends a headless run) keeps its lander's record open with no process;
-// this closes that record as handed back and drops the entry, so landable finds the card and the server launches a
-// fresh lander.
+// A card whose lander stopped partway (its process gone) keeps the lander's record open, the verification on it
+// (startBuilder); this closes that record as handed back, so landable finds the card again and the board server's
+// land step for it (domain.mjs landStep) relaunches or faults it, counting from its data/landers.json entry.
 export async function relaunchLander(site, key) {
+  await setItem(site, key, { handBack: true });
+}
+
+// `board.mjs lander <card>`, the orchestrator's restart of a card's land: hands back a lander's open record as
+// relaunchLander does, and drops the card's data/landers.json entry, so the server's next pass launches the land as a
+// verification's first, with its relaunch to spend again. Refuses a card with neither.
+export async function restartLander(site, key) {
   const { source, item } = await loadItem(site, key);
   const records = await Promise.all((await builderFiles(source.dir, item.id)).map((f) => readJSON(f, null)));
-  if (!records.some((r) => r?.started && !r.done)) fail(`${key} has no open builder; only a card whose lander stopped has one to relaunch`);
-  await setItem(site, key, { handBack: true, next: 'A lander relaunches to land the verified build' });
   const file = path.join(site, 'data', 'landers.json');
   const sent = await readJSON(file, {});
+  const open = records.some((r) => r?.started && !r.done);
+  if (!open && !Object.hasOwn(sent, key)) fail(`${key} has no open builder and no lander; only a card whose lander stopped or exited has a land to restart`);
+  if (open) await relaunchLander(site, key);
   delete sent[key];
   await fs.writeFile(file + '.tmp', JSON.stringify(sent) + '\n');
   await fs.rename(file + '.tmp', file);

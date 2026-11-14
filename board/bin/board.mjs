@@ -635,10 +635,10 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          of every land not bumped since, the latest bump first, without
                                                          stopping the one running; a bump of a queued land says so in
                                                          its thread ("land moved first by orchestrator")
-  lander <file>/<id>                                     relaunch the headless lander of a card it stopped on (a usage
-                                                         pause ends one): its open record closes as handed back and
-                                                         the server launches a fresh lander; refused unless a
-                                                         builder record on the card is open
+  lander <file>/<id>                                     restart a card's land, as after its lander faulted: an open
+                                                         record closes as handed back, the server forgets the card's
+                                                         lander, and its next pass launches one with its relaunch to
+                                                         spend again; refused with no open record and no lander
   builder pick <file>/<id>                               who builds the card, from the hub's Codex share and the pause
                                                          line, and for claude which model, from the hub's Claude model
                                                          and the card's --size and --model: "codex: <reason>" or
@@ -1082,8 +1082,8 @@ const COMMANDS = {
   'item unbump': [['file/id'], [], (site, [key]) => bump(needSite(site, 'item unbump'), key, false)],
   lander: [['file/id'], [], async (site, [key]) => {
     if (!site) throw new UsageError('lander needs --site <route>');
-    await store.relaunchLander(site, key);
-    return { lines: [`${await store.cardName(site, key)} is handed back again; the server launches a lander for it within a minute`] };
+    await store.restartLander(site, key);
+    return { lines: [`${await store.cardName(site, key)} is handed back again; the server launches a lander for it within a minute, unless a hold stands`] };
   }],
   merge: [['file/id'], ['after-approval', 'confirmed'], async (site, [key], f) => (site && await store.heldMerge(site, key) ? landHeld(site, key)
     : store.mergeCard(site, key, { afterApproval: f['after-approval'], confirmed: f.confirmed }))],

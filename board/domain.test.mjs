@@ -1,7 +1,58 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
+
+// docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
+test("landStep gives a verified card's land one step for every way its lander can end", () => {
+  const v = '2026-11-14T03:54:50.052Z';
+  const step = (entry, more = {}) => landStep({ verified: v, entry, ...more });
+  // Never launched for this verification: the first launch resumes the builder.
+  assert.deepEqual(step(undefined), { step: 'launch', fresh: false, relaunched: 0 });
+  assert.deepEqual(step({ verified: 'an older one', pid: 7, relaunched: 1, handedBack: true }), { step: 'launch', fresh: false, relaunched: 0 }, 'a new verification starts afresh');
+  assert.deepEqual(step(undefined, { held: 'host busy' }), { step: 'held', held: 'host busy', relaunched: 0 });
+  // Its lander lives.
+  assert.deepEqual(step({ verified: v, pid: 7 }, { alive: true, held: 'host busy' }), { step: 'running', relaunched: 0 });
+  // Gone without landing, the first time, however it ended: refused by builder start on a busy host, died partway (its
+  // record then handed back again), a resumed builder that never took the land up, or a launch that failed (pid null).
+  for (const entry of [{ verified: v, pid: 7 }, { verified: v, pid: null }, { verified: v, pid: 7, resumed: true }]) {
+    assert.deepEqual(step(entry), { step: 'launch', fresh: true, relaunched: 1 }, JSON.stringify(entry));
+    assert.deepEqual(step(entry, { held: 'host busy' }), { step: 'held', held: 'host busy', relaunched: 0 }, 'held until the host eases, still due');
+  }
+  // Gone again after its relaunch: a fault, whatever holds; once said (handedBack), it stays one.
+  assert.deepEqual(step({ verified: v, pid: 8, relaunched: 1 }), { step: 'fault', relaunched: 1 });
+  assert.deepEqual(step({ verified: v, pid: 8, relaunched: 1 }, { held: 'host busy' }), { step: 'fault', relaunched: 1 });
+  assert.deepEqual(step({ verified: v, pid: 8, relaunched: 1, handedBack: true }), { step: 'fault', relaunched: 1 });
+  // A run that ended on the usage limit spends no relaunch.
+  assert.deepEqual(step({ verified: v, pid: 8, relaunched: 1 }, { limited: true }), { step: 'launch', fresh: true, relaunched: 1 });
+  assert.deepEqual(step({ verified: v, pid: 8, relaunched: 1 }, { limited: true, held: 'usage paused' }), { step: 'held', held: 'usage paused', relaunched: 1 });
+});
+
+test("a verified card's status line and its wait on the orchestrator print its land step", () => {
+  const at = '2026-11-14T03:00:00Z';
+  const v = '2026-11-14T03:54:50Z';
+  const agents = { A1: { main: { kind: 'claude', started: '2026-11-14T02:00:00Z', done: at, handed_back: at, calls: [{ at: '2026-11-14T02:30:00Z', text: 'x' }], verified: { at: v } } } };
+  const built = (more) => buildBoard({ now: Date.parse('2026-11-14T06:00:00Z'), owner: {}, events: [], threads: {}, working: {}, ...more,
+    files: [{ slug: 'w', agents, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress', next: 'A lander relaunches to land the verified build' }] } }] });
+  const read = (more) => {
+    const board = built(more);
+    const card = board.items[0];
+    return { land: card.land?.step, words: card.land?.words, waits: orchestratorWaits(board).map((w) => [w.kind, w.next]) };
+  };
+  assert.deepEqual(read({}), { land: 'launch', words: 'Lander starting', waits: [['checking', 'The board launches a lander within a minute to land the verified build']] });
+  const dead = { 'w/A1': { verified: v, pid: 7, alive: false, limited: false } };
+  assert.deepEqual(read({ landers: dead, landHeld: { claude: 'host busy' } }),
+    { land: 'held', words: 'Landing held: host busy', waits: [['checking', 'Landing held: host busy; the board launches a lander once that clears']] }, 'the stale "relaunches" Next no longer speaks');
+  assert.deepEqual(read({ landers: { 'w/A1': { ...dead['w/A1'], alive: true } } }).land, 'running');
+  const faulted = read({ landers: { 'w/A1': { ...dead['w/A1'], relaunched: 1 } } });
+  assert.equal(faulted.land, 'fault');
+  assert.equal(faulted.waits[0][0], 'stale', 'a faulted land is a stale wait');
+  assert.match(faulted.waits[0][1], /board\.mjs lander w\/A1/);
+  // Calls still to verify: no land step yet.
+  const unverified = buildBoard({ now: Date.parse('2026-11-14T06:00:00Z'), owner: {}, events: [], threads: {}, working: {},
+    files: [{ slug: 'w', agents: { A1: { main: { ...agents.A1.main, verified: null } } }, itemFile: { internal: true, items: [{ id: 'A1', title: 'One', lane: 'progress' }] } }] });
+  assert.equal(unverified.items[0].land, null);
+});
 
 const greenDraft = { state: 'OPEN', isDraft: true, checks: { state: 'pass' }, reviews: {} };
 const runningBuilders = (...ids) => Object.fromEntries(ids.map((id) => [id, { main: { started: '2026-10-23T10:00:00Z' } }]));
