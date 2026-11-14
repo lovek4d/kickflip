@@ -231,6 +231,11 @@ main { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
   html:has(dialog:modal) { overflow: hidden; }
 }
 .sheet::backdrop { background: rgba(0,0,0,calc(.35 * (1 - var(--swipe, 0)))); touch-action: none; }
+/* A phone sheet draws nothing over the page: no dim above it and no shadow off its top edge, so the page shows clean under the status bar. */
+@media (max-width: 899px) {
+  .sheet::backdrop { background: transparent; }
+  .sheet:not(.reader-sheet) { box-shadow: none; }
+}
 /* A phone sheet sits above the bottom bar, which already pads the safe area (--app-bottom). */
 .sheet form { padding: 10px 16px max(12px, calc(env(safe-area-inset-bottom) - var(--app-bottom, 0px))); }
 /* Modals never scroll sideways: content wraps at the modal's width, and overflow-x hidden is only the last guard. */
