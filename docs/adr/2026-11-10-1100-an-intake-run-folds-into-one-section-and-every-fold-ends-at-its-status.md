@@ -10,3 +10,5 @@ Owner, #404: the intake hand-off line should not also pass the reason, and intak
 Superseded in part by [the orchestrator sorts new tasks itself](2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md): the intake run, its lines and its fold are gone; every fold still ends at its status, running or finished.
 
 The link inside the open section reads "View transcript" since [#434](2026-11-07-1224-view-transcript-reads-the-whole-run-as-rows.md).
+
+Every fold's summary also ends with its newest line's time since [2026-11-13-1959](2026-11-13-1959-every-status-line-shows-its-time-from-one-shell.md).

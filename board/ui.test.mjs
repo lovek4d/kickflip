@@ -1981,7 +1981,7 @@ test("a card's open questions asked since it was last seen are one blue line in 
 });
 
 // docs/adr/2026-11-07-0700-one-agents-status-lines-fold-into-one-line.md
-test("one agent run folds into one closed line with a caret holding its started line, status lines and finished line; running shows its newest status, finished says so, neither counts lines; an orchestrator or owner message never folds", () => {
+test("one agent run folds into one closed line with a caret holding its started line, status lines and finished line; running shows its newest status, finished says so, each with its newest line's time, neither counts lines; an orchestrator or owner message never folds", () => {
   const ln = (n, extra = {}) => ({ ts: ago(10 - n), who: 'claude', kind: 'status', text: `Step ${n}`, ...extra });
   const run = (name, running, planner) => ({ agent: `Claude ${name}`, run: name, ...(planner ? { planner: true } : {}), running });
   const agentLine = (n, finished, r) => ({ ts: ago(10 - n), who: 'claude', kind: 'agent', text: `${r.agent} ${finished ? 'finished' : 'started'}`, finished, ...r });
@@ -1989,7 +1989,7 @@ test("one agent run folds into one closed line with a caret holding its started 
   const html = ui.threadMessages([ln(0), agentLine(1, false, live), ln(2, live), { ts: ago(7.5), who: 'claude', text: 'Between' }, ln(3, live), { ts: ago(6), who: 'love', text: 'Owner says' }]);
   assert.equal(html.match(/<details/g).length, 1);
   assert.match(html, /<details class="msg status-line calls status-fold"><summary><span class="mark" aria-hidden="true"><svg/);
-  assert.match(text(html), /^Step 0 · \S.* Claude main · running(?! ·)/);
+  assert.match(text(html), /^Step 0 · \S.* Claude main · running · \S+ \S+ \S+ Claude main started/);
   assert.match(text(html), /Claude main started · \S.* Step 2 · \S.* Step 3 · \S.* Between .*Owner says/);
   assert.doesNotMatch(html, /<details[^>]* open/);
   const p = run('grill', false, true);
@@ -1997,20 +1997,20 @@ test("one agent run folds into one closed line with a caret holding its started 
   assert.match(done, /<details class="msg status-line calls status-fold planner"><summary class="finished">/);
   assert.doesNotMatch(html, /finished/);
   assert.match(html, /<details class="msg status-line calls status-fold"><summary>/);
-  assert.match(text(done), /^Claude grill · finished(?! · \d)/);
-  assert.match(text(ui.threadMessages([agentLine(1, false, live)])), /^Claude main · running(?! · \d)/);
-  assert.match(text(ui.threadMessages([agentLine(1, false, p), agentLine(2, true, p)])), /^Claude grill · finished(?! · \d)/);
+  assert.ok(text(done).startsWith(`Claude grill · finished · ${ui.time(ago(6))} `));
+  assert.ok(text(ui.threadMessages([agentLine(1, false, live)])).startsWith(`Claude main · running · ${ui.time(ago(9))} `));
+  assert.ok(text(ui.threadMessages([agentLine(1, false, p), agentLine(2, true, p)])).startsWith(`Claude grill · finished · ${ui.time(ago(8))} `));
 });
 
-test("a builder's judgment calls show collapsed under its lines, saying whether the session verified them, and count as no message", () => {
+test("a builder's judgment calls show collapsed under its lines, with their posted time, saying whether the session verified them, and count as no message", () => {
   const open = { ts: ago(1), who: 'claude', kind: 'calls', text: 'Claude Opus builder', calls: ['Kept <the> old name', 'Question: every agent?'], verified: null };
   const html = ui.threadMessages([open]);
   assert.match(html, /^<details class="msg status-line calls"><summary><span class="mark" aria-hidden="true">/);
   assert.ok(html.includes(ui.MARK_ICONS['judgment calls']));
   assert.doesNotMatch(html, /<details[^>]* open/);
-  assert.match(text(html), /^Claude Opus builder's judgment calls · 2 · not verified yet Kept <the> old name Question: every agent\?$/);
+  assert.match(text(html), /^Claude Opus builder's judgment calls · 2 · \S+ \S+ \S+ · not verified yet Kept <the> old name Question: every agent\?$/);
   const checked = text(ui.threadMessages([{ ...open, verified: { at: ago(0.5), note: 'Match the notes.' } }]));
-  assert.match(checked, /· 2 · verified .+ Kept <the> old name Question: every agent\? Verified: Match the notes\.$/);
+  assert.match(checked, /· 2 · \S+ \S+ \S+ · verified .+ Kept <the> old name Question: every agent\? Verified: Match the notes\.$/);
   const msgs = [{ ts: ago(3), who: 'claude', text: 'One' }, { ts: ago(2), who: 'claude', text: 'Two' }, { ts: ago(1.5), who: 'claude', text: 'Three' }, open];
   assert.doesNotMatch(ui.threadMessages(msgs, {},{ seenAt: ago(9), more: 0 }), /thread-more/);
 });
@@ -2096,13 +2096,13 @@ test("only Claude's and GitHub's messages are unread: the owner's answers after 
   assert.deepEqual(waits(acted), ['Q10']);
 });
 
-test("a run's fold ends its summary at its status (running or finished); its log is a link inside the open section, and a run with no log has none", () => {
+test("a run's fold ends its summary at its status (running or finished) and its newest line's time; its log is a link inside the open section, and a run with no log has none", () => {
   const started = (extra = {}) => ({ ts: ago(3), who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Opus grill', text: 'Claude Opus grill started', finished: false, planner: true, ...extra });
   const status = { ts: ago(2), who: 'claude', kind: 'status', run: 'r1', agent: 'Claude Opus grill', planner: true, text: 'Reading' };
   const done = { ts: ago(1), who: 'claude', kind: 'agent', run: 'r1', agent: 'Claude Opus grill', text: 'Claude Opus grill finished', finished: true, planner: true };
   const running = ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status]);
-  assert.match(running, /Claude Opus grill · running<\/summary>.*<a href="log\.html\?file=planner-A1-2026\.log">View transcript<\/a><\/div><\/details>$/);
-  assert.match(ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status, done]), /grill · finished<\/summary>/);
+  assert.match(running, /Claude Opus grill · running <span class="muted">· [^<]+<\/span><\/summary>.*<a href="log\.html\?file=planner-A1-2026\.log">View transcript<\/a><\/div><\/details>$/);
+  assert.match(ui.threadMessages([started({ log: 'planner-A1-2026.log' }), status, done]), /grill · finished <span class="muted">· [^<]+<\/span><\/summary>/);
   assert.doesNotMatch(ui.threadMessages([started(), status]), /View transcript/);
 });
 
@@ -2794,6 +2794,30 @@ test('every status line kind takes the shared status-line class', () => {
     { ts: ago(1), who: 'claude', kind: 'calls', text: 'Opus', calls: ['a'] },
   ];
   for (const m of lines) assert.match(ui.threadMessages([m]), /^<(div|details) class="msg status-line /, m.kind);
+});
+
+// docs/adr/2026-11-13-1959-every-status-line-shows-its-time-from-one-shell.md
+test('every status line kind line() draws carries its time, a folded run its newest line\'s and judgment calls their posted one before verified', () => {
+  const at = (h) => ui.time(ago(h));
+  const run = { agent: 'Claude main', run: 'main' };
+  const lines = [
+    { ts: ago(1), who: 'claude', kind: 'ask-link', text: 'Became INT-21', link: '#selectedCard=site%2FS21' },
+    { ts: ago(1), who: 'claude', kind: 'visual', link: 'visuals/A1/x.html', text: 'Page' },
+    { ts: ago(1), who: 'claude', request: true, card: 'A-1', link: '#selectedCard=A-1', mark: 'move', text: 'Made A-1' },
+    { ts: ago(1), who: 'love', request: true, text: 'Grill requested', by: 'Dana Reyes' },
+    { ts: ago(1), who: 'claude', kind: 'hub', line: 'serve-failed', mark: 'Held', text: 'Serve failed', detail: 'boom', fault: true },
+    { ts: ago(1), who: 'claude', kind: 'hub', line: 'pulled', mark: 'Held', text: 'Pulled in' },
+    { ts: ago(1), who: 'claude', kind: 'move', text: 'Moved' },
+    { ts: ago(1), who: 'claude', kind: 'questions', link: 'questions.html', text: '2 new questions' },
+    { ts: ago(1), who: 'claude', kind: 'status', text: 'Reading' },
+    { ts: ago(1), who: 'claude', kind: 'agent', text: 'Opus started' },
+    { ts: ago(1), who: 'claude', kind: 'calls', text: 'Opus', calls: ['a'], verified: null },
+  ];
+  for (const m of lines) assert.ok(text(ui.threadMessages([m])).includes(`· ${at(1)}`), m.kind || m.text);
+  const fold = ui.threadMessages([{ ts: ago(3), who: 'claude', kind: 'agent', text: 'Claude main started', ...run }, { ts: ago(2), who: 'claude', kind: 'status', text: 'Step', ...run }]);
+  assert.ok(fold.split('</summary>')[0].includes(`· ${at(2)}`), 'a folded run shows its newest line\'s time');
+  const verified = text(ui.threadMessages([{ ...lines.at(-1), verified: { at: ago(0.5) } }]));
+  assert.ok(verified.includes(`· ${at(1)} · verified ${at(0.5)}`), verified);
 });
 
 // docs/adr/2026-11-09-1500-a-task-is-a-card-with-no-ticket-keyed-t-n.md: a card with no ticket wears a quiet Task badge

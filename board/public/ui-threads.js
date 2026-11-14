@@ -52,25 +52,39 @@
   // gray); style.css colours its icon, words and link from this class alone.
   const tone = (m) => (m.fault ? ' fault' : m.command === 'staged' ? ' staged' : m.command === 'readied' ? ' readied'
     : ['created', 'created-from'].includes(m.command) || ['ticket-made', 'ask-routed'].includes(m.line) ? ' created' : '');
+  // Every status line's shell: its classes, its mark and words (head), then " · " and its time, with `by` before the time
+  // and `after` behind it, so no kind can leave its time out
+  // (docs/adr/2026-11-13-1959-every-status-line-shows-its-time-from-one-shell.md). A line with `rest` is a closed details
+  // line whose summary is the shell's words and whose body is rest; `summary` is the summary's own attributes.
+  const statusLine = (cls, head, ts, { by, after, rest, summary = '' } = {}) => {
+    const words = `${head} <span class="muted">· ${by ? `${esc(by)} · ` : ''}${esc(time(ts))}${after ? ` · ${after}` : ''}</span>`;
+    return rest === undefined ? `<div class="msg status-line ${cls}">${words}</div>`
+      : `<details class="msg status-line ${cls}"><summary${summary}>${words}</summary>${rest}</details>`;
+  };
+  const linked = (link, text) => `<a href="${esc(link)}">${text}</a>`;
   const line = (m, links) => (m.kind === 'reply'
     ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div></div>`
-    : m.kind === 'ask-link' ? `<div class="msg status-line link">${statusMark('ask-link')}<a href="${esc(m.link)}">${escText(m.text)} →</a></div>`
+    : m.kind === 'ask-link' ? statusLine('link', statusMark('ask-link') + linked(m.link, `${escText(m.text)} →`), m.ts)
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
-    : m.kind === 'visual' ? `<div class="msg status-line link visual">${statusMark('visual')}<a href="${esc(m.link)}">${escText(m.text)} →</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'visual' ? statusLine('link visual', statusMark('visual') + linked(m.link, `${escText(m.text)} →`), m.ts)
     // A request line's mark is its words' icon, or m.mark's for a line whose words vary; a Full person's names them.
-    : m.request && m.card ? `<div class="msg status-line request${tone(m)}">${statusMark(m.mark)}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.request ? `<div class="msg status-line request${tone(m)}">${statusMark(m.mark || m.text)}${escText(m.text)} <span class="muted">· ${m.by ? `${esc(m.by)} · ` : ''}${esc(time(m.ts))}</span></div>`
+    : m.request && m.card ? statusLine(`request${tone(m)}`, statusMark(m.mark) + linked(m.link, escText(m.text)), m.ts)
+    : m.request ? statusLine(`request${tone(m)}`, statusMark(m.mark || m.text) + escText(m.text), m.ts, { by: m.by })
     // docs/adr/2026-11-09-1200-the-board-writes-status-lines-and-only-the-orchestrator-writes-messages.md: the board's
     // own line, its kind's mark and words, red for a fault.
-    : m.kind === 'hub' && m.detail ? `<details class="msg status-line request hub fault-detail${tone(m)}"><summary>${statusMark(m.mark)}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></summary><pre class="fault-error">${esc(m.detail)}</pre></details>`
-    : m.kind === 'hub' ? `<div class="msg status-line request hub${tone(m)}">${statusMark(m.mark)}${m.link ? `<a href="${esc(m.link)}">${escText(m.text)}</a>` : escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'hub' && m.detail ? statusLine(`request hub fault-detail${tone(m)}`, statusMark(m.mark) + escText(m.text), m.ts, { rest: `<pre class="fault-error">${esc(m.detail)}</pre>` })
+    : m.kind === 'hub' ? statusLine(`request hub${tone(m)}`, statusMark(m.mark) + (m.link ? linked(m.link, escText(m.text)) : escText(m.text)), m.ts)
     // docs/adr/2026-11-07-1400-a-card-stores-its-lane-and-facts-replace-statuses.md: a card's move between lanes.
-    : m.kind === 'move' ? `<div class="msg status-line request move">${statusMark('move')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.kind === 'questions' ? `<div class="msg status-line builder-status planner new-questions">${statusMark('questions')}<a href="${esc(m.link)}">${escText(m.text)}</a> <span class="muted">· ${esc(time(m.ts))}</span></div>`
+    : m.kind === 'move' ? statusLine('request move', statusMark('move') + escText(m.text), m.ts)
+    : m.kind === 'questions' ? statusLine('builder-status planner new-questions', statusMark('questions') + linked(m.link, escText(m.text)), m.ts)
     : m.folded ? foldedRun(m, links)
-    : m.kind === 'status' ? `<div class="msg status-line builder-status${m.planner ? ' planner' : ''}">${mark('<span class="working-dot"></span>')}${linkText(m.text, links)} <span class="muted">· ${esc(time(m.ts))}</span></div>`
-    : m.kind === 'calls' ? `<details class="msg status-line calls"><summary>${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length} · ${m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet'}</summary><ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}</details>`
-    : m.kind === 'agent' ? `<div class="msg status-line agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}">${mark('<span class="agent-dot"></span>')}${escText(m.text)} <span class="muted">· ${esc(time(m.ts))}${m.eta ? ` · ${esc(etaLine(m.eta))}` : ''}</span></div>` : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
+    : m.kind === 'status' ? statusLine(`builder-status${m.planner ? ' planner' : ''}`, mark('<span class="working-dot"></span>') + linkText(m.text, links), m.ts)
+    // A builder's judgment calls: their posted time, then whether the session verified them and when.
+    : m.kind === 'calls' ? statusLine('calls', `${statusMark('judgment calls')}${escText(m.text)}'s judgment calls · ${m.calls.length}`, m.ts, {
+      after: m.verified ? `verified ${esc(time(m.verified.at))}` : 'not verified yet',
+      rest: `<ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}`,
+    })
+    : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark('<span class="agent-dot"></span>') + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
         <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''}${footed(m) ? '' : ` · ${esc(time(m.ts))}`}</div>
         <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${attachments(m.files)}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}
@@ -80,13 +94,16 @@
 
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one
   // closed details line at its first line's place: the action, then its status, finished when its newest line is a finished
-  // line and running otherwise, and nothing after;
+  // line and running otherwise, then its newest line's time;
   // expanding it shows the run's lines and, when the run has a log, a View transcript link.
   function foldedRun(m, links) {
-    const tail = m.folded.at(-1).finished ? 'finished' : 'running';
+    const newest = m.folded.at(-1);
+    const tail = newest.finished ? 'finished' : 'running';
     const log = m.folded.find((f) => f.log)?.log;
     const logLine = log ? `<div class="small fold-log"><a href="log.html?file=${encodeURIComponent(log)}">View transcript</a></div>` : '';
-    return `<details class="msg status-line calls status-fold${m.planner ? ' planner' : ''}"><summary${tail === 'finished' ? ' class="finished"' : ''}>${statusMark('status lines')}${escText(m.agent)} · ${tail}</summary>${m.folded.map((f) => line(f, links)).join('')}${logLine}</details>`;
+    return statusLine(`calls status-fold${m.planner ? ' planner' : ''}`, `${statusMark('status lines')}${escText(m.agent)} · ${tail}`, newest.ts, {
+      summary: tail === 'finished' ? ' class="finished"' : '', rest: m.folded.map((f) => line(f, links)).join('') + logLine,
+    });
   }
   function foldStatus(lines) {
     const runs = new Map();
