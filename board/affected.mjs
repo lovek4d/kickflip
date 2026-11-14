@@ -103,21 +103,24 @@ export function affectedTests(dir, base) {
   const map = testMap(dir);
   const deps = testDependencies(dir, files, map);
   const all = [...deps.keys()];
-  const full = (why) => ({ files: all, full: why });
   const changed = [];
+  let broad = null;
   for (const line of git(dir, 'diff', '--name-status', '-M', since)) {
     const [status, file] = line.split('\t');
-    if (status === 'D') return full(`${file} was deleted`);
-    if (status.startsWith('R')) return full(`${file} was renamed`);
+    if (status === 'D') return { files: all, full: `${file} was deleted`, touched: all };
+    if (status.startsWith('R')) return { files: all, full: `${file} was renamed`, touched: all };
     changed.push(file);
   }
   changed.push(...git(dir, 'ls-files', '--others', '--exclude-standard'));
   const run = new Set(map.core);
+  const touched = new Set();
   for (const file of [...new Set(changed)].sort()) {
-    if ([...FULL, ...map.full].some((f) => (f.endsWith('/') ? file.startsWith(f) : file === f))) return full(`${file} changed`);
     const reached = all.filter((test) => deps.get(test).has(file));
-    if (!reached.length && !file.endsWith('.md')) return full(`${file} reaches no test`);
+    for (const test of reached) touched.add(test);
+    if ([...FULL, ...map.full].some((f) => (f.endsWith('/') ? file.startsWith(f) : file === f))) broad ??= `${file} changed`;
+    else if (!reached.length && !file.endsWith('.md')) broad ??= `${file} reaches no test`;
     for (const test of reached) run.add(test);
   }
-  return { files: [...run].sort(), full: null };
+  // A broad change runs every file, but only the files it reaches are ones it touched.
+  return { files: broad ? all : [...run].sort(), full: broad, touched: [...touched].sort() };
 }

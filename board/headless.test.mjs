@@ -1102,3 +1102,10 @@ test('a writing helper launches at once, its card In Progress already holding th
   assert.equal(git(tree, 'rev-parse', 'HEAD'), git(cardTree, 'rev-parse', 'HEAD'), "it branches from the task's branch");
   assert.ok(helper.session?.log, 'the launch records the run');
 });
+
+// docs/adr/2026-11-14-1530-a-land-reruns-an-untouched-failing-test-on-main.md
+test("a builder's brief says a timing taken while the host is busy is provisional, and its call says so", () => {
+  const brief = builderBrief(card);
+  assert.ok(brief.includes('while the host is busy') && brief.includes('is provisional'), 'the brief marks a busy-host timing provisional');
+  assert.ok(brief.includes('"Provisional: <timing>, taken while the host was busy"'), 'and gives the call its words');
+});

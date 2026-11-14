@@ -50,7 +50,18 @@ test('a change runs the tests that reach the changed file through imports, with 
   const dir = repo(t);
   put(dir, 'lib/b.mjs', 'export const b = 2;\n');
   commit(dir);
-  assert.deepEqual(affectedTests(dir, 'main'), { files: ['a.test.mjs', 'core.test.mjs'], full: null });
+  assert.deepEqual(affectedTests(dir, 'main'), { files: ['a.test.mjs', 'core.test.mjs'], full: null, touched: ['a.test.mjs'] });
+});
+
+test('the full suite names as touched only the tests the change reaches, so an untouched failure can be told from one the change made', (t) => {
+  const dir = repo(t);
+  put(dir, 'lib/b.mjs', 'export const b = 2;\n');
+  put(dir, 'package.json', '{"x":1}\n');
+  commit(dir);
+  const { files, full, touched } = affectedTests(dir, 'main');
+  assert.equal(files.length, 6);
+  assert.match(full, /changed$/);
+  assert.deepEqual(touched, ['a.test.mjs']);
 });
 
 test('a test reaches the files it names by path, joined from its literal segments, and what those import in turn', (t) => {
@@ -87,7 +98,7 @@ test('a markdown file no test names runs only the core', (t) => {
   put(dir, 'notes.md', '# notes, edited\n');
   put(dir, 'docs/adr/2026-11-13-0500-x.md', '# x\n');
   commit(dir);
-  assert.deepEqual(affectedTests(dir, 'main'), { files: ['core.test.mjs'], full: null });
+  assert.deepEqual(affectedTests(dir, 'main'), { files: ['core.test.mjs'], full: null, touched: [] });
 });
 
 test('the full suite runs for package files, CI, the selector, the shared fixture, a deleted or renamed file, or a file no test reaches', async (t) => {
@@ -108,7 +119,8 @@ test('the full suite runs for package files, CI, the selector, the shared fixtur
       const dir = repo(t);
       change(dir);
       commit(dir);
-      assert.deepEqual(affectedTests(dir, 'main'), { files: all, full: `${file} ${why}` });
+      const { files, full } = affectedTests(dir, 'main');
+      assert.deepEqual({ files, full }, { files: all, full: `${file} ${why}` });
     });
   }
 });
@@ -120,7 +132,7 @@ test('a repo with no test map runs the tests the change reaches, with no core', 
   git(dir, 'branch', '--quiet', '-f', 'main');
   put(dir, 'lib/b.mjs', 'export const b = 2;\n');
   commit(dir);
-  assert.deepEqual(affectedTests(dir, 'main'), { files: ['a.test.mjs'], full: null });
+  assert.deepEqual(affectedTests(dir, 'main'), { files: ['a.test.mjs'], full: null, touched: ['a.test.mjs'] });
 });
 
 const BOARD = fileURLToPath(new URL('./bin/board.mjs', import.meta.url));

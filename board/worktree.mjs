@@ -227,6 +227,9 @@ export function nodeTests(dir, { files: chosen, limit = 15 * 60 * 1000, testLimi
     const children = left?.filter((line) => Number(line.split(/\s+/)[1]) !== child.pid);
     if (left) result.hung = { after: duration(limit), files: files.filter((f) => children.some((p) => p.includes(f))).map((f) => path.relative(dir, f)) };
     result.failures = tapFailures(stdout);
+    // The test files holding a failing test, by the location the runner reports for it.
+    const places = stdout.split('\n').filter((line) => /^\s*location: /.test(line));
+    result.failedFiles = files.map((f) => path.relative(dir, f)).filter((rel) => places.some((line) => line.includes(`/${rel}:`)));
     const firstErr = stderr.trim().split('\n')[0];
     result.error = `${signal ? `test runner killed by ${signal}` : `test runner exited ${status}`}${firstErr ? `: ${firstErr}` : ''}`;
     resolve(result);
@@ -514,16 +517,39 @@ export function syncBase(repo, base) {
 
 // The tests the change in a worktree since base affects (affected.mjs), as passTests' runTests, saying which run.
 export const affectedRun = (base, say = console.log) => (dir, { report } = {}) => {
-  const { files, full } = affectedTests(dir, base);
+  const { files, full, touched } = affectedTests(dir, base);
   say(full ? `testing every test file, as ${full}` : `testing the ${files.length} test files the change affects`);
-  return nodeTests(dir, { files, report });
+  return nodeTests(dir, { files, report }).then((tests) => ({ ...tests, touched }));
 };
+
+// docs/adr/2026-11-14-1530-a-land-reruns-an-untouched-failing-test-on-main.md
+// Runs test files on base's commit in a worktree of its own beside the repo, removed after. → the files among them that
+// fail there too.
+export async function failingOnBase(repo, base, files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kickflip-base-'));
+  const added = git(repo, 'worktree', 'add', '--quiet', '--detach', dir, base);
+  if (!added.ok) { fs.rmSync(dir, { recursive: true, force: true }); fail(`could not check out ${base} to rerun ${files.join(', ')}: ${added.err}`); }
+  try {
+    const rerun = await nodeTests(dir, { files: files.filter((f) => fs.existsSync(path.join(dir, f))) });
+    return rerun.ok ? [] : rerun.failedFiles;
+  } finally {
+    git(repo, 'worktree', 'remove', '--force', dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 // Runs the worktree's tests (runTests, else the full suite), refusing on a failure with each failing test, or on a run cut off at its time limit
 // with the files still running, and outcome, what the refusal left undone.
 // report, when given, is told the run's start, progress and result ({start, update, end}, each taking words; nodeTests).
-export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report }) {
+// onUntouchedFailure, when given, is told the failing test files when none of them is one the change reaches (the run's
+// touched) and answers which of them fail on base too; when all do, the run passes and the land goes on, the failure
+// left to a Found: call, not the card.
+export async function passTests(dir, { say = console.log, runTests = nodeTests, outcome, report, onUntouchedFailure }) {
   const tests = await runTests(dir, { report });
+  if (!tests.ok && !tests.hung && onUntouchedFailure && tests.failedFiles?.length && tests.failedFiles.every((f) => tests.touched && !tests.touched.includes(f))) {
+    const onBase = await onUntouchedFailure(tests.failedFiles);
+    if (tests.failedFiles.every((f) => onBase.includes(f))) { say(`${tests.failedFiles.join(', ')} fail on the base too, so the change didn't break them`); return; }
+  }
   const log = tests.log ? [`Full test output: ${tests.log}`] : tests.logError ? [tests.logError] : [];
   if (tests.hung) fail([`tests hung past ${tests.hung.after} in ${tests.hung.files.join(', ') || 'the test runner'}; ${outcome}`, ...log].join('\n'));
   if (!tests.ok) fail([
@@ -540,7 +566,7 @@ export async function passTests(dir, { say = console.log, runTests = nodeTests, 
 // the change affects (affectedRun).
 // title is the builder's --title, the squash commit's subject. → the commit it tested. refs/kickflip/tested/<branch> keeps that commit, so a branch whose head is
 // still it, with base not moved past it, is not tested again.
-export async function prepareLand({ path: dir, branch, repo, base, ref, title }, { say = console.log, runTests = affectedRun(base, say), report } = {}) {
+export async function prepareLand({ path: dir, branch, repo, base, ref, title }, { say = console.log, runTests = affectedRun(base, say), report, found = () => {} } = {}) {
   if (!fs.existsSync(dir)) fail(`no worktree at ${dir}`);
   onBase(repo, base);
   if (git(dir, 'status', '--porcelain').out) fail(`${dir} has uncommitted changes; commit them there first`);
@@ -567,7 +593,12 @@ export async function prepareLand({ path: dir, branch, repo, base, ref, title },
     say(`${branch} was tested on ${base} as it is now; not testing it again`);
     return head;
   }
-  await passTests(dir, { say, runTests, outcome: 'nothing landed', report });
+  const onUntouchedFailure = async (files) => {
+    const failing = await failingOnBase(repo, base, files);
+    if (failing.length) await found(`Found: ${failing.join(', ')} fails on ${base} too (flaky or already broken); the land went on`);
+    return failing;
+  };
+  await passTests(dir, { say, runTests, outcome: 'nothing landed', report, onUntouchedFailure });
   git(repo, 'update-ref', testedRef(branch), head);
   return head;
 }

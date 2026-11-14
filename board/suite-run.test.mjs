@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { nodeTests, passTests, testArgs, testConcurrency } from './worktree.mjs';
+import { execFileSync } from 'node:child_process';
+import { failingOnBase, nodeTests, passTests, testArgs, testConcurrency } from './worktree.mjs';
 import { until } from '../shared/test-helpers.mjs';
 
 // docs/adr/2026-11-05-0725-land-suites-run-side-by-side-under-a-time-limit.md
@@ -110,4 +111,40 @@ test('stub', () => assert.equal(tailscaleBin(), '/usr/bin/false'));
 test('a suite run starts at most half the cores of test files at once, and at least one', () => {
   assert.equal(testConcurrency(), Math.max(1, Math.floor(os.availableParallelism() / 2)));
   assert.ok(testArgs(1000, ['a.test.mjs']).includes(`--test-concurrency=${testConcurrency()}`));
+});
+
+// docs/adr/2026-11-14-1530-a-land-reruns-an-untouched-failing-test-on-main.md
+test('a failing run names the test files holding a failing test', async (t) => {
+  const dir = home(t);
+  fs.writeFileSync(path.join(dir, 'bad.test.mjs'), "import test from 'node:test';\ntest('bad', () => { throw new Error('boom'); });\n");
+  fs.writeFileSync(path.join(dir, 'good.test.mjs'), "import test from 'node:test';\ntest('good', () => {});\n");
+  const r = await nodeTests(dir, { files: ['bad.test.mjs', 'good.test.mjs'] });
+  assert.deepEqual(r.failedFiles, ['bad.test.mjs']);
+});
+
+test('a land passes a run whose failing files the change never reaches and main fails too, and refuses one it touched or main passes', async () => {
+  const run = (failedFiles, touched) => () => ({ ok: false, fail: failedFiles.length, failedFiles, touched, failures: ['x'] });
+  const said = [];
+  const asked = [];
+  await passTests('/wt', { say: (l) => said.push(l), runTests: run(['x.test.mjs'], ['y.test.mjs']), outcome: 'nothing landed', onUntouchedFailure: async (f) => { asked.push(f); return f; } });
+  assert.deepEqual(asked, [['x.test.mjs']]);
+  assert.match(said[0], /x\.test\.mjs fail on the base too/);
+  await assert.rejects(passTests('/wt', { runTests: run(['x.test.mjs'], ['y.test.mjs']), outcome: 'nothing landed', onUntouchedFailure: async () => [] }), /tests failed in \/wt/);
+  await assert.rejects(passTests('/wt', { runTests: run(['x.test.mjs', 'y.test.mjs'], ['y.test.mjs']), outcome: 'nothing landed', onUntouchedFailure: async () => assert.fail('a touched file is the card\'s own') }), /tests failed in \/wt/);
+});
+
+test('failingOnBase runs the files on the base commit in a worktree of its own, and says which fail there too', async (t) => {
+  const dir = home(t);
+  const repo = path.join(dir, 'repo');
+  fs.mkdirSync(repo);
+  const git = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
+  git('init', '--quiet', '-b', 'main');
+  git('config', 'user.name', 'T');
+  git('config', 'user.email', 't@t');
+  fs.writeFileSync(path.join(repo, 'bad.test.mjs'), "import test from 'node:test';\ntest('bad', () => { throw new Error('boom'); });\n");
+  fs.writeFileSync(path.join(repo, 'good.test.mjs'), "import test from 'node:test';\ntest('good', () => {});\n");
+  git('add', '-A');
+  git('commit', '--quiet', '-m', 'base');
+  assert.deepEqual(await failingOnBase(repo, 'main', ['bad.test.mjs', 'good.test.mjs']), ['bad.test.mjs']);
+  assert.equal(git('worktree', 'list').trim().split('\n').length, 1, 'the rerun worktree is removed');
 });
