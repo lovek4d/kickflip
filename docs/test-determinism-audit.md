@@ -115,7 +115,7 @@ First conversions, to prove the seam: server-builds (all rows; its read counter 
 
 - **F1a** board/server.test.mjs: every `boardSees` / `untilHeard` / `cardsMarkedRead` row; the event-count races (await `settled()` before the "before" count); the churn and stream tests split into `heard()` units plus the bench rows above; the watcher rows wait for F5.
 - **F1b** board/server-stale.test.mjs: `advance()` + `minute()` + `settled()` replace every `tick()` sleep and `until`; restarts become `close()` then `startServer()` on the same files.
-- **F1c** board/headless.test.mjs: as F1b, with F3's launcher replacing the fake `claude` scripts.
+- **F1c** board/headless.test.mjs: as F1b, with F3's launcher replacing the fake `claude` scripts. Done by #667, with `startServer`'s `launch` (F3's server half) and the liveness reads left real: docs/adr/2026-11-14-0009-the-board-server-takes-the-launcher-its-tests-pass.md.
 
 Shares S3 with F2 (one `settled()` pattern for both scripts) and needs F3 for the launch rows.
 

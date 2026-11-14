@@ -27,7 +27,7 @@ const TIMED = {
   'board/board-land.test.mjs': 2,
   'board/board-threads.test.mjs': 1,
   'board/domain.test.mjs': 2,
-  'board/headless.test.mjs': 48,
+  'board/headless.test.mjs': 1,
   'board/land-queue.test.mjs': 11,
   'board/orchestrator-stops.test.mjs': 1,
   'board/prototype-phone.test.mjs': 2,

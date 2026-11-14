@@ -334,6 +334,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
+import { launchAgent } from './agents.mjs';
 import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
 import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
@@ -375,14 +376,16 @@ async function pageHeaders(html) {
 // The board server for the site at site, listening on 127.0.0.1:port (0: a port the OS picks) under prefix (/<route>,
 // or '' for none), once its start passes have run. home is the HOME its own reads use; now its clock, read for each
 // time it stamps or compares; watch(changed), when given, starts the file watch that reports each write to changed,
-// before the start's last passes run. → {server, changed(file), minute(), settled(), close()}:
+// before the start's last passes run; launch starts each agent the board launches, a builder, lander, planner, visual
+// agent or helper, taking agents.mjs launchAgent's arguments and answering as it does (launchAgent itself unless a test
+// passes its own). → {server, changed(file), minute(), settled(), close()}:
 // - changed(file) stands for the watch reporting a write to file (a path, relative to site or absolute), or with no
 //   file a change it can't name.
 // - minute() runs the minute's checks, which the script runs every 60 s.
 // - settled() resolves once every pass a change, a minute or a request started has finished, the passes those
 //   started included.
 // - close() waits for settled(), then stops listening and drops every connection, the page streams included.
-export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), watch } = {}) {
+export async function startServer({ site, home = os.homedir(), port = 0, prefix = '', now = () => new Date(), watch, launch = launchAgent } = {}) {
   const here = path.resolve(site);
   const roots = [path.join(here, 'public'), path.join(template, 'public'), path.join(template, '..', 'starter', 'public'), path.join(template, '..', 'shared')];
   const data = path.join(here, 'data');
@@ -1552,7 +1555,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         if (gate.machine.state === 'busy') await appendStatus(here, started.key, 'host-busy');
         await trackLaunch(started.key, { ...entry, pid: null });
       } else {
-        const { pid, log } = await launchBuilder(here, started);
+        const { pid, log } = await launchBuilder(here, started, { launch });
         await trackLaunch(started.key, { ...entry, pid, log });
       }
     } catch (e) {
@@ -1589,7 +1592,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         const started = await startHelper(here, key, name, (opts) => helperWorktree(key.split('/')[1], name, opts));
         if (!started) continue;
         logCall({ call: 'helper', key, result: 'launching', reason: 'A helper was asked for and pullOf let it launch.', inputs: { name, model: started.model, worktree: started.worktree } });
-        try { await launchBuilder(here, started); } catch (e) {
+        try { await launchBuilder(here, started, { launch }); } catch (e) {
           await abandonPlanner(here, key, ['helper-failed', { name, error: e.message }], name);
         }
       } catch (e) {
@@ -1620,7 +1623,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       try {
         const started = await startVisual(here, key);
         if (!started) continue;
-        try { await launchBuilder(here, started); } catch (e) {
+        try { await launchBuilder(here, started, { launch }); } catch (e) {
           await abandonPlanner(here, key, ['planner-failed', { kind: 'visual agent', error: e.message }], started.agent);
         }
       } catch (e) {
@@ -1654,7 +1657,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     try {
       const started = await startPlanner(here, key, kind, kept);
       if (!started) return;
-      try { await launchBuilder(here, started); } catch (e) {
+      try { await launchBuilder(here, started, { launch }); } catch (e) {
         await abandonPlanner(here, key, ['planner-failed', { kind, error: e.message }]);
       }
     } catch (e) {
@@ -1724,7 +1727,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     }
     const kind = providerOf(record.kind) ?? 'claude';
     try {
-      const { pid, log } = await resumeBuilder(here, { key, kind, model: record.model, session: { id: record.session.id }, brief: (facts) => resumeBrief({ ...facts, cleared }) });
+      const { pid, log } = await resumeBuilder(here, { key, kind, model: record.model, session: { id: record.session.id }, brief: (facts) => resumeBrief({ ...facts, cleared }), launch });
       await trackLaunch(key, { kind, model: record.model, pid, log, relaunched: false });
       logCall({ ...entry, result: 'resumed' });
     } catch (e) {
@@ -1790,12 +1793,12 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         logCall({ call: 'relaunch', key: card.key, result: 'handed back', reason: 'Its builder exited twice with its record open.', inputs: tracked[card.key] });
         await appendStatus(here, card.key, 'exited-twice');
       };
-      const launch = async (card) => {
+      const relaunch = async (card) => {
         const was = tracked[card.key];
         const entry = { call: 'relaunch', key: card.key, inputs: was,
           reason: was.pid === null ? 'Its launch was held by a pause, a busy host or a start near the line, which has lifted.' : 'Its builder exited with its record open, for the first time.' };
         try {
-          const { pid, log } = await launchBuilder(here, card);
+          const { pid, log } = await launchBuilder(here, card, { launch });
           logCall({ ...entry, result: was.pid === null ? 'launched' : 'relaunched' });
           return { pid, log };
         } catch (e) {
@@ -1813,7 +1816,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         dataVersion++;
       };
       const paused = new Set(items.filter((c) => c.builder?.pause?.paused).map((c) => c.key));
-      const next = await reviveBuilders(tracked, open, { launch, handBack, held: (kind) => launchHeld(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
+      const next = await reviveBuilders(tracked, open, { launch: relaunch, handBack, held: (kind) => launchHeld(readUsageGate({ dir: here }), kind), stopped: stoppedKeys(items), paused,
         limitedUntil: (entry) => (entry.log ? runLimit(entry.log) : null), atLimit });
       if (JSON.stringify(next) !== JSON.stringify(tracked)) {
         await fs.writeFile(file + '.tmp', JSON.stringify(next) + '\n');
@@ -1886,7 +1889,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       if (!takeSlot(items, room, c.key)) continue;
       const entry = { call: 'lander', key: c.key, reason: 'Its build was verified and waits to land.', inputs: { verified: c.verified, before: kept[c.key] ?? null } };
       try {
-        const { pid, resumed } = await landByBuilder(here, c, { fresh: kept[c.key]?.fresh });
+        const { pid, resumed } = await landByBuilder(here, c, { fresh: kept[c.key]?.fresh, launch });
         kept[c.key] = { verified: c.verified, pid, ...(resumed ? { resumed } : {}) };
         logCall({ ...entry, result: resumed ? 'resumed its builder' : 'launched' });
         await trackLaunch(c.key, null);
@@ -1939,7 +1942,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           continue;
         } finally { dataVersion++; }
         try {
-          sent[d.key].pid = (await landByBuilder(here, started)).pid;
+          sent[d.key].pid = (await landByBuilder(here, started, { launch })).pid;
           logCall({ ...entry, result: 'launched' });
         } catch (e) {
           logCall({ ...entry, result: 'failed', reason: `${entry.reason} The launch failed: ${e.message}` });

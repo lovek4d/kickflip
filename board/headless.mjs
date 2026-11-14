@@ -344,10 +344,11 @@ const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'lo
 // open (store.mjs startRebase's rebase_run, so a relaunch after a restart briefs it the same), with lander the lander of
 // a verified card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, text?, files?, question?,
 // note?, choice?}) or the visual agent startVisual opened ({key, kind: visual, model, agent, text?, files?}), through the
-// adapter (agents.mjs launchAgent): a build or lander as its record's kind, a planner as Claude. The session id it names
-// goes on the agent's builder record and, with the log, in a thread line saying so.
+// adapter, launch (agents.mjs launchAgent's arguments and answer; launchAgent itself unless a test passes its own): a
+// build or lander as its record's kind, a planner as Claude. The session id it names goes on the agent's builder record
+// and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, question, note, choice, task, writes, worktree }, { lander = false } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, question, note, choice, task, writes, worktree }, { lander = false, launch = launchAgent } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
@@ -360,7 +361,7 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, question, note, choice, task, writes, cwd, pr: facts.rebasePR };
   const role = visual ? 'Visual agent' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
   const prompt = visual ? visualBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
-  const launched = await launchAgent({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
+  const launched = await launch({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });
   await recordSession(site, key, launched.sessionId, launched.pid, agent, path.basename(launched.log));
   return launched;
 }
@@ -391,11 +392,12 @@ export const resumeBrief = ({ ref, worktree, cleared }) => `The board paused you
 // model}; brief(facts) the words the session is resumed with, facts as store.mjs briefFacts'. A Claude build whose
 // record keeps a session id resumes it in the card's worktree; a Codex build, one with no session (a session's own
 // build, which the board never launched), or one the caller says to take fresh (fresh) is launched anew, with
-// freshLaunch its launchBuilder options. → {pid, sessionId, log, resumed}, resumed whether the session continued.
-export async function resumeBuilder(site, { key, kind = 'claude', model, session, brief, fresh = false, freshLaunch = {} }) {
-  if (kind !== 'claude' || !session || fresh) return { ...await launchBuilder(site, { key, kind, model }, freshLaunch), resumed: false };
+// freshLaunch its launchBuilder options. launch starts the agent either way, as launchBuilder's does.
+// → {pid, sessionId, log, resumed}, resumed whether the session continued.
+export async function resumeBuilder(site, { key, kind = 'claude', model, session, brief, fresh = false, freshLaunch = {}, launch = launchAgent }) {
+  if (kind !== 'claude' || !session || fresh) return { ...await launchBuilder(site, { key, kind, model }, { ...freshLaunch, launch }), resumed: false };
   const facts = await briefFacts(site, key);
-  const launched = await launchAgent({ kind, model, cwd: session.worktree ?? facts.worktree, site, prompt: brief(facts), resume: session.id, log: logFile(key.split('/')[1], 'builder') });
+  const launched = await launch({ kind, model, cwd: session.worktree ?? facts.worktree, site, prompt: brief(facts), resume: session.id, log: logFile(key.split('/')[1], 'builder') });
   await recordSession(site, key, launched.sessionId ?? session.id, launched.pid, 'main', path.basename(launched.log));
   return { ...launched, resumed: true };
 }
@@ -403,8 +405,8 @@ export async function resumeBuilder(site, { key, kind = 'claude', model, session
 // Lands a card through its own builder: its newest session, resumed with the lander's brief (landerBrief, why saying what
 // the land hit), or with the rebase run's when the card has one open. A session recorded in another worktree than the
 // one the run works in isn't resumed. A resume whose launch fails, like a card with nothing to resume, gets today's
-// fresh lander (or rebase run). → resumeBuilder's.
-export async function landByBuilder(site, { key, kind = 'claude', model }, { why, fresh = false } = {}) {
+// fresh lander (or rebase run). launch starts the agent, as resumeBuilder's does. → resumeBuilder's.
+export async function landByBuilder(site, { key, kind = 'claude', model }, { why, fresh = false, launch = launchAgent } = {}) {
   const found = await recordedSession(site, key);
   const facts = await briefFacts(site, key);
   const rebase = facts.rebasePR !== null;
@@ -415,10 +417,10 @@ export async function landByBuilder(site, { key, kind = 'claude', model }, { why
   const freshLaunch = { lander: !rebase };
   let launched;
   try {
-    launched = await resumeBuilder(site, { key, kind, model, session, brief, fresh, freshLaunch });
+    launched = await resumeBuilder(site, { key, kind, model, session, brief, fresh, freshLaunch, launch });
   } catch (e) {
     if (!session) throw e;
-    launched = await resumeBuilder(site, { key, kind, model, session: null, brief, freshLaunch });
+    launched = await resumeBuilder(site, { key, kind, model, session: null, brief, freshLaunch, launch });
   }
   if (launched.resumed) await appendStatus(site, key, 'builder-resumed-to-land', { session: launched.sessionId ?? session.id });
   return launched;

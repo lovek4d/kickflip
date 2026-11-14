@@ -1,3 +1,4 @@
+import { home } from '../shared/scratch-home.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -5,17 +6,59 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { freePorts, until, untilHeard, boardListening, untilTestEnds, killAndWait } from '../shared/test-helpers.mjs';
+import { once } from 'node:events';
+import { startBoard } from '../shared/test-helpers.mjs';
 import { builderBrief, helperBrief, landerBrief, plannerBrief, rebaseBrief, visualBrief, reviveBuilders, stopAgents, agentMayRun, BOARD_CLI } from './headless.mjs';
 import { briefFacts, archiveCards, builderProgress, readArchive, threadFile, writeBrief } from './store.mjs';
 import { standardWords } from './commit-message.mjs';
 
-// Stops each fake builder that logged its run, {argv, pid}, to seen, since a builder runs detached from the board
-// server and outlives it.
-function stopFakeBuilders(seen) {
-  let runs = [];
-  try { runs = fs.readFileSync(seen, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch {}
-  for (const { pid } of runs) try { process.kill(pid, 'SIGKILL'); } catch {}
+// The server tests run the board server in this process (shared/test-helpers.mjs startBoard), so the board reads its
+// manifest, logs and worktrees under the file's scratch HOME (shared/scratch-home.mjs), and calls no hub.
+process.env.KICKFLIP_HUB_PORT = '1';
+
+// The scratch HOME, emptied of what an earlier test left, whose server has closed.
+function emptyHome() {
+  for (const name of fs.readdirSync(home)) fs.rmSync(path.join(home, name), { recursive: true, force: true });
+  return home;
+}
+
+// Stands for the watch hearing the test's writes to files (with none, a change it can't name), and resolves once the
+// passes they started have finished.
+async function wrote(board, ...files) {
+  if (!files.length) board.changed();
+  for (const file of files) board.changed(file);
+  await board.settled();
+}
+
+// docs/adr/2026-11-14-0009-the-board-server-takes-the-launcher-its-tests-pass.md
+// The agents a board launches through startServer's launch, in order in runs: each run is launchAgent's arguments
+// {kind, model, cwd, prompt, resume} with the pid and sessionId it answered. Each agent's process is a node that idles
+// until gone(pid) ends it or the test ends, so the board's own liveness reads (pidAlive, ps) see it run; its log opens
+// with the init event that names its session, as Claude's does. failWith(error) makes each launch from then reject.
+function launcher(t) {
+  const runs = [];
+  const children = new Map();
+  let failure = null;
+  async function launch({ kind, model, cwd, prompt, resume, log }) {
+    if (failure) throw failure;
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { detached: true, stdio: 'ignore' });
+    children.set(child.pid, child);
+    await once(child, 'spawn');
+    const sessionId = `sess-${runs.length + 1}`;
+    fs.mkdirSync(path.dirname(log), { recursive: true });
+    fs.appendFileSync(log, JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\n');
+    runs.push({ kind, model, cwd, prompt, resume, pid: child.pid, sessionId });
+    return { pid: child.pid, sessionId, log };
+  }
+  async function gone(pid) {
+    const child = children.get(pid);
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = once(child, 'exit');
+    child.kill('SIGKILL');
+    await exited;
+  }
+  t.after(() => Promise.all([...children.keys()].map(gone)));
+  return { runs, launch, gone, failWith: (error) => { failure = error; } };
 }
 
 // brief is the orchestrator's, which a grill, prototype or visual agent starts from; a builder's brief ignores it.
@@ -215,8 +258,8 @@ test("briefFacts gives a card's links: Related to set on either card, its Parent
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test("the server launches the builder for a tap and a pull instead of waking the session, and a lander once a handed-back card's calls are verified and no question is open", async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-server-'));
+test("the server launches the builder for a tap and a pull instead of waking the session, and a lander once a handed-back card's calls are verified and no question is open", async (t) => {
+  const home = emptyHome();
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(path.join(data, 'threads'), { recursive: true });
@@ -250,80 +293,73 @@ test("the server launches the builder for a tap and a pull instead of waking the
     { id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" },
     { id: 'H4', title: 'Asked', lane: 'progress', next: "Answer the builder's questions" },
   ] }));
-  const seen = path.join(home, 'claude-runs.jsonl');
-  const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n`);
-  fs.chmodSync(fake, 0o755);
-  const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
+  const { runs, launch } = launcher(t);
   const log = () => (fs.existsSync(path.join(data, 'events.jsonl')) ? fs.readFileSync(path.join(data, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
   const thread = (id) => fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
-  const [port] = await freePorts();
-  const base = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
-  try {
-    await boardListening(child);
-    // The verified card with no open question gets one lander; the one whose deferred ask waits on the owner gets none yet.
-    await until(() => runs().length === 1, 'the lander launches');
-    const [landing] = runs();
-    assert.equal(landing.cwd, fs.realpathSync(lander));
-    assert.match(landing.argv[1], /builder done t\/H3 --text/);
+  const board = await startBoard(t, { site, launch });
+  const { base } = board;
+  await board.settled();
+  // The verified card with no open question gets one lander; the one whose deferred ask waits on the owner gets none yet.
+  assert.equal(runs.length, 1, 'the lander launches');
+  const [landing] = runs;
+  assert.equal(landing.cwd, lander);
+  assert.match(landing.prompt, /builder done t\/H3 --text/);
 
-    const tapped = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-build', key: 't/H1' }) }).then((r) => r.json());
-    assert.equal(tapped.id, null);
-    const worktree = path.join(home, '.claude', 'kickflip', 'worktrees', 'H1');
-    await until(() => runs().length === 2, 'the tapped builder launches');
-    const built = runs()[1];
-    assert.equal(built.cwd, fs.realpathSync(worktree));
-    assert.deepEqual([built.argv[0], built.argv[2], built.argv[3], built.argv[4]], ['-p', '--permission-mode', 'auto', '--model']);
-    assert.ok(built.argv[1].includes(path.join(data, 'h1.md')) && built.argv[1].includes('builder start t/H1 --kind build'));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H1.json'), 'utf8')).dispatched, 'tap');
-    const launchLog = JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H1.json'), 'utf8')).session.log;
-    assert.match(launchLog, /^builder-H1-.*\.log$/);
-    assert.ok(!thread('H1').some((m) => /launched on/.test(m.text)), 'no launch message');
-    const logs = path.join(home, '.claude', 'kickflip', 'logs');
-    fs.writeFileSync(path.join(logs, launchLog), 'x'.repeat(300_000) + '\nlast line\n');
-    const tail = await fetch(`${base}/api/log?file=${launchLog}`).then((r) => r.json());
-    assert.equal(tail.truncated, true);
-    assert.ok(tail.text.endsWith('last line\n') && tail.text.length < 262_144);
-    for (const bad of ['../../site/board.json', '..%2F..%2Fsite%2Fboard.json', 'a/b.log', '.hidden.log', 'notes.txt', '']) assert.equal((await fetch(`${base}/api/log?file=${bad}`)).status, 400, bad);
-    assert.equal((await fetch(`${base}/api/log?file=missing.log`)).status, 404);
-    // The transcript reads the whole log, start included, from a byte offset.
-    fs.writeFileSync(path.join(logs, launchLog), `${JSON.stringify({ type: 'system', subtype: 'init', model: 'm', cwd: '/wt' })}\n${'x'.repeat(300_000)}\nlast line\npart`);
-    const whole = await fetch(`${base}/api/transcript?file=${launchLog}&from=0`).then((r) => r.json());
-    assert.deepEqual(whole.rows.map((row) => row.body.slice(0, 9)), ['m in /wt', 'x'.repeat(9), 'last line']);
-    assert.deepEqual([whole.stream, whole.finished, whole.size - whole.next], [true, false, 4]);
-    const after = await fetch(`${base}/api/transcript?file=${launchLog}&from=${whole.next}`).then((r) => r.json());
-    assert.deepEqual([after.rows, after.next], [[], whole.next]);
-    for (const bad of ['file=a/b.log&from=0', `file=${launchLog}&from=-1`, `file=${launchLog}&from=x`, `file=${launchLog}`]) assert.equal((await fetch(`${base}/api/transcript?${bad}`)).status, 400, bad);
-    assert.equal((await fetch(`${base}/api/transcript?file=missing.log&from=0`)).status, 404);
-    assert.match(await fetch(`${base}/log.html`).then((r) => r.text()), /api\/log\?file=/);
-    assert.deepEqual(log().filter((e) => e.kind === 'card-build'), []);
+  const tapped = await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'card-build', key: 't/H1' }) }).then((r) => r.json());
+  assert.equal(tapped.id, null);
+  await board.settled();
+  const worktree = path.join(home, '.claude', 'kickflip', 'worktrees', 'H1');
+  assert.equal(runs.length, 2, 'the tapped builder launches');
+  const built = runs[1];
+  assert.equal(fs.realpathSync(built.cwd), fs.realpathSync(worktree));
+  assert.deepEqual([built.kind, built.resume], ['claude', undefined]);
+  assert.ok(built.prompt.includes(path.join(data, 'h1.md')) && built.prompt.includes('builder start t/H1 --kind build'));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H1.json'), 'utf8')).dispatched, 'tap');
+  const launchLog = JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H1.json'), 'utf8')).session.log;
+  assert.match(launchLog, /^builder-H1-.*\.log$/);
+  assert.ok(!thread('H1').some((m) => /launched on/.test(m.text)), 'no launch message');
+  const logs = path.join(home, '.claude', 'kickflip', 'logs');
+  fs.writeFileSync(path.join(logs, launchLog), 'x'.repeat(300_000) + '\nlast line\n');
+  const tail = await fetch(`${base}/api/log?file=${launchLog}`).then((r) => r.json());
+  assert.equal(tail.truncated, true);
+  assert.ok(tail.text.endsWith('last line\n') && tail.text.length < 262_144);
+  for (const bad of ['../../site/board.json', '..%2F..%2Fsite%2Fboard.json', 'a/b.log', '.hidden.log', 'notes.txt', '']) assert.equal((await fetch(`${base}/api/log?file=${bad}`)).status, 400, bad);
+  assert.equal((await fetch(`${base}/api/log?file=missing.log`)).status, 404);
+  // The transcript reads the whole log, start included, from a byte offset.
+  fs.writeFileSync(path.join(logs, launchLog), `${JSON.stringify({ type: 'system', subtype: 'init', model: 'm', cwd: '/wt' })}\n${'x'.repeat(300_000)}\nlast line\npart`);
+  const whole = await fetch(`${base}/api/transcript?file=${launchLog}&from=0`).then((r) => r.json());
+  assert.deepEqual(whole.rows.map((row) => row.body.slice(0, 9)), ['m in /wt', 'x'.repeat(9), 'last line']);
+  assert.deepEqual([whole.stream, whole.finished, whole.size - whole.next], [true, false, 4]);
+  const after = await fetch(`${base}/api/transcript?file=${launchLog}&from=${whole.next}`).then((r) => r.json());
+  assert.deepEqual([after.rows, after.next], [[], whole.next]);
+  for (const bad of ['file=a/b.log&from=0', `file=${launchLog}&from=-1`, `file=${launchLog}&from=x`, `file=${launchLog}`]) assert.equal((await fetch(`${base}/api/transcript?${bad}`)).status, 400, bad);
+  assert.equal((await fetch(`${base}/api/transcript?file=missing.log&from=0`)).status, 404);
+  assert.match(await fetch(`${base}/log.html`).then((r) => r.text()), /api\/log\?file=/);
+  assert.deepEqual(log().filter((e) => e.kind === 'card-build'), []);
 
-    // A card readied after the start is pulled with no switch to turn on.
-    const items = JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8'));
-    items.items.find((i) => i.id === 'H2').phase = 'ready';
-    fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify(items));
-    // The fake builders exit at once, so the minute check may relaunch the tapped one meanwhile: each wait names its run.
-    const launches = (pattern) => runs().filter((r) => pattern.test(r.argv[1])).length;
-    await untilHeard(() => launches(/builder start t\/H2 --kind build/) === 1, 'the pulled builder launches', path.join(data, 'nudge'));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H2.json'), 'utf8')).dispatched, 'hub');
-    assert.deepEqual(log().filter((e) => e.kind === 'card-pull' || e.kind === 'card-build'), []);
+  // A card readied after the start is pulled with no switch to turn on.
+  const items = JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8'));
+  items.items.find((i) => i.id === 'H2').phase = 'ready';
+  fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify(items));
+  await wrote(board, path.join(data, 'items.json'));
+  assert.equal(runs.length, 3);
+  assert.match(runs[2].prompt, /builder start t\/H2 --kind build/, 'the pulled builder launches');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'H2.json'), 'utf8')).dispatched, 'hub');
+  assert.deepEqual(log().filter((e) => e.kind === 'card-pull' || e.kind === 'card-build'), []);
 
-    // The owner's answer to H4's question lets its lander go, once.
-    fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [{ id: 'h4q', topic: 'item:t/H4', question: 'Which?', options: [{ id: 'A', label: 'This' }], resolved: true, resolved_at: '2026-11-04T04:00:00.000Z' }] }));
-    await untilHeard(() => launches(/builder done t\/H4 --text/) === 1, "H4's lander launches", path.join(data, 'nudge'));
-    boardJSON({ title: 'Shop again' });
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.deepEqual([launches(/builder done t\/H3 --text/), launches(/builder done t\/H4 --text/)], [1, 1], 'each verification gets one lander');
-  } finally {
-    await killAndWait(child);
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+  // The owner's answer to H4's question lets its lander go, once.
+  fs.writeFileSync(path.join(data, 'owner.json'), JSON.stringify({ topics: [], items: [{ id: 'h4q', topic: 'item:t/H4', question: 'Which?', options: [{ id: 'A', label: 'This' }], resolved: true, resolved_at: '2026-11-04T04:00:00.000Z' }] }));
+  await wrote(board, path.join(data, 'owner.json'));
+  assert.equal(runs.length, 4);
+  assert.match(runs[3].prompt, /builder done t\/H4 --text/, "H4's lander launches");
+  boardJSON({ title: 'Shop again' });
+  await wrote(board, path.join(site, 'board.json'));
+  assert.equal(runs.length, 4, 'each verification gets one lander');
 });
 
 // docs/adr/2026-11-06-0200-the-board-rebases-a-conflicting-pr-with-a-headless-run.md
-test("the server starts a rebase run on each card whose open PR conflicts, in its worktree or one made from the PR's branch, once per conflict", async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-server-'));
+test("the server starts a rebase run on each card whose open PR conflicts, in its worktree or one made from the PR's branch, once per conflict", async (t) => {
+  const home = emptyHome();
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(path.join(data, 'threads'), { recursive: true });
@@ -364,44 +400,33 @@ test("the server starts a rebase run on each card whose open PR conflicts, in it
     'owner/project#6': view(6, { mergeable: 'CONFLICTING', headRefOid: 'b'.repeat(40) }),
     'owner/project#7': view(7, { headRefOid: 'c'.repeat(40) }),
   } }));
-  const seen = path.join(home, 'claude-runs.jsonl');
-  const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n`);
-  fs.chmodSync(fake, 0o755);
-  const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
+  const { runs, launch } = launcher(t);
   const read = (file) => JSON.parse(fs.readFileSync(path.join(data, file), 'utf8'));
-  const [port] = await freePorts();
-  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], {
-    env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
-  try {
-    await boardListening(child);
-    await until(() => runs().length === 2, 'both rebase runs launch');
-    const byCard = Object.fromEntries(runs().map((r) => [/builder start t\/(R\d)/.exec(r.argv[1])[1], r]));
-    assert.deepEqual(Object.keys(byCard).sort(), ['R1', 'R2'], 'the clean PR gets none');
-    assert.equal(byCard.R1.cwd, fs.realpathSync(built));
-    assert.ok(byCard.R1.argv[1].includes('builder start t/R1 --kind build --label Rebase') && byCard.R1.argv[1].includes('PR #5'));
-    const made = path.join(home, '.claude', 'kickflip', 'worktrees', 'R2');
-    assert.equal(byCard.R2.cwd, fs.realpathSync(made));
-    assert.equal(git(made, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'by-hand'), "the hand-linked PR's worktree is made from its branch");
-    assert.deepEqual([read('agents/R1.json').label, read('agents/R1.json').dispatched, read('agents/R1.json').done], ['Rebase', 'hub', undefined]);
-    const items = read('items.json').items;
-    assert.deepEqual(items.map((i) => i.rebase_run?.conflict ?? null), [`${'a'.repeat(40)}@main`, `${'b'.repeat(40)}@main`, null]);
-    assert.deepEqual(Object.fromEntries(Object.entries(read('rebases.json')).map(([k, v]) => [k, v.conflict])), { 't/R1': `${'a'.repeat(40)}@main`, 't/R2': `${'b'.repeat(40)}@main` });
-    const { items: cards } = await fetch(`http://127.0.0.1:${port}/api/board`).then((r) => r.json());
-    assert.deepEqual(['t/R1', 't/R2'].map((k) => cards.find((c) => c.key === k).lane), ['review', 'review'], 'the run leaves the card in In Review');
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 2, 'both rebase runs launch');
+  const byCard = Object.fromEntries(runs.map((r) => [/builder start t\/(R\d)/.exec(r.prompt)[1], r]));
+  assert.deepEqual(Object.keys(byCard).sort(), ['R1', 'R2'], 'the clean PR gets none');
+  assert.equal(byCard.R1.cwd, built);
+  assert.ok(byCard.R1.prompt.includes('builder start t/R1 --kind build --label Rebase') && byCard.R1.prompt.includes('PR #5'));
+  const made = path.join(home, '.claude', 'kickflip', 'worktrees', 'R2');
+  assert.equal(fs.realpathSync(byCard.R2.cwd), fs.realpathSync(made));
+  assert.equal(git(made, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'by-hand'), "the hand-linked PR's worktree is made from its branch");
+  assert.deepEqual([read('agents/R1.json').label, read('agents/R1.json').dispatched, read('agents/R1.json').done], ['Rebase', 'hub', undefined]);
+  const items = read('items.json').items;
+  assert.deepEqual(items.map((i) => i.rebase_run?.conflict ?? null), [`${'a'.repeat(40)}@main`, `${'b'.repeat(40)}@main`, null]);
+  assert.deepEqual(Object.fromEntries(Object.entries(read('rebases.json')).map(([k, v]) => [k, v.conflict])), { 't/R1': `${'a'.repeat(40)}@main`, 't/R2': `${'b'.repeat(40)}@main` });
+  const { items: cards } = await fetch(`${board.base}/api/board`).then((r) => r.json());
+  assert.deepEqual(['t/R1', 't/R2'].map((k) => cards.find((c) => c.key === k).lane), ['review', 'review'], 'the run leaves the card in In Review');
 
-    boardJSON({ title: 'Shop again' });
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.equal(runs().length, 2, 'each conflict gets one run');
-  } finally {
-    await killAndWait(child);
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+  boardJSON({ title: 'Shop again' });
+  await wrote(board, path.join(site, 'board.json'));
+  assert.equal(runs.length, 2, 'each conflict gets one run');
 });
 
 // docs/adr/2026-11-04-2230-a-lander-the-pause-stopped-starts-again.md
-test('a lander whose process is gone while its builder record is open (the usage pause ended it) is launched again, and board.mjs lander does the same by hand', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-lander-'));
+test('a lander whose process is gone while its builder record is open (the usage pause ended it) is launched again, and board.mjs lander does the same by hand', async (t) => {
+  const home = emptyHome();
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
@@ -420,53 +445,39 @@ test('a lander whose process is gone while its builder record is open (the usage
   fs.writeFileSync(recordFile, JSON.stringify(handedBack));
   const waveFile = path.join(data, 'items.json');
   fs.writeFileSync(waveFile, JSON.stringify({ items: [{ id: 'H3', title: 'Verified', lane: 'progress', next: "Verify the builder's judgment calls" }] }));
-  const seen = path.join(home, 'claude-runs.jsonl');
-  const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, '{}\\n');\n`);
-  fs.chmodSync(fake, 0o755);
-  const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).length : 0);
+  const { runs, launch, gone } = launcher(t);
   const record = () => JSON.parse(fs.readFileSync(recordFile, 'utf8'));
   // Handed back: the record closed marked handed_back, with no build open since.
   const handedBackAgain = () => typeof record().done === 'string' && typeof record().handed_back === 'string' && record().started !== handedBack.started;
-  const [port] = await freePorts();
-  const serve = async () => {
-    const server = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
-    await boardListening(server);
-    return server;
+  let board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 1, 'the lander launches');
+  // The lander started (its builder start reopens the record) and then its process went with the pause.
+  const landers = () => JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'));
+  assert.equal(landers()['t/H3'].pid, runs[0].pid, 'the lander is tracked');
+  await gone(runs[0].pid);
+  const building = () => {
+    const { done: _, handed_back: __, ...open } = handedBack;
+    fs.writeFileSync(recordFile, JSON.stringify({ ...open, started: new Date().toISOString() }));
+    const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].next = 'Landing'; fs.writeFileSync(waveFile, JSON.stringify(w));
   };
-  let child = await serve();
-  try {
-    await until(() => runs() === 1, 'the lander launches');
-    // The lander started (its builder start reopens the record) and then its process went with the pause. Only once the server has tracked the
-    // lander's process and that process is gone: a pass that still sees it alive relaunches nothing, and no change
-    // follows to run another.
-    const landers = () => { try { return JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8')); } catch { return {}; } };
-    const gone = (pid) => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } };
-    await until(() => Number.isInteger(landers()['t/H3']?.pid) && gone(landers()['t/H3'].pid), 'the lander is tracked and has exited');
-    const building = () => {
-      const { done: _, handed_back: __, ...open } = handedBack;
-      fs.writeFileSync(recordFile, JSON.stringify({ ...open, started: new Date().toISOString() }));
-      const w = JSON.parse(fs.readFileSync(waveFile, 'utf8')); w.items[0].next = 'Landing'; fs.writeFileSync(waveFile, JSON.stringify(w));
-    };
-    building();
-    await untilHeard(() => runs() === 2, 'the stopped lander launches again', path.join(data, 'nudge'));
-    assert.ok(handedBackAgain(), JSON.stringify(record()));
-    // The one command does the same by hand, with the server stopped so its own pass cannot relaunch first.
-    await killAndWait(child);
-    building();
-    const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'board.mjs');
-    fs.mkdirSync(path.join(home, '.claude', 'kickflip', 'sites'), { recursive: true });
-    fs.symlinkSync(site, path.join(home, '.claude', 'kickflip', 'sites', 'shop'));
-    const out = execFileSync(process.execPath, [cli, '--site', 'shop', 'lander', 't/H3'], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
-    assert.match(out, /is handed back again/);
-    assert.ok(handedBackAgain(), JSON.stringify(record()));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))['t/H3'], undefined);
-    child = await serve();
-    await until(() => runs() === 3, 'the relaunched lander launches');
-  } finally {
-    await killAndWait(child);
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+  building();
+  await wrote(board, recordFile, waveFile);
+  assert.equal(runs.length, 2, 'the stopped lander launches again');
+  assert.ok(handedBackAgain(), JSON.stringify(record()));
+  // The one command does the same by hand, with the server stopped so its own pass cannot relaunch first.
+  await board.close();
+  building();
+  const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'board.mjs');
+  fs.mkdirSync(path.join(home, '.claude', 'kickflip', 'sites'), { recursive: true });
+  fs.symlinkSync(site, path.join(home, '.claude', 'kickflip', 'sites', 'shop'));
+  const out = execFileSync(process.execPath, [cli, '--site', 'shop', 'lander', 't/H3'], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  assert.match(out, /is handed back again/);
+  assert.ok(handedBackAgain(), JSON.stringify(record()));
+  assert.equal(landers()['t/H3'], undefined);
+  board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 3, 'the restarted server launches the lander again');
 });
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
@@ -536,8 +547,8 @@ test('a builder that exited on the usage limit keeps its one relaunch: it pauses
 });
 
 // docs/adr/2026-11-04-1010-a-dead-headless-builder-is-relaunched-once.md
-test("the server's minute check relaunches a tracked headless builder whose process died with its record open", async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-revive-'));
+test("the server's minute check relaunches a tracked headless builder whose process died with its record open", async (t) => {
+  const home = emptyHome();
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
@@ -551,42 +562,27 @@ test("the server's minute check relaunches a tracked headless builder whose proc
   fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'R1', title: 'Revive me', lane: 'progress' }] }));
   fs.writeFileSync(path.join(data, 'agents', 'R1.json'), JSON.stringify({ started: '2026-11-04T01:00:00.000Z', kind: 'claude', model: 'opus', worktree: { path: wt, branch: 'R1', repo: wt } }));
   const dead = spawn(process.execPath, ['-e', '']);
-  await new Promise((resolve) => dead.once('exit', resolve));
+  await once(dead, 'exit');
   fs.writeFileSync(path.join(data, 'headless-builders.json'), JSON.stringify({ 't/R1': { model: 'opus', pid: dead.pid, relaunched: false } }));
-  const seen = path.join(home, 'claude-runs.jsonl');
-  const fake = path.join(home, 'claude');
-  // The relaunched builder stays alive a while, so the 50ms check leaves its entry at relaunched instead of handing it back.
-  // It names its session as Claude's init event does, which the launch records on the card's builder record and thread line.
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), pid: process.pid }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-R1' }));\n${untilTestEnds()};\n`);
-  fs.chmodSync(fake, 0o755);
-  const setup = path.join(home, 'setup.mjs');
-  fs.writeFileSync(setup, `
-    const interval = globalThis.setInterval;
-    globalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 50 : ms, ...args);
-  `);
-  const [port] = await freePorts();
-  const child = spawn(process.execPath, ['--import', setup, path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
-  try {
-    await boardListening(child);
-    // Until the fake builder has written its whole first line, not just created the file.
-    await until(() => fs.existsSync(seen) && fs.readFileSync(seen, 'utf8').includes('\n'), 'the dead builder is relaunched');
-    assert.match(JSON.parse(fs.readFileSync(seen, 'utf8').trim().split('\n')[0]).argv[1], /builder start t\/R1 --kind build/);
-    await until(() => JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/R1']?.relaunched === true, 'the relaunch is tracked');
-    assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.id, 'sess-R1');
-    assert.match(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.log, /^builder-R1-.*\.log$/);
-    // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
-    const logged = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.call === 'relaunch');
-    assert.deepEqual({ ...logged, at: undefined }, { at: undefined, call: 'relaunch', key: 't/R1', result: 'relaunched', reason: 'Its builder exited with its record open, for the first time.', inputs: { model: 'opus', pid: dead.pid, relaunched: false } });
-  } finally {
-    await killAndWait(child);
-    stopFakeBuilders(seen);
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+  const { runs, launch } = launcher(t);
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  board.minute();
+  await board.settled();
+  assert.equal(runs.length, 1, 'the dead builder is relaunched');
+  assert.match(runs[0].prompt, /builder start t\/R1 --kind build/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/R1'].relaunched, true, 'the relaunch is tracked');
+  // The launch names its session, which goes on the card's builder record.
+  assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.id, runs[0].sessionId);
+  assert.match(JSON.parse(fs.readFileSync(path.join(data, 'agents', 'R1.json'), 'utf8')).session.log, /^builder-R1-.*\.log$/);
+  // docs/adr/2026-11-05-0913-the-hub-and-each-board-keep-an-audit-log-of-the-calls-their-code-makes.md
+  const logged = fs.readFileSync(path.join(data, 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.call === 'relaunch');
+  assert.deepEqual({ ...logged, at: undefined }, { at: undefined, call: 'relaunch', key: 't/R1', result: 'relaunched', reason: 'Its builder exited with its record open, for the first time.', inputs: { model: 'opus', pid: dead.pid, relaunched: false } });
 });
 
 // docs/adr/2026-11-05-2130-a-restarted-server-launches-the-build-its-pull-left-without-a-builder.md
-test("a restarted server launches the builder of an In Progress card whose record is still dispatched and untracked, and leaves a planner and a tracked one alone", async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-cutoff-'));
+test("a restarted server launches the builder of an In Progress card whose record is still dispatched and untracked, and leaves a planner and a tracked one alone", async (t) => {
+  const home = emptyHome();
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
@@ -604,32 +600,20 @@ test("a restarted server launches the builder of an In Progress card whose recor
   fs.writeFileSync(path.join(data, 'agents', 'C3.json'), record({ dispatched: 'hub' }));
   fs.writeFileSync(path.join(data, 'agents', 'C4.json'), record({}));
   fs.writeFileSync(path.join(data, 'headless-builders.json'), JSON.stringify({ 't/C3': { model: 'opus', pid: process.pid, relaunched: false } }));
-  const seen = path.join(home, 'claude-runs.jsonl');
-  const fake = path.join(home, 'claude');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), pid: process.pid }) + '\\n');\n${untilTestEnds()};\n`);
-  fs.chmodSync(fake, 0o755);
-  const [port] = await freePorts();
-  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
-  try {
-    await boardListening(child);
-    await until(() => fs.existsSync(seen) && fs.readFileSync(seen, 'utf8').includes('\n'), 'the cut-off builder launches');
-    await until(() => JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/C1']?.relaunched === false, 'the launch is tracked');
-    const runs = fs.readFileSync(seen, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    assert.equal(runs.length, 1);
-    assert.match(runs[0].argv[1], /builder start t\/C1 --kind build/);
-  } finally {
-    await killAndWait(child);
-    stopFakeBuilders(seen);
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+  const { runs, launch } = launcher(t);
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.equal(runs.length, 1, 'the cut-off builder launches, and only it');
+  assert.match(runs[0].prompt, /builder start t\/C1 --kind build/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'headless-builders.json'), 'utf8'))['t/C1']?.relaunched, false, 'the launch is tracked');
 });
 
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
-// A local board over a git repo, its wave's items, and a fake claude at bin (by default one that logs each run).
-// With init, the fake claude names its session as Claude's first stream-json line does, so its run log reads as a
-// Claude run's; start's fastMinute runs the server's minute check every 50ms.
-function oneLaunchBoard(items, bin, { init = false } = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-one-'));
+// A local board over a git repo and its wave's items, its server in this process launching agents through launcher's
+// launch; start() starts it, and its send(kind, body) posts a page event and resolves, with the answer, once the watch
+// would have heard the event's writes and the passes they started have finished.
+function oneLaunchBoard(t, items) {
+  const home = emptyHome();
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(path.join(data, 'threads'), { recursive: true });
@@ -647,108 +631,81 @@ function oneLaunchBoard(items, bin, { init = false } = {}) {
   fs.writeFileSync(manifest, JSON.stringify({ sites: { shop: { dir: site, port: 1, cmd: ['node', '/x/board/server.mjs'], branch: 'main', local: true, owner: { repo: clone } } } }));
   fs.writeFileSync(path.join(site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
   fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items }));
-  const seen = path.join(home, 'claude-runs.jsonl');
-  const fake = bin ?? path.join(home, 'claude');
-  if (!bin) {
-    fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\n${init ? "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }));\n" : ''}// Stays running, as a planner does until its own done: the board closes the record of a planner whose process is gone (docs/adr/2026-11-12-1000-a-planner-whose-process-is-gone-closes-at-once.md).\n${untilTestEnds()};\n`);
-    fs.chmodSync(fake, 0o755);
-  }
-  const runs = () => (fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
+  const agents = launcher(t);
   const events = () => (fs.existsSync(path.join(data, 'events.jsonl')) ? fs.readFileSync(path.join(data, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).kind) : []);
   const thread = (id) => (fs.existsSync(path.join(data, 'threads', `t__${id}.jsonl`)) ? fs.readFileSync(path.join(data, 'threads', `t__${id}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse) : []);
   const record = (id) => JSON.parse(fs.readFileSync(path.join(data, 'agents', `${id}.json`), 'utf8'));
   const item = (id) => JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items.find((i) => i.id === id);
-  // The orchestrator's `item brief` on card id: its words, for an agent of kind.
-  const brief = (id, kind, words) => {
-    const draft = path.join(home, `brief-${id}-${kind}.md`);
-    fs.writeFileSync(draft, words);
-    return writeBrief(site, `t/${id}`, { kind, file: draft });
-  };
-  async function start({ fastMinute = false } = {}) {
-    const [port] = await freePorts();
-    const setup = path.join(home, 'setup.mjs');
-    if (fastMinute) fs.writeFileSync(setup, 'const interval = globalThis.setInterval;\nglobalThis.setInterval = (fn, ms, ...args) => interval(fn, ms === 60000 ? 50 : ms, ...args);\n');
-    const child = spawn(process.execPath, [...(fastMinute ? ['--import', setup] : []), path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1', KICKFLIP_CLAUDE: fake } });
-    await boardListening(child);
-    const send = (kind, body) => fetch(`http://127.0.0.1:${port}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...body }) }).then((r) => r.json());
-    return { child, send };
+  async function start() {
+    const board = await startBoard(t, { site, launch: agents.launch });
+    await board.settled();
+    const send = async (kind, body) => {
+      const answer = await fetch(`${board.base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...body }) }).then((r) => r.json());
+      await wrote(board);
+      return answer;
+    };
+    // The orchestrator's `item brief` on card id: its words, for an agent of kind.
+    const brief = async (id, kind, words) => {
+      const draft = path.join(home, `brief-${id}-${kind}.md`);
+      fs.writeFileSync(draft, words);
+      await writeBrief(site, `t/${id}`, { kind, file: draft });
+      await wrote(board, path.join(data, 'items.json'));
+    };
+    return { board, send, brief };
   }
-  // Stops the server and every agent it recorded, waits for each to exit (the server still writes under data/ while it
-  // reacts to a dead agent), then removes the folder.
-  async function cleanup(child, ...pids) {
-    if (child) {
-      const exited = child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise((resolve) => child.once('exit', resolve));
-      child.kill();
-      await exited;
-    }
-    const agents = path.join(data, 'agents');
-    const recorded = fs.existsSync(agents) ? fs.readdirSync(agents).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(agents, f), 'utf8')).session?.pid) : [];
-    const all = [...recorded, ...pids].filter(Boolean);
-    for (const pid of all) try { process.kill(pid, 'SIGKILL'); } catch {}
-    await until(() => all.every((pid) => { try { process.kill(pid, 0); return false; } catch (e) { return e.code !== 'EPERM'; } }), 'the agents exit');
-    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-  }
-  return { home, site, data, clone, runs, events, thread, record, item, brief, start, cleanup };
+  return { home, site, data, clone, ...agents, events, thread, record, item, start };
 }
 
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
-test("the owner's Grill and Prototype taps and a card arriving in Todo launch no planner but owe the orchestrator's brief, which launches it from the card, in the board's repo", async () => {
-  const b = oneLaunchBoard([
+test("the owner's Grill and Prototype taps and a card arriving in Todo launch no planner but owe the orchestrator's brief, which launches it from the card, in the board's repo", async (t) => {
+  const b = oneLaunchBoard(t, [
     { id: 'G1', title: 'Grill me', phase: 'discussing' },
     { id: 'P1', title: 'Draw me', phase: 'discussing' },
     { id: 'Q1', title: 'Plan me' },
   ]);
-  const { child, send } = await b.start();
-  try {
-    await send('grill-more', { key: 't/G1', text: 'Ask about the phone' });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 0, 'the tap launches nothing');
-    assert.deepEqual([b.item('G1').phase, b.item('G1').briefs.map((x) => [x.kind, x.ask, x.brief])], ['grilling', [['grill', { text: 'Ask about the phone' }, undefined]]]);
-    const waitsFile = path.join(b.data, 'orchestrator-waits.json');
-    await until(() => fs.existsSync(waitsFile) && JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits.some((w) => w.key === 't/G1' && w.kind === 'brief'), 'the brief waits on the orchestrator');
+  const { board, send, brief } = await b.start();
+  await send('grill-more', { key: 't/G1', text: 'Ask about the phone' });
+  assert.equal(b.runs.length, 0, 'the tap launches nothing');
+  assert.deepEqual([b.item('G1').phase, b.item('G1').briefs.map((x) => [x.kind, x.ask, x.brief])], ['grilling', [['grill', { text: 'Ask about the phone' }, undefined]]]);
+  const waits = JSON.parse(fs.readFileSync(path.join(b.data, 'orchestrator-waits.json'), 'utf8')).waits;
+  assert.ok(waits.some((w) => w.key === 't/G1' && w.kind === 'brief'), 'the brief waits on the orchestrator');
 
-    await b.brief('G1', 'grill', 'Settled: the footer folds.\nOpen: the phone layout.');
-    await untilHeard(() => b.runs().length === 1, 'the brief launches the grill', path.join(b.data, 'nudge'));
-    const [grill] = b.runs();
-    assert.equal(grill.cwd, fs.realpathSync(b.clone));
-    assert.match(grill.argv[1], /builder start t\/G1 --kind grill/);
-    assert.match(grill.argv[1], /grilling skill/);
-    assert.match(grill.argv[1], /Start from the orchestrator's brief, its notes section "Brief for grill round 1"[^]*Settled: the footer folds\.\nOpen: the phone layout\.[^]*1\. Run/);
-    assert.match(grill.argv[1], /The owner asked for this grill, writing: "Ask about the phone"/);
-    assert.equal(grill.argv[grill.argv.indexOf('--model') + 1], 'opus');
-    assert.deepEqual([b.record('G1').kind, b.record('G1').dispatched, b.record('G1').brief.brief.heading], ['grill', 'hub', 'Brief for grill round 1']);
-    await until(() => b.record('G1').session?.log, 'the launch records its session');
-    assert.match(b.record('G1').session.log, /^planner-G1-.*\.log$/);
-    assert.deepEqual([b.item('G1').lane, b.item('G1').briefs], ['todo', undefined], 'a planner never starts the card, and its brief left the card');
+  await brief('G1', 'grill', 'Settled: the footer folds.\nOpen: the phone layout.');
+  assert.equal(b.runs.length, 1, 'the brief launches the grill');
+  const [grill] = b.runs;
+  assert.equal(grill.cwd, b.clone);
+  assert.match(grill.prompt, /builder start t\/G1 --kind grill/);
+  assert.match(grill.prompt, /grilling skill/);
+  assert.match(grill.prompt, /Start from the orchestrator's brief, its notes section "Brief for grill round 1"[^]*Settled: the footer folds\.\nOpen: the phone layout\.[^]*1\. Run/);
+  assert.match(grill.prompt, /The owner asked for this grill, writing: "Ask about the phone"/);
+  assert.deepEqual([grill.kind, grill.model], ['claude', 'opus']);
+  assert.deepEqual([b.record('G1').kind, b.record('G1').dispatched, b.record('G1').brief.brief.heading], ['grill', 'hub', 'Brief for grill round 1']);
+  assert.match(b.record('G1').session.log, /^planner-G1-.*\.log$/, 'the launch records its session');
+  assert.deepEqual([b.item('G1').lane, b.item('G1').briefs], ['todo', undefined], 'a planner never starts the card, and its brief left the card');
 
-    await send('prototype-request', { key: 't/P1' });
-    await b.brief('P1', 'prototype', 'Two takes: a drawer and a sheet.');
-    await untilHeard(() => b.runs().length === 2, 'the prototype launches', path.join(b.data, 'nudge'));
-    const proto = b.runs()[1];
-    assert.match(proto.argv[1], /builder start t\/P1 --kind prototype/);
-    assert.match(proto.argv[1], /Two takes: a drawer and a sheet\./);
-    assert.equal(proto.argv[proto.argv.indexOf('--model') + 1], 'sonnet');
+  await send('prototype-request', { key: 't/P1' });
+  await brief('P1', 'prototype', 'Two takes: a drawer and a sheet.');
+  assert.equal(b.runs.length, 2, 'the prototype launches');
+  const proto = b.runs[1];
+  assert.match(proto.prompt, /builder start t\/P1 --kind prototype/);
+  assert.match(proto.prompt, /Two takes: a drawer and a sheet\./);
+  assert.equal(proto.model, 'sonnet');
 
-    // With Auto implement on, the card that arrived in Todo with no planner yet owes its grill's brief; the planned ones don't.
-    for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
-    fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
-    await untilHeard(() => b.item('Q1').briefs?.length, 'the arrival owes a grill brief', path.join(b.data, 'nudge'));
-    assert.deepEqual(b.item('Q1').briefs.map((x) => x.kind), ['grill']);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 2, 'the arrival launches nothing by itself');
-    assert.deepEqual(b.thread('Q1'), [], 'the arrival posts no thread line of its own');
-    await b.brief('Q1', 'grill', 'Plan it.');
-    await untilHeard(() => b.runs().length === 3, 'its brief launches the grill', path.join(b.data, 'nudge'));
-    assert.match(b.runs()[2].argv[1], /builder start t\/Q1 --kind grill/);
-    await until(() => b.record('Q1').session?.log, 'the launch records the run');
-    assert.ok(!b.events().includes('card-plan'), 'the grill wakes no session');
-    // A brief while the card's planner is open launches nothing more, until it finishes.
-    await b.brief('Q1', 'grill', 'And the desktop.');
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 3);
-  } finally {
-    await b.cleanup(child);
-  }
+  // With Auto implement on, the card that arrived in Todo with no planner yet owes its grill's brief; the planned ones don't.
+  for (const id of ['G1', 'P1']) fs.writeFileSync(path.join(b.data, 'agents', `${id}.json`), JSON.stringify({ ...b.record(id), done: new Date().toISOString() }));
+  fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't' }));
+  await wrote(board, path.join(b.data, 'agents', 'G1.json'), path.join(b.data, 'agents', 'P1.json'), path.join(b.site, 'board.json'));
+  assert.deepEqual(b.item('Q1').briefs?.map((x) => x.kind), ['grill'], 'the arrival owes a grill brief');
+  assert.equal(b.runs.length, 2, 'the arrival launches nothing by itself');
+  assert.deepEqual(b.thread('Q1'), [], 'the arrival posts no thread line of its own');
+  await brief('Q1', 'grill', 'Plan it.');
+  assert.equal(b.runs.length, 3, 'its brief launches the grill');
+  assert.match(b.runs[2].prompt, /builder start t\/Q1 --kind grill/);
+  assert.ok(b.record('Q1').session?.log, 'the launch records the run');
+  assert.ok(!b.events().includes('card-plan'), 'the grill wakes no session');
+  // A brief while the card's planner is open launches nothing more, until it finishes.
+  await brief('Q1', 'grill', 'And the desktop.');
+  assert.equal(b.runs.length, 3);
 });
 
 // docs/adr/2026-11-06-1249-the-pause-line-reads-every-headless-agents-usage.md
@@ -757,6 +714,7 @@ const usageAt = (home, used) => {
   const resets = new Date(Date.now() + 3600_000).toISOString();
   fs.writeFileSync(file, JSON.stringify({ claude: { at: new Date(Date.now() - 600_000).toISOString(), five_hour: { used_percentage: used, resets_at: resets }, seven_day: { used_percentage: 20, resets_at: resets } } }));
 };
+// The newest run's log reports used, as a Claude run's rate_limit_event does.
 const reportUsage = (home, used) => {
   const dir = path.join(home, '.claude', 'kickflip', 'logs');
   const newest = fs.readdirSync(dir).filter((n) => n.endsWith('.log')).sort().at(-1);
@@ -764,60 +722,54 @@ const reportUsage = (home, used) => {
   fs.appendFileSync(path.join(dir, newest), JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: used / 100, resetsAt, status: 'allowed' }, seven_day: { utilization: 0.2, resetsAt, status: 'allowed' } } } }) + '\n');
 };
 
-test('a grill briefed during a pause waits on the card and launches when the pause lifts', async () => {
-  const b = oneLaunchBoard([{ id: 'G1', title: 'Grill me', phase: 'grilling' }]);
+test('a grill briefed during a pause waits on the card and launches when the pause lifts', async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'G1', title: 'Grill me', phase: 'grilling' }]);
   usageAt(b.home, 95);
-  const { child, send } = await b.start({ fastMinute: true });
-  try {
-    await send('grill-more', { key: 't/G1', text: 'One more thing' });
-    await b.brief('G1', 'grill', 'Ask about the footer.');
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 0, 'nothing launches while paused');
-    assert.equal(b.item('G1').briefs[0].brief.heading, 'Brief for grill round 1', 'the brief waits on the card');
-    fs.rmSync(path.join(b.home, '.claude', 'kickflip', 'usage.json'));
-    await until(() => b.runs().length === 1, 'the grill launches once the pause lifts');
-    assert.match(b.runs()[0].argv[1], /builder start t\/G1 --kind grill/);
-    assert.match(b.runs()[0].argv[1], /One more thing/);
-    assert.match(b.runs()[0].argv[1], /Ask about the footer\./);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 1, 'it launches once');
-  } finally {
-    await b.cleanup(child);
-  }
+  const { board, send, brief } = await b.start();
+  await send('grill-more', { key: 't/G1', text: 'One more thing' });
+  await brief('G1', 'grill', 'Ask about the footer.');
+  assert.equal(b.runs.length, 0, 'nothing launches while paused');
+  assert.equal(b.item('G1').briefs[0].brief.heading, 'Brief for grill round 1', 'the brief waits on the card');
+  fs.rmSync(path.join(b.home, '.claude', 'kickflip', 'usage.json'));
+  board.minute();
+  await board.settled();
+  assert.equal(b.runs.length, 1, 'the grill launches once the pause lifts');
+  assert.match(b.runs[0].prompt, /builder start t\/G1 --kind grill/);
+  assert.match(b.runs[0].prompt, /One more thing/);
+  assert.match(b.runs[0].prompt, /Ask about the footer\./);
+  board.minute();
+  await board.settled();
+  assert.equal(b.runs.length, 1, 'it launches once');
 });
 
-test('within twice the buffer of the line the board starts one agent, and the next once that one has reported its usage', async () => {
-  const b = oneLaunchBoard([{ id: 'A1', title: 'First', phase: 'grilling' }, { id: 'A2', title: 'Second', phase: 'grilling' }], undefined, { init: true });
+test('within twice the buffer of the line the board starts one agent, and the next once that one has reported its usage', async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'A1', title: 'First', phase: 'grilling' }, { id: 'A2', title: 'Second', phase: 'grilling' }]);
   fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', max_planners: 2 }));
   usageAt(b.home, 85);
-  const { child } = await b.start({ fastMinute: true });
-  try {
-    for (const id of ['A1', 'A2']) await await b.brief(id, 'grill', `Grill ${id}.`);
-    await untilHeard(() => b.runs().length === 1, 'the first grill launches', path.join(b.data, 'nudge'));
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.equal(b.runs().length, 1, 'the second waits for the first run to report');
-    reportUsage(b.home, 86);
-    await until(() => b.runs().length === 2, 'the second grill launches once the first has reported');
-  } finally {
-    await b.cleanup(child);
-  }
+  const { board, brief } = await b.start();
+  for (const id of ['A1', 'A2']) await brief(id, 'grill', `Grill ${id}.`);
+  assert.equal(b.runs.length, 1, 'the first grill launches');
+  board.minute();
+  await board.settled();
+  assert.equal(b.runs.length, 1, 'the second waits for the first run to report');
+  reportUsage(b.home, 86);
+  board.minute();
+  await board.settled();
+  assert.equal(b.runs.length, 2, 'the second grill launches once the first has reported');
 });
 
-test('a build whose builder fails to launch goes back to Todo with the reason, and wakes no session', async () => {
-  const b = oneLaunchBoard([{ id: 'F1', title: 'feat: fail me', phase: 'ready', size: 'large' }], path.join(os.tmpdir(), 'no-such-claude-here'));
-  const { child, send } = await b.start();
-  try {
-    const tapped = await send('card-build', { key: 't/F1' });
-    assert.equal(tapped.id, null);
-    const last = b.thread('F1').at(-1);
-    assert.equal(last.line, 'build-refused');
-    assert.match(last.text, /^Couldn't start implementing: the launch failed: .*ENOENT/);
-    assert.equal(b.item('F1').lane, 'todo', 'back in Todo');
-    assert.ok(b.record('F1').done, 'its builder record is closed');
-    assert.ok(!b.events().includes('card-build'));
-  } finally {
-    await b.cleanup(child);
-  }
+test('a build whose builder fails to launch goes back to Todo with the reason, and wakes no session', async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'F1', title: 'feat: fail me', phase: 'ready', size: 'large' }]);
+  b.failWith(Object.assign(new Error('spawn /no-such-claude-here ENOENT'), { code: 'ENOENT' }));
+  const { send } = await b.start();
+  const tapped = await send('card-build', { key: 't/F1' });
+  assert.equal(tapped.id, null);
+  const last = b.thread('F1').at(-1);
+  assert.equal(last.line, 'build-refused');
+  assert.match(last.text, /^Couldn't start implementing: the launch failed: .*ENOENT/);
+  assert.equal(b.item('F1').lane, 'todo', 'back in Todo');
+  assert.ok(b.record('F1').done, 'its builder record is closed');
+  assert.ok(!b.events().includes('card-build'));
 });
 
 // docs/adr/2026-11-05-0900-done-and-hold-stop-the-cards-headless-builder.md
@@ -842,66 +794,47 @@ test('an agent may run when ps gave no answer, and not when ps answered without 
 });
 
 // docs/adr/2026-11-09-1300-a-card-pause-stops-its-builder-at-its-next-stopping-point.md
-test("the owner's Hold pauses the card's running builder at its next progress report, and Resume carries on its own session", async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-fake-'));
-  const fake = path.join(home, 'claude');
-  const seen = path.join(home, 'runs.jsonl');
-  fs.writeFileSync(fake, `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');\nconsole.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid }));\n${untilTestEnds()};\n`);
-  fs.chmodSync(fake, 0o755);
-  const runs = () => fs.readFileSync(seen, 'utf8').trim().split('\n').map(JSON.parse);
-  const b = oneLaunchBoard([{ id: 'H1', title: 'feat: hold me', phase: 'ready', size: 'large' }], fake);
-  const { child, send } = await b.start();
-  let pid, resumed;
-  try {
-    await until(() => b.record('H1').session?.pid, 'the pull of the ready card records the agent pid');
-    ({ pid } = b.record('H1').session);
-    const session =b.record('H1').session.id;
-    await send('card-hold', { key: 't/H1', hold: true });
-    assert.doesNotThrow(() => process.kill(pid, 0), 'the builder runs on to its stopping point');
-    assert.deepEqual({ done: b.record('H1').done, pause: b.record('H1').pause?.cause, lane: b.item('H1').lane }, { done: undefined, pause: 'held', lane: 'progress' }, `read the record ${JSON.stringify(b.record('H1'))}`);
-    assert.deepEqual(b.thread('H1').at(-1).text, 'Held', 'nothing stopped, so no stop line');
-    const old = process.env.HOME;
-    process.env.HOME = b.home;
-    try { assert.match((await builderProgress(b.site, 't/H1', 'Writing the test', { phase: 'building' })).lines[0], /^Paused: held\. Commit what you have now/); } finally { process.env.HOME = old; }
-    assert.equal(b.thread('H1').at(-1).text, 'Paused at building: held. It resumes once you unhold it.');
-    process.kill(pid, 'SIGKILL');
-    await send('card-hold', { key: 't/H1', hold: false });
-    await untilHeard(() => b.record('H1').session?.pid && b.record('H1').session.pid !== pid, 'the resume launches its session again', path.join(b.data, 'nudge'));
-    resumed = b.record('H1').session.pid;
-    const [, again] = runs();
-    assert.deepEqual(again.argv.slice(0, 2), ['--resume', session]);
-    assert.match(again.argv[3], /^The board paused your build of card H1, and the pause has cleared: unheld\. Carry on where you stopped/);
-    assert.equal(again.cwd, fs.realpathSync(b.record('H1').worktree.path));
-    assert.deepEqual([b.record('H1').pause, b.record('H1').done], [undefined, undefined]);
-    assert.ok(b.thread('H1').some((t) => t.text === 'Resumed: unheld.'));
-  } finally {
-    await b.cleanup(child, pid, resumed);
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+test("the owner's Hold pauses the card's running builder at its next progress report, and Resume carries on its own session", async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'H1', title: 'feat: hold me', phase: 'ready', size: 'large' }]);
+  const { send } = await b.start();
+  const { pid, id: session } = b.record('H1').session;
+  assert.equal(pid, b.runs[0].pid, 'the pull of the ready card records the agent pid');
+  await send('card-hold', { key: 't/H1', hold: true });
+  assert.doesNotThrow(() => process.kill(pid, 0), 'the builder runs on to its stopping point');
+  assert.deepEqual({ done: b.record('H1').done, pause: b.record('H1').pause?.cause, lane: b.item('H1').lane }, { done: undefined, pause: 'held', lane: 'progress' }, `read the record ${JSON.stringify(b.record('H1'))}`);
+  assert.deepEqual(b.thread('H1').at(-1).text, 'Held', 'nothing stopped, so no stop line');
+  assert.match((await builderProgress(b.site, 't/H1', 'Writing the test', { phase: 'building' })).lines[0], /^Paused: held\. Commit what you have now/);
+  assert.equal(b.thread('H1').at(-1).text, 'Paused at building: held. It resumes once you unhold it.');
+  await b.gone(pid);
+  await send('card-hold', { key: 't/H1', hold: false });
+  assert.equal(b.runs.length, 2, 'the resume launches its session again');
+  assert.equal(b.record('H1').session.pid, b.runs[1].pid);
+  const [, again] = b.runs;
+  assert.equal(again.resume, session);
+  assert.match(again.prompt, /^The board paused your build of card H1, and the pause has cleared: unheld\. Carry on where you stopped/);
+  assert.equal(again.cwd, b.record('H1').worktree.path);
+  assert.deepEqual([b.record('H1').pause, b.record('H1').done], [undefined, undefined]);
+  assert.ok(b.thread('H1').some((m) => m.text === 'Resumed: unheld.'));
 });
 
 // docs/adr/2026-11-06-1100-only-typed-thread-messages-wake-the-orchestrator.md
-test("Resume relaunches the grill a Hold stopped from the brief it ran on, and neither tap wakes a session", async () => {
-  const b = oneLaunchBoard([{ id: 'G2', title: 'Grill me', phase: 'grilling' }]);
-  const { child, send } = await b.start();
-  try {
-    await send('grill-more', { key: 't/G2', text: 'Ask about the footer' });
-    await b.brief('G2', 'grill', 'Cover the footer on a phone.');
-    await untilHeard(() => b.runs().length === 1, 'the grill launches', path.join(b.data, 'nudge'));
-    assert.match(b.runs()[0].argv[1], /Ask about the footer/, 'the typed text goes to the planner');
-    await send('card-hold', { key: 't/G2', hold: true });
-    assert.ok(b.record('G2').done, 'the hold closed the grill');
-    await send('card-hold', { key: 't/G2', hold: false });
-    await until(() => b.runs().length === 2, 'the resume launches the grill again');
-    assert.match(b.runs()[1].argv[1], /builder start t\/G2 --kind grill/);
-    assert.match(b.runs()[1].argv[1], /Cover the footer on a phone\.[^]*Ask about the footer/, 'with its brief and the ask it answered');
-  } finally {
-    await b.cleanup(child);
-  }
+test("Resume relaunches the grill a Hold stopped from the brief it ran on, and neither tap wakes a session", async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'G2', title: 'Grill me', phase: 'grilling' }]);
+  const { send, brief } = await b.start();
+  await send('grill-more', { key: 't/G2', text: 'Ask about the footer' });
+  await brief('G2', 'grill', 'Cover the footer on a phone.');
+  assert.equal(b.runs.length, 1, 'the grill launches');
+  assert.match(b.runs[0].prompt, /Ask about the footer/, 'the typed text goes to the planner');
+  await send('card-hold', { key: 't/G2', hold: true });
+  assert.ok(b.record('G2').done, 'the hold closed the grill');
+  await send('card-hold', { key: 't/G2', hold: false });
+  assert.equal(b.runs.length, 2, 'the resume launches the grill again');
+  assert.match(b.runs[1].prompt, /builder start t\/G2 --kind grill/);
+  assert.match(b.runs[1].prompt, /Cover the footer on a phone\.[^]*Ask about the footer/, 'with its brief and the ask it answered');
 });
 
-test('a stale lander entry for an archived Done card is dropped, and the card stays archived', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'headless-lander-stale-'));
+test('a stale lander entry for an archived Done card is dropped, and the card stays archived', async (t) => {
+  const home = emptyHome();
   const site = path.join(home, 'site');
   const data = path.join(site, 'data');
   fs.mkdirSync(path.join(data, 'agents'), { recursive: true });
@@ -911,17 +844,13 @@ test('a stale lander entry for an archived Done card is dropped, and the card st
   fs.writeFileSync(path.join(data, 'items.json'), JSON.stringify({ items: [{ id: 'D1', title: 'Landed', lane: 'done', closed_at: '2026-11-01T00:00:00.000Z' }, { id: 'T1', title: 'Other', lane: 'todo' }] }));
   await archiveCards(site, [{ key: 't/D1', closed_at: '2026-11-01T00:00:00.000Z' }]);
   fs.writeFileSync(path.join(data, 'landers.json'), JSON.stringify({ 't/D1': { verified: 'v1', pid: 2 ** 22 + 12345 } }));
-  const [port] = await freePorts();
-  const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'server.mjs'), site], { env: { ...process.env, HOME: home, PORT: String(port), KICKFLIP_HUB_PORT: '1' } });
-  try {
-    await boardListening(child);
-    await until(() => !('t/D1' in JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))), 'the stale entry is dropped');
-    assert.deepEqual((await readArchive(site)).map((a) => a.key), ['t/D1']);
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items.map((i) => i.id), ['T1']);
-  } finally {
-    await killAndWait(child);
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+  const { runs, launch } = launcher(t);
+  const board = await startBoard(t, { site, launch });
+  await board.settled();
+  assert.ok(!('t/D1' in JSON.parse(fs.readFileSync(path.join(data, 'landers.json'), 'utf8'))), 'the stale entry is dropped');
+  assert.deepEqual((await readArchive(site)).map((a) => a.key), ['t/D1']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(data, 'items.json'), 'utf8')).items.map((i) => i.id), ['T1']);
+  assert.equal(runs.length, 0);
 });
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
@@ -938,57 +867,47 @@ test("a visual agent's brief has it start as its own agent, read the card and th
 });
 
 // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md
-test('a new task launches no agent: it arrives as a New card that waits on the orchestrator, which sorts it', async () => {
-  const b = oneLaunchBoard([{ id: 'A1', title: 'Filed', phase: 'grilling', lane: 'progress' }]);
-  const { child, send } = await b.start();
-  try {
-    const { id } = await send('ask', { text: 'Make the header blue' });
-    const filed = JSON.parse(fs.readFileSync(path.join(b.data, 'items.json'), 'utf8')).items.find((i) => i.from_ask === id);
-    assert.deepEqual([filed.title, filed.lane, filed.phase], ['Make the header blue', 'todo', undefined]);
-    const waitsFile = path.join(b.data, 'orchestrator-waits.json');
-    await until(() => fs.existsSync(waitsFile) && JSON.parse(fs.readFileSync(waitsFile, 'utf8')).waits.some((w) => w.key === `t/${filed.id}` && w.kind === 'intake'), 'the intake wait');
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 0);
-    assert.equal(fs.existsSync(path.join(b.data, 'intake-runs.json')), false);
-  } finally {
-    await b.cleanup(child);
-  }
+test('a new task launches no agent: it arrives as a New card that waits on the orchestrator, which sorts it', async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'A1', title: 'Filed', phase: 'grilling', lane: 'progress' }]);
+  const { send } = await b.start();
+  const { id } = await send('ask', { text: 'Make the header blue' });
+  const filed = JSON.parse(fs.readFileSync(path.join(b.data, 'items.json'), 'utf8')).items.find((i) => i.from_ask === id);
+  assert.deepEqual([filed.title, filed.lane, filed.phase], ['Make the header blue', 'todo', undefined]);
+  const waits = JSON.parse(fs.readFileSync(path.join(b.data, 'orchestrator-waits.json'), 'utf8')).waits;
+  assert.ok(waits.some((w) => w.key === `t/${filed.id}` && w.kind === 'intake'), 'the intake wait');
+  assert.equal(b.runs.length, 0);
+  assert.equal(fs.existsSync(path.join(b.data, 'intake-runs.json')), false);
 });
 
-test("the owner's visual request owes the orchestrator's visual brief, which launches a visual agent on Sonnet beside the card's build, as its own agent, and a second waits for the first to finish", async () => {
-  const b = oneLaunchBoard([{ id: 'V1', title: 'Show me', lane: 'progress' }]);
+test("the owner's visual request owes the orchestrator's visual brief, which launches a visual agent on Sonnet beside the card's build, as its own agent, and a second waits for the first to finish", async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'V1', title: 'Show me', lane: 'progress' }]);
   fs.mkdirSync(path.join(b.data, 'agents'), { recursive: true });
   const build = { kind: 'claude', model: 'opus', started: new Date().toISOString(), worktree: { path: b.clone } };
   fs.writeFileSync(path.join(b.data, 'agents', 'V1.json'), JSON.stringify(build));
-  const { child, send } = await b.start();
-  try {
-    await send('visual-request', { key: 't/V1', text: 'Draw the queue' });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 0, 'the tap launches nothing');
-    assert.deepEqual([b.item('V1').lane, b.item('V1').briefs.map((x) => [x.kind, x.ask])], ['progress', [['visual', { text: 'Draw the queue' }]]]);
-    await b.brief('V1', 'visual', 'The land queue as a flow, oldest first.');
-    await untilHeard(() => b.runs().length === 1, 'the visual agent launches beside the build', path.join(b.data, 'nudge'));
-    const [run] = b.runs();
-    const agent = /--agent (visual-\d+)/.exec(run.argv[1])[1];
-    assert.equal(run.cwd, fs.realpathSync(b.clone));
-    assert.match(run.argv[1], new RegExp(`builder start t/V1 --kind visual --agent ${agent}`));
-    assert.match(run.argv[1], /The land queue as a flow, oldest first\.[^]*Draw the queue/);
-    assert.equal(run.argv[run.argv.indexOf('--model') + 1], 'sonnet');
-    const visual = b.record(`V1@${agent}`);
-    assert.deepEqual([visual.kind, visual.model, visual.dispatched, visual.brief.brief.heading], ['visual', 'sonnet', 'hub', 'Brief for visual round 1']);
-    assert.deepEqual(b.record('V1'), build, "the build's record is untouched");
-    await until(() => b.record(`V1@${agent}`).session?.log, 'the launch records the run');
+  const { board, send, brief } = await b.start();
+  await send('visual-request', { key: 't/V1', text: 'Draw the queue' });
+  assert.equal(b.runs.length, 0, 'the tap launches nothing');
+  assert.deepEqual([b.item('V1').lane, b.item('V1').briefs.map((x) => [x.kind, x.ask])], ['progress', [['visual', { text: 'Draw the queue' }]]]);
+  await brief('V1', 'visual', 'The land queue as a flow, oldest first.');
+  assert.equal(b.runs.length, 1, 'the visual agent launches beside the build');
+  const [run] = b.runs;
+  const agent = /--agent (visual-\d+)/.exec(run.prompt)[1];
+  assert.equal(run.cwd, b.clone);
+  assert.match(run.prompt, new RegExp(`builder start t/V1 --kind visual --agent ${agent}`));
+  assert.match(run.prompt, /The land queue as a flow, oldest first\.[^]*Draw the queue/);
+  assert.equal(run.model, 'sonnet');
+  const visual = b.record(`V1@${agent}`);
+  assert.deepEqual([visual.kind, visual.model, visual.dispatched, visual.brief.brief.heading], ['visual', 'sonnet', 'hub', 'Brief for visual round 1']);
+  assert.deepEqual(b.record('V1'), build, "the build's record is untouched");
+  assert.ok(visual.session?.log, 'the launch records the run');
 
-    await b.brief('V1', 'visual', 'Now the review lane.');
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(b.runs().length, 1, 'the second waits while the first runs');
-    fs.writeFileSync(path.join(b.data, 'agents', `V1@${agent}.json`), JSON.stringify({ ...b.record(`V1@${agent}`), done: new Date().toISOString() }));
-    await untilHeard(() => b.runs().length === 2, 'the second launches once the first is done', path.join(b.data, 'nudge'));
-    assert.doesNotMatch(b.runs()[1].argv[1], new RegExp(`--agent ${agent}\\b`));
-    assert.match(b.runs()[1].argv[1], /Now the review lane\./);
-  } finally {
-    await b.cleanup(child);
-  }
+  await brief('V1', 'visual', 'Now the review lane.');
+  assert.equal(b.runs.length, 1, 'the second waits while the first runs');
+  fs.writeFileSync(path.join(b.data, 'agents', `V1@${agent}.json`), JSON.stringify({ ...b.record(`V1@${agent}`), done: new Date().toISOString() }));
+  await wrote(board, path.join(b.data, 'agents', `V1@${agent}.json`));
+  assert.equal(b.runs.length, 2, 'the second launches once the first is done');
+  assert.doesNotMatch(b.runs[1].prompt, new RegExp(`--agent ${agent}\\b`));
+  assert.match(b.runs[1].prompt, /Now the review lane\./);
 });
 
 // docs/adr/2026-11-06-0425-the-implementer-limit-counts-agents-and-a-card-spawns-helpers.md
@@ -1019,8 +938,8 @@ test("a builder's, a lander's and a writing helper's brief give the commit stand
   assert.ok(build.includes(`--title "<type>(<scope>): <what the PR does>"`), build);
 });
 
-test('a writing helper waits while the board has no implementer slot free, launches once its spawner waits on it, in its own worktree off the card branch', async () => {
-  const b = oneLaunchBoard([{ id: 'V1', title: 'Split me', lane: 'progress' }]);
+test('a writing helper waits while the board has no implementer slot free, launches once its spawner waits on it, in its own worktree off the card branch', async (t) => {
+  const b = oneLaunchBoard(t, [{ id: 'V1', title: 'Split me', lane: 'progress' }]);
   fs.writeFileSync(path.join(b.site, 'board.json'), JSON.stringify({ title: 'Shop', items: 'data/items.json', slug: 't', max_implementers: 1 }));
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
   const cardTree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1');
@@ -1029,26 +948,22 @@ test('a writing helper waits while the board has no implementer slot free, launc
   const main = { kind: 'claude', model: 'opus', started: new Date().toISOString(), worktree: { path: cardTree, branch: 'V1', repo: b.clone } };
   const write = (name, value) => fs.writeFileSync(path.join(b.data, 'agents', `${name}.json`), JSON.stringify(value));
   write('V1', main);
-  const { child } = await b.start();
-  try {
-    write('V1@tests', { label: 'tests', kind: 'helper', task: 'Write the split tests', writes: true, model: 'sonnet', requested: new Date().toISOString() });
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    assert.equal(b.runs().length, 0, 'the build holds the one slot, so the helper waits');
-    assert.equal(b.record('V1@tests').started, undefined);
-    write('V1', { ...main, waits: 'tests' });
-    await until(() => b.runs().length === 1, 'the build waiting on its helper frees the slot');
-    const [run] = b.runs();
-    const tree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1-tests');
-    assert.equal(run.cwd, fs.realpathSync(tree));
-    assert.match(run.argv[1], /builder start t\/V1 --kind helper --agent tests/);
-    assert.match(run.argv[1], /Write the split tests/);
-    assert.equal(run.argv[run.argv.indexOf('--model') + 1], 'sonnet');
-    const helper = b.record('V1@tests');
-    assert.deepEqual([helper.kind, helper.dispatched, helper.task, helper.writes, helper.worktree.branch], ['helper', 'hub', 'Write the split tests', true, 'V1-tests']);
-    assert.equal(git(tree, 'rev-parse', 'HEAD'), git(cardTree, 'rev-parse', 'HEAD'), "it branches from the card's branch");
-    await until(() => b.record('V1@tests').session?.log, 'the launch records the run');
-  } finally {
-    await b.cleanup(child);
-  }
+  const { board } = await b.start();
+  write('V1@tests', { label: 'tests', kind: 'helper', task: 'Write the split tests', writes: true, model: 'sonnet', requested: new Date().toISOString() });
+  await wrote(board, path.join(b.data, 'agents', 'V1@tests.json'));
+  assert.equal(b.runs.length, 0, 'the build holds the one slot, so the helper waits');
+  assert.equal(b.record('V1@tests').started, undefined);
+  write('V1', { ...main, waits: 'tests' });
+  await wrote(board, path.join(b.data, 'agents', 'V1.json'));
+  assert.equal(b.runs.length, 1, 'the build waiting on its helper frees the slot');
+  const [run] = b.runs;
+  const tree = path.join(b.home, '.claude', 'kickflip', 'worktrees', 'V1-tests');
+  assert.equal(fs.realpathSync(run.cwd), fs.realpathSync(tree));
+  assert.match(run.prompt, /builder start t\/V1 --kind helper --agent tests/);
+  assert.match(run.prompt, /Write the split tests/);
+  assert.equal(run.model, 'sonnet');
+  const helper = b.record('V1@tests');
+  assert.deepEqual([helper.kind, helper.dispatched, helper.task, helper.writes, helper.worktree.branch], ['helper', 'hub', 'Write the split tests', true, 'V1-tests']);
+  assert.equal(git(tree, 'rev-parse', 'HEAD'), git(cardTree, 'rev-parse', 'HEAD'), "it branches from the card's branch");
+  assert.ok(helper.session?.log, 'the launch records the run');
 });
-
