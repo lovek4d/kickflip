@@ -259,6 +259,13 @@ export function agentMayRun(agent, { starts = processStarts } = {}) {
   return starts([agent.pid]) === null || launchedAgents([agent], { starts }).length > 0;
 }
 
+// Whether a card already has a builder, from its open builder records (store.mjs openRuns): one with no process yet is a
+// start whose launch is still to come, and one with a process counts while agentMayRun says it may run. A card that has
+// one is never started again, so a second pull pass, or a resume, never puts a second builder beside the first.
+export function hasBuilder(runs, { starts = processStarts } = {}) {
+  return runs.some((r) => !r.pid || agentMayRun(r, { starts }));
+}
+
 // Stops the agents launchBuilder started (launchedAgents): SIGTERM to each agent's process group (it leads its own, so
 // its children go too), SIGKILL after killAfter ms. → how many it signalled.
 export function stopAgents(agents, { starts = processStarts, kill = (pid, sig) => process.kill(-pid, sig), killAfter = 5000 } = {}) {

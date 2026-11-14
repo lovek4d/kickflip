@@ -334,7 +334,7 @@ import { cardPRs, prKeyOf } from '../shared/card-prs.mjs';
 import { dropQueued } from '../hub/push.mjs';
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, watch as watchFiles } from 'node:fs';
 import { PROTOTYPE_TEMPLATE, esc, prototypePage, versionOf } from './prototype-page.mjs';
-import { agentMayRun, BOARD_CLI, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
+import { agentMayRun, BOARD_CLI, hasBuilder, landByBuilder, launchBuilder, launchedAgents, pidAlive, resumeBrief, resumeBuilder, reviveBuilders, runFailure, stopAgents, stopRuns } from './headless.mjs';
 import { replyFilesOf, dropAskCard, fileAsk, fileAsks, retitleAskCard, dropPause, markPaused, openRuns, requestPause, resumePaused, BoardError, publishUnscreened, readScreening, startHelper, startVisual, openAgents, isLanding, implementAsIs, stageImplement, clearOwnerWait, stageReply, planAgain, oweBrief, heldMerge, opensPRs, tapMerge, addTopic, appendStatus, archiveCards, archiveCount, archiveRank, readArchive, boardConfig, abandonLaunch, cutOffBuilds, abandonPlanner, closeGonePlanners, landable, relaunchLander, migrateFollowups, migrateGates, migratePhases, migrateStatuses, moveCard, stageImplementAsks, startPlanner, stripDeadFields, pickUp, startRebase, startTappedBuild, sendPush, recordOwnerTap, takeHoldStopped, clearStall, mergeCard, readPrototypes, takeFile, finishHandshake, itemSources, readAskLinks, readBoardRules, readBoardSettings, readHandshake, readHidden, readWaveNotes, readMarks, readNotes, readWorking, readUpload, addReviewers, removeReviewers, markRead, resolveNoteAnswers, settleAnswers, splitSharedNotes, unrecorded, saveBoardRules, saveBoardSettings, saveBoardShare, saveUpload, setBoardPause, setHidden, settingsOf, threadFile as siteThreadFile, wavesDir } from './store.mjs';
 import { changed as rulesChanged, readHubRules } from '../hub/rules.mjs';
 import { githubStateFile, boardAt, listenState, linksOf } from '../hub/boards.mjs';
@@ -1507,7 +1507,14 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
       logCall({ call: 'pull', key, result: startResult(started), reason: why, inputs: { cap, pullable, waiting } });
       return handOff(started);
     };
-    if (await sendPulls(PULL, waiting, heldByPause ? [] : pullNow(readUsageGate({ dir: here })), startPull)) return;
+    // A card that already has a builder, as a pass an instant earlier left it, is not started again.
+    const unstarted = [];
+    for (const key of heldByPause ? [] : pullNow(readUsageGate({ dir: here }))) {
+      const tracked = (await readJSON(path.join(data, 'headless-builders.json'), {}))[key];
+      if (!hasBuilder(await openRuns(here, key)) && !(tracked?.pid && pidAlive(tracked.pid))) { unstarted.push(key); continue; }
+      logCall({ call: 'pull', key, result: 'skipped', reason: 'It already has a builder.', inputs: {} });
+    }
+    if (await sendPulls(PULL, waiting, unstarted, startPull)) return;
     // docs/adr/2026-11-03-1731-each-board-reviews-incoming-prs-that-touch-its-work.md: one review at a time, after any pull.
     const { due, repo } = reviews;
     if (!ready || !due) return;
@@ -1703,6 +1710,8 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // resumePaused), and a build the board launched resumes in its own session (headless.mjs resumeBuilder), tracked as a
   // fresh launch. A session's own builder is the orchestrator's to resume: builder-resume wakes it.
   async function resumeBuild(key) {
+    // A builder whose hard stop got no answer from ps may still run: the pause stays until its process is gone.
+    if (hasBuilder((await openRuns(here, key)).filter((r) => r.pid))) return;
     const resumed = await resumePaused(here, key);
     if (!resumed) return;
     const { pause, record } = resumed;
