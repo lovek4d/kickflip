@@ -1896,7 +1896,7 @@ function checkGate(flag, q, field) {
   if (!q[flag]) return false;
   if (!q.topic.startsWith('item:') || q.topic.startsWith('item:ask:')) fail(`${field} goes on a task's topic, item:<file>/<id>`);
   const options = Object.keys(GATES[flag].keeps);
-  if (q.options?.map((o) => o.id).join() !== options.join()) fail(`${field} takes exactly the options ${options.join(', ')}, in that order`);
+  if (q.options?.map((o) => o.id).join() !== options.join()) fail(`${field} takes exactly the options ${options.join(', ')}, in that order; mark the pick with \`recommended: true\`, don't reorder them`);
   return true;
 }
 // docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md
