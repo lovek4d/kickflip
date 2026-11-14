@@ -1164,7 +1164,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
           // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md: a bare Implement readies the
           // card as it is and starts its build, with no event.
           if (bare && (card?.ready || card?.lane === 'todo')) {
-            await implementAsIs(here, key);
+            await implementAsIs(here, key, sendId);
             dataVersion++;
             return json(res, 200, { id: null, board: await answerBoard(req, since) });
           }

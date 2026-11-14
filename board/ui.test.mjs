@@ -2017,17 +2017,17 @@ test('a builder status line, and an agent starting or finishing, reads as one li
   const requests = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'grill-more', request: true, text: 'Grill requested', eventId: 'g1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'prototype-request', request: true, text: 'Prototype requested', eventId: 'p1', state: 'waiting', files: [] },
-    { ts: ago(0.5), who: 'love', kind: 'command', command: 'implement', request: true, mark: 'Implementation requested', text: 'Implementation requested', by: 'Dana Reyes' },
+    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging', by: 'Dana Reyes' },
   ]);
   assert.match(requests, new RegExp(`^<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Grill requested']}</span>Grill requested <span class="muted">· [^<]+ · <span>waiting…</span></span></div><div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Prototype requested'].replace(/[.*+?()[\]]/g, '\\$&')}</span>Prototype requested <span class="muted">`));
-  assert.ok(requests.includes(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Implementation requested']}</span>Implementation requested <span class="muted">· Dana Reyes · `));
+  assert.ok(requests.includes(`<div class="msg status-line request staged"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['Marked as staging']}</span>Marked as staging <span class="muted">· Dana Reyes · `));
   // docs/adr/2026-11-05-2331-a-sent-answer-is-resolved-in-place-until-the-page-reloads.md: a reopened question's line
   // varies with its number, so it names its mark.
   const reopened = ui.threadMessages([{ ts: ago(0.2), who: 'love', kind: 'question-reopen', request: true, mark: 'question reopened', text: 'Question 2 was reopened' }]);
   assert.ok(ui.MARK_ICONS['question reopened']);
   assert.ok(reopened.startsWith(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS['question reopened']}</span>Question 2 was reopened <span class="muted">`));
   assert.doesNotMatch(requests, /class="who"|data-event/);
-  assert.match(requests, /Implementation requested <span class="muted">· Dana Reyes · [^<]+<\/span><\/div>$/);
+  assert.match(requests, /Marked as staging <span class="muted">· Dana Reyes · [^<]+<\/span><\/div>$/);
 });
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
@@ -2746,13 +2746,14 @@ test("a Todo thread message's footer leads with an icon for Implement, a Reply's
   const html = ui.threadMessages([
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'hello', eventId: 'm1', state: 'waiting', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'go', status: 'Implement', eventId: 'm2', state: 'waiting', files: [] },
-    { ts: ago(0.5), who: 'love', kind: 'command', command: 'implement', request: true, mark: 'Implementation requested', text: 'Implementation requested' },
+    { ts: ago(0.5), who: 'claude', kind: 'command', command: 'staged', request: true, mark: 'Marked as staging', text: 'Marked as staging' },
   ]);
   assert.equal(html.split('class="foot-status"').length - 1, 1);
   assert.match(ui.MARK_ICONS.Implement, /^<svg class="mark-icon"/);
   assert.ok(html.includes(`<span class="foot-status"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implement</span>`));
-  assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS.Implement);
-  assert.ok(html.includes(`<div class="msg status-line request"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Implementation requested`));
+  assert.equal(ui.MARK_ICONS['Marked as staging'], ui.MARK_ICONS.Implement);
+  assert.equal(ui.MARK_ICONS['Implementation requested'], ui.MARK_ICONS['Marked as staging']);
+  assert.ok(html.includes(`<div class="msg status-line request staged"><span class="mark" aria-hidden="true">${ui.MARK_ICONS.Implement}</span>Marked as staging`));
 });
 
 test('a ↗ in a card title, a card details line, a thread line and a question draws as the arrow icon, never the character', () => {

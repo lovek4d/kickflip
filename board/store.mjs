@@ -481,8 +481,8 @@ export function messageText(body) {
 }
 // command is a button's key (domain.mjs COMMANDS), which makes the line its status line; card, on a link's line, the other
 // card's key, whose ref and title the thread draws when it renders (domain.mjs threadOf).
-async function appendCommand(site, key, { command, text: words = COMMANDS[command], who = 'claude', by, card }) {
-  const line = { ts: new Date().toISOString(), who, command, text: words, ...(by ? { by } : {}), ...(card ? { card } : {}) };
+async function appendCommand(site, key, { command, text: words = COMMANDS[command], who = 'claude', by, card, sendId }) {
+  const line = { ts: new Date().toISOString(), who, command, text: words, ...(sendId ? { sendId } : {}),...(by ? { by } : {}), ...(card ? { card } : {}) };
   await appendLine(threadFile(site, key), line);
   return { lines: [] };
 }
@@ -2189,7 +2189,7 @@ async function stageable(site, key) {
 }
 // Stages the card, keeping the time of a stage it is already in, with a "Marked as staging" status line when it newly
 // stages. A Keep discussing the stage overrides is spent (spendNext).
-async function stage(site, key) {
+async function stage(site, key, sendId) {
   const { source, itemFile, item } = await loadItem(site, key);
   if (item.phase === 'staging') return;
   leaveNew(item);
@@ -2198,7 +2198,7 @@ async function stage(site, key) {
   delete item.filed_held;
   spendNext(item);
   await writeJSON(source.file, itemFile);
-  await appendCommand(site, key, { command: 'staged' });
+  await appendCommand(site, key, { command: 'staged', sendId });
 }
 // Returns the card to its conversation, with a "Marked as discussing" status line when it newly moves there.
 async function discuss(site, key) {
@@ -2223,7 +2223,8 @@ export async function stageImplement(site, key, message) {
   if (open.length) await markResolved(site, owner, open, 'Skipped: you tapped Implement');
   const words = messageWords(message);
   if (words) await appendNotes(site, key, `Implement (owner, ${noteStamp()}), verbatim`, words);
-  await stage(site, key);
+  // A bare tap's staging line is the tap's own line, so it carries the tap's sendId; a message already holds it.
+  await stage(site, key, words ? undefined : message.sendId);
 }
 // docs/adr/2026-11-12-0700-reply-implement-marks-a-card-ready-to-implement.md
 // An owner's Implement, Done, Prototype, Grill or Visual tap, or message, on a card ends the orchestrator's waits_on_owner mark (implement or close).
@@ -4322,8 +4323,8 @@ async function tapRefusals(site, key) {
 // A bare Implement, in the board server with no event: the card staged as an Implement with text stages it
 // (stageImplement), for the orchestrator's review before it goes ready. "Marked as staging" is the thread's whole
 // answer to the tap (docs/adr/2026-11-12-1100-an-implement-tap-reads-only-marked-as-staging.md).
-export async function implementAsIs(site, key) {
-  await stageImplement(site, key, {});
+export async function implementAsIs(site, key, sendId) {
+  await stageImplement(site, key, { sendId });
 }
 
 // docs/adr/2026-11-05-0802-todo-has-no-queue.md

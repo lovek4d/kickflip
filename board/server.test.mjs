@@ -773,21 +773,21 @@ test("a new task is a New T-<n> card from the moment it arrives, whose thread ho
   assert.deepEqual(await thread('t/AK2'), [[id, 'Fix the header', 'answered'], [reply.id, 'Also the footer', 'answered'], [null, 'Footer too.', undefined]]);
 });
 
-test("a Quick build ask carries quick: true to the session, and its thread reads Implementation requested under the ask; a card's Grill and Prototype taps read as request entries", async () => {
+test("a Quick build ask carries quick: true to the session, and its thread holds only the ask; a card's Grill and Prototype taps read as request entries", async () => {
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
   const { id } = await post('/_claude/events', { kind: 'ask', text: 'Add a badge', quick: true });
   const logged = fs.readFileSync(path.join(site, 'data', 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).find((e) => e.id === id);
   assert.deepEqual(logged.data, { text: 'Add a badge', quick: true });
   const thread = async (key) => (await (await fetch(`${base}/api/thread?key=${encodeURIComponent(key)}`)).json()).map((m) => [m.text, Boolean(m.request)]);
   const arrived = (await (await fetch(`${base}/api/board`)).json()).moved[`ask:${id}`];
-  assert.deepEqual(await thread(arrived), [['Add a badge', false], ['Implementation requested', true]]);
+  assert.deepEqual(await thread(arrived), [['Add a badge', false]]);
   // The ask arrived as a New card; Q1 stands in for the card it is sorted into.
   const filed = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8'));
   assert.deepEqual(filed.items.filter((i) => i.from_ask === id).map((i) => i.title), ['Add a badge']);
   const wave = { ...filed, items: filed.items.filter((i) => i.from_ask !== id) };
   await putWave(JSON.stringify({ ...wave, items: [...wave.items, { id: 'Q1', title: 'Badge', from_ask: id }] }));
   const taps = [await post('/_claude/events', { kind: 'grill-more', key: 't/Q1' }), await post('/_claude/events', { kind: 'prototype-request', key: 't/Q1' })];
-  assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['Implementation requested', true], ['Grill requested', true], ['Prototype requested', true]]);
+  assert.deepEqual((await thread('t/Q1')).filter(([, request]) => request), [['Grill requested', true], ['Prototype requested', true]]);
   const card = (await (await fetch(`${base}/api/board`)).json()).items.find((i) => i.key === 't/Q1');
   assert.deepEqual([card.grilling, card.prototyping], [true, true]);
   for (const e of [{ id }, ...taps]) await post('/api/hide', { id: e.id, hidden: true });

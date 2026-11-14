@@ -93,7 +93,7 @@ BoardView.part((B) => {
   const CARD_TAPS = { 'card-hold': (m) => (m.fields.hold ? 'Held' : 'Resumed'), 'card-done': () => 'Marked done', 'card-reopen': () => 'Reopened' };
   function tapOf(m) {
     if (m.text || m.files.length) return { status: REQUESTED[m.kind] || (m.intent === 'build' ? 'Implement' : null), waits: true };
-    return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Implementation requested', waits: Boolean(REQUESTED[m.kind]) };
+    return { words: REQUESTED[m.kind] || CARD_TAPS[m.kind]?.(m) || 'Marked as staging', waits: Boolean(REQUESTED[m.kind]) };
   }
   // landed: the board has it and the thread hasn't loaded its own line yet.
   const unsent = (m, landed = false) => {

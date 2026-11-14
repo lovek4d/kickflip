@@ -895,7 +895,7 @@ function ownerTopics(topics, questions, closed = new Set()) {
 // messages, with the tap's words as their footer's status
 // (docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md).
 export const COMMANDS = {
-  implement: 'Implementation requested', prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
+  prototype: 'Prototype requested', grill: 'Grill requested', visual: 'Visual requested',
   reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done', reopened: 'Reopened',
   discussing: 'Marked as discussing', staged: 'Marked as staging', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
@@ -1038,7 +1038,7 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       // (docs/adr/2026-11-03-0514-a-builder-records-its-judgment-calls-and-the-session-verifies-them.md).
       ...(a.calls.length ? [{ ts: a.done || a.calls.at(-1).at, who: 'claude', kind: 'calls', text: agentName(a), calls: a.calls.map((c) => c.text), verified: a.verified }] : []),
     ]),
-    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen) } : {}) } : {}), ...(m.command ? commandLine(m.command) : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
+    ...lines.filter((m) => !m.live).map(withLog).map((m) => namedLine(m, key, cards)).map((m) => ({ ts: m.ts, who: m.who || 'claude', ...(m.log ? { log: m.log } : {}),...(m.kind === 'status' ? { kind: 'status', ...(m.planner ? { planner: true } : {}), ...agentOfLine(agentList, m) } : {}), ...(m.kind === VISUAL || m.kind === MOVE ? { kind: m.kind } : {}), ...(m.kind === HUB ? { kind: HUB, line: m.line, ...hubLineOf(m), ...(m.detail ? { detail: m.detail } : {}), ...(m.questions ? { open: m.questions.some(isOpen) } : {}) } : {}), ...(m.command ? { ...commandLine(m.command), ...(m.sendId ? { sendId: m.sendId } : {}) } : {}), ...(m.card ? { card: m.card, words: m.words } : {}),
       ...(Object.values(BUILDER_ASK).includes(m.kind) ? { kind: m.kind, ask: m.ask } : {}), text: m.text || '', html: m.html || null, link: m.link || null, via: m.via || null, ...(m.by ? { by: m.by } : {}) })),
     ...inLogOrder(index, keys.map((k) => index.byKey.get(k)))
       // An event the orchestrator wrote (who: claude, as its visual requests before item brief did) is Claude's line; every other event is the owner's.
@@ -1052,7 +1052,6 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
     ...inLogOrder(index, [...new Set(askIds)].map((id) => (index.asks.has(id) ? [index.asks.get(id)] : [])))
       .flatMap((e) => [...routedLine(e), { ts: e.ts, who: 'love', via: 'ask', kind: e.kind, text: e.data?.text || '', files: e.data?.files || [], eventId: e.id, reply: e.reply, replies: e.replies, ...(moved.includes(e.id) ? { moved: true } : {}), ...byOf(e),
         ...(typeof e.data?.from?.title === 'string' ? { from: e.data.from.title } : {}) },
-        ...(e.data?.quick === true ? [{ ts: e.ts, who: 'love', ...commandLine('implement'), text: COMMANDS.implement }] : []),
         ...links.map((l) => naming({ ts: e.ts, who: 'claude', kind: 'ask-link', html: null, via: null }, l.folded ? 'Moved to' : l.became ? 'Became' : 'Added to', l.key, new Map([[l.key, l]])))]),
   ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)) || isStatusLine(a) - isStatusLine(b));
   // docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: the orchestrator's last action on the card, or the card's

@@ -2034,7 +2034,7 @@ test("a run's started line carries the log its launch recorded on the agent's se
 
 // docs/adr/2026-11-04-2130-a-button-tap-is-a-status-line-or-a-message-footer.md
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
-test("a card's bare Grill and Prototype taps are muted request entries in its thread carrying their command key, one with text is the owner's message with the request as its footer status, an answer's status is answers submitted, and an ask sent with Implement reads Implementation requested under it", () => {
+test("a card's bare Grill and Prototype taps are muted request entries in its thread carrying their command key, one with text is the owner's message with the request as its footer status, an answer's status is answers submitted, and a quick ask has no Implementation requested line", () => {
   const ev = (id, kind, data, ts) => ({ id, ts, kind, data: { key: 'w/A1', ...data }, reply: null });
   const events = [
     { id: 'a1', ts: '2026-10-23T09:00:00Z', kind: 'ask', data: { text: 'Add a badge', quick: true }, reply: null },
@@ -2044,7 +2044,7 @@ test("a card's bare Grill and Prototype taps are muted request entries in its th
   ];
   const msgs = threadOf('w/A1', { events, fromAsk: 'a1', owner: { items: [{ id: 'q1', topic: 'item:w/A1', question: 'Keep it?' }] } });
   assert.deepEqual(msgs.map((m) => [m.kind, m.text, Boolean(m.request), m.status || null, m.command || null]), [
-    ['ask', 'Add a badge', false, null, null], ['command', 'Implementation requested', true, null, 'implement'],
+    ['ask', 'Add a badge', false, null, null],
     ['grill-more', 'Grill requested', true, null, 'grill'], ['prototype-request', 'Prototype requested', true, null, 'prototype'],
     ['grill-more', 'Ask about the colours', false, 'Grill requested', null], ['prototype-request', 'Phone width first', false, 'Prototype requested', null],
     ['owner-answer', 'Question 1 · Keep it?\n→ A. Keep it · yes', false, 'answers submitted', null],
@@ -2064,18 +2064,18 @@ test("a thread message's footer names Implement when that sent it; a Reply, bein
 // docs/adr/2026-11-06-0021-a-button-without-a-text-box-posts-a-keyed-status-line.md
 test("a thread-file line a button wrote is a request line carrying its command key, naming its mark when its words vary", () => {
   const lines = [
-    { ts: '2026-10-23T10:00:00Z', who: 'love', text: 'Implementation requested', command: 'implement' },
+    { ts: '2026-10-23T10:00:00Z', who: 'claude', text: 'Marked as staging', command: 'staged', sendId: 's1' },
     { ts: '2026-10-23T10:01:00Z', who: 'love', text: 'Held until Fri 10/24, 9:00 AM', command: 'hold', by: 'Dana Reyes' },
     { ts: '2026-10-23T10:02:00Z', who: 'love', text: 'Earlier hand-typed line' },
   ];
   assert.deepEqual(threadOf('w/A1', { lines }).map((m) => [m.kind ?? null, m.command ?? null, Boolean(m.request), m.mark ?? null, m.by ?? null]), [
-    ['command', 'implement', true, 'Implementation requested', null], ['command', 'hold', true, 'Held', 'Dana Reyes'], [null, null, false, null, null],
+    ['command', 'staged', true, 'Marked as staging', null], ['command', 'hold', true, 'Held', 'Dana Reyes'], [null, null, false, null, null],
   ]);
   // A link's line names the other card by key, drawn with its ref as it stands, and links to it.
   const cards = new Map([['w/A2', { ref: '#12' }]]);
   const linked = threadOf('w/A1', { lines: [{ ts: '2026-11-06T10:00:00Z', who: 'claude', text: 'Related to', command: 'related', card: 'w/A2' }], cards });
   assert.deepEqual(linked.map((m) => [m.text, m.words, m.link, m.card, m.mark]), [['Related to #12', 'Related to', '#selectedCard=w%2FA2', 'w/A2', 'Related to']]);
-  assert.deepEqual(Object.keys(COMMANDS), ['implement', 'prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done', 'reopened', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of', 'created', 'created-from', 'blocked-by', 'unblocks']);
+  assert.deepEqual(Object.keys(COMMANDS), ['prototype', 'grill', 'visual', 'reask', 'hold', 'resume', 'done', 'reopened', 'discussing', 'staged', 'readied', 'related', 'unrelated', 'followup', 'followup-of', 'created', 'created-from', 'blocked-by', 'unblocks']);
 });
 
 test('only a running build keeps the board from being idle: a running planner leaves Pull free to start the next ready card', () => {
