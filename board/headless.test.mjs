@@ -146,6 +146,30 @@ test("a lander's brief takes up the card's verified build, acts on the owner's a
   assert.ok(brief.includes(`${b} builder start w/A1 --kind build --label Lander --phase landing --progress "taking up the verified build"`), 'the lander starts on landing');
 });
 
+// docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md
+test("a prototype planner draws each prototype the brief names and each of the owner's requests as its own round, one sub-agent each on its own model, all at once, topics given out first", () => {
+  const b = `node ${BOARD_CLI} --site shop`;
+  const asks = [{ question: 'a1-foot', note: 'Neither: bolder' }, { question: 'a1-head', note: 'On a phone', choice: 'B' }, { text: 'Try a dark mode too', files: [{ name: 'shot.png', path: '/up/shot.png' }] }];
+  const proto = plannerBrief({ ...card, kind: 'prototype', repo: '/r/shop', asks });
+  for (const want of [
+    'Draw each prototype as its own round, all at once: each prototype the orchestrator\'s brief names, which the owner picked from its suggestions, and each of the owner\'s requests below, one round each.',
+    `Before any round is drawn, give each its own topic, in a-z, 0-9 and "-", that no other round and no prototype \`${b} prototype list\` shows uses.`,
+    'launch one sub-agent per round with the Agent tool, all in one message so they draw in parallel, each on your own model (give it no model), a lone round too',
+    'Brief each sub-agent with its topic, what its round shows, the request it answers and the rest of this step, which it does for its topic alone',
+    'The owner\'s requests, one round each:',
+    '- question a1-foot, noting "Neither: bolder": draw that question\'s next round, its question naming round_of a1-foot.',
+    '- question a1-head, noting "On a phone", leaning to option B: draw that question\'s next round, its question naming round_of a1-head.',
+    '- writing "Try a dark mode too", attaching /up/shot.png.',
+  ]) assert.ok(proto.includes(want), want);
+  // A served round's base worktree and build script are made once, before the fan-out.
+  assert.ok(proto.includes(`run \`${b} prototype base\` yourself before the sub-agents launch`));
+  // With no request, the brief's named prototypes are the rounds, or the planner finds the questions worth seeing.
+  const none = plannerBrief({ ...card, kind: 'prototype', repo: '/r/shop' });
+  assert.ok(!none.includes("The owner's requests") && none.includes('When the brief names none and no request names a question, find the design questions worth seeing yourself, one round each.'));
+  // A grill draws no rounds.
+  assert.ok(!plannerBrief({ ...card, kind: 'grill', repo: '/r/shop' }).includes('Agent tool'));
+});
+
 // docs/adr/2026-11-04-2130-the-hub-launches-every-agent-from-the-card.md
 test("a headless planner's brief names its card and its notes so far, spells its steps out with the skill only an optional extra, and has it start, post questions and finish", () => {
   const b = `node ${BOARD_CLI} --site shop`;
@@ -153,7 +177,7 @@ test("a headless planner's brief names its card and its notes so far, spells its
   for (const want of ['ENG-1', 'Make it go', '/s/waves/w/a1.md', 'grilling skill', `${b} builder start w/A1 --kind grill`, `${b} question add`, `${b} builder done w/A1`, 'docs/adr', 'Never push']) {
     assert.ok(grill.includes(want), `the grill's brief has ${want}`);
   }
-  const proto = plannerBrief({ ...card, notes: null, kind: 'prototype', repo: '/r/shop', question: 'a1-look', note: 'Bigger', choice: 'B' });
+  const proto = plannerBrief({ ...card, notes: null, kind: 'prototype', repo: '/r/shop', asks: [{ question: 'a1-look', note: 'Bigger', choice: 'B' }] });
   for (const want of ['prototype skill', `${b} builder start w/A1 --kind prototype`, `${b} prototype add`, 'a1-look', 'Bigger', 'B']) {
     assert.ok(proto.includes(want), `the prototype's brief has ${want}`);
   }

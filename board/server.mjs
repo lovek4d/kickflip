@@ -507,10 +507,11 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   }
 
   // Owner answers [{id, ...}] → their event ids, appended in one write. An answer to a card's prototype question that
-  // picks no take carries prototype_again: true and the card owes the orchestrator's brief for its next prototype round,
-  // with the answer's note as its ask, one per card whatever its note reads as
+  // picks no take carries prototype_again: true and the card owes the orchestrator's brief for its next prototype
+  // rounds, each such answer's question and note one of its asks, a round of its own, whatever its note reads as
   // (docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md,
-  // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md). A note with no take resolves its
+  // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md,
+  // docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md). A note with no take resolves its
   // question, and the Send is acted on in code: gates settled, answers in the notes, cards left with nothing open staged.
   // An answer to a question that already has one recorded, and wasn't reopened since, is skipped
   // (docs/adr/2026-11-08-0900-send-records-once-and-follow-ups-fail-on-their-own.md).
@@ -524,9 +525,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     // docs/adr/2026-11-06-0130-every-grill-ends-with-a-prototype-question-the-board-acts-on.md, docs/adr/2026-11-07-0700-staging-then-ready.md
     await settleAnswers(here, answers);
     dataVersion++;
-    const again = new Map();
-    for (const a of answers.filter(isAgain)) again.set(asked.get(String(a.id)).topic.slice(5), { question: String(a.id), ...(a.note ? { note: String(a.note) } : {}) });
-    for (const [key, ask] of again) await planAgain(here, key, 'prototype', ask);
+    for (const a of answers.filter(isAgain)) {
+      await planAgain(here, asked.get(String(a.id)).topic.slice(5), 'prototype', { question: String(a.id), ...(a.note ? { note: String(a.note) } : {}) });
+    }
     return ids;
   }
   // docs/adr/2026-11-03-1519-send-records-every-ready-answer-in-one-request.md

@@ -150,7 +150,8 @@ test('a Send that leaves an unstarted card with nothing open stages it, a note-o
   none.put(take);
   assert.deepEqual(await settleAnswers(none.site, [none.answer('q-take', null, 'Neither')]), { prototype: [], staged: [] });
   assert.equal(none.card(), 'prototyping', 'no take picked, so it prototypes again');
-  none.put({ ...take, id: 'q-take-2', url: 'prototype-look.html?q=q-take-2' });
+  // The next round names q-take in round_of, so its pick settles q-take's chain.
+  none.put({ ...take, id: 'q-take-2', url: 'prototype-look.html?q=q-take-2', round_of: 'q-take', round: 2 });
   await settleAnswers(none.site, [none.answer('q-take-2', 'B')]);
   assert.equal(none.card(), 'discussing', 'a picked take goes back to the conversation');
 

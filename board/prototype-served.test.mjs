@@ -20,7 +20,7 @@ test('prototype add --served records the page path and named states, with no tak
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, ['prototype look recorded', 'page prototype-look.html', 'served /proto/look from the base prototype worktree (board.mjs prototype base)', 'states empty, busy', ''].join('\n'));
   const [record] = read(site('orch', 'data', 'prototypes.json')).prototypes;
-  assert.deepEqual({ ...record, at: undefined }, { topic: 'look', title: 'Look', served: '/proto/look', takes: [{ key: 'A', label: 'Chips' }, { key: 'B', label: 'Stepper' }],
+  assert.deepEqual({ ...record, at: undefined }, { id: 'look', topic: 'look', title: 'Look', served: '/proto/look', takes: [{ key: 'A', label: 'Chips' }, { key: 'B', label: 'Stepper' }],
     states: [{ key: 'empty', label: 'No tasks' }, { key: 'busy', label: 'Ten tasks running' }], at: undefined });
   assert.equal((await board('prototype', 'list', '--site', 'orch')).out, 'look · Look · A: Chips, B: Stepper · served /proto/look · states empty, busy\n');
 });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewLinks } from './review.mjs';
-import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
+import { buildBoard, stateEntries, withHub, threadOf, COMMANDS, ownerQuestion, noTakePicked, needsAnswer, ownerActions, pullOf, rebasesDue, arrivalsOf, todoOf, triageOf, owesNext, briefsDue, NO_NEXT, PROTOTYPE_AGAIN, strictlyIdle, idleStep, idleSummary, pauseWork, prototypeWaits, orchestratorWaits, waitsStep, waitsAgainLine, REWAKE_AFTER, PICKED_REWAKE_AFTER, DAILY_REWAKE_AFTER, landStep } from './domain.mjs';
 
 // docs/adr/2026-11-14-0725-one-land-step-decides-a-verified-cards-land.md
 test("landStep gives a verified card's land one step for every way its lander can end", () => {
@@ -1050,8 +1050,30 @@ test("an unstarted Todo card that waits on nothing from the owner can Build, a b
   const request = { id: 'r4', ts: '2026-10-23T10:04:00Z', kind: 'prototype-request', data: { key: 'w/A1', question: 'q0', note: 'on a phone', choice: 'A' }, reply: null };
   const asked = card({ owner: { items: [plain, takes] }, events: [answer(3, 'B', ''), request] });
   assert.deepEqual([one(asked).buildable, one(asked).next, one(asked).phase], [false, PROTOTYPE_AGAIN, 'prototyping']);
-  const next = card({ owner: { items: [plain, takes] }, events: [request, answer(5, 'B', '')] });
+  // The request's round is a question naming q0 in round_of, so its pick settles q0's chain.
+  const round = { ...takes, round_of: 'q0', round: 1 };
+  const next = card({ owner: { items: [plain, round] }, events: [request, answer(5, 'B', '')] });
   assert.deepEqual([one(next).buildable, one(next).phase], [true, 'new']);
+});
+
+// docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md
+test("noTakePicked reads each prototype question's chain of rounds on its own: a pick on one topic leaves another topic's no-pick unpicked", () => {
+  const proto = (id, topic, more = {}) => ({ id, topic: 'item:w/A1', question: `${topic}?`, url: `prototype-${topic}.html?q=${id}`, options: [{ id: 'A', label: 'One' }, { id: 'B', label: 'Two' }], ...more });
+  const answer = (n, id, choice, note = '') => ({ id: `a${n}`, ts: `2026-11-14T10:0${n}:00Z`, kind: 'owner-answer', data: { id, choice, note } });
+  const unpicked = (items, events, requests = []) => noTakePicked(items.map((q) => ownerQuestion(q, events, requests)), 'w/A1');
+  const footer = proto('foot', 'foot'), header = proto('head', 'head'), header2 = proto('head-2', 'head-2', { round_of: 'head', round: 2 });
+  // The footer's no-pick is older than the header's pick, yet the footer's chain is still unpicked.
+  assert.deepEqual(unpicked([footer, header], [answer(1, 'foot', null, 'Neither:  try   bolder'), answer(2, 'head', 'B')]), { id: 'foot', note: 'Neither: try bolder' });
+  assert.equal(unpicked([footer, header], [answer(1, 'foot', null, 'Neither'), answer(2, 'head', 'B'), answer(3, 'foot', 'A')]), null);
+  // A chain's newest input is its newest round's: the header's next round picked B, so only the footer is left.
+  assert.equal(unpicked([header, header2], [answer(1, 'head', null, 'Neither'), answer(2, 'head-2', 'B')]), null);
+  assert.deepEqual(unpicked([footer, header, header2], [answer(1, 'head', null, 'Neither'), answer(2, 'foot', null, 'Bolder'), answer(3, 'head-2', 'B')]), { id: 'foot', note: 'Bolder' });
+  // With several chains unpicked, the newest input names the one returned.
+  assert.deepEqual(unpicked([footer, header], [answer(1, 'foot', null, 'Bolder'), answer(2, 'head', null, 'Lower')]), { id: 'head', note: 'Lower' });
+  // A prototype request on a plain question is that question's chain.
+  const plain = { id: 'where', topic: 'item:w/A1', question: 'Where?', options: [{ id: 'A', label: 'Top' }] };
+  const request = { id: 'r4', ts: '2026-11-14T10:04:00Z', kind: 'prototype-request', data: { key: 'w/A1', question: 'where', note: 'on a phone' } };
+  assert.deepEqual(unpicked([plain, header], [answer(5, 'head', 'A')], [request]), { id: 'where', note: 'on a phone' });
 });
 
 test("a Build the board started is In Progress reading starting until its builder's first status line, and a refused one stays in Todo with its reason while that is the card's newest line", () => {

@@ -147,12 +147,21 @@ function orchestratorsBrief(brief, what) {
   return [`Start from the orchestrator's brief, its notes section "${brief.heading}": what the discussion settled, what is still open, and what your ${what} should cover, with the files that matter. Read it before the thread and the notes:`, '', brief.text, ''];
 }
 
+// One of the owner's prototype requests as a line of the planner's brief: for the owner's eye on one question, question
+// (its id), note and choice; else the owner's text and files (uploads, {name, path}).
+function requestLine({ text, files = [], question, note, choice }) {
+  if (question) return `   - question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`;
+  return `   - ${[text && `writing "${text}"`, files.length && `attaching ${files.map((f) => f.path).join(', ')}`].filter(Boolean).join(', ')}.`;
+}
+
 // The brief for a planner, a grill or a prototype, launched from the card and its notes so far. card as builderBrief's,
-// with kind grill or prototype, repo the board's repo folder it reads, the owner's text and files (uploads, {name, path})
-// when the request carried them, and for the owner's eye on one question, question (its id), note and choice.
+// with kind grill or prototype, repo the board's repo folder it reads, and a grill's the owner's text and files (uploads,
+// {name, path}) when the request carried them. A prototype draws each round at once, one sub-agent each: one for each
+// prototype the orchestrator's brief names and each of asks, the owner's requests (requestLine)
+// (docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md).
 // prototype is the card's kept prototype answer (briefFacts), which the grill then never asks
 // (docs/adr/2026-11-11-1700-a-cards-gates-are-facts-it-keeps.md).
-export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo, brief, rules = [], links = [], text, files = [], question, note, choice, prototype = null }) {
+export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo, brief, rules = [], links = [], text, files = [], asks = [], prototype = null }) {
   const b = cli(route);
   const grill = kind === 'grill';
   return [
@@ -170,10 +179,11 @@ export function plannerBrief({ route, key, ref, title, notes, thread, kind, repo
           ? ` The task keeps the owner's answer to its prototype question, ${prototype}, so ask no closing "What next, given these answers?" question: once every question you ask is answered, or as you finish when you ask none, the board moves the task ${prototype === 'yes' ? 'to prototyping' : 'to staging'}.`
           : ` End every grill with one more question, "What next, given these answers?", whose options are implement (label "Implement"), prototype ("Prototype first") and discuss ("Keep discussing"), in that order, with "next_gate": true in its \`question add --file\` entry: once the owner has answered every question the board moves the task to staging on implement, to prototyping on prototype, or back to discussing on discuss, so nothing else moves it. Recommend implement when your questions settle the task and it doesn't change the hub's or a board's UI, prototype when it does. Ask it even when it is your only question.`)
         + " Never ask whether to make a ticket: the board makes a task's ticket when it goes ready."
-      : `4. Invoke the prototype skill with the Skill tool and build the round as take files, one per option: record them with \`${b} prototype add <topic> --card ${key} --take <K>:<label> …\`, write the take files it prints, built from the repo's existing components, helpers and scripts fed mock data (the prototype template loads the board's scripts, so a take reuses the board's components; a hub-page take reuses them by path or copy), each take showing the states it needs inside itself, then post one question whose url opens prototype-<topic>.html with \`${b} question add --file <json>\` on topic item:${key}, never asking in the chat. Build in situ only where one of the board's rules asks for it: then, run \`${b} prototype base\`, which makes it or moves it to main and prints its path, whether its build script is there and the listener a page loads. When the build script is missing, write one there that serves the app and prints "port <n>" (board/build-script.mjs). Add one page to the worktree, at a path no other round uses, built from the repo's real components, helpers and scripts fed mock data, fully interactive; it reads the take from ?variant= and the state from ?state=, and loads the listener so \`KickflipPrototype.on((take, state) => …)\` re-renders it in place when the viewer switches. Record it with \`${b} prototype add <topic> --card ${key} --served <path> --take <K>:<label> … --state <key>:<label> …\`, one take per option and one state for each state that matters to the question, then post one question whose url opens prototype-<topic>.html with \`${b} question add --file <json>\` on topic item:${key}, never asking in the chat. (With no Skill tool, follow this step as written.)`,
-    ...(text ? [`   The owner asked for this ${grill ? 'grill' : 'prototype'}, writing: "${text}"`] : []),
-    ...(files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
-    ...(question ? [`   The owner asked for prototypes of question ${question}${note ? `, noting "${note}"` : ''}${choice ? `, leaning to option ${choice}` : ''}: draw that question's next round, its question naming round_of ${question}.`] : []),
+      : `4. Draw each prototype as its own round, all at once: each prototype the orchestrator's brief names, which the owner picked from its suggestions, and each of the owner's requests below, one round each. When the brief names none and no request names a question, find the design questions worth seeing yourself, one round each. Before any round is drawn, give each its own topic, in a-z, 0-9 and "-", that no other round and no prototype \`${b} prototype list\` shows uses. Then launch one sub-agent per round with the Agent tool, all in one message so they draw in parallel, each on your own model (give it no model), a lone round too. Brief each sub-agent with its topic, what its round shows, the request it answers and the rest of this step, which it does for its topic alone; wait for them all, then go on to step 5 yourself.`
+        + ` Each round, in its sub-agent: Invoke the prototype skill with the Skill tool and build the round as take files, one per option: record them with \`${b} prototype add <topic> --card ${key} --take <K>:<label> …\`, write the take files it prints, built from the repo's existing components, helpers and scripts fed mock data (the prototype template loads the board's scripts, so a take reuses the board's components; a hub-page take reuses them by path or copy), each take showing the states it needs inside itself, then post one question whose url opens prototype-<topic>.html with \`${b} question add --file <json>\` on topic item:${key}, never asking in the chat. Build in situ only where one of the board's rules asks for it: then, run \`${b} prototype base\` yourself before the sub-agents launch, which makes it or moves it to main and prints its path, whether its build script is there and the listener a page loads. When the build script is missing, write one there that serves the app and prints "port <n>" (board/build-script.mjs). Each round adds one page to the worktree, at a path no other round uses, built from the repo's real components, helpers and scripts fed mock data, fully interactive; it reads the take from ?variant= and the state from ?state=, and loads the listener so \`KickflipPrototype.on((take, state) => …)\` re-renders it in place when the viewer switches. Record it with \`${b} prototype add <topic> --card ${key} --served <path> --take <K>:<label> … --state <key>:<label> …\`, one take per option and one state for each state that matters to the question, then post one question whose url opens prototype-<topic>.html with \`${b} question add --file <json>\` on topic item:${key}, never asking in the chat. (With no Skill tool, follow this step as written.)`,
+    ...(grill && text ? [`   The owner asked for this grill, writing: "${text}"`] : []),
+    ...(grill && files.length ? [`   The owner attached: ${files.map((f) => f.path).join(', ')}.`] : []),
+    ...(!grill && asks.length ? ["   The owner's requests, one round each:", ...asks.map(requestLine)] : []),
     `5. Record what you learned in the task's notes, naming each answered question's id: write it in ${DRAFT}, then run ${notesCommand(b, key, `${grill ? 'Grill' : 'Prototype'} (<MM/DD>)`)}, which appends it as a section. The notes file is read-only; never write into it. Anything you leave open becomes a question with question add, never only a line in the notes, so the task can't go ready past it. A question's text is one line of at most ${BRIEF_LINE_LIMIT} characters (question add refuses a longer one); put the detail in its context and the options' details, which take markdown.`,
     ...(grill ? [
       `6. Where the owner asked for prototypes, or a rule here wants a UI prototype first, end the task \`${b} item set ${key} --phase prototyping\` instead and skip the closing question. Otherwise ${prototype ? 'the board' : 'the closing question'} is what moves the task on: never set it ready yourself, and never leave a Next that asks the owner to mark it ready.`,
@@ -344,13 +354,13 @@ const logFile = (id, role) => path.join(os.homedir(), '.claude', 'kickflip', 'lo
 
 // Launches the agent of a build startTappedBuild started ({key, kind, model}), the rebase run when the card has one
 // open (store.mjs startRebase's rebase_run, so a relaunch after a restart briefs it the same), with lander the lander of
-// a verified card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, text?, files?, question?,
-// note?, choice?}) or the visual agent startVisual opened ({key, kind: visual, model, agent, text?, files?}), through the
+// a verified card, or with planner the planner startPlanner opened ({key, kind: grill|prototype, model, a grill's text? and
+// files?, a prototype's asks [{text?, files?, question?, note?, choice?}]}) or the visual agent startVisual opened ({key, kind: visual, model, agent, text?, files?}), through the
 // adapter, launch (agents.mjs launchAgent's arguments and answer; launchAgent itself unless a test passes its own): a
 // build or lander as its record's kind, a planner as Claude. The session id it names goes on the agent's builder record
 // and, with the log, in a thread line saying so.
 // → {pid, sessionId, log}; rejects when the agent can't start.
-export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, question, note, choice, task, writes, worktree }, { lander = false, launch = launchAgent } = {}) {
+export async function launchBuilder(site, { key, kind = 'claude', model, agent = 'main', brief, text, files, asks, task, writes, worktree }, { lander = false, launch = launchAgent } = {}) {
   const facts = await briefFacts(site, key);
   const route = boardAt(site)?.route ?? path.basename(site);
   const rules = [...readHubRules(), ...(await readBoardRules(site))].map((r) => r.text);
@@ -360,7 +370,7 @@ export async function launchBuilder(site, { key, kind = 'claude', model, agent =
   const rebase = !planner && !helper && !lander && facts.rebasePR !== null;
   const visual = kind === VISUAL;
   const cwd = planner ? repo : helper ? worktree ?? facts.worktree ?? repo : facts.worktree;
-  const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, question, note, choice, task, writes, cwd, pr: facts.rebasePR };
+  const card = { ...facts, route, base, repo, rules, kind, agent, brief, text, files, asks, task, writes, cwd, pr: facts.rebasePR };
   const role = visual ? 'Visual agent' : helper ? `Helper ${agent}` : planner ? 'Planner' : lander ? 'Lander' : rebase ? 'Rebase run' : 'Builder';
   const prompt = visual ? visualBrief(card) : helper ? helperBrief(card) : planner ? plannerBrief(card) : lander ? landerBrief(card) : rebase ? rebaseBrief(card) : builderBrief(card);
   const launched = await launch({ kind: planner || helper ? 'claude' : kind, model, cwd, site, prompt, log: logFile(key.split('/')[1], role.split(' ')[0].toLowerCase()) });

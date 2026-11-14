@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { addPrototype, readPrototypes } from './store.mjs';
 import { home, at, site, write, read, run, board, question, takePath, recordPrototype, addPrototypeQuestion, addConfirm, prototypeRefusal, record, addEvents, itemOf, threadOf } from './board-fixture.mjs';
 
 test('question add appends valid questions and rejects the whole file otherwise', async () => {
@@ -66,7 +67,7 @@ test('prototype add records a topic and prints the take files to write; list sho
   const r = await board('prototype', 'add', 'hub-moon', '--site', 'orch', '--title', 'Hub moon', '--card', 'w/A1', '--take', 'A:Moon with hover text', '--take', 'B:Moon with tap bubble');
   assert.deepEqual(r, { code: 0, err: '', out: ['prototype hub-moon recorded for A1', 'page prototype-hub-moon.html', `take A ${takePath('hub-moon', 'A')}`, `take B ${takePath('hub-moon', 'B')}`, ''].join('\n') });
   const [record] = read(site('orch', 'data', 'prototypes.json')).prototypes;
-  assert.deepEqual({ ...record, at: undefined }, { topic: 'hub-moon', title: 'Hub moon', card: 'w/A1', takes: [{ key: 'A', label: 'Moon with hover text' }, { key: 'B', label: 'Moon with tap bubble' }], at: undefined });
+  assert.deepEqual({ ...record, at: undefined }, { id: 'hub-moon', topic: 'hub-moon', title: 'Hub moon', card: 'w/A1', takes: [{ key: 'A', label: 'Moon with hover text' }, { key: 'B', label: 'Moon with tap bubble' }], at: undefined });
   assert.equal((await board('prototype', 'list', '--site', 'orch')).out, 'hub-moon · Hub moon · A: Moon with hover text, B: Moon with tap bubble · w/A1\n');
   write(takePath('hub-moon', 'A'), 'export function render() {}');
   assert.equal((await board('prototype', 'rm', 'hub-moon', '--site', 'orch')).code, 0);
@@ -94,6 +95,25 @@ test('prototype add refuses a bad topic, key or label, no takes, a repeated key,
     assert.deepEqual(await board('prototype', 'add', ...args, '--site', 'orch', '--title', 'T'), { code: 1, out: '', err: line + '\n' }, line);
   }
   assert.deepEqual(read(site('orch', 'data', 'prototypes.json')), before);
+});
+
+// docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md
+test('prototype adds of different topics at once all survive, the same topic twice is refused, and a record from before ids still reads', async () => {
+  const orch = site('orch');
+  const add = (topic) => addPrototype(orch, { topic, title: topic, takes: ['A:Keep'] });
+  const recorded = () => read(site('orch', 'data', 'prototypes.json')).prototypes;
+  await Promise.all([add('par-a'), add('par-b'), add('par-c')]);
+  assert.deepEqual(recorded().map((p) => [p.id, p.topic]).sort(), [['par-a', 'par-a'], ['par-b', 'par-b'], ['par-c', 'par-c']]);
+  const twice = await Promise.allSettled([add('same'), add('same')]);
+  assert.deepEqual(twice.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
+  assert.equal(twice.find((r) => r.status === 'rejected').reason.message, 'prototype same is already recorded; run prototype rm same first, or pick another topic');
+  assert.equal(recorded().filter((p) => p.topic === 'same').length, 1);
+  write(site('orch', 'data', 'prototypes.json'), JSON.stringify({ prototypes: [{ topic: 'old', title: 'Old', takes: [{ key: 'A', label: 'Keep' }] }, ...recorded()] }));
+  assert.equal((await readPrototypes(orch)).find((p) => p.topic === 'old').id, 'old');
+  await add('par-d');
+  assert.equal(recorded().find((p) => p.topic === 'old').id, 'old');
+  assert.equal((await board('prototype', 'rm', 'old', '--site', 'orch')).code, 0);
+  assert.deepEqual(recorded().map((p) => p.topic).sort(), ['par-a', 'par-b', 'par-c', 'par-d', 'same']);
 });
 
 test('prototype rm refuses while an open question links the prototype', async () => {

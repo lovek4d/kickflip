@@ -498,15 +498,21 @@ const buildableOf = (it) => it.kind === 'work' && it.lane === 'todo' && !it.acti
 // Whether an answer choosing choice on question q (an owner.json item) is a card's prototype answer that picks none of
 // its takes, the owner having cleared the pick to leave only a note.
 export const picksNoTake = (q, choice) => /^item:/.test(q.topic || '') && PROTOTYPE_URL.test(q.url || '') && !(q.options || []).some((o) => o.id === choice);
-// The newest of card key's answers to its prototype questions and prototype requests on any of its questions
-// (ownerQuestion views), when it is a request or an answer that picks none of the takes: the card isn't ready to
-// build (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md). → {id, note}, or null.
+// Card key's answers to its prototype questions and prototype requests on any of its questions (ownerQuestion views)
+// go by chain, a question and the rounds that follow it (round_of). A chain whose newest input is a request or an answer
+// that picks none of the takes leaves the card unready to build
+// (docs/adr/2026-11-03-1803-a-question-asked-for-a-prototype-is-resolved.md,
+// docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md).
+// → the newest such input's {id, note}, or null.
 export function noTakePicked(questions, key) {
   const mine = questions.filter((q) => q.topic === `item:${key}`);
+  const byId = new Map(mine.map((q) => [q.id, q]));
+  const chainOf = (q) => (byId.has(q.round_of) ? chainOf(byId.get(q.round_of)) : q.id);
   const inputs = [...mine.filter((q) => PROTOTYPE_URL.test(q.url || '')).flatMap((q) => q.answers.map((a) => ({ q, a, again: picksNoTake(q, a.choice) }))),
     ...mine.filter((q) => q.request).map((q) => ({ q, a: q.request, again: true }))].sort((x, y) => String(x.a.ts).localeCompare(String(y.a.ts)));
-  const last = inputs.at(-1);
-  return last?.again ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
+  const newest = new Map(inputs.map((input) => [chainOf(input.q), input]));
+  const last = inputs.filter((input) => input.again && newest.get(chainOf(input.q)) === input).at(-1);
+  return last ? { id: last.q.id, note: last.a.note.replace(/\s+/g, ' ').trim() } : null;
 }
 // docs/adr/2026-11-03-1646-a-prototype-answer-with-no-pick-prototypes-again.md
 // A Todo card's Next while noTakePicked holds it: the card is prototyping, and the next round is its way out.

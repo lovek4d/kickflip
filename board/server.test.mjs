@@ -231,16 +231,35 @@ test("an owner answer that picks no take on a card's prototype says so in its ev
     // The card owes the orchestrator its next round's brief, the note its ask even when it reads as a question; the board
     // launches the round from the brief (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
     const p1 = () => JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'P1');
-    assert.deepEqual(p1().briefs.map((b) => [b.kind, b.ask, b.brief]), [['prototype', { question: 'moon', note: 'Neither: try a darker moon' }, undefined]]);
+    assert.deepEqual(p1().briefs.map((b) => [b.kind, b.asks, b.brief]), [['prototype', [{ question: 'moon', note: 'Neither: try a darker moon' }], undefined]]);
+    // Every request is its own round: a second one before the brief is written joins the first rather than replacing it
+    // (docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md).
+    await ok200(await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'prototype-request', key: 't/P1', question: 'keep', note: 'Show both' }) }));
+    const asks = [{ question: 'moon', note: 'Neither: try a darker moon' }, { question: 'keep', note: 'Show both' }];
+    assert.deepEqual(p1().briefs.map((b) => [b.kind, b.asks]), [['prototype', asks]]);
     const draft = path.join(home, 'brief-P1.md');
     fs.writeFileSync(draft, 'Neither take landed; try a darker moon.');
     await writeBrief(site, 't/P1', { kind: 'prototype', file: draft });
     await heard(path.join(site, 'data', 'items.json'));
     const record = path.join(site, 'data', 'agents', 'P1.json');
-    assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')).brief.ask, { question: 'moon', note: 'Neither: try a darker moon' });
+    assert.deepEqual(JSON.parse(fs.readFileSync(record, 'utf8')).brief.asks, asks);
     await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'question-reopen', question: 'moon' }) });
     await ok200(answer('moon', 'B', ''));
     assert.equal(last().data.prototype_again, undefined);
+  } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
+});
+
+// docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md
+test("one Send with no take picked on two of a card's prototypes owes one brief that asks for both rounds", async () => {
+  const ownerFile = path.join(site, 'data', 'owner.json');
+  await putWave(JSON.stringify({ items: [{ id: 'P2', title: 'Sky', phase: 'prototyping' }] }));
+  const takes = (id) => ({ id, topic: 'item:t/P2', question: `Which ${id}?`, url: `prototype-${id}.html?q=${id}`, options: [{ id: 'A', label: 'Light' }, { id: 'B', label: 'Dark' }] });
+  fs.writeFileSync(ownerFile, JSON.stringify({ items: [takes('sun'), takes('cloud')] }));
+  try {
+    const answers = [{ id: 'sun', question: 'Which sun?', choice: null, note: 'Neither: warmer' }, { id: 'cloud', question: 'Which cloud?', choice: null, note: 'Neither: fluffier' }];
+    await ok200(await fetch(`${base}/_claude/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'owner-answers', answers }) }));
+    const p2 = JSON.parse(fs.readFileSync(path.join(site, 'data', 'items.json'), 'utf8')).items.find((i) => i.id === 'P2');
+    assert.deepEqual(p2.briefs.map((b) => [b.kind, b.asks]), [['prototype', [{ question: 'sun', note: 'Neither: warmer' }, { question: 'cloud', note: 'Neither: fluffier' }]]]);
   } finally { fs.writeFileSync(ownerFile, '{"items":[]}'); }
 });
 

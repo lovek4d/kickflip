@@ -1634,12 +1634,21 @@ function checkSuggested(s, options, at) {
 // A served round (served: its page's path) has no take files: the template frames that page from the board's base
 // prototype worktree, which takes each take and state by message
 // (docs/adr/2026-11-06-1500-a-prototype-round-is-a-page-in-the-boards-base-worktree.md).
+// Each record's id is its topic, so a merging write of the file (writeJSON, merge3) would merge it per record; a record
+// written before records had ids reads with one.
+// (docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md)
 const prototypesFile = (site) => path.join(site, 'data', 'prototypes.json');
 export const takeFile = (site, topic, key) => path.join(site, 'public', 'prototypes', topic, `${key}.js`);
 export async function readPrototypes(site) {
   const list = site ? (await readJSON(prototypesFile(site), {})).prototypes : null;
-  return Array.isArray(list) ? list : [];
+  return Array.isArray(list) ? list.map((p) => ({ id: p.topic, ...p })) : [];
 }
+// change(list) → the new list, run under the file's lock on the records the file holds now, so what it checks of them
+// still holds when it writes: the sub-agents of one prototype round record their topics at once.
+const changePrototypes = (site, change) => withFileLock(prototypesFile(site), async () => {
+  const list = await change(await readPrototypes(site));
+  await replace(prototypesFile(site), JSON.stringify({ prototypes: list }, null, 2) + '\n');
+});
 const prototypeTopic = (v) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`a prototype topic uses only a-z, 0-9 and "-", not "${v}"`));
 function prototypeTake(spec) {
   const m = /^([^:]*):(.*)$/s.exec(spec);
@@ -1670,14 +1679,15 @@ export async function addPrototype(site, { topic, title, card, takes = [], serve
   const stateTwice = twiceIn(named);
   if (stateTwice) fail(`--state ${stateTwice.key} is given twice`);
   if (card !== undefined) await loadItem(site, card);
-  const list = await readPrototypes(site);
-  if (list.some((p) => p.topic === topic)) fail(`prototype ${topic} is already recorded; run prototype rm ${topic} first, or pick another topic`);
   if (await fs.stat(path.join(site, 'public', `prototype-${topic}.html`)).then(() => true, () => false)) {
     fail(`public/prototype-${topic}.html is a hand-written page that questions may link; pick another topic`);
   }
-  const record = { topic, title: title.trim(), ...(card === undefined ? {} : { card }), ...(served === undefined ? {} : { served }), takes: parsed,
+  const record = { id: topic, topic, title: title.trim(), ...(card === undefined ? {} : { card }), ...(served === undefined ? {} : { served }), takes: parsed,
     ...(named.length ? { states: named } : {}), at: new Date().toISOString() };
-  await writeJSON(prototypesFile(site), { prototypes: [...list, record] });
+  await changePrototypes(site, (list) => {
+    if (list.some((p) => p.topic === topic)) fail(`prototype ${topic} is already recorded; run prototype rm ${topic} first, or pick another topic`);
+    return [...list, record];
+  });
   const page = `page prototype-${topic}.html`;
   if (served !== undefined) return { file: prototypesFile(site), lines: [page, `served ${served} from the base prototype worktree (board.mjs prototype base)`, ...(named.length ? [`states ${named.map((s) => s.key).join(', ')}`] : [])] };
   return { file: prototypesFile(site), lines: [page, ...parsed.map((t) => `take ${t.key} ${takeFile(site, topic, t.key)}`)] };
@@ -1707,7 +1717,7 @@ export async function removePrototype(site, topic) {
   const owner = await readJSON(ownerFile(site), { items: [] });
   const open = (owner.items || []).filter((q) => !q.resolved && pageTopic(q.url) === topic).map((q) => q.id);
   if (open.length) fail(`prototype ${topic} backs open question ${open.join(', ')}; resolve ${open.length === 1 ? 'it' : 'them'} first`);
-  await writeJSON(prototypesFile(site), { prototypes: list.filter((p) => p.topic !== topic) });
+  await changePrototypes(site, (now) => now.filter((p) => p.topic !== topic));
   return prototypesFile(site);
 }
 
@@ -2338,17 +2348,20 @@ export async function stageReply(site, key, message) {
   await stage(site, key);
 }
 // docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md
-// A card's briefs, item.briefs [{kind, at, ask?, brief?: {heading, text, at}}], kind grill, prototype or visual. An entry
-// with no brief is owed: the orchestrator writes it (item brief, writeBrief). One with a brief waits for the board server
-// to launch its agent (domain.mjs briefsDue), which takes the entry off the card onto the agent's record (startPlanner, startVisual). ask
-// is the owner's request it answers, {text?, files?, question?, note?, choice?}. A kind owed again keeps its first time
-// and takes the newer ask.
+// A card's briefs, item.briefs [{kind, at, ask?, asks?, brief?: {heading, text, at}}], kind grill, prototype or visual.
+// An entry with no brief is owed: the orchestrator writes it (item brief, writeBrief). One with a brief waits for the
+// board server to launch its agent (domain.mjs briefsDue), which takes the entry off the card onto the agent's record
+// (startPlanner, startVisual). An owner's request it answers is {text?, files?, question?, note?, choice?}: a prototype
+// entry keeps each in asks, every one its own round; a grill or visual entry keeps the newest as ask. A kind owed again
+// keeps its first time.
+// (docs/adr/2026-11-14-2300-picked-prototypes-draw-in-parallel-and-their-records-merge-by-topic.md)
 const BRIEF_KINDS = ['grill', 'prototype', VISUAL];
 const PLANNER_PHASE = { grill: 'grilling', prototype: 'prototyping' };
 function owe(item, kind, ask = {}, at = new Date().toISOString(), tap = false) {
   const briefs = item.briefs || [];
   const owed = briefs.find((b) => b.kind === kind && !b.brief);
-  const asked = { ...(Object.keys(ask).length ? { ask } : {}), ...(tap ? { tap } : {}) };
+  const requested = !Object.keys(ask).length ? {} : kind === 'prototype' ? { asks: [...(owed?.asks || []), ask] } : { ask };
+  const asked = { ...requested, ...(tap ? { tap } : {}) };
   item.briefs = owed ? briefs.map((b) => (b === owed ? { ...b, ...asked } : b)) : [...briefs, { kind, at, ...asked }];
 }
 // A card sent back to its conversation owes nothing: its unwritten briefs go, the written ones stay for their launch.
@@ -4599,7 +4612,8 @@ const launchedSession = (record) => Boolean(record?.session) && record.session.a
 // as builder start --kind <kind> does, from the card's oldest written brief of that kind, which moves onto the record
 // (brief, the card's briefs entry: the record is written once with it, then the card drops it), or from kept, the entry a run the Hold stopped had. A card with neither is refused
 // (docs/adr/2026-11-12-0600-every-planner-launches-from-the-orchestrators-brief.md).
-// → {key, kind, model, brief, ...its ask}, or null while an agent already works on the card's main record.
+// → {key, kind, model, brief, ...a grill's ask, or a prototype's asks}, or null while an agent already works on the
+// card's main record. A prototype entry written before entries kept asks has its one ask as asks.
 export async function startPlanner(site, key, kind, kept = null) {
   const file = await builderFile(site, key);
   const open = await readJSON(file, null);
@@ -4608,7 +4622,8 @@ export async function startPlanner(site, key, kind, kept = null) {
   const entry = kept ?? await briefOn(site, key, kind);
   const started = await startBuilder(site, key, { kind, dispatch: 'hub', brief: entry });
   if (!kept) await dropBrief(site, key, kind);
-  return { key, kind, model: started.model, brief: entry.brief, ...entry.ask };
+  const asked = kind === 'prototype' ? { asks: entry.asks ?? (entry.ask ? [entry.ask] : []) } : entry.ask;
+  return { key, kind, model: started.model, brief: entry.brief, ...asked };
 }
 
 // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md
