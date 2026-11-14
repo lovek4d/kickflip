@@ -4,7 +4,12 @@
 (function () {
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const record = (records, key) => (Object.hasOwn(records || {}, key) ? records[key] : undefined);
-  const time = (iso) => new Date(iso).toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  // A time as "2:28 pm" today and "11/13, 2:28 pm" on another day; `now` is injectable.
+  const time = (iso, now = new Date()) => {
+    const d = new Date(iso);
+    const at = clock(d);
+    return d.toDateString() === now.toDateString() ? at : `${d.toLocaleDateString([], { month: 'numeric', day: 'numeric' })}, ${at}`;
+  };
   const ago = (iso) => {
     if (!iso) return '';
     const s = (Date.now() - new Date(iso).getTime()) / 1000;

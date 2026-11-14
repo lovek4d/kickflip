@@ -794,9 +794,31 @@ test("a thread names the board's session Orchestrator and a builder by its model
     { ts: ago(2), who: 'claude', kind: 'builder-answer', text: 'Go quiet.' },
     { ts: ago(1), who: 'claude', text: 'Landed.' },
   ]);
-  assert.match(text(html), /^Claude Opus builder · .* Stay orange\? Orchestrator · .* Go quiet\. Orchestrator · .* Landed\.$/);
-  assert.match(html, /<div class="msg other"[^>]*>\s*<div class="who">Claude Opus builder ·/);
-  assert.match(html, /<div class="msg claude"[^>]*>\s*<div class="who">Orchestrator ·/);
+  assert.match(text(html), /^Claude Opus builder Stay orange\? \S.* Orchestrator Go quiet\. \S.* Orchestrator Landed\. \S.*$/);
+  assert.match(html, /<div class="msg other"[^>]*>\s*<div class="who">Claude Opus builder<\/div>/);
+  assert.match(html, /<div class="msg claude"[^>]*>\s*<div class="who">Orchestrator<\/div>/);
+});
+
+// docs/adr/2026-11-14-1700-every-thread-message-has-the-owners-shape-and-its-time-in-a-footer.md
+test("every sender's message is its name alone, the body, then a footer with its time", () => {
+  const at = ago(1);
+  const footer = (name, extra = '') => new RegExp(`<div class="who">${name}</div>[\\s\\S]*<div class="reply muted small msg-foot"><span>${ui.esc(ui.time(at))}</span>${extra}</div>`);
+  const draw = (m) => ui.threadMessages([{ ts: at, text: 'Hi', ...m }]);
+  assert.match(draw({ who: 'claude' }), footer('Orchestrator'));
+  assert.match(draw({ who: 'claude', kind: 'reply', reply: { md: 'ok' } }), footer('Orchestrator'));
+  assert.match(draw({ who: 'Claude Opus builder', kind: 'builder-ask' }), footer('Claude Opus builder'));
+  assert.match(draw({ who: 'Claude planner' }), footer('Claude planner'));
+  assert.match(draw({ who: 'Jamie', via: 'github' }), footer('Jamie', '<span>·</span><span>GitHub</span>'));
+  assert.match(draw({ who: 'Sam', via: 'slack' }), footer('Sam', '<span>·</span><span>Slack</span>'));
+  assert.match(draw({ who: 'love', via: 'site', kind: 'item-message', eventId: 'e1', reply: null, state: 'waiting' }), footer('You', '<span>·</span><span>waiting…</span>'));
+  assert.doesNotMatch(draw({ who: 'claude' }), /waiting/);
+  assert.doesNotMatch(draw({ who: 'claude' }), /Orchestrator ·/);
+});
+
+test('a time reads the time only today and the date and time on another day', () => {
+  const now = new Date(2026, 10, 14, 15, 0);
+  assert.equal(ui.time(new Date(2026, 10, 14, 14, 28).toISOString(), now), '2:28 pm');
+  assert.equal(ui.time(new Date(2026, 10, 13, 14, 28).toISOString(), now), '11/13, 2:28 pm');
 });
 
 test('a thread names who wrote each message and where', () => {
@@ -804,7 +826,7 @@ test('a thread names who wrote each message and where', () => {
     { ts: ago(2), who: 'Jamie', via: 'github', text: 'Looks good' },
     { ts: ago(1), who: 'love', via: 'site', text: 'Ship it', eventId: 'e1', reply: null },
   ]);
-  assert.match(text(html), /^Jamie · GitHub · .* Looks good You Ship it \S.* · waiting…$/);
+  assert.match(text(html), /^Jamie Looks good \S.* · GitHub You Ship it \S.* · waiting…$/);
   const log = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'done', log: 'b.log' }]);
   assert.match(log, /<a href="log\.html\?file=b\.log">View transcript<\/a>/);
   assert.doesNotMatch(log, /link-arrow|→/);
@@ -1982,9 +2004,9 @@ test('a thread counts as unread only the messages from others since this browser
 
 test('a message edited before thread edits went says so beside its author, as a moved one does', () => {
   const html = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it well', edited: true, eventId: 'e1', reply: null, state: 'waiting' }]);
-  assert.match(text(html), /^You · Edited Fix it well \S.* · waiting…$/);
+  assert.match(text(html), /^You Fix it well \S.* · Edited · waiting…$/);
   const moved = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Swipe the gallery', moved: true, eventId: 'a1', reply: null, state: 'answered' }]);
-  assert.match(text(moved), /^You · Moved Swipe the gallery \S+/);
+  assert.match(text(moved), /^You Swipe the gallery \S.* · Moved$/);
 });
 
 test('a builder status line, and an agent starting or finishing, reads as one line with its time and no author or actions, a running agent with its ETA', () => {
@@ -2079,7 +2101,7 @@ test("one agent run folds into one closed line with a caret holding its started 
   const html = ui.threadMessages([ln(0), agentLine(1, false, live), ln(2, live), { ts: ago(7.5), who: 'claude', text: 'Between' }, ln(3, live), { ts: ago(6), who: 'love', text: 'Owner says' }]);
   assert.equal(html.match(/<details/g).length, 1);
   assert.match(html, /<details class="msg status-line calls status-fold"><summary><span class="mark" aria-hidden="true"><svg/);
-  assert.match(text(html), /^Step 0 · \S.* Claude main · running · \S+ \S+ \S+ Claude main started/);
+  assert.match(text(html), /^Step 0 · \S.* Claude main · running · \S.* Claude main started/);
   assert.match(text(html), /Claude main started · \S.* Step 2 · \S.* Step 3 · \S.* Between .*Owner says/);
   assert.doesNotMatch(html, /<details[^>]* open/);
   const p = run('grill', false, true);
@@ -2098,9 +2120,9 @@ test("a builder's judgment calls show collapsed under its lines, with their post
   assert.match(html, /^<details class="msg status-line calls"><summary><span class="mark" aria-hidden="true">/);
   assert.ok(html.includes(ui.MARK_ICONS['judgment calls']));
   assert.doesNotMatch(html, /<details[^>]* open/);
-  assert.match(text(html), /^Claude Opus builder's judgment calls · 2 · \S+ \S+ \S+ · not verified yet Kept <the> old name Question: every agent\?$/);
+  assert.match(text(html), /^Claude Opus builder's judgment calls · 2 · \S.* · not verified yet Kept <the> old name Question: every agent\?$/);
   const checked = text(ui.threadMessages([{ ...open, verified: { at: ago(0.5), note: 'Match the notes.' } }]));
-  assert.match(checked, /· 2 · \S+ \S+ \S+ · verified .+ Kept <the> old name Question: every agent\? Verified: Match the notes\.$/);
+  assert.match(checked, /· 2 · \S.* · verified .+ Kept <the> old name Question: every agent\? Verified: Match the notes\.$/);
   const msgs = [{ ts: ago(3), who: 'claude', text: 'One' }, { ts: ago(2), who: 'claude', text: 'Two' }, { ts: ago(1.5), who: 'claude', text: 'Three' }, open];
   assert.doesNotMatch(ui.threadMessages(msgs, {},{ seenAt: ago(9), more: 0 }), /thread-more/);
 });
@@ -2205,7 +2227,7 @@ test("an ask's link line opens the work it became, and a thread line opens a lin
   const moved = ui.threadMessages([{ ts: ago(1), who: 'claude', text: 'Moved to Audit.', link: '/audit/#selectedCard=ask%3Ab1' }]);
   assert.match(moved, /<a href="\/audit\/#selectedCard=ask%3Ab1">Open the task →<\/a>/);
   const arrived = ui.threadMessages([{ ts: ago(1), who: 'love', via: 'ask', kind: 'ask', text: 'Fix the header', from: 'Orch', eventId: 'b1', reply: null, state: 'waiting' }]);
-  assert.match(text(arrived), /^You · Moved from Orch Fix the header \S.* · waiting…$/);
+  assert.match(text(arrived), /^You Fix the header \S.* · Moved from Orch · waiting…$/);
 });
 
 test("a thread's links to this hub's pages open in place, and only other origins open a new window", () => {
@@ -2731,8 +2753,8 @@ test("a Full person's line in a thread is named as them, the owner's stays You",
     { ts: ago(2), who: 'love', via: 'site', kind: 'item-message', text: 'Per key', by: 'Dana <R>', files: [] },
     { ts: ago(1), who: 'love', via: 'site', kind: 'item-message', text: 'Agreed', files: [] },
   ]);
-  assert.match(html, /<div class="who">Dana &lt;R&gt; · /);
-  assert.match(html, /<div class="who">You · /);
+  assert.match(html, /<div class="who">Dana &lt;R&gt;<\/div>/);
+  assert.match(html, /<div class="who">You<\/div>/);
 });
 
 test('a ↗ written in a question, its context and its options draws as the arrow icon, never the character', () => {

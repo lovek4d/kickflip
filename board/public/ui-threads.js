@@ -31,11 +31,12 @@
     working: (m) => thinkingLine(m.since),
     failed: (m) => `<span class="not-sent">not sent</span><span class="send-again"><button type="button" class="ghost icon" data-resend="${esc(m.sendId)}" aria-label="Retry" title="Retry">${RETRY}</button><button type="button" class="ghost icon" data-unsend="${esc(m.sendId)}" aria-label="Dismiss" title="Dismiss, its text back in the box">${DISMISS}</button></span>`,
   };
-  const msgFooter = (m) => {
-    const parts = [`<span>${esc(time(m.ts))}</span>`, m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, PICK_UP[stateOf(m)]?.(m)].filter(Boolean);
+  // Every message's footer: its time, its own tags (via, Moved, Edited), the tap, and for the owner's own message where it is.
+  const msgFooter = (m, tags) => {
+    const parts = [`<span>${esc(time(m.ts))}</span>`, ...tags.map((t) => `<span>${t}</span>`), m.status && `<span class="foot-status">${statusMark(m.status)}${esc(m.status)}</span>`, footed(m) && PICK_UP[stateOf(m)]?.(m)].filter(Boolean);
     return `<div class="reply muted small msg-foot">${parts.join('<span>·</span>')}</div>`;
   };
-  // The owner's messages, the board's events and the outbox's, carry their time in this footer, not by their name.
+  // The owner's messages, the board's events and the outbox's, also show where they are in their footer.
   const footed = (m) => Boolean(m.eventId || m.sendId);
   // Each reply becomes Claude's own message at the time it was written, quoting the owner's message
   // when other messages came between them. A reply with no time follows its message.
@@ -66,7 +67,7 @@
   // A line naming a card (domain.mjs namedLine): its words, then the card's reference as it stands (ui-links.js cardRef).
   const named = (m, links) => `${escText(m.words)} ${cardRef(m.card, links)}`;
   const line = (m, links) => (m.kind === 'reply'
-    ? `<div class="msg claude reply-msg"><div class="who">Orchestrator · ${esc(time(m.ts))}</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div></div>`
+    ? `<div class="msg claude reply-msg"><div class="who">Orchestrator</div>${m.quote ? `<blockquote class="quote">${linkText(m.quote, links)}</blockquote>` : ''}<div class="body${m.reply.md ? ' md' : ''}">${replyBody(m.reply, links)}</div>${msgFooter(m, [])}</div>`
     : m.kind === 'ask-link' ? statusLine('link', statusMark('ask-link') + named(m, links), m.ts)
     // docs/adr/2026-11-05-1921-a-visual-is-a-page-an-agent-draws-for-a-thread.md: a visual's page opens full page.
     : m.kind === 'visual' ? statusLine('link visual', statusMark('visual') + linked(m.link, `${escText(m.text)} →`), m.ts)
@@ -89,11 +90,11 @@
       rest: `<ol>${m.calls.map((c) => `<li>${linkText(c, links)}</li>`).join('')}</ol>${m.verified?.note ? `<div class="small">Verified: ${linkText(m.verified.note, links)}</div>` : ''}`,
     })
     : m.kind === 'agent' ? statusLine(`agent ${m.finished ? 'finished' : 'started'}${m.planner ? ' planner' : ''}`, mark('<span class="agent-dot"></span>') + escText(m.text), m.ts, { after: m.eta && esc(etaLine(m.eta)) }) : `<div class="msg ${m.who === 'love' ? 'love' : m.who === 'claude' ? 'claude' : 'other'}"${m.eventId ? ` data-event="${esc(m.eventId)}"` : m.sendId ? ` data-send="${esc(m.sendId)}"` : ''}>
-        <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}${VIA[m.via] || ''}${m.moved ? ' · Moved' : ''}${m.from ? ` · Moved from ${esc(m.from)}` : ''}${m.edited ? ' · Edited' : ''}${footed(m) ? '' : ` · ${esc(time(m.ts))}`}</div>
+        <div class="who">${m.who === 'love' ? (m.by ? esc(m.by) : 'You') : m.who === 'claude' ? 'Orchestrator' : esc(m.who)}</div>
         <div class="body${drawsMarkdown(m) ? ' md' : ''}">${m.html ? linkHtml(m.html, links) : drawsMarkdown(m) ? markdown(m.text, links) : linkText(m.text, links)}</div>${attachments(m.files)}
         ${m.log ? `<div class="small"><a href="log.html?file=${encodeURIComponent(m.log)}">View transcript</a></div>` : ''}
         ${m.link ? `<div class="small">${cardLink(m.link) || anyLink(m.link, m.link)}</div>` : ''}
-        ${footed(m) ? msgFooter(m) : ''}
+        ${msgFooter(m, [VIA[m.via]?.slice(3), m.moved && 'Moved', m.from && `Moved from ${esc(m.from)}`, m.edited && 'Edited'].filter(Boolean))}
       </div>`);
 
   // One agent run (domain.mjs threadOf gives its started line, status lines and finished line the same `run`) is one

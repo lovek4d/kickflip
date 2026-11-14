@@ -3799,7 +3799,7 @@ test("a sent ask sits in the New strip above the lanes, never in Todo, reading w
   assert.deepEqual([strip().querySelector('.new-head .lane-name').textContent, strip().querySelector('.new-head .count').textContent], ['New', '4']);
   assert.deepEqual(entries().map((el) => el.dataset.new), ['a3', 'a1', 'a2', 'a4']);
   assert.deepEqual(entries().map((el) => el.querySelector('.new-msg').textContent), ['Rate limits per API key', 'Fix the header\nIt jumps on scroll', 'Dark mode', 'Also the footer\nand the nav']);
-  assert.deepEqual(entries().map((el) => el.querySelector('.new-line').textContent.trim().replace(/^.*?\d{1,2}:\d{2}\s?[AP]M · /, '')), ['Ticket created: T-7 · feat: rate limits', 'waiting…', 'processing...', 'Added to T-2']);
+  assert.deepEqual(entries().map((el) => el.querySelector('.new-line').textContent.trim().replace(/^.*?\d{1,2}:\d{2}\s?[AP]M · /i, '')), ['Ticket created: T-7 · feat: rate limits', 'waiting…', 'processing...', 'Added to T-2']);
   assert.equal(b.root.querySelector('#lanes [data-key="w/a1"], #lanes [data-key="w/a2"]'), null);
   assert.deepEqual(b.root.querySelectorAll('.lane[data-lane="todo"] details.item').map((el) => el.dataset.key), ['w/T-7', 'w/T-8', 'w/T-2']);
   // Waiting and processing entries edit and delete their ask; ingested ones link to the card and dismiss.
