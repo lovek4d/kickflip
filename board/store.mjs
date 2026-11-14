@@ -1406,10 +1406,12 @@ const storedTickets = (value) => { try { return value ? ticketSource(value) : nu
 // entry, `hub: true`) off unless true (opensPRs; docs/adr/2026-11-04-2100-a-land-waits-for-your-merge.md,
 // docs/adr/2026-11-05-1100-the-hub-board-shows-landing-and-defaults-to-merge.md), tickets, its one
 // ticket source, and github_login, absent when unset or invalid (docs/adr/2026-11-01-1348-a-board-has-one-ticket-source.md),
+// tool_use, normal unless high (docs/adr/2026-11-14-1500-a-tool-use-setting-sets-how-readily-the-orchestrator-uses-tools.md),
 // and build_target, the `.kickflip/build-<target>` the hub runs, absent for `.kickflip/build`
 // (docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md).
 const validCap = (value) => Number.isInteger(value) && value >= 1 && value <= 99;
 const CAPS = ['max_implementers', 'max_planners', 'max_serves'];
+const TOOL_USE = ['normal', 'high'];
 export const settingsOf = (cfg, board) => {
   const tickets = storedTickets(cfg?.tickets);
   return { auto_merge: cfg?.auto_merge === true, auto_build: cfg?.auto_build === true,
@@ -1417,6 +1419,7 @@ export const settingsOf = (cfg, board) => {
     max_planners: validCap(cfg?.max_planners) ? cfg.max_planners : MAX_PLANNERS,
     max_serves: validCap(cfg?.max_serves) ? cfg.max_serves : MAX_SERVES, auto_triage: cfg?.auto_triage === true, auto_review: cfg?.auto_review === true,
     idle_notification: cfg?.idle_notification === true, skip_draft: cfg?.skip_draft === true, prs: board?.hub ? cfg?.prs === true : cfg?.prs !== false,
+    tool_use: cfg?.tool_use === 'high' ? 'high' : 'normal',
     ...(tickets ? { tickets } : {}), ...(validGithubLogin(cfg?.github_login) ? { github_login: cfg.github_login } : {}),
     ...(validBuildTarget(cfg?.build_target) ? { build_target: cfg.build_target } : {}) };
 };
@@ -1439,11 +1442,11 @@ export async function readBoardSettings(site) {
 // listBoards entry or hub/board-repo.mjs boardRepo's answer, settings settingsOf's.
 export const opensPRs = (board, settings) => Boolean(board?.github) && (!board.local || board.hub === true) && settings.prs;
 
-// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_planners?: 1..99, max_serves?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tickets?: source, github_login?: login | null, build_target?: target | null} → {file, settings, changed}; changed lists the keys whose value moved.
+// changes {auto_merge?: boolean, auto_build?: boolean,max_implementers?: 1..99, max_planners?: 1..99, max_serves?: 1..99, auto_triage?: boolean, auto_review?: boolean, idle_notification?: boolean, skip_draft?: boolean, prs?: boolean, tool_use?: 'normal' | 'high', tickets?: source, github_login?: login | null, build_target?: target | null} → {file, settings, changed}; changed lists the keys whose value moved.
 // PRs off on a board on GitHub that builds from its shared clone needs its Push main switch on, since each land there
 // then pushes main (permissions.mjs pushMain).
 export async function saveBoardSettings(site, changes) {
-  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_planners', 'max_serves', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tickets', 'github_login', 'build_target'], 'the settings');
+  onlyKeys(changes, ['auto_merge', 'auto_build','max_implementers', 'max_planners', 'max_serves', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'tickets', 'github_login', 'build_target'], 'the settings');
   if (!Object.keys(changes).length) fail('the settings name nothing to change');
   changes = { ...changes };
   for (const [k, v] of Object.entries(changes)) {
@@ -1461,6 +1464,8 @@ export async function saveBoardSettings(site, changes) {
     } else if (k === 'build_target') {
       if (v === null) changes.build_target = undefined;
       else if (!validBuildTarget(v)) fail('build_target must name .kickflip/build-<target>: letters, digits, ".", "_" or "-", or null for .kickflip/build');
+    } else if (k === 'tool_use') {
+      if (!TOOL_USE.includes(v)) fail('tool_use must be normal or high');
     } else if (CAPS.includes(k)) {
       if (!validCap(v)) fail(`${k} must be a whole number from 1 to 99`);
     } else bool(v, k);
@@ -1494,7 +1499,7 @@ export async function fallBackFromLinear() {
 // The CLI's `settings set <name> <value>`; names are the board.json keys with "-" for "_".
 export async function setBoardSetting(site, name, value) {
   const key = String(name).replace(/-/g, '_');
-  const names = ['auto_merge', 'auto_build','max_implementers', 'max_planners', 'max_serves', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'github_login', 'tickets', 'build_target'];
+  const names = ['auto_merge', 'auto_build','max_implementers', 'max_planners', 'max_serves', 'auto_triage', 'auto_review', 'idle_notification', 'skip_draft', 'prs', 'tool_use', 'github_login', 'tickets', 'build_target'];
   if (!names.includes(key)) fail(`no board setting "${name}"; settings are ${names.map((k) => k.replace(/_/g, '-')).join(', ')}`);
   if (key === 'tickets') {
     let tickets;
@@ -1510,6 +1515,10 @@ export async function setBoardSetting(site, name, value) {
     const { file, settings } = await saveBoardSettings(site, { build_target: value === 'default' ? null : value });
     return { file, lines: [`build-target ${settings.build_target || 'default'}`] };
   }
+  if (key === 'tool_use') {
+    const { file, settings } = await saveBoardSettings(site, { tool_use: value });
+    return { file, lines: [`tool-use ${settings.tool_use}`] };
+  }
   if (CAPS.includes(key)) {
     const { file, settings } = await saveBoardSettings(site, { [key]: /^\d+$/.test(value) ? Number(value) : value });
     return { file, lines: [`${name} ${settings[key]}`] };
@@ -1518,7 +1527,7 @@ export async function setBoardSetting(site, name, value) {
   const { file, settings } = await saveBoardSettings(site, { [key]: value === 'on' });
   return { file, lines: [`${name} ${settings[key] ? 'on' : 'off'}`] };
 }
-export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || CAPS.includes(k) ? v : k === 'build_target' ? v || 'default' : v ? 'on' : 'off'}`);
+export const settingsLines = (settings) => Object.entries(settings).map(([k, v]) => `setting ${k.replace(/_/g, '-')} ${k === 'tickets' ? JSON.stringify(v ?? { source: 'none' }) : k === 'github_login' || k === 'tool_use' || CAPS.includes(k) ? v : k === 'build_target' ? v || 'default' : v ? 'on' : 'off'}`);
 
 // change(list) → {rules, rule} from hub/rules.mjs; → {file, lines} naming the rule's id.
 async function changeRules(site, hub, change) {

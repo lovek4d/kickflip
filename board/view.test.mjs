@@ -473,6 +473,27 @@ for (const [key, id] of [['auto_build', 'autoBuild'], ['auto_triage', 'autoTriag
   });
 }
 
+// docs/adr/2026-11-14-1500-a-tool-use-setting-sets-how-readily-the-orchestrator-uses-tools.md
+test('Board Settings reads Tool use from the saved setting, saves a tap at once, and keeps the saved level on refusal', async () => {
+  const s = await settingsPage({ settings: { tool_use: 'normal' } }).mount();
+  const button = (level) => s.root.querySelector(`[data-tool-use="${level}"]`), sub = s.root.querySelector('#toolUseSub');
+  const pressed = () => ['normal', 'high'].map((level) => button(level).getAttribute('aria-pressed'));
+  assert.deepEqual(pressed(), ['true', 'false']);
+  const normalSub = sub.textContent;
+  s.page.fire(button('high'), 'click');
+  await tick();
+  assert.deepEqual([pressed(), s.posts.at(-1), s.confirms], [['false', 'true'], { tool_use: 'high' }, []]);
+  assert.notEqual(sub.textContent, normalSub, 'the help line follows the level');
+  s.refuse = 'Cannot save';
+  s.page.fire(button('normal'), 'click');
+  await tick();
+  assert.deepEqual([pressed(), s.root.querySelector('#toolUseStatus').textContent], [['false', 'true'], 'Cannot save']);
+  s.view.unmount();
+  const high = await settingsPage({ settings: { tool_use: 'high' } }).mount();
+  assert.deepEqual(['normal', 'high'].map((level) => high.root.querySelector(`[data-tool-use="${level}"]`).getAttribute('aria-pressed')), ['false', 'true']);
+  high.view.unmount();
+});
+
 // docs/adr/2026-11-05-1823-board-settings-picks-which-build-script-a-board-runs.md
 test("Board Settings' Build target lists the repo's build scripts with a default, names the script it runs and saves a pick at once", async () => {
   const s = await settingsPage({ settings: { build_target: 'gone' }, board: { kind: 'web' }, routes: { '/api/build-targets': { targets: ['ios', 'web'] } } }).mount();
