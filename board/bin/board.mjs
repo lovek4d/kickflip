@@ -366,13 +366,18 @@ moves every Linear board to no ticket source. If the source can't make a ticket,
                                                          reviewer's day thread for today, opening it with the
                                                          day's digest when none is open; only on the owner's
                                                          explicit ask
-  slack task <eventId> <file> --title <t>               a request for work in that thread: a new task in item file
+  slack link <pr> --to <reviewer>                       sends the PR's link, the one PR message format (a risk-coloured
+                                                         bar: title linking the PR, +N/-M · K files · risk, no @mention),
+                                                         in the reviewer's day thread through the hub's Slack; <pr> is
+                                                         owner/repo#n, a PR URL or a number in the board's repo, --to
+                                                         the reviewer's name or Slack user
+  slack task <eventId> <file> --title <t>            a request for work in that thread: a new task in item file
          (--notes <md> | --notes-from <draft.md>)       <file>, filed discussing for the owner's review, never ready;
                                                          the Slack message is its first thread line, by its writer
   integrations                                          readiness rows as one JSON line
   review due                                            one JSON line of the Slack sends the hub owes, from local state
                                                          and data/pr-slack.json: {date, links: [{pr, key, reviewer,
-                                                         slack_user, text}], reactions: [{pr, reviewer, reply?,
+                                                         slack_user, text, attachments}], reactions: [{pr, reviewer, reply?,
                                                          channel, ts, emoji}], digest: review digest's answer while
                                                          due, else null}. links: each open, non-draft PR's link to
                                                          each reviewer without one, in the reviewer's thread for
@@ -929,6 +934,10 @@ const COMMANDS = {
   'slack thread': [['eventId'], [], (site, [id]) => store.slackThread(needSite(site, 'slack thread'), id)],
   'slack answer': [['eventId'], ['text'], (site, [id], f) => store.slackAnswer(needSite(site, 'slack answer'), id, f.text)],
   'slack say': [['reviewer'], ['text'], (site, [name], f) => store.slackSay(needSite(site, 'slack say'), name, f.text)],
+  'slack link': [['pr'], ['to'], (site, [pr], f) => {
+    if (f.to === undefined) throw new UsageError('slack link needs --to <reviewer>');
+    return store.slackLink(needSite(site, 'slack link'), pr, f.to);
+  }],
   'slack task': [['eventId', 'file'], ['title', 'notes', 'notes-from'], (site, [id, file], f) => {
     if (f.notes !== undefined && f['notes-from'] !== undefined) throw new UsageError('pass --notes or --notes-from, not both');
     return store.slackTask(needSite(site, 'slack task'), id, file, { title: f.title, notes: f.notes, notesFrom: f['notes-from'] });

@@ -40,12 +40,12 @@ const SIGN_OFF = '\n- :claude_kickflip:';
 // Each post's words, then a line for each attachment: its colour bar, linked title and text; the sign-off line, which
 // ends the text or the last attachment, taken off.
 const unsigned = (words) => (words.endsWith(SIGN_OFF) ? words.slice(0, -SIGN_OFF.length) : words);
-const shown = (m) => unsigned([m.text, ...(m.attachments || []).map((a) => `▌${a.color} <${a.title_link}|${a.title}> ${a.text}`)].join('\n'));
+const shown = (m) => unsigned([m.text, ...(m.attachments || []).map((a) => `▌${a.color} <${a.title_link}|${a.title}> ${a.text}`)].filter(Boolean).join('\n'));
 const pairs = (list) => list.map((m) => [m.channel, shown(m), m.thread_ts ?? null]);
-// A PR's link: the reviewer's mention, then the bar holding the PR's title, size and risk, grey with no risk.
+// A PR's link: no text and no mention, only the bar holding the PR's title, size and risk, grey with no risk.
 const COLOURS = { low: '#2eb67d', medium: '#e8912d', high: '#e01e5a', none: '#9e9e9e' };
 const bar = (n, title, line, risk = 'none') => `▌${COLOURS[risk]} <https://github.com/o/r/pull/${n}|${title}> ${line}`;
-const linkTo = (u, n, title, line, risk) => `<@${u}>\n${bar(n, title, line, risk)}`;
+const linkTo = (u, n, title, line, risk) => bar(n, title, line, risk);
 
 test("review posts go into one thread per board in each reviewer's DM each day, opened by the day's digest: then only each PR's link, never a bump", async () => {
   const world = { ...slackWorld(), dms: { U1: 'D1', U2: 'D9' } };
@@ -126,7 +126,7 @@ test("review posts go into one thread per board in each reviewer's DM each day, 
   assert.match((await reviewDue(site)).waiting, /Slack refused the token/);
 });
 
-test("a PR's link is the reviewer's mention, then a bar coloured by the builder's risk holding the PR's title, size and risk, and last the sign-off line", async () => {
+test("a PR's link is one bar with no mention, coloured by the builder's risk holding the PR's title, size and risk, and last the sign-off line", async () => {
   const world = slackWorld();
   const slack = fakeSlack(world);
   saveToken(world);
@@ -137,7 +137,7 @@ test("a PR's link is the reviewer's mention, then a bar coloured by the builder'
   setPRs({ 'o/r#1': pr({ title: 'fix(board): bug no longer occurs', additions: 13, deletions: 45, files: 1 }), 'o/r#2': pr({ title: 'Two' }), 'o/r#3': pr({ title: 'Three' }), 'o/r#4': pr({ title: 'Four' }) });
   await sendReviews({ boards, fetch: slack.fetch, now: sunday });
   const links = world.messages.filter((m) => m.attachments);
-  assert.deepEqual(links.map((m) => m.text), Array(4).fill('<@U1>'));
+  assert.deepEqual(links.map((m) => m.text), Array(4).fill(''));
   assert.ok(links.every((m) => isSignedOff(m.text, m.attachments)));
   assert.deepEqual(links[0].attachments, [{
     color: COLOURS.low, title: 'fix(board): bug no longer occurs', title_link: 'https://github.com/o/r/pull/1', text: '+13/-45 · 1 file · low risk\n- :claude_kickflip:', mrkdwn_in: ['text'],

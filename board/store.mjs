@@ -23,7 +23,7 @@ import { withFileLock } from '../hub/locks.mjs';
 import { audit, auditLines, boardAudit, readAudit } from '../shared/audit.mjs';
 import { merge3 } from './merge3.mjs';
 import { HUB, MESSAGE_LIMIT, BRIEF_LINE_LIMIT, hubLineOf, hubText, detailOf, lineFault } from './hub-lines.mjs';
-import { fetchPR, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
+import { fetchPR, prSize, reportOf, githubLogin, postToPR, postReview, reviewsSince, CLAUDE_PREFIX, CLAUDE_MARK } from '../hub/pr-report.mjs';
 import { allLanded, cardPRs, hasPR, parsePRRef, prKeyOf, prNames, prURL, storedPRs } from '../shared/card-prs.mjs';
 import { reviewLinks, topicItems, reviewersOf } from './review.mjs';
 import { readiness } from '../hub/readiness.mjs';
@@ -996,20 +996,21 @@ export const recordReaction = (site, due) => editJSON(prSlackFile(site), (all) =
 });
 
 // docs/adr/2026-11-14-0451-a-prs-slack-link-is-a-bar-coloured-by-the-builders-risk.md
-// A PR's link in a day thread: the reviewer's mention as its text, so Slack tells them of the reply, and one attachment
-// whose colour bar is the card's risk (grey with none), titled by the PR's title linking the PR, then
-// “+N/-M · K files · <risk> risk”, the size from GitHub and the risk word repeating the colour. The Slack client signs
-// off the text, so the sign-off stays the message's last line of text. → {text, attachments}
+// docs/adr/2026-11-14-2300-every-pr-message-is-the-bar-with-no-mention.md
+// A PR's link in a day thread, the one PR message format: no text, and one attachment whose colour bar is the card's
+// risk (grey with none), titled by the PR's title linking the PR, then “+N/-M · K files · <risk> risk”, the size from
+// GitHub and the risk word repeating the colour. The Slack client signs off the attachment's text, so the sign-off
+// stays the message's last line. → {text, attachments}
 const RISKS = ['low', 'medium', 'high'];
 const RISK_COLOURS = { low: '#2eb67d', medium: '#e8912d', high: '#e01e5a' };
 const NO_RISK_COLOUR = '#9e9e9e';
-function prLink(slackUser, pr, gh, item) {
+function prLink(pr, gh, item) {
   const [repo, number] = pr.split('#');
   const title = gh.title || item.title;
   const size = Number.isInteger(gh.additions) ? [`+${gh.additions}/-${gh.deletions}`, `${gh.files} file${gh.files === 1 ? '' : 's'}`] : [];
   const line = [...size, item.risk && `${item.risk} risk`].filter(Boolean).join(' · ');
   return {
-    text: `<@${slackUser}>`,
+    text: '',
     attachments: [{
       color: RISK_COLOURS[item.risk] || NO_RISK_COLOUR, title, title_link: prURL({ repo, number }), text: line,
       fallback: [`${repo.split('/').pop()}#${number} ${title}`, line].filter(Boolean).join(' · '),
@@ -1046,7 +1047,7 @@ export async function reviewDue(site, options) {
         const gh = routeRecord(cache.prs, pr);
         for (const r of people) {
           if (!linkOwed(gh, record, pr, r.name) || links.some((l) => l.pr === pr && l.reviewer === r.name)) continue;
-          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, ...prLink(r.slack_user, pr, gh, item) });
+          links.push({ pr, key: `${source.slug}/${item.id}`, reviewer: r.name, slack_user: r.slack_user, ...prLink(pr, gh, item) });
         }
       }
     }
@@ -1192,8 +1193,8 @@ export async function slackThread(site, eventId, slack = savedSlack()) {
   const messages = await slackCall(throughSlack(slack).replies({ channel: q.channel, ts: q.thread_ts }));
   const lines = messages.flatMap((m) => {
     const who = ours.has(m.ts) || (m.user === owner && isSignedOff(m.text, m.attachments)) ? 'board' : m.user === owner ? 'you' : q.reviewer;
-    const [first, ...rest] = String(m.text || '').split('\n');
-    return [`${m.ts === q.ts ? '→ ' : ''}${who}: ${first}`, ...[...rest, ...(m.attachments || []).map((a) => a.fallback)].map((l) => `    ${l}`)];
+    const [first = '', ...rest] = [...(m.text ? m.text.split('\n') : []), ...(m.attachments || []).map((a) => a.fallback)];
+    return [`${m.ts === q.ts ? '→ ' : ''}${who}: ${first}`, ...rest.map((l) => `    ${l}`)];
   });
   return { lines };
 }
@@ -1214,20 +1215,56 @@ export async function slackAnswer(site, eventId, words, slack = savedSlack()) {
 export async function slackSay(site, name, words, { now = new Date() } = {}, slack = savedSlack()) {
   needSite(site);
   const message = orchestratorWords(words);
+  const reviewer = await reviewerNamed(site, name);
+  const client = throughSlack(slack);
+  const thread = await openDayThread(site, client, reviewer, now);
+  await slackCall(client.post({ channel: thread.channel, thread_ts: thread.ts, text: message }));
+  return { lines: [`said in ${reviewer.name}'s day thread`] };
+}
+
+// The board's reviewer called name or whose Slack user is name, a leading @ ignored.
+async function reviewerNamed(site, name) {
   const cfg = await boardConfig(site);
   const reviewers = new Map();
   for (const source of await itemSources(site)) for (const r of reviewersOf(await readJSON(source.file, {}), cfg.reviewers)) reviewers.set(r.name, r);
-  const reviewer = [...reviewers.values()].find((r) => sameName(r.name, name))
+  const wanted = String(name).replace(/^@/, '');
+  return [...reviewers.values()].find((r) => sameName(r.name, wanted) || r.slack_user === wanted)
     || fail(`no reviewer "${name}" on this board; its reviewers are ${[...reviewers.keys()].join(', ') || 'none'}`);
-  const client = throughSlack(slack);
+}
+
+// The reviewer's day thread for now's Slack day, opened with the day's digest when none is open, as the hub opens one.
+// → {channel, ts}
+async function openDayThread(site, client, reviewer, now) {
   const { date } = slackDay(now);
   const open = dayEntry(date, reviewer.name)(await readJSON(digestFile(site), {}));
-  const thread = open?.ts ? open : await slackCall(postDigest(site, date, (await reviewDigest(site, { now })).reviewers.find((r) => r.name === reviewer.name) || { ...reviewer, items: [] }, {
+  return open?.ts ? open : slackCall(postDigest(site, date, (await reviewDigest(site, { now })).reviewers.find((r) => r.name === reviewer.name) || { ...reviewer, items: [] }, {
     channel: open?.channel || await slackCall(client.openDM(reviewer.slack_user)),
     post: (m) => client.post(m),
   }));
-  await slackCall(client.post({ channel: thread.channel, thread_ts: thread.ts, text: message }));
-  return { lines: [`said in ${reviewer.name}'s day thread`] };
+}
+
+// `slack link`: a PR's link, the one PR message format (prLink), sent through the hub's Slack in the reviewer's day
+// thread as review due sends the board's own, and recorded so the PR's reactions follow it and the board sends no
+// second. pr: owner/repo#n, a PR URL or a number in the board's repo. The size is from GitHub (readPR), the risk from
+// the card holding the PR, none without one.
+export async function slackLink(site, pr, to, { now = new Date(), readPR = prSize } = {}, slack = savedSlack()) {
+  needSite(site);
+  const ref = parsePRRef(String(pr).replace(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)\/?$/, '$1#$2')) || fail(`"${pr}" is no PR: give owner/repo#n, a PR URL or a number in the board's repo`);
+  const repo = ref.repo || boardRepoOf(site, {}) || fail(`"${pr}" names no repo and this board has none: give owner/repo#n`);
+  const key = prKeyOf({ repo, number: ref.number });
+  const reviewer = await reviewerNamed(site, to);
+  const client = throughSlack(slack);
+  let card = {};
+  for (const source of await itemSources(site)) {
+    const itemFile = await readJSON(source.file, {});
+    card = (itemFile.items || []).find((i) => cardPRs(i, boardRepoOf(site, itemFile)).some((p) => prKeyOf(p) === key)) || card;
+  }
+  let size;
+  try { size = await readPR({ repo, pr: ref.number, login: settingsOf(await boardConfig(site)).github_login }); } catch (e) { fail(e.message); }
+  const message = prLink(key, size, card);
+  const thread = await openDayThread(site, client, reviewer, now);
+  await slackCall(postLink(site, { pr: key, reviewer: reviewer.name }, thread, () => client.post({ channel: thread.channel, thread_ts: thread.ts, ...message })));
+  return { lines: [`sent ${key} to ${reviewer.name}'s day thread`] };
 }
 
 // `slack task`: a request for work in a day thread, filed as a new card in item file `file`, discussing, for the owner

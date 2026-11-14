@@ -13,7 +13,7 @@ process.env.HOME = home;
 const { sendReviews } = await import('./review-send.mjs');
 const { slackStatus, slackClient } = await import('./slack.mjs');
 const { readinessRows } = await import('./readiness.mjs');
-const { slackThread, slackAnswer, slackSay, slackTask } = await import('../board/store.mjs');
+const { slackThread, slackAnswer, slackSay, slackTask, slackLink } =await import('../board/store.mjs');
 
 const kf = (...p) => path.join(home, '.claude', 'kickflip', ...p);
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); };
@@ -50,7 +50,7 @@ async function opened() {
 
 test("each new message in an open day thread wakes its board once with a slack-question event: a reviewer's always expects an answer, the owner's only when it names @kickflip, and the board's own posts wake nobody", async () => {
   const { world, slack, poll, day } = await opened();
-  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :claude_kickflip:', '<@U1> https://github.com/o/r/pull/1 · Limits\n- :claude_kickflip:', '<@U1>']);
+  assert.deepEqual(world.messages.map((m) => m.text), ['Orch Digest\n1 PR pending review\n- :claude_kickflip:', '<@U1> https://github.com/o/r/pull/1 · Limits\n- :claude_kickflip:', '']);
   assert.equal(world.messages.at(-1).attachments.at(-1).text, '+84/-12 · 5 files\n- :claude_kickflip:');
   assert.deepEqual(await poll(), { sent: [], failed: [] });
   assert.deepEqual(questions(), []);
@@ -118,8 +118,7 @@ test('slack thread reads the thread, slack answer posts the answer signed off in
     '    - :claude_kickflip:',
     'board: <@U1> https://github.com/o/r/pull/1 · Limits',
     '    - :claude_kickflip:',
-    'board: <@U1>',
-    '    r#1 Fix limiter · +84/-12 · 5 files',
+    'board: r#1 Fix limiter · +84/-12 · 5 files',
     '→ Ann: Could the digest skip drafts?',
     '    They clutter it.',
     'you: fyi',
@@ -196,4 +195,39 @@ test('board.mjs slack thread, slack answer, slack say and slack task run through
     assert.notEqual(refused.code, 0);
     assert.equal(read(waveFile).items.find((i) => i.id === 'T-1').phase, 'discussing');
   } finally { await server.close(); }
+});
+
+test("slack link sends the PR's one message format, the bar with no mention, in the reviewer's day thread, recorded so the board sends no second and reactions follow", async () => {
+  const { world, poll, slack, day } = await opened();
+  const client = slackClient(world.token, { fetch: slack.fetch });
+  write(waveFile, { repo: 'o/r', items: [{ id: 'A1', title: 'Limits', pr: 1 }, { id: 'A2', title: 'Docs', pr: 2, risk: 'high' }] });
+  const readPR = async ({ repo, pr: n }) => ({ title: `Docs of ${repo}#${n}`, additions: 3, deletions: 0, files: 1 });
+  const lineOf = (m) => [m.channel, m.thread_ts, m.text, m.attachments];
+  assert.deepEqual((await slackLink(site, 'o/r#2', '@U1', { now: sunday, readPR }, client)).lines, ["sent o/r#2 to Ann's day thread"]);
+  assert.deepEqual(lineOf(world.messages.at(-1)), ['D1', day, '', [{
+    color: '#e01e5a', title: 'Docs of o/r#2', title_link: 'https://github.com/o/r/pull/2', text: '+3/-0 · 1 file · high risk\n- :claude_kickflip:', mrkdwn_in: ['text'],
+    fallback: 'r#2 Docs of o/r#2 · +3/-0 · 1 file · high risk',
+  }]]);
+  assert.equal(read(path.join(site, 'data', 'pr-slack.json'))['o/r#2'].links.Ann.ts, world.messages.at(-1).ts);
+
+  // A PR URL and a number in the board's repo name the PR as well; a PR on no card has no risk; the same PR goes once.
+  await slackLink(site, 'https://github.com/x/y/pull/9', 'ann', { now: sunday, readPR }, client);
+  assert.equal(world.messages.at(-1).attachments[0].color, '#9e9e9e');
+  assert.equal(world.messages.at(-1).attachments[0].text, '+3/-0 · 1 file\n- :claude_kickflip:');
+  await assert.rejects(slackLink(site, 'o/r#2', 'Ann', { now: sunday, readPR }, client), /already gone out/);
+  await assert.rejects(slackLink(site, 'nope', 'Ann', { readPR }, client), /is no PR/);
+  await assert.rejects(slackLink(site, 'o/r#2', 'Zed', { readPR }, client), /no reviewer "Zed"/);
+  await assert.rejects(slackLink(site, 'o/r#3', 'Ann', { readPR: async () => { throw new Error('o/r#3: not found'); } }, client), /not found/);
+
+  // The board's own poll posts nothing a second time for it.
+  const before = world.messages.length;
+  await poll();
+  assert.equal(world.messages.filter((m) => m.attachments?.some((a) => a.title_link === 'https://github.com/o/r/pull/2')).length, 1);
+  assert.ok(world.messages.length >= before);
+});
+
+test('prLink is the only builder of a PR message: no other source file makes a PR attachment', () => {
+  const root = path.join(import.meta.dirname, '..');
+  const sources = fs.readdirSync(root, { recursive: true }).filter((f) => /\.mjs$/.test(f) && !/(^|\/)(node_modules|dist)\/|\.test\.mjs$/.test(f));
+  assert.deepEqual(sources.filter((f) => fs.readFileSync(path.join(root, f), 'utf8').includes('title_link')), [path.join('board', 'store.mjs')]);
 });

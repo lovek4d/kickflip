@@ -28,6 +28,14 @@ async function asLogin(login) {
   return { env: { ...process.env, GH_TOKEN: token }, account: login };
 }
 
+// A PR's title and size for its Slack link, as login. → {title, additions, deletions, files}
+export async function prSize({ repo, pr, login }) {
+  try {
+    const v = await gh(['pr', 'view', String(pr), '--repo', repo, '--json', 'title,additions,deletions,changedFiles'], await asLogin(login));
+    return { title: v.title, additions: v.additions, deletions: v.deletions, files: v.changedFiles };
+  } catch (e) { throw new Error(`${repo}#${pr}: ${e.message}`); }
+}
+
 // Posts Claude's words on PR pr of repo: a comment, or with replyTo a reply in that review comment's thread, as login.
 // → the post's url
 export async function postToPR({ repo, pr, replyTo, words, login }) {
