@@ -121,6 +121,16 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
   const cursorFile = path.resolve(s0.dir, 'data', `.watch-cursor-${session}.json`);
   const watcherFile = path.resolve(s0.dir, 'data', 'watcher.json');
   stopPreviousWatcher(s0.dir, route, session);
+  // A newer watcher may already own the file, so only this watcher's record gets its exit time.
+  const markExited = () => {
+    try {
+      const w = JSON.parse(fs.readFileSync(watcherFile, 'utf8'));
+      if (w.pid === pid) writeAtomic(watcherFile, JSON.stringify({ ...w, exited_at: new Date().toISOString() }));
+    } catch {}
+  };
+  // A stop by signal (a newer watcher, Ctrl-C) leaves its exit time too, then ends by the same signal.
+  const onSignal = (signal) => { markExited(); process.kill(process.pid, signal); };
+  for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, onSignal);
   try {
     fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
     writeAtomic(watcherFile, JSON.stringify({ pid, since: new Date().toISOString() }));
@@ -209,11 +219,8 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
       return 0;
     }
   } finally {
-    // A newer watcher may already own the file, so only this watcher's record gets its exit time.
-    try {
-      const w = JSON.parse(fs.readFileSync(watcherFile, 'utf8'));
-      if (w.pid === pid) writeAtomic(watcherFile, JSON.stringify({ ...w, exited_at: new Date().toISOString() }));
-    } catch {}
+    for (const signal of ['SIGTERM', 'SIGINT']) process.removeListener(signal, onSignal);
+    markExited();
   }
 }
 

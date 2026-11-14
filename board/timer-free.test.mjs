@@ -22,7 +22,7 @@ const timerWaits = (source) => source.split('\n').reduce((n, line) =>
 const TIMED = {
   '.kickflip/build.test.mjs': 1,
   'bin/install.test.mjs': 3,
-  'bin/wait-events.test.mjs': 21,
+  'bin/wait-events.test.mjs': 22,
   'board/agents.test.mjs': 2,
   'board/board-land.test.mjs': 2,
   'board/board-threads.test.mjs': 1,

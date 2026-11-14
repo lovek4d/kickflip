@@ -238,6 +238,17 @@ test('a new watcher for the same session stops the one watcher.json records, and
   assert.match(woke.stdout, /^event data\/events.jsonl .*"kind":"ask"/);
 });
 
+test('a watcher stopped by SIGTERM leaves its exit time in watcher.json, and ends by the signal', async (t) => {
+  const { home, watcherRecord, watch } = shop(t);
+  ownSession(home, 's1');
+  const w = watch();
+  await until(() => Number.isInteger(watcherRecord()?.pid) && watcherRecord().checks >= 1, 'the watcher checked once');
+  w.child.kill('SIGTERM');
+  assert.equal((await w.done).signal, 'SIGTERM');
+  assert.equal(typeof watcherRecord().exited_at, 'string');
+  assert.equal(watcherRecord().pid, w.child.pid);
+});
+
 test('record-only events and pings do not wake the session: a ping is acked at once, and the held lines print on the next wake ahead of the new events', { timeout: 60000 }, async (t) => {
   const { home, dir, add } = shop(t);
   const events = path.join(dir, 'data', 'events.jsonl');

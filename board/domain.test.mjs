@@ -2706,7 +2706,7 @@ test('a wait still open re-wakes the session every 15 minutes until picked up, t
   assert.deepEqual(keys(hour.again), ['w/A1']);
   assert.deepEqual(waitsStep(hour.waits, [picked], at(139)).again, []);
   assert.deepEqual(keys(waitsStep(hour.waits, [picked], at(140)).again), ['w/A1']);
-  assert.deepEqual(waitsStep([], [picked], at(21)), { waits: [{ ...picked, bumped: iso(21) }], added: [], again: [] }, 'one that joins picked up wakes nothing');
+  assert.deepEqual(waitsStep([], [picked], at(21)), { waits: [{ ...picked, bumped: iso(21) }], added: [], again: [], againAt: null }, 'one that joins picked up wakes nothing');
 
   // docs/adr/2026-11-06-1653-the-orchestrator-reviews-every-lane-on-a-schedule.md: a daily wait (a stale review) re-wakes
   // every 15 minutes until picked up, then once a day from its pickup; a change on its PR wakes the session by github-change.
@@ -2726,7 +2726,27 @@ test('a wait still open re-wakes the session every 15 minutes until picked up, t
   assert.deepEqual([two.added, keys(two.again)], [[], ['w/A1', 'w/A2']]);
   assert.equal(two.waits[0].pushed, true);
   // A wait that closes leaves the list.
-  assert.deepEqual(waitsStep(due.waits, [], at(60)), { waits: [], added: [], again: [] });
+  assert.deepEqual(waitsStep(due.waits, [], at(60)), { waits: [], added: [], again: [], againAt: null });
+});
+
+test('reminders share one board-wide clock: a wait that falls due within 15 minutes of the last reminder waits for the next one, which carries every due wait', () => {
+  const base = Date.parse('2026-11-05T10:00:00Z');
+  const at = (min) => new Date(base + min * 60000);
+  const iso = (min) => at(min).toISOString();
+  const wait = (key, since) => ({ key, ref: key, title: key, kind: 'calls', since: iso(since), picked: null, next: 'Verify' });
+  const keys = (step) => step.again.map((w) => w.key);
+  const list = [wait('w/A', 0), wait('w/B', 1)];
+  const joined = waitsStep(waitsStep([], [list[0]], at(2)).waits, list, at(3));
+  const first = waitsStep(joined.waits, list, at(17));
+  assert.deepEqual([keys(first), first.againAt], [['w/A'], iso(17)], 'A is due at 17, B a minute later');
+  const blocked = waitsStep(first.waits, list, at(18), first.againAt);
+  assert.deepEqual([keys(blocked), blocked.againAt], [[], iso(17)], 'B is due at 18 but the clock was used at 17');
+  assert.equal(blocked.waits[1].bumped, iso(3), 'a held reminder keeps its wake time');
+  assert.deepEqual(keys(waitsStep(blocked.waits, list, at(31), blocked.againAt)), []);
+  const next = waitsStep(blocked.waits, list, at(32), blocked.againAt);
+  assert.deepEqual([keys(next), next.againAt], [['w/A', 'w/B'], iso(32)], 'one reminder carries both');
+  const added = waitsStep(first.waits, [...list, wait('w/C', 19)], at(20), first.againAt);
+  assert.deepEqual([added.added, keys(added)], [['w/C'], []], 'a new wait still wakes at once');
 });
 
 test("a re-wake's plain line names each card still waiting with its kind, how long and its next step", () => {

@@ -16,7 +16,7 @@ import { routeRecord } from './routes.mjs';
 import { validBuildTarget } from '../board/build-script.mjs';
 import { deliver, readSettings } from './push.mjs';
 import { SLOWEST_CHECK_MINUTES } from './schedule.mjs';
-import { liveSessions, ps } from './live.mjs';
+import { liveSessions, ps, sessionRecords } from './live.mjs';
 import { withFileLock } from './locks.mjs';
 import { dropSessionPrompts, readPrompts, savePrompts, withPromptsLock } from './prompts.mjs';
 import { storedPath, relinkCellarNode, nodeBin } from '../bin/install.mjs';
@@ -42,6 +42,9 @@ export const hubCodeFile = () => path.join(webDir(), 'hub-code.json');
 const NO_SINCE = '1970-01-01T00:00:00Z';
 // bin/wait-events.mjs exits on each event and the session relaunches it, so a recent exit still counts as running.
 const RELAUNCH_GRACE = 2 * 60_000;
+// After an exit, a session that went busy since still counts as listening, since it is handling what woke the watcher,
+// for at most this long: a session stuck busy (a permission prompt, a rate limit) must not read listening forever.
+const BUSY_GRACE = 20 * 60_000;
 // An event waiting this long while the board isn't listening pushes the owner once (checkListening).
 export const DEAF_AFTER = 15 * 60_000;
 
@@ -231,11 +234,18 @@ export async function sendToBoards(boards, kind, data) {
 // Whether a watcher (bin/wait-events.mjs) runs for the board, from data/watcher.json {pid, since, exited_at}: its pid
 // alive and running wait-events.mjs, since pids get reused, or an exit within the relaunch grace (ms). A live pid ps
 // can't name the command of counts as the watcher, as ps giving no answer leaves it unknown, not gone. ps reads the
-// command line (live.mjs ps by default).
-export function watcherRunning(dir, now = Date.now(), { grace = RELAUNCH_GRACE, ps: ask = ps } = {}) {
+// command line (live.mjs ps by default). After an exit past the grace, the owner session (session) reads as listening
+// while its record (records(), live.mjs sessionRecords) says busy since the exit, until BUSY_GRACE after the exit
+// (docs/adr/2026-11-14-1400-a-busy-session-reads-as-listening-after-its-watcher-exits.md).
+export function watcherRunning(dir, now = Date.now(), { grace = RELAUNCH_GRACE, ps: ask = ps, session = null, records = sessionRecords } = {}) {
   const w = readJSON(path.join(dir, 'data', 'watcher.json'), null);
   if (!Number.isInteger(w?.pid)) return false;
-  if (typeof w.exited_at === 'string') return now - Date.parse(w.exited_at) <= grace;
+  if (typeof w.exited_at === 'string') {
+    const exited = Date.parse(w.exited_at);
+    if (now - exited <= grace) return true;
+    return Boolean(session) && now - exited <= BUSY_GRACE
+      && records().some((r) => r.sessionId === session && r.status === 'busy' && r.statusUpdatedAt >= exited);
+  }
   try { process.kill(w.pid, 0); } catch (e) { if (e.code !== 'EPERM') return false; }
   return commandOf(w.pid, ask)?.includes('wait-events.mjs') ?? true;
 }
@@ -262,9 +272,9 @@ export function stopPreviousWatcher(dir, route, session, { command = commandOf, 
 // live.mjs liveSessions' Map, passed when checking several boards. When it is null, ps gave no answer, and the watcher
 // alone answers: one that runs exits only once its session is known to be gone (live.mjs sessionGone). ps names the
 // watcher's command (watcherRunning).
-export function isListening(board, { now = Date.now(), running = liveSessions(), ps: ask = ps } = {}) {
+export function isListening(board, { now = Date.now(), running = liveSessions(), ps: ask = ps, records = sessionRecords } = {}) {
   const session = board.owner?.session;
-  return Boolean(session && (running?.has(session) ?? true)) && watcherRunning(board.dir, now, { ps: ask });
+  return Boolean(session && (running?.has(session) ?? true)) && watcherRunning(board.dir, now, { ps: ask, session, records });
 }
 
 // Whether the board hears its events now: 'listening' (isListening); 'waking', the hub resumed its session for this
@@ -274,8 +284,8 @@ export function isListening(board, { now = Date.now(), running = liveSessions(),
 // 'deaf', which nothing will wake. running is live.mjs liveSessions' Map and wakes resume-state.json, passed when
 // checking several boards. A null running, ps giving no answer, reads a board with no watcher as asleep, which pushes
 // nothing. ps names the watcher's command (watcherRunning).
-export function listenState(board, { now = Date.now(), running = liveSessions(), wakes = readJSON(resumeStateFile(), {}), ps: ask = ps } = {}) {
-  if (isListening(board, { now, running, ps: ask })) return 'listening';
+export function listenState(board, { now = Date.now(), running = liveSessions(), wakes = readJSON(resumeStateFile(), {}), ps: ask = ps, records = sessionRecords } = {}) {
+  if (isListening(board, { now, running, ps: ask, records })) return 'listening';
   const session = board.owner?.session;
   const wake = routeRecord(wakes, board.route);
   if (!session || !board.owner.repo || wake?.error || wake?.pushed_at) return 'deaf';

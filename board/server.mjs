@@ -2147,7 +2147,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
 
   // docs/adr/2026-11-04-2300-each-lane-is-a-queue-for-the-orchestrator.md
   // docs/adr/2026-11-05-2358-nothing-waiting-on-the-orchestrator-is-missed.md
-  // data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, picked, next, bumped, pushed?}]}: the cards idle on
+  // data/orchestrator-waits.json {waits: [{key, ref, title, kind, since, picked, next, bumped, pushed?}], againAt}: the cards idle on
   // the orchestrator (domain.mjs orchestratorWaits), lanes top-down, which bin/wait-events.mjs prints on every wake. Each
   // check appends at most one orchestrator-waits {added: [key], again: [{key, ref, kind, since, next}]} event once the file
   // is written: added names each card that joins it not picked up, or waits again with a new kind or since; again each
@@ -2172,7 +2172,7 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
     const previous = stored?.waits || [];
     const triage = await unansweredTriage(await readLines(events));
     const current = [...orchestratorWaits(await sharedBoard()), ...(triage ? [triageWaitOf(triage, routeRecord(await readWorking(here), triage.id))] : [])];
-    const step = waitsStep(previous, current, now());
+    const step = waitsStep(previous, current, now(), stored?.againAt ?? null);
     const waits = [];
     for (const w of step.waits) {
       if (w.kind !== 'triage' && !w.picked && !w.pushed && now().getTime() - Date.parse(w.since) >= ORCHESTRATOR_PUSH_AFTER) {
@@ -2181,9 +2181,9 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
         waits.push({ ...w, pushed: true });
       } else waits.push(w);
     }
-    if (!stored || JSON.stringify(waits) !== JSON.stringify(previous)) {
+    if (!stored || JSON.stringify(waits) !== JSON.stringify(previous) || step.againAt !== (stored.againAt ?? null)) {
       await fs.mkdir(data, { recursive: true });
-      await fs.writeFile(file + '.tmp', JSON.stringify({ waits }) + '\n');
+      await fs.writeFile(file + '.tmp', JSON.stringify({ waits, againAt: step.againAt }) + '\n');
       await fs.rename(file + '.tmp', file);
     }
     if (step.added.length || step.again.length) await appendEvent('orchestrator-waits', { added: step.added, again: step.again });

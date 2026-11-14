@@ -675,6 +675,36 @@ test("the sidebar reads a board's listening fresh: a watcher starting or exiting
   }
 });
 
+// docs/adr/2026-11-14-1400-a-busy-session-reads-as-listening-after-its-watcher-exits.md
+test("a board whose watcher exited reads listening while its session is busy since the exit, for at most 20 minutes, and not listening once idle past 2 minutes", async () => {
+  const w = sleeper();
+  const s = liveSession('s-shop');
+  const watcherFile = site('shop', 'data', 'watcher.json');
+  const kept = fs.existsSync(watcherFile) ? fs.readFileSync(watcherFile, 'utf8') : null;
+  try {
+    const board = listBoards(read(claude('kickflip', 'manifest.json'))).find((b) => b.route === 'shop');
+    const NOW = Date.parse('2026-11-14T12:00:00Z');
+    const minutesBefore = (min) => NOW - min * 60_000;
+    const state = (exitedMin, record) => {
+      write(watcherFile, { pid: w.pid, since: new Date(minutesBefore(60)).toISOString(), exited_at: new Date(minutesBefore(exitedMin)).toISOString() });
+      return listenState(board, { now: NOW, wakes: {}, records: () => (record ? [{ sessionId: 's-shop', ...record }] : []) });
+    };
+    const busy = (sinceMin) => ({ status: 'busy', statusUpdatedAt: minutesBefore(sinceMin) });
+    const idle = { status: 'idle', statusUpdatedAt: NOW };
+    assert.equal(state(5, busy(4)), 'listening', 'busy since after the exit');
+    assert.equal(state(5, idle), 'deaf', 'idle after 2 minutes');
+    assert.equal(state(1, idle), 'listening', 'idle within the 2-minute grace');
+    assert.equal(state(21, busy(20)), 'deaf', 'busy, but past 20 minutes');
+    assert.equal(state(19, busy(18)), 'listening');
+    assert.equal(state(5, busy(6)), 'deaf', 'a busy record older than the exit gives no credit');
+    assert.equal(state(5, null), 'deaf', 'no record');
+  } finally {
+    w.kill();
+    s.kill();
+    if (kept === null) fs.rmSync(watcherFile, { force: true }); else write(watcherFile, kept);
+  }
+});
+
 test('a board whose stopped session the hub can wake is asleep, then waking once the hub resumed it, and pushes nothing; one it cannot wake is deaf and pushes once', async () => {
   write(site('nap', 'board.json'), { title: 'Nap', items: 'data/items.json' });
   write(site('nap', 'data', 'events.jsonl'), JSON.stringify({ id: 'e-nap', ts: ago(30), kind: 'ask', data: {} }) + '\n');

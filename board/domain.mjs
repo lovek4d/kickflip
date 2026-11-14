@@ -1912,11 +1912,14 @@ export const DAILY_REWAKE_AFTER = 24 * 60 * 60000;
 // its key, kind and since are new, and wakes the session then unless it is already picked up. After that it wakes again
 // once REWAKE_AFTER passes since its last wake (or its since, for an entry stored before bumped), and once picked up,
 // once PICKED_REWAKE_AFTER (DAILY_REWAKE_AFTER for a daily wait) passes since the later of its pickup and its last wake.
-// → {waits, added: [key], again: [{key, ref, kind, since, next}]}
-export function waitsStep(previous, current, now) {
+// All the reminders share one clock: while the last one (lastAgain, an ISO time or null) is under REWAKE_AFTER old, due
+// waits stay due and wake nothing, and the next reminder carries every wait due by then.
+// → {waits, added: [key], again: [{key, ref, kind, since, next}], againAt}
+export function waitsStep(previous, current, now, lastAgain = null) {
   const at = now.toISOString();
   const added = [];
   const again = [];
+  const clockOpen = !lastAgain || now - Date.parse(lastAgain) >= REWAKE_AFTER;
   const waits = current.map((w) => {
     const was = previous.find((p) => p.key === w.key && p.kind === w.kind && p.since === w.since);
     if (!was) {
@@ -1925,10 +1928,11 @@ export function waitsStep(previous, current, now) {
     }
     const last = w.picked ? [w.picked, was.bumped].filter(Boolean).sort().pop() : was.bumped || w.since;
     const due = now - Date.parse(last) >= (!w.picked ? REWAKE_AFTER : w.daily ? DAILY_REWAKE_AFTER : PICKED_REWAKE_AFTER);
-    if (due) again.push({ key: w.key, ref: w.ref, kind: w.kind, since: w.since, next: w.next });
-    return { ...w, bumped: due ? at : was.bumped || w.since, ...(was.pushed ? { pushed: true } : {}) };
+    const wakes = due && clockOpen;
+    if (wakes) again.push({ key: w.key, ref: w.ref, kind: w.kind, since: w.since, next: w.next });
+    return { ...w, bumped: wakes ? at : was.bumped || w.since, ...(was.pushed ? { pushed: true } : {}) };
   });
-  return { waits, added, again };
+  return { waits, added, again, againAt: again.length ? at : lastAgain };
 }
 // The plain line the watcher prints for a re-wake's cards at time at (ms):
 // "still waiting on you: <ref> <kind> for <age>: <next>", the cards joined by "; ".
