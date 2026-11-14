@@ -2725,6 +2725,7 @@ function checkPhase(phase, state) {
   if (phase === 'staging') fail(`--phase staging is set by the board, on an owner action; pass ${AGENT_PHASE_LIST}`);
   if (phase !== undefined && !AGENT_PHASES.includes(phase)) fail(`--phase takes ${AGENT_PHASE_LIST}`);
 }
+const QUICK_NOT_SMALL = (key) => `${key} came from a Quick build ask, which goes ready only when small (--size small) with no open question; discuss it instead: reply with --phase discussing, and the owner's Implement after the discussion readies it at any size`;
 const NOT_STAGED = "a task goes ready only from staging, which the board sets on the owner's Send, Implement or Reply";
 // Whether ask eventId asked for an Implement: the New task sheet's Implement, or an Implement on its New card. The
 // orchestrator files it --from-ask --phase ready, its filing the judgment staging would ask for
@@ -2987,6 +2988,9 @@ async function changeItem(site, key, { risk, ticket, newTicket, status, clearSta
   }
   if (phase !== undefined && leftTodo(item)) fail(`--phase sets a Todo task's phase; ${key} is ${LANES[item.lane]}, where the board sets it`);
   if (phase === 'ready' && !quick && !['staging', 'ready'].includes(item.phase)) fail(`${key} reads ${item.phase || 'new'}, not staging; ${NOT_STAGED}`);
+  // docs/adr/2026-11-14-1500-a-quick-ask-goes-ready-only-when-small-with-no-open-question.md: an Implement is no
+  // discussion, so only a small change goes ready on it; the owner's tap after a discussion (staging) settles any size.
+  if (phase === 'ready' && quick && !['staging', 'ready'].includes(item.phase) && (size ?? item.size) !== 'small') fail(QUICK_NOT_SMALL(key));
   if (ask && item.from_ask && item.from_ask !== ask) fail(`${key} came from ask "${item.from_ask}", so ask "${ask}" can't be its from-ask; to fold it in: item relate-ask ${ask} ${key} --summary "<line>"`);
   // docs/adr/2026-11-03-0516-a-new-card-is-ready-grilling-or-prototyping.md
   if (ask && hold && phase !== undefined && !item.phase) fail('a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
@@ -3628,6 +3632,7 @@ async function createItem(site, key, { title, notes, notesFrom, before, deps, ti
   if (hold && phase !== undefined) fail('a task filed held is filed New and takes no --phase; drop --phase, or drop --held to file it in a phase');
   if (ask && phase === undefined && !hold) fail('--from-ask files a task, which reads New until it has a phase: pass --phase discussing, grilling, prototyping, or ready for a Quick build ask, or --held to file it for later');
   if (phase === 'ready' && !(ask && await quickAsk(site, ask))) fail(ask ? `ask "${ask}" is not a Quick build ask, so item add files it discussing, grilling or prototyping` : 'item add files a task discussing, grilling or prototyping; ready is for a Quick build ask, filed with --from-ask');
+  if (phase === 'ready' && size !== undefined && size !== 'small') fail(QUICK_NOT_SMALL(key));
   if (phase === 'ready' && !size) fail(`a new ready task has no size; a builder starts from it, so pass --size small or large with --phase ready`);
   // docs/adr/2026-11-07-0115-the-orchestrator-sorts-new-tasks-itself.md: a new card has no questions yet, so its notes
   // are complete once they hold more than its title.

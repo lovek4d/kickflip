@@ -23,13 +23,13 @@ test('only the board stages a card: item set and item add refuse --phase staging
 test('ready comes only from staging, or a card already ready; staging to ready clears when it was staged', async () => {
   write(at('waves', 'w', 'a1.md'), '# A1\n');
   setState({ plan: 'a1.md' });
-  const ready = () => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', '--size', 'small', ...(item().phase === 'staging' ? ['--text', 'No other task covers it.'] : []));
+  const ready = () => board('item', 'set', 'w/A1', '--site', 'orch', '--phase', 'ready', ...(item().phase === 'staging' ? [] : ['--size', 'small']), ...(item().phase === 'staging' ? ['--text', 'No other task covers it.'] : []));
   for (const from of [undefined, 'grilling', 'prototyping']) {
     setState({ phase: from });
     assert.deepEqual(await ready(), { code: 1, out: '', err: `w/A1 reads ${from || 'new'}, not staging; a task goes ready only from staging, which the board sets on the owner's Send, Implement or Reply\n` });
     assert.equal(item().phase, from);
   }
-  setState({ phase: 'staging', staged_at: '2026-11-06T10:00:00.000Z' });
+  setState({ phase: 'staging', staged_at: '2026-11-06T10:00:00.000Z', size: 'large' });
   const r = await ready();
   assert.equal(r.code, 0, r.err);
   assert.deepEqual([item().phase, item().staged_at], ['ready', undefined]);
@@ -65,6 +65,13 @@ test('staging to ready refuses a --text the readied line can\'t hold whole, nami
   assert.deepEqual([item().phase, fs.readFileSync(at('waves', 'w', 'a1.md'), 'utf8')], ['staging', '# A1\n']);
   assert.equal((await set('x'.repeat(room))).code, 0);
   assert.equal(lines(site('orch', 'data', 'threads', 'w__A1.jsonl')).at(-1).text, `Marked as ready · ${'x'.repeat(room)}`);
+});
+
+test('item add --from-ask refuses a Quick build ask that is not small, and writes nothing', async () => {
+  addEvents({ id: 'eq', ts: '2026-11-06T10:00:00Z', kind: 'ask', data: { text: 'Fix the header', quick: true } });
+  const r = await board('item', 'add', 'w/Q1', '--site', 'orch', '--title', 'fix: q1', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--size', 'large', '--notes', 'Fit it.');
+  assert.ok(r.code === 1 && /goes ready only when small/.test(r.err), r.err);
+  assert.equal(item('Q1'), undefined);
 });
 
 test('item add without --from-ask files a card grilling or prototyping, never ready', async () => {
@@ -112,6 +119,10 @@ test('item set --from-ask files a Quick build ask ready, from any phase, with it
   const file = (id, ask, phase) => board('item', 'set', `w/${id}`, '--site', 'orch', '--from-ask', ask, '--text', 'Filed.', '--phase', phase, '--size', 'small');
   write(at('waves', 'w', 'wave.json'), { items: [{ id: 'A1', title: 'fix: quick', plan: 'a1.md' }, { id: 'A2', title: 'fix: implement on new', plan: 'a1.md', phase: 'grilling' }, { id: 'A3', title: 'Plain', plan: 'a1.md' }] });
   assert.deepEqual(await file('A1', 'eq', 'staging'), { code: 1, out: '', err: '--phase staging is set by the board, on an owner action; pass ready, discussing, grilling or prototyping\n' });
+  // docs/adr/2026-11-14-1500-a-quick-ask-goes-ready-only-when-small-with-no-open-question.md
+  const big = await board('item', 'set', 'w/A1', '--site', 'orch', '--from-ask', 'eq', '--text', 'Filed.', '--phase', 'ready', '--size', 'large');
+  assert.ok(big.code === 1 && /goes ready only when small .* discuss it instead/.test(big.err), big.err);
+  assert.equal(item('A1').phase, undefined);
   const quick = await file('A1', 'eq', 'ready');
   assert.equal(quick.code, 0, quick.err);
   assert.deepEqual([item('A1').phase, item('A1').staged_at], ['ready', undefined]);
