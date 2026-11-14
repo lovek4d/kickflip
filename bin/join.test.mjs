@@ -131,7 +131,7 @@ test('join --port puts a server the session runs at /<route> under Pages with no
   answers.delete(pagePort);
   for (let miss = 0; miss < MISSES; miss++) await hub.reconcile();
   assert.equal((await row('notes')).state, 'down');
-  assert.match((await row('notes')).sub, />down</);
+  assert.equal((await row('notes')).sub.status.word, 'down');
   const down = await fetch(`${base}/notes/`);
   assert.equal(down.status, 502);
   assert.match(await down.text(), /nothing answers on port/);

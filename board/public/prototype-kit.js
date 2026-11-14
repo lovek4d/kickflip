@@ -69,7 +69,8 @@
   const at = (ms) => new Date(Date.now() + ms).toISOString();
   const svg = (paths) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
   const siteIcon = (color, paths) => `<span class="icon" style="--c:${color}" aria-hidden="true">${svg(paths)}</span>`;
-  const lanes = (...l) => `<span class="lcs">${l.map(([k, t]) => `<span class="lc lc-${k}">${t}</span>`).join('')}</span>`;
+  // A site's sub line as hub/home.mjs statusLine's data: its lane chips alone.
+  const lanes = (...l) => ({ status: null, stale: false, chips: l.map(([lane, text]) => ({ lane, text })) });
   const reading = (five, week, agoMs, resetH, weekD) => ({ at: at(-agoMs), five_hour: { used_percentage: five, resets_at: at(resetH * 3600_000), state: 'live' }, seven_day: { used_percentage: week, resets_at: at(weekD * 86400_000), state: 'live' } });
   const fake = {
     at,

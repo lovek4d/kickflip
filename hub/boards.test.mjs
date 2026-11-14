@@ -507,8 +507,8 @@ test("each board serves its hub links, and the slack link passes once every revi
   const shop = await api('shop');
   assert.deepEqual(linkState(shop.links), { github: true, events: false, wakes: true, slack: true });
   const sub = Object.fromEntries((await (await fetch(`${base}/_hub/sidebar.json`)).json()).sites.map((x) => [x.route, x.sub]));
-  assert.match(sub.shop, /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">not listening<\/span>/);
-  assert.doesNotMatch(sub.orch, /not listening/);
+  assert.deepEqual(sub.shop.status, { shape: 'dot', colour: 'red', word: 'not listening' });
+  assert.notEqual(sub.orch?.status?.word, 'not listening');
   const wave = read(claude('waves', 'w1', 'wave.json'));
   write(claude('waves', 'w1', 'wave.json'), { ...wave, review_link_ts: { 11: { Ann: '1.1', Bea: '1.2' } } });
   assert.equal(linkState((await (await fetch(`${base}/orch/api/links`)).json()).links).slack, true);
@@ -570,7 +570,7 @@ test('while the hub runs older code than its files, the Hub row and Health card 
     const side = await sidebar();
     assert.match(side.hub.detail, /^\d+ of \d+ sites up · runs older code than its files; restart it$/);
     assert.notEqual(side.hub.word, 'healthy');
-    assert.ok(side.sites.every((s) => !/older code|restart/i.test(s.sub)));
+    assert.ok(side.sites.every((s) => !/older code|restart/i.test(JSON.stringify(s.sub))));
     const hub = await page();
     assert.equal(hub.hub.detail, side.hub.detail);
     assert.ok(hub.groups.flatMap((g) => g.sites).every((x) => x.lines.every((l) => l.link !== 'hub')));
@@ -656,7 +656,7 @@ test('listening again ends the outage, a watcher whose session is not running do
 });
 
 test("the sidebar reads a board's listening fresh: a watcher starting or exiting shows on the very next read, with its events link", async () => {
-  const sub = async () => (await (await fetch(`${base}/_hub/sidebar.json`)).json()).sites.find((x) => x.route === 'shop').sub;
+  const sub = async () => (await (await fetch(`${base}/_hub/sidebar.json`)).json()).sites.find((x) => x.route === 'shop').sub?.status?.word ?? '';
   const watcherFile = site('shop', 'data', 'watcher.json');
   const kept = fs.existsSync(watcherFile) ? fs.readFileSync(watcherFile, 'utf8') : null;
   const w = sleeper();

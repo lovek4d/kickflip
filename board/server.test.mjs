@@ -1103,7 +1103,7 @@ test('a recorded prototype is the one template with its record filled in, and no
     assert.deepEqual(data.takes.map((t) => [t.key, t.label, /^prototypes\/moon\/A\.js\?v=[\w-]+$/.test(t.src ?? ''), t.file]), [['A', 'Tap <it>', true, 'prototypes/moon/A.js'], ['B', 'Hover', false, 'prototypes/moon/B.js']]);
     assert.match(page, /<main class="proto-main"><div id="stage"><\/div><\/main>/);
     assert.match(page, /#stage \{[^}]*contain: layout paint; transform: translateZ\(0\); isolation: isolate; overflow-x: clip;/);
-    for (const script of ['claude.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-hub.js', 'ui-cards.js', 'prototype-switcher.js', 'prototype-kit.js']) assert.match(page, new RegExp(`<script src="${script.replace('.', '\\.')}\\?v=`), script);
+    for (const script of ['claude.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-hub.js', 'ui-cards.js', 'prototype-switcher.js', 'prototype-kit.js']) assert.match(page, new RegExp(`<script src="${script.replace('.', '\\.')}\\?v=`), script);
     const plain = await (await fetch(`${base}/prototype-plain.html`)).text();
     assert.match(plain, /<a class="back" href="\.\/" aria-label="Back to the board">/);
     assert.equal(await (await fetch(`${base}/prototype-written.html`)).text(), '<p>Hand-written</p>');

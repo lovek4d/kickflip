@@ -89,7 +89,7 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 }
 /* The Hub row's busy words open what's loading this Mac (ui-sidebar.js loadSheet), a sheet like a failed start's. */
 .sidebar .sb-busy { cursor: pointer; border-radius: 6px; }
-@media (hover: hover) { .sidebar .sb-busy:hover .word { text-decoration: underline; } }
+@media (hover: hover) { .sidebar .sb-busy:hover .it-w { text-decoration: underline; } }
 .sidebar .sb-busy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #loadSheet .sheet-head h2 { font-size: 17px; }
 #loadSheet .ls-note { margin: 4px 0 8px; color: var(--muted); font-size: 13.5px; }
@@ -211,18 +211,21 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
 .sidebar .lcs { order: -1; flex: 1 1 100%; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .sidebar .lc { flex: none; font-size: 11px; font-weight: 600; border-radius: 6px; padding: 0 6px; line-height: 18px; color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent); }
 .sidebar .lc-needs { --tone: var(--color-danger); } .sidebar .lc-review { --tone: var(--accent); } .sidebar .lc-progress { --tone: var(--color-notice); } .sidebar .lc-todo { --tone: var(--muted); }
-.sidebar .dot { flex: none; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tone); }
+/* The one icon and word (ui-icon-text.js iconText): the shape fixes the icon, its size and the gap, on the helper's own
+   inline-flex box, so no parent has to be flex; the colour colours the icon and the word alike. */
+.it { flex: none; display: inline-flex; align-items: center; gap: 6px; color: var(--it); font-weight: 600; }
+.it-red { --it: var(--color-danger); } .it-orange { --it: var(--color-notice); } .it-blue { --it: var(--color-info); }
+.it-green { --it: var(--color-success); } .it-purple { --it: var(--color-merged); } .it-grey { --it: var(--color-quiet); }
+.it-i { flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.it-i svg { display: block; width: 12px; height: 12px; }
+.it-dot::before, .it-pulse::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--it); }
 @keyframes sb-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: no-preference) { .sidebar .dot.pulse { animation: sb-pulse 1.4s ease-in-out infinite; } }
-.sidebar .word { flex: none; font-weight: 600; color: var(--tone); }
-.sidebar .t-down { --tone: var(--color-danger); }
-.sidebar .t-starting { --tone: var(--color-notice); }
-.sidebar .t-stopped, .sidebar .t-asleep { --tone: var(--muted); }
-.sidebar .t-working { --tone: var(--color-notice); }
-.sidebar .t-building { --tone: var(--color-notice); }
-.sidebar .t-ok { --tone: var(--color-success); }
-.sidebar .t-wait { --tone: var(--color-notice); }
-.sidebar .t-paused { --tone: var(--muted); }
+@keyframes it-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: no-preference) {
+  /* On the icon itself, not its ::before, so ui-progress-bar.js onePulse finds the animation on the event's target. */
+  .it-pulse { animation: sb-pulse 1.4s ease-in-out infinite; }
+  .it-spinner svg { animation: it-spin 1s linear infinite; }
+}
 
 @media (min-width: 900px) {
   body.has-sidebar { padding-left: var(--sidebar-w, 272px); }
@@ -283,9 +286,7 @@ html.sb-dot-down body.has-sidebar > .top .hub::after, html.sb-dot-down body.has-
   font: 600 12.5px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
 .shortcuts-sheet .sc-foot { margin: 14px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .sheet.shortcuts-sheet[open] { animation: none; } }
-/* A held row (hub/home.mjs holdNeeds): its last good line, flat gray with (stale) after the word. The wrapper takes no
-   box, so its dot, word and chips lay out as direct children of .sb-status, chips first, as on a fresh row. */
-.sidebar .held { display: contents; }
-.sidebar .held .dot, .sidebar .held .word, .sidebar .held .lc { --tone: var(--muted); }
-.sidebar .held .dot.pulse { animation: none; }
-.sidebar .held .stale-word { flex: none; color: var(--muted); font-size: 11px; }
+/* A stale row (hub/home.mjs holdNeeds): its last good line, flat grey (ui-sidebar.js draws its icon and word grey), with
+   (stale) after the word, in the one .sb-status line with the chips first, as on a fresh row. */
+.sidebar .sb-status.stale .lc { --tone: var(--muted); }
+.sidebar .stale-word { flex: none; color: var(--muted); font-size: 11px; }

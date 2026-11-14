@@ -25,17 +25,19 @@ export function readNeeds(body) {
 // The most urgent thing a site is doing (what waits on the owner is a red chip first in the lane chips, see statusLine), or null when it is calm. state is the hub's process state; listen is a board's
 // boards.mjs listenState, or 'full' for a deaf board whose context is full (usage.mjs contextFull), and undefined for a
 // site that isn't a board.
+// → {shape, colour, word}, the shape and colour from board/public/ui-icon-text.js's enums, which draws them.
 export function siteStatus({ state, working, building, listen } = {}) {
-  if (state === 'down') return { tone: 'down', word: 'down' };
-  if (listen === 'logged-out') return { tone: 'down', word: 'logged out: run /login' };
-  if (listen === 'full') return { tone: 'down', word: 'context full' };
-  if (listen === 'deaf') return { tone: 'down', word: 'not listening' };
-  if (state === 'starting') return { tone: 'starting', word: 'starting' };
-  if (state === 'stopped') return { tone: 'stopped', word: 'stopped' };
-  if (working) return { tone: 'working', word: 'working' };
-  if (listen === 'waking') return { tone: 'asleep', word: 'waking…' };
-  if (listen === 'asleep') return { tone: 'asleep', word: 'asleep' };
-  if (building) return { tone: 'building', word: 'implementing' };
+  const fault = (word) => ({ shape: 'dot', colour: 'red', word });
+  if (state === 'down') return fault('down');
+  if (listen === 'logged-out') return fault('logged out: run /login');
+  if (listen === 'full') return fault('context full');
+  if (listen === 'deaf') return fault('not listening');
+  if (state === 'starting') return { shape: 'dot', colour: 'orange', word: 'starting' };
+  if (state === 'stopped') return { shape: 'dot', colour: 'grey', word: 'stopped' };
+  if (working) return { shape: 'pulse', colour: 'orange', word: 'working' };
+  if (listen === 'waking') return { shape: 'dot', colour: 'grey', word: 'waking…' };
+  if (listen === 'asleep') return { shape: 'dot', colour: 'grey', word: 'asleep' };
+  if (building) return { shape: 'dot', colour: 'orange', word: 'implementing' };
   return null;
 }
 
@@ -46,19 +48,15 @@ export function laneChips(lanes) {
     .filter(([k]) => lanes[k] > 0).map(([lane, word]) => ({ lane, text: `${lanes[lane]} ${word}` }));
 }
 
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-// The row's sub line HTML, or '' when there is nothing to say. needs is readNeeds' result or null; listen as
-// siteStatus takes it. Its classes are styled by board/public/sidebar.css.
+// The row's sub line as data, which board/public/ui-sidebar.js draws: {status: siteStatus' answer or null, stale, chips},
+// chips null when the site reports no lanes and [] when it has nothing open; null when there is nothing to say. needs is
+// readNeeds' result or null; listen as siteStatus takes it.
 export function statusLine(state, needs, listen) {
-  const s = siteStatus({ state, ...needs, listen });
+  const status = siteStatus({ state, ...needs, listen });
   const lane = state === 'up' ? laneChips(needs?.lanes) : null;
   const chips = needs?.count ? [{ lane: 'needs', text: `${needs.count} need you` }, ...(lane || [])] : lane;
-  const word = s ? `<span class="dot t-${s.tone}${s.tone === 'working' ? ' pulse' : ''}" aria-hidden="true"></span><span class="word t-${s.tone}">${esc(s.word)}</span>` : '';
-  const lanes = chips === null ? '' : chips.length ? chips.map((c) => `<span class="lc lc-${c.lane}">${esc(c.text)}</span>`).join('') : '<span>nothing open</span>';
-  if (!word && !lanes) return '';
-  const line = `${word}${needs?.stale ? '<span class="stale-word"> (stale)</span>' : ''}${lanes ? `<span class="lcs">${lanes}</span>` : ''}`;
-  return needs?.stale ? `<span class="held">${line}</span>` : line;
+  if (!status && chips === null) return null;
+  return { status, stale: needs?.stale === true, chips };
 }
 
 export const NEEDS_STALE_MS = 15_000;
@@ -71,8 +69,8 @@ export function holdNeeds(good, read, readAt, now) {
 }
 
 // The sidebar's site rows, from hub.mjs status() rows, each site's readNeeds answer (a Map by route), the set of
-// routes that are boards and each board's boards.mjs listenState (a Map by route). icon and sub are HTML that board/public/ui-sidebar.js
-// places as given. created is when the site joined the hub, null when the manifest has no time, which ui-sidebar.js
+// routes that are boards and each board's boards.mjs listenState (a Map by route). icon is HTML that board/public/ui-sidebar.js
+// places as given, and sub is statusLine's data, which it draws. created is when the site joined the hub, null when the manifest has no time, which ui-sidebar.js
 // switchKeys orders by. ctx is the board's owner session's context reading {percent, at} (usage.mjs), else null.
 export function sidebarSites(rows, waiting, boards, listens = new Map(), contexts = new Map()) {
   return rows.map((r) => {

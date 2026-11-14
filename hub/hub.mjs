@@ -14,7 +14,7 @@
 //   /_hub/api/hub, /_hub/api/settings
 //                     those views' data and words (views.mjs), including integration readiness rows on /_hub/api/hub
 //   /_hub/sidebar.json what the sidebar shows (board/public/ui-sidebar.js): {code, version, total, start,
-//                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}], hub: {tone, word, detail},
+//                     sites: [{route, title, board, state, count, changedAt, created, icon, sub, ctx}] (sub: home.mjs statusLine's data), hub: {tone, word, detail},
 //                     notifications: {state, text}, away}, away true while the owner reads away (presence.mjs ownerTracker), ctx the board's owner session's {percent, at} or null; each site's row from its GET /_claude/needs
 //                     (home.mjs; docs/adr/2026-10-29-1639-sites-report-what-waits-through-claude-needs.md)
 //                     starting lists pending boards, each with its start step and a running clone's percent (sessions.mjs)
@@ -869,7 +869,7 @@ export async function startHub({ port: askedPort = 0, now: clock = Date.now, cod
   async function shellPage(here, viewer = null) {
     const data = viewer ? viewer.sidebar((await sidebarState()).data) : (await sidebarState()).data;
     const context = vm.createContext({});
-    for (const file of ['ui-progress-bar.js', 'ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
+    for (const file of ['ui-progress-bar.js', 'ui-icon-text.js', 'ui-page-header.js', 'ui-sidebar.js']) vm.runInContext(fs.readFileSync(path.join(BOARD_PUBLIC, file), 'utf8'), context);
     return shellHtml({ sidebar: context.BoardUI.sidebar(data, { here }), sidebarData: JSON.stringify(data).replace(/</g, '\\u003c'), touchIcon: iconUrl(180) });
   }
 

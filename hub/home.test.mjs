@@ -19,12 +19,11 @@ test('a failed needs read keeps the last good answer, still counted, and marks i
   assert.equal(holdNeeds(null, null, 0, 5).needs, null);
 });
 
-test('a stale row reads its word then (stale), in a held line', () => {
+test("a row's status line is data: its status, whether it is stale, and its chips", () => {
   const needs = { working: 1, count: 0, lanes: { review: 0, progress: 0, todo: 0 }, building: false, stale: true };
-  const html = statusLine('up', needs, 'listening');
-  assert.match(html, /^<span class="held">/);
-  assert.match(html, /working<\/span><span class="stale-word"> \(stale\)<\/span>/);
-  assert.doesNotMatch(statusLine('up', { ...needs, stale: undefined }, 'listening'), /held|stale/);
+  assert.deepEqual(statusLine('up', needs, 'listening'), { status: { shape: 'pulse', colour: 'orange', word: 'working' }, stale: true, chips: [] });
+  assert.equal(statusLine('up', { ...needs, stale: undefined }, 'listening').stale, false);
+  assert.equal(statusLine('up', null, 'listening'), null, 'nothing to say');
 });
 
 test('the status word is the most urgent of down, not listening, starting, working, waking, asleep and implementing, every word lowercase', () => {
@@ -33,12 +32,12 @@ test('the status word is the most urgent of down, not listening, starting, worki
   assert.equal(word({ ...up, state: 'down', listen: 'deaf' }), 'down');
   assert.equal(word({ ...up, state: 'starting', listen: 'deaf' }), 'not listening');
   assert.equal(word({ ...up, listen: 'deaf' }), 'not listening');
-  assert.equal(siteStatus({ state: 'up', listen: 'deaf' }).tone, 'down');
+  assert.deepEqual(siteStatus({ state: 'up', listen: 'deaf' }), { shape: 'dot', colour: 'red', word: 'not listening' });
   assert.equal(word({ ...up, listen: 'listening' }), 'working');
   assert.equal(word({ ...up, listen: 'asleep' }), 'working');
   assert.equal(word({ ...up, count: 0, listen: 'asleep' }), 'working');
-  assert.deepEqual(siteStatus({ ...up, working: 0, count: 0, listen: 'asleep' }), { tone: 'asleep', word: 'asleep' });
-  assert.deepEqual(siteStatus({ ...up, working: 0, count: 0, listen: 'waking' }), { tone: 'asleep', word: 'waking…' });
+  assert.deepEqual(siteStatus({ ...up, working: 0, count: 0, listen: 'asleep' }), { shape: 'dot', colour: 'grey', word: 'asleep' });
+  assert.deepEqual(siteStatus({ ...up, working: 0, count: 0, listen: 'waking' }), { shape: 'dot', colour: 'grey', word: 'waking…' });
   assert.equal(word({ ...up, listen: 'waking' }), 'working');
   assert.equal(word({ ...up, state: 'down' }), 'down');
   assert.equal(word({ ...up, state: 'starting' }), 'starting');
@@ -48,9 +47,10 @@ test('the status word is the most urgent of down, not listening, starting, worki
   assert.equal(word({ ...up, working: 0, count: 0 }), 'implementing');
   assert.equal(word({ ...up, working: 0, count: 0, building: false }), null);
   assert.equal(word({ state: 'up' }), null);
+  const look = (s) => `${s.shape} ${s.colour}`;
   assert.deepEqual(
-    ['down', 'starting'].map((state) => siteStatus({ state }).tone).concat(siteStatus(up).tone, siteStatus({ state: 'up', working: 1 }).tone, siteStatus({ state: 'up', building: true }).tone),
-    ['down', 'starting', 'working', 'working', 'building'],
+    ['down', 'starting', 'stopped'].map((state) => look(siteStatus({ state }))).concat(look(siteStatus(up)), look(siteStatus({ state: 'up', building: true }))),
+    ['dot red', 'dot orange', 'dot grey', 'pulse orange', 'dot orange'],
   );
 });
 
@@ -83,15 +83,15 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
   const waiting = new Map([['ios', readNeeds({ items: [{ kind: 'Question' }], lanes: { review: 1, progress: 0, todo: 2 } })], ['learn', null]]);
   const [ios, learn, gone] = sidebarSites(rows, waiting, new Set(['ios', 'gone']));
   const [deaf] = sidebarSites(rows, waiting, new Set(['ios', 'gone']), new Map([['ios', 'deaf']]));
-  assert.match(deaf.sub, /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">not listening<\/span><span class="lcs"><span class="lc lc-needs">1 need you<\/span><span class="lc lc-review">1 review<\/span><span class="lc lc-todo">2 todo<\/span><\/span>$/);
+  assert.deepEqual(deaf.sub, { status: { shape: 'dot', colour: 'red', word: 'not listening' }, stale: false,
+    chips: [{ lane: 'needs', text: '1 need you' }, { lane: 'review', text: '1 review' }, { lane: 'todo', text: '2 todo' }] });
   assert.deepEqual([ios.board, learn.board, gone.board], [true, false, true]);
   assert.deepEqual([ios.count, learn.count, gone.count], [1, 0, 0]);
   assert.deepEqual([ios.created, learn.created], ['2026-10-22T19:19:11.878Z', null]);
   assert.match(ios.icon, /data-icon="phone"/);
-  assert.match(ios.sub, /<span class="lcs"><span class="lc lc-needs">1 need you<\/span><span class="lc lc-review">1 review<\/span>.*2 todo/);
-  assert.doesNotMatch(ios.sub, /word t-needs/);
-  assert.equal(learn.sub, '');
-  assert.match(gone.sub, />down</);
+  assert.deepEqual(ios.sub, { status: null, stale: false, chips: deaf.sub.chips });
+  assert.equal(learn.sub, null);
+  assert.equal(gone.sub.status.word, 'down');
   const ctx = { percent: 62, at: '2026-11-03T10:00:00.000Z' };
   const [withCtx, without] = sidebarSites(rows, waiting, new Set(['ios', 'gone']), new Map(), new Map([['ios', ctx]]));
   assert.deepEqual(withCtx.ctx, ctx);
@@ -100,12 +100,13 @@ test("the sidebar's rows carry each site's icon, status line and count, and mark
 
 test('a board not listening with its context at 95% or more reads context full; listening, or below 95%, it does not', () => {
   const rows = [{ route: 'orch', title: 'Orchestrator', state: 'up' }];
-  const sub = (listen, percent) => sidebarSites(rows, new Map(), new Set(['orch']), new Map([['orch', listen]]), new Map([['orch', { percent, at: '2026-11-03T22:14:22.000Z' }]]))[0].sub;
-  assert.match(sub('deaf', 97.6), /^<span class="dot t-down" aria-hidden="true"><\/span><span class="word t-down">context full<\/span>$/);
-  assert.match(sub('deaf', 95), />context full</);
-  assert.match(sub('deaf', 94.9), />not listening</);
-  assert.doesNotMatch(sub('listening', 99), /context full/);
-  assert.doesNotMatch(sub('asleep', 99), /context full/);
+  const word = (listen, percent) => sidebarSites(rows, new Map(), new Set(['orch']), new Map([['orch', listen]]), new Map([['orch', { percent, at: '2026-11-03T22:14:22.000Z' }]]))[0].sub?.status.word;
+  assert.deepEqual(sidebarSites(rows, new Map(), new Set(['orch']), new Map([['orch', 'deaf']]), new Map([['orch', { percent: 97.6 }]]))[0].sub,
+    { status: { shape: 'dot', colour: 'red', word: 'context full' }, stale: false, chips: null });
+  assert.equal(word('deaf', 95), 'context full');
+  assert.equal(word('deaf', 94.9), 'not listening');
+  assert.notEqual(word('listening', 99), 'context full');
+  assert.equal(word('asleep', 99), 'asleep');
 });
 
 test('a first visit opens the board with the most waiting, the most recently changed among equals, and never a site that is not a board', () => {
@@ -143,8 +144,9 @@ test('the hub running older code than its files reads degraded, under any site d
   assert.deepEqual([down.tone, down.word, down.detail], ['down', '1 site down', '2 of 3 sites up · runs older code than its files; restart it']);
 });
 
-test('a stale row lays out like a fresh one: its held wrapper drops out of the flex line so the chips stay first', () => {
+test('a stale row lays out like a fresh one: no wrapper, so the chips stay first in the one flex line', () => {
   const css = fs.readFileSync(new URL('../board/public/sidebar.css', import.meta.url), 'utf8');
-  assert.match(css, /\.sidebar \.held \{[^}]*display: contents/);
+  assert.doesNotMatch(css, /\.held\b/);
+  assert.match(css, /\.sidebar \.sb-status \{[^}]*display: flex/);
   assert.match(css, /\.sidebar \.lcs \{[^}]*order: -1/);
 });

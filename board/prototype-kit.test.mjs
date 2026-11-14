@@ -43,7 +43,7 @@ Object.assign(globalThis, {
 const dir = tempDir('kit-');
 globalThis.location = { href: pathToFileURL(path.join(dir, 'prototype-x.html')).href };
 const load = (file) => vm.runInThisContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), { importModuleDynamically: vm.constants.USE_MAIN_CONTEXT_DEFAULT_LOADER });
-for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-page-header.js', 'ui-sidebar.js', 'ui-hub.js', 'prototype-kit.js']) load(file);
+for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-hub.js', 'prototype-kit.js']) load(file);
 const kit = globalThis.PrototypeKit;
 
 const takeDir = path.join(dir, 'prototypes', 'x');

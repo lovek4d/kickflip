@@ -57,5 +57,5 @@ test('a headless run that ended on an auth error pushes once; an old one does no
 });
 
 test('a logged-out board row is red and says so', () => {
-  assert.deepEqual(siteStatus({ state: 'up', working: true, listen: 'logged-out' }), { tone: 'down', word: 'logged out: run /login' });
+  assert.deepEqual(siteStatus({ state: 'up', working: true, listen: 'logged-out' }), { shape: 'dot', colour: 'red', word: 'logged out: run /login' });
 });

@@ -1,11 +1,11 @@
 // The sidebar of every site (docs/adr/2026-10-29-1639-a-sidebar-of-every-board-replaces-the-hub-home.md), drawn from the hub's
-// /_hub/sidebar.json. It needs only ui-page-header.js, loaded before it, for its head, which is the page header itself, and
-// ui-progress-bar.js for a starting board's steps: the app shell runs it through sidebar.js, and hub/hub.mjs renders the
-// shell's first sidebar with all three in a vm context.
+// /_hub/sidebar.json. It needs only ui-page-header.js, loaded before it, for its head, which is the page header itself,
+// ui-progress-bar.js for a starting board's steps and ui-icon-text.js for every status's icon and word: the app shell runs
+// it through sidebar.js, and hub/hub.mjs renders the shell's first sidebar with all four in a vm context.
 // Its links are root-absolute, since every site and hub page sits beside this one on the hub. sidebar.css styles it.
 (function () {
   // ui.js replaces the BoardUI global when it loads after this, so the header renderer is held here.
-  const { header, progressBar } = globalThis.BoardUI || {};
+  const { header, progressBar, iconText } = globalThis.BoardUI || {};
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const svg = (paths, size = 17) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
   const ICONS = {
@@ -23,7 +23,15 @@
     up: '<circle cx="12" cy="12" r="9"/><path d="m8 12 4-4 4 4"/><path d="M12 16V8"/>',
   };
   const tile = (key, color) => `<span class="icon sm solid" style="--c:${color}" aria-hidden="true">${svg(ICONS[key])}</span>`;
-  const word = (tone, text) => `<span class="dot t-${tone}" aria-hidden="true"></span><span class="word t-${tone}">${esc(text)}</span>`;
+  // A site row's status line from hub/home.mjs statusLine's data: the lane chips first, on their own line (sidebar.css .lcs),
+  // then its icon and word, and (stale) beside them; a stale line reads flat grey with its pulse stilled.
+  const siteLine = ({ status, stale, chips }) => {
+    const lanes = chips === null ? '' : `<span class="lcs">${chips.length ? chips.map((c) => `<span class="lc lc-${esc(c.lane)}">${esc(c.text)}</span>`).join('') : '<span>nothing open</span>'}</span>`;
+    const word = status ? iconText(stale ? 'dot' : status.shape, stale ? 'grey' : status.colour, status.word) : '';
+    return `<span class="sb-status${stale ? ' stale' : ''}">${word}${stale ? '<span class="stale-word">(stale)</span>' : ''}${lanes}</span>`;
+  };
+  // hub/home.mjs hubHealth's tones, and the paused and busy ones the Hub row reads here, in the colour priority (AGENTS.md).
+  const HUB_COLOURS = { down: 'red', wait: 'orange', ok: 'green', paused: 'grey' };
   const usageProducts = (data) => ['claude', 'codex'].filter((p) => data?.[p]);
   const usageNames = { claude: 'Claude', codex: 'Codex' };
   function usageClock(iso) {
@@ -267,10 +275,10 @@
     const busy = hubBusy(data, now);
     // A board under Pause board carries its own pause (docs/adr/2026-11-05-1849-pause-board-and-pause-hub-pause-new-work-by-hand.md).
     // A red fault on a board row keeps its word, and a down or degraded hub keeps the Hub row: red and orange beat the grey pause (AGENTS.md).
-    const holdWord = (s) => (paused || s.pause?.state === 'paused') && !/class="word t-down"/.test(s.sub || '') ? word('paused', 'paused') : '';
+    const held = (s) => s.board && (paused || s.pause?.state === 'paused') && s.sub?.status?.colour !== 'red';
     const siteRow = (s) => {
-      const sub = s.board && holdWord(s) ? holdWord(s) + (s.sub || '').replace(/<span class="dot [^"]*"[^>]*><\/span><span class="word [^"]*">[^<]*<\/span>/, '') : s.sub;
-      return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? `<span class="sb-status">${sub}</span>` : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
+      const sub = held(s) ? { stale: false, chips: null, ...s.sub, status: { shape: 'dot', colour: 'grey', word: 'paused' } } : s.sub;
+      return row({ href: siteHref(s), icon: s.icon, title: s.title, sub: sub ? siteLine(sub) : '', ctx: contextWords(s.ctx), on: s.route === here, key: keys?.get(siteHref(s)) });
     };
     const boards = sites.filter((s) => s.board);
     const pages = sites.filter((s) => !s.board);
@@ -288,14 +296,15 @@
     const hub = data?.hub?.tone === 'down' || data?.hub?.tone === 'wait' ? data.hub : paused ? { tone: 'paused', word: 'paused', detail: pauseUntilWords(data.pause.resets_at) } : busy ? { tone: 'wait', word: 'busy', detail: `${busyMinutes(data, now)}m`, sheet: true } : data?.hub;
     const n = data?.notifications || {};
     const lower = (text) => String(text || '').replace(/^\w/, (c) => c.toLowerCase());
-    const notify = device === 'blocked' ? word('needs', 'Notifications blocked on this device')
-      : n.state === 'off' ? word('needs', `Notifications ${lower(n.text || 'Off')}`) : '';
+    // Notifications that can't reach the owner need them now: red (AGENTS.md).
+    const notify = device === 'blocked' ? iconText('dot', 'red', 'Notifications blocked on this device')
+      : n.state === 'off' ? iconText('dot', 'red', `Notifications ${lower(n.text || 'Off')}`) : '';
     // A phone shows no title tooltip, so there the moon only marks the hold; the hub page's banner says it.
-    const held = esc(`Notifications ${lower(n.text)}`);
-    const moon = n.state === 'held' ? `<span class="sb-moon" role="img" aria-label="${held}" title="${held}">${svg(ICONS.moon, 13)}</span>` : '';
+    const hold = esc(`Notifications ${lower(n.text)}`);
+    const moon = n.state === 'held' ? `<span class="sb-moon" role="img" aria-label="${hold}" title="${hold}">${svg(ICONS.moon, 13)}</span>` : '';
     const subs = {
       // The busy words open what's loading the host (loadSheet; sidebar.js), and the rest of the row the hub page.
-      '/_hub/': (hub ? `<span class="sb-status${hub.sheet ? ` sb-busy" data-load-sheet role="button" tabindex="0" aria-label="${esc(`${hub.word} ${hub.detail}`)}, what's loading the host" aria-haspopup="dialog` : ''}">${word(hub.tone, hub.word)}${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
+      '/_hub/': (hub ? `<span class="sb-status${hub.sheet ? ` sb-busy" data-load-sheet role="button" tabindex="0" aria-label="${esc(`${hub.word} ${hub.detail}`)}, what's loading the host" aria-haspopup="dialog` : ''}">${iconText('dot', HUB_COLOURS[hub.tone], hub.word)}${hub.detail ? `<span>${esc(hub.detail)}</span>` : ''}</span>` : '')
         + (notify ? `<span class="sb-status">${notify}</span>` : ''),
     };
     const selected = here.startsWith('_hub') ? '/_hub' : `/${here.replace(/\/$/, '')}`;

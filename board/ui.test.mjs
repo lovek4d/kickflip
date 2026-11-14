@@ -9,7 +9,7 @@ import { fixedDate } from '../shared/fixed-clock.mjs';
 const NOW = new Date(2026, 10, 13, 12).getTime();
 const PageDate = fixedDate(() => NOW);
 const context = vm.createContext({ Date: PageDate, location: { hostname: 'mac.ts.net', host: 'mac.ts.net:443' }, navigator: { onLine: true }, setTimeout, clearTimeout });
-for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-sidebar.js', 'ui-hub.js']) {
+for (const file of ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-cards.js', 'ui-header.js', 'ui-threads.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-page-header.js', 'ui-snapshot.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-hub.js']) {
   vm.runInContext(fs.readFileSync(new URL(`./public/${file}`, import.meta.url), 'utf8'), context);
 }
 const ui = context.BoardUI;
@@ -21,6 +21,8 @@ const ago = (hours) => new Date(NOW - hours * 3600000).toISOString();
 const beforeComposer = (chunk) => chunk.split('<div class="composer"')[0];
 const options = (html) => html.split(/<label class="opt"[^>]*>/).slice(1).map(beforeComposer);
 const plain = (v) => JSON.parse(JSON.stringify(v));
+// A sidebar row's grey paused dot and word (ui-icon-text.js iconText).
+const PAUSED = /<span class="it it-grey"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">paused<\/span>/g;
 
 const openPR = { number: 7, url: 'https://github.com/o/repo/pull/7', state: 'OPEN', isDraft: false, status: 'open', checks: { state: 'pass' } };
 
@@ -348,7 +350,7 @@ test('every page header has a logo, a back arrow where needed, the title and dis
 });
 
 test("a board's sidebar row shows its context at the top right beside its name, red from 90% and dimmed once stale", () => {
-  const site = (route, ctx) => ({ route, title: route, board: true, count: 0, icon: '', sub: '<b>Working</b>', ctx });
+  const site = (route, ctx) => ({ route, title: route, board: true, count: 0, icon: '', sub: { status: { shape: 'pulse', colour: 'orange', word: 'Working' }, stale: false, chips: null }, ctx });
   const ago = (ms) => new Date(NOW - ms).toISOString();
   const html = ui.sidebar({ sites: [site('a', { percent: 62, at: ago(60_000) }), site('b', { percent: 91, at: ago(3 * 3600_000) }), site('c', null), site('d')] });
   const heads = [...html.matchAll(/<span class="sb-head">(.*?<\/span>)<\/span>(?=<span class="sb-sub">|<\/span><\/a>)/g)].map((m) => m[1]);
@@ -357,14 +359,14 @@ test("a board's sidebar row shows its context at the top right beside its name, 
     '<span class="sb-title">b</span><span class="sb-ctx full stale" title="91% of its context window, read 3 h ago">91% ctx</span>',
   ]);
   assert.equal(html.match(/sb-ctx/g).length, 2);
-  assert.doesNotMatch(html, /<span class="sb-status"><b>Working<\/b><span class="sb-ctx/);
+  assert.doesNotMatch(html, /<span class="sb-status">.*?Working<\/span><\/span><span class="sb-ctx/);
   assert.match(html, /<span class="sb-title">c<\/span><span class="sb-sub">/);
 });
 
 test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New board last", () => {
-  const site = (route, board, count, sub = '') => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
+  const site = (route, board, count, sub = null) => ({ route, title: route.toUpperCase(), board, count, icon: `<i data-r="${route}"></i>`, sub });
   const data = {
-    sites: [site('ios', true, 2, '<b>2 need you</b>'), site('learn', false, 1), site('shop', true, 0), site('hub', true, 3)],
+    sites: [site('ios', true, 2, { status: null, stale: false, chips: [{ lane: 'needs', text: '2 need you' }] }), site('learn', false, 1), site('shop', true, 0), site('hub', true, 3)],
     hub: { tone: 'ok', word: 'healthy', detail: '4 of 4 sites up' }, notifications: { state: 'on', text: 'On' }, polling: { text: 'Every 15 min · next 4:45pm' },
   };
   const html = ui.sidebar(data, { here: 'ios', device: 'on' });
@@ -391,7 +393,7 @@ test("the Kickflip sidebar lists Hub, notifications, Pages, then Boards with New
   ]) {
     const hubRow = utility(ui.sidebar({ ...data, notifications }, { device }));
     assert.equal(text(hubRow), `Hub healthy 4 of 4 sites up${status}`);
-    assert.equal(hubRow.includes('word t-needs'), urgent);
+    assert.equal(/class="it it-red"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">Notifications/.test(hubRow), urgent);
     const mark = /<span class="sb-title">Hub<span class="sb-moon" role="img" aria-label="([^"]*)" title="([^"]*)"><svg /.exec(hubRow);
     assert.deepEqual(mark && [mark[1], mark[2]], moon && [moon, moon]);
   }
@@ -2524,24 +2526,30 @@ test('the pause line stepper, both tools’ ticks, banners and status slots foll
   assert.match(text(together), /^Approaching usage limit: agents start in parallel until .* Stop$/);
   assert.match(together, /name="value" value="off"/);
   assert.equal(hub.pauseBanner({ state: 'normal', near: null }), '');
-  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span><span class="lcs"><span class="lc">3 todo</span></span>' }];
+  const chips = [{ lane: 'todo', text: '3 todo' }];
+  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: { status: { shape: 'pulse', colour: 'orange', word: 'working' }, stale: false, chips } }];
   const sidebar = ui.sidebar({ pause, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
-  assert.equal([...sidebar.matchAll(/class="word t-paused">paused/g)].length, 2);
+  assert.equal([...sidebar.matchAll(PAUSED)].length, 2);
   assert.ok(text(sidebar).includes(`until ${until}`));
   assert.match(text(sidebar), /paused 3 todo/);
   assert.doesNotMatch(sidebar, />working</);
+  // A stale row under a pause: the chips first, then paused and (stale) beside it, all in one grey line.
+  const stale = ui.sidebar({ pause, sites: [{ ...sites[0], sub: { ...sites[0].sub, stale: true } }], hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  assert.match(stale, /<span class="sb-status stale"><span class="it it-grey"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">paused<\/span><\/span><span class="stale-word">\(stale\)<\/span><span class="lcs"><span class="lc lc-todo">3 todo<\/span><\/span><\/span>/);
   // Red beats grey and orange: a fault on a board row or the Hub row stays while a pause or busy host lasts.
-  const faulty = [{ route: 'a', title: 'A', board: true, icon: '', sub: '<span class="dot t-down" aria-hidden="true"></span><span class="word t-down">not listening</span><span class="lcs"><span class="lc">3 todo</span></span>' }];
+  const faulty = [{ route: 'a', title: 'A', board: true, icon: '', sub: { status: { shape: 'dot', colour: 'red', word: 'not listening' }, stale: false, chips } }];
   const down = ui.sidebar({ pause, sites: faulty, hub: { tone: 'down', word: '1 site down', detail: '0 of 1 site up' } });
-  assert.equal([...down.matchAll(/class="word t-paused">paused/g)].length, 0);
-  assert.match(down, />not listening</);
-  assert.match(down, /class="word t-down">1 site down/);
+  assert.equal([...down.matchAll(PAUSED)].length, 0);
+  assert.match(down, /it-red"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">not listening</);
+  assert.match(down, /it-red"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">1 site down/);
+  const staleDown = ui.sidebar({ pause, sites: [{ ...faulty[0], sub: { ...faulty[0].sub, stale: true } }], hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
+  assert.match(staleDown, /it-grey"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">not listening<\/span><\/span><span class="stale-word">/, 'a stale fault keeps its word, grey');
   const busyDown = ui.sidebar({ pause: { state: 'normal', machine: { state: 'busy', since: new Date(NOW - 5 * 60_000).toISOString() } }, sites: [], hub: { tone: 'down', word: '1 site down', detail: 'x' } });
-  assert.match(busyDown, /class="word t-down">1 site down/);
+  assert.match(busyDown, /it-red"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">1 site down/);
   assert.doesNotMatch(busyDown, />busy</);
   const degradedPaused = ui.sidebar({ pause, sites: [], hub: { tone: 'wait', word: 'degraded', detail: 'x' } });
-  assert.match(degradedPaused, /class="word t-wait">degraded/);
-  assert.doesNotMatch(degradedPaused, /class="word t-paused">paused/);
+  assert.match(degradedPaused, /it-orange"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">degraded/);
+  assert.doesNotMatch(degradedPaused, PAUSED);
   assert.match(ui.statusLine(ago(0), { pause }), new RegExp(`^<span class="fresh" title="Paused until ${until}\\. Updated [^"]*">now</span>$`));
   assert.doesNotMatch(ui.statusLine(null, { pause: { ...pause, state: 'going' } }), /paused/i);
 });
@@ -2551,16 +2559,16 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
   const resets_at = new Date(NOW + 3600_000).toISOString();
   const until = ui.usageClock(resets_at);
   const manual = (scope) => ({ pause_at: 90, state: 'paused', manual: scope, window: null, used: null, resets_at });
-  const working = '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span>';
+  const working = { status: { shape: 'pulse', colour: 'orange', word: 'working' }, stale: false, chips: null };
   const banner = context.HubUI.pauseBanner(manual('hub'));
   assert.equal(text(banner), `Work paused: you paused the hub. Resumes at ${until}. Resume`);
   assert.match(banner, /hold-banner ub-banner ub-paused/);
   assert.match(banner, /action="\/_hub\/settings\/hub-pause"><button class="btn quiet" name="pause" value="off">Resume/);
   const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: working }, { route: 'b', title: 'B', board: true, icon: '', sub: working }];
   const hubPaused = ui.sidebar({ pause: manual('hub'), sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
-  assert.equal([...hubPaused.matchAll(/class="word t-paused">paused/g)].length, 3);
+  assert.equal([...hubPaused.matchAll(PAUSED)].length, 3);
   const boardPaused = ui.sidebar({ pause: { state: 'normal' }, sites: [{ ...sites[0], pause: manual('board') }, sites[1]], hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
-  assert.equal([...boardPaused.matchAll(/class="word t-paused">paused/g)].length, 1, 'only the paused board');
+  assert.equal([...boardPaused.matchAll(PAUSED)].length, 1, 'only the paused board');
   assert.equal([...boardPaused.matchAll(/>working</g)].length, 1);
   assert.match(text(boardPaused), /healthy/);
   assert.equal(ui.statusLine(null, { pause: manual('board') }), `<span class="fresh" title="Paused until ${until}"></span>`);
@@ -2569,24 +2577,25 @@ test('Pause hub reads paused on the Hub row and every board with Resume on its b
 // docs/adr/2026-11-06-0106-a-busy-mac-holds-new-work.md
 test('a busy host reads busy on the Hub row and the logo dot, not on a board or the header, a pause first, and Health has a Machine row', () => {
   const machine = { state: 'busy', reason: 'memory pressure critical', since: new Date(NOW - 42 * 60_000).toISOString() };
-  const working = '<span class="dot t-working" aria-hidden="true"></span><span class="word t-working">working</span>';
-  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: `${working}<span class="lcs"><span class="lc">3 todo</span></span>` }, { route: 'p', title: 'P', board: false, icon: '', sub: '' }];
+  const working = { status: { shape: 'pulse', colour: 'orange', word: 'working' }, stale: false, chips: [{ lane: 'todo', text: '3 todo' }] };
+  const sites = [{ route: 'a', title: 'A', board: true, icon: '', sub: working }, { route: 'p', title: 'P', board: false, icon: '', sub: null }];
   const busy = ui.sidebar({ pause: { state: 'normal', machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
-  assert.equal([...busy.matchAll(/class="word t-wait">busy/g)].length, 1, 'the Hub row alone');
+  assert.equal([...busy.matchAll(/it-orange"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">busy/g)].length, 1, 'the Hub row alone');
   assert.match(text(busy), /busy 42m/);
   assert.doesNotMatch(text(busy), /the host is busy/);
   const fresh = { state: 'busy', reason: 'load high', since: new Date(NOW - 59_000).toISOString() };
   assert.doesNotMatch(ui.sidebar({ pause: { state: 'normal', machine: fresh }, sites, hub: { tone: 'ok', word: 'healthy', detail: '' } }), />busy</, 'busy under a minute reads as not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: fresh }, hub: { tone: 'ok' } }), '');
-  assert.match(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /class="word t-ok">healthy<\/span><\/span>/, 'healthy reads alone');
+  assert.match(ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal' } }, sites: [], hub: { tone: 'ok', word: 'healthy', detail: '' } }), /it-green"><span class="it-i it-dot" aria-hidden="true"><\/span><span class="it-w">healthy<\/span><\/span><\/span>/, 'healthy reads alone');
   assert.match(text(busy), /working 3 todo/, 'a board keeps its own status');
+  assert.match(busy, /<span class="it it-orange"><span class="it-i it-pulse" aria-hidden="true"><\/span><span class="it-w">working/, 'its working dot pulses');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'ok' } }), 'busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine }, hub: { tone: 'down' } }), 'down', 'a broken hub reads red before busy');
   assert.equal(ui.hubDot({ pause: { state: 'paused', machine }, hub: { tone: 'ok' } }), 'paused', 'a pause shows grey, not busy');
   assert.equal(ui.hubDot({ pause: { state: 'normal', machine: { state: 'normal' } }, hub: { tone: 'ok' } }), '');
   const both = ui.sidebar({ pause: { state: 'paused', resets_at: new Date(NOW + 3600_000).toISOString(), machine }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.doesNotMatch(both, />busy</, 'a pause reads first');
-  assert.equal([...both.matchAll(/class="word t-paused">paused/g)].length, 2);
+  assert.equal([...both.matchAll(PAUSED)].length, 2);
   const calm = ui.sidebar({ pause: { state: 'normal', machine: { state: 'normal', reason: null } }, sites, hub: { tone: 'ok', word: 'healthy', detail: 'up' } });
   assert.doesNotMatch(calm, />busy</);
   assert.match(calm, />working</);
@@ -2740,7 +2749,7 @@ test('pending.within settles with its work, and past 60 seconds runs onLate and 
 
 // docs/adr/2026-11-05-2215-a-board-is-shared-view-only-with-a-tailscale-login.md
 test("a shared person's sidebar lists only their boards: no Hub row, no New board, no update or notification rows", () => {
-  const data = { shared: { by: 'Love' }, sites: [{ route: 'orch', title: 'Orch', board: true, icon: '<span class="icon"></span>', sub: 'idle' }], starting: [] };
+  const data = { shared: { by: 'Love' }, sites: [{ route: 'orch', title: 'Orch', board: true, icon: '<span class="icon"></span>', sub: { status: null, stale: false, chips: [] } }], starting: [] };
   const html = ui.sidebar(data, { here: 'orch', device: 'off', update: 'ready' });
   assert.match(html, /<a class="sb-row on" href="\/orch\/" aria-current="page">/);
   assert.doesNotMatch(html, /sb-row[^"]*" href="\/_hub\/"|data-new-board|sb-utility|data-app-reload|Turn on notifications/);
