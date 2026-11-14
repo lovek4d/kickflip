@@ -109,6 +109,8 @@ export function slackClient(token, { fetch = globalThis.fetch, checked = () => {
     openDM: async (user) => (await call('conversations.open', { users: user })).channel.id,
     // Every message ends with the sign-off line. → the message ts
     post: async ({ channel, text, thread_ts }) => (await call('chat.postMessage', { channel, text: await signedOff(text), unfurl_links: false, ...(thread_ts ? { thread_ts } : {}) })).ts,
+    // Edits a message this token posted, signed off as a post is.
+    update: async ({ channel, ts, text }) => { await call('chat.update', { channel, ts, text: await signedOff(text), unfurl_links: false }); },
     // A reaction already there counts as added.
     async react({ channel, ts, name }) {
       try { await call('reactions.add', { channel, timestamp: ts, name }); } catch (e) { if (e.message !== 'Slack: already_reacted') throw e; }

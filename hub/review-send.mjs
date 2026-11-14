@@ -12,9 +12,11 @@ import path from 'node:path';
 import { appendEvent, listBoards } from './boards.mjs';
 import { savedSlack, slackStatus, refusalUnpushed, markRefusalPushed, missingScope, setHearing, hearingUnpushed, markHearingPushed, slackUserId, isSignedOff } from './slack.mjs';
 import { deliver } from './push.mjs';
-import { reviewDue, postLink, recordReaction, postDigest, openDayThread, heardThreads, markHeard, boardPosts } from '../board/store.mjs';
+import { reviewDue, postLink, recordReaction, postDigest, recordHeader, openDayThread, heardThreads, markHeard, boardPosts } from '../board/store.mjs';
 
 const refusedToken = (e) => e.status === 400 && e.message === 'Slack refused the token.';
+
+const digestHeader = (board) => (n) => `${board.title} digest: ${n ? `${n} pending your review` : 'all reviewed'}`;
 
 async function sendBoard(board, slack, now) {
   const due = await reviewDue(board.dir, { now });
@@ -33,9 +35,16 @@ async function sendBoard(board, slack, now) {
     await attempt(`digest to ${reviewer.name}`, async () => {
       await postDigest(board.dir, due.digest.date, reviewer, {
         channel: reviewer.sent?.channel || await slack.openDM(reviewer.slack_user),
-        header: (n) => `${board.title} digest: ${n} PR${n === 1 ? '' : 's'} pending your review`,
+        header: digestHeader(board),
         post: (message) => slack.post(message),
       });
+    });
+  }
+  // A posted digest header's count follows its reviewer's PRs as they leave review; a failed edit stays owed.
+  for (const h of due.headers) {
+    await attempt(`digest count for ${h.reviewer}`, async () => {
+      await slack.update({ channel: h.channel, ts: h.ts, text: `${h.lead}${digestHeader(board)(h.n)}${h.tail}` });
+      await recordHeader(board.dir, h);
     });
   }
   // Each reviewer's day thread, opened at most once a poll; a failed open fails that reviewer's sends until the next.

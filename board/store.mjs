@@ -992,7 +992,7 @@ const reviewApproved = (gh) => (gh?.reviewDecision ? gh.reviewDecision === 'APPR
 export async function reviewDue(site, options) {
   needSite(site);
   const waiting = await readiness.waiting('slack');
-  if (waiting) return { waiting, links: [], reactions: [], digest: null };
+  if (waiting) return { waiting, links: [], reactions: [], headers: [], digest: null };
   const cfg = await boardConfig(site);
   const cache = await readJSON(githubStateFile(), {});
   const record = await readPRSlack(site);
@@ -1024,9 +1024,19 @@ export async function reviewDue(site, options) {
     for (const [name, link] of Object.entries(rec.links)) react(name, link);
     for (const reply of rec.replies) for (const [name, sent] of Object.entries(reply.to)) react(name, sent, reply.id);
   }
+  // headers: each posted digest header whose count of PRs still pending that reviewer differs from the count it shows.
+  const headers = [];
+  for (const d of (await readJSON(digestFile(site), {})).digests || []) {
+    const ts = d.live && (d.live.reply === undefined ? d.ts : d.replies?.[d.live.reply]?.ts);
+    if (!ts) continue;
+    const n = d.live.prs.filter((pr) => { const gh = routeRecord(cache.prs, pr); return gh?.state === 'OPEN' && !approved(gh); }).length;
+    if (n !== d.live.shown) headers.push({ date: d.date, reviewer: d.reviewer, channel: d.channel, ts, n, lead: d.live.lead, tail: d.live.tail });
+  }
   const digest = await reviewDigest(site, options);
-  return { date: slackDay(options?.now).date, links, reactions, digest: digest.due ? digest : null };
+  return { date: slackDay(options?.now).date, links, reactions, headers, digest: digest.due ? digest : null };
 }
+// due: one of review due's headers, once Slack has its edit.
+export const recordHeader = (site, due) => editJSON(digestFile(site), (all) => { dayEntry(due.date, due.reviewer)(all).live.shown = due.n; });
 
 const digestFile = (site) => path.join(needSite(site), 'data', 'review-digests.json');
 
@@ -1200,7 +1210,8 @@ export async function openDayThread(site, date, name, { channel, header, post })
 
 // Posts a reviewer's owed digest for date. Opening the day's thread, it is the header, then one reply per PR; in a
 // thread already open, it is one reply listing the PRs. Each reply opens with the reviewer's mention, and a digest
-// already begun keeps the PRs it began with. post({channel, text, thread_ts?}) → ts; header(n) → the header's text.
+// already begun keeps the PRs it began with. The entry's live holds the header's PRs and the count it shows, which
+// review due finds to edit. post({channel, text, thread_ts?}) → ts; header(n) → the header's text.
 export async function postDigest(site, date, reviewer, { channel, header, post }) {
   const file = digestFile(site);
   const entry = dayEntry(date, reviewer.name);
@@ -1209,9 +1220,15 @@ export async function postDigest(site, date, reviewer, { channel, header, post }
     addDayEntry(all, date, reviewer.name, { channel });
     const opened = entry(all);
     if (opened.replies) return;
-    opened.replies = opened.ts
-      ? [{ prs: reviewer.items.map((i) => i.pr), text: [`${mention} ${header(reviewer.items.length)}`, ...reviewer.items.map((i) => i.text)].join('\n') }]
-      : reviewer.items.map((i) => ({ pr: i.pr, text: `${mention} ${i.text}` }));
+    const prs = reviewer.items.map((i) => i.pr);
+    if (opened.ts) {
+      const tail = reviewer.items.map((i) => `\n${i.text}`).join('');
+      opened.replies = [{ prs, text: `${mention} ${header(prs.length)}${tail}` }];
+      opened.live = { prs, shown: prs.length, reply: 0, lead: `${mention} `, tail };
+    } else {
+      opened.replies = reviewer.items.map((i) => ({ pr: i.pr, text: `${mention} ${i.text}` }));
+      opened.live = { prs, shown: prs.length, lead: '', tail: '' };
+    }
   });
   const sent = entry(await readJSON(file, {}));
   const top = sent.ts || await postOnce(file, entry, () => post({ channel: sent.channel, text: header(sent.replies.length) }));

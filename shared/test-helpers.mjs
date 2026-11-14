@@ -238,7 +238,7 @@ export function fakePs(rows) {
   };
 }
 
-// Slack's Web API for one user token: auth.test, conversations.open, chat.postMessage, reactions.add,
+// Slack's Web API for one user token: auth.test, conversations.open, chat.postMessage, chat.update, reactions.add,
 // conversations.history and conversations.replies, recording each call. world.dms maps a user id to the DM channel
 // conversations.open answers; posts land in world.messages as the token's user, and reactions in world.reactions.
 // say({channel, user, text, thread_ts}) adds another person's message → its ts. world.unheard answers the two reads
@@ -274,6 +274,13 @@ export function fakeSlack(world) {
       return channel ? { ok: true, channel: { id: channel } } : { ok: false, error: 'user_not_found' };
     }
     if (method === 'chat.postMessage') return { ok: true, channel: body.channel, ts: say({ channel: body.channel, user: world.user_id, text: body.text, thread_ts: body.thread_ts }) };
+    if (method === 'chat.update') {
+      const message = world.messages.find((m) => m.channel === body.channel && m.ts === body.ts);
+      if (world.updateError) return { ok: false, error: world.updateError };
+      if (!message) return { ok: false, error: 'message_not_found' };
+      message.text = body.text;
+      return { ok: true, channel: body.channel, ts: body.ts };
+    }
     if ((method === 'conversations.history' || method === 'conversations.replies') && world.unheard) return { ok: false, error: 'missing_scope' };
     if (method === 'conversations.history') {
       const messages = world.messages.filter((m) => m.channel === body.channel && top(m) && Number(m.ts) >= Number(body.oldest || 0)).reverse().map((m) => {
