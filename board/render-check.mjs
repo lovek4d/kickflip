@@ -99,12 +99,12 @@ async function launchOnce(dir) {
 }
 
 // A busy host can leave Chrome without a port, a page or a socket, so a launch that fails is tried once more in a fresh profile.
-async function launch(dir) {
-  try { return await launchOnce(dir); } catch (e) {
+export async function launch(dir, start = launchOnce) {
+  try { return await start(dir); } catch (e) {
     if (!(e instanceof BoardError) || !/could not start Chrome/.test(e.message)) throw e;
-    await fsp.rm(dir, { recursive: true, force: true });
+    await fsp.rm(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
     await fsp.mkdir(dir);
-    return launchOnce(dir);
+    return start(dir);
   }
 }
 

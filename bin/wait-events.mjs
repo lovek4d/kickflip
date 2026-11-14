@@ -102,6 +102,13 @@ function linkLines(dir) {
   return self ? [...linksOf(self, { listen: 'listening' }), hubLink()].filter((l) => !l.ok).map((l) => `link ${l.link} ${l.detail}`) : [];
 }
 
+// Writes through a temp file and a rename, so a reader of the cursor or watcher.json sees the old file or the new one, never half.
+function writeAtomic(file, text) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, file);
+}
+
 // Watches one site for the session until an event wakes it, printing through log, and returns the exit code.
 // sleep(ms) paces the 2 s polls and the 2 s batching window, sessionGone() says whether the session that launched
 // the watcher has died, and pid is the watcher's own pid in watcher.json; links(dir) gives the link lines. A test
@@ -116,7 +123,7 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
   stopPreviousWatcher(s0.dir, route, session);
   try {
     fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
-    fs.writeFileSync(watcherFile, JSON.stringify({ pid, since: new Date().toISOString() }));
+    writeAtomic(watcherFile, JSON.stringify({ pid, since: new Date().toISOString() }));
   } catch {}
   try {
     let base;
@@ -124,7 +131,7 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
     if (!base) {
       base = Object.fromEntries(Object.entries(matching(s0)).map(([f, l]) => [f, l.length]));
       fs.mkdirSync(path.dirname(cursorFile), { recursive: true });
-      fs.writeFileSync(cursorFile, JSON.stringify(base));
+      writeAtomic(cursorFile, JSON.stringify(base));
     }
     // Each pass that finds nothing to wake for counts in watcher.json, which a test waits on instead of a timer.
     let checks = 0;
@@ -149,10 +156,10 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
           const append = (kept, add) => Object.fromEntries(Object.keys(now).map((f) => [f, [...(routeRecord(kept, f) || []), ...add[f]]]));
           base = { ...Object.fromEntries(Object.entries(now).map(([f, l]) => [f, l.length])), $quietHeld: append(base.$quietHeld, fresh), $usageHeld: append(base.$usageHeld, rest) };
           if (!Object.values(base.$usageHeld).some((l) => l.length)) delete base.$usageHeld;
-          fs.writeFileSync(cursorFile, JSON.stringify(base));
+          writeAtomic(cursorFile, JSON.stringify(base));
         }
         checks += 1;
-        try { fs.writeFileSync(watcherFile, JSON.stringify({ pid, since: JSON.parse(fs.readFileSync(watcherFile, 'utf8')).since, checks })); } catch {}
+        try { writeAtomic(watcherFile, JSON.stringify({ pid, since: JSON.parse(fs.readFileSync(watcherFile, 'utf8')).since, checks })); } catch {}
         continue;
       }
       await sleep(2000);
@@ -198,14 +205,14 @@ export async function watch({ route, session, sleep = (ms) => new Promise((r) =>
       }
       const next = Object.fromEntries(Object.entries(seen).map(([f, l]) => [f, l.length]));
       if (Object.values(held).some((lines) => lines.length)) next.$usageHeld = held;
-      fs.writeFileSync(cursorFile, JSON.stringify(next));
+      writeAtomic(cursorFile, JSON.stringify(next));
       return 0;
     }
   } finally {
     // A newer watcher may already own the file, so only this watcher's record gets its exit time.
     try {
       const w = JSON.parse(fs.readFileSync(watcherFile, 'utf8'));
-      if (w.pid === pid) fs.writeFileSync(watcherFile, JSON.stringify({ ...w, exited_at: new Date().toISOString() }));
+      if (w.pid === pid) writeAtomic(watcherFile, JSON.stringify({ ...w, exited_at: new Date().toISOString() }));
     } catch {}
   }
 }

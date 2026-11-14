@@ -4,6 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { BoardError } from './store.mjs';
+import { launch } from './render-check.mjs';
 import { boardWith, home, at, site, write, read, run, question, takePath, recordPrototype } from './board-fixture.mjs';
 
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -22,12 +25,18 @@ const flakyChrome = (failures) => {
   return script;
 };
 
-test('a Chrome that fails to start once is launched again, and the question publishes', { skip }, async () => {
-  await recordPrototype('site', ['A:Plain'], false);
-  write(takePath('site', 'A'), 'export function render(stage, kit) { stage.innerHTML = `<p>${kit.esc("hello")}</p>`; }');
-  const r = await add(['A'], { CHROME: flakyChrome(1) });
-  assert.equal(r.code, 0, r.err);
-  assert.equal(read(site('orch', 'data', 'owner.json')).items.length, 1);
+test('a Chrome that fails to start once is launched again in a fresh profile', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launch-test-'));
+  const dirs = [];
+  const chrome = { cdp() {}, close() {} };
+  const start = async (d) => {
+    dirs.push(d);
+    if (dirs.length === 1) { fs.writeFileSync(path.join(d, 'stale'), 'x'); throw new BoardError('the render check could not start Chrome'); }
+    assert.deepEqual(fs.readdirSync(d), [], 'the retry profile is empty');
+    return chrome;
+  };
+  try { assert.equal(await launch(dir, start), chrome); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  assert.equal(dirs.length, 2);
 });
 
 test('a Chrome that fails to start twice is refused naming it, not a raw TypeError', { skip }, async () => {
