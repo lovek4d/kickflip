@@ -21,12 +21,12 @@ test('item add records creation on a card placed in Todo, and refuses a taken id
   assert.match(summed.err, /item add does not take --summary/);
   assert.equal((await board('item', 'add', 'w/B2', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: two', '--notes', 'Why')).code, 0);
   assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'B2', title: 'feat: two', lane: 'todo', phase: 'grilling', plan: 'b2-notes.md' });
-  assert.equal((await board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: three', '--deps', 'A1,B2')).code, 0);
+  assert.equal((await board('item', 'add', 'w/C3', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: three', '--after', 'A1,B2')).code, 0);
   assert.deepEqual(withoutCreated(read(at('waves', 'w', 'wave.json')).items.at(-1)), { id: 'C3', title: 'feat: three', lane: 'todo', deps: ['A1', 'B2'], phase: 'grilling', plan: 'c3-notes.md' });
   const taken = await board('item', 'add', 'w/A1', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: again');
   assert.equal(taken.code, 1);
   assert.match(taken.err, /already has an item "A1"/);
-  const dep = await board('item', 'add', 'w/D4', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: four', '--deps', 'Z9');
+  const dep = await board('item', 'add', 'w/D4', '--phase', 'grilling', '--site', 'orch', '--title', 'feat: four', '--after', 'Z9');
   assert.equal(dep.code, 1);
   assert.match(dep.err, /no item "Z9"/);
   assert.equal(read(at('waves', 'w', 'wave.json')).items.length, 4);

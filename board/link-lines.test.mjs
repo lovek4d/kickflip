@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { site, lines, board } from './board-fixture.mjs';
 
 // docs/adr/2026-11-06-1130-linking-two-cards-posts-a-keyed-line-in-both-threads.md
 const thread = (id) => lines(site('audit', 'data', 'threads', `audit__${id}.jsonl`)).map(({ ts, ...m }) => m);
 const set = async (id, ...args) => assert.equal((await board('item', 'set', `audit/${id}`, '--site', 'audit', ...args)).code, 0, args.join(' '));
 const add = async (id, ...args) => assert.equal((await board('item', 'add', `audit/${id}`, '--site', 'audit', '--title', `feat: ${id.toLowerCase()}`, '--phase', 'grilling', ...args)).code, 0, args.join(' '));
-const line = (command, card) => ({ who: 'claude', text: { related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of', created: 'Created ticket', 'created-from': 'Created from' }[command], command, card });
+const line = (command, card) => ({ who: 'claude', text: { related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of', created: 'Created ticket', 'created-from': 'Created from', 'blocked-by': 'Blocked by', unblocks: 'Unblocks' }[command], command, card });
 
 test('a new link posts a keyed line naming the other card in both threads, once; an unlink posts an Unrelated line in both', async () => {
   await add('L1');
@@ -48,4 +49,25 @@ test('item add --from sets the Parent and posts Created ticket in the source and
   assert.equal(thread('S1').length, 1);
   assert.equal(thread('S2').length, 1);
   assert.notEqual((await board('item', 'add', 'audit/S3', '--site', 'audit', '--title', 'feat: s3', '--phase', 'grilling', '--from', 'S1', '--parent', 'S1')).code, 0);
+});
+
+test('item add --before blocks the other task on the new one, --after makes the new one wait, each with a line in both threads; neither links nothing', async () => {
+  const deps = (id) => JSON.parse(fs.readFileSync(site('audit', 'data', 'items.json'), 'utf8')).items.find((it) => it.id === id)?.deps;
+  await add('B1');
+  await add('B2', '--before', 'B1');
+  assert.deepEqual(deps('B1'), ['B2']);
+  assert.equal(deps('B2'), undefined);
+  assert.deepEqual(thread('B2'), [line('unblocks', 'audit/B1')]);
+  assert.deepEqual(thread('B1'), [line('blocked-by', 'audit/B2')]);
+  await add('B3', '--after', 'B1');
+  assert.deepEqual(deps('B3'), ['B1']);
+  assert.deepEqual(thread('B3'), [line('blocked-by', 'audit/B1')]);
+  assert.deepEqual(thread('B1').at(-1), line('unblocks', 'audit/B3'));
+  await add('B4', '--before', 'B1,B3', '--after', 'B2');
+  assert.deepEqual([deps('B1'), deps('B3'), deps('B4')], [['B2', 'B4'], ['B1', 'B4'], ['B2']]);
+  await add('B5');
+  assert.deepEqual([deps('B5'), fs.existsSync(site('audit', 'data', 'threads', 'audit__B5.jsonl'))], [undefined, false]);
+  const bad = await board('item', 'add', 'audit/B6', '--site', 'audit', '--title', 'feat: b6', '--phase', 'grilling', '--before', 'Z9');
+  assert.notEqual(bad.code, 0);
+  assert.equal(deps('B6'), undefined);
 });

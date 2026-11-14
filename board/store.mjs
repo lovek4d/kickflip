@@ -3532,7 +3532,7 @@ export const addItem = (site, key, details, options) => ticketWrite(site, () => 
 // relate its Related to. docs/adr/2026-11-06-1700-a-boards-lessons-live-in-the-product.md: with intake and a site, phase
 // is required, so no card an agent adds reads New; once filed it arrives in Todo and gets its grill
 // (docs/adr/2026-11-04-2359-every-card-arriving-in-todo-is-grilled-by-the-board.md) unless it is held or ready.
-async function createItem(site, key, { title, notes, notesFrom, deps, ticket, newTicket, pickUpAt, held, parent, from, splitOf, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
+async function createItem(site, key, { title, notes, notesFrom, before, deps, ticket, newTicket, pickUpAt, held, parent, from, splitOf, size, model, phase, state, relate, fromAsk, text: said, intake = false }, options) {
   const { file: slug, id } = key.includes('/') ? parseKey(key) : { file: key };
   if (id !== undefined) domId(id, 'the item id');
   checkPhase(phase, state);
@@ -3578,6 +3578,8 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   const seed = notesFrom !== undefined ? body : `# ${item.title}\n${body && `\n${body}\n`}`;
   setBuildChoice(item, { size, model });
   if (deps !== undefined) item.deps = await depList(site, slug, deps);
+  // before: each task listed gains the new one as a dep in the same write; checked before anything is written.
+  const blocked = before === undefined ? [] : await depList(site, slug, before);
   if (hold) setHold(item, hold);
   if (hold && phase === undefined) item.filed_held = true;
   if (relate !== undefined) item.related = await relatedKeys(site, key, relate, '--relate');
@@ -3600,6 +3602,19 @@ async function createItem(site, key, { title, notes, notesFrom, deps, ticket, ne
   const added = `${slug}/${item.id}`;
   itemFile.items.push(item);
   await writeJSON(source.file, itemFile);
+  for (const other of blocked) {
+    const target = depKey(slug, other);
+    const { item: waiting } = await loadItem(site, target);
+    await changeItem(site, target, { deps: [...(waiting.deps || []), parseKey(target).file === slug ? item.id : added].join(',') }, options);
+    if (site) {
+      await appendCommand(site, added, { command: 'unblocks', card: target });
+      await appendCommand(site, target, { command: 'blocked-by', card: added });
+    }
+  }
+  for (const other of intake && site ? (item.deps || []).filter((d) => !WAVE_DEP.test(d)) : []) {
+    await appendCommand(site, added, { command: 'blocked-by', card: depKey(slug, other) });
+    await appendCommand(site, depKey(slug, other), { command: 'unblocks', card: added });
+  }
   if (ask) {
     await appendMessage(site, added, { text: said });
     // An ask is in one card's thread: becoming this item moves it out of a card it was folded into.

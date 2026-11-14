@@ -108,6 +108,8 @@ export function landStep({ verified, entry, alive = false, held = null, limited 
   const again = Boolean(entry) && entry.verified === verified;
   const count = again ? entry.relaunched ?? 0 : 0;
   if (again && alive) return { step: 'running', relaunched: count };
+  // A block on the task ends a fault: the fix it waits on is the step.
+  if (skip?.step === 'blocked') return { ...skip, relaunched: count };
   if (again && (entry.handedBack || (count > 0 && !limited))) return { step: 'fault', relaunched: count };
   if (skip) return { ...skip, relaunched: count };
   if (held) return { step: 'held', held, relaunched: count };
@@ -121,7 +123,7 @@ export const LAND_WORDS = {
   blocked: { card: ({ blocked }) => `Landing blocked ${blocked}`, next: ({ blocked }) => `Landing blocked ${blocked}; the board launches a lander once nothing blocks it` },
   asking: { card: () => 'Landing waits on its open question', next: () => 'Landing waits on its open question; the board launches a lander once it is answered' },
   'worktree-gone': { card: () => "Lander can't start: its worktree is gone", next: ({ key }) => `Its worktree is gone, so no lander can start: restore ${key}'s worktree from its branch, or ${STALL_NEXT}` },
-  fault: { card: () => 'Lander exited twice without landing', next: ({ key }) => `Its lander exited twice without landing: read its log, then board.mjs lander ${key} to try once more, or ${STALL_NEXT}` },
+  fault: { card: () => 'Lander exited twice without landing', next: ({ key }) => `Its lander exited twice without landing: read its log, then file the fix with item add --before ${key} (it blocks this task until the fix lands), board.mjs lander ${key} to try once more, or ${STALL_NEXT}` },
 };
 // docs/adr/2026-11-06-1546-only-a-run-that-changes-code-moves-an-in-review-card.md
 // Whether a build agent's run can change the card's code: not an install run, which builds the app from the branch,
@@ -898,7 +900,7 @@ export const COMMANDS = {
   reask: 'Re-ask requested', hold: 'Held', resume: 'Resumed', done: 'Marked done', reopened: 'Reopened',
   discussing: 'Marked as discussing', staged: 'Marked as staging', readied: 'Marked as ready',
   related: 'Related to', unrelated: 'Unrelated from', followup: 'Follow-up', 'followup-of': 'Follow-up of',
-  created: 'Created ticket', 'created-from': 'Created from',
+  created: 'Created ticket', 'created-from': 'Created from', 'blocked-by': 'Blocked by', unblocks: 'Unblocks',
 };
 const REQUEST_COMMANDS = { 'grill-more': 'grill', 'prototype-request': 'prototype', 'visual-request': 'visual', 'reask-request': 'reask' };
 export const ACTION_LABELS = { 'mark-ready': 'Mark ready', ...Object.fromEntries(Object.entries(REQUEST_COMMANDS).map(([kind, key]) => [kind, COMMANDS[key]])) };
