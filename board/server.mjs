@@ -1048,10 +1048,13 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   // A write to file: data/sync.json, the server's own record of its change numbers, signals nothing. The events file as
   // the server's own last append left it means every build from now on has read the write already, so the data version
   // stays and the signal's reloads share the last build.
+  // changed({ read: true }), the minute's signal for a write the watch dropped, leaves the data version, which the
+  // minute stepped already.
   function changed(file) {
-    if (file !== undefined) file = path.resolve(here, String(file));
+    const read = file?.read === true;
+    if (file !== undefined && !read) file = path.resolve(here, String(file));
     if (file === syncFile) return;
-    if (!(file === events && statOf(events) === ownAppend)) dataVersion++;
+    if (!read && !(file === events && statOf(events) === ownAppend)) dataVersion++;
     const at = performance.now();
     if (!changeTimer) {
       changeFirst = at;
@@ -2350,9 +2353,19 @@ export async function startServer({ site, home = os.homedir(), port = 0, prefix 
   track(checkIdle());
   started();
 
+  // A write the file watch dropped sends no change signal, so no page reloads and no pass runs on it. Each minute the
+  // board is stamped, and a change number that moved since the last stamp signals a change as the watch would
+  // (docs/adr/2026-11-05-1819-the-board-syncs-by-change-number.md). It reads no folder, so lock folders cost nothing.
+  async function signalMissedWrites() {
+    const stamped = sync.n;
+    await pageBoard({ method: 'GET' });
+    if (sync.n !== stamped) changed({ read: true });
+  }
+
   // The minute's checks.
   function minute() {
     dataVersion++;
+    track(signalMissedWrites());
     track(checkPrototypeWaits());
     track(reviveHeadless());
     // docs/adr/2026-11-07-0043-every-signal-that-wakes-the-orchestrator-says-what-to-do.md

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { until, startBoard, untilTestEnds, stallingPs } from '../shared/test-helpers.mjs';
 import { writeBrief } from './store.mjs';
 
@@ -648,4 +649,33 @@ test('a card that comes to wait on the orchestrator wakes the session, again eve
   assert.deepEqual(wakes()[3], { added: [], again: [again] });
   await board.minute();
   assert.equal(wakes().length, 4, 'one wake per due time');
+});
+
+// docs/adr/2026-11-15-0010-the-minute-pass-signals-a-write-the-file-watch-dropped.md
+test('a write the file watch never reports is signalled to pages at the next minute pass, once', async (t) => {
+  const { siteDir, dataDir, clock } = scratch(t, 'dropped-write', Date.parse('2026-11-14T10:00:00Z'));
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(siteDir, 'board.json'), JSON.stringify({ items: 'data/items.json', slug: 't' }));
+  fs.writeFileSync(path.join(dataDir, 'owner.json'), '{"items":[]}');
+  const itemsFile = path.join(dataDir, 'items.json');
+  put(itemsFile, JSON.stringify({ items: [{ id: 'A1', lane: 'todo', title: 'One' }] }));
+  const b = await startBoard(t, { site: siteDir });
+  await b.settled();
+  let changes = 0;
+  const page = Object.assign(new EventEmitter(), { method: 'GET', url: '/api/stream', headers: {} });
+  b.server.emit('request', page, {
+    writeHead() { return this; },
+    write(text) { if (text.includes('event: change')) changes++; },
+  });
+  const minute = async () => { clock.advance(1); b.minute(); await b.settled(); };
+  await minute();
+  const quiet = changes;
+  put(itemsFile, JSON.stringify({ items: [{ id: 'A1', lane: 'todo', title: 'Renamed' }] }));
+  await minute();
+  assert.equal(changes, quiet + 1, 'the minute pass signals the write the watch never reported');
+  // The passes the signal runs mark the card they saw arrive, a write the next minute stamps; after it, nothing moves.
+  await minute();
+  const settled = changes;
+  await minute();
+  assert.equal(changes, settled, 'a minute with no write signals nothing');
 });
