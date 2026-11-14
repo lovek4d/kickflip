@@ -145,12 +145,13 @@ function filesOf(dir, cfg, kind) {
   return slugs.map((slug) => ({ slug, itemFile: readJSON(path.join(wavesDir(), slug, 'wave.json'), null) })).filter((w) => isItemFile(w.itemFile));
 }
 
-// [{slug, itemFile}] → every PR on each unfinished card, in the card's order: [{file, id, pr, repo, since}], since being the
-// item's gh_since. A PR in another repo is polled like one in the board's; one stored without a repo, on a board with
+// [{slug, itemFile}] → every PR on each unfinished card that the card has not recorded merged, in the card's order:
+// [{file, id, pr, repo, since}], since being the item's gh_since. A merged PR leaves the poll for good, so a message that
+// reopens a merged card (#142) brings back no replayed approvals or merge. A PR in another repo is polled like one in the board's; one stored without a repo, on a board with
 // no github and an item file with no repo, has none to poll (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
 export function prsOf(files, github) {
   return files.flatMap(({ slug, itemFile }) => itemFile.items.filter((it) => it && it.lane !== 'done')
-    .flatMap((it) => cardPRs(it, github || itemFile.repo).map((p) => ({ file: slug, id: it.id, pr: p.number, repo: p.repo, since: it.gh_since || NO_SINCE }))));
+    .flatMap((it) => cardPRs(it, github || itemFile.repo).filter((p) => !p.merged_at).map((p) => ({ file: slug, id: it.id, pr: p.number, repo: p.repo, since: it.gh_since || NO_SINCE }))));
 }
 
 function boardOf(route, s) {

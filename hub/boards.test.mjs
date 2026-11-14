@@ -88,7 +88,7 @@ const boardCmd = (route) => [process.execPath, path.join(SKILL, 'board', 'server
 const NOW_SINCE = ago(60);
 
 write(claude('waves', 'w1', 'wave.json'), { repo: 'o/r', reviewers: [{ name: 'Bea' }], items: [
-  { id: 'A1', pr: 11, gh_since: '2026-10-20T00:00:00Z' }, { id: 'A2', lane: 'done', prs: [{ number: 12, merged_at: '2026-10-21T00:00:00Z' }] }, { id: 'A3' }, { id: 'A4', lane: 'done', pr: 13 },
+  { id: 'A1', pr: 11, gh_since: '2026-10-20T00:00:00Z' }, { id: 'A2', lane: 'review', prs: [{ number: 12, merged_at: '2026-10-21T00:00:00Z' }] }, { id: 'A3' }, { id: 'A4', lane: 'done', pr: 13 },
 ] });
 fs.mkdirSync(claude('waves', 'notes'), { recursive: true });
 write(site('orch', 'board.json'), { title: 'Orch', items: 'waves', reviewers: [{ name: 'Ann', slack_user: 'U1', dm: 'D1', github: 'ann' }] });
@@ -107,6 +107,7 @@ test('the registry lists every board site, over the waves or its own file, with 
   assert.deepEqual(boards.map((b) => [b.route, b.kind, b.title]), [['orch', 'waves', 'Orch'], ['shop', 'file', 'Shop']]);
   const [orch, shop] = boards;
   assert.deepEqual(orch.files.map((w) => w.slug), ['w1']);
+  // A2 was reopened by a message with its PR recorded merged: it has none to poll.
   assert.deepEqual(orch.prs, [{ file: 'w1', id: 'A1', pr: 11, repo: 'o/r', since: '2026-10-20T00:00:00Z' }]);
   assert.deepEqual(orch.reviewers, ['Ann']);
   assert.deepEqual(shop.prs.map((p) => [p.file, p.id, p.pr, p.repo]), [['shop', 'S1', 722, 'o/r'], ['shop', 'S2', 11, 'o/r']]);
