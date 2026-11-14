@@ -373,7 +373,8 @@
   // "processing...", the owner's word, while the orchestrator ingests it.
   const PICKUP_WAIT = '<span class="pickup-wait"><span class="working-dot" aria-hidden="true"></span>waiting…</span>';
   const PROCESSING = `<span class="processing">${DOT}processing...</span>`;
-  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? (isPaused() ? PAUSED : PROCESSING) : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
+  const processing = (since) => (since ? globalThis.BoardUI.counted('processing', 'processing...', since) : PROCESSING);
+  const askLine = (ask) => [ask.from && `Moved from ${esc(ask.from)}`, ask.edited && 'Edited', ask.state === 'working' ? (isPaused() ? PAUSED : processing(ask.since)) : ask.state === 'waiting' && PICKUP_WAIT].filter(Boolean).join(' · ');
   // An entry waiting or processing edits and deletes its ask, its edit box in place of its text (edit, from
   // app-asks.js's state.edits); an ingested one links to its card, in blue, and dismisses with no confirm. The link and
   // Dismiss both read the card up to the ingest (app-asks.js), so following the link clears the entry too.

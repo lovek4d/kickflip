@@ -659,6 +659,34 @@ test('a message marked working shows on its thread and card until Claude replies
   assert.deepEqual(threadOf('w/A1', { events: [msg('m2', '2026-10-23T10:05:00Z')], agents }).map(({ kind, state }) => [kind, state]), [['item-message', 'waiting'], ['agent', undefined], ['agent', undefined]]);
 });
 
+// docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md
+// A working mark reads working only while the session that picked it up listens; a session that stops listening and
+// doesn't come back leaves the message and the New ask reading waiting, and the mark comes back with the session.
+test('a message marked working reads waiting while its session does not listen, and carries when it was marked', () => {
+  const msg = { id: 'm1', ts: '2026-10-23T10:00:00Z', kind: 'item-message', data: { key: 'w/A1', text: 'm1' }, reply: null };
+  const working = { m1: '2026-10-23T10:01:00Z' };
+  assert.deepEqual(threadOf('w/A1', { events: [msg], working }).map(({ state, since }) => [state, since]), [['working', '2026-10-23T10:01:00Z']]);
+  assert.deepEqual(threadOf('w/A1', { events: [msg], working, listening: true }).map(({ state }) => state), ['working']);
+  assert.deepEqual(threadOf('w/A1', { events: [msg], working, listening: false }).map(({ state, since }) => [state, since]), [['waiting', undefined]]);
+  const answered = threadOf('w/A1', { events: [msg], working, listening: false, clearedAt: '2026-10-23T10:05:00Z' });
+  assert.equal(answered[0].state, 'answered');
+});
+
+test("withHub reads a card and its New ask waiting once the session stops listening, and leaves the shared build's pulls alone", () => {
+  const ask = { id: 'a1', ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Hi' }, reply: null };
+  const files = [{ slug: 'w', itemFile: { items: [{ id: 'T-1', title: 'Hi', from_ask: 'a1' }] } }];
+  const built = buildBoard({ fromWaves: false, files, events: [ask], working: { a1: '2026-10-23T08:01:00Z' } });
+  const card = (b) => b.items.find((i) => i.key === 'w/T-1');
+  assert.deepEqual([card(built).working, card(built).ask.state, card(built).ask.since], [true, 'working', '2026-10-23T08:01:00Z']);
+  assert.deepEqual([card(withHub(built, { listen: 'listening' })).working, card(withHub(built, { listen: 'listening' })).ask.state], [true, 'working']);
+  for (const listen of ['asleep', 'waking', 'deaf']) {
+    const shown = card(withHub(built, { listen }));
+    assert.deepEqual([shown.working, shown.ask.state, shown.ask.since], [false, 'waiting', undefined], listen);
+  }
+  assert.equal(card(built).ask.state, 'working', 'the shared build is not changed');
+  assert.deepEqual(built.workingOn.map((w) => w.id), ['a1']);
+});
+
 // docs/adr/2026-11-12-0200-sorting-a-card-answers-its-own-ask.md
 test("a card's own ask reads answered once the card has a phase, so a readied Quick build pulls; the owner's other messages stay working, and a ready card working still pulls", () => {
   const ask = { id: 'a1', ts: '2026-10-23T08:00:00Z', kind: 'ask', data: { text: 'Hi' }, reply: null };

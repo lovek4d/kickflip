@@ -1013,7 +1013,7 @@ function sectionOf(agentList, a) {
 // On a tie in threadOf a message sorts above the status line it causes (the sort is stable, so an agent start still sorts above
 // the status line `builder start` writes).
 const isStatusLine = (m) => Boolean(m.request) || [MOVE, HUB, 'status', 'ask-link'].includes(m.kind);
-export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
+export function threadOf(key, { lines = [], events = [], owner = {}, working = {}, listening = true, clearedAt = '', fromAsk = null, sorted = false, links = [], agents = {}, moved = [], cards = new Map(), index = threadIndex(events, owner) }) {
   const askIds = key.startsWith('ask:') ? [key.slice(4)] : [fromAsk, ...moved].filter(Boolean);
   const keys = [...new Set([key, ...askIds.map((id) => `ask:${id}`)])];
   const asked = new Map((index.questions.get(`item:${key}`) || []).map((q) => [q.id, q]));
@@ -1066,7 +1066,8 @@ export function threadOf(key, { lines = [], events = [], owner = {}, working = {
       Object.assign(m, { text: edits.get(m.eventId), edited: true, files: [...m.files, ...(editFiles.get(m.eventId) || [])] });
     }
     const linked = m.kind === 'ask' && (links.length > 0 || Boolean(m.moved) || (sorted && m.eventId === fromAsk));
-    m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || lastClaude > String(m.ts) ? 'answered' : routeRecord(working, m.eventId) ? 'working' : 'waiting';
+    m.state = m.reply ? 'replied' : linked || acted.has(m.eventId) || lastClaude > String(m.ts) ? 'answered' : listening && routeRecord(working, m.eventId) ? 'working' : 'waiting';
+    if (m.state === 'working') m.since = routeRecord(working, m.eventId);
   }
   return foldSubmits(msgs);
 }
@@ -1343,7 +1344,7 @@ export function buildBoard(snapshot) {
       delete it.askMsg;
       if (it.unsorted && m) {
         it.isNew = true;
-        it.ask = { eventId: m.eventId, state: m.state, askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null };
+        it.ask = { eventId: m.eventId, state: m.state, ...(m.since ? { since: m.since } : {}), askedAt: m.ts, edited: Boolean(m.edited), canEdit: true, text: m.text, files: m.files, from: m.from || null };
       }
     }
     // docs/adr/2026-11-09-1939-a-block-only-keeps-a-card-from-in-progress.md: a card whose block ended waits for the
@@ -1425,9 +1426,15 @@ export function buildBoard(snapshot) {
 // A built board with the hub's side added: prompts, this board's pending prompts (../hub/prompts.mjs shown), lead Needs
 // you, and listen (hub/boards.mjs listenState) names the watcher's state. buildBoard adds its snapshot's; the server
 // adds them to the build it shares, so the hub's state, which changes outside the board's data, is read each time.
+// docs/adr/2026-11-13-1800-every-wait-is-listed-and-working-is-display-only.md: a listen state that isn't listening
+// reads each card and New ask waiting, not working, as the thread does (threadOf's listening); the shared build, which
+// pulls and waits read, keeps its working marks. A listen the caller didn't name leaves the build as built.
+const notListening = (listen) => Boolean(listen) && listen !== 'listening';
+const ASK_WAITS = ({ since, ...ask }) => ({ ...ask, state: ask.state === 'working' ? 'waiting' : ask.state });
 export function withHub(built, { listen, prompts } = {}) {
   const needs = [...promptLines(prompts), ...built.needs];
-  return { ...built, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped' } };
+  const items = notListening(listen) ? built.items.map((it) => (it.working || it.ask?.state === 'working' ? { ...it, working: false, ...(it.ask ? { ask: ASK_WAITS(it.ask) } : {}) } : it)) : built.items;
+  return { ...built, items, needs, needsSummary: needsSummary(needs), checks: { ...built.checks, watcher: { listening: 'running', asleep: 'asleep', waking: 'waking' }[listen] || 'stopped' } };
 }
 
 // docs/adr/2026-11-03-0526-a-follow-up-is-a-work-card-with-a-parent.md

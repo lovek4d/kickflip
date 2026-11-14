@@ -28,7 +28,7 @@
   const PICK_UP = {
     sending: () => '<span>sending…</span>',
     waiting: () => '<span>waiting…</span>',
-    working: thinkingLine,
+    working: (m) => thinkingLine(m.since),
     failed: (m) => `<span class="not-sent">not sent</span><span class="send-again"><button type="button" class="ghost icon" data-resend="${esc(m.sendId)}" aria-label="Retry" title="Retry">${RETRY}</button><button type="button" class="ghost icon" data-unsend="${esc(m.sendId)}" aria-label="Dismiss" title="Dismiss, its text back in the box">${DISMISS}</button></span>`,
   };
   const msgFooter = (m) => {

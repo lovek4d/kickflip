@@ -1346,6 +1346,25 @@ test('the working line reads thinking, in one shared class on the card and in th
   assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working' }]), /<div class="reply muted small msg-foot"><span>[^<]+<\/span><span>·<\/span><span class="thinking">/);
 });
 
+test('thinking… counts up from when the message was marked: bare under a minute, then minutes, then hours and minutes', () => {
+  const marked = (min) => new Date(NOW - min * 60000).toISOString();
+  const foot = (since) => text(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'Fix it', eventId: 'e1', reply: null, state: 'working', since }]).match(/<span class="thinking"[^>]*>.*?thinking…[^<]*<\/span>/s)[0]);
+  assert.equal(foot(marked(0.5)), 'thinking…');
+  assert.equal(foot(marked(3)), 'thinking… 3m');
+  assert.equal(foot(marked(65)), 'thinking… 1h 5m');
+  assert.equal(foot(marked(120)), 'thinking… 2h');
+  assert.match(ui.threadMessages([{ ts: ago(3), who: 'love', via: 'site', kind: 'item-message', text: 'x', eventId: 'e1', reply: null, state: 'working', since: marked(3) }]), new RegExp(`<span class="thinking" data-since="${ui.esc(marked(3))}" data-word="thinking…">`));
+  assert.equal(ui.thinkingFor(marked(7), NOW), 'thinking… 7m');
+});
+
+test('the New strip counts processing... up the same way', () => {
+  const since = new Date(NOW - 4 * 60000).toISOString();
+  const ask = (extra) => ({ kind: 'work', id: 'T-3', key: 'w/T-3', ref: 'T-3', isNew: true, created: ago(1), ask: { eventId: 'a1', askedAt: ago(1), canEdit: true, text: 'Fix', files: [], state: 'working', ...extra } });
+  const strip = (extra) => ui.newStrip(ui.newEntries({ items: [ask(extra)], merges: [] }, {}), new Map());
+  assert.match(strip({ since }), /<span class="processing" data-since="[^"]+" data-word="processing\.\.\."><span class="working-dot" aria-hidden="true"><\/span>processing\.\.\. 4m<\/span>/);
+  assert.match(strip({}), /<span class="processing"><span class="working-dot" aria-hidden="true"><\/span>processing\.\.\.<\/span>/);
+});
+
 // docs/adr/2026-11-12-2030-a-thread-message-shows-at-once-and-the-browser-keeps-it-until-sent.md
 test("an owner's message reads its time first in the footer, then sending… or waiting… in grey or thinking… with the working dot; a failed send reads not sent, bold red, with Retry then X; no message has Edit or Delete", () => {
   const sent = ago(3);

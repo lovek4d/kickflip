@@ -61,6 +61,8 @@ BoardView.part((B) => {
     renderStatus();
   }
   B.every(15000, () => { if (!document.hidden) renderStatus(); });
+  // thinking… and processing... count up in place (ui.js recount).
+  B.every(30000, () => { if (!document.hidden) BoardUI.recount(document); });
   const githubHeader = (d) => (d.remote ? `<span class="lane-github">${remoteLine(d.remote, { links: d.links })}</span>`
     : `<span class="lane-github">${githubLine(d.checks, { pending: Boolean(state.githubPending), links: d.links })}${githubRefresh(d.checks, state.githubPending)}</span>`);
 
