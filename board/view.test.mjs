@@ -4440,7 +4440,7 @@ test("Done closes the card and leaves the page where it is as the card moves to 
   assert.deepEqual(tinting(), ['w/b1', 'w/C1', 'w/C2', 'w/n2'], 'an ingested task joining Todo takes the tint');
 });
 
-function questionsOnDom({ topics, questions, at, next, gate = null, items = [], embedded = false }) {
+function questionsOnDom({ topics, questions, at, next, gate = null, items = [], embedded = false, queue = [] }) {
   const page = fakePage(memoryStorage().localStorage);
   const { Element } = miniDom(page.Target, page.win.document);
   const base = 'https://mac.ts.net/board-a';
@@ -4451,7 +4451,7 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
     return { ...t, state: qs.every((q) => q.state === 'resolved') ? 'resolved' : 'open', questions: qs.map((q) => q.id), open: count('open'), answered: count('answered'), resolved: count('resolved') };
   }).filter((t) => t.questions.length);
   // As board/server.mjs answers: /api/board leaves resolved questions out, and /api/questions?topic= answers a topic's.
-  const boardBody = () => ({ ...boardOf(items), owner: server.questions.filter((q) => q.state !== 'resolved'), ownerTopics: ownerTopics() });
+  const boardBody = () => ({ ...boardOf(items), owner: server.questions.filter((q) => q.state !== 'resolved'), ownerTopics: ownerTopics(), queue });
   const body = (u) => (u.pathname.endsWith('/api/board') ? boardBody()
     : u.pathname.endsWith('/api/questions') ? { questions: server.questions.filter((q) => q.topic === u.searchParams.get('topic') && q.state === 'resolved') } : []);
   const gets = [];
@@ -4473,6 +4473,11 @@ function questionsOnDom({ topics, questions, at, next, gate = null, items = [], 
       Object.assign(q, { state: 'requested', request: { id: 'r1', ts: '2026-10-30T10:00:00.000Z', note: data.note, choice: data.choice } });
       topics.find((t) => t.id === q.topic).round = { n: (q.round || 0) + 1, state: 'making' };
       return { id: 'e1', board: structuredClone(boardBody()) };
+    }
+    // An Implement or Done tap is recorded and the card leaves the queue, as board/server.mjs records it.
+    if (kind === 'card-build' || kind === 'card-done') {
+      queue.splice(0, queue.length, ...queue.filter((e) => e.key !== data.key));
+      return { id: 'c1', board: structuredClone(boardBody()) };
     }
     // A reopen opens its sent question again, as board/server.mjs's ownerQuestion reads it.
     if (kind === 'question-reopen') {
@@ -5924,10 +5929,10 @@ test("a Permissions switch keeps its spinner past the server's answer until the 
 
 const openQuestion = (id, topic, extra = {}) => ({ id, topic, source: 'Grill', question: `Question ${id}?`, context: `Why ${id}`, answers: [], state: 'open',
   options: [{ id: 'A', label: 'Yes', detail: 'Do it', recommended: true }, { id: 'B', label: 'No', detail: 'Leave it' }], ...extra });
-const questionsBoard = (questions, needs = []) => {
+const questionsBoard = (questions, needs = [], queue = []) => {
   const topics = [...new Set(questions.map((q) => q.topic))].map((id) => ({ id, title: `Topic ${id}`, state: 'open', questions: questions.filter((q) => q.topic === id).map((q) => q.id),
     open: questions.filter((q) => q.topic === id && q.state === 'open').length, answered: 0, resolved: 0 }));
-  return { ...boardOf([]), owner: questions, ownerTopics: topics, needs };
+  return { ...boardOf([]), owner: questions, ownerTopics: topics, needs, queue };
 };
 
 // docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md
@@ -6070,13 +6075,14 @@ test("on a desktop a prototype opens in the right pane under a top bar of ‹ Op
 });
 
 // docs/adr/2026-11-12-2330-the-desktop-pane-is-back-without-the-needs-you-deck.md
-test("at every width the board header's ? carries the open-question count as a badge and opens Questions, whose ✓ goes back to the board; the bulb and gear sit at the foot of the board, never in the header", async () => {
+test("at every width the board header's ? carries the queue's count as a badge, the rows the page lists (a topic with open questions, a tap), and opens Questions, whose ✓ goes back to the board; the bulb and gear sit at the foot of the board, never in the header", async () => {
+  const queue = [{ kind: 'implement', key: 'w/T9', title: 'T9: Card', word: 'Implement', label: 'Tap Implement', fault: false, since: '2026-11-02T10:00:00.000Z', progress: false }];
   for (const width of [390, 1280]) {
-    const b = boardOnDom({ board: questionsBoard([openQuestion('q1', 't1'), openQuestion('q2', 't1'), openQuestion('q3', 't2')]), threads: {}, width });
+    const b = boardOnDom({ board: questionsBoard([openQuestion('q1', 't1'), openQuestion('q2', 't1'), openQuestion('q3', 't2')], [], queue), threads: {}, width });
     await b.settle();
     const ask = b.root.querySelector('.top #questionsLink');
     assert.equal(ask.getAttribute('href'), 'questions.html');
-    assert.deepEqual([ask.querySelector('.q-badge').hidden, ask.querySelector('.q-badge').textContent, ask.getAttribute('aria-label')], [false, '3', 'Open questions, 3 open']);
+    assert.deepEqual([ask.querySelector('.q-badge').hidden, ask.querySelector('.q-badge').textContent, ask.getAttribute('aria-label')], [false, '3', 'Open questions, 3 open'], 'two topics and one tap');
     assert.equal(b.root.querySelector('.top #archBulb'), null);
     assert.equal(b.root.querySelector('.top #settingsLink'), null);
     const foot = b.root.querySelector('main .board-foot');
@@ -6445,4 +6451,44 @@ test('a project made with New project… lands A–Z among the team’s projects
   await tick();
   assert.deepEqual([...root.querySelector('[data-tk="project"]').querySelectorAll('option')].map((o) => o.textContent), ['Alpha', 'beta', 'Zed', 'New project…']);
   control.destroy();
+});
+
+// docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md
+test("Waiting on you is one queue: question pills and tap rows in the board's order, a count that is the rows, Implement and Done tapped in place, the rest opening the card", async () => {
+  const question = (id, topic) => ({ id, topic, source: '', question: `Question ${id}?`, context: '', options: [{ id: 'A', label: 'Yes' }], answers: [], state: 'open' });
+  const tap = (kind, key, word, more = {}) => ({ kind, key, title: `${key.split('/')[1]}: Card`, word, label: `Tap ${word}`, fault: false, since: '2026-11-02T10:00:00.000Z', progress: false, ...more });
+  const queue = [tap('implement', 'w/T2', 'Implement'), { kind: 'question', id: 'item:w/T1', since: '2026-11-03T10:00:00.000Z' }, tap('done', 'w/T4', 'Done'),
+    tap('action', 'w/T5', 'Action', { label: 'stalled: tests fail', fault: true })];
+  const v = questionsOnDom({ topics: [{ id: 'item:w/T1', title: 'T1: Search' }], questions: [question('q1', 'item:w/T1')], at: 'q1', queue });
+  const confirms = [];
+  v.page.win.BoardDialogs.confirm = async (text) => { confirms.push(text); return true; };
+  await v.settle();
+  const order = () => v.root.querySelectorAll('.topics > *').map((n) => n.dataset.tap || n.dataset.topic);
+  assert.deepEqual(order(), ['w/T2', 'item:w/T1', 'w/T4', 'w/T5'], 'questions and taps interleave in the board order');
+  assert.equal(v.root.querySelector('.q-count').textContent, `${queue.length} need you`, 'the count is the rows');
+  assert.equal(v.root.querySelector('.tap[data-tap="w/T5"]').classList.contains('fault'), true);
+  assert.deepEqual(v.root.querySelectorAll('.tap button').map((b) => b.textContent), ['Implement', 'Done', 'Open']);
+
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('.tap[data-tap="w/T2"] button') });
+  await v.settle();
+  assert.deepEqual([confirms, JSON.parse(JSON.stringify(v.sent))], [['Implement T2?'], [['card-build', { key: 'w/T2' }]]]);
+  assert.deepEqual(order(), ['item:w/T1', 'w/T4', 'w/T5'], 'the recorded tap leaves the queue');
+  assert.equal(v.root.querySelector('.q-count').textContent, '3 need you');
+
+  v.page.fire(v.root, 'click', { target: v.root.querySelector('.tap[data-tap="w/T4"] button') });
+  await v.settle();
+  assert.deepEqual([confirms.at(-1), v.sent.at(-1)[0]], ['Mark done T4?', 'card-done']);
+  v.unmount();
+});
+
+test('Waiting on you with only taps shows the queue and no form, and with nothing the moon', async () => {
+  const queue = [{ kind: 'implement', key: 'w/T2', title: 'T2: Card', word: 'Implement', label: 'Tap Implement', fault: false, since: '2026-11-02T10:00:00.000Z', progress: false }];
+  const v = questionsOnDom({ topics: [], questions: [], at: '', queue });
+  await v.settle();
+  assert.deepEqual([v.root.querySelectorAll('.tap').length, v.root.querySelector('#qform'), v.root.querySelector('.q-empty')], [1, null, null]);
+  v.unmount();
+  const none = questionsOnDom({ topics: [], questions: [], at: '' });
+  await none.settle();
+  assert.ok(none.root.querySelector('.q-empty'));
+  none.unmount();
 });

@@ -20,9 +20,12 @@
 // A topic or question that arrives while the page shows inserts its pill or card where it belongs, and the counts
 // update, with no repaint, so the open topic, its picks, the note being typed and the scroll stay
 // (docs/adr/2026-11-05-0408-needs-you-is-a-deck-on-a-phone-and-a-pane-on-a-desktop.md).
-// The page shows open questions only: it ends at the Send bar, opens by itself only a topic with an open question, and
-// with none shows the hub's moon and "no open questions". A link to a question still opens its topic, as a work item's
-// Questions button does (docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md).
+// The form holds open questions only: it ends at the Send bar, opens by itself only a topic with an open question, and
+// with nothing waiting shows the hub's moon and "no open questions". A link to a question still opens its topic, as a work
+// item's Questions button does (docs/adr/2026-11-06-0037-the-open-questions-page-shows-open-questions-only.md).
+// Above the form is the queue of everything the header's badge counts, oldest first: a pill for each topic with an open
+// question and a row for each card waiting on an Implement, a Done or another action, its button doing the tap in place
+// (docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md).
 // markup({embedded: true}) and ctx.embedded mount it in the board's desktop pane (app-pane.js): no header,
 // and the board's URL and scroll are left alone; it holds no board of its own: the lanes' board paints it
 // (ctx.host, docs/adr/2026-11-14-2230-the-desktop-pane-shows-the-lanes-board.md).
@@ -89,10 +92,20 @@ const lastTopic = new Map();
     const inForm = (qs) => qs.filter((q) => !isSent(q) || inPlace.has(q.id));
 
     // docs/adr/2026-10-29-1639-waiting-on-you-leads-with-what-needs-the-owner.md
+    // The queue: each topic with an open question as its pill and each tap as its row, oldest first, with the count
+    // the header's badge shows (BoardUI.queueRows); the shown topic stays among them while it is sent or resolved.
+    const rows = () => {
+      const list = BoardUI.queueRows(board?.queue, topics);
+      const shownTopic = topics.find((t) => t.id === topicId);
+      return { list, drawn: shownTopic && !list.some((r) => r.topic === shownTopic) ? [...list, { topic: shownTopic }] : list };
+    };
+    const rowHtml = (r, arrived = false) => (r.tap ? BoardUI.tapRow(r.tap, arrived) : pillHtml(r.topic, arrived));
+    const countHtml = (n) => `<div class="q-count muted small">${n} need you</div>`;
+    const showsQueue = (list) => list.some((r) => r.tap) || list.length > 1;
     function topicBar() {
-      const list = topicRow(topics, topicId).pills;
-      if (list.length < 2) return '';
-      return `<div class="topics" role="group" aria-label="Topics">${list.map((t) => pillHtml(t)).join('')}</div>`;
+      const { list, drawn } = rows();
+      if (!showsQueue(drawn)) return '';
+      return `${countHtml(list.length)}<div class="topics" role="group" aria-label="Topics">${drawn.map((r) => rowHtml(r)).join('')}</div>`;
     }
     // An arrival (arrive) slides in with a glow and settles (style.css .arrived).
     const pillHtml = (t, arrived = false) => `<button class="${arrived ? 'arrived ' : ''}${t.progress ? 'progress' : ''}" data-topic="${esc(t.id)}" aria-pressed="${t.id === topicId}" title="${esc(t.title)}"><span class="name">${esc(topicName(t))}</span><span class="n">${t.state === 'resolved' ? 'resolved' : t.open}</span></button>`;
@@ -141,6 +154,11 @@ const lastTopic = new Map();
       drawn = drawnOf();
       const el = $('#page');
       const qs = visible();
+      if (!qs.length && rows().list.some((r) => r.tap)) {
+        el.innerHTML = topicBar();
+        $('#progress').textContent = '';
+        return;
+      }
       if (!qs.length) {
         el.innerHTML = `<div class="q-empty"><svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HubUI.TILE_PATHS.moon}</svg><p class="muted">no open questions</p></div>`;
         $('#progress').textContent = '';
@@ -223,6 +241,23 @@ const lastTopic = new Map();
       })(), stillWaiting));
     }
 
+    // A tap row's button: Implement and Done do their tap in place, once the owner confirms, and the queue drops the row
+    // when the board lands; Ready and Action only open the card.
+    const TAP_EVENT = { implement: 'card-build', done: 'card-done' };
+    async function doTap(kind, key, button) {
+      if (!TAP_EVENT[kind]) { openOnBoard(`item:${key}`); return; }
+      const tap = rows().list.find((r) => r.tap?.key === key)?.tap;
+      const ref = toastName({ title: tap.title });
+      if (!(await BoardDialogs.confirm(`${kind === 'implement' ? 'Implement' : 'Mark done'} ${ref}?`)) || !B.alive()) return;
+      await BoardUI.waitOn(button, BoardUI.pending.within((async () => {
+        let out;
+        try { out = await send(TAP_EVENT[kind], { key }); } catch (e) { B.toast(e.reason ? `Nothing was sent: ${e.reason}` : 'Could not send. Is the host awake?'); return; }
+        if (!B.alive()) return;
+        if (!ctx.embedded && !land(out.board, false)) await load(false);
+        repaint(false);
+      })(), stillWaiting));
+    }
+
     function updateBar() {
       const qs = visible();
       const n = pending(qs).length;
@@ -245,7 +280,7 @@ const lastTopic = new Map();
       setTopic(t ? t.id : null);
     }
 
-    const sigNow = () => JSON.stringify([soloId, topicId, topics.map((t) => [t.id, t.state, t.open, t.answered, t.round]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply)), Boolean(q.reask)])]);
+    const sigNow = () => JSON.stringify([soloId, topicId, board?.queue, topics.map((t) => [t.id, t.state, t.open, t.answered, t.round]), visible().map((q) => [q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply)), Boolean(q.reask)])]);
     // One load at a time: a load waiting out a board restart would otherwise overlap the next poll's. A load asked for
     // while one runs shares it. → true when the board's answer landed in this view.
     let loading = null;
@@ -310,7 +345,7 @@ const lastTopic = new Map();
     // What render last drew of the topic: its questions in order as they stood, and its resolved count.
     const drawnOf = () => {
       const t = topics.find((x) => x.id === topicId);
-      return { solo: soloId, topic: topicId, resolved: t?.resolved || 0, qs: visible().map((q) => JSON.stringify([q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply)), Boolean(q.reask)])) };
+      return { solo: soloId, topic: topicId, resolved: t?.resolved || 0, taps: JSON.stringify(rows().list.filter((r) => r.tap)), qs: visible().map((q) => JSON.stringify([q.id, q.state, q.answers.length, q.answers.map((a) => Boolean(a.reply)), Boolean(q.reask)])) };
     };
     let drawn = null;
     // A change that only adds topics, counts or open questions at the end of the shown topic is drawn in place: each
@@ -319,24 +354,28 @@ const lastTopic = new Map();
     function arrive() {
       const form = $('#qform');
       const now = drawnOf();
-      if (!form || !drawn || now.solo || drawn.solo || now.topic !== drawn.topic || now.resolved !== drawn.resolved
+      if (!form || !drawn || now.solo || drawn.solo || now.topic !== drawn.topic || now.resolved !== drawn.resolved || now.taps !== drawn.taps
         || drawn.qs.some((s, i) => now.qs[i] !== s)) return false;
       const added = visible().slice(drawn.qs.length);
       if (added.some((q) => q.state !== 'open')) return false;
       const page = $('#page');
-      const list = topicRow(topics, topicId).pills;
+      const { list, drawn: shownRows } = rows();
       const bar = page.querySelector('.topics');
-      if (list.length < 2) bar?.remove();
+      if (!showsQueue(shownRows)) { bar?.remove(); page.querySelector('.q-count')?.remove(); }
       else if (!bar) page.insertAdjacentHTML('afterbegin', topicBar());
       else {
-        const pills = list.map((t) => bar.querySelector(`button[data-topic="${CSS.escape(t.id)}"]`) || fragmentOf(pillHtml(t, true)));
-        for (const b of [...bar.children]) if (!pills.includes(b)) b.remove();
-        pills.forEach((b, i) => {
-          const t = list[i];
-          b.setAttribute('aria-pressed', String(t.id === topicId));
-          b.querySelector('.n').textContent = t.state === 'resolved' ? 'resolved' : String(t.open);
+        const nodeOf = (r) => (r.tap ? bar.querySelector(`.tap[data-tap="${CSS.escape(r.tap.key)}"]`) : bar.querySelector(`button[data-topic="${CSS.escape(r.topic.id)}"]`)) || fragmentOf(rowHtml(r, true));
+        const nodes = shownRows.map(nodeOf);
+        for (const b of [...bar.children]) if (!nodes.includes(b)) b.remove();
+        nodes.forEach((b, i) => {
+          const t = shownRows[i].topic;
+          if (t) {
+            b.setAttribute('aria-pressed', String(t.id === topicId));
+            b.querySelector('.n').textContent = t.state === 'resolved' ? 'resolved' : String(t.open);
+          }
           if (bar.children[i] !== b) bar.insertBefore(b, bar.children[i] || null);
         });
+        page.querySelector('.q-count').textContent = `${list.length} need you`;
       }
       const head = page.querySelector('.topichead');
       const headHtml = topicHead(topics.find((x) => x.id === topicId));
@@ -394,6 +433,8 @@ const lastTopic = new Map();
       if (eye) { askPrototype(byId(eye.closest('section.q').dataset.q), eye); return; }
       const reopenBadge = ev.target.closest && ev.target.closest('[data-reopen]');
       if (reopenBadge) { if (!reopenBadge.disabled) reopen(byId(reopenBadge.dataset.reopen), reopenBadge); return; }
+      const tapButton = ev.target.closest && ev.target.closest('[data-tap-do]');
+      if (tapButton) { if (!tapButton.disabled) doTap(tapButton.dataset.tapDo, tapButton.dataset.key, tapButton); return; }
       const title = ev.target.closest && ev.target.closest('[data-open-card]');
       if (title) { openOnBoard(title.dataset.openCard); return; }
       const b = ev.target.closest && ev.target.closest('[data-topic]');

@@ -17,7 +17,7 @@ BoardView.part((B) => {
     $('#setup').hidden = !d.setup;
     $('#setup').innerHTML = setupCard(d.setup);
     if ($('#linksSheet').open) $('#linksList').innerHTML = linksList(d.links);
-    const open = (d.owner || []).filter((q) => q.state === 'open').length;
+    const open = BoardUI.queueRows(d.queue, BoardUI.cardTopics(d.ownerTopics || [], d.items || [])).length;
     const ask = $('#questionsLink');
     const badge = ask.querySelector('.q-badge');
     badge.hidden = !open;

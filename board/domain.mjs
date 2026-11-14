@@ -1366,7 +1366,7 @@ export function buildBoard(snapshot) {
     .sort((a, b) => b.at.localeCompare(a.at));
   merges.sort((a, b) => b.at.localeCompare(a.at));
   // unfiled: the asks with no card yet, for the board server to file (store.mjs fileAsks).
-  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, owner: questions, ownerTopics: topicList, reviews, needs, working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
+  return withHub({ kind, main, remote: remote && { host: remote.host, name: `${remote.host}/${remote.path}` }, itemFiles, items, moved: Object.fromEntries(moved), answers, merges, unfiled, owner: questions, ownerTopics: topicList, reviews, needs, queue: queueOf(needs), working: workingOn.length, workingOn, checks: checksOf(snapshot, now), threadViews }, snapshot);
 }
 
 // docs/adr/2026-11-04-0349-the-board-is-built-once-per-data-version.md
@@ -1463,7 +1463,7 @@ function needsOf(items, topics, questions) {
     const asking = it.questions && it.questions.state !== 'resolved' && it.questions.open > 0 ? { open: it.questions.open, url: `questions.html#${it.questions.first}` } : null;
     const ready = it.waitsOn === 'ready' ? it.pr.url : null;
     // docs/adr/2026-10-29-1639-the-lane-follows-who-acts-next.md: every card with Action needed gets a line.
-    const other = !asking && !ready && it.action ? { label: it.action.label, url: it.action.url } : null;
+    const other = !asking && !ready && it.action ? { kind: it.action.kind, label: it.action.label, url: it.action.url } : null;
     if (!asking && !ready && !other) return null;
     const title = `${it.ref}: ${it.title}`;
     const text = [title, asking && plural(asking.open, 'question'), ready && 'Ready on GitHub', other?.label].filter(Boolean).join(' · ');
@@ -1471,6 +1471,20 @@ function needsOf(items, topics, questions) {
       since: it.created || null, progress: it.lane === 'progress' };
   }).filter(Boolean);
   return [...fromTopics, ...fromItems].sort(oldestFirst);
+}
+// The ? page's queue and its count, one list: each Needs you line that waits on the owner on that page, in Needs you's
+// order (oldest first), a prompt and a held review left out, which show on the hub page and in the Auto Review lane
+// (docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md). Every entry has kind and
+// since; a question is its topic's id, a tap its key, title, word (what the owner does) and label (its action's words).
+const TAP_WORDS = { [ACTION_KIND.implement]: 'Implement', [ACTION_KIND.close]: 'Done' };
+function queueOf(needs) {
+  return needs.filter((line) => !line.prompt && !line.review).map((line) => {
+    const { since, progress } = line;
+    if (line.questions) return { kind: 'question', id: line.topic || `item:${line.key}`, since, progress: Boolean(progress) };
+    const kind = line.ready ? 'ready' : line.action.kind === ACTION_KIND.implement ? 'implement' : line.action.kind === ACTION_KIND.close ? 'done' : 'action';
+    const word = line.ready ? 'Ready' : TAP_WORDS[line.action.kind] || 'Action';
+    return { kind, key: line.key, title: line.title, word, label: line.action?.label || '', fault: line.action?.kind === ACTION_KIND.stalled, since, progress: Boolean(progress) };
+  });
 }
 const oldestFirst = (a, b) => (Boolean(b.progress) - Boolean(a.progress)) || (a.since && b.since ? a.since.localeCompare(b.since) : Boolean(b.since) - Boolean(a.since));
 
@@ -1489,7 +1503,8 @@ function needsSummary(needs) {
   const questions = needs.reduce((n, line) => n + (line.questions?.open || 0), 0);
   const drafts = needs.filter((line) => line.ready).length;
   const reviews = needs.filter((line) => line.review).length;
-  return [prompts && plural(prompts, 'prompt'), questions && plural(questions, 'question'), drafts && `${plural(drafts, 'draft')} waiting on Ready`,
+  const actions = needs.filter((line) => line.action).length;
+  return [prompts && plural(prompts, 'prompt'), questions && plural(questions, 'question'), actions && `${plural(actions, 'action')} needed`, drafts && `${plural(drafts, 'draft')} waiting on Ready`,
     reviews && `${plural(reviews, 'review')} held`].filter(Boolean).join(' · ');
 }
 

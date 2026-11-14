@@ -688,6 +688,16 @@ main > * { transition: opacity .25s ease; }
 @keyframes pill-arrive { from { opacity: 0; transform: translateX(-12px); box-shadow: 0 0 0 3px var(--accent); } to { opacity: 1; transform: none; box-shadow: 0 0 0 0 transparent; } }
 @media (prefers-reduced-motion: no-preference) { .view-questions .topics button.arrived { animation: pill-arrive .6s ease-out; } }
 .view-questions .topics .n { color: var(--muted); margin-left: 4px; }
+.view-questions .q-count { margin: 0 0 4px; }
+/* A tap row in the queue: orange while an owner tap waits, red on a fault (AGENTS.md Colour priority). */
+.view-questions .topics .tap { flex: 1 1 100%; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 7px 11px; border: 1px solid color-mix(in srgb, var(--color-notice) 40%, var(--line)); border-radius: 12px;
+  background: color-mix(in srgb, var(--color-notice) 12%, var(--panel)); cursor: pointer; }
+.view-questions .topics .tap.fault { border-color: color-mix(in srgb, var(--color-danger) 50%, var(--line)); background: color-mix(in srgb, var(--color-danger) 10%, var(--panel)); }
+.view-questions .topics .tap .tap-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.view-questions .topics .tap .tap-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.view-questions .topics .tap button { flex: none; border: 1px solid var(--color-notice); background: var(--color-notice); color: #1c1407; border-radius: 999px; padding: 4px 14px; font-size: 13px; }
+.view-questions .topics .tap.fault button { border-color: var(--color-danger); background: var(--color-danger); color: #fff; }
+@media (prefers-reduced-motion: no-preference) { .view-questions .topics .tap.arrived { animation: pill-arrive .6s ease-out; } }
 .view-questions .topichead { margin: 2px 0 6px; }
 .view-questions .topichead .topic-title { background: none; border: 0; padding: 0; color: var(--text, inherit); font: inherit; font-size: 18px; font-weight: 600; text-align: left; cursor: pointer; }
 .view-questions .topichead .topic-title:hover { text-decoration: underline; }

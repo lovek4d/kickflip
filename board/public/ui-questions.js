@@ -152,6 +152,26 @@
     return { pills, waiting };
   }
 
+  // docs/adr/2026-11-14-2330-the-questions-page-is-one-queue-of-what-the-badge-counts.md
+  // The ? page's rows and its count, which the header's badge reads too, so the two agree: the board's queue (what
+  // waits on the owner, oldest first) with each question entry as its topic with an open question, {topic}, and each
+  // tap as {tap}; a topic the queue doesn't name follows, in the topics' order. topics: /api/board's, named by cardTopics.
+  function queueRows(queue, topics) {
+    const open = topics.filter((t) => t.state !== 'resolved' && t.open > 0);
+    const rows = [];
+    for (const entry of queue || []) {
+      if (entry.kind !== 'question') rows.push({ tap: entry });
+      else { const topic = open.find((t) => t.id === entry.id); if (topic) rows.push({ topic }); }
+    }
+    return [...rows, ...open.filter((t) => !rows.some((r) => r.topic === t)).map((topic) => ({ topic }))];
+  }
+  // A tap row: its card's ref and title, the word of what waits (orange; red on a fault), its age, and its one button,
+  // which does the tap in place for Implement and Done and opens the card for the rest. Tapping the row opens the card.
+  const TAP_BUTTON = { implement: 'Implement', done: 'Done' };
+  const tapRow = (tap, arrived = false) => `<div class="tap${tap.fault ? ' fault' : ''}${arrived ? ' arrived' : ''}" data-tap="${esc(tap.key)}" data-open-card="item:${esc(tap.key)}" role="group" aria-label="${esc(tap.title)}">
+      <span class="tap-body"><span class="tap-title">${esc(tap.title)}</span><span class="muted small">${esc(tap.label || tap.word)}${tap.since ? ` · ${esc(ago(tap.since))}` : ''}</span></span>
+      <button type="button" data-tap-do="${esc(tap.kind)}" data-key="${esc(tap.key)}">${esc(TAP_BUTTON[tap.kind] || 'Open')}</button></div>`;
+
   // owner is in owner.json order; topics are the pills before the answer. A topic-wide Send omits answered.id.
   function nextQuestion(owner, topics, answered) {
     const at = owner.findIndex((q) => q.id === answered.id);
@@ -193,5 +213,5 @@
     return `<div class="ps-sheet" role="dialog" aria-label="Rounds"><h3>Rounds on ${esc(ref)}</h3>${rows.join('')}</div>`;
   }
 
-  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, option, answerHistory, questionCard, roundChip, roundPill, roundSheet, topicName, cardTopics, topicRow, nextQuestion, sentNotice });
+  Object.assign(globalThis.BoardUI, { isPrototype, getDraft, setDraft, choiceLabel, choiceOf, noteOf, isSent, option, answerHistory, questionCard, roundChip, roundPill, roundSheet, topicName, cardTopics, topicRow, queueRows, tapRow, nextQuestion, sentNotice });
 })();
