@@ -155,3 +155,17 @@ test('pressing the attach button with no text box focused leaves focus alone', (
   p.fire(input, 'change', { target: input });
   assert.equal(p.win.document.activeElement, null);
 });
+
+// On a phone a press that took focus from the box would start closing the keyboard, and the send bar riding on it would
+// slide out from under the finger before the click landed.
+test("pressing a composer's send button or its eye, fire or image leaves the text box focused; another button takes focus", () => {
+  const p = attachPage();
+  const { sendButton, protoButton, grillButton, visualButton } = p.win.BoardUI;
+  p.composer.querySelector('.row').insertAdjacentHTML('beforeend',
+    `${protoButton('a')}${grillButton('a')}${visualButton('a')}<button type="button" class="chip">What's left?</button>${sendButton('Reply', 0)}${sendButton('Done', 1, ' data-confirm="finish"')}`);
+  const pressed = (sel) => p.fire(p.composer.querySelector(sel), 'mousedown').defaultPrevented;
+  for (const sel of ['button[type=submit][data-nth="0"]', 'button[data-confirm]', '[data-proto]', '[data-grill]', '[data-visual]']) {
+    assert.equal(pressed(sel), true, sel);
+  }
+  assert.equal(pressed('.chip'), false);
+});
