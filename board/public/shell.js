@@ -252,9 +252,11 @@ window.AppShell = (function () {
     // ask(B) → true once the board's pane did what the view asks. A board just shown takes a moment to fill its pane, so
     // the pane is asked again until it has.
     const paneAsk = (view, href) => (view.kind === 'questions' ? (B) => B.focusQuestion?.(view.id) : (B) => B.openViewer?.(href));
-    function askPane(ask, tries = 50) {
-      if (current?.view.kind !== 'board' || ask(current.v.B) || tries <= 0) return;
-      setTimeout(() => askPane(ask, tries - 1), 100);
+    // A newer ask drops the retries of an older one, so a late retry never sets an earlier pick over the later one.
+    let asked = 0;
+    function askPane(ask, tries = 50, mine = ++asked) {
+      if (mine !== asked || current?.view.kind !== 'board' || ask(current.v.B) || tries <= 0) return;
+      setTimeout(() => askPane(ask, tries - 1, mine), 100);
     }
     function go(view, href, how, from) {
       if (!AppRouter.mounted(view)) return false;
@@ -263,7 +265,7 @@ window.AppShell = (function () {
         const board = { kind: 'board', route: view.route, hash: '' };
         const boardHref = new URL(AppRouter.urlOf(board), location.href).href;
         if (how === 'pop') history.replaceState(history.state, '', boardHref);
-        // On its own board it only asks the pane, so the URL, history and an open card stay as they are.
+        // On its own board it only asks the board, which sets the selection (app-selection.js), so the history stays as it is.
         else if (current?.view.kind === 'board' && current.route === view.route && !settings) {
           askPane(ask);
           sidebar.close();

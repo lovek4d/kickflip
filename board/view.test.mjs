@@ -20,8 +20,8 @@ function boardPatch(from, to, threads = { from: {}, to: {} }) {
   return { ...patchSince(now.sync, now.board, held.sync.n, map(threads.to)), since: from.version, version: to.version };
 }
 
-const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
-  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-banner.js', 'app-snapshot.js',
+const SCRIPTS = ['ui.js', 'ui-links.js', 'ui-enums.js', 'ui-progress-bar.js', 'ui-order.js', 'ui-selection.js', 'ui-patch.js', 'ui-threads.js', 'ui-cards.js', 'ui-header.js', 'ui-snapshot.js', 'ui-page-header.js', 'ui-icon-text.js', 'ui-sidebar.js', 'ui-questions.js', 'ui-prompts.js', 'ui-markdown.js', 'ui-hub.js', 'prompts.js', 'rules-editor.js',
+  'dialogs.js', 'hub-kit.js', 'linear-key.js', 'sidebar.js', 'toasts.js', 'app.js', 'new-task.js', 'app-core.js', 'app-threads.js', 'app-cards.js', 'app-lanes.js', 'app-asks.js', 'app-pane.js', 'app-selection.js', 'app-header.js', 'app-arch.js', 'app-reader.js', 'app-banner.js', 'app-snapshot.js',
   'view-settings.js', 'view-questions.js', 'view-notes.js', 'view-hub.js', 'view-hub-settings.js', 'view-frame.js', 'router.js'];
 
 // The time every test here builds its data from. A fake page's clock starts at it and moves only by its advance(ms)
@@ -86,7 +86,7 @@ function fakePage(localStorage) {
   class MutationObserver { observe() { observers.add(this); } unobserve() {} disconnect() { observers.delete(this); } }
   const win = Object.assign(new Target(), {
     Date: fixedDate(() => NOW + now), URL, URLSearchParams, AbortController, localStorage, document, CSS: { escape: (s) => s }, navigator: { platform: 'MacIntel' },
-    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState() {} }, innerHeight: 844,
+    location: { hostname: 'mac.ts.net', href: 'https://mac.ts.net/', hash: '', pathname: '/', search: '' }, history: { replaceState(_state, _title, url) { win.location.hash = url?.includes('#') ? url.slice(url.indexOf('#')) : ''; } }, innerHeight: 844,
     scrollX: 0, scrollY: 0, scrollTo(x, y) { win.scrollX = x; win.scrollY = y; },
     visualViewport: Object.assign(new Target(), { height: 844, offsetTop: 0 }),
     matchMedia: (query) => Object.assign(new Target(), { matches: query === '(min-width: 900px)' && win.innerWidth >= 900 }), MutationObserver, ResizeObserver: MutationObserver,
@@ -6002,6 +6002,26 @@ test("on a desktop, focusQuestion opens a question's or topic's topic in the pan
   assert.equal(narrow.view.B.focusQuestion('q2'), false, 'a phone has no pane');
 });
 
+// docs/adr/2026-11-14-2359-one-owner-of-the-open-selection.md
+test("Questions on card B after card A's sets the board's selected card and the pane's topic to B in the one fragment, and a replay of it opens B; the phone's ? opens the selected card's topic", async () => {
+  const base = questionsBoard([openQuestion('qa', 'item:w/A'), openQuestion('qb', 'item:w/B')], []);
+  const board = { ...base, items: [workCard('A', { questions: { topic: 'item:w/A' } }), workCard('B', { questions: { topic: 'item:w/B' } })] };
+  const wide = boardOnDom({ board, threads: {}, width: 1280 });
+  await wide.settle();
+  const win = vm.runInContext('window', wide.page.win);
+  const pill = (id) => wide.root.querySelector(`#boardPane button[data-topic="${id}"]`);
+  assert.equal(wide.view.B.focusQuestion('qa'), true);
+  assert.equal(wide.page.win.location.hash, '#selectedCard=w%2FA&openItemsCard=item%3Aw%2FA');
+  assert.equal(wide.view.B.focusQuestion('qb'), true);
+  assert.equal(wide.page.win.location.hash, '#selectedCard=w%2FB&openItemsCard=item%3Aw%2FB', 'both keys are written together');
+  assert.deepEqual([pill('item:w/B').getAttribute('aria-pressed'), wide.root.querySelector('details.item[data-key="w/B"]').open], ['true', true]);
+  wide.page.fire(win, 'hashchange');
+  await wide.settle();
+  assert.equal(pill('item:w/B').getAttribute('aria-pressed'), 'true', 'a replay of the URL stays on B');
+  assert.equal(wide.root.querySelector('#questionsLink').getAttribute('href'), 'questions.html#item%3Aw%2FB', "the ? opens the selected card's topic");
+  wide.view.unmount();
+});
+
 // docs/adr/2026-11-12-2359-a-topic-in-the-questions-pane-closes-the-overlays-over-it.md
 test('a topic picked in the questions pane, by a pill or a questions URL, closes the reader sheet and the prototype viewer over the pane', async () => {
   const r = readerOnDom('plain log text', { width: 1280, topics: [openQuestion('q1', 'item:w/T1'), openQuestion('q2', 'item:w/P1')] });
@@ -6106,10 +6126,10 @@ test("on a desktop, one click on a pill in the pane opens that topic's card on t
   wide.root.constructor.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.dataset.key || this.dataset.topic); };
   const dbl = async (id) => { const target = wide.root.querySelector(`#boardPane button[data-topic="${id}"]`); const slot = wide.root.querySelector('#boardPane .pane-questions'); wide.page.fire(slot, 'click', { target }); await wide.settle(); };
   await dbl('item:w/T1');
-  assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1', true, 'w/T1'], 'a task topic opens its task');
+  assert.deepEqual([wide.page.win.location.hash, wide.root.querySelector('details.item[data-key="w/T1"]').open, scrolled.at(-1)], ['#selectedCard=w%2FT1&openItemsCard=item%3Aw%2FT1', true, 'w/T1'], 'a task topic opens its task');
   scrolled.length = 0;
   await dbl('item:w/T9');
-  assert.deepEqual([scrolled, wide.page.win.location.hash], [[], '#selectedCard=w%2FT1'], 'a topic with nothing on the board does nothing');
+  assert.deepEqual([scrolled, wide.page.win.location.hash], [[], '#selectedCard=w%2FT1&openItemsCard=item%3Aw%2FT9'], 'a topic with nothing on the board leaves the card as it was');
   const narrow = boardOnDom({ board, threads: {} });
   await narrow.settle();
   assert.equal(narrow.root.querySelector('#boardPane button[data-topic]'), null, 'a phone has no pane to double-click');

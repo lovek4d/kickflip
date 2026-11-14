@@ -23,6 +23,7 @@ BoardView.part((B) => {
     badge.hidden = !open;
     badge.textContent = open ? String(open) : '';
     ask.setAttribute('aria-label', open ? `Open questions, ${open} open` : 'Open questions');
+    B.syncQuestionsLink();
   }
   // The status line, and the moon right of the title while the owner reads away (hub/presence.mjs ownerTracker).
   const renderStatus = () => {

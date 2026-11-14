@@ -20,7 +20,7 @@ BoardView.part((B) => {
   // A click on a pane pill, or on the topic's title, focuses its topic on the board: item:<key> is a card (an ask is one, ask:<id>);
   // any other topic, or one the board doesn't show, does nothing.
   function openOnBoard(id) {
-    if (id.startsWith('item:')) B.focusOnBoard({ key: id.slice(5) });
+    if (id.startsWith('item:')) B.select({ card: id.slice(5) }, { pane: false });
   }
   // What can cover the pane: each closes itself. A new overlay over the pane (the thread's questions modal) joins this list.
   const paneOverlays = [() => B.closeReader?.(), () => closeViewer()];
@@ -40,11 +40,14 @@ BoardView.part((B) => {
     questions.mount();
   }
   // The shell's one rule for a questions URL from 900px (shell.js go): it shows the board and asks here for the question
-  // or topic id, or null for none. The pane opens its topic, resolved or not, and focuses its pill → false while there
-  // is no pane or it hasn't loaded, so the shell asks again.
+  // or topic id, or null for none. The selection sets the topic in the pane and its card on the board (app-selection.js)
+  // → false while there is no pane or it hasn't loaded, so the shell asks again.
   function focusQuestion(id) {
-    const topic = (state.board?.ownerTopics || []).find((t) => t.id === id || t.questions.includes(id));
-    if (!questions?.B.openTopic(topic?.id ?? id)) return false;
+    return B.select({ question: id });
+  }
+  // The pane opens the topic id, resolved or not, and focuses its pill → false while there is no pane or it hasn't loaded.
+  function openPaneTopic(id) {
+    if (!questions?.B.openTopic(id)) return false;
     const pill = questions.slot.querySelector('.topics button[aria-pressed="true"]');
     pill?.focus();
     pill?.scrollIntoView({ block: 'nearest' });
@@ -111,5 +114,5 @@ BoardView.part((B) => {
   B.on(wide, 'change', fitPane);
   B.atUnmount(() => { questions?.unmount(); questions = null; });
 
-  Object.assign(B, { renderPane, focusQuestion, openViewer });
+  Object.assign(B, { renderPane, focusQuestion, openPaneTopic, openViewer });
 });

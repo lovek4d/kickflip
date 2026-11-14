@@ -215,16 +215,12 @@ window.BoardView = (function () {
     let hashRead = false;
     // A board this page left goes back to where the owner left it once it first renders, unless its URL names a card.
     const returnToPlace = () => B.restorePlace({ linked: /^#(?:selectedCard|item|review)=/.test(location.hash) });
-    // The pane's pill the fragment names opens once the pane has loaded; a phone has no pane, its pill is the Waiting on
-    // you page (shell.js go).
-    function openPill(id, tries = 50) {
-      if (!id || !matchMedia('(min-width: 900px)').matches || B.focusQuestion?.(id) || tries <= 0) return;
-      B.later(100, () => openPill(id, tries - 1));
-    }
-    function readHash() {
+    // The pane's pill the fragment names opens once the pane has loaded (app-selection.js replayTopic); a phone has no
+    // pane, its pill is the Waiting on you page (shell.js go). pill: false when the caller has just set the pill itself.
+    function readHash({ pill = true } = {}) {
       const { selectedCard, openItemsCard, review, reply } = AppRouter.fragmentOf(location.hash);
       if (review && state.board) { B.openReview(review); return; }
-      openPill(openItemsCard);
+      if (pill) B.replayTopic(openItemsCard);
       if (!selectedCard) return;
       focusKey = BoardUI.record(state.board?.moved, selectedCard) || selectedCard;
       replyKey = reply ? focusKey : null;
@@ -246,11 +242,12 @@ window.BoardView = (function () {
       ev.preventDefault();
       readHash(); render(); scrollToFocus();
     });
-    // Opens and scrolls to the card key on the board → whether the board shows it.
-    function focusOnBoard({ key }) {
+    // Opens and scrolls to the card key on the board, the fragment's changes set in the same write → whether the board
+    // shows it. The write replaces the page's entry: a pick adds none.
+    function focusOnBoard({ key, changes }) {
       if (!state.board?.items.some((i) => i.key === key)) return false;
-      location.hash = AppRouter.hashWith(location.hash, { selectedCard: key });
-      readHash();
+      B.saveFragment(changes);
+      readHash({ pill: false });
       render();
       scrollToFocus();
       return true;
