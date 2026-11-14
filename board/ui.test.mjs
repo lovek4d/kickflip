@@ -147,36 +147,37 @@ test('a merged or closed PR keeps its review chips at their last state, gray; a 
   assert.equal(ui.reviewChips({ pr: { ...openPR, state: undefined, checks: undefined, status: null }, reviewers: ['Jamie'], review }), '');
 });
 
-test('a merged PR keeps its CI chip at its last state, gray, beside its Merged badge', () => {
-  const chips = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', checks: { state: 'fail' } }] });
-  assert.equal(text(chips), 'repo#7 ✓ CI ✗');
-  assert.deepEqual([...chips.matchAll(/class="chip (tone-\w+)"/g)].map((m) => m[1]), ['tone-merged', 'tone-quiet']);
-  assert.match(chips, /title="CI fail"/);
-  // An archived card read only from what it kept, with no GitHub state, draws the same.
-  assert.equal(text(ui.prChips({ prs: [{ ...openPR, state: undefined, status: 'merged', checks: { state: 'pass' } }] })), 'repo#7 ✓ CI ✓');
+test('a merged PR keeps its last CI in its purple badge tooltip alone, with no CI chip', () => {
+  const chips = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', checks: { state: 'fail', total: 3, fail: 1, pending: 0 } }] });
+  assert.equal(text(chips), 'repo#7 ✓');
+  assert.match(chips, /^<a class="chip tone-merged" [^>]*title="Merged · CI failing: 1 check"/);
+  assert.equal(text(ui.prChips({ prs: [{ ...openPR, state: undefined, status: 'merged', checks: { state: 'pass' } }] })), 'repo#7 ✓');
 });
 
-test('PR chips show the repo with an orange dot for a draft or a green check once ready, then CI', () => {
-  const draft = ui.prChips({ prs: [{ ...openPR, isDraft: true, status: 'draft' }] });
-  assert.equal(text(draft), 'repo#7 ● CI ✓');
-  assert.match(draft, /^<a class="chip tone-notice" [^>]*title="Draft" [^>]*aria-label="repo#7: Draft">/);
-  const ready = ui.prChips({ prs: [openPR] });
-  assert.equal(text(ready), 'repo#7 ✓ CI ✓');
-  assert.match(ready, /^<a class="chip tone-ready" [^>]*title="Ready for review" [^>]*aria-label="repo#7: Ready for review">/);
-  const badgeTone = (pr) => /^<a class="chip (tone-\w+)"/.exec(ui.prChips({ prs: [{ ...openPR, ...pr }] }))[1];
-  assert.deepEqual([{}, { reviewDecision: 'REVIEW_REQUIRED' }, { checks: { state: 'fail' } }, { checks: { state: 'pending' } }, { checks: undefined }, { reviewDecision: 'CHANGES_REQUESTED' }].map(badgeTone),
-    ['tone-ready', 'tone-ready', 'tone-quiet', 'tone-quiet', 'tone-quiet', 'tone-quiet']);
-  const ci = (state) => /<span class="chip (tone-\w+)" title="CI/.exec(ui.prChips({ prs: [{ ...openPR, checks: { state } }] }))[1];
-  assert.deepEqual(['pass', 'fail', 'pending', 'unknown'].map(ci), ['tone-ready', 'tone-danger', 'tone-notice', 'tone-quiet']);
+// docs/adr/2026-11-14-1600-a-prs-one-badge-shows-draft-ready-by-ci-or-merged.md
+test("a PR's one badge: draft grey dot, ready orange dot, red cross or green check by CI, with the CI in its tooltip", () => {
+  const badgeOf = (pr) => ui.prChips({ prs: [{ ...openPR, ...pr }] });
+  const look = (pr) => { const c = badgeOf(pr); return [/^<a class="chip (tone-\w+)"/.exec(c)[1], text(c), /title="([^"]*)"/.exec(c)[1]]; };
+  assert.deepEqual(look({ isDraft: true, status: 'draft' }), ['tone-quiet', 'repo#7 ●', 'Draft · CI passed']);
+  assert.deepEqual(look({ isDraft: true, status: 'draft', checks: { state: 'fail', total: 2, fail: 2, pending: 0 } }), ['tone-quiet', 'repo#7 ●', 'Draft · CI failing: 2 checks']);
+  assert.deepEqual(look({ checks: { state: 'pending', total: 4, fail: 0, pending: 3 } }), ['tone-notice', 'repo#7 ●', 'Ready · CI waiting: 3 of 4 checks']);
+  assert.deepEqual(look({ checks: undefined }), ['tone-notice', 'repo#7 ●', 'Ready · CI not read yet']);
+  assert.deepEqual(look({ checks: { state: 'fail', total: 5, fail: 1, pending: 0 } }), ['tone-danger', 'repo#7 ✗', 'Ready · CI failing: 1 check']);
+  assert.deepEqual(look({}), ['tone-ready', 'repo#7 ✓', 'Ready · CI passed']);
+  assert.deepEqual(look({ checks: { state: 'none', total: 0, fail: 0, pending: 0 } }), ['tone-ready', 'repo#7 ✓', 'Ready · no CI checks']);
+  // Changes requested go by CI alone; the reviewer chip says it.
+  assert.equal(look({ reviewDecision: 'CHANGES_REQUESTED' })[0], 'tone-ready');
+  assert.match(badgeOf({}), /aria-label="repo#7: Ready · CI passed"/);
+  assert.doesNotMatch(badgeOf({}), /CI ✓/);
 });
 
 // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md
-test("while GitHub's limit holds the hub's check, a PR's badge and CI chip dim and say when it resets", () => {
+test("while GitHub's limit holds the hub's check, a PR's badge dims and says when it resets", () => {
   const reset = new Date(2026, 10, 9, 15, 12).toISOString();
   const chips = ui.prChips({ prs: [{ ...openPR, limited: reset }] });
-  assert.equal(text(chips), 'repo#7 ✓ CI ✓');
-  assert.equal([...chips.matchAll(/<(?:a|span) class="chip tone-\w+"[^>]* data-limited="">/g)].length, 2);
-  assert.equal([...chips.matchAll(/title="[^"]*· GitHub rate limited, resets at 3:12 pm"/g)].length, 2);
+  assert.equal(text(chips), 'repo#7 ✓');
+  assert.equal([...chips.matchAll(/<a class="chip tone-\w+"[^>]* data-limited="">/g)].length, 1);
+  assert.equal([...chips.matchAll(/title="[^"]*· GitHub rate limited, resets at 3:12 pm"/g)].length, 1);
   assert.doesNotMatch(ui.prChips({ prs: [{ ...openPR, limited: null }] }), /data-limited|rate limited/);
 });
 
@@ -184,21 +185,21 @@ test("a card with several PRs shows a badge for each, in its order, with that PR
   const site = { ...openPR, number: 1, url: 'https://github.com/o/site/pull/1', isDraft: true, status: 'draft', checks: { state: 'fail' } };
   const merged = { ...openPR, state: 'MERGED', status: 'merged' };
   const chips = ui.prChips({ prs: [merged, site] });
-  assert.equal(text(chips), 'repo#7 ✓ CI ✓ site#1 ● CI ✗');
+  assert.equal(text(chips), 'repo#7 ✓ site#1 ●');
   assert.deepEqual([...chips.matchAll(/<a class="chip (tone-\w+)" href="([^"]+)"/g)].map((m) => [m[1], m[2]]), [
-    ['tone-merged', 'https://github.com/o/repo/pull/7'], ['tone-notice', 'https://github.com/o/site/pull/1'],
+    ['tone-merged', 'https://github.com/o/repo/pull/7'], ['tone-quiet', 'https://github.com/o/site/pull/1'],
   ]);
   assert.equal(ui.prChips({ prs: [] }), '');
 });
 
-test("the PR badge alone shows the PR's state, linking to the PR: a purple check once merged, a red cross once closed, a plain name before GitHub is read", () => {
+test("the PR badge alone shows the PR's state, linking to the PR: a purple check once merged, a grey cross once closed, a plain name before GitHub is read", () => {
   assert.deepEqual(plain(ui.PR_STATE), { open: 'open', draft: 'draft', merged: 'merged', closed: 'closed' });
   const merged = ui.prChips({ prs: [{ ...openPR, state: 'MERGED', status: 'merged', checks: undefined }] });
   assert.equal(text(merged), 'repo#7 ✓');
   assert.match(merged, /^<a class="chip tone-merged" href="https:\/\/github\.com\/o\/repo\/pull\/7" title="Merged" [^>]*aria-label="repo#7: Merged">[^<]*<\/a>$/);
   const closed = ui.prChips({ prs: [{ ...openPR, state: 'CLOSED', status: 'closed', checks: undefined }] });
   assert.equal(text(closed), 'repo#7 ✗');
-  assert.match(closed, /^<a class="chip tone-danger" [^>]*title="Closed" [^>]*aria-label="repo#7: Closed">[^<]*<\/a>$/);
+  assert.match(closed, /^<a class="chip tone-quiet" [^>]*title="Closed" [^>]*aria-label="repo#7: Closed">[^<]*<\/a>$/);
   assert.match(ui.prChips({ prs: [{ ...openPR, state: undefined, checks: undefined, status: null }] }), /^<a class="chip tone-quiet" href="[^"]+" target="_blank" rel="noopener">repo#7<\/a>$/);
 });
 
@@ -1698,22 +1699,22 @@ test('a card in no wave names its item file when it has a file label, and a decl
 });
 
 test('a work card reads its title, then its next step or builder, its chips, and last its time line with what blocks it, Action needed and its unread messages', () => {
-  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', '2 new messages']);
+  assert.deepEqual(lines(ui.workLines(workCard, { unread: 2 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', '2 new messages']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, next: null, pr: null, prs: [], reviewers: [] }, { unread: 1 })), ['ENG-1 Five', '1 new message']);
   assert.doesNotMatch(text(ui.workLines(workCard)), /B5|msg|unread|new/);
   const busy = { ...workCard, held: true, risky: true, builder: { progress: 'Running tests', at: null } };
-  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● CI ✓ Jamie ● risky', 'held']);
+  assert.deepEqual(lines(ui.workLines(busy)), ['ENG-1 Five', 'Running tests', 'repo#7 ● Jamie ● risky', 'held']);
   // The builder's risk is a chip coloured as the PR's Slack bar: green low, orange medium, red high.
   for (const [risk, tone] of [['low', 'ready'], ['medium', 'notice'], ['high', 'danger']]) {
-    assert.deepEqual(lines(ui.workLines({ ...workCard, risk })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', `repo#7 ● CI ✓ Jamie ● ${risk} risk`]);
+    assert.deepEqual(lines(ui.workLines({ ...workCard, risk })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', `repo#7 ● Jamie ● ${risk} risk`]);
     assert.match(ui.workLines({ ...workCard, risk }), new RegExp(`chip tone-${tone}">${risk} risk<`));
   }
   const internal = { ...workCard, key: 'site/S3', id: 'S3', ref: 'INT-3', internal: true, pr: null, prs: [], linear: [{ id: 'ENG-9', url: 'u' }], next: null };
   assert.deepEqual(lines(ui.workLines(internal)), ['INT-3 Five']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', 'Open items']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', 'Open items']);
   assert.deepEqual(lines(ui.workLines({ ...workCard, questions: { open: 1, first: 'q1' }, action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } }, { unread: 3 })),
-    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', 'Open items · 3 new messages']);
+    ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', 'Open items · 3 new messages']);
   const blocked = { ...internal, lane: 'todo', deps: ['S1', 'S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }] };
   assert.deepEqual(lines(ui.workLines(blocked)), ['INT-3 Five', 'blocked by INT-2']);
   assert.match(ui.workLines(blocked), /<div class="line6 sub card-time"><a class="card-blocked" href="#selectedCard=site%2FS2">blocked by INT-2<\/a><\/div>/);
@@ -1734,7 +1735,7 @@ test('a work card reads its title, then its next step or builder, its chips, and
   const sortAt = ago(2);
   const waiting = { ...workCard, lane: 'todo', deps: ['S2'], blockedBy: [{ key: 'site/S2', ref: 'INT-2' }], bumpable: true, bumpedAt: ago(1), held: true, sortAt,
     action: { kind: 'questions', url: 'questions.html#q1', label: 'Answer 1 question' } };
-  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● CI ✓ Jamie ●', `${ui.cardTime(sortAt)} · held · blocked by INT-2`, 'Open items · 1 new message']);
+  assert.deepEqual(lines(ui.workLines(waiting, { unread: 1 })), ['ENG-1 Five', 'Next: Waiting for PR reviewers', 'repo#7 ● Jamie ●', `${ui.cardTime(sortAt)} · held · blocked by INT-2`, 'Open items · 1 new message']);
   assert.match(ui.workLines(waiting), /<button class="ghost icon bumped" data-card-bump="w\/B5" data-bumped aria-pressed="true" aria-label="Unbump"/);
   assert.doesNotMatch(ui.workLines(waiting), /disabled|data-confirm="bump"/);
   assert.match(ui.workLines({ ...waiting, bumpedAt: null }), /<button class="ghost icon" data-card-bump="w\/B5" aria-pressed="false" aria-label="Bump to top"/);
@@ -1864,7 +1865,7 @@ test('an app install badge opens in place and uses the agreed current and stale 
   const url = 'itms-services://?action=download-manifest&url=https://m/x/manifest.plist';
   const install = { url, sha: 'abc1234', older: false };
   const html = ui.workLines({ ...workCard, install });
-  assert.equal(lines(html)[2], 'repo#7 ● CI ✓ Jamie ● Install');
+  assert.equal(lines(html)[2], 'repo#7 ● Jamie ● Install');
   assert.match(html, /href="itms-services:/);
   assert.doesNotMatch(ui.installButton({ ...workCard, install }), /target=/);
   assert.equal(text(ui.installChip({ ...workCard, install: { ...install, older: true } })), 'Install (stale)');

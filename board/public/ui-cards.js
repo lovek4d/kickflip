@@ -2,36 +2,36 @@
 (function () {
   const { esc, escText, ago, lasted, clock, cardTime, etaLine, workingLine, thinkingLine, isPaused, PAUSED, badge, cardBumpButton, editButton, withdrawButton, dropZone, sendButton, BUTTON, ACTION_KIND, BUILDER_KIND, PR_STATE, PHASES, LINK_ARROW, progressBar } = globalThis.BoardUI;
   const EXTERNAL = { target: '_blank', rel: 'noopener' };
-  // The PR badge is the one place a PR's state shows: its mark and tone, marked like the reviewer and CI chips, and its
-  // title (docs/adr/2026-11-03-1843-a-merged-card-reopens-and-its-pr-badge-shows-the-prs-state.md). A card with several PRs shows a
-  // badge for each, in its order (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
+  // The PR badge is the one place a PR's state and CI show: its mark and tone, with the state and the CI in its title
+  // (docs/adr/2026-11-14-1600-a-prs-one-badge-shows-draft-ready-by-ci-or-merged.md): draft grey ●, ready by CI orange ●,
+  // red ✗ or green ✓, merged purple ✓, closed grey ✗. A card with several PRs shows a badge for each, in its order
+  // (docs/adr/2026-11-03-1904-a-card-holds-several-prs-across-repos.md).
+  const READY_BY_CI = { pass: { tone: 'ready', mark: ' ✓' }, none: { tone: 'ready', mark: ' ✓' }, fail: { tone: 'danger', mark: ' ✗' }, pending: { tone: 'notice', mark: ' ●' } };
   const PR_LOOK = {
-    [PR_STATE.open]: { tone: 'quiet', mark: ' ✓', label: 'Open' },
-    [PR_STATE.draft]: { tone: 'notice', mark: ' ●', label: 'Draft' },
+    [PR_STATE.draft]: { tone: 'quiet', mark: ' ●', label: 'Draft' },
     [PR_STATE.merged]: { tone: 'merged', mark: ' ✓', label: 'Merged' },
-    [PR_STATE.closed]: { tone: 'danger', mark: ' ✗', label: 'Closed' },
+    [PR_STATE.closed]: { tone: 'quiet', mark: ' ✗', label: 'Closed' },
   };
-  // docs/adr/2026-11-06-1547-a-cards-pr-badges-stay-once-added.md: a PR no longer open keeps its CI and reviewer chips
-  // at their last state, gray.
+  // docs/adr/2026-11-06-1547-a-cards-pr-badges-stay-once-added.md: a PR no longer open keeps its reviewer chips at their
+  // last state, gray.
   const keeps = (pr) => pr?.status === PR_STATE.merged || pr?.status === PR_STATE.closed;
-  // An open PR reads green only while it waits on a reviewer alone: CI passed and no reviewer asked for changes.
-  const waitsOnReviewer = (pr) => pr.checks?.state === 'pass' && pr.reviewDecision !== 'CHANGES_REQUESTED';
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const ciWords = (c) => !c ? '' : { pass: 'CI passed', none: 'no CI checks', fail: `CI failing: ${plural(c.fail, 'check')}`, pending: `CI waiting: ${c.pending} of ${plural(c.total, 'check')}` }[c.state] || '';
   const prChips = (it) => (it.prs || []).map(prChip).join('');
   // A PR's short name, its repo's name and number: kickflip#6.
   const prName = (pr) => `${(pr.url.match(/github\.com\/[^/]+\/([^/]+)\//) || [])[1] || ''}#${pr.number}`;
   function prChip(pr) {
-    const base = PR_LOOK[pr.status] || { tone: 'quiet', mark: '', label: '' };
-    const look = pr.status === PR_STATE.open && waitsOnReviewer(pr) ? { ...base, tone: 'ready', label: 'Ready for review' } : base;
-    const CI = { pass: { tone: 'ready', mark: '✓' }, fail: { tone: 'danger', mark: '✗' }, pending: { tone: 'notice', mark: '●' } }[pr.checks?.state] || { tone: 'quiet', mark: '?' };
-    const live = pr.state === 'OPEN';
+    const open = pr.status === PR_STATE.open;
+    const look = open ? { ...(READY_BY_CI[pr.checks?.state] || READY_BY_CI.pending), label: 'Ready' } : PR_LOOK[pr.status] || { tone: 'quiet', mark: '', label: '' };
+    const ci = ciWords(pr.checks) || (open ? 'CI not read yet' : '');
     // docs/adr/2026-11-09-1626-gh-refuses-while-githubs-hourly-limit-holds.md: while GitHub's limit holds the hub's check
-    // (pr.limited, its reset), the PR's chips dim and their titles say when it resets.
-    const note = pr.limited ? ` · GitHub rate limited, resets at ${clock(new Date(pr.limited))}` : '';
+    // (pr.limited, its reset), the badge dims and its title says when it resets.
+    const note = pr.limited ? `GitHub rate limited, resets at ${clock(new Date(pr.limited))}` : '';
+    const title = [look.label, ci, note].filter(Boolean).join(' · ');
     const dim = pr.limited ? { 'data-limited': '' } : {};
-    const ci = pr.checks ? badge(live ? CI.tone : 'quiet', `CI ${CI.mark}`, { title: `CI ${pr.checks.state}${note}`, attrs: dim }) : '';
     const name = prName(pr);
-    const label = look.label ? { title: `${look.label}${note}`, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${look.label}`, ...dim } } : { title: note.slice(3) || undefined, attrs: { ...EXTERNAL, ...dim } };
-    return `${badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label })}${ci}`;
+    const label = look.label ? { title, attrs: { ...EXTERNAL, 'aria-label': `${name}: ${title}`, ...dim } } : { title: note || undefined, attrs: { ...EXTERNAL, ...dim } };
+    return badge(look.tone, `${esc(name)}${look.mark}`, { href: pr.url, ...label });
   }
   const linearChips = (it) => (it.linear || []).map((l) => badge('quiet', esc(l.id), { href: l.url, title: `${l.id} in Linear`, attrs: EXTERNAL })).join('');
   const ticketChip = (it) => !it.ticket ? '' : !it.ticket.url ? badge('quiet', esc(it.ticket.id), { title: `${it.ticket.id} · not from this board’s ticket source` }) : badge('quiet', esc(it.ticket.id), { href: it.ticket.url, title: `${it.ticket.id}${it.ticket.source === 'github' ? ' on GitHub' : ' in Linear'}`, attrs: EXTERNAL });
